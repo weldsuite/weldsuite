@@ -17,13 +17,13 @@
  */
 
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
+import { utcTomorrow } from '@weldsuite/reach-domain/access';
 import type { Database } from '@weldsuite/worker-kit';
 import { getMasterDb, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { runDueIndexSweep, type DueIndexSweepResult } from '@weldsuite/worker-kit/due-index';
 import { readReachAccess, openTenantDb } from '../lib/tenant';
 import { createMailpoolClient, type MailpoolClient } from '../lib/mailpool/client';
 import { MailpoolNotConfiguredError } from '../lib/mailpool/errors';
-import { utcTomorrow } from '../services/access';
 import { processWorkspaceWarmup } from '../services/warmup';
 import type { Env } from '../types';
 import type { AppAccess } from '@weldsuite/worker-kit/app-access';

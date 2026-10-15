@@ -19,6 +19,8 @@ import type { DbEnv } from '@weldsuite/worker-kit/env';
 import { getTenantDbForWorkspace, getMasterDb, schema, masterSchema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
+import { OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
+import type { OutboundDenialDetails } from '@weldsuite/app-api-client/schemas/outbound-mail';
 import { resolveInputs } from './execute-workflow/resolve-inputs';
 import { evaluateCondition } from './execute-workflow/evaluate-condition';
 // TODO(weldconnect-rebuild): fold execute-workflow helpers into workflow-worker engine;
@@ -239,6 +241,55 @@ async function incrementTaskExecutions(env: ExecuteSequenceEnv, workspaceId: str
 type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
 
 // ============================================================================
+// Sending limits (outbound mail guard)
+// ============================================================================
+
+/** Longest a send step waits in total for a sending limit to clear before its enrollment is stopped. */
+export const SEND_DEFER_BUDGET_MS = 24 * 60 * 60 * 1000;
+/** Shortest sleep for a limit: the guard's own burst backstop reports a minute, and clocks differ a little. */
+const SEND_DEFER_MIN_MS = 10_000;
+/** Cap on waits per step, so a limit that keeps refilling cannot hold a run for ever. */
+const SEND_DEFER_MAX_ATTEMPTS = 30;
+
+/** What a re-run of a send step carries over from the waits before it. */
+interface SendRetry {
+  /** The step's execution row, reused so the run shows one row per step, not one per wait. */
+  stepExecutionId: string;
+  /** Waits so far. */
+  attempts: number;
+  /** Total sleep so far. */
+  waitedMs: number;
+}
+
+/**
+ * How long a send the guard refused should sleep before it is tried again: the
+ * time to the denial's `retryAfter`, as long as the total wait stays inside
+ * {@link SEND_DEFER_BUDGET_MS}. `null` = do not wait: only staff can lift the
+ * denial (hold, suspended, sender not owned, suppressed recipient), the limit
+ * clears too far away (a monthly cap), or the step already waited as much as it may.
+ */
+export function planSendDeferral(
+  details: OutboundDenialDetails,
+  now: number,
+  waited: Pick<SendRetry, 'attempts' | 'waitedMs'>,
+): number | null {
+  if (!details.retryAfter || waited.attempts >= SEND_DEFER_MAX_ATTEMPTS) return null;
+  const retryAt = Date.parse(details.retryAfter);
+  if (Number.isNaN(retryAt)) return null;
+  const waitMs = Math.max(retryAt - now, SEND_DEFER_MIN_MS);
+  return waited.waitedMs + waitMs <= SEND_DEFER_BUDGET_MS ? waitMs : null;
+}
+
+/**
+ * The reason a refused send leaves on the enrollment (`sending_limited`), then
+ * the guard's own words and its code. There is no stopped-reason column: the
+ * enrollment fails with this in `errorMessage`, which the People tab shows.
+ */
+export function sendingLimitedMessage(err: OutboundDeniedError): string {
+  return `sending_limited: ${err.message} (${err.code})`;
+}
+
+// ============================================================================
 // Pause / unenroll gate
 // ============================================================================
 
@@ -332,6 +383,7 @@ export async function waitUntilRunnable(
 // (executeAction returns `unknown`, which does not).
 type StepOutcome =
   | { type: 'skipped'; stepId: string }
+  | { type: 'send_deferred'; stepId: string; stepExecutionId: string; waitMs: number }
   | { type: 'completed'; stepId: string; result: any; delayMs: number | undefined }
   | { type: 'failed'; stepId: string; error: string }
   | { type: 'error_continued'; stepId: string; error: string };
@@ -573,12 +625,15 @@ async function recordStepFailure(
   stepIndex: number,
   stepExecutionId: string,
   stepError: unknown,
+  errorCode?: string,
 ): Promise<StepOutcome> {
   const { params, rt, executionId, steps } = ctx;
   const errorMessage = stepError instanceof Error ? stepError.message : asText(stepError);
 
   await db.update(schema.workflowExecutionSteps).set({
-    status: 'failed', completedAt: new Date(), error: { message: errorMessage },
+    status: 'failed',
+    completedAt: new Date(),
+    error: errorCode ? { message: errorMessage, code: errorCode } : { message: errorMessage },
   }).where(eq(schema.workflowExecutionSteps.id, stepExecutionId));
 
   await publishExecutionEvent(rt, params.workspaceId, executionId, 'step_failed', {
@@ -624,35 +679,66 @@ async function recordStepFailure(
   return { type: 'failed', stepId: wfStep.id, error: errorMessage };
 }
 
+/**
+ * The outbound guard refused a send on a limit that clears by itself: keep the
+ * step's row `running` (the step is waiting to send) with the reason, and hand
+ * back how long the run should sleep before running the step again.
+ */
+async function deferSend(
+  db: TenantDb,
+  wfStep: WorkflowStepDef,
+  stepExecutionId: string,
+  err: OutboundDeniedError,
+  waitMs: number,
+  retry: SendRetry | undefined,
+): Promise<StepOutcome> {
+  const now = new Date();
+  await db.update(schema.workflowExecutionSteps).set({
+    retryCount: (retry?.attempts ?? 0) + 1,
+    maxRetries: SEND_DEFER_MAX_ATTEMPTS,
+    logs: [{
+      timestamp: now.toISOString(),
+      level: 'warn',
+      message: `${err.message} Waiting until ${new Date(now.getTime() + waitMs).toISOString()} to send.`,
+      data: { code: err.code, window: err.details.window, retryAfter: err.details.retryAfter },
+    }],
+  }).where(eq(schema.workflowExecutionSteps.id, stepExecutionId));
+  return { type: 'send_deferred', stepId: wfStep.id, stepExecutionId, waitMs };
+}
+
 /** Step 4 body: runs one step of the sequence inside a durable step.do(). */
 async function runSequenceStep(
   ctx: SequenceRunContext,
   wfStep: WorkflowStepDef,
   i: number,
+  retry?: SendRetry,
 ): Promise<StepOutcome> {
   const { env, params, rt, executionId, steps } = ctx;
   const db = await getTenantDbForWorkspace(env, params.workspaceId);
-  const stepExecutionId = generateId('wes');
+  const stepExecutionId = retry?.stepExecutionId ?? generateId('wes');
   const stepIndex = i + 1;
 
-  // Publish step_started
-  await publishExecutionEvent(rt, params.workspaceId, executionId, 'step_started', {
-    stepIndex, totalSteps: steps.length, stepId: wfStep.id, stepName: wfStep.name, stepType: wfStep.type,
-  });
+  // A re-run after a sending-limit wait continues the step's existing row.
+  if (!retry) {
+    // Publish step_started
+    await publishExecutionEvent(rt, params.workspaceId, executionId, 'step_started', {
+      stepIndex, totalSteps: steps.length, stepId: wfStep.id, stepName: wfStep.name, stepType: wfStep.type,
+    });
 
-  // Create step execution record
-  await db.insert(schema.workflowExecutionSteps).values({
-    id: stepExecutionId,
-    executionId,
-    stepId: wfStep.id,
-    stepName: wfStep.name,
-    stepType: wfStep.type,
-    stepIndex,
-    status: 'running',
-    input: wfStep.inputs as Record<string, unknown>,
-    startedAt: new Date(),
-    createdAt: new Date(),
-  });
+    // Create step execution record
+    await db.insert(schema.workflowExecutionSteps).values({
+      id: stepExecutionId,
+      executionId,
+      stepId: wfStep.id,
+      stepName: wfStep.name,
+      stepType: wfStep.type,
+      stepIndex,
+      status: 'running',
+      input: wfStep.inputs as Record<string, unknown>,
+      startedAt: new Date(),
+      createdAt: new Date(),
+    });
+  }
 
   // Update execution current step
   await db.update(schema.workflowExecutions).set({
@@ -666,6 +752,15 @@ async function runSequenceStep(
     if (skipped) return skipped;
     return await executeStepAction(ctx, db, wfStep, stepIndex, stepExecutionId);
   } catch (stepError) {
+    if (stepError instanceof OutboundDeniedError) {
+      // A limit that clears by itself paces the sequence; the rest stop this enrollment.
+      const waitMs = planSendDeferral(stepError.details, Date.now(), retry ?? { attempts: 0, waitedMs: 0 });
+      if (waitMs !== null) return deferSend(db, wfStep, stepExecutionId, stepError, waitMs, retry);
+      console.warn(`[execute-sequence] send refused for enrollment ${params.enrollmentId}: ${stepError.code}`);
+      return recordStepFailure(
+        ctx, db, wfStep, stepIndex, stepExecutionId, new Error(sendingLimitedMessage(stepError)), stepError.code,
+      );
+    }
     return recordStepFailure(ctx, db, wfStep, stepIndex, stepExecutionId, stepError);
   }
 }
@@ -721,6 +816,14 @@ async function finalizeSequence(
   }
 }
 
+/** How a run ended before it got through its steps; `run()` returns it as its result. */
+type RunEnd =
+  | { executionId: string; status: 'stopped'; reason: string }
+  | { executionId: string; status: 'failed'; error: string };
+
+/** The pause/unenroll gate as `run()` checks it, by label. */
+type CheckGate = (label: string) => Promise<RunGate>;
+
 /**
  * Ends a run whose enrollment was unenrolled (or whose sequence stopped) while
  * it was in flight. Closes the execution record as cancelled and leaves the
@@ -732,15 +835,107 @@ async function stopRun(
   executionId: string,
   reason: string,
   step: WorkflowStep,
-) {
+  waitingStepExecutionId?: string,
+): Promise<RunEnd> {
   await step.do('stop-run', async () => {
     const db = await getTenantDbForWorkspace(env, params.workspaceId);
     const now = new Date();
     await db.update(schema.workflowExecutions).set({
       status: 'cancelled', completedAt: now, updatedAt: now, error: { message: `Stopped: ${reason}` },
     }).where(eq(schema.workflowExecutions.id, executionId));
+    // A send step that was waiting on a sending limit still has its row `running`.
+    if (waitingStepExecutionId) {
+      await db.update(schema.workflowExecutionSteps).set({
+        status: 'cancelled', completedAt: now, error: { message: `Stopped: ${reason}` },
+      }).where(eq(schema.workflowExecutionSteps.id, waitingStepExecutionId));
+    }
   });
   return { executionId, status: 'stopped', reason };
+}
+
+/** Ends a run on a failed step: publishes the failure and updates the sequence stats. */
+async function failRun(
+  ctx: SequenceRunContext,
+  step: WorkflowStep,
+  outcome: Extract<StepOutcome, { type: 'failed' }>,
+): Promise<RunEnd> {
+  const { env, params, rt, executionId } = ctx;
+  await publishExecutionEvent(rt, params.workspaceId, executionId, 'failed', {
+    executionId, error: outcome.error, failedStepId: outcome.stepId,
+  });
+  // Update stats
+  await step.do('update-stats-failed', async () => {
+    const db = await getTenantDbForWorkspace(env, params.workspaceId);
+    await updateSequenceStats(db, params.sequenceId);
+  });
+  return { executionId, status: 'failed', error: outcome.error };
+}
+
+/**
+ * Runs step `i`. A send the outbound guard held back on a limit with a known
+ * end sleeps (durable, no compute) until it clears and runs the step again.
+ * The wait comes from the stored outcome, so a replay sleeps the same way.
+ * Returns the step's final outcome, or how the run ended when the gate
+ * stopped it during a wait.
+ */
+async function runStepWithSendWaits(
+  ctx: SequenceRunContext,
+  step: WorkflowStep,
+  checkGate: CheckGate,
+  wfStep: WorkflowStepDef,
+  i: number,
+): Promise<{ outcome: StepOutcome } | { end: RunEnd }> {
+  let outcome = await step.do(`step-${i}-${wfStep.id}`, () => runSequenceStep(ctx, wfStep, i));
+
+  let attempt = 0;
+  let waitedMs = 0;
+  while (outcome.type === 'send_deferred') {
+    attempt++;
+    waitedMs += outcome.waitMs;
+    await step.sleep(`send-wait-${i}-${attempt}`, outcome.waitMs);
+    const waitGate = await checkGate(`send-${i}-${attempt}`);
+    if (waitGate.state === 'stop') {
+      const { env, params, executionId } = ctx;
+      return { end: await stopRun(env, params, executionId, waitGate.reason, step, outcome.stepExecutionId) };
+    }
+    const retry: SendRetry = { stepExecutionId: outcome.stepExecutionId, attempts: attempt, waitedMs };
+    outcome = await step.do(`step-${i}-${wfStep.id}-send-${attempt}`, () => runSequenceStep(ctx, wfStep, i, retry));
+  }
+  return { outcome };
+}
+
+/**
+ * Step 4: runs the sequence's steps in order, checking the pause/unenroll gate
+ * between them. Returns how the run ended when it stopped or a step failed,
+ * `null` once every step ran.
+ */
+async function runSteps(
+  ctx: SequenceRunContext,
+  step: WorkflowStep,
+  checkGate: CheckGate,
+): Promise<RunEnd | null> {
+  const { env, params, executionId, steps, stepResults } = ctx;
+  for (let i = 0; i < steps.length; i++) {
+    const wfStep = steps[i];
+
+    if (i > 0) {
+      const gate = await checkGate(`step-${i}`);
+      if (gate.state === 'stop') return stopRun(env, params, executionId, gate.reason, step);
+    }
+
+    const ran = await runStepWithSendWaits(ctx, step, checkGate, wfStep, i);
+    if ('end' in ran) return ran.end;
+
+    // Handle step outcomes outside step.do()
+    if (ran.outcome.type === 'failed') return failRun(ctx, step, ran.outcome);
+
+    // Handle delay — sleep after step.do() completes (durable, no compute consumed)
+    const delayMs = recordStepOutcome(stepResults, ran.outcome);
+    if (delayMs > 0) {
+      await step.sleep(`delay-${i}`, delayMs);
+    }
+  }
+  return null;
 }
 
 export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceEnv, ExecuteSequenceParams> {
@@ -807,35 +1002,8 @@ export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceE
     const executionStartTime = Date.now();
 
     // Step 4: Execute each step
-    for (let i = 0; i < steps.length; i++) {
-      const wfStep = steps[i];
-
-      if (i > 0) {
-        const gate = await checkGate(`step-${i}`);
-        if (gate.state === 'stop') return stopRun(this.env, params, executionId, gate.reason, step);
-      }
-
-      const stepOutcome = await step.do(`step-${i}-${wfStep.id}`, () => runSequenceStep(ctx, wfStep, i));
-
-      // Handle step outcomes outside step.do()
-      if (stepOutcome.type === 'failed') {
-        await publishExecutionEvent(rt, params.workspaceId, executionId, 'failed', {
-          executionId, error: stepOutcome.error, failedStepId: stepOutcome.stepId,
-        });
-        // Update stats
-        await step.do('update-stats-failed', async () => {
-          const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
-          await updateSequenceStats(db, params.sequenceId);
-        });
-        return { executionId, status: 'failed', error: stepOutcome.error };
-      }
-
-      // Handle delay — sleep after step.do() completes (durable, no compute consumed)
-      const delayMs = recordStepOutcome(stepResults, stepOutcome);
-      if (delayMs > 0) {
-        await step.sleep(`delay-${i}`, delayMs);
-      }
-    }
+    const ended = await runSteps(ctx, step, checkGate);
+    if (ended) return ended;
 
     // The last step may be a delay: do not complete a run that was paused or
     // unenrolled while it slept.

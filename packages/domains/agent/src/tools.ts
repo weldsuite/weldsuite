@@ -14,6 +14,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
 import { listPeople, createPerson, getPerson, isValidWorkspaceMember } from '@weldsuite/crm-domain/people';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
+import { ASK_USER_TOOL_NAME, agentQuestionSchema } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 import { reindexAgentRoutines, routineIndexSync } from './routine-index';
 import type { Database } from '@weldsuite/worker-kit/db';
 
@@ -31,6 +32,10 @@ export interface ToolContext {
   /** When running inside a WeldAgent conversation (chat panel / new-chat). */
   conversationId?: string;
   env?: import('./env').WeldAgentEnv;
+  /** The chatting user's IANA timezone; routines default to it. */
+  userTimezone?: string | null;
+  /** The chatting user's permissions: setup may grant the agent only what they hold. */
+  actorPermissions?: string[] | null;
   agentHop?: number;
   maxAgentHops?: number;
 }
@@ -152,24 +157,6 @@ const createAgentGroupChatParams = z.object({
   replyPolicy: z.enum(['mentions', 'always', 'none']).optional(),
 });
 
-const computerExecParams = z.object({
-  command: z.string().min(1).max(8000).describe('Shell command to run in the workspace computer'),
-  cwd: z.string().max(500).optional().describe('Working directory under /workspace'),
-});
-
-const computerPathParams = z.object({
-  path: z.string().min(1).max(500).describe('Absolute path under /workspace or relative path'),
-});
-
-const computerWriteParams = computerPathParams.extend({
-  content: z.string().max(500_000),
-});
-
-const computerCodeParams = z.object({
-  code: z.string().min(1).max(100_000),
-  language: z.enum(['python', 'javascript']).optional(),
-});
-
 const browserOpenParams = z.object({
   url: z.string().url().max(2000),
 });
@@ -195,12 +182,30 @@ const saveAgentSetupParams = z.object({
     .max(10000)
     .describe('Lasting instructions: purpose, when to act, and what steps to take.'),
   description: z.string().max(500).optional().describe('Short one-line summary of what this agent does.'),
+  permissions: z
+    .array(z.string().min(3).max(100))
+    .max(40)
+    .optional()
+    .describe(
+      'Workspace permissions the job needs, as object:action keys (e.g. "tasks:read", "tickets:read", "people:create"). ' +
+        'Only ask for what the instructions use. Ones the user does not hold are skipped.',
+    ),
   activate: z
     .boolean()
     .optional()
     .describe(
       'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false (stay draft).',
     ),
+});
+
+const updateRoutineParams = z.object({
+  routineId: z.string().min(1).max(30),
+  name: z.string().min(2).max(255).optional(),
+  instructions: z.string().min(10).max(20000).optional(),
+  cronExpr: z.string().max(100).optional().describe('Five-field cron, in the routine timezone.'),
+  timezone: z.string().max(64).optional().describe('IANA timezone, e.g. "Europe/Amsterdam".'),
+  enabled: z.boolean().optional(),
+  requireApproval: z.boolean().optional(),
 });
 
 export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
@@ -236,10 +241,16 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
 
       const eventSubscriptions = extractEventSubscriptions(prompt);
       const nextName = args.name.trim();
+      const { splitGrantable } = await import('./grants');
+      const { granted, refused } = splitGrantable(args.permissions ?? [], {
+        permissions: ctx.actorPermissions ?? [],
+      });
+      const permissions = [...new Set([...(existing.permissions ?? []), ...granted])];
       const updated = await updateAgent(ctx.db, ctx.agentId, {
         name: nextName,
         systemPrompt: prompt,
         description: args.description?.trim() || existing.description,
+        permissions,
         eventSubscriptions,
         ...(args.activate ? { status: 'active' as const } : { status: 'draft' as const }),
       });
@@ -253,9 +264,93 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         status: updated.status,
         description: updated.description,
         eventSubscriptions: updated.eventSubscriptions,
+        grantedPermissions: granted,
+        ...(refused.length > 0
+          ? {
+              notGranted: refused,
+              notGrantedHint:
+                'Tell the user these were not granted (they lack them or they do not exist); an admin can add them under Settings → Access.',
+            }
+          : {}),
         hint: args.activate
           ? 'Setup saved and activated. Confirm briefly with the user.'
           : 'Setup saved as draft. Confirm briefly; ask if they want you activated.',
+      };
+    },
+  },
+  {
+    id: 'agent.ask_user',
+    name: ASK_USER_TOOL_NAME,
+    description:
+      'Ask the user ONE multiple-choice question when you need a decision or detail from them. ' +
+      'The question is shown as a card with your options; the user can also type their own answer. ' +
+      'After calling this, end your turn without further text: their answer arrives as the next user message. ' +
+      'Never ask the same question twice, and never use it for questions you can answer yourself.',
+    requiredPermissions: [],
+    parameters: agentQuestionSchema,
+    async execute(_ctx, raw) {
+      const question = agentQuestionSchema.parse(raw);
+      return {
+        ok: true,
+        shownToUser: true,
+        question: question.question,
+        options: question.options.map((option) => option.label),
+        hint: 'The question is on screen. End your turn now and wait for the answer.',
+      };
+    },
+  },
+  {
+    id: 'agent.list_routines',
+    name: 'list_routines',
+    description: "List this agent's routines with their schedule, timezone, next run and whether they are on.",
+    requiredPermissions: [],
+    parameters: z.object({}),
+    async execute(ctx) {
+      const { listRoutines } = await import('./parity');
+      const routines = await listRoutines(ctx.db, ctx.agentId);
+      return routines.map((r) => ({
+        routineId: r.id,
+        name: r.name,
+        scheduleKind: r.scheduleKind,
+        cronExpr: r.cronExpr,
+        timezone: r.timezone,
+        eventKey: r.eventKey,
+        enabled: r.enabled,
+        nextRunAt: r.nextRunAt,
+      }));
+    },
+  },
+  {
+    id: 'agent.update_routine',
+    name: 'update_routine',
+    description:
+      'Change one of this agent\'s routines: rename it, rewrite its instructions, move its schedule or timezone, or turn it on/off. ' +
+      'Get the routineId from list_routines.',
+    requiredPermissions: [],
+    parameters: updateRoutineParams,
+    async execute(ctx, raw) {
+      const { routineId, ...changes } = updateRoutineParams.parse(raw);
+      const { getRoutine, updateRoutine, routineScheduleError } = await import('./parity');
+      const existing = await getRoutine(ctx.db, routineId);
+      if (!existing || existing.agentId !== ctx.agentId) return { error: 'Routine not found for this agent' };
+      if (existing.scheduleKind === 'cron' && (changes.cronExpr !== undefined || changes.timezone !== undefined)) {
+        const scheduleError = routineScheduleError(
+          changes.cronExpr ?? existing.cronExpr,
+          changes.timezone ?? existing.timezone,
+        );
+        if (scheduleError) return { error: scheduleError };
+      }
+      const updated = await updateRoutine(ctx.db, routineId, changes);
+      if (!updated) return { error: 'Failed to update routine' };
+      await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
+      return {
+        ok: true,
+        routineId: updated.id,
+        name: updated.name,
+        cronExpr: updated.cronExpr,
+        timezone: updated.timezone,
+        enabled: updated.enabled,
+        nextRunAt: updated.nextRunAt,
       };
     },
   },
@@ -324,7 +419,9 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     id: 'agent.create_routine',
     name: 'create_routine',
     description:
-      'Create a scheduled or connector-triggered routine for this agent. Prefer cron for recurring work.',
+      'Create a scheduled or connector-triggered routine for this agent. Prefer cron for recurring work. ' +
+      'Each run posts its result in a chat thread for the user who created the routine, and notifies them. ' +
+      "Routines only run while the agent is active. Give cronExpr in the user's timezone (it is the default).",
     requiredPermissions: [],
     parameters: z.object({
       name: z.string().min(2).max(255),
@@ -355,14 +452,19 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
           connectorRepo: z.string().max(200).optional(),
         })
         .parse(raw);
-      const { createRoutine } = await import('./parity');
+      const { createRoutine, routineScheduleError } = await import('./parity');
+      const timezone = args.timezone ?? ctx.userTimezone ?? undefined;
+      if (args.scheduleKind === 'cron') {
+        const scheduleError = routineScheduleError(args.cronExpr, timezone);
+        if (scheduleError) return { error: scheduleError };
+      }
       const routine = await createRoutine(ctx.db, {
         agentId: ctx.agentId,
         name: args.name,
         instructions: args.instructions,
         scheduleKind: args.scheduleKind,
         cronExpr: args.cronExpr,
-        timezone: args.timezone,
+        timezone,
         eventKey: args.eventKey,
         requireApproval: args.requireApproval ?? true,
         connectorConfig: args.connectorProvider
@@ -376,7 +478,14 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         createdBy: ctx.actorUserId,
       });
       await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
-      return { ok: true, routineId: routine.id, name: routine.name, nextRunAt: routine.nextRunAt };
+      return {
+        ok: true,
+        routineId: routine.id,
+        name: routine.name,
+        cronExpr: routine.cronExpr,
+        timezone: routine.timezone,
+        nextRunAt: routine.nextRunAt,
+      };
     },
   },
   {
@@ -753,84 +862,6 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     },
   },
   {
-    id: 'computer.exec',
-    name: 'computer_exec',
-    description:
-      'Run a shell command on the workspace cloud computer (Linux sandbox). Prefer platform tools for CRM/tickets; use this for scripts, files, and general compute.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerExecParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerExecParams.parse(raw);
-      const { computerExec } = await import('./computer-client');
-      return computerExec(ctx.env, {
-        workspaceId: ctx.workspaceId,
-        command: args.command,
-        cwd: args.cwd,
-      });
-    },
-  },
-  {
-    id: 'computer.read_file',
-    name: 'computer_read_file',
-    description: 'Read a file from the workspace cloud computer under /workspace.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerPathParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerPathParams.parse(raw);
-      const { computerReadFile } = await import('./computer-client');
-      return computerReadFile(ctx.env, { workspaceId: ctx.workspaceId, path: args.path });
-    },
-  },
-  {
-    id: 'computer.write_file',
-    name: 'computer_write_file',
-    description: 'Write a file on the workspace cloud computer under /workspace.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerWriteParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerWriteParams.parse(raw);
-      const { computerWriteFile } = await import('./computer-client');
-      return computerWriteFile(ctx.env, {
-        workspaceId: ctx.workspaceId,
-        path: args.path,
-        content: args.content,
-      });
-    },
-  },
-  {
-    id: 'computer.list_files',
-    name: 'computer_list_files',
-    description: 'List files in a directory on the workspace cloud computer.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerPathParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerPathParams.parse(raw);
-      const { computerListFiles } = await import('./computer-client');
-      return computerListFiles(ctx.env, { workspaceId: ctx.workspaceId, path: args.path });
-    },
-  },
-  {
-    id: 'computer.run_code',
-    name: 'computer_run_code',
-    description: 'Run Python or JavaScript on the workspace cloud computer.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerCodeParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerCodeParams.parse(raw);
-      const { computerRunCode } = await import('./computer-client');
-      return computerRunCode(ctx.env, {
-        workspaceId: ctx.workspaceId,
-        code: args.code,
-        language: args.language,
-      });
-    },
-  },
-  {
     id: 'browser.open',
     name: 'browser_open',
     description:
@@ -936,17 +967,21 @@ export function effectiveAgentPermissions(
 /**
  * Filter the registry to tools the agent may use given its grants and optional
  * explicit enabledTools allow-list.
- * `agent.save_setup` is always available so unfinished agents can finish onboarding.
+ * `agent.save_setup` is always available so unfinished agents can finish onboarding,
+ * and `agent.ask_user` so any agent can put a question to the user.
  */
 export function resolveAgentTools(
   agentPermissions: string[],
   enabledTools: string[] = [],
 ): PlatformToolDefinition[] {
   const alwaysOn = new Set([
+    'agent.ask_user',
     'agent.save_setup',
     'agent.save_skill',
     'agent.remember',
     'agent.create_routine',
+    'agent.list_routines',
+    'agent.update_routine',
   ]);
   const allowList = explicitToolAllowList(enabledTools);
   return PLATFORM_TOOLS.filter((tool) => {

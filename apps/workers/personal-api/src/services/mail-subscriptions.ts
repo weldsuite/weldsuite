@@ -136,6 +136,8 @@ export async function unsubscribe(
         to: [to],
         subject,
         textBody: body,
+        // An unsubscribe mail to a list address: its own source, a new conversation.
+        outbound: { source: 'subscription', kind: 'new_thread' },
       });
     },
   });

@@ -16,6 +16,7 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useResolveAccessRequest } from '@/hooks/queries/use-access-requests-queries';
 import { renderContentWithMentions } from '@/lib/render-mentions';
 import { activateOnKey } from '@/lib/activate-on-key';
+import { webHrefForAction } from '@/lib/weldagent/action-links';
 
 type NotificationType = 'message' | 'task' | 'mention' | 'system' | 'order' | 'invoice' | 'calendar' | 'mail' | 'helpdesk' | 'crm' | 'commerce' | 'parcel' | 'projects';
 
@@ -85,7 +86,7 @@ function transformNotification(notification: UnifiedNotification): DisplayNotifi
     description: notification.body || undefined,
     timestamp: new Date(notification.createdAt),
     read: notification.isRead ?? false,
-    href: notification.actionUrl || undefined,
+    href: notification.actionUrl ? webHrefForAction(notification.actionUrl) : undefined,
     actorName: actor?.name,
     actorImageUrl: actor?.imageUrl ?? undefined,
     resolvedStatus,

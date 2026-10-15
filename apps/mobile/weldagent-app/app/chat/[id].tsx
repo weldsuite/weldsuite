@@ -21,6 +21,11 @@ import { BRAND } from '@/lib/brand';
 import appApi from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
 import type { WeldAgentMessageRow } from '@weldsuite/app-api-client/schemas/weldagent';
+import {
+  ASK_USER_TOOL_NAME,
+  parseAgentQuestion,
+  type AgentQuestion,
+} from '@weldsuite/app-api-client/schemas/weldagent-questions';
 
 const POLL_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 1200;
@@ -40,6 +45,17 @@ async function pollForAssistantReply(
     const idx = list.findIndex((m) => m.id === userMessageId);
     if (idx >= 0 && list.slice(idx + 1).some((m) => m.role === 'assistant')) return;
   }
+}
+
+/** Questions the agent asked with `ask_user` in this message (shown as tappable options). */
+function questionsOf(msg: WeldAgentMessageRow): AgentQuestion[] {
+  if (msg.role !== 'assistant' || !Array.isArray(msg.toolInvocations)) return [];
+  return msg.toolInvocations.flatMap((raw) => {
+    const inv = raw as { toolName?: unknown; state?: unknown; args?: unknown };
+    if (inv?.toolName !== ASK_USER_TOOL_NAME || inv.state !== 'result') return [];
+    const question = parseAgentQuestion(inv.args);
+    return question ? [question] : [];
+  });
 }
 
 function appendIfMissing(prev: WeldAgentMessageRow[], msg: WeldAgentMessageRow): WeldAgentMessageRow[] {
@@ -97,14 +113,16 @@ export default function ChatThreadScreen() {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, [messages, sending]);
 
-  const send = async () => {
-    const content = draft.trim();
+  const send = async (text?: string) => {
+    const content = (text ?? draft).trim();
     if (!content || !id || sending) return;
     setDraft('');
     setSending(true);
     setCreditsEmpty(false);
     try {
-      const res = await appApi.weldagent.completeTurn(id, { content });
+      // The device timezone, so "every morning at 7" means 7 here.
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+      const res = await appApi.weldagent.completeTurn(id, { content, timezone });
       const userMsg = res.data.userMessage;
       setMessages((prev) => appendIfMissing(prev, userMsg));
 
@@ -160,17 +178,41 @@ export default function ChatThreadScreen() {
           {messages.length === 0 && !sending ? (
             <Text style={[styles.empty, { color: colors.mutedForeground }]}>{t.chat.empty}</Text>
           ) : null}
-          {messages.map((msg) => {
+          {messages.map((msg, index) => {
             const mine = msg.role === 'user';
+            const questions = questionsOf(msg);
+            const answerable = index === messages.length - 1 && !sending;
             return (
-              <View
-                key={msg.id}
-                style={[
-                  styles.bubble,
-                  mine ? [styles.mine, { backgroundColor: BRAND }] : [styles.theirs, { backgroundColor: colors.secondary }],
-                ]}
-              >
-                <Text style={[styles.bubbleText, { color: mine ? '#fff' : colors.text }]}>{msg.content}</Text>
+              <View key={msg.id} style={styles.turn}>
+                {msg.content.trim() ? (
+                  <View
+                    style={[
+                      styles.bubble,
+                      mine ? [styles.mine, { backgroundColor: BRAND }] : [styles.theirs, { backgroundColor: colors.secondary }],
+                    ]}
+                  >
+                    <Text style={[styles.bubbleText, { color: mine ? '#fff' : colors.text }]}>{msg.content}</Text>
+                  </View>
+                ) : null}
+                {questions.map((q) => (
+                  <View key={q.question} style={[styles.question, { borderColor: colors.border }]}>
+                    <Text style={[styles.questionText, { color: colors.text }]}>{q.question}</Text>
+                    {q.options.map((option) => (
+                      <Pressable
+                        key={option.label}
+                        disabled={!answerable}
+                        onPress={() => void send(option.label)}
+                        accessibilityRole="button"
+                        style={[styles.option, { backgroundColor: colors.secondary, opacity: answerable ? 1 : 0.5 }]}
+                      >
+                        <Text style={[styles.optionText, { color: colors.text }]}>{option.label}</Text>
+                        {option.description ? (
+                          <Text style={[styles.optionHint, { color: colors.mutedForeground }]}>{option.description}</Text>
+                        ) : null}
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
               </View>
             );
           })}
@@ -229,6 +271,12 @@ const styles = StyleSheet.create({
   mine: { alignSelf: 'flex-end' },
   theirs: { alignSelf: 'flex-start' },
   bubbleText: { fontSize: 16, lineHeight: 22 },
+  turn: { gap: 8 },
+  question: { alignSelf: 'stretch', borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 12, gap: 6 },
+  questionText: { fontSize: 15, fontWeight: '600', lineHeight: 21, marginBottom: 2 },
+  option: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  optionText: { fontSize: 15, lineHeight: 20 },
+  optionHint: { fontSize: 13, lineHeight: 18, marginTop: 2 },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

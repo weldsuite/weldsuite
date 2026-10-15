@@ -2,14 +2,23 @@ import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { MeetingAiParams } from '@weldsuite/meet-domain/workflows/meeting-ai';
 import type { BackfillLegacyRecordingsParams } from '@weldsuite/meet-domain/workflows/backfill-legacy-recordings';
 import type { CopyMeetingRecordingParams } from '@weldsuite/meet-domain/workflows/copy-meeting-recording';
+import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
 
 /**
  * meet-api bindings: the kit's (auth, tenant DB, flags) plus only what
  * the meet module uses. Add a binding here and in wrangler.toml together.
+ *
+ * `OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` are the
+ * outbound mail guard's (`OutboundGuardEnv`): the Durable Objects are hosted
+ * by mail-api and bound with `script_name`, all optional because the guard
+ * fails open. Meeting invitations count against the workspace (source `meet`).
+ * docs/plans/weldmail-outbound-abuse.md.
  */
-export interface Env extends KitEnv {
+export interface Env
+  extends KitEnv,
+    Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** Entity-events hub queue (publishEntityEvent). */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */

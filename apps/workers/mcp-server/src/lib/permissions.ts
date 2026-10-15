@@ -13,6 +13,10 @@
  * **method-aware**: the required permission is derived from the scope's object
  * plus the HTTP verb of the actual request, and `DELETE` always demands an
  * explicit `:delete` grant.
+ *
+ * A few routes do not fit the verb (WeldReach's action routes, whose app
+ * permission is `update` although they are POSTs): {@link ROUTE_PERMISSIONS}
+ * pins those to exactly what the app itself requires.
  */
 
 import { hasAppPermission, type PermissionSubject } from '@weldsuite/permissions';
@@ -57,6 +61,51 @@ const RESOURCE_ALIASES: Record<string, string> = {
   mail_drafts: 'messages',
   mail_attachments: 'messages',
 };
+
+/**
+ * Routes whose permission is not the one their HTTP method implies, keyed by
+ * `METHOD <registered route pattern>` (Hono's `routePath`, so IDs never matter).
+ *
+ * The verb rule is wrong for these in both directions, and each wrong answer is a
+ * difference between MCP and the app for the same user:
+ *
+ * - a POST that is an *edit* (launch, pause, resume, enrol, list members) is
+ *   satisfied by `create` under the verb rule, so a create-only grant could start
+ *   sending; the app asks for `update`;
+ * - a POST that *creates* is satisfied by `update` under the verb rule, while the
+ *   app asks for `create`;
+ * - a DELETE that is an edit (taking one prospect out of a campaign) asks for
+ *   `delete` under the verb rule, while the app asks for `update`;
+ * - `reach_settings` has only `read` and `update`: removing a suppression is
+ *   `update` (the verb rule would ask for `delete`, which no one can hold), and
+ *   adding one is `update` too (the verb rule's `create` does not exist, but a
+ *   wildcard grant would still satisfy it and so slip past a member's deny on
+ *   `update`).
+ *
+ * The source of truth is each route's `requirePermission(...)` in
+ * `apps/workers/reach-api/src/routes`; `reach.test.ts` pins every non-GET reach
+ * route to it, so a route added here without an entry fails the build.
+ */
+const ROUTE_PERMISSIONS: Readonly<Record<string, string>> = {
+  'POST /v1/reach/campaigns': 'reach_campaigns:create',
+  'POST /v1/reach/campaigns/:id/prospects': 'reach_campaigns:update',
+  'DELETE /v1/reach/campaigns/:id/enrollments/:enrollmentId': 'reach_campaigns:update',
+  'POST /v1/reach/campaigns/:id/launch': 'reach_campaigns:update',
+  'POST /v1/reach/campaigns/:id/pause': 'reach_campaigns:update',
+  'POST /v1/reach/campaigns/:id/resume': 'reach_campaigns:update',
+  'POST /v1/reach/prospects': 'reach_prospects:create',
+  'POST /v1/reach/prospects/import': 'reach_prospects:create',
+  'POST /v1/reach/lists': 'reach_prospects:create',
+  'POST /v1/reach/lists/:id/members': 'reach_prospects:update',
+  'POST /v1/reach/lists/:id/members/remove': 'reach_prospects:update',
+  'POST /v1/reach/suppressions': 'reach_settings:update',
+  'DELETE /v1/reach/suppressions/:id': 'reach_settings:update',
+};
+
+/** The permission a route pins for itself, or undefined when the HTTP verb decides. */
+export function routePermission(method: string, route: string | undefined): string | undefined {
+  return route ? ROUTE_PERMISSIONS[`${method.toUpperCase()} ${route}`] : undefined;
+}
 
 /** Resolve a route scope's object to its permission-catalog object. */
 function catalogObject(scope: string): string {
@@ -104,10 +153,17 @@ export function hasPermission(grants: Grants, key: string): boolean {
 
 /**
  * Enforcement check: may this caller perform `method` on `scope`?
+ *
+ * `route` is the registered pattern of the route being served
+ * (`/v1/reach/campaigns/:id/launch`); a route that pins its own permission
+ * (see {@link ROUTE_PERMISSIONS}) is checked against exactly that.
  */
-export function canPerform(grants: Grants, scope: string, method: string): boolean {
+export function canPerform(grants: Grants, scope: string, method: string, route?: string): boolean {
   const object = catalogObject(scope);
   if (!object) return false;
+
+  const pinned = routePermission(method, route);
+  if (pinned) return hasPermission(grants, pinned);
 
   const verb = literalVerb(scope.split(':')[1]);
   if (verb) return hasPermission(grants, `${object}:${verb}`);

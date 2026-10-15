@@ -34,6 +34,10 @@ export default defineConfig({
         __dirname,
         '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
       ),
+      // Workers-only module; the WeldReach reply route sends over @weldsuite/smtp, which connects
+      // through it. Same idea as the smtp package's own stub, but a test can install a socket
+      // factory (a fake SMTP server), so the real send path runs with no seam in the worker code.
+      'cloudflare:sockets': path.resolve(__dirname, './src/test/cloudflare-sockets-stub.ts'),
     },
   },
 });

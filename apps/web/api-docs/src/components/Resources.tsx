@@ -16,6 +16,7 @@ import { ChatBubbleIcon } from '@/components/icons/ChatBubbleIcon'
 import { CalendarIcon } from '@/components/icons/CalendarIcon'
 import { BookIcon } from '@/components/icons/BookIcon'
 import { FolderIcon } from '@/components/icons/FolderIcon'
+import { PaperAirplaneIcon } from '@/components/icons/PaperAirplaneIcon'
 
 interface Resource {
   href: string
@@ -93,6 +94,20 @@ const resources: Array<Resource> = [
       squares: [
         [0, 2],
         [1, 3],
+      ],
+    },
+  },
+  {
+    href: '/weldreach',
+    name: 'WeldReach',
+    description:
+      'Run cold email outreach: import prospects, build and launch campaigns, read the reply inbox and answer prospects.',
+    icon: PaperAirplaneIcon,
+    pattern: {
+      y: 26,
+      squares: [
+        [0, 1],
+        [1, 2],
       ],
     },
   },

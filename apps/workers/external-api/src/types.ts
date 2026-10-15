@@ -1,11 +1,14 @@
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { FlagshipBinding } from '@weldsuite/feature-flags/server';
+import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
+import type { AppAccess } from '@weldsuite/worker-kit/app-access';
 import type { Database } from './db';
 
 /**
  * Cloudflare Workers environment bindings for external-api.
  */
-export interface Env {
+export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** Hyperdrive binding for the master Postgres (registry + workspace lookups). */
   HYPERDRIVE_MASTER: Hyperdrive;
   /** KV namespace: API-key registry + workspace metadata cache (5-min TTL). */
@@ -53,6 +56,18 @@ export interface Env {
   SEND_EMAIL?: SendEmail;
   /** KV cache for recipient MX lookups (mail-api's namespace, so the cache is shared). */
   WORKSPACE_CACHE?: KVNamespace;
+
+  // --- Outbound mail guard (@weldsuite/mail-domain/outbound) ----------------
+  // `OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` come from
+  // `OutboundGuardEnv` (Env extends them): the Durable Objects are hosted by
+  // mail-api and bound with `script_name`. All optional, the guard fails open.
+  // docs/plans/weldmail-outbound-abuse.md.
+  /**
+   * Neon connection string of the master DB. Only the guard reads it here (the
+   * sender-ownership check against `mail_account_registry`); auth goes through
+   * HYPERDRIVE_MASTER. Unset skips the ownership check and nothing else.
+   */
+  DATABASE_URL_MASTER?: string;
   /**
    * Comma-separated master workspace ids whose WeldApps are first-party.
    * Those apps skip public review and show an Official badge in the store.
@@ -68,6 +83,20 @@ export interface Env {
   POSTPEER_BASE_URL?: string;
   /** BYOK OAuth apps as JSON: platform → PostPeer app id. */
   POSTPEER_APP_IDS?: string;
+
+  // --- WeldReach (`/v1/reach/*`) -----------------------------------------
+  // The access gate reads `WORKSPACE_CACHE` (above, reach-api's namespace) and
+  // master over `HYPERDRIVE_MASTER`. Replies open the mailbox login with
+  // `DATABASE_ENCRYPTION_KEY` / `_V2` (above) and read inbound mail from `STORAGE`.
+  /**
+   * D1 schedule index (reach-api's database): launching, resuming and enrolling
+   * mark the workspace due (kind `reach_send`, keyed by Clerk org id) so the
+   * send sweep picks it up. Always bind it: unset, nothing wakes the sweep, and
+   * a launched campaign waits until some other write marks the workspace due.
+   */
+  SCHEDULE_INDEX?: D1Database;
+  /** Cloudflare Flagship: the `weldreach-sending` kill switch. Unset: the flag's default (on). */
+  FLAGSHIP?: FlagshipBinding;
 }
 
 /**
@@ -89,8 +118,6 @@ export interface ApiKeySession {
   scopes: string[];
   /** Workspace plan tier (free, business, scale, enterprise). */
   tier: TenantTier;
-  /** Whether the workspace plan has API access. */
-  hasApiAccess: boolean;
   /**
    * Apps the workspace is licensed for (partner-managed workspaces), or null
    * when unrestricted. Checked per request by licenceMiddleware.
@@ -136,7 +163,19 @@ export type Variables = {
    * audit/workflow events still carry a stable actor.
    */
   userId: string;
+  /**
+   * Set by `reachAccess` on `/v1/reach/*`: the workspace's Clerk org id (the key
+   * of the app access cache and the send sweep's due index) and its approved
+   * WeldReach access (staff-set limits, billing state).
+   */
+  reach?: ReachRequest;
 };
+
+/** What the WeldReach approval gate resolved for the request. */
+export interface ReachRequest {
+  clerkOrgId: string;
+  access: AppAccess;
+}
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
 

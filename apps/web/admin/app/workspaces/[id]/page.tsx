@@ -12,6 +12,7 @@ import {
 import { loadStripeSnapshot } from '@/lib/billing-worker';
 import { WELDREACH_APP_CODE, type ReachUsage } from '@/lib/app-access';
 import { getReachUsage, listWorkspaceAppAccess } from '@/lib/app-access-data';
+import { getOutboundSummary } from '@/lib/outbound-mail-data';
 import { WorkspaceDetail } from './workspace-detail';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export default async function WorkspaceDetailPage(props: Readonly<{
   const workspace = await getWorkspaceById(id);
   if (!workspace) notFound();
 
-  const [members, billing, plans, credits, invoices, payments, activity, snapshotState, appAccess] = await Promise.all([
+  const [members, billing, plans, credits, invoices, payments, activity, snapshotState, appAccess, outbound] = await Promise.all([
     listWorkspaceMembers(workspace.id),
     getWorkspaceBilling(workspace.id),
     listPlanOptions(),
@@ -35,6 +36,7 @@ export default async function WorkspaceDetailPage(props: Readonly<{
     listAuditEvents({ workspaceId: workspace.id, limit: 100 }),
     loadStripeSnapshot(identity, workspace.id),
     listWorkspaceAppAccess(workspace.id),
+    getOutboundSummary(workspace.id),
   ]);
   if (!billing) notFound();
 
@@ -58,6 +60,7 @@ export default async function WorkspaceDetailPage(props: Readonly<{
       snapshotState={snapshotState}
       appAccess={appAccess}
       appUsage={appUsage}
+      outbound={outbound}
       // Deleted workspaces are history only; viewers never get write controls.
       canWrite={identity.role !== 'viewer' && workspace.deletionState !== 'deleted'}
     />

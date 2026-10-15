@@ -443,7 +443,7 @@ export async function getCompany(
  */
 async function insertCompanyRow(
   db: Database,
-  input: CreateCompanyInput & { partyCode?: string | null },
+  input: CreateCompanyInput & { partyCode?: string | null; createdBy?: string | null },
 ): Promise<CompanyRow> {
   const { companies } = schema;
   const id = generateId('company');
@@ -464,6 +464,10 @@ async function insertCompanyRow(
     industry: input.industry ?? null,
     employeeCount: input.employeeCount ?? null,
     website: input.website ?? null,
+    description: input.description ?? null,
+    annualRevenue: input.annualRevenue ?? null,
+    fundingRaised: input.fundingRaised ?? null,
+    foundationDate: input.foundationDate ? new Date(input.foundationDate) : null,
     email: input.email || null,
     alternateEmails: input.alternateEmails ?? null,
     phone: input.phone ?? null,
@@ -475,6 +479,10 @@ async function insertCompanyRow(
     linkedinUrl: input.linkedinUrl ?? null,
     twitterHandle: input.twitterHandle ?? null,
     facebookUrl: input.facebookUrl ?? null,
+    instagramUrl: input.instagramUrl ?? null,
+    angellistUrl: input.angellistUrl ?? null,
+    twitterFollowerCount: input.twitterFollowerCount ?? null,
+    createdBy: input.createdBy ?? null,
     ownerId: input.ownerId ?? null,
     accountManagerId: input.accountManagerId ?? null,
     status: input.status ?? 'prospect',
@@ -509,10 +517,11 @@ async function insertCompanyRow(
 export async function createCompany(
   db: Database,
   input: CreateCompanyInput,
+  opts?: { createdBy?: string },
 ): Promise<CompanyRow> {
   await assertValidMemberFields(db, input);
   await assertValidCustomerStatus(db, input.status);
-  const created = await insertCompanyRow(db, input);
+  const created = await insertCompanyRow(db, { ...input, createdBy: opts?.createdBy ?? null });
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.
   await syncValuesForEntity(db, 'company', created.id, input.customFields);
   return created;
@@ -530,6 +539,18 @@ export interface UpdateCompanyResult {
   row: CompanyRow;
   /** Per-field diff between before/after, or null when nothing changed. */
   changes: Record<string, { old: unknown; new: unknown }> | null;
+}
+
+/**
+ * Timestamp columns — the schema accepts a lenient ISO string (or null to
+ * clear), the DB column wants a Date. Undefined fields are left out.
+ */
+function timestampUpdates(fields: Record<string, string | null | undefined>): Record<string, Date | null> {
+  const out: Record<string, Date | null> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (v !== undefined) out[k] = v ? new Date(v) : null;
+  }
+  return out;
 }
 
 export async function updateCompany(
@@ -563,6 +584,7 @@ export async function updateCompany(
     version: _ignoredVersion,
     lastContactDate,
     nextFollowUpDate,
+    foundationDate,
     ...rest
   } = input;
   const updates: Record<string, unknown> = {
@@ -570,15 +592,7 @@ export async function updateCompany(
     version: existing.version + 1,
   };
   for (const [k, v] of Object.entries(rest)) if (v !== undefined) updates[k] = v;
-
-  // Timestamp columns — the schema accepts a lenient ISO string (or null to
-  // clear), the DB column wants a Date.
-  if (lastContactDate !== undefined) {
-    updates.lastContactDate = lastContactDate ? new Date(lastContactDate) : null;
-  }
-  if (nextFollowUpDate !== undefined) {
-    updates.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
-  }
+  Object.assign(updates, timestampUpdates({ lastContactDate, nextFollowUpDate, foundationDate }));
 
   if (rest.name !== undefined || rest.tradingName !== undefined) {
     updates.displayName = deriveDisplayName({
@@ -763,7 +777,8 @@ async function importAsNew(
   const created = await insertCompanyRow(db, {
     ...rec,
     ownerId: defaultOwnerId ?? null,
-  } as unknown as CreateCompanyInput & { partyCode?: string | null });
+    createdBy: defaultOwnerId ?? null,
+  } as unknown as CreateCompanyInput & { partyCode?: string | null; createdBy?: string | null });
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.
   await syncValuesForEntity(db, 'company', created.id, created.customFields);
   result.imported++;

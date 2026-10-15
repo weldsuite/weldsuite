@@ -1,11 +1,20 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 
 /**
  * calendar-api bindings: the kit's (auth, tenant DB, flags) plus only what
  * the calendar module uses. Add a binding here and in wrangler.toml together.
+ *
+ * `OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` are the
+ * outbound mail guard's (`OutboundGuardEnv`): the Durable Objects are hosted
+ * by mail-api and bound with `script_name`, all optional because the guard
+ * fails open. Calendar invitations count against the workspace (source
+ * `calendar`). docs/plans/weldmail-outbound-abuse.md.
  */
-export interface Env extends KitEnv {
+export interface Env
+  extends KitEnv,
+    Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** Entity-events hub queue (publishEntityEvent). */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** Schedule-index D1: `workspace_due_index` rows (kind `calendar_replan`)

@@ -77,11 +77,15 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
   const text = isPlainText ? rawBody : stripTags(rawBody);
 
   // POST /api/internal/send-email lives on app-api
-  // (apps/workers/app-api/src/routes/internal/index.ts).
+  // (apps/workers/app-api/src/routes/internal/index.ts). It sends behind the
+  // outbound mail guard, which counts the email against `workspaceId`; a
+  // refusal fails this step with its code (SENDING_LIMITED, ...), see
+  // internalApiFailure.
   const result = await postInternalApi<{ success: boolean; messageId: string }>(
     ctx.env,
     '/send-email',
     {
+      workspaceId: ctx.tenant.workspaceId,
       from: fromAddress,
       to: toRecipients,
       subject,

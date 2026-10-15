@@ -1951,6 +1951,7 @@ export const sweep = {
         "read": "Lezen",
         "write": "Schrijven",
         "send": "Verzenden",
+        "reply": "Beantwoorden",
         "name": "Naam",
         "keyPrefix": "Sleutelprefix",
         "permissions": "Rechten",
@@ -1960,6 +1961,7 @@ export const sweep = {
       },
       "notAvailable": "Niet beschikbaar",
       "sendScopeHint": "Mail verzenden valt nooit onder Alles. Vink Verzenden aan als de sleutel e-mail moet kunnen versturen.",
+      "replyScopeHint": "Prospects beantwoorden valt nooit onder Alles. Vink Beantwoorden aan als de sleutel antwoorden vanuit WeldReach moet kunnen versturen.",
       "selectedCount": "{count} recht(en) geselecteerd",
       "filters": {
         "usage": "Gebruik",
@@ -1977,15 +1979,6 @@ export const sweep = {
       "title": "API-sleutels",
       "description": "Beheer API-sleutels voor externe integraties",
       "loadingKeys": "API-sleutels laden...",
-      "upgradePromo": {
-        "heading": "API-toegang.",
-        "subheadingLine1": "Integreer WeldSuite met uw apps",
-        "subheadingLine2": "en automatiseer workflows",
-        "upgradeButton": "Upgraden",
-        "learnMore": "Meer informatie",
-        "featureName": "API-toegang",
-        "featureDescription": "Upgrade om WeldSuite te integreren met uw apps"
-      },
       "searchPlaceholder": "Sleutels zoeken...",
       "generateKey": "Sleutel genereren",
       "createDialog": {
@@ -2423,6 +2416,8 @@ export const sweep = {
       "title": "Werktijden",
       "description": "Stel uw beschikbaarheid in voor automatische taakplanning. Taken worden ingepland in vrije tijdvakken binnen deze uren.",
       "locked": "Uw werktijden zijn vergrendeld. Neem contact op met uw werkruimtebeheerder om wijzigingen aan te brengen.",
+      "autoScheduleLabel": "Taken automatisch in mijn agenda inplannen",
+      "autoScheduleDescription": "Plan nieuwe taken in een vrij tijdvak binnen je werktijden. Zet dit uit om taken uit je agenda te houden, tenzij je ze een startdatum geeft. Taken die al automatisch zijn ingepland, worden uit je agenda gehaald.",
       "autoRescheduleLabel": "Onafgeronde taken automatisch doorschuiven",
       "autoRescheduleDescription": "Als een automatisch ingeplande taak niet op de geplande dag is afgerond, wordt deze 's nachts naar het volgende vrije tijdvak verplaatst. Zet dit uit om de taak te laten staan.",
       "autoRescheduleFailed": "Instelling voor taakplanning bijwerken mislukt"

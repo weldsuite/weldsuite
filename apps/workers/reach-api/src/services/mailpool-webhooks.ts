@@ -27,8 +27,8 @@ import { publishEntityEventRaw, type EntityEventPublisherEnv } from '@weldsuite/
 import type { EntityType } from '@weldsuite/entity-events/events';
 import { omitSensitive } from '@weldsuite/db/lib/sensitive-columns';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { sealMailServerCredentials } from '@weldsuite/reach-domain/credentials';
 import { pausePoolMailbox, resumePoolMailbox, type WarmupKeyEnv } from '@weldsuite/reach-domain/warmup-pool';
-import { sealMailServerCredentials } from '../lib/credentials';
 import { imapCredentialsOf, smtpCredentialsOf } from '../lib/mailpool';
 import type { MailpoolClient } from '../lib/mailpool/client';
 import type { MailpoolMailbox } from '../lib/mailpool/types';

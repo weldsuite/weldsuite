@@ -45,7 +45,13 @@ export interface Env extends KitEnv {
   /** Accepted by @weldsuite/ai as an alias of CF_ACCOUNT_ID. */
   CLOUDFLARE_ACCOUNT_ID?: string;
 
-  // --- WeldAgent cloud computer (agent-runtime worker) ----------------------
+  // --- Claude Managed Agents (the WeldAgent agent runtime) ------------------
+  /** Anthropic API key every workspace agent runs on (secret). */
+  ANTHROPIC_API_KEY?: string;
+  /** Optional: pin the Managed Agents environment (`env_…`); found/created by name otherwise. */
+  ANTHROPIC_ENVIRONMENT_ID?: string;
+
+  // --- WeldAgent cloud browser (agent-runtime worker) -----------------------
   /**
    * agent-runtime `AgentRuntimeInternal` entrypoint (service binding). Preferred
    * path for computer/browser calls (no secret); the URL + bearer below is the

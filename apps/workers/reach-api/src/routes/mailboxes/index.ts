@@ -25,21 +25,11 @@ import {
   updateReachMailboxSchema,
 } from '@weldsuite/app-api-client/schemas/reach';
 import type { Env, Variables } from '../../types';
+import { getMailboxDto, listMailboxes, withoutCredentials, type MailboxReadDeps } from '@weldsuite/reach-domain/mailboxes';
 import { createReachBilling } from '../../lib/billing';
 import { createMailpoolClient } from '../../lib/mailpool/client';
 import { accountContextOf } from '../../services/access';
-import {
-  createMailbox,
-  deleteMailbox,
-  getMailboxDto,
-  listMailboxes,
-  pauseMailbox,
-  readDepsOf,
-  resumeMailbox,
-  updateMailbox,
-  withoutCredentials,
-  type MailboxReadDeps,
-} from '../../services/mailboxes';
+import { createMailbox, deleteMailbox, pauseMailbox, readDepsOf, resumeMailbox, updateMailbox } from '../../services/mailboxes';
 import { reachErrorHandler } from '../../services/reach-errors';
 import { getOrCreateReachSettings } from '../../services/settings';
 

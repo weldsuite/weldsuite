@@ -12,12 +12,30 @@
  * `@weldsuite/emails` (the `meet.invitation` template) and sends via
  * `workerTransport(env)`. Everything else here is pure functions, no Hono
  * context.
+ *
+ * The mails go out from WeldSuite's own address but carry the organizer's
+ * title and description to anyone, so `sendInvitationEmails` runs each batch
+ * through the outbound mail guard first (`@weldsuite/mail-domain/outbound`,
+ * source `meet`; docs/plans/weldmail-outbound-abuse.md). A refusal skips the
+ * batch and is logged: the attendees stay saved, and the response reports
+ * `emailSent: false` for each of them.
  */
 
+import type { Database } from '@weldsuite/worker-kit/db';
 import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
 import { icsAttachment, sendSystemEmail } from '@weldsuite/emails';
 import { workerTransport } from '@weldsuite/emails/transports/binding';
+import {
+  OutboundDeniedError,
+  checkOutbound,
+  commitOutbound,
+  releaseOutbound,
+  type OutboundReservation,
+} from '@weldsuite/mail-domain/outbound';
 import type { Env } from '../../types';
+
+/** WeldSuite's own sending address for system mail (the transport's default From). */
+const SYSTEM_SENDER = 'notifications@mail.weldsuite.org';
 
 /** Production meeting portal. Used when `MEETING_PORTAL_URL` is not set. */
 export const DEFAULT_MEETING_PORTAL_URL = 'https://meet.weldsuite.org';
@@ -196,7 +214,7 @@ export async function sendInvitationEmail(
   const end = toDate(meeting.scheduledEnd);
   // ORGANIZER needs a mailto; fall back to the sender when the organizer has
   // no email on file.
-  const organizerEmail = organizer.email || 'notifications@mail.weldsuite.org';
+  const organizerEmail = organizer.email || SYSTEM_SENDER;
 
   try {
     await sendSystemEmail(transport, {
@@ -233,4 +251,92 @@ export async function sendInvitationEmail(
     console.error('[meet-api/invitations] invitation email failed:', err);
     return false;
   }
+}
+
+/** What the outbound guard needs to count a batch of invitations against the workspace. */
+export interface InvitationOutbound {
+  /** Tenant DB: who has written to this workspace before (first contact), and who must not be mailed. */
+  db: Database;
+  /** The workspace's Clerk org id; the guard resolves the master workspace id from it. */
+  clerkOrgId: string;
+}
+
+export interface InvitationBatchParams extends InvitationEmailParams {
+  attendees: Array<{ email: string; name?: string }>;
+  /** Required, so no caller can send invitations past the outbound guard. */
+  outbound: InvitationOutbound;
+}
+
+/**
+ * Ask the outbound guard once for the whole batch: every invitee gets a message
+ * of their own, but they share one title and description, and they count
+ * together against the workspace's limits (a new conversation from the `meet`
+ * source, sent from WeldSuite's address, so no sender ownership).
+ *
+ * Returns the reservation to commit once the mails went out, `'refused'` when
+ * the guard said no (the batch is skipped), or `null` when the guard itself
+ * failed, which lets the mail through: it fails open, and an invitation is
+ * worth more than a gap in counting.
+ */
+async function reserveBatch(
+  env: Env,
+  params: InvitationBatchParams,
+): Promise<OutboundReservation | 'refused' | null> {
+  const { meeting, attendees, outbound } = params;
+  try {
+    return await checkOutbound(env, outbound.db, {
+      subject: { kind: 'workspace', clerkOrgId: outbound.clerkOrgId },
+      source: 'meet',
+      kind: 'new_thread',
+      from: SYSTEM_SENDER,
+      systemSender: true,
+      to: attendees.map((a) => a.email),
+      subjectLine: meeting.title,
+      text: meeting.description,
+      recipientNames: attendees.map((a) => a.name).filter((name): name is string => !!name),
+    });
+  } catch (err) {
+    if (err instanceof OutboundDeniedError) {
+      console.warn(
+        `[meet-api/invitations] invitations for meeting ${meeting.id} not sent: the outbound guard refused (${err.code})`,
+      );
+      return 'refused';
+    }
+    console.error('[meet-api/invitations] outbound guard failed, sending anyway:', err);
+    return null;
+  }
+}
+
+/**
+ * Email the invitation to every attendee of a batch, after the outbound guard
+ * allowed the batch. Returns, per attendee and in order, whether the mail was
+ * handed to the transport (all `false` when the guard refused). Never throws.
+ */
+export async function sendInvitationEmails(
+  env: Env,
+  params: InvitationBatchParams,
+): Promise<boolean[]> {
+  const { attendees, outbound, ...rest } = params;
+  if (attendees.length === 0) return [];
+  // Nothing would be sent without a transport, so nothing is asked of the guard either.
+  if (!workerTransport(env)) return attendees.map(() => false);
+
+  const reservation = await reserveBatch(env, params);
+  if (reservation === 'refused') return attendees.map(() => false);
+
+  const results = await Promise.all(
+    attendees.map((attendee) => sendInvitationEmail(env, { ...rest, attendee })),
+  );
+
+  // Count what went out; give the rest back (the commit narrows to the sent ones).
+  if (reservation) {
+    const sent = attendees.filter((_, i) => results[i]).map((a) => a.email);
+    if (sent.length === 0) {
+      await releaseOutbound(env, reservation);
+    } else {
+      const partial = sent.length < attendees.length;
+      await commitOutbound(env, outbound.db, reservation, partial ? { sentRecipients: sent } : {});
+    }
+  }
+  return results;
 }

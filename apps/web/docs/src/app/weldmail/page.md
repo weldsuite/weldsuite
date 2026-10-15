@@ -28,6 +28,7 @@ Folders in the sidebar include Inbox, Starred, Sent, Drafts, Scheduled, Snoozed,
 | --- | --- |
 | Link your mailbox | [Connect an email account](/weldmail/connect-account) |
 | Write and send messages | [Send and reply to email](/weldmail/send-email) |
+| Understand how many people you can email | [Sending limits](/weldmail/sending-limits) |
 
 Account connection is managed in **Settings → WeldMail** for admins; each user connects their own mailbox.
 
@@ -37,3 +38,4 @@ Account connection is managed in **Settings → WeldMail** for admins; each user
 
 - [Connect an email account](/weldmail/connect-account)
 - [Send and reply to email](/weldmail/send-email)
+- [Sending limits](/weldmail/sending-limits)

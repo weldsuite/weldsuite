@@ -102,6 +102,7 @@ routes = [
 ENVIRONMENT = "test"
 REACH_INBOUND_DOMAIN = "reply-test.weldreach.com"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [env.test.triggers]
 crons = ["* * * * *", "15 * * * *"]
@@ -158,6 +159,7 @@ routes = [
 ENVIRONMENT = "production"
 REACH_INBOUND_DOMAIN = "reply.weldreach.com"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [env.production.triggers]
 crons = ["* * * * *", "15 * * * *"]

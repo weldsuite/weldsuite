@@ -1,20 +1,41 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MeetingAttendee } from '@weldsuite/db/schema/meetings';
+import type { Database } from '@weldsuite/worker-kit/db';
+import { OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
 import {
   buildMeetingJoinUrl,
   getMeetingPortalUrl,
   mergeInvitees,
   normalizeInvitees,
   sendInvitationEmail,
+  sendInvitationEmails,
   type ResolvedInvitee,
 } from './invitations';
 import type { Env } from '../../types';
 
-const { sendSystemEmailMock } = vi.hoisted(() => ({ sendSystemEmailMock: vi.fn() }));
+const { sendSystemEmailMock, checkOutboundMock, commitOutboundMock, releaseOutboundMock } = vi.hoisted(() => ({
+  sendSystemEmailMock: vi.fn(),
+  checkOutboundMock: vi.fn(),
+  commitOutboundMock: vi.fn(),
+  releaseOutboundMock: vi.fn(),
+}));
 
 vi.mock('@weldsuite/emails', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/emails')>();
   return { ...actual, sendSystemEmail: sendSystemEmailMock };
+});
+
+// The real OutboundDeniedError (invitations tell a refusal apart by class);
+// the three calls that talk to the ledger are faked. The guard itself is tested
+// in @weldsuite/mail-domain (docs/plans/weldmail-outbound-abuse.md).
+vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/mail-domain/outbound')>();
+  return {
+    ...actual,
+    checkOutbound: checkOutboundMock,
+    commitOutbound: commitOutboundMock,
+    releaseOutbound: releaseOutboundMock,
+  };
 });
 
 const guest = (email: string, extra: Partial<ResolvedInvitee> = {}): ResolvedInvitee => ({
@@ -193,5 +214,128 @@ describe('sendInvitationEmail', () => {
     expect(ok).toBe(false);
     expect(log).toHaveBeenCalledTimes(1);
     log.mockRestore();
+  });
+});
+
+describe('sendInvitationEmails (the outbound guard)', () => {
+  const env = { RESEND_API_KEY: 're_test', ENVIRONMENT: 'production' } as unknown as Env;
+  const outbound = { db: {} as Database, clerkOrgId: 'org_1' };
+  const reservation = {
+    ledger: null,
+    reservationId: 'res_1',
+    sender: '',
+    recipients: [],
+    firstContact: [],
+    mode: 'enforce',
+  };
+  const base = {
+    meeting: { id: 'mtg_1', title: 'Sync', description: 'Agenda in the doc' },
+    organizer: { name: 'Gert', email: 'gert@acme.com' },
+    joinUrl: 'https://meet.weldsuite.org/org_1/wm-abc-def-ghi',
+    attendees: [{ email: 'a@example.com', name: 'Anna' }, { email: 'b@example.com' }],
+    outbound,
+  };
+
+  afterEach(() => {
+    sendSystemEmailMock.mockReset();
+    checkOutboundMock.mockReset();
+    commitOutboundMock.mockReset();
+    releaseOutboundMock.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it('is asked once for the whole batch, as a system-sender meet mail to the invitees', async () => {
+    checkOutboundMock.mockResolvedValue(reservation);
+    const results = await sendInvitationEmails(env, base);
+
+    expect(results).toEqual([true, true]);
+    expect(checkOutboundMock).toHaveBeenCalledTimes(1);
+    const [, db, input] = checkOutboundMock.mock.calls[0]!;
+    expect(db).toBe(outbound.db);
+    expect(input).toMatchObject({
+      subject: { kind: 'workspace', clerkOrgId: 'org_1' },
+      source: 'meet',
+      kind: 'new_thread',
+      systemSender: true,
+      to: ['a@example.com', 'b@example.com'],
+      subjectLine: 'Sync',
+      text: 'Agenda in the doc',
+      recipientNames: ['Anna'],
+    });
+    expect(sendSystemEmailMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('commits the reservation once every mail went out', async () => {
+    checkOutboundMock.mockResolvedValue(reservation);
+    await sendInvitationEmails(env, base);
+    expect(commitOutboundMock).toHaveBeenCalledTimes(1);
+    expect(commitOutboundMock).toHaveBeenCalledWith(env, outbound.db, reservation, {});
+    expect(releaseOutboundMock).not.toHaveBeenCalled();
+  });
+
+  it('reports each invitee, and commits only the ones that got their mail when a send fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkOutboundMock.mockResolvedValue(reservation);
+    sendSystemEmailMock.mockImplementation(async (_transport: unknown, options: { to: string }) => {
+      if (options.to === 'a@example.com') throw new Error('mailbox full');
+    });
+
+    const results = await sendInvitationEmails(env, base);
+
+    expect(results).toEqual([false, true]);
+    expect(commitOutboundMock).toHaveBeenCalledWith(env, outbound.db, reservation, {
+      sentRecipients: ['b@example.com'],
+    });
+  });
+
+  it('releases the reservation when no mail went out', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkOutboundMock.mockResolvedValue(reservation);
+    sendSystemEmailMock.mockRejectedValue(new Error('transport down'));
+
+    expect(await sendInvitationEmails(env, base)).toEqual([false, false]);
+    expect(releaseOutboundMock).toHaveBeenCalledWith(env, reservation);
+    expect(commitOutboundMock).not.toHaveBeenCalled();
+  });
+
+  it('skips the whole batch when the guard refuses, reports every invitee as not mailed, and logs it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    checkOutboundMock.mockRejectedValue(
+      new OutboundDeniedError({ code: 'FIRST_CONTACT_LIMITED', window: 'day', limit: 50, used: 50 }),
+    );
+
+    expect(await sendInvitationEmails(env, base)).toEqual([false, false]);
+
+    expect(sendSystemEmailMock).not.toHaveBeenCalled();
+    expect(commitOutboundMock).not.toHaveBeenCalled();
+    expect(releaseOutboundMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain('FIRST_CONTACT_LIMITED');
+    expect(String(warn.mock.calls[0]![0])).toContain('mtg_1');
+  });
+
+  it('lets the mail through when the guard itself breaks (it fails open)', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkOutboundMock.mockRejectedValue(new Error('ledger bug'));
+
+    expect(await sendInvitationEmails(env, base)).toEqual([true, true]);
+
+    expect(sendSystemEmailMock).toHaveBeenCalledTimes(2);
+    // Nothing was reserved, so there is nothing to commit or give back.
+    expect(commitOutboundMock).not.toHaveBeenCalled();
+    expect(releaseOutboundMock).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not asked, and sends nothing, without invitees', async () => {
+    expect(await sendInvitationEmails(env, { ...base, attendees: [] })).toEqual([]);
+    expect(checkOutboundMock).not.toHaveBeenCalled();
+    expect(sendSystemEmailMock).not.toHaveBeenCalled();
+  });
+
+  it('is not asked without an email transport', async () => {
+    const results = await sendInvitationEmails({ ...env, RESEND_API_KEY: undefined } as unknown as Env, base);
+    expect(results).toEqual([false, false]);
+    expect(checkOutboundMock).not.toHaveBeenCalled();
   });
 });

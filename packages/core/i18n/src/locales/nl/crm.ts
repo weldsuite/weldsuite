@@ -1945,6 +1945,9 @@ export const crm = {
       bulkDeletePartial: '{succeeded} verwijderd, {failed} verwijderen mislukt',
       removeFromListSuccess: '{count} uit de lijst verwijderd',
       removeFromListPartial: '{succeeded} verwijderd, {failed} verwijderen mislukt',
+      searchAttributes: 'Bedrijfskenmerken zoeken...',
+      attributeCreated: 'Kenmerk aangemaakt',
+      attributeCreateFailed: 'Kenmerk aanmaken mislukt',
     },
 
     peopleGrid: {
@@ -2257,6 +2260,12 @@ export const crm = {
       statusDescPaused: 'Gepauzeerd',
       statusDescPending: 'Inschrijving in behandeling',
       statusDescUnenrolled: 'Uitgeschreven',
+      statusDescSendingLimitedPaused: 'Gepauzeerd: verzendlimiet',
+      statusDescSendingLimitedWaiting: 'Wacht: verzendlimiet',
+      statusDescSendingLimitedStopped: 'Gestopt: verzendlimiet',
+      sendingLimitedHint:
+        'WeldMail beperkt hoeveel mensen een werkruimte kan mailen. E-mails aan deze persoon worden tegengehouden totdat verzenden weer mogelijk is.',
+      timelineSendingLimited: '{name} is tegengehouden omdat de werkruimte de verzendlimiet heeft bereikt',
       timelineEnrolled: 'is ingeschreven',
       timelineAutomatedEmail: 'Geautomatiseerde e-mail',
       timelineWaited: 'Wachtte {duration}',

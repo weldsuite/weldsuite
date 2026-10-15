@@ -12,6 +12,7 @@ import {
 import {
   companyGridConfig,
   companyColumns,
+  COMPUTED_COMPANY_COLUMN_IDS,
 } from '../config/company-grid-config';
 import {
   useUpdateCompany,
@@ -25,7 +26,8 @@ import {
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { customFieldsToGridColumns } from '@/components/custom-fields/to-grid-columns';
 import { customFieldsToImportFields } from '@/components/custom-fields/to-import-fields';
-import { useGridViewSettings } from '@/hooks/queries/use-settings-queries';
+import { useGridViewSettings, useCreateCustomField, type CreateCustomFieldData } from '@/hooks/queries/use-settings-queries';
+import { FieldDefinitionDialog } from '@/app/settings/custom-fields/field-definition-dialog';
 import { exportToCSV, exportToExcel } from '@/components/entity-grid/utils/export-utils';
 import {
   useCustomerStatusOptions,
@@ -132,6 +134,22 @@ export function CompaniesGrid({
 
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  // "Create new attribute" in the Add-column menu opens the same dialog as
+  // Settings > Custom fields, fixed to companies.
+  const [isCreateAttributeOpen, setIsCreateAttributeOpen] = useState(false);
+  const createCustomField = useCreateCustomField();
+  const handleCreateAttribute = useCallback(
+    async (data: CreateCustomFieldData) => {
+      try {
+        await createCustomField.mutateAsync({ ...data, entityType: 'company' });
+        toast.success(t('crm.companiesGrid.attributeCreated'));
+        setIsCreateAttributeOpen(false);
+      } catch {
+        toast.error(t('crm.companiesGrid.attributeCreateFailed'));
+      }
+    },
+    [createCustomField, t],
+  );
 
   const { data: customFieldDefs } = useCustomFields('company');
   const customColumns = useMemo(
@@ -187,7 +205,9 @@ export function CompaniesGrid({
     columns: [...companyColumnsWithStatus, ...customColumns],
     initialVisibility: savedView?.columnVisibility ?? null,
     initialColumnWidths: savedView?.columnWidths ?? null,
-  }), [companyColumnsWithStatus, customColumns, savedView]);
+    searchAttributesPlaceholder: t('crm.companiesGrid.searchAttributes'),
+    onCreateAttribute: () => setIsCreateAttributeOpen(true),
+  }), [companyColumnsWithStatus, customColumns, savedView, t]);
 
   // Export honors the active view (search/status/supplier/lead + list scope).
   const exportFilter = useMemo<ExportCompaniesQuery>(() => {
@@ -209,7 +229,8 @@ export function CompaniesGrid({
           return;
         }
         const stamp = new Date().toISOString().slice(0, 10);
-        const columns = [...companyColumns, ...customColumns];
+        // Computed columns aren't on export rows (see COMPUTED_COMPANY_COLUMN_IDS).
+        const columns = [...companyColumns, ...customColumns].filter((c) => !COMPUTED_COMPANY_COLUMN_IDS.has(c.id));
         const exportContext = { memberNameById };
         if (format === 'csv') await exportToCSV(rows, columns, `companies-${stamp}.csv`, exportContext);
         else await exportToExcel(rows, columns, `companies-${stamp}.xlsx`, 'Companies', exportContext);
@@ -315,6 +336,14 @@ export function CompaniesGrid({
       )}
       {companyDeleteDialog}
       <QuickAddCompanyDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />
+      <FieldDefinitionDialog
+        open={isCreateAttributeOpen}
+        onOpenChange={setIsCreateAttributeOpen}
+        entityType="company"
+        field={null}
+        onSubmit={(data) => void handleCreateAttribute(data as CreateCustomFieldData)}
+        isPending={createCustomField.isPending}
+      />
       <ImportEntitiesDialog
         open={isImportOpen}
         onOpenChange={setIsImportOpen}

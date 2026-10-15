@@ -16,7 +16,6 @@ const session = (licensedApps: readonly string[] | null, extra: Partial<ApiKeySe
   userId: 'user_test',
   scopes: ['*'],
   tier: 'enterprise',
-  hasApiAccess: true,
   databaseUrl: null,
   licensedApps,
   ...extra,

@@ -10,6 +10,9 @@ export default defineConfig({
         __dirname,
         '../../core/worker-email/src/testing/cloudflare-email-stub.ts',
       ),
+      // Workers-only module: the scheduled-send workflow and the outbound
+      // guard's Durable Objects extend its base classes.
+      'cloudflare:workers': path.resolve(__dirname, 'src/testing/cloudflare-workers-stub.ts'),
     },
   },
 });

@@ -195,6 +195,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/mail-messages',
     '/api/mail-rules',
     '/api/mail-scheduled',
+    '/api/mail-sending',
     '/api/mail-signatures',
     '/api/mail-snooze',
     '/api/mail-subscriptions',

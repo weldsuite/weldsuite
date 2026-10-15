@@ -20,7 +20,7 @@ import {
   snapIntoWindow,
   startOfNextZonedDay,
   type SendSchedule,
-} from '../lib/send-window';
+} from '@weldsuite/reach-domain/send-window';
 
 export const MINUTE_MS = 60_000;
 export const HOUR_MS = 60 * MINUTE_MS;

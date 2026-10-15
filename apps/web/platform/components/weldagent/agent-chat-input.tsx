@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { CornerDownRight, Loader2, Plus } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
+import { ArrowUp, CornerDownRight, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getTranslations } from '@/lib/i18n';
 
 export const DEFAULT_AGENT_SUGGESTIONS = ["What's new today?", 'Show my notifications', 'Summarize my inbox'];
 
@@ -11,19 +11,25 @@ interface AgentChatInputProps {
   onSubmit: (value: string) => void;
   placeholder?: string;
   isSending?: boolean;
+  disabled?: boolean;
   autoFocus?: boolean;
+  className?: string;
 }
 
+/** The WeldAgent composer: grows with its text, Enter sends, Shift+Enter breaks a line. */
 export function AgentChatInput({
   value,
   onChange,
   onSubmit,
-  placeholder = 'Ask anything…',
+  placeholder,
   isSending = false,
+  disabled = false,
   autoFocus = false,
-}: AgentChatInputProps) {
+  className,
+}: Readonly<AgentChatInputProps>) {
+  const t = getTranslations('common').ai.chat;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const canSubmit = value.trim().length > 0 && !isSending;
+  const canSubmit = value.trim().length > 0 && !isSending && !disabled;
 
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
@@ -42,81 +48,50 @@ export function AgentChatInput({
         e.preventDefault();
         if (canSubmit) onSubmit(value);
       }}
-      className="w-full"
+      className={cn('w-full', className)}
     >
       <div
         role="presentation"
-        className="relative bg-white dark:bg-background border border-gray-200 dark:border-border rounded-[20px] px-[10px] pt-[10px] pb-[10px] w-full flex flex-col shadow-[0_1px_4px_-1px_rgba(0,0,0,0.03)] cursor-text"
+        className={cn(
+          'flex cursor-text items-end gap-2 rounded-2xl border bg-background py-2 pl-4 pr-2',
+          'shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors focus-within:border-foreground/25',
+          disabled && 'opacity-60',
+        )}
         onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (!target.closest('button') && textareaRef.current) {
-            textareaRef.current.focus();
-          }
+          if (!(e.target as HTMLElement).closest('button')) textareaRef.current?.focus();
         }}
       >
         <textarea
           ref={textareaRef}
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               if (canSubmit) onSubmit(value);
             }
           }}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t.placeholder}
           rows={1}
-          className="w-full bg-transparent text-[15px] text-gray-900 dark:text-foreground placeholder:text-gray-500 dark:placeholder:text-muted-foreground outline-none resize-none min-h-[40px] flex-1 pl-[10px] pt-[7px] pb-3 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words"
-          style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' }}
+          className="max-h-[200px] min-h-[36px] flex-1 resize-none overflow-y-auto bg-transparent py-1.5 text-[15px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70"
         />
-
-        <div className="flex items-center justify-between mt-auto">
-          <div className="flex items-center gap-0">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent rounded-lg transition-colors"
-              title="Add"
-            >
-              <Plus className="h-[18px] w-[18px]" />
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              type="submit"
-              variant="ghost"
-              size="icon"
-              disabled={!canSubmit}
-              className={cn(
-                'w-8 h-8 rounded-[12px] flex items-center justify-center transition-all',
-                canSubmit
-                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                  : 'bg-gray-300 dark:bg-muted text-gray-500 dark:text-muted-foreground cursor-not-allowed'
-              )}
-              title="Send message"
-            >
-              {isSending ? (
-                <Loader2 className="h-[15px] w-[15px] animate-spin" />
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth="2.5"
-                  stroke="currentColor"
-                  className={cn(
-                    'h-[15px] w-[15px]',
-                    canSubmit ? 'text-primary-foreground' : 'text-gray-500 dark:text-muted-foreground'
-                  )}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
-                </svg>
-              )}
-            </Button>
-          </div>
-        </div>
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          aria-label={t.send}
+          title={t.send}
+          className={cn(
+            'mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors',
+            canSubmit ? 'bg-foreground text-background hover:bg-foreground/90' : 'bg-muted text-muted-foreground',
+          )}
+        >
+          {isSending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+          )}
+        </button>
       </div>
     </form>
   );
@@ -127,20 +102,19 @@ interface AgentSuggestionsProps {
   onSelect: (suggestion: string) => void;
 }
 
-export function AgentSuggestions({ suggestions = DEFAULT_AGENT_SUGGESTIONS, onSelect }: AgentSuggestionsProps) {
+export function AgentSuggestions({ suggestions = DEFAULT_AGENT_SUGGESTIONS, onSelect }: Readonly<AgentSuggestionsProps>) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       {suggestions.map((suggestion) => (
-        <Button
+        <button
           key={suggestion}
           type="button"
-          variant="ghost"
           onClick={() => onSelect(suggestion)}
-          className="group flex items-center justify-start gap-3 w-full text-left px-2 py-2 text-sm text-gray-700 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-accent hover:text-gray-900 dark:hover:text-foreground rounded-lg transition-colors"
+          className="group flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
-          <CornerDownRight className="h-4 w-4 text-gray-400 group-hover:text-gray-700 dark:group-hover:text-foreground flex-shrink-0 transition-colors" />
+          <CornerDownRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
           {suggestion}
-        </Button>
+        </button>
       ))}
     </div>
   );

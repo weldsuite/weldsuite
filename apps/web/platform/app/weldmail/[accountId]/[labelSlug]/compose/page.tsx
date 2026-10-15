@@ -11,6 +11,7 @@ import { buildComposeBodies, plainTextToHtml, type ComposeBodies } from '@/app/w
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '@/app/weldmail/lib/signature';
 import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
 import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
+import { useNotifySendError } from '@/app/weldmail/lib/use-notify-send-error';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { withPendingInput } from '@/app/weldmail/components/compose-recipients';
@@ -309,6 +310,7 @@ function useComposeSend({
 }) {
   const { t } = useI18n();
   const cp = t.mail.composePage;
+  const notifySendError = useNotifySendError();
   const router = useRouter();
   const { getClient } = useAppApiClient();
   const [isSending, setIsSending] = useState(false);
@@ -365,7 +367,7 @@ function useComposeSend({
         toast.success(cp.emailScheduledFor.replace('{date}', format(scheduledFor, 'PPp')));
         await finishSend(`/weldmail/${accountId}/sent`);
       } else {
-        toast.error(result.error || cp.failedToScheduleEmail);
+        notifySendError(result, cp.failedToScheduleEmail);
       }
     } catch {
       toast.error(cp.failedToScheduleEmail);
@@ -400,7 +402,7 @@ function useComposeSend({
         toast.success(cp.emailSentSuccessfully);
         await finishSend(`/weldmail/${accountId}/sent`);
       } else {
-        toast.error(result.error || cp.failedToSendEmail);
+        notifySendError(result, cp.failedToSendEmail);
       }
     } catch {
       toast.error(cp.failedToSendEmail);

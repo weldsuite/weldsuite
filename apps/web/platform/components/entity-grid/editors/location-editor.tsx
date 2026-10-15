@@ -1,9 +1,19 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { LocationAutocomplete } from '@/app/weldcalendar/components/location-autocomplete';
+import type { MapboxSuggestion } from '@/app/weldcalendar/lib/mapbox-search';
+import { mapboxToPostalAddress } from '@/components/address/mapbox-address';
 import type { LocationEditorProps } from '../types';
 
 type LocationParts = { city: string; state: string; country: string };
+type LocationPart = keyof LocationParts;
+
+/** The Mapbox feature types a part column searches. */
+const PART_SEARCH_TYPES: Record<LocationPart, string> = {
+  city: 'place,locality',
+  state: 'region',
+  country: 'country',
+};
 
 function normalizeToString(value: unknown): string {
   if (!value) return '';
@@ -23,11 +33,16 @@ function parseStringToParts(input: string): LocationParts {
   return { city: '', state: '', country: '' };
 }
 
-function suggestionToParts(s: {
-  name: string;
-  place_formatted?: string;
-  feature_type?: string;
-}): LocationParts {
+/**
+ * A picked suggestion as city / state / country. With Mapbox's context (every
+ * live result has it) the country is the ISO code, like stored addresses;
+ * without it, fall back to splitting the formatted place.
+ */
+function suggestionToParts(s: MapboxSuggestion): LocationParts {
+  if (s.context) {
+    const a = mapboxToPostalAddress(s);
+    return { city: a.city ?? '', state: a.state ?? '', country: a.country ?? '' };
+  }
   const place = (s.place_formatted || '').split(',').map((p) => p.trim()).filter(Boolean);
   switch (s.feature_type) {
     case 'country':
@@ -54,7 +69,13 @@ function suggestionToDisplay(s: { name: string; place_formatted?: string; featur
   return s.place_formatted ? `${s.name}, ${s.place_formatted}` : s.name;
 }
 
-export function LocationEditor({ value, onChange, onCommit }: Readonly<LocationEditorProps>) {
+export function LocationEditor({
+  value,
+  onChange,
+  onCommit,
+  onCancel,
+  part,
+}: Readonly<LocationEditorProps & { part?: LocationPart }>) {
   // The normalized initial string, used only for change detection and "did we
   // start with data?" checks. We deliberately depend on the *content* of the
   // string, NOT on `value`'s object reference (the parent re-creates the
@@ -90,7 +111,7 @@ export function LocationEditor({ value, onChange, onCommit }: Readonly<LocationE
   }, []);
 
   // Commit `parts` exactly once. Subsequent callers no-op.
-  const commitParts = (parts: LocationParts) => {
+  const commitParts = (parts: Partial<LocationParts>) => {
     if (hasCommittedRef.current) return;
     hasCommittedRef.current = true;
     onChange?.(parts);
@@ -103,7 +124,8 @@ export function LocationEditor({ value, onChange, onCommit }: Readonly<LocationE
   const tryCommitString = (next: string) => {
     if (hasCommittedRef.current) return;
     if (next === initialRef.current) return;
-    const parts = parseStringToParts(next);
+    // A part column takes the typed text as that part alone.
+    const parts: Partial<LocationParts> = part ? { [part]: next.trim() } : parseStringToParts(next);
     const allEmpty = !parts.city && !parts.state && !parts.country;
     if (allEmpty && initialRef.current !== '') return;
     commitParts(parts);
@@ -135,6 +157,20 @@ export function LocationEditor({ value, onChange, onCommit }: Readonly<LocationE
       placeholder=""
       className="h-7 text-sm shadow-none border-0 rounded-none px-0 focus-visible:ring-0 bg-transparent dark:bg-transparent"
       autoFocus
+      selectOnFocus
+      hidePlaceDetails
+      searchTypes={part ? PART_SEARCH_TYPES[part] : undefined}
+      onKeyDown={(e) => {
+        // Same keys as the grid's text editors: Enter saves, Escape discards.
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          tryCommitString(localRef.current);
+          onCommit();
+        } else if (e.key === 'Escape') {
+          hasCommittedRef.current = true;
+          onCancel();
+        }
+      }}
       popoverAlignOffset={-12}
       popoverSideOffset={9}
       onBlurAfterGrace={() => {

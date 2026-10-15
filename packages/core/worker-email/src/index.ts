@@ -22,6 +22,10 @@ import { CloudflareDomainProvider, CloudflareSendProvider } from '@weldsuite/ema
 import { PendingVerificationError } from '@weldsuite/email';
 import type { EmailAttachment } from '@weldsuite/email/core/types';
 import { findZoneIdByName } from '@weldsuite/cloudflare-zones';
+import {
+  ensureEmailSendingEventsSubscription,
+  removeEmailSendingEventsSubscription,
+} from '@weldsuite/cloudflare-zones/email-events';
 import { asText } from '@weldsuite/text';
 
 export type { ForwardableEmailMessage } from '@weldsuite/email/providers/cloudflare';
@@ -34,6 +38,14 @@ export interface WorkerEmailEnv {
   CLOUDFLARE_API_TOKEN?: string;
   /** Worker the zone catch-all routes inbound mail to (default weldsuite-mail-inbound). */
   MAIL_INBOUND_WORKER_NAME?: string;
+  /**
+   * Account and queue id for Email Sending events (bounces, complaints): when
+   * both are set, provisioning a domain also subscribes it to that queue
+   * (docs/plans/weldmail-outbound-abuse.md). The API token then needs
+   * Queues Edit too.
+   */
+  CF_ACCOUNT_ID?: string;
+  MAIL_SENDING_EVENTS_QUEUE_ID?: string;
 }
 
 /** Neutralise line breaks so provider-supplied values cannot forge log lines. */
@@ -60,6 +72,8 @@ export interface SendEmailResponse {
   messageId: string;
   /** True when Cloudflare requires the recipient to verify before delivery. */
   pendingVerification?: boolean;
+  /** Recipients Cloudflare skipped because they are on its suppression list. */
+  suppressedRecipients?: string[];
 }
 
 /**
@@ -103,9 +117,12 @@ export async function sendEmail(
       references: params.references,
       attachments: params.attachments,
     });
-    const pending = (result.metadata as { pendingRecipients?: string[] } | undefined)
-      ?.pendingRecipients;
-    return { messageId: result.messageId, pendingVerification: !!pending?.length };
+    const metadata = result.metadata as { pendingRecipients?: string[]; suppressedRecipients?: string[] } | undefined;
+    return {
+      messageId: result.messageId,
+      pendingVerification: !!metadata?.pendingRecipients?.length,
+      ...(metadata?.suppressedRecipients?.length ? { suppressedRecipients: metadata.suppressedRecipients } : {}),
+    };
   } catch (err: unknown) {
     // Nothing went out at all — every recipient needs verifying.
     if (err instanceof PendingVerificationError) {
@@ -132,12 +149,48 @@ export async function createDomain(env: WorkerEmailEnv, domain: string): Promise
         (sending ? `, sendingSubdomain=${sending.name} (tag=${sending.tag})` : ', sending=skipped'),
     ),
   );
+  await subscribeSendingEvents(env, domain);
 }
 
 export async function deleteDomain(env: WorkerEmailEnv, domain: string): Promise<void> {
   const provider = makeDomainProvider(env);
   await provider.deprovisionDomain(domain);
   console.log(`[CFEmail] Deprovisioned ${domain}`);
+  if (env.CLOUDFLARE_API_TOKEN && env.CF_ACCOUNT_ID) {
+    try {
+      await removeEmailSendingEventsSubscription({
+        apiToken: env.CLOUDFLARE_API_TOKEN,
+        accountId: env.CF_ACCOUNT_ID,
+        domain,
+      });
+    } catch (err) {
+      console.warn(logSafe(`[CFEmail] Removing the sending-events subscription for ${domain} failed: ${asText(err)}`));
+    }
+  }
+}
+
+/**
+ * Subscribe a sending domain's Email Sending events (bounces, complaints) to
+ * the outbound guard's queue. Best effort: a missing config or a failure is
+ * logged and never fails provisioning; staff can re-run it for a domain.
+ */
+export async function subscribeSendingEvents(env: WorkerEmailEnv, domain: string): Promise<boolean> {
+  if (!env.CLOUDFLARE_API_TOKEN || !env.CF_ACCOUNT_ID || !env.MAIL_SENDING_EVENTS_QUEUE_ID) return false;
+  try {
+    const zoneId = await findZoneIdByName(env.CLOUDFLARE_API_TOKEN, domain);
+    if (!zoneId) return false;
+    await ensureEmailSendingEventsSubscription({
+      apiToken: env.CLOUDFLARE_API_TOKEN,
+      accountId: env.CF_ACCOUNT_ID,
+      queueId: env.MAIL_SENDING_EVENTS_QUEUE_ID,
+      zoneId,
+      domain,
+    });
+    return true;
+  } catch (err) {
+    console.warn(logSafe(`[CFEmail] Sending-events subscription for ${domain} failed: ${asText(err)}`));
+    return false;
+  }
 }
 
 export async function getDomain(

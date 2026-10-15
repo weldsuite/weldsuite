@@ -12,7 +12,8 @@ export const createCalendarEventSchema = z.object({
   endsAt: z.string(),
   isAllDay: z.boolean().optional(),
   location: z.string().max(500).optional(),
-  attendees: z.array(z.string()).optional(),
+  // Capped like WeldCalendar's own attendee list: every attendee is mailed an invitation.
+  attendees: z.array(z.string()).max(100).optional(),
   metadata: z.unknown().optional(),
 }).passthrough();
 export const updateCalendarEventSchema = createCalendarEventSchema.partial();

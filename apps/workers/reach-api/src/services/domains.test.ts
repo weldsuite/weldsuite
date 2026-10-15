@@ -9,6 +9,7 @@ import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/test
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { DnsRecord, DnsRecordType } from '@weldsuite/worker-kit/dns-lookup';
 import { WELDREACH_DEFAULT_LIMITS, type WeldReachLimits } from '@weldsuite/app-api-client/schemas/reach';
+import { listDomains } from '@weldsuite/reach-domain/domains';
 import type { DnsLookup } from '../lib/dns';
 import { MailpoolError } from '../lib/mailpool/errors';
 import { createFakeMailpool, type FakeMailpool } from '../lib/mailpool/testing';
@@ -17,7 +18,6 @@ import {
   connectDomain,
   disconnectDomain,
   listCandidates,
-  listDomains,
   refreshDomainDns,
   type DomainDeps,
 } from './domains';

@@ -10,6 +10,13 @@
  *
  * Every send is best-effort: a mail failure must never fail the mutation
  * that triggered it (each attendee is wrapped in its own try/catch).
+ *
+ * The mails go out from WeldSuite's own address but carry the organizer's
+ * title and description to people the workspace may never have written to, so
+ * each batch goes through the outbound mail guard first
+ * (`@weldsuite/mail-domain/outbound`, source `calendar`; see
+ * docs/plans/weldmail-outbound-abuse.md). A refusal skips the whole batch and
+ * is logged, like any other mail failure here: the event stays saved.
  */
 
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -21,8 +28,16 @@ import {
   resolveEmailLocale,
   sendSystemEmail,
   type CalendarEventKind,
+  type EmailTransport,
 } from '@weldsuite/emails';
 import { workerTransport } from '@weldsuite/emails/transports/binding';
+import {
+  OutboundDeniedError,
+  checkOutbound,
+  commitOutbound,
+  releaseOutbound,
+  type OutboundReservation,
+} from '@weldsuite/mail-domain/outbound';
 import type { Env } from '../types';
 import { validTimeZoneOrUndefined } from './calendar-timezone';
 
@@ -182,12 +197,22 @@ export interface CalendarMailEvent {
   allDay?: boolean | null;
 }
 
+/** What the outbound guard needs to count a batch of calendar mail against the workspace. */
+export interface OutboundContext {
+  /** Tenant DB: who has written to this workspace before (first contact), and who must not be mailed. */
+  db: Database;
+  /** The workspace's Clerk org id; the guard resolves the master workspace id from it. */
+  clerkOrgId: string;
+}
+
 /** Options of `sendCalendarEventEmails`. */
 export interface SendOptions {
   kind: MailKind;
   event: CalendarMailEvent;
   attendees: AttendeeLike[];
   organizer: OrganizerInfo;
+  /** Required, so no caller can send calendar mail past the outbound guard. */
+  outbound: OutboundContext;
   /**
    * Floor for the ICS SEQUENCE. Reschedule and cancel mails are always sent
    * with at least `nextIcsSequence()` so they supersede earlier revisions.
@@ -216,81 +241,183 @@ export function mailTimeZone(event: CalendarMailEvent, organizer: OrganizerInfo)
   );
 }
 
+/** WeldSuite's own sending address for system mail (the transport's default From). */
+const SYSTEM_SENDER = 'notifications@mail.weldsuite.org';
+
+/** An attendee with an address to mail. */
+type Recipient = AttendeeLike & { email: string };
+
+/**
+ * Ask the outbound guard once for the whole batch: every attendee gets a
+ * message of their own, but they share one title and description, and they
+ * count together against the workspace's limits (a new conversation from the
+ * `calendar` source, sent from WeldSuite's address, so no sender ownership).
+ *
+ * Returns the reservation to commit once the mails went out, `'refused'` when
+ * the guard said no (the batch is skipped), or `null` when the guard itself
+ * failed, which lets the mail through: it fails open, and an invitation is
+ * worth more than a gap in counting.
+ */
+async function reserveBatch(
+  env: Env,
+  opts: SendOptions,
+  recipients: Recipient[],
+): Promise<OutboundReservation | 'refused' | null> {
+  const { kind, event, outbound } = opts;
+  try {
+    return await checkOutbound(env, outbound.db, {
+      subject: { kind: 'workspace', clerkOrgId: outbound.clerkOrgId },
+      source: 'calendar',
+      kind: 'new_thread',
+      from: SYSTEM_SENDER,
+      systemSender: true,
+      to: recipients.map((a) => a.email),
+      subjectLine: event.title,
+      text: event.description,
+      recipientNames: recipients.map((a) => a.name).filter((name): name is string => !!name),
+    });
+  } catch (err) {
+    if (err instanceof OutboundDeniedError) {
+      console.warn(
+        `[calendar-api/calendar-mail] ${kind} mail for event ${event.id} not sent: the outbound guard refused (${err.code})`,
+      );
+      return 'refused';
+    }
+    console.error('[calendar-api/calendar-mail] outbound guard failed, sending anyway:', err);
+    return null;
+  }
+}
+
+/** What every mail of one batch shares, worked out once before the fan-out. */
+interface BatchMail {
+  transport: EmailTransport;
+  /** The authenticated calendar link; see `sendAttendeeMail` for who gets it. */
+  appUrl: string;
+  method: 'REQUEST' | 'CANCEL';
+  meetingUrl: string | undefined;
+  zone: string;
+  sequence: number;
+}
+
+function batchMailOf(env: Env, opts: SendOptions, transport: EmailTransport): BatchMail {
+  const { kind, event, organizer } = opts;
+  return {
+    transport,
+    appUrl: eventUrlFor(env),
+    method: isEndedKind(kind) ? 'CANCEL' : 'REQUEST',
+    meetingUrl: isEndedKind(kind) ? undefined : event.meetingUrl?.trim() || undefined,
+    zone: mailTimeZone(event, organizer),
+    sequence: kind === 'invite' ? (opts.sequence ?? 0) : Math.max(opts.sequence ?? 0, nextIcsSequence()),
+  };
+}
+
+/** The attendees to mail: skips blank addresses and the organizer's own inbox (legacy parity). */
+function recipientsOf(opts: SendOptions): Recipient[] {
+  const { organizer } = opts;
+  return opts.attendees.filter(
+    (a): a is Recipient => !!a.email && a.email.toLowerCase() !== organizer.email?.toLowerCase(),
+  );
+}
+
+/** Mail one attendee their copy, with the event as an ICS attachment. Throws when the send fails. */
+async function sendAttendeeMail(opts: SendOptions, batch: BatchMail, email: string): Promise<void> {
+  const { kind, event, organizer } = opts;
+  const { method, sequence, zone, meetingUrl } = batch;
+
+  // External guests have no account: the authenticated calendar is a dead
+  // end for them, so only members get that link.
+  const member = opts.memberEmails?.get(email.toLowerCase());
+  const eventUrl = !isEndedKind(kind) && member ? batch.appUrl : undefined;
+  const locale = resolveEmailLocale(member?.language, opts.workspaceLanguage);
+
+  const ics = icsAttachment({
+    uid: `${event.id}@weldsuite.org`,
+    method,
+    sequence,
+    title: event.title,
+    description: event.description ?? undefined,
+    location: event.location ?? undefined,
+    start: event.startTime ?? undefined,
+    end: event.endTime ?? undefined,
+    allDay: event.allDay ?? undefined,
+    timezone: zone,
+    organizer: organizer.email ? { email: organizer.email, name: organizer.name } : undefined,
+    attendees: [{ email }],
+    url: meetingUrl ?? eventUrl,
+    meetingUrl,
+    product: 'WeldCalendar',
+  });
+
+  await sendSystemEmail(batch.transport, {
+    template: 'calendar.event',
+    props: {
+      kind,
+      organizerName: organizer.name,
+      title: event.title,
+      description: event.description ?? undefined,
+      startTime: event.startTime ?? undefined,
+      endTime: event.endTime ?? undefined,
+      oldStartTime: opts.oldStartTime ?? undefined,
+      oldEndTime: opts.oldEndTime ?? undefined,
+      location: event.location ?? undefined,
+      timezone: zone,
+      allDay: event.allDay ?? undefined,
+      meetingUrl,
+      eventUrl,
+    },
+    to: email,
+    locale,
+    replyTo: organizer.email || undefined,
+    attachments: [ics],
+  });
+}
+
+/** Count what went out; give the rest back (the commit narrows to `sent`). */
+async function settleReservation(
+  env: Env,
+  opts: SendOptions,
+  reservation: OutboundReservation,
+  sent: string[],
+  recipientCount: number,
+): Promise<void> {
+  if (sent.length === 0) {
+    await releaseOutbound(env, reservation);
+    return;
+  }
+  const partial = sent.length < recipientCount;
+  await commitOutbound(env, opts.outbound.db, reservation, partial ? { sentRecipients: sent } : {});
+}
+
 /**
  * Send one calendar mail per attendee.
  *
  * No-ops when the worker has no email transport configured (`workerTransport`)
  * or there are no attendees. The organizer is never mailed their own event.
- * Each send is isolated: one bad address does not stop the rest, and nothing
- * here throws to the caller.
+ * The batch goes through the outbound guard first; if it refuses, nothing is
+ * sent. Each send is isolated: one bad address does not stop the rest, and
+ * nothing here throws to the caller.
  */
 export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Promise<void> {
   const transport = workerTransport(env);
   if (!transport || !opts.attendees.length) return;
 
-  const appUrl = eventUrlFor(env);
-  const { kind, event, organizer } = opts;
-  const method: 'REQUEST' | 'CANCEL' = isEndedKind(kind) ? 'CANCEL' : 'REQUEST';
-  const meetingUrl = isEndedKind(kind) ? undefined : event.meetingUrl?.trim() || undefined;
-  const zone = mailTimeZone(event, organizer);
-  const sequence =
-    kind === 'invite' ? (opts.sequence ?? 0) : Math.max(opts.sequence ?? 0, nextIcsSequence());
+  const batch = batchMailOf(env, opts, transport);
 
-  for (const attendee of opts.attendees) {
-    const email = attendee.email;
-    // Skip blank addresses and the organizer's own inbox (legacy parity).
-    if (!email) continue;
-    if (email.toLowerCase() === organizer.email?.toLowerCase()) continue;
+  const recipients = recipientsOf(opts);
+  if (recipients.length === 0) return;
 
-    // External guests have no account: the authenticated calendar is a dead
-    // end for them, so only members get that link.
-    const member = opts.memberEmails?.get(email.toLowerCase());
-    const eventUrl = !isEndedKind(kind) && member ? appUrl : undefined;
-    const locale = resolveEmailLocale(member?.language, opts.workspaceLanguage);
+  const reservation = await reserveBatch(env, opts, recipients);
+  if (reservation === 'refused') return;
 
+  const sent: string[] = [];
+  for (const { email } of recipients) {
     try {
-      const ics = icsAttachment({
-        uid: `${event.id}@weldsuite.org`,
-        method,
-        sequence,
-        title: event.title,
-        description: event.description ?? undefined,
-        location: event.location ?? undefined,
-        start: event.startTime ?? undefined,
-        end: event.endTime ?? undefined,
-        allDay: event.allDay ?? undefined,
-        timezone: zone,
-        organizer: organizer.email ? { email: organizer.email, name: organizer.name } : undefined,
-        attendees: [{ email }],
-        url: meetingUrl ?? eventUrl,
-        meetingUrl,
-        product: 'WeldCalendar',
-      });
-
-      await sendSystemEmail(transport, {
-        template: 'calendar.event',
-        props: {
-          kind,
-          organizerName: organizer.name,
-          title: event.title,
-          description: event.description ?? undefined,
-          startTime: event.startTime ?? undefined,
-          endTime: event.endTime ?? undefined,
-          oldStartTime: opts.oldStartTime ?? undefined,
-          oldEndTime: opts.oldEndTime ?? undefined,
-          location: event.location ?? undefined,
-          timezone: zone,
-          allDay: event.allDay ?? undefined,
-          meetingUrl,
-          eventUrl,
-        },
-        to: email,
-        locale,
-        replyTo: organizer.email || undefined,
-        attachments: [ics],
-      });
+      await sendAttendeeMail(opts, batch, email);
+      sent.push(email);
     } catch (err) {
-      console.error(`[calendar-api/calendar-mail] ${kind} email failed for ${email}:`, err);
+      console.error(`[calendar-api/calendar-mail] ${opts.kind} email failed for ${email}:`, err);
     }
   }
+
+  if (reservation) await settleReservation(env, opts, reservation, sent, recipients.length);
 }

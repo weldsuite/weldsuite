@@ -284,6 +284,11 @@ interface CellRenderCtx {
   options: GridColumnDef<unknown>['options'];
   selectConfig: GridColumnDef<unknown>['selectConfig'];
   allowCreateOption?: boolean;
+  allowClear?: boolean;
+  /** ISO currency code of a `currency` cell's value, when the column knows it. */
+  currencyCode?: string | null;
+  /** `location` cells holding one part (City / State / Country). */
+  locationPart?: GridColumnDef<unknown>['locationPart'];
   isFirstColumn: boolean;
   compact: boolean;
   isEditing: boolean;
@@ -386,7 +391,16 @@ type NumberCellType = 'number' | 'currency' | 'percent';
 interface NumberCellSpec {
   Editor: React.ComponentType<EditorProps<number | string>>;
   className: string;
-  display: (value: unknown) => string | null;
+  display: (value: unknown, currencyCode?: string | null) => string | null;
+}
+
+/** A money amount in its own currency, compact (€12.5K). */
+function formatMoneyCompact(value: number, currencyCode: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode, notation: 'compact' }).format(value);
+  } catch {
+    return formatCurrency(value, { compact: true });
+  }
 }
 
 const NUMBER_CELLS: Record<NumberCellType, NumberCellSpec> = {
@@ -398,7 +412,10 @@ const NUMBER_CELLS: Record<NumberCellType, NumberCellSpec> = {
   currency: {
     Editor: CurrencyEditor,
     className: 'text-[14px] font-medium text-foreground',
-    display: (v) => (typeof v === 'number' && v > 0 ? formatCurrency(v, { compact: true }) : null),
+    display: (v, currencyCode) => {
+      if (typeof v !== 'number' || v <= 0) return null;
+      return currencyCode ? formatMoneyCompact(v, currencyCode) : formatCurrency(v, { compact: true });
+    },
   },
   percent: {
     Editor: NumberEditor,
@@ -421,7 +438,7 @@ function renderNumberCell(type: NumberCellType, ctx: CellRenderCtx) {
         />
       )}
     >
-      <span className={className}>{display(value)}</span>
+      <span className={className}>{display(value, ctx.currencyCode)}</span>
     </EditableCell>
   );
 }
@@ -444,6 +461,7 @@ function renderLocationCell(ctx: CellRenderCtx) {
           onChange={ctx.persistValue}
           onCommit={() => setEditingCellValue(null)}
           onCancel={() => setEditingCellValue(null)}
+          part={ctx.locationPart}
         />
       </CellWrapper>
     );
@@ -544,7 +562,7 @@ function renderSelectCell(multi: boolean, ctx: CellRenderCtx) {
           {...common}
         />
       ) : (
-        <SelectEditor value={ctx.value as string | null} {...common} />
+        <SelectEditor value={ctx.value as string | null} allowClear={ctx.allowClear} {...common} />
       )}
     </CellWrapper>
   );
@@ -783,6 +801,9 @@ export function GridCell<TEntity>({
     options: column.options,
     selectConfig: column.selectConfig,
     allowCreateOption: column.allowCreateOption,
+    allowClear: column.allowClear,
+    currencyCode: column.getCurrency?.(entity),
+    locationPart: column.locationPart,
     isFirstColumn,
     compact,
     isEditing,

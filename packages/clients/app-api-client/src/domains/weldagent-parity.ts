@@ -96,18 +96,6 @@ export function createWeldAgentParityApi(api: ClientApi) {
       return api.post<DataResponse<unknown>>(`/weldagent/teach/${sessionId}/stop`, data ?? {});
     },
 
-    listComputerFiles(agentId: string, path?: string) {
-      return api.get<DataResponse<unknown>>(
-        `/weldagent/agents/${agentId}/computer/files${buildQueryString({ path })}`,
-      );
-    },
-    liveView(agentId: string) {
-      return api.post<DataResponse<unknown>>(`/weldagent/agents/${agentId}/browser/live-view`, {});
-    },
-    computerHealth() {
-      return api.get<DataResponse<unknown>>('/weldagent/computer/health');
-    },
-
     postConnectorEvent(data: ConnectorEventInput) {
       return api.post<DataResponse<unknown>>('/weldagent/connectors/events', data);
     },

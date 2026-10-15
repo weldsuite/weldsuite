@@ -30,3 +30,18 @@ export type WorkflowStep = {
   sleep: (name: string, duration: string | number) => Promise<void>;
   sleepUntil: (name: string, timestamp: Date | number) => Promise<void>;
 };
+
+/**
+ * Durable Object base class. mail-api re-exports the outbound guard's
+ * `OutboundLedger` / `OutboundPlatformBudget` (@weldsuite/mail-domain), so its
+ * src/index.ts needs this to load under vitest. Tests that exercise a ledger
+ * construct it with a fake `ctx` (see src/outbound/ledger.test.ts).
+ */
+export class DurableObject<Env = unknown> {
+  readonly ctx: unknown;
+  readonly env: Env;
+  constructor(ctx?: unknown, env?: Env) {
+    this.ctx = ctx;
+    this.env = env as Env;
+  }
+}

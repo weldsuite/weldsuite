@@ -52,6 +52,7 @@ export * from './domains/mail-subscriptions';
 export * from './domains/mail-sync';
 export * from './domains/mail-threads';
 export * from './domains/mail-weldmail';
+export * from './domains/mail-sending';
 export * from './domains/mail-ai';
 
 // Mobile-consolidation surfaces — workspaces switcher + push tokens.
@@ -70,6 +71,7 @@ export * from './domains/feature-flags';
 export * from './schemas/weldagent';
 export * from './domains/weldagent';
 export * from './schemas/weldagent-parity';
+export * from './schemas/weldagent-questions';
 export * from './domains/weldagent-parity';
 export * from './schemas/workspace-agents';
 export * from './domains/workspace-agents';

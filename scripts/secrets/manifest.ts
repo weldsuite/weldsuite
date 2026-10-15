@@ -116,6 +116,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Auth resolves tenant DB URLs from master workspace rows via Neon API.
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",
+    // Master DB Neon URL for the outbound mail guard's sender-ownership check
+    // on the public API's send routes (auth itself uses Hyperdrive). Same value
+    // as mail-api. Unset skips that check only.
+    "DATABASE_URL_MASTER",
     // Publishes through @weldsuite/social-publishing directly (no dependency on
     // app-api), so it needs the SAME PostPeer key as app-api and mcp-server —
     // one WeldSuite-level PostPeer account backs all three. Unset leaves
@@ -583,6 +587,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Authorises the admin console's outbound-guard API (/internal/outbound/*;
+    // docs/plans/weldmail-outbound-abuse.md). The console (apps/web/admin)
+    // holds the same value in its own environment.
+    "OUTBOUND_ADMIN_SECRET",
   ],
 
   // flow-api: the flow module's API worker (split from app-api). Base
@@ -641,6 +649,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // that is not guaranteed to carry the AI scopes.
     "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
+    // Anthropic API key every workspace agent runs on (Claude Managed Agents).
+    "ANTHROPIC_API_KEY",
     "INTERNAL_API_SECRET",
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",

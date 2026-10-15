@@ -1024,6 +1024,186 @@ Beantwoord deze e-mail om Hank Scorpio direct te bereiken.
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'internal.outbound-abuse-alert' / 'coldOutreach' / 'en' > matches the text snapshot 1`] = `
+"[Warning] Outbound mail: Cold-outreach template in Acme Studio
+
+Outbound mail alert
+
+Cold-outreach template
+
+A template was classified as cold outreach and reached 31 first-contact recipients today.
+
+Workspace: Acme Studio
+
+Workspace id: ws_123
+
+Severity: Warning
+
+Risk score: 58
+
+Sending state: active
+
+AI verdict: cold_outreach (0.91)
+
+Template subject: Quick question about tokname
+
+First-contact recipients today: 31
+
+Sent through: crm_sequence
+
+Recipient domains: example.com, example.org, example.net
+
+hi tokname i came across tokname and noticed you are hiring would you be open to a toknum minute call next week
+
+Open in the admin console https://admin.weldsuite.org/outbound-mail
+
+Or open this link: https://admin.weldsuite.org/outbound-mail
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.outbound-abuse-alert' / 'coldOutreach' / 'nl' > matches the text snapshot 1`] = `
+"[Waarschuwing] Uitgaande mail: Sjabloon voor koude acquisitie in Acme Studio
+
+Melding uitgaande mail
+
+Sjabloon voor koude acquisitie
+
+A template was classified as cold outreach and reached 31 first-contact recipients today.
+
+Werkruimte: Acme Studio
+
+Werkruimte-id: ws_123
+
+Ernst: Waarschuwing
+
+Risicoscore: 58
+
+Verzendstatus: active
+
+AI-oordeel: cold_outreach (0.91)
+
+Onderwerp sjabloon: Quick question about tokname
+
+Nieuwe ontvangers vandaag: 31
+
+Verzonden via: crm_sequence
+
+Domeinen ontvangers: example.com, example.org, example.net
+
+hi tokname i came across tokname and noticed you are hiring would you be open to a toknum minute call next week
+
+Openen in de beheerconsole https://admin.weldsuite.org/outbound-mail
+
+Of open deze link: https://admin.weldsuite.org/outbound-mail
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.outbound-abuse-alert' / 'phishing' / 'en' > matches the text snapshot 1`] = `
+"[Urgent] Outbound mail: Phishing or scam in Globex
+
+Outbound mail alert
+
+Phishing or scam
+
+A template was classified as phishing or a scam. New conversations are on hold.
+
+Workspace: Globex
+
+Workspace id: ws_456
+
+Severity: Urgent
+
+Risk score: 100
+
+Sending state: hold
+
+AI verdict: phishing_or_scam (0.95)
+
+Template subject: Your account will be suspended
+
+First-contact recipients today: 12
+
+Sent through: api
+
+Open in the admin console https://admin.weldsuite.org/outbound-mail
+
+Or open this link: https://admin.weldsuite.org/outbound-mail
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.outbound-abuse-alert' / 'phishing' / 'nl' > matches the text snapshot 1`] = `
+"[Urgent] Uitgaande mail: Phishing of oplichting in Globex
+
+Melding uitgaande mail
+
+Phishing of oplichting
+
+A template was classified as phishing or a scam. New conversations are on hold.
+
+Werkruimte: Globex
+
+Werkruimte-id: ws_456
+
+Ernst: Urgent
+
+Risicoscore: 100
+
+Verzendstatus: hold
+
+AI-oordeel: phishing_or_scam (0.95)
+
+Onderwerp sjabloon: Your account will be suspended
+
+Nieuwe ontvangers vandaag: 12
+
+Verzonden via: api
+
+Openen in de beheerconsole https://admin.weldsuite.org/outbound-mail
+
+Of open deze link: https://admin.weldsuite.org/outbound-mail
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.outbound-abuse-alert' / 'platformBudget' / 'en' > matches the text snapshot 1`] = `
+"[Urgent] Outbound mail: Platform sending budget in WeldSuite
+
+Outbound mail alert
+
+Platform sending budget
+
+Customer mail used 70% of the Cloudflare account quota today. First-contact sends stop until midnight UTC.
+
+Severity: Urgent
+
+Open in the admin console https://admin.weldsuite.org/outbound-mail
+
+Or open this link: https://admin.weldsuite.org/outbound-mail
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.outbound-abuse-alert' / 'platformBudget' / 'nl' > matches the text snapshot 1`] = `
+"[Urgent] Uitgaande mail: Verzendbudget platform in WeldSuite
+
+Melding uitgaande mail
+
+Verzendbudget platform
+
+Customer mail used 70% of the Cloudflare account quota today. First-contact sends stop until midnight UTC.
+
+Ernst: Urgent
+
+Openen in de beheerconsole https://admin.weldsuite.org/outbound-mail
+
+Of open deze link: https://admin.weldsuite.org/outbound-mail
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'meet.invitation' / 'instant' / 'en' > matches the text snapshot 1`] = `
 "Sanne de Vries invited you to Quick sync
 

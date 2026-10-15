@@ -48,6 +48,7 @@ import {
   getStepKind,
   getStepName,
 } from './enrollment-progress';
+import { getSendingLimitedVariant, type SendingLimitedVariant } from './enrollment-stop-reason';
 
 interface PeopleTabProps {
   sequenceId: string;
@@ -96,6 +97,256 @@ function getAvatarColor(name: string): string {
 
 const NO_STEPS: readonly unknown[] = [];
 
+/** What the workspace's sending limit did to an enrollment, in the list. */
+const SENDING_LIMITED_STATUS_KEYS: Record<SendingLimitedVariant, string> = {
+  paused: 'crm.peopleTab.statusDescSendingLimitedPaused',
+  waiting: 'crm.peopleTab.statusDescSendingLimitedWaiting',
+  stopped: 'crm.peopleTab.statusDescSendingLimitedStopped',
+};
+
+type Translate = ReturnType<typeof useTranslations>;
+/** "Waiting 1 hour" / "Waiting" for a delay of unknown length. */
+type DescribeWaiting = (seconds: number, withDuration: string, without: string) => string;
+
+interface TimelineEvent {
+  id: string;
+  type: 'enrolled' | 'email' | 'delay' | 'step' | 'completed' | 'unenrolled' | 'failed' | 'paused';
+  text: string;
+  author?: string;
+  timestamp: string;
+  detail?: string;
+}
+
+/**
+ * The timeline entry of a step the run has reached, said by what the step is
+ * (not every step is an "Automated email"). A delay is recorded before it
+ * sleeps, so the last one is still running while the person is active or paused.
+ */
+function stepTimelineEvent(
+  enrollment: SequenceEnrollment,
+  steps: readonly unknown[],
+  i: number,
+  t: Translate,
+  describeWaiting: DescribeWaiting,
+): TimelineEvent {
+  const step = steps[i];
+  const kind = getStepKind(step);
+  const completedDetail = t('crm.peopleTab.timelineStepCompleted', { step: i + 1 });
+  const base = { id: `step-${i}`, timestamp: enrollment.enrolledAt };
+  if (kind === 'email') {
+    return { ...base, type: 'email', text: t('crm.peopleTab.timelineAutomatedEmail'), detail: completedDetail };
+  }
+  if (kind === 'delay') {
+    const seconds = getStepDelaySeconds(step);
+    const isRunning = enrollment.status === 'active' || enrollment.status === 'paused';
+    const stillWaiting = isRunning && i === enrollment.currentStepIndex - 1;
+    return stillWaiting
+      ? {
+          ...base,
+          type: 'delay',
+          text: describeWaiting(seconds, 'crm.peopleTab.timelineWaiting', 'crm.peopleTab.statusDescWaiting'),
+        }
+      : {
+          ...base,
+          type: 'delay',
+          text: describeWaiting(seconds, 'crm.peopleTab.timelineWaited', 'crm.peopleTab.timelineDelay'),
+          detail: completedDetail,
+        };
+  }
+  if (kind === 'condition') {
+    return { ...base, type: 'step', text: t('crm.peopleTab.timelineConditionChecked'), detail: completedDetail };
+  }
+  return { ...base, type: 'step', text: getStepName(step) || completedDetail };
+}
+
+/** Why the sequence failed for this person, for the timeline. */
+function failedTimelineText(
+  enrollment: SequenceEnrollment,
+  name: string,
+  sendingLimited: boolean,
+  t: Translate,
+): string {
+  if (sendingLimited) return t('crm.peopleTab.timelineSendingLimited', { name });
+  if (enrollment.errorMessage) {
+    return t('crm.peopleTab.timelineSequenceFailed', { message: enrollment.errorMessage });
+  }
+  return t('crm.peopleTab.timelineSequenceFailedNoMsg');
+}
+
+/** The timeline entry for where the enrollment ended up (completed, unenrolled, failed, paused), if any. */
+function terminalTimelineEvent(enrollment: SequenceEnrollment, name: string, t: Translate): TimelineEvent | null {
+  const { status } = enrollment;
+  const sendingLimited = getSendingLimitedVariant(enrollment) !== null;
+  if (status === 'completed' && enrollment.completedAt) {
+    return {
+      id: 'completed',
+      type: 'completed',
+      text: t('crm.peopleTab.timelineCompletedSequence', { name }),
+      timestamp: enrollment.completedAt,
+    };
+  }
+  if (status === 'unenrolled' && enrollment.unenrolledAt) {
+    return {
+      id: 'unenrolled',
+      type: 'unenrolled',
+      text: t('crm.peopleTab.timelineExitedSequence', { name }),
+      timestamp: enrollment.unenrolledAt,
+    };
+  }
+  if (status === 'failed') {
+    return {
+      id: 'failed',
+      type: 'failed',
+      text: failedTimelineText(enrollment, name, sendingLimited, t),
+      timestamp: enrollment.failedAt || enrollment.enrolledAt,
+    };
+  }
+  if (status === 'paused' && enrollment.pausedAt) {
+    return {
+      id: 'paused',
+      type: 'paused',
+      text: sendingLimited
+        ? t('crm.peopleTab.timelineSendingLimited', { name })
+        : t('crm.peopleTab.timelinePaused', { name }),
+      timestamp: enrollment.pausedAt,
+    };
+  }
+  return null;
+}
+
+/** A person's activity timeline: enrolled, one entry per step reached, then where they ended up. */
+function buildTimelineEvents(
+  enrollment: SequenceEnrollment,
+  steps: readonly unknown[],
+  t: Translate,
+  describeWaiting: DescribeWaiting,
+): TimelineEvent[] {
+  const name = getCustomerName(enrollment);
+  const events: TimelineEvent[] = [
+    {
+      id: 'enrolled',
+      type: 'enrolled',
+      text: t('crm.peopleTab.timelineEnrolledEvent', { name }),
+      author: name,
+      timestamp: enrollment.enrolledAt,
+    },
+  ];
+  for (let i = 0; i < enrollment.currentStepIndex; i++) {
+    events.push(stepTimelineEvent(enrollment, steps, i, t, describeWaiting));
+  }
+  const terminal = terminalTimelineEvent(enrollment, name, t);
+  if (terminal) events.push(terminal);
+  return events;
+}
+
+interface TimelineEventRowProps {
+  event: TimelineEvent;
+  isLast: boolean;
+  /** Shown after the person's name on the enrolled entry. */
+  enrolledLabel: string;
+  /** When the event happened, relative to now. */
+  timeLabel: string;
+}
+
+/** One entry of the activity timeline — matches the helpdesk activity timeline. */
+function TimelineEventRow({ event, isLast, enrolledLabel, timeLabel }: Readonly<TimelineEventRowProps>) {
+  const isNoteType =
+    event.type === 'enrolled' || event.type === 'email' || event.type === 'delay' || event.type === 'step';
+
+  if (isNoteType) {
+    const noteIcons = {
+      email: <Mail className="w-2.5 h-2.5 text-white" />,
+      delay: <Clock className="w-2.5 h-2.5 text-white" />,
+      step: <CircleDot className="w-2.5 h-2.5 text-white" />,
+    };
+    const noteColors = {
+      enrolled: 'bg-emerald-500',
+      email: 'bg-blue-500',
+      delay: 'bg-amber-500',
+      step: 'bg-slate-400',
+    };
+    return (
+      <div className="flex">
+        {/* Tree connector */}
+        <div className="relative flex-shrink-0" style={{ width: 20 }}>
+          <div
+            className={cn(
+              'relative z-10 w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-semibold',
+              noteColors[event.type as keyof typeof noteColors]
+            )}
+            style={{ marginTop: 0 }}
+          >
+            {event.type === 'enrolled'
+              ? (event.author || '?').charAt(0).toUpperCase()
+              : noteIcons[event.type as keyof typeof noteIcons]
+            }
+          </div>
+          {!isLast && (
+            <div className="absolute bg-border" style={{ left: 9, top: 25, bottom: 5, width: 1 }} />
+          )}
+        </div>
+
+        {/* Content */}
+        <div className={cn('flex-1 min-w-0 pl-2.5', isLast ? '' : 'pb-7')}>
+          <div className="flex items-baseline gap-1.5 mb-[7px]">
+            {event.type === 'enrolled' ? (
+              <>
+                <span className="text-[14px] font-medium text-foreground">{event.author}</span>
+                <span className="text-[14px] text-muted-foreground">{enrolledLabel}</span>
+              </>
+            ) : (
+              <span className="text-[14px] font-medium text-foreground">{event.text}</span>
+            )}
+            <span className="flex-1" />
+            <span className="text-[12px] text-muted-foreground/60 flex-shrink-0">
+              {timeLabel}
+            </span>
+          </div>
+          {event.detail && (
+            <div className="rounded-lg border border-border px-3 py-2">
+              <p className="text-[14px] leading-relaxed text-foreground whitespace-pre-wrap">
+                {event.detail}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // System event (completed, unenrolled, failed, paused)
+  const iconMap = {
+    completed: <CheckCircle2 className="w-2.5 h-2.5 text-muted-foreground" />,
+    unenrolled: <Reply className="w-2.5 h-2.5 text-muted-foreground" />,
+    failed: <XCircle className="w-2.5 h-2.5 text-muted-foreground" />,
+    paused: <Pause className="w-2.5 h-2.5 text-muted-foreground" />,
+  };
+
+  return (
+    <div className="flex">
+      {/* Tree connector */}
+      <div className="relative flex-shrink-0" style={{ width: 20 }}>
+        <div className="relative z-10 w-5 h-5 rounded-md flex items-center justify-center bg-muted" style={{ marginTop: 3 }}>
+          {iconMap[event.type as keyof typeof iconMap]}
+        </div>
+        {!isLast && (
+          <div className="absolute bg-border" style={{ left: 9, top: 28, bottom: 5, width: 1 }} />
+        )}
+      </div>
+
+      {/* Content */}
+      <div className={cn('flex-1 min-w-0 pl-2.5 flex items-start pt-0.5', isLast ? '' : 'pb-7')}>
+        <p className="flex-1 text-[14px] text-muted-foreground">
+          {event.text}
+        </p>
+        <span className="text-[12px] text-muted-foreground/60 flex-shrink-0 ml-3">
+          {timeLabel}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function PeopleTab({
   sequenceId,
   steps = NO_STEPS,
@@ -129,6 +380,8 @@ export function PeopleTab({
   }, [t, steps, describeWaiting]);
 
   const getStatusDescription = useCallback((enrollment: SequenceEnrollment): string => {
+    const sendingLimited = getSendingLimitedVariant(enrollment);
+    if (sendingLimited) return t(SENDING_LIMITED_STATUS_KEYS[sendingLimited]);
     if (enrollment.status === 'active') return getActivityDescription(enrollment);
     if (enrollment.status === 'completed') return t('crm.peopleTab.statusDescCompleted');
     if (enrollment.status === 'paused') return t('crm.peopleTab.statusDescPaused');
@@ -369,7 +622,10 @@ export function PeopleTab({
                         </span>
                         <span className="flex items-center gap-1.5 mt-px">
                           <StatusIcon className={cn('h-3 w-3 flex-shrink-0', statusColor)} />
-                          <span className="text-[13px] text-gray-400 dark:text-muted-foreground truncate">
+                          <span
+                            className="text-[13px] text-gray-400 dark:text-muted-foreground truncate"
+                            title={getSendingLimitedVariant(enrollment) ? t('crm.peopleTab.sendingLimitedHint') : undefined}
+                          >
                             {getStatusDescription(enrollment)}
                           </span>
                         </span>
@@ -477,198 +733,21 @@ export function PeopleTab({
 
             {/* Timeline — matches helpdesk activity timeline */}
             <div className="flex-1 overflow-auto px-6 py-6">
+              {getSendingLimitedVariant(selectedEnrollment) && (
+                <p className="mb-5 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px] text-muted-foreground">
+                  {t('crm.peopleTab.sendingLimitedHint')}
+                </p>
+              )}
               <div>
-                {(() => {
-                  const name = getCustomerName(selectedEnrollment);
-                  const events: Array<{
-                    id: string;
-                    type: 'enrolled' | 'email' | 'delay' | 'step' | 'completed' | 'unenrolled' | 'failed' | 'paused';
-                    text: string;
-                    author?: string;
-                    timestamp: string;
-                    detail?: string;
-                  }> = [];
-
-                  // Enrolled event
-                  events.push({
-                    id: 'enrolled',
-                    type: 'enrolled',
-                    text: t('crm.peopleTab.timelineEnrolledEvent', { name }),
-                    author: name,
-                    timestamp: selectedEnrollment.enrolledAt,
-                  });
-
-                  // Step events: one per step the run has reached, said by what the
-                  // step is (not every step is an "Automated email"). A delay is
-                  // recorded before it sleeps, so the last one is still running
-                  // while the person is active or paused.
-                  const isRunning = selectedEnrollment.status === 'active' || selectedEnrollment.status === 'paused';
-                  for (let i = 0; i < selectedEnrollment.currentStepIndex; i++) {
-                    const step = steps[i];
-                    const kind = getStepKind(step);
-                    const completedDetail = t('crm.peopleTab.timelineStepCompleted', { step: i + 1 });
-                    const base = { id: `step-${i}`, timestamp: selectedEnrollment.enrolledAt };
-                    if (kind === 'email') {
-                      events.push({ ...base, type: 'email', text: t('crm.peopleTab.timelineAutomatedEmail'), detail: completedDetail });
-                    } else if (kind === 'delay') {
-                      const seconds = getStepDelaySeconds(step);
-                      const stillWaiting = isRunning && i === selectedEnrollment.currentStepIndex - 1;
-                      events.push(
-                        stillWaiting
-                          ? {
-                              ...base,
-                              type: 'delay',
-                              text: describeWaiting(seconds, 'crm.peopleTab.timelineWaiting', 'crm.peopleTab.statusDescWaiting'),
-                            }
-                          : {
-                              ...base,
-                              type: 'delay',
-                              text: describeWaiting(seconds, 'crm.peopleTab.timelineWaited', 'crm.peopleTab.timelineDelay'),
-                              detail: completedDetail,
-                            },
-                      );
-                    } else if (kind === 'condition') {
-                      events.push({ ...base, type: 'step', text: t('crm.peopleTab.timelineConditionChecked'), detail: completedDetail });
-                    } else {
-                      events.push({ ...base, type: 'step', text: getStepName(step) || completedDetail });
-                    }
-                  }
-
-                  // Terminal events
-                  if (selectedEnrollment.status === 'completed' && selectedEnrollment.completedAt) {
-                    events.push({
-                      id: 'completed',
-                      type: 'completed',
-                      text: t('crm.peopleTab.timelineCompletedSequence', { name }),
-                      timestamp: selectedEnrollment.completedAt,
-                    });
-                  }
-                  if (selectedEnrollment.status === 'unenrolled' && selectedEnrollment.unenrolledAt) {
-                    events.push({
-                      id: 'unenrolled',
-                      type: 'unenrolled',
-                      text: t('crm.peopleTab.timelineExitedSequence', { name }),
-                      timestamp: selectedEnrollment.unenrolledAt,
-                    });
-                  }
-                  if (selectedEnrollment.status === 'failed') {
-                    events.push({
-                      id: 'failed',
-                      type: 'failed',
-                      text: selectedEnrollment.errorMessage
-                        ? t('crm.peopleTab.timelineSequenceFailed', { message: selectedEnrollment.errorMessage })
-                        : t('crm.peopleTab.timelineSequenceFailedNoMsg'),
-                      timestamp: selectedEnrollment.failedAt || selectedEnrollment.enrolledAt,
-                    });
-                  }
-                  if (selectedEnrollment.status === 'paused' && selectedEnrollment.pausedAt) {
-                    events.push({
-                      id: 'paused',
-                      type: 'paused',
-                      text: t('crm.peopleTab.timelinePaused', { name }),
-                      timestamp: selectedEnrollment.pausedAt,
-                    });
-                  }
-
-                  return events.map((event, index) => {
-                    const isLast = index === events.length - 1;
-                    const isNoteType =
-                      event.type === 'enrolled' || event.type === 'email' || event.type === 'delay' || event.type === 'step';
-
-                    if (isNoteType) {
-                      const noteIcons = {
-                        email: <Mail className="w-2.5 h-2.5 text-white" />,
-                        delay: <Clock className="w-2.5 h-2.5 text-white" />,
-                        step: <CircleDot className="w-2.5 h-2.5 text-white" />,
-                      };
-                      const noteColors = {
-                        enrolled: 'bg-emerald-500',
-                        email: 'bg-blue-500',
-                        delay: 'bg-amber-500',
-                        step: 'bg-slate-400',
-                      };
-                      return (
-                        <div key={event.id} className="flex">
-                          {/* Tree connector */}
-                          <div className="relative flex-shrink-0" style={{ width: 20 }}>
-                            <div
-                              className={cn(
-                                'relative z-10 w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-semibold',
-                                noteColors[event.type as keyof typeof noteColors]
-                              )}
-                              style={{ marginTop: 0 }}
-                            >
-                              {event.type === 'enrolled'
-                                ? (event.author || '?').charAt(0).toUpperCase()
-                                : noteIcons[event.type as keyof typeof noteIcons]
-                              }
-                            </div>
-                            {!isLast && (
-                              <div className="absolute bg-border" style={{ left: 9, top: 25, bottom: 5, width: 1 }} />
-                            )}
-                          </div>
-
-                          {/* Content */}
-                          <div className={cn('flex-1 min-w-0 pl-2.5', isLast ? '' : 'pb-7')}>
-                            <div className="flex items-baseline gap-1.5 mb-[7px]">
-                              {event.type === 'enrolled' ? (
-                                <>
-                                  <span className="text-[14px] font-medium text-foreground">{event.author}</span>
-                                  <span className="text-[14px] text-muted-foreground">{t('crm.peopleTab.timelineEnrolled')}</span>
-                                </>
-                              ) : (
-                                <span className="text-[14px] font-medium text-foreground">{event.text}</span>
-                              )}
-                              <span className="flex-1" />
-                              <span className="text-[12px] text-muted-foreground/60 flex-shrink-0">
-                                {formatRelativeTime(event.timestamp)}
-                              </span>
-                            </div>
-                            {event.detail && (
-                              <div className="rounded-lg border border-border px-3 py-2">
-                                <p className="text-[14px] leading-relaxed text-foreground whitespace-pre-wrap">
-                                  {event.detail}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // System event (completed, unenrolled, failed, paused)
-                    const iconMap = {
-                      completed: <CheckCircle2 className="w-2.5 h-2.5 text-muted-foreground" />,
-                      unenrolled: <Reply className="w-2.5 h-2.5 text-muted-foreground" />,
-                      failed: <XCircle className="w-2.5 h-2.5 text-muted-foreground" />,
-                      paused: <Pause className="w-2.5 h-2.5 text-muted-foreground" />,
-                    };
-
-                    return (
-                      <div key={event.id} className="flex">
-                        {/* Tree connector */}
-                        <div className="relative flex-shrink-0" style={{ width: 20 }}>
-                          <div className="relative z-10 w-5 h-5 rounded-md flex items-center justify-center bg-muted" style={{ marginTop: 3 }}>
-                            {iconMap[event.type as keyof typeof iconMap]}
-                          </div>
-                          {!isLast && (
-                            <div className="absolute bg-border" style={{ left: 9, top: 28, bottom: 5, width: 1 }} />
-                          )}
-                        </div>
-
-                        {/* Content */}
-                        <div className={cn('flex-1 min-w-0 pl-2.5 flex items-start pt-0.5', isLast ? '' : 'pb-7')}>
-                          <p className="flex-1 text-[14px] text-muted-foreground">
-                            {event.text}
-                          </p>
-                          <span className="text-[12px] text-muted-foreground/60 flex-shrink-0 ml-3">
-                            {formatRelativeTime(event.timestamp)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
+                {buildTimelineEvents(selectedEnrollment, steps, t, describeWaiting).map((event, index, events) => (
+                  <TimelineEventRow
+                    key={event.id}
+                    event={event}
+                    isLast={index === events.length - 1}
+                    enrolledLabel={t('crm.peopleTab.timelineEnrolled')}
+                    timeLabel={formatRelativeTime(event.timestamp)}
+                  />
+                ))}
               </div>
             </div>
           </>

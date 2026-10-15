@@ -5,12 +5,24 @@
 
 import { z } from 'zod';
 
+/**
+ * Claude models a workspace agent can run on. Agents run as Claude Managed
+ * Agents, so only Claude model ids are valid here.
+ */
+export const WORKSPACE_AGENT_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] as const;
+export type WorkspaceAgentModel = (typeof WORKSPACE_AGENT_MODELS)[number];
+export const DEFAULT_WORKSPACE_AGENT_MODEL: WorkspaceAgentModel = 'claude-opus-5-5';
+
+export function isWorkspaceAgentModel(value: string | null | undefined): value is WorkspaceAgentModel {
+  return (WORKSPACE_AGENT_MODELS as readonly string[]).includes(value ?? '');
+}
+
 export const createWorkspaceAgentSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(2000).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
   systemPrompt: z.string().max(20000).optional(),
-  modelId: z.string().min(1).max(100).optional(),
+  modelId: z.enum(WORKSPACE_AGENT_MODELS).optional(),
   temperature: z.string().max(10).optional(),
   maxTokens: z.number().int().min(1).max(8192).optional(),
   permissions: z.array(z.string()).optional(),

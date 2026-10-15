@@ -303,7 +303,7 @@ function encodeQuotedPrintableLine(line: string): string {
   const bytes = utf8(line);
   const tokens: string[] = [];
   for (let i = 0; i < bytes.length; i++) {
-    const byte = bytes[i];
+    const byte = bytes[i] ?? 0;
     const isWhitespace = byte === 0x20 || byte === 0x09;
     const literal = isWhitespace ? i < bytes.length - 1 : byte >= 0x21 && byte <= 0x7e && byte !== 0x3d;
     tokens.push(literal ? String.fromCharCode(byte) : `=${HEX[byte >> 4]}${HEX[byte & 0x0f]}`);
