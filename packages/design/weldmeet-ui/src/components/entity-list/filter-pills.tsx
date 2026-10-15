@@ -321,10 +321,10 @@ export function FilterPills({
       case 'boolean':
         return (
           <>
-            <DropdownMenuCheckboxItem checked={currentValue === 'true'} onSelect={() => onSelect('true')}>
+            <DropdownMenuCheckboxItem checkPosition="right" checked={currentValue === 'true'} onSelect={() => onSelect('true')}>
               Yes
             </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem checked={currentValue === 'false'} onSelect={() => onSelect('false')}>
+            <DropdownMenuCheckboxItem checkPosition="right" checked={currentValue === 'false'} onSelect={() => onSelect('false')}>
               No
             </DropdownMenuCheckboxItem>
           </>
@@ -369,6 +369,7 @@ export function FilterPills({
               ) : (
                 filtered.map((option) => (
                   <DropdownMenuCheckboxItem
+                    checkPosition="right"
                     key={option.value}
                     checked={currentValue === option.value}
                     onSelect={() => {
@@ -455,6 +456,7 @@ export function FilterPills({
               >
                 {operators.map((op) => (
                   <DropdownMenuCheckboxItem
+                    checkPosition="right"
                     key={op.value}
                     checked={filter.operator === op.value}
                     onSelect={() => updateFilterOperator(index, op.value)}

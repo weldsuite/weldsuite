@@ -130,6 +130,7 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
       <DropdownMenuContent align="start" className="w-48">
         {groupByOptions.map(opt => (
           <DropdownMenuCheckboxItem
+            checkPosition="right"
             key={opt.value}
             checked={groupBy === opt.value}
             onSelect={() => setGroupBy(opt.value)}
