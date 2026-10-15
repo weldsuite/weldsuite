@@ -1918,14 +1918,16 @@ function findAncestorContinuations(
 type AncestorContinuation = { depth: number; show: boolean };
 
 // Subtask tree geometry. Level 0 is the root row; each level indents by
-// TREE_INDENT. A row's guide runs down the centre of its parent's checkbox
-// and turns into the row with a rounded elbow that stops TREE_ELBOW_GAP
-// short of the row's own checkbox.
+// TREE_INDENT. A row's guide drops from TREE_TRUNK_GAP below its parent's
+// checkbox, down the checkbox's centre, and turns into the row with a rounded
+// elbow that stops TREE_ELBOW_GAP short of the row's own checkbox.
 const TREE_CHECKBOX = 14;
 const TREE_INDENT = 20;
 const TREE_LEFT = 4;
 const TREE_ELBOW_RADIUS = 6;
 const TREE_ELBOW_GAP = 3;
+/** Space between a checkbox and the trunk that drops from it to its children. */
+const TREE_TRUNK_GAP = 3;
 const treeCheckboxLeft = (level: number) => TREE_LEFT + level * TREE_INDENT;
 /** x of the guide for rows at `level`: the centre of the level-above checkbox. */
 const treeGuideX = (level: number) => treeCheckboxLeft(level - 1) + Math.floor(TREE_CHECKBOX / 2);
@@ -2053,7 +2055,7 @@ export function SubtasksSection({
         >
           {/* Trunk from the root checkbox down into the first row's guide */}
           <div
-            style={{ position: 'absolute', left: treeGuideX(1), top: `calc(50% + ${TREE_CHECKBOX / 2}px)`, bottom: 0, width: 1, backgroundColor: 'var(--color-border)', pointerEvents: 'none' }}
+            style={{ position: 'absolute', left: treeGuideX(1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: 'var(--color-border)', pointerEvents: 'none' }}
           />
           {effectiveRoot.id !== currentTaskId && (
             <button
@@ -2187,7 +2189,7 @@ export function SubtasksSection({
                     {/* Trunk from this row's checkbox down to its first child */}
                     {descendToChild && (
                       <div
-                        style={{ position: 'absolute', left: treeGuideX(level + 1), top: `calc(50% + ${TREE_CHECKBOX / 2}px)`, bottom: 0, width: 1, backgroundColor: DEFAULT, pointerEvents: 'none' }}
+                        style={{ position: 'absolute', left: treeGuideX(level + 1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: DEFAULT, pointerEvents: 'none' }}
                       />
                     )}
                     {/* Subtask row — no hover bg, darkening comes from the
