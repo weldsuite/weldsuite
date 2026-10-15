@@ -8,7 +8,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { Plus, X, Check, Search } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
+import { Plus, X, Search } from 'lucide-react';
 import type { ActiveFilter, FilterConfig } from './types';
 
 interface FilterPillsProps {
@@ -29,6 +36,12 @@ interface FilterPillsProps {
     /** Placeholder of an operator that has not been picked yet. */
     selectCondition?: string;
   };
+}
+
+/** Options (select) and yes/no values are picked from a menu; typed values from a small form. */
+function isMenuValuePicker(config: FilterConfig | undefined): boolean {
+  const type = config?.filterType || 'select';
+  return type !== 'text' && type !== 'number' && type !== 'date';
 }
 
 function getOperatorsForType(
@@ -123,6 +136,14 @@ export function FilterPills({
   const [editingOperatorIndex, setEditingOperatorIndex] = useState<number | null>(null);
   const [textInputValue, setTextInputValue] = useState('');
   const [valueSearchQuery, setValueSearchQuery] = useState('');
+  const valueSearchInputRef = useRef<HTMLInputElement>(null);
+  // The menu focuses itself when it opens; move focus to a searchable value
+  // list's field right after, so typing filters straight away.
+  useEffect(() => {
+    if (editingFilterIndex === null) return;
+    const frame = requestAnimationFrame(() => valueSearchInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [editingFilterIndex]);
 
   // Reset transient menu inputs whenever the field-picker menu closes.
   useEffect(() => {
@@ -300,20 +321,12 @@ export function FilterPills({
       case 'boolean':
         return (
           <>
-            <button
-              onClick={() => onSelect('true')}
-              className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-            >
-              <span>Yes</span>
-              {currentValue === 'true' && <Check className="h-3.5 w-3.5 text-primary" />}
-            </button>
-            <button
-              onClick={() => onSelect('false')}
-              className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-            >
-              <span>No</span>
-              {currentValue === 'false' && <Check className="h-3.5 w-3.5 text-primary" />}
-            </button>
+            <DropdownMenuCheckboxItem checked={currentValue === 'true'} onSelect={() => onSelect('true')}>
+              Yes
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={currentValue === 'false'} onSelect={() => onSelect('false')}>
+              No
+            </DropdownMenuCheckboxItem>
           </>
         );
 
@@ -337,9 +350,12 @@ export function FilterPills({
               <div className="flex items-center gap-1.5 px-3 h-[36px] border-b border-border">
                 <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0 -translate-y-[0.5px]" />
                 <input
-                  autoFocus
+                  ref={valueSearchInputRef}
                   value={valueSearchQuery}
                   onChange={(e) => setValueSearchQuery(e.target.value)}
+                  // Keep typing in the field: the menu would otherwise use the
+                  // keys for type-ahead / arrow navigation.
+                  onKeyDown={(e) => e.stopPropagation()}
                   placeholder="Search..."
                   className="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted-foreground"
                 />
@@ -352,19 +368,16 @@ export function FilterPills({
                 </div>
               ) : (
                 filtered.map((option) => (
-                  <button
+                  <DropdownMenuCheckboxItem
                     key={option.value}
-                    onClick={() => {
+                    checked={currentValue === option.value}
+                    onSelect={() => {
                       onSelect(option.value);
                       setValueSearchQuery('');
                     }}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
                   >
-                    <span>{option.label}</span>
-                    {currentValue === option.value && (
-                      <Check className="h-3.5 w-3.5 text-primary" />
-                    )}
-                  </button>
+                    {option.label}
+                  </DropdownMenuCheckboxItem>
                 ))
               )}
             </div>
@@ -413,14 +426,14 @@ export function FilterPills({
 
             <div className="h-full w-px bg-border" />
 
-            {/* Operator popover */}
-            <Popover
+            {/* Operator menu */}
+            <DropdownMenu
               open={editingOperatorIndex === index}
               onOpenChange={(open) =>
                 setEditingOperatorIndex(open ? index : null)
               }
             >
-              <PopoverTrigger asChild>
+              <DropdownMenuTrigger asChild>
                 <button
                   className={`px-2 h-full hover:bg-muted transition-colors ${
                     filter.operator
@@ -432,29 +445,33 @@ export function FilterPills({
                     ? getOperatorLabel(filter)
                     : (labels?.selectCondition ?? 'Select condition')}
                 </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-auto min-w-28 p-1">
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="min-w-28"
+                // The value menu opens next on the same pill; returning focus to
+                // this trigger would close it again.
+                onCloseAutoFocus={(e) => e.preventDefault()}
+              >
                 {operators.map((op) => (
-                  <button
+                  <DropdownMenuCheckboxItem
                     key={op.value}
-                    onClick={() => updateFilterOperator(index, op.value)}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
+                    checked={filter.operator === op.value}
+                    onSelect={() => updateFilterOperator(index, op.value)}
                   >
-                    <span>{op.label}</span>
-                    {filter.operator === op.value && (
-                      <Check className="h-3.5 w-3.5 text-primary" />
-                    )}
-                  </button>
+                    {op.label}
+                  </DropdownMenuCheckboxItem>
                 ))}
-              </PopoverContent>
-            </Popover>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <div className="h-full w-px bg-border" />
 
-            {/* Value popover */}
-            <Popover
-              open={editingFilterIndex === index}
-              onOpenChange={(open) => {
+            {/* Value picker: a menu for options (select / yes-no), a small
+                form in a popover for typed values (text / number / date). */}
+            {(() => {
+              const valueOpen = editingFilterIndex === index;
+              const onValueOpenChange = (open: boolean) => {
                 setEditingFilterIndex(open ? index : null);
                 if (
                   open &&
@@ -463,9 +480,8 @@ export function FilterPills({
                   setTextInputValue(filter.value || '');
                 }
                 if (!open) setValueSearchQuery('');
-              }}
-            >
-              <PopoverTrigger asChild>
+              };
+              const trigger = (
                 <button className="flex items-center px-2 h-full hover:bg-muted transition-colors">
                   {filter.value ? (
                     <span className="text-foreground">
@@ -477,19 +493,35 @@ export function FilterPills({
                     </span>
                   )}
                 </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                className={cn('w-auto min-w-40', config?.searchable ? 'p-0' : 'p-1')}
-              >
-                {renderValuePicker(
-                  config,
-                  filter.value,
-                  (value) => updateFilterValue(index, value),
-                  getPlaceholder(filter.field),
-                )}
-              </PopoverContent>
-            </Popover>
+              );
+              const picker = renderValuePicker(
+                config,
+                filter.value,
+                (value) => updateFilterValue(index, value),
+                getPlaceholder(filter.field),
+              );
+              if (isMenuValuePicker(config)) {
+                return (
+                  <DropdownMenu open={valueOpen} onOpenChange={onValueOpenChange}>
+                    <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className={cn('min-w-40', config?.searchable && 'p-0')}
+                    >
+                      {picker}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                );
+              }
+              return (
+                <Popover open={valueOpen} onOpenChange={onValueOpenChange}>
+                  <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto min-w-40 p-1">
+                    {picker}
+                  </PopoverContent>
+                </Popover>
+              );
+            })()}
 
             <div className="h-full w-px bg-border" />
 
@@ -505,33 +537,29 @@ export function FilterPills({
       })}
 
       {/* Wizard: field picker (Filter / + button) */}
-      <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
-        <PopoverTrigger asChild>
+      <DropdownMenu open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
+        <DropdownMenuTrigger asChild>
           {filterTrigger}
-        </PopoverTrigger>
-        <PopoverContent
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
           align="start"
           // No close animation: the wizard trigger ("Filter"/"+") moves
-          // when a pill is added; without this override the closing popover
+          // when a pill is added; without this override the closing menu
           // visibly follows the trigger to the right before the operator
-          // popover opens on the new pill.
-          className="w-auto min-w-40 p-1 data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
+          // menu opens on the new pill.
+          className="min-w-40 data-[state=closed]:!animate-none data-[state=closed]:!duration-0"
           // Don't restore focus to the wizard trigger on close — the
-          // operator popover that opens next would lose focus and dismiss
+          // operator menu that opens next would lose focus and dismiss
           // itself.
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           {filterConfigs.map((config) => (
-            <button
-              key={config.field}
-              onClick={() => handlePickField(config.field)}
-              className="w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-            >
+            <DropdownMenuItem key={config.field} onSelect={() => handlePickField(config.field)}>
               {config.label}
-            </button>
+            </DropdownMenuItem>
           ))}
-        </PopoverContent>
-      </Popover>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

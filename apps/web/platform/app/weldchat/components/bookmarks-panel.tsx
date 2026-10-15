@@ -1,9 +1,14 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Bookmark, Check, X } from 'lucide-react';
+import { Bookmark, X } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -119,8 +124,8 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
   const groupByLabel = groupByOptions.find(o => o.value === groupBy)?.label ?? t.weldchat.bookmarksGroupBy.channel;
 
   const groupByMenu = (
-    <Popover>
-      <PopoverTrigger asChild>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
           size="sm"
@@ -128,25 +133,19 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
         >
           {groupByLabel}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-48 p-1">
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48">
         {groupByOptions.map(opt => (
-          <Button
+          <DropdownMenuCheckboxItem
             key={opt.value}
-            type="button"
-            variant="ghost"
-            onClick={() => setGroupBy(opt.value)}
-            className={cn(
-              'w-full flex items-center justify-between px-2 py-1.5 text-sm rounded hover:bg-muted',
-              groupBy === opt.value && 'bg-muted',
-            )}
+            checked={groupBy === opt.value}
+            onSelect={() => setGroupBy(opt.value)}
           >
-            <span>{opt.label}</span>
-            {groupBy === opt.value && <Check className="h-3.5 w-3.5" />}
-          </Button>
+            {opt.label}
+          </DropdownMenuCheckboxItem>
         ))}
-      </PopoverContent>
-    </Popover>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const filteredItems = useMemo(() => {

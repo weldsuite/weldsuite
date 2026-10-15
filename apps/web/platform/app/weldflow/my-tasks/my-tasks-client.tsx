@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -1100,8 +1101,8 @@ export function MyTasksClient({
   const groupByLabel = groupByOptions.find(o => o.value === groupBy)?.label ?? 'Status';
 
   const groupByMenu = (
-    <Popover>
-      <PopoverTrigger asChild>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
           size="sm"
@@ -1109,25 +1110,19 @@ export function MyTasksClient({
         >
           {groupByLabel}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-48 p-1">
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48">
         {groupByOptions.map(opt => (
-          <Button
+          <DropdownMenuCheckboxItem
             key={opt.value}
-            type="button"
-            variant="ghost"
-            onClick={() => setGroupBy(opt.value)}
-            className={cn(
-              'w-full flex items-center justify-between px-2 py-1.5 text-sm rounded hover:bg-muted',
-              groupBy === opt.value && 'bg-muted'
-            )}
+            checked={groupBy === opt.value}
+            onSelect={() => setGroupBy(opt.value)}
           >
-            <span>{opt.label}</span>
-            {groupBy === opt.value && <Check className="h-3.5 w-3.5" />}
-          </Button>
+            {opt.label}
+          </DropdownMenuCheckboxItem>
         ))}
-      </PopoverContent>
-    </Popover>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   // Apply filters

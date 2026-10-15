@@ -5,12 +5,14 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
-import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@weldsuite/ui/components/popover';
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +28,6 @@ import {
   Edit,
   Trash2,
   Users,
-  Check,
   Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -229,8 +230,8 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
   const groupByLabel = groupByOptions.find((o) => o.value === groupBy)?.label ?? 'Status';
 
   const groupByMenu = (
-    <Popover>
-      <PopoverTrigger asChild>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
           size="sm"
@@ -238,25 +239,19 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
         >
           {groupByLabel}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-48 p-1">
-        {groupByOptions.map((opt) => (
-          <Button
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48">
+        {groupByOptions.map(opt => (
+          <DropdownMenuCheckboxItem
             key={opt.value}
-            variant="ghost"
-            type="button"
-            onClick={() => setGroupBy(opt.value)}
-            className={cn(
-              'w-full flex items-center justify-between px-2 py-1.5 text-sm rounded hover:bg-muted',
-              groupBy === opt.value && 'bg-muted'
-            )}
+            checked={groupBy === opt.value}
+            onSelect={() => setGroupBy(opt.value)}
           >
-            <span>{opt.label}</span>
-            {groupBy === opt.value && <Check className="h-3.5 w-3.5" />}
-          </Button>
+            {opt.label}
+          </DropdownMenuCheckboxItem>
         ))}
-      </PopoverContent>
-    </Popover>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const headerColumns: HeaderColumn[] = useMemo(
