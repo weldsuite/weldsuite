@@ -82,6 +82,32 @@ import {
 const TASK_PANEL_WIDTH = 400;
 
 /**
+ * Flatten a subtask tree depth-first, tagging each row with its depth below
+ * the open task so the panel draws it as a tree.
+ */
+function flattenSubtasks(
+  rows: TaskRow[],
+  memberLookup: Map<string, { name: string; avatar?: string }>,
+  depth = 0,
+  out: SubtaskItem[] = [],
+): SubtaskItem[] {
+  for (const s of rows) {
+    const hydrated = s.assigneeId ? memberLookup.get(s.assigneeId) : undefined;
+    out.push({
+      id: s.id,
+      title: s.title,
+      status: s.status,
+      assignee: s.assigneeId
+        ? { id: s.assigneeId, name: hydrated?.name ?? '', avatar: hydrated?.avatar }
+        : null,
+      depth,
+    });
+    if (s.children?.length) flattenSubtasks(s.children, memberLookup, depth + 1, out);
+  }
+  return out;
+}
+
+/**
  * Map the app-api row → the `CrmTask` shape `TaskDetailContent` expects.
  *
  * `memberLookup` lets us hydrate every `assigneeId` with the corresponding
@@ -264,7 +290,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const projectId = apiTask?.projectId ?? null;
 
   const commentsQuery = useTaskComments(id);
-  const subtasksQuery = useTaskSubtasks(id, apiTask ? projectId : undefined);
+  const subtasksQuery = useTaskSubtasks(id, apiTask);
   const ancestorsQuery = useTaskAncestors(apiTask?.parentTaskId);
   const labelsQuery = useProjectLabels(projectId);
   const projectTasksQuery = useProjectTasksForDeps(projectId);
@@ -379,28 +405,11 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     [labelsQuery.data],
   );
 
-  // The whole subtree, depth-first, each row tagged with its depth below
-  // the open task so the panel draws it as a tree.
-  const subtasks: SubtaskItem[] = useMemo(() => {
-    const out: SubtaskItem[] = [];
-    const walk = (rows: TaskRow[], depth: number) => {
-      for (const s of rows) {
-        const hydrated = s.assigneeId ? memberByUserId.get(s.assigneeId) : undefined;
-        out.push({
-          id: s.id,
-          title: s.title,
-          status: s.status,
-          assignee: s.assigneeId
-            ? { id: s.assigneeId, name: hydrated?.name ?? '', avatar: hydrated?.avatar }
-            : null,
-          depth,
-        });
-        if (s.children?.length) walk(s.children, depth + 1);
-      }
-    };
-    walk(subtasksQuery.data ?? [], 0);
-    return out;
-  }, [subtasksQuery.data, memberByUserId]);
+  // The whole subtree, depth-first, so the panel draws it as a tree.
+  const subtasks: SubtaskItem[] = useMemo(
+    () => flattenSubtasks(subtasksQuery.data ?? [], memberByUserId),
+    [subtasksQuery.data, memberByUserId],
+  );
 
   const comments: TaskComment[] = useMemo(
     () => (commentsQuery.data ?? []).map((c) => {

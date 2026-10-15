@@ -94,12 +94,14 @@ export function useTaskComments(taskId: string | null | undefined) {
 }
 
 /**
- * The task's subtasks. With a `projectId` the API also nests every deeper
- * level under `children` (includeSubtasks), so the panel shows the whole
- * subtree; tasks outside a project get their direct children only.
+ * The task's subtasks. In a project the API also nests every deeper level
+ * under `children` (includeSubtasks), so the panel shows the whole subtree;
+ * tasks outside a project get their direct children only. `task` is the
+ * loaded task row, undefined while it is still loading.
  */
-export function useTaskSubtasks(taskId: string | null | undefined, projectId: string | null | undefined) {
+export function useTaskSubtasks(taskId: string | null | undefined, task: TaskRow | undefined) {
   const api = useAppApi();
+  const projectId = task ? (task.projectId ?? null) : undefined;
   return useQuery({
     queryKey: [...taskPanelKeys.subtasks(taskId ?? ''), projectId ?? null],
     queryFn: async () => {

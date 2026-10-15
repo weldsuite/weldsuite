@@ -866,7 +866,9 @@ export function MyTasksClient({
     const topLevel: Task[] = [];
     for (const task of tasks) {
       if (task.parentTaskId && loadedIds.has(task.parentTaskId)) {
-        (byParent[task.parentTaskId] ??= []).push(task);
+        const siblings = byParent[task.parentTaskId] ?? [];
+        siblings.push(task);
+        byParent[task.parentTaskId] = siblings;
       } else if (!task.nestedOnly) {
         topLevel.push(task);
       }
