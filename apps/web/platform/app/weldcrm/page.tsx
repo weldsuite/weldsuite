@@ -205,11 +205,11 @@ const RecordPicker = React.memo(function RecordPicker({
         <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow max-w-full text-left inline-flex items-center gap-1.5 min-w-0">
           {linkedRecord?.name ? (
             <>
-              <Avatar className={cn('h-5 w-5 flex-shrink-0', linkedCompany ? '!rounded-[7px]' : '!rounded-full')}>
+              <Avatar className={cn('h-[18px] w-[18px] flex-shrink-0', linkedCompany ? '!rounded-[6px]' : '!rounded-full')}>
                 {selected?.avatar && (
-                  <AvatarImage src={selected.avatar} alt={linkedRecord.name} className={linkedCompany ? '!rounded-[7px]' : '!rounded-full'} />
+                  <AvatarImage src={selected.avatar} alt={linkedRecord.name} className={linkedCompany ? '!rounded-[6px]' : '!rounded-full'} />
                 )}
-                <AvatarFallback className={cn('text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground', linkedCompany ? '!rounded-[7px]' : '!rounded-full')}>
+                <AvatarFallback className={cn('text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground', linkedCompany ? '!rounded-[6px]' : '!rounded-full')}>
                   {linkedRecord.name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -954,11 +954,11 @@ export default function CrmTasksClient() {
                             const avatar = (
                               <Avatar
                                 key={a.id}
-                                className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+                                className="h-[18px] w-[18px] !rounded-[6px] ring-1 ring-background"
                                 title={multiple ? undefined : a.name}
                               >
-                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
-                                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[6px]" />}
+                                <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                                   {(a.name || '?').charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
@@ -976,7 +976,7 @@ export default function CrmTasksClient() {
                             );
                           })}
                           {resolvedList.length > 3 && (
-                            <div className="relative z-10 w-5 h-5 rounded-[7px] bg-[#dcdce0] dark:bg-accent flex items-center justify-center ring-1 ring-background">
+                            <div className="relative z-10 size-[18px] rounded-[6px] bg-[#dcdce0] dark:bg-accent flex items-center justify-center ring-1 ring-background">
                               <span className="text-[9.5px] font-mono font-medium text-gray-600 dark:text-muted-foreground">
                                 +{resolvedList.length - 3}
                               </span>

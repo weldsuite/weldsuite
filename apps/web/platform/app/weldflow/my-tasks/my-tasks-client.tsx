@@ -1385,11 +1385,11 @@ export function MyTasksClient({
                             const avatar = (
                               <Avatar
                                 key={a.id}
-                                className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+                                className="h-[18px] w-[18px] !rounded-[6px] ring-1 ring-background"
                                 title={multiple ? undefined : a.name}
                               >
-                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
-                                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                                {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[6px]" />}
+                                <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
                                   {(a.name || '?').charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
@@ -1407,7 +1407,7 @@ export function MyTasksClient({
                             );
                           })}
                           {resolvedList.length > 3 && (
-                            <div className="relative z-10 w-5 h-5 rounded-[7px] bg-[#dcdce0] dark:bg-accent flex items-center justify-center ring-1 ring-background">
+                            <div className="relative z-10 size-[18px] rounded-[6px] bg-[#dcdce0] dark:bg-accent flex items-center justify-center ring-1 ring-background">
                               <span className="text-[9.5px] font-mono font-medium text-gray-600 dark:text-muted-foreground">
                                 +{resolvedList.length - 3}
                               </span>
