@@ -19,14 +19,14 @@
  * "send via Cloudflare" code lives in one place.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
-import { sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
+import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 
@@ -343,28 +343,50 @@ export async function sendScheduledNow(
     .map((t) => t.email!)
     .filter(Boolean);
 
-  const result = await sendAndPersist(
-    env,
-    db,
-    workspaceId,
-    userId,
-    message.accountId,
-    {
-      to: toAddresses,
-      cc: ccAddresses.length ? ccAddresses : undefined,
-      bcc: bccAddresses.length ? bccAddresses : undefined,
-      subject: message.subject ?? undefined,
-      body: message.textBody ?? undefined,
-      htmlBody: message.htmlBody ?? undefined,
-      inReplyTo: message.inReplyTo ?? undefined,
-      references: (message.references as string[] | null) ?? undefined,
-      attachments: attachments.length ? attachments : undefined,
-    },
-  );
+  let result: Awaited<ReturnType<typeof sendAndPersist>>;
+  try {
+    result = await sendAndPersist(
+      env,
+      db,
+      workspaceId,
+      userId,
+      message.accountId,
+      {
+        to: toAddresses,
+        cc: ccAddresses.length ? ccAddresses : undefined,
+        bcc: bccAddresses.length ? bccAddresses : undefined,
+        subject: message.subject ?? undefined,
+        body: message.textBody ?? undefined,
+        htmlBody: message.htmlBody ?? undefined,
+        inReplyTo: message.inReplyTo ?? undefined,
+        references: (message.references as string[] | null) ?? undefined,
+        attachments: attachments.length ? attachments : undefined,
+      },
+      { outbound: { source: 'scheduled' } },
+    );
+  } catch (err) {
+    if (err instanceof MailSendError && err.code === 'PARTIALLY_SENT') {
+      // sendAndPersist recorded what went out as its own SENT copy; that is
+      // now the message, so the scheduled row goes.
+      const now = new Date();
+      await db
+        .update(mailMessages)
+        .set({ sendStatus: 'cancelled', scheduledFor: null, triggerRunId: null, deletedAt: now, updatedAt: now })
+        .where(eq(mailMessages.id, messageId));
+    } else {
+      // Nothing went out (a sending limit, a refused recipient, …): put the
+      // message back on its schedule, since its workflow was just terminated.
+      await restoreSchedule(env, workspaceId, userId, db, message);
+    }
+    throw err;
+  }
 
-  // The stored row stays as the canonical SENT copy for this thread;
-  // mark it sent + drop the SCHEDULED label rather than creating a
-  // second row.
+  // The stored row stays as the canonical SENT copy for this thread:
+  // mark it sent + drop the SCHEDULED label, and remove the second copy
+  // sendAndPersist recorded (and its attachment pointers, which point at the
+  // same R2 objects as the scheduled row's).
+  await db.delete(mailAttachments).where(eq(mailAttachments.messageId, result.messageId));
+  await db.delete(mailMessages).where(eq(mailMessages.id, result.messageId));
   const now = new Date();
   const updatedLabels = ((message.labels as string[] | null) ?? []).filter((l) => l !== 'SCHEDULED');
   await db
@@ -380,17 +402,38 @@ export async function sendScheduledNow(
     })
     .where(eq(mailMessages.id, messageId));
 
-  // Bump the daily counter for the originating account — sendAndPersist
-  // already incremented for the new row it created, so don't double-count.
-  // (Send-now reuses the existing scheduled row, but sendAndPersist still
-  // increments — we want the counter to reflect the one delivered email,
-  // not two.)
-  await db
-    .update(mailAccounts)
-    .set({ sentToday: sql`GREATEST(0, ${mailAccounts.sentToday} - 1)`, updatedAt: now })
-    .where(eq(mailAccounts.id, message.accountId));
+  // sendAndPersist already bumped the daily counter once, for the one email
+  // that went out.
 
   return { id: messageId, externalMessageId: result.externalMessageId };
+}
+
+/**
+ * Re-arm a scheduled message whose send-now failed before anything went out:
+ * a fresh workflow instance (the terminated id stays reserved for a while) at
+ * the original time, or a minute from now when that has passed.
+ */
+async function restoreSchedule(
+  env: Env,
+  workspaceId: string,
+  userId: string,
+  db: Database,
+  message: typeof mailMessages.$inferSelect,
+): Promise<void> {
+  if (!env.SEND_SCHEDULED_EMAIL) return;
+  try {
+    const at = new Date(Math.max(message.scheduledFor?.getTime() ?? 0, Date.now() + 60_000));
+    const instance = await env.SEND_SCHEDULED_EMAIL.create({
+      id: `${message.id}-n${Date.now()}`,
+      params: { workspaceId, userId, messageId: message.id, accountId: message.accountId, scheduledFor: at.toISOString() },
+    });
+    await db
+      .update(mailMessages)
+      .set({ scheduledFor: at, triggerRunId: instance.id, updatedAt: new Date() })
+      .where(eq(mailMessages.id, message.id));
+  } catch (err) {
+    console.error('[mail-scheduled] could not restore the schedule after a failed send-now:', err);
+  }
 }
 
 async function validateScheduledAttachments(

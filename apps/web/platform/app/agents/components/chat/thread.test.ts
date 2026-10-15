@@ -19,7 +19,7 @@ const asked = message('a1', 'assistant', 'Got it.', [
 describe('buildThread', () => {
   it('splits a reply into questions, approvals and tool steps', () => {
     const [user, reply] = buildThread([message('u1', 'user', 'Support work'), asked]);
-    expect(user).toEqual({ kind: 'user', id: 'u1', content: 'Support work' });
+    expect(user).toEqual({ kind: 'user', id: 'u1', content: 'Support work', answersQuestion: false });
     expect(reply).toMatchObject({
       kind: 'assistant',
       questions: [{ question, answer: null }],
@@ -34,11 +34,32 @@ describe('buildThread', () => {
   it('pairs a question with the reply that followed it', () => {
     const thread = buildThread([message('u1', 'user', 'Support'), asked, message('u2', 'user', 'Daily')]);
     expect(thread[1]).toMatchObject({ questions: [{ answer: 'Daily' }] });
+    expect(thread[2]).toMatchObject({ kind: 'user', answersQuestion: true });
     expect(openQuestion(thread)).toBeNull();
   });
 
   it('reports the question still waiting for an answer', () => {
     expect(openQuestion(buildThread([message('u1', 'user', 'Support'), asked]))).toEqual(question);
+  });
+
+  it('turns create_routine into a routine card and labels routine posts', () => {
+    const [reply, posted] = buildThread([
+      message('a1', 'assistant', 'Done.', [
+        {
+          toolName: 'create_routine',
+          state: 'result',
+          args: {},
+          result: { ok: true, routineId: 'rtn_1', name: 'Digest', cronExpr: '0 7 * * 1-5', timezone: 'Europe/Amsterdam', nextRunAt: '2026-10-16T05:00:00Z' },
+        },
+      ]),
+      { ...message('a2', 'assistant', '3 overdue'), metadata: { kind: 'routine_result', routineName: 'Digest' } },
+    ]);
+    expect(reply).toMatchObject({
+      steps: [],
+      routines: [{ routineId: 'rtn_1', name: 'Digest', cronExpr: '0 7 * * 1-5', timezone: 'Europe/Amsterdam' }],
+      routineName: null,
+    });
+    expect(posted).toMatchObject({ routineName: 'Digest' });
   });
 
   it('skips system messages and malformed questions', () => {

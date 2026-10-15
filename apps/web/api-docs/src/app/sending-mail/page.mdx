@@ -80,6 +80,33 @@ This is separate from the per-workspace request [rate limit](/authentication#rat
 
 ---
 
+## Sending limits and cold email
+
+WeldMail is for one-to-one business mail. Every send through the API is checked before it goes out, and counted in recipients (to, cc and bcc), not messages. The limits depend on the workspace's age, plan and sending record: a new workspace may reach fewer recipients per message, per hour and per day than an established one, and people who never wrote to the workspace count against a separate, smaller allowance. Replies to someone who wrote to you are throttled the least.
+
+A refused send returns the status below, a `code` that says which limit it was and, when waiting helps, a `Retry-After` header in seconds. `details` repeats the limit and, where there is one, `retryAfter` as an ISO time:
+
+```json {{ title: '429 Too Many Requests' }}
+{
+  "error": {
+    "code": "FIRST_CONTACT_LIMITED",
+    "message": "Limit reached for new recipients who never wrote to you (50 per day).",
+    "details": {
+      "code": "FIRST_CONTACT_LIMITED",
+      "window": "day",
+      "limit": 50,
+      "used": 50,
+      "retryAfter": "2026-10-14T00:00:00.000Z",
+      "suggestWeldReach": true
+    }
+  }
+}
+```
+
+Cold outreach and bulk campaigns do not belong in WeldMail. Use WeldReach, which has its own sending infrastructure, approval and guardrails. A workspace that sends cold or bulk mail through the API can be limited, put on hold or suspended.
+
+---
+
 ## Idempotent sends
 
 Send an `Idempotency-Key` header (up to 64 characters) to make a send safe to retry. A repeat with the same key on the same account does not send again: it returns the first result with `replayed: true`. A replay never fails on the daily limit. A key longer than 64 characters returns `400`.
@@ -146,6 +173,9 @@ Marking mail read or starred, adding labels, moving to the archive, trash or spa
 | 400 | `BAD_REQUEST` | `Idempotency-Key` longer than 64 characters, or an empty upload |
 | 400 | | The request body failed validation, for example no `to`, or neither `body` nor `htmlBody` |
 | 403 | `FORBIDDEN` | The key does not hold `mail_messages:send` by name |
+| 403 | `SENDER_NOT_OWNED` | The workspace may not send from the account's address |
+| 403 | `SENDING_ON_HOLD` | New conversations are paused while WeldSuite reviews the workspace. Replies still go out |
+| 403 | `SENDING_SUSPENDED` | Sending is suspended for the workspace. Contact support |
 | 404 | `NOT_FOUND` | The account, message or draft does not exist or the key cannot open its mailbox |
 | 413 | `EMAIL_TOO_LARGE` | Body and attachments exceed 5 MB |
 | 413 | `FILE_TOO_LARGE` | An upload exceeds 5 MB |
@@ -153,7 +183,15 @@ Marking mail read or starred, adding labels, moving to the archive, trash or spa
 | 422 | `INVALID_RECIPIENTS` | A recipient address is malformed or its domain has no mail server, or a draft has no recipients |
 | 422 | `ATTACHMENT_NOT_IN_STORAGE` | An `attachmentIds` entry is not an upload of this workspace |
 | 422 | `EMPTY_BODY` | The draft being sent has no body |
+| 422 | `TOO_MANY_RECIPIENTS` | The message has more recipients than the workspace may send at once. `details.limit` has the maximum |
+| 422 | `RECIPIENT_SUPPRESSED` | A recipient reported earlier mail from the workspace as spam. `details.recipients` lists them |
 | 429 | `DAILY_LIMIT_REACHED` | The account reached its daily send limit. See `Retry-After` |
+| 429 | `SENDING_LIMITED` | A recipient limit (hour, day or month) is full. See `Retry-After` |
+| 429 | `FIRST_CONTACT_LIMITED` | The allowance for recipients who never wrote to the workspace is full, or a cold-outreach template reached its cap. See `Retry-After` |
+| 429 | `PLATFORM_LIMITED` | Mail to new recipients is paused platform-wide for the day. See `Retry-After` |
+| 429 | `PROVIDER_RATE_LIMITED` | The mail provider is rate-limiting. `Retry-After` is 60 seconds |
+| 502 | `PARTIALLY_SENT` | The send failed halfway. `details.sent` and `details.failed` list who got the message and who did not |
 | 503 | `SEND_BINDING_MISSING`, `STORAGE_BINDING_MISSING`, `WORKSPACE_NOT_CONFIGURED` | Sending or file storage is not available. Retry later or contact support |
+| 503 | `PROVIDER_DAILY_LIMIT` | The mail provider's daily quota is used up. Try again tomorrow |
 
 See [Errors](/errors) for the error envelope.

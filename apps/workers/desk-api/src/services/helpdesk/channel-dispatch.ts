@@ -11,7 +11,8 @@
  *
  * Dispatch is best-effort: every failure is logged, never thrown. The message
  * is already persisted by the time we get here, so a dead external channel must
- * not fail the agent's request.
+ * not fail the agent's request. An email the outbound mail guard refuses is
+ * logged the same way (docs/plans/weldmail-outbound-abuse.md).
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
@@ -19,6 +20,8 @@ import { sendMessage as sendDiscordMessage } from '../../lib/discord';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { guardedSend, OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
+import { warnReplyBlocked, type DeskOutboundContext } from '../../lib/outbound-guard';
 
 // `lib/cloudflare-email` statically imports `cloudflare:email`, a Workers
 // runtime built-in that a node/vitest module graph cannot resolve. Importing it
@@ -58,6 +61,7 @@ export async function dispatchOutbound(
   db: Database,
   conversation: DispatchConversation,
   message: DispatchMessage,
+  outbound: DeskOutboundContext,
 ): Promise<void> {
   if (message.isInternal) return;
 
@@ -69,7 +73,7 @@ export async function dispatchOutbound(
     case 'discord':
       return dispatchDiscord(env, conversation, message);
     case 'email':
-      return dispatchEmail(env, db, conversation, message);
+      return dispatchEmail(env, db, conversation, message, outbound);
     case 'slack':
       return dispatchSlack(db, conversation, message);
     default:
@@ -113,6 +117,7 @@ async function dispatchEmail(
   db: Database,
   conversation: DispatchConversation,
   message: DispatchMessage,
+  outbound: DeskOutboundContext,
 ): Promise<void> {
   const metadata = conversation.metadata;
   const helpdeskEmailAddress = metadata?.helpdeskEmailAddress as string | undefined;
@@ -142,14 +147,31 @@ async function dispatchEmail(
       : `Re: ${conversation.subject}`;
 
     const sendEmail = await loadSendEmail();
-    const result = await sendEmail(env, {
-      from: fromAddress,
-      to: [customerEmail],
-      subject,
-      html: message.contentHtml || undefined,
-      text: message.content,
-      headers,
-    });
+    // An agent answering a customer who wrote in: the guard counts it as a reply.
+    const result = await guardedSend(
+      env,
+      db,
+      {
+        subject: { kind: 'workspace', clerkOrgId: outbound.clerkOrgId },
+        source: 'desk',
+        kind: 'reply',
+        from: fromAddress,
+        to: [customerEmail],
+        subjectLine: subject,
+        text: message.content,
+        html: message.contentHtml,
+      },
+      () =>
+        sendEmail(env, {
+          from: fromAddress,
+          to: [customerEmail],
+          subject,
+          html: message.contentHtml || undefined,
+          text: message.content,
+          headers,
+        }),
+      { waitUntil: outbound.waitUntil },
+    );
 
     const sentMessageId = result.messageId;
 
@@ -178,6 +200,10 @@ async function dispatchEmail(
       })
       .where(eq(schema.helpdeskConversations.id, conversation.id));
   } catch (err) {
+    if (err instanceof OutboundDeniedError) {
+      warnReplyBlocked('ChannelDispatch:Email', conversation.id, err);
+      return;
+    }
     console.error('[ChannelDispatch:Email] Failed to send:', err);
   }
 }

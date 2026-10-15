@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client/client';
 import { useAppApi } from '@/lib/api/use-app-api';
 
 // =============================================================================
@@ -83,6 +84,29 @@ export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
   });
 }
 
+/**
+ * One conversation by id (e.g. from a notification link). Resolves to null
+ * when it is gone or not the current user's.
+ */
+export function useWeldAgentConversation(conversationId: string | null) {
+  const { weldAgent } = useAppApi();
+  return useQuery({
+    queryKey: [...weldagentKeys.conversations(), 'one', conversationId ?? ''] as const,
+    queryFn: async (): Promise<ConversationSummary | null> => {
+      if (!conversationId) return null;
+      try {
+        const result = await weldAgent.getConversation(conversationId);
+        return (result.data ?? null) as unknown as ConversationSummary | null;
+      } catch (err) {
+        if (isApiError(err) && err.status === 404) return null;
+        throw err;
+      }
+    },
+    enabled: !!conversationId,
+    retry: false,
+  });
+}
+
 export function useWeldAgentConversationMessages(
   conversationId: string | null,
   limit = 100,
@@ -128,6 +152,8 @@ export function useCompleteConversationTurn() {
       agentId?: string;
       /** When true, block until the assistant reply is ready. Default: cloud async. */
       wait?: boolean;
+      /** The user's IANA timezone, so the agent schedules in local time. */
+      timezone?: string;
     }) => {
       const { conversationId, ...body } = params;
       const result = await weldAgent.completeTurn(conversationId, body);

@@ -1,6 +1,7 @@
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
@@ -231,6 +232,14 @@ export interface Env {
   /** Cloudflare `[[send_email]]` binding for outbound mail. */
   SEND_EMAIL?: SendEmail;
   // (WeldMail's MAIL_INBOUND_WORKER_NAME moved to mail-api.)
+
+  // --- Outbound mail guard (@weldsuite/mail-domain/outbound) ---------------
+  /** mail-api's `OutboundLedger` Durable Object (`script_name` binding). Unset: the guard skips the ledger. */
+  OUTBOUND_LEDGER?: OutboundGuardEnv['OUTBOUND_LEDGER'];
+  /** mail-api's `OutboundPlatformBudget` Durable Object. */
+  OUTBOUND_PLATFORM?: OutboundGuardEnv['OUTBOUND_PLATFORM'];
+  /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
+  OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
 
   // (The GitHub App integration — GITHUB_APP_*, GITHUB_FULL_SYNC,
   // GITHUB_PROJECT_SYNC — moved to connect-api with workflow-github;

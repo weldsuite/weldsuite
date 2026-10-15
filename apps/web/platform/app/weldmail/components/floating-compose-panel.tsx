@@ -32,6 +32,7 @@ import { buildComposeBodies, type ComposeBodies } from '@/app/weldmail/lib/compo
 import { replaceBodyKeepingSignature, userWrittenText } from '@/app/weldmail/lib/signature';
 import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
 import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
+import { useNotifySendError } from '@/app/weldmail/lib/use-notify-send-error';
 
 const getAgentRight = minimizedDockRight;
 
@@ -168,6 +169,7 @@ function FloatingComposeOpen({
   besideStack: boolean;
 }>) {
   const { t } = useI18n();
+  const notifySendError = useNotifySendError();
   const handleAiCreditsError = useAiCreditsToast();
   const router = useRouter();
   const params = useParams();
@@ -455,7 +457,7 @@ function FloatingComposeOpen({
         toast.success(t.mail.floatingCompose.emailScheduledFor.replace('{date}', format(sendAt, 'PPp')));
         await finishSent();
       } else {
-        toast.error(result.error || t.mail.floatingCompose.failedToScheduleEmail);
+        notifySendError(result, t.mail.floatingCompose.failedToScheduleEmail);
       }
     } catch {
       toast.error(t.mail.floatingCompose.failedToScheduleEmail);
@@ -495,7 +497,7 @@ function FloatingComposeOpen({
         toast.success(t.mail.floatingCompose.emailSentSuccessfully);
         await finishSent();
       } else {
-        toast.error(result.error || t.mail.floatingCompose.failedToSendEmail);
+        notifySendError(result, t.mail.floatingCompose.failedToSendEmail);
       }
     } catch {
       toast.error(t.mail.floatingCompose.failedToSendEmail);

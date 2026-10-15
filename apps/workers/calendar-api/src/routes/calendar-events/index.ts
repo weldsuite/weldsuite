@@ -106,16 +106,26 @@ const attendeeSchema = z.object({
   role: optionalText,
 });
 
+/**
+ * Every attendee is mailed an invitation from WeldSuite's own address, so an
+ * event carries at most this many (the outbound mail guard counts them too;
+ * docs/plans/weldmail-outbound-abuse.md). WeldMeet invitations allow 50.
+ */
+const MAX_ATTENDEES = 100;
+
 /** One entry per email address (case-insensitive) so nobody is invited twice. */
-const attendeesSchema = z.array(attendeeSchema).transform((list) => {
-  const seen = new Set<string>();
-  return list.filter((a) => {
-    const key = a.email.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+const attendeesSchema = z
+  .array(attendeeSchema)
+  .max(MAX_ATTENDEES, `An event can have at most ${MAX_ATTENDEES} attendees`)
+  .transform((list) => {
+    const seen = new Set<string>();
+    return list.filter((a) => {
+      const key = a.email.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   });
-});
 
 /** True for an absolute http(s) URL. `new URL` alone also accepts `javascript:`, `data:` etc. */
 function isHttpUrl(value: string): boolean {
@@ -288,18 +298,21 @@ function mailEventFromRow(row: CalendarEventRow): CalendarMailEvent {
 
 /**
  * Queue attendee mail. Workspace members are looked up first: they get a link
- * into the authenticated calendar, external guests (no account) do not.
+ * into the authenticated calendar, external guests (no account) do not. The
+ * batch is counted against the workspace by the outbound guard (see
+ * `sendCalendarEventEmails`); the kit's `workspaceId` is the Clerk org id.
  */
-function queueMail(c: EventContext, opts: SendOptions): void {
+function queueMail(c: EventContext, opts: Omit<SendOptions, 'outbound'>): void {
   if (!workerTransport(c.env) || opts.attendees.length === 0) return;
   const db = c.get('tenantDb');
+  const outbound = { db, clerkOrgId: c.get('workspaceId') };
   c.executionCtx.waitUntil(
     (async () => {
       const [memberEmails, workspaceLanguage] = await Promise.all([
         getMemberEmails(db, opts.attendees.map((a) => a.email ?? '')),
         getWorkspaceLanguage(db),
       ]);
-      await sendCalendarEventEmails(c.env, { ...opts, memberEmails, workspaceLanguage });
+      await sendCalendarEventEmails(c.env, { ...opts, memberEmails, workspaceLanguage, outbound });
     })(),
   );
 }

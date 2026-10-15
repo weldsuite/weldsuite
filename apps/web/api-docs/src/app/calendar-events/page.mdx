@@ -19,7 +19,7 @@ Events are time-bound occurrences on a WeldCalendar calendar. Events support rec
   <Property name="endTime" type="string">ISO 8601 end time (e.g. `2024-12-15T10:00:00Z`).</Property>
   <Property name="isAllDay" type="boolean">Whether the event spans the entire day.</Property>
   <Property name="location" type="string">Physical or virtual location (max 500 characters).</Property>
-  <Property name="attendees" type="array">Array of attendee user IDs.</Property>
+  <Property name="attendees" type="array">Array of attendee user IDs, at most 100.</Property>
   <Property name="recurrenceRule" type="string">RRULE string defining the recurrence pattern (e.g. `FREQ=WEEKLY;BYDAY=MO,WE,FR`).</Property>
   <Property name="recurrenceId" type="string">For recurring event instances, the ISO 8601 date of the original occurrence this instance modifies.</Property>
   <Property name="createdAt" type="timestamp">When the event was created.</Property>
@@ -104,7 +104,7 @@ Events are time-bound occurrences on a WeldCalendar calendar. Events support rec
       <Property name="description" type="string">Description.</Property>
       <Property name="isAllDay" type="boolean">All-day event flag.</Property>
       <Property name="location" type="string">Location (max 500 characters).</Property>
-      <Property name="attendees" type="array">Array of attendee user IDs.</Property>
+      <Property name="attendees" type="array">Array of attendee user IDs, at most 100.</Property>
       <Property name="recurrenceRule" type="string">RRULE string for recurring events.</Property>
       <Property name="recurrenceId" type="string">Original occurrence ISO 8601 date (for instance overrides).</Property>
     </Properties>

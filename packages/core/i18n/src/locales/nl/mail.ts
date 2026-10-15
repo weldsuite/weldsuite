@@ -1186,6 +1186,69 @@ export const mail = {
       snoozeNextMonth: 'Volgende maand',
     },
 
+    // Uitgaande-mailbewaking: waarom een verzending is geweigerd, de banner zolang
+    // verzenden beperkt is (docs/plans/weldmail-outbound-abuse.md).
+    sending: {
+      errors: {
+        sendingLimited: {
+          hour: 'Dit adres heeft de limiet per uur bereikt.',
+          day: 'Je hebt je dagelijkse verzendlimiet bereikt.',
+          month: 'Je werkruimte heeft de maandelijkse verzendlimiet bereikt.',
+          generic: 'Je hebt een verzendlimiet bereikt.',
+        },
+        limitLine: {
+          hour: 'Limiet: {limit} ontvangers per uur.',
+          day: 'Limiet: {limit} ontvangers per dag.',
+          month: 'Limiet: {limit} ontvangers per maand.',
+          message: 'Limiet: {limit} ontvangers per bericht.',
+          newContactsDay: 'Limiet: {limit} nieuwe contacten per dag.',
+        },
+        retryAt: 'Je kunt weer verzenden {when}.',
+        retryNow: 'Je kunt het zo opnieuw proberen.',
+        contactSupportLimit: 'Neem contact op met support als je een hogere limiet nodig hebt.',
+        contactSupport: 'Neem contact op met support als je denkt dat dit niet klopt.',
+        firstContactLimited: {
+          default: 'Je hebt de limiet van vandaag bereikt voor mailen naar mensen die jou niet eerst hebben gemaild.',
+          coldOutreachTemplate: 'Berichten zoals dit zijn beperkt wanneer ze naar veel mensen gaan die jou niet eerst hebben gemaild.',
+          sharedDomain: 'Adressen op weldmail.com hebben een lage dagelijkse limiet voor nieuwe contacten. Koppel je eigen domein om meer te kunnen verzenden.',
+          repliesNote: 'Antwoorden aan mensen die jou hebben gemaild worden niet beperkt.',
+        },
+        platformLimited: 'WeldMail zit vandaag aan de maximale verzendcapaciteit, dus mail naar nieuwe contacten staat even stil. Antwoorden gaan gewoon door.',
+        onHold: 'Nieuwe gesprekken staan stil terwijl we het verzenden van je werkruimte bekijken. Je kunt nog wel antwoorden op berichten die je hebt ontvangen.',
+        suspended: 'Verzenden is opgeschort voor je werkruimte. Neem contact op met support om het te laten herstellen.',
+        senderNotOwned: 'Je kunt niet verzenden vanaf dit adres. Het hoort niet bij je werkruimte.',
+        tooManyRecipients: 'Dit bericht heeft te veel ontvangers. Verdeel het over meerdere berichten.',
+        recipientSuppressed: 'Sommige ontvangers willen geen mail van je werkruimte ontvangen. Haal ze weg en verzend opnieuw.',
+        recipientSuppressedNamed: 'Deze ontvangers willen geen mail van je werkruimte ontvangen: {recipients}. Haal ze weg en verzend opnieuw.',
+        providerRateLimited: 'Onze mailprovider vertraagt het verzenden even. Probeer het zo opnieuw.',
+        providerDailyLimit: 'Verzenden is tijdelijk niet beschikbaar. We zijn op de hoogte gebracht, probeer het later opnieuw.',
+        partiallySent: 'Het bericht is aangekomen bij {sent} maar niet bij {failed}.',
+        partiallySentHelp: 'Het staat in Verzonden. Haal de mensen die het al hebben weg voordat je opnieuw verzendt, anders krijgen ze het twee keer.',
+        dailyLimitReached: 'Deze mailbox heeft de dagelijkse verzendlimiet bereikt.',
+        senderDomainNotVerified: 'Het domein van dit adres is nog niet geverifieerd. Controleer de DNS-records in WeldHost of verzend vanaf een ander adres.',
+        invalidRecipients: 'Een of meer e-mailadressen van ontvangers zijn ongeldig.',
+        invalidRecipientsNamed: 'Deze e-mailadressen kunnen niet worden gebruikt: {recipients}.',
+        emailTooLarge: 'Deze e-mail is te groot om te verzenden. Verwijder bijlagen of maak het bericht korter.',
+        andMore: 'en nog {count}',
+      },
+      weldreach: {
+        notice: 'WeldMail is bedoeld voor één-op-één e-mail. Gebruik WeldReach voor outreach-campagnes naar mensen die je nog niet kennen.',
+        action: 'Toegang tot WeldReach aanvragen',
+        askAdmin: 'Een beheerder van de werkruimte kan toegang aanvragen in de App Store.',
+      },
+      banner: {
+        restrictedTitle: 'Verzenden is beperkt',
+        restricted: 'Je werkruimte heeft voorlopig lagere verzendlimieten.',
+        holdTitle: 'Nieuwe gesprekken staan stil',
+        hold: 'Nieuwe gesprekken staan stil terwijl we het verzenden van je werkruimte bekijken.',
+        suspendedTitle: 'Verzenden is opgeschort',
+        suspended: 'Verzenden is opgeschort voor je werkruimte.',
+        repliesStillWork: 'Je kunt nog wel antwoorden op berichten die je hebt ontvangen.',
+        contactSupport: 'Neem contact op met support als je denkt dat dit niet klopt.',
+        viewLimits: 'Verzendlimieten bekijken',
+      },
+    },
+
     // Shared strings
     shared: {
       messageNotFound: 'Bericht niet gevonden',

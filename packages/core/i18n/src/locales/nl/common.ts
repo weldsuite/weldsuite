@@ -714,6 +714,22 @@ export const common = {
           notActive: 'Niet actief — reageert alleen in de chat',
           activateHint: 'Laat deze agent zijn routines uitvoeren en op gebeurtenissen reageren',
           pauseHint: 'Routines en triggers stoppen; de chat blijft werken',
+          scheduled: '{count} gepland',
+          nextRun: 'Volgende keer: {time}',
+        },
+        routineNotice: {
+          scheduled: '"{name}" ingepland',
+          next: 'Volgende keer: {time}',
+          delivery: 'Elke uitvoering zet het resultaat in een eigen chat voor je, met een melding.',
+          manage: 'Beheren',
+          postedBy: 'Van routine "{name}"',
+          postedByRoutine: 'Van een routine',
+          schedule: {
+            hourly: 'Elk uur',
+            daily: 'Elke dag om {time}',
+            weekdays: 'Werkdagen om {time}',
+            weekly: 'Elke {day} om {time}',
+          },
         },
         chat: {
           newChat: 'Nieuwe chat',

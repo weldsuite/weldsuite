@@ -83,6 +83,7 @@ import { cn } from '@/lib/utils';
 import { format, isToday, isYesterday } from 'date-fns';
 import { toast } from 'sonner';
 import { mailApi } from '../lib/api-client';
+import { useNotifySendError } from '../lib/use-notify-send-error';
 import { IsolatedHtmlContent } from '../components/isolated-html-content';
 import { ComposeAttachButton } from '../components/compose-attach-button';
 import {
@@ -2022,6 +2023,7 @@ export function InboxClient({
   activeAccount
 }: Readonly<InboxClientProps>) {
   const { t } = useI18n();
+  const notifySendError = useNotifySendError();
   const st = useTranslations();
   // Set breadcrumbs for inbox
   useBreadcrumbs([
@@ -2540,7 +2542,7 @@ export function InboxClient({
         setScheduledTime(null);
         setShowCcBcc(false);
       } else {
-        toast.error(result.error || t.mail.inboxPage.failedToSendEmail);
+        notifySendError(result, t.mail.inboxPage.failedToSendEmail);
       }
     } catch (error) {
       console.error('Failed to send email:', error);
@@ -3478,7 +3480,7 @@ export function InboxClient({
                             setIsReplying(false);
                             setComposeData({ to: '', subject: '', body: '' });
                           } else {
-                            toast.error(result.error || t.mail.inboxPage.failedToSendReply);
+                            notifySendError(result, t.mail.inboxPage.failedToSendReply);
                           }
                         } catch (error) {
                           console.error('Failed to send reply:', error);
@@ -4062,7 +4064,7 @@ export function InboxClient({
                         setShowPopupReply(false);
                         setPopupComposeData({ to: '', subject: '', body: '' });
                       } else {
-                        toast.error(result.error || t.mail.inboxPage.failedToSendEmail);
+                        notifySendError(result, t.mail.inboxPage.failedToSendEmail);
                       }
                     } catch (error) {
                       console.error('Failed to send email:', error);

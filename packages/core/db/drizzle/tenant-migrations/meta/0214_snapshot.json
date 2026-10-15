@@ -1,5 +1,5 @@
 {
-  "id": "f0d04ed1-7e4e-4a65-be3d-dfc7067fbc3d",
+  "id": "d41d3da5-0a9b-4bd9-a045-5dfc003e7b2a",
   "prevId": "67588f48-bb29-47d9-9194-f7f199ff8a7c",
   "version": "7",
   "dialect": "postgresql",
@@ -8118,12 +8118,6 @@
           "primaryKey": false,
           "notNull": false,
           "default": false
-        },
-        "br_fiscal": {
-          "name": "br_fiscal",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "tin_match_status": {
           "name": "tin_match_status",
@@ -20552,6 +20546,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "delivery_status": {
+          "name": "delivery_status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_updated_at": {
+          "name": "delivery_updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivery_detail": {
+          "name": "delivery_detail",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "source": {
           "name": "source",
           "type": "varchar(20)",
@@ -22387,6 +22399,187 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.mail_correspondents": {
+      "name": "mail_correspondents",
+      "schema": "",
+      "columns": {
+        "email": {
+          "name": "email",
+          "type": "varchar(320)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "first_inbound_at": {
+          "name": "first_inbound_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_inbound_at": {
+          "name": "last_inbound_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "inbound_count": {
+          "name": "inbound_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "first_outbound_at": {
+          "name": "first_outbound_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_outbound_at": {
+          "name": "last_outbound_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outbound_count": {
+          "name": "outbound_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "replied_after_first_contact": {
+          "name": "replied_after_first_contact",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "mail_correspondents_first_outbound_idx": {
+          "name": "mail_correspondents_first_outbound_idx",
+          "columns": [
+            {
+              "expression": "first_outbound_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.mail_suppressions": {
+      "name": "mail_suppressions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(30)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender_email": {
+          "name": "sender_email",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "details": {
+          "name": "details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "mail_suppressions_reason_idx": {
+          "name": "mail_suppressions_reason_idx",
+          "columns": [
+            {
+              "expression": "reason",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "mail_suppressions_email_unique": {
+          "name": "mail_suppressions_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -45933,12 +46126,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "fiscal_credentials_encrypted": {
-          "name": "fiscal_credentials_encrypted",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "ssn_encrypted": {
           "name": "ssn_encrypted",
           "type": "text",
@@ -47026,24 +47213,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "ncm": {
-          "name": "ncm",
-          "type": "varchar(8)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cfop": {
-          "name": "cfop",
-          "type": "varchar(4)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "fiscal_data": {
-          "name": "fiscal_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "tax_included": {
           "name": "tax_included",
           "type": "boolean",
@@ -47426,12 +47595,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "fiscal_data": {
-          "name": "fiscal_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "payment_link": {
           "name": "payment_link",
           "type": "varchar(500)",
@@ -47743,24 +47906,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "ncm": {
-          "name": "ncm",
-          "type": "varchar(8)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cfop": {
-          "name": "cfop",
-          "type": "varchar(4)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "fiscal_data": {
-          "name": "fiscal_data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "class_id": {
           "name": "class_id",
           "type": "varchar(30)",
@@ -48066,12 +48211,6 @@
         },
         "delivery_address": {
           "name": "delivery_address",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "fiscal_data": {
-          "name": "fiscal_data",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
@@ -53176,419 +53315,6 @@
         "acct_tax_returns_status_idx": {
           "name": "acct_tax_returns_status_idx",
           "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.fiscal_documents": {
-      "name": "fiscal_documents",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_type": {
-          "name": "source_type",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "varchar(10)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider_ref": {
-          "name": "provider_ref",
-          "type": "varchar(60)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "environment": {
-          "name": "environment",
-          "type": "varchar(12)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'processing'"
-        },
-        "status_message": {
-          "name": "status_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "number": {
-          "name": "number",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "series": {
-          "name": "series",
-          "type": "varchar(5)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "access_key": {
-          "name": "access_key",
-          "type": "varchar(44)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verification_code": {
-          "name": "verification_code",
-          "type": "varchar(60)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "protocol": {
-          "name": "protocol",
-          "type": "varchar(60)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "authorized_at": {
-          "name": "authorized_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cancelled_at": {
-          "name": "cancelled_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cancel_reason": {
-          "name": "cancel_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "xml_url": {
-          "name": "xml_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pdf_url": {
-          "name": "pdf_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public_url": {
-          "name": "public_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "request_payload": {
-          "name": "request_payload",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "response_payload": {
-          "name": "response_payload",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "fiscal_documents_entity_idx": {
-          "name": "fiscal_documents_entity_idx",
-          "columns": [
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "fiscal_documents_source_idx": {
-          "name": "fiscal_documents_source_idx",
-          "columns": [
-            {
-              "expression": "source_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "fiscal_documents_provider_ref_idx": {
-          "name": "fiscal_documents_provider_ref_idx",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "provider_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "fiscal_documents_access_key_idx": {
-          "name": "fiscal_documents_access_key_idx",
-          "columns": [
-            {
-              "expression": "access_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.received_fiscal_documents": {
-      "name": "received_fiscal_documents",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "varchar(10)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'nfe'"
-        },
-        "access_key": {
-          "name": "access_key",
-          "type": "varchar(44)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issuer_tax_id": {
-          "name": "issuer_tax_id",
-          "type": "varchar(14)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "issuer_name": {
-          "name": "issuer_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "number": {
-          "name": "number",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "series": {
-          "name": "series",
-          "type": "varchar(5)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "issue_date": {
-          "name": "issue_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "total": {
-          "name": "total",
-          "type": "numeric(18, 2)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(15)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'new'"
-        },
-        "manifestation": {
-          "name": "manifestation",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "name": "source",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "xml": {
-          "name": "xml",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "parsed": {
-          "name": "parsed",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "bill_id": {
-          "name": "bill_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "received_fiscal_documents_key_idx": {
-          "name": "received_fiscal_documents_key_idx",
-          "columns": [
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "access_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "received_fiscal_documents_status_idx": {
-          "name": "received_fiscal_documents_status_idx",
-          "columns": [
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "status",
               "isExpression": false,

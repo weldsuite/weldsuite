@@ -11,7 +11,9 @@ import {
 } from '@weldsuite/db/lib/desk';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { sendEmail } from '@weldsuite/worker-email';
+import { guardedSend, OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
 import type { Env } from '../types';
+import { warnReplyBlocked, type DeskOutboundContext } from './outbound-guard';
 
 function replySubject(subject: string | null | undefined): string {
   const trimmed = (subject ?? '').trim() || 'Support';
@@ -23,9 +25,12 @@ export async function sendDeskEmailReply(
   db: Database,
   conversation: DeskConversation,
   message: DeskMessage,
+  outbound: DeskOutboundContext,
 ): Promise<void> {
   if (conversation.channel !== 'email' || message.kind !== 'message') return;
-  if (!conversation.email || !message.body?.trim()) return;
+  const recipient = conversation.email;
+  const body = message.body;
+  if (!recipient || !body?.trim()) return;
 
   const thread = await getDeskEmailReplyContext(db, conversation.id);
   const from = thread?.helpdeskAddress;
@@ -38,15 +43,42 @@ export async function sendDeskEmailReply(
 
   const inReplyTo = thread.lastEmailMessageId ?? undefined;
   const references = thread.references ?? [];
+  const subject = replySubject(thread.subject ?? conversation.title);
 
-  const result = await sendEmail(env, {
-    from,
-    to: [conversation.email],
-    subject: replySubject(thread.subject ?? conversation.title),
-    text: message.body,
-    inReplyTo,
-    references: references.length > 0 ? references : undefined,
-  });
+  let result: Awaited<ReturnType<typeof sendEmail>>;
+  try {
+    // An agent answering a customer who wrote in: the guard counts it as a reply.
+    result = await guardedSend(
+      env,
+      db,
+      {
+        subject: { kind: 'workspace', clerkOrgId: outbound.clerkOrgId },
+        source: 'desk',
+        kind: 'reply',
+        from,
+        to: [recipient],
+        subjectLine: subject,
+        text: body,
+      },
+      () =>
+        sendEmail(env, {
+          from,
+          to: [recipient],
+          subject,
+          text: body,
+          inReplyTo,
+          references: references.length > 0 ? references : undefined,
+        }),
+      { waitUntil: outbound.waitUntil },
+    );
+  } catch (err) {
+    // A refusal is logged, like any other failed send here: the reply is already stored.
+    if (err instanceof OutboundDeniedError) {
+      warnReplyBlocked('desk-email', conversation.id, err);
+      return;
+    }
+    throw err;
+  }
 
   if (result.messageId) {
     await stampDeskMessageEmailId(db, message.id, result.messageId);

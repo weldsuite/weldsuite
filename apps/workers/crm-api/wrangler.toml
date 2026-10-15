@@ -71,6 +71,30 @@ bucket_name = "weldsuite-storage"
 [[send_email]]
 name = "SEND_EMAIL"
 
+# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md). The sequence
+# send_email step (ExecuteSequenceWorkflow) calls it. Every send is checked
+# against the workspace's OutboundLedger, a Durable Object hosted by mail-api
+# and bound here by name.
+# OUTBOUND_BACKSTOP is the per-sender burst limit the guard falls back on when
+# the ledger can't be reached; its namespace is shared with the other sending
+# workers on purpose.
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
 # CRM sequence execution — Cloudflare Workflow hosted in THIS worker (class
 # re-exported from src/index.ts, @weldsuite/crm-domain). New name (-v3):
 # app-api keeps `execute-sequence-v2*` while its in-flight instances drain.
@@ -117,6 +141,25 @@ bucket_name = "weldsuite-storage-test"
 [[env.test.send_email]]
 name = "SEND_EMAIL"
 
+# Outbound mail guard (test): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
 [[env.test.workflows]]
 name = "execute-sequence-v3-test"
 binding = "EXECUTE_SEQUENCE"
@@ -162,6 +205,25 @@ bucket_name = "weldsuite-storage"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
+
+# Outbound mail guard (production): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
 
 # CRM sequence execution — hosted in this worker, no script_name. New name
 # (-v3): app-api's `execute-sequence-v2` keeps draining.

@@ -51,6 +51,12 @@
 #     (missed-call notifications and meeting invitations, @weldsuite/emails)
 #   PUBLIC_APP_URL (optional): base URL for links in notification mail
 #
+# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): every batch of
+# meeting invitations is checked against the workspace's OutboundLedger (source
+# `meet`). OUTBOUND_LEDGER / OUTBOUND_PLATFORM are mail-api's Durable Objects
+# bound by name; OUTBOUND_BACKSTOP is the burst limit used when the ledger is
+# unreachable.
+#
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
 # EMAIL_TRANSPORT="cloudflare" sends through Cloudflare Email Service; "resend"
 # is the rollback until Resend is removed (docs/plans/system-email-cloudflare.md).
@@ -101,6 +107,28 @@ remote = true
 
 [[send_email]]
 name = "SEND_EMAIL"
+
+# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): every batch of
+# meeting invitations is checked against the workspace's OutboundLedger, a
+# Durable Object hosted by mail-api and bound here by name. OUTBOUND_BACKSTOP is
+# the per-sender burst limit the guard falls back on when the ledger can't be
+# reached; its namespace is shared with the other sending workers on purpose.
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
 
 # R2 bucket for files, documents and generated avatars (participant-resolver.ts).
 [[r2_buckets]]
@@ -166,6 +194,25 @@ EMAIL_TRANSPORT = "cloudflare"
 name = "SEND_EMAIL"
 # Only system mail goes through this binding, always from this address.
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Outbound mail guard (test): mail-api's Durable Objects and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -240,6 +287,25 @@ EMAIL_TRANSPORT = "cloudflare"
 name = "SEND_EMAIL"
 # Only system mail goes through this binding, always from this address.
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Outbound mail guard (production): mail-api's Durable Objects and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

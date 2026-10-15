@@ -658,15 +658,28 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node .github/scripts/release-queue-consumers.mjs "${{ matrix.worker }}" "${{ needs.prepare.outputs.cf_env }}"
+      # A worker that binds a Durable Object class hosted by another module
+      # worker (`script_name`) cannot deploy until that worker exports the class,
+      # and this matrix deploys them side by side. So when a PR adds a class
+      # (e.g. mail-api's OutboundLedger), its binders wait for the host instead
+      # of failing: retry only on "not exported by script" [code: 10061].
       - name: Deploy ${{ matrix.worker }}
         working-directory: apps/workers/${{ matrix.worker }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          set -o pipefail
           TARGET="${{ needs.prepare.outputs.cf_env }}"
-          echo "=== Deploying ${{ matrix.worker }} to $TARGET ==="
-          pnpm "deploy:${TARGET}"
+          LOG="$RUNNER_TEMP/deploy.log"
+          for attempt in $(seq 1 30); do
+            echo "=== Deploying ${{ matrix.worker }} to $TARGET (attempt $attempt) ==="
+            if pnpm "deploy:${TARGET}" 2>&1 | tee "$LOG"; then exit 0; fi
+            grep -q 'code: 10061' "$LOG" || exit 1
+            echo "A Durable Object host worker has not deployed its class yet; retrying in 30s."
+            sleep 30
+          done
+          exit 1
   workers:
     name: Deploy ${{ matrix.worker }}
     needs: [prepare, migrations, d1-migrations, module-workers]

@@ -40,6 +40,9 @@ export interface MailEmailAddress {
 }
 
 // Clicked link interface (stored as JSONB)
+/** Latest Cloudflare Email Sending event for a SENT copy. */
+export type MailDeliveryStatus = 'delivered' | 'deferred' | 'bounced' | 'complained' | 'rejected' | 'failed';
+
 export interface MailClickedLink {
   url: string;
   clickedAt: string;
@@ -130,6 +133,13 @@ export const mailMessages = pgTable('mail_messages', {
   unsnoozedEarly: boolean('unsnoozed_early'),
   resnoozedAt: timestamp('resnoozed_at'),
   unsnoozeTriggerRunId: varchar('unsnooze_trigger_run_id', { length: 255 }),
+
+  // Delivery of a SENT copy, from Cloudflare Email Sending events
+  // (docs/plans/weldmail-outbound-abuse.md). Null until an event arrives.
+  deliveryStatus: varchar('delivery_status', { length: 20 }).$type<MailDeliveryStatus>(),
+  deliveryUpdatedAt: timestamp('delivery_updated_at'),
+  /** SMTP response or bounce reason for the latest event, at most 500 characters. */
+  deliveryDetail: varchar('delivery_detail', { length: 500 }),
 
   // Source
   source: varchar('source', { length: 20 }), // 'inbox' | 'sent' | 'composed'

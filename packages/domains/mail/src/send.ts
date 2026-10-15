@@ -20,19 +20,40 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import * as cfEmail from '@weldsuite/worker-email';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { buildRfc5322 } from '@weldsuite/email/core/mime';
+import { ProviderRefusedError, TransientProviderError } from '@weldsuite/email';
+import type { MailDeliveryStatus } from '@weldsuite/db/schema/mail-messages';
+import type {
+  OutboundDenialCode,
+  OutboundKind,
+  OutboundSource,
+} from '@weldsuite/app-api-client/schemas/outbound-mail';
 import { escapeHtml, htmlToText, looksLikeHtml, plainTextBody } from './text';
 import { validateRecipients, type RecipientValidationEnv } from './recipient-validation';
 import { upsertMailContacts, type MailContactsEnv } from './contacts';
 import { principalHasAccess, principalIsAdmin, toPrincipal, type MailCaller } from './access';
 import { isSenderDomainVerified } from './accounts';
 import { getDraft, softDeleteDraft } from './drafts';
+import {
+  OutboundDeniedError,
+  checkOutbound,
+  commitOutbound,
+  releaseOutbound,
+  tripPlatformBreaker,
+  type OutboundGuardEnv,
+  type OutboundReservation,
+} from './outbound/guard';
 
 /**
  * The bindings the send helpers read: the Cloudflare send binding
- * (@weldsuite/worker-email), the MX-lookup cache, and the R2 bucket for
- * attachments and contact avatars. Any worker Env with them fits.
+ * (@weldsuite/worker-email), the MX-lookup cache, the R2 bucket for
+ * attachments and contact avatars, and the outbound guard's Durable Objects
+ * (docs/plans/weldmail-outbound-abuse.md). Any worker Env with them fits.
  */
-export interface MailSendEnv extends cfEmail.WorkerEmailEnv, RecipientValidationEnv, MailContactsEnv {}
+export interface MailSendEnv
+  extends cfEmail.WorkerEmailEnv,
+    RecipientValidationEnv,
+    MailContactsEnv,
+    OutboundGuardEnv {}
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 
@@ -52,7 +73,14 @@ export class MailSendError extends Error {
       | 'SEND_BINDING_MISSING'
       | 'DAILY_LIMIT_REACHED'
       | 'SENDER_DOMAIN_NOT_VERIFIED'
-      | 'DRAFT_NOT_FOUND',
+      | 'DRAFT_NOT_FOUND'
+      // The outbound guard refused (details: OutboundDenialDetails).
+      | OutboundDenialCode
+      // Cloudflare refused: its rate limit (retry in a minute), its daily quota.
+      | 'PROVIDER_RATE_LIMITED'
+      | 'PROVIDER_DAILY_LIMIT'
+      // Some recipients got it before the send failed (details: { sent, failed, messageId }).
+      | 'PARTIALLY_SENT',
     message: string,
     public readonly details?: unknown,
   ) {
@@ -148,6 +176,12 @@ export interface SendOptions {
    * unverified domain fails SPF/DMARC. The public API sets it.
    */
   requireVerifiedDomain?: boolean;
+  /**
+   * How the outbound guard labels this send. `source` defaults to `compose`
+   * (`reply` / `forward` for those helpers); `kind` is worked out from the
+   * thread when left out. `workspaceId` (master id) saves a lookup.
+   */
+  outbound?: { source?: OutboundSource; kind?: OutboundKind; workspaceId?: string | null };
 }
 
 export interface InlineAttachment {
@@ -214,7 +248,11 @@ export function utcDayStart(now = new Date()): Date {
   return start;
 }
 
-/** Messages the account sent since UTC midnight, deleted ones included. */
+/**
+ * Messages the account sent since UTC midnight, deleted ones included.
+ * Scheduled rows are stored as SENT copies up front; they count once they
+ * actually went out (`sendStatus` 'sent'), not while scheduled, cancelled or failed.
+ */
 export async function countSentToday(db: Database, accountId: string, now = new Date()): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -223,6 +261,7 @@ export async function countSentToday(db: Database, accountId: string, now = new 
       and(
         eq(mailMessages.accountId, accountId),
         eq(mailMessages.source, 'sent'),
+        or(isNull(mailMessages.sendStatus), eq(mailMessages.sendStatus, 'sent')),
         sql`${mailMessages.sentDate} >= ${utcDayStart(now)}`,
       ),
     );
@@ -251,6 +290,76 @@ async function assertSendPolicy(db: Database, account: MailAccountRow, opts: Sen
         resetsAt: new Date(utcDayStart().getTime() + 24 * 60 * 60 * 1000).toISOString(),
       });
     }
+  }
+}
+
+/**
+ * `reply` only when answering a message someone sent to this mailbox. A
+ * follow-up on the mailbox's own sent mail ("just bumping this") starts no
+ * new relationship but isn't a reply either: it counts as a new conversation.
+ */
+async function outboundKindOf(db: Database, accountId: string, data: SendComposeInput): Promise<OutboundKind> {
+  if (!data.inReplyTo) return 'new_thread';
+  const [parent] = await db
+    .select({ source: mailMessages.source })
+    .from(mailMessages)
+    .where(and(eq(mailMessages.accountId, accountId), eq(mailMessages.messageId, data.inReplyTo)))
+    .limit(1);
+  return parent && parent.source !== 'sent' ? 'reply' : 'new_thread';
+}
+
+/** Run the outbound guard; its refusals become MailSendErrors with the same code. */
+async function reserveOutbound(
+  env: MailSendEnv,
+  db: Database,
+  orgId: string,
+  account: MailAccountRow,
+  data: SendComposeInput,
+  body: { html: string | undefined; text: string | undefined },
+  opts: SendOptions | undefined,
+): Promise<OutboundReservation> {
+  try {
+    return await checkOutbound(env, db, {
+      subject: { kind: 'workspace', clerkOrgId: orgId, workspaceId: opts?.outbound?.workspaceId ?? null },
+      source: opts?.outbound?.source ?? 'compose',
+      kind: opts?.outbound?.kind ?? (await outboundKindOf(db, account.id, data)),
+      from: account.email,
+      to: data.to,
+      cc: data.cc,
+      bcc: data.bcc,
+      subjectLine: data.subject,
+      text: body.text,
+      html: body.html,
+      attachments: data.attachments?.map((a) => ({ filename: a.filename, contentType: a.contentType })),
+      senderDailyCap: account.dailySendLimit,
+    });
+  } catch (err) {
+    if (err instanceof OutboundDeniedError) throw new MailSendError(err.code, err.message, err.details);
+    throw err;
+  }
+}
+
+/** Cloudflare's named refusals as MailSendErrors; anything else is rethrown as it is. */
+async function transmitFailure(env: MailSendEnv, err: unknown): Promise<unknown> {
+  if (!(err instanceof ProviderRefusedError)) return err;
+  switch (err.refusal) {
+    case 'rate_limited':
+      return new MailSendError('PROVIDER_RATE_LIMITED', 'Outbound mail is being rate-limited. Try again in a minute.', {
+        retryAfter: new Date(Date.now() + 60_000).toISOString(),
+      });
+    case 'daily_limit':
+      await tripPlatformBreaker(env, 'Cloudflare refused a send with E_DAILY_LIMIT_EXCEEDED.');
+      return new MailSendError('PROVIDER_DAILY_LIMIT', 'Outbound mail is unavailable for the rest of the day. Try again later.');
+    case 'sender_not_allowed':
+      return new MailSendError(
+        'SENDER_DOMAIN_NOT_VERIFIED',
+        "This account's domain is not set up for sending.",
+      );
+    case 'recipient_suppressed':
+      return new MailSendError('RECIPIENT_SUPPRESSED', 'A recipient cannot be emailed: earlier mail to it bounced or was reported as spam.', {
+        code: 'RECIPIENT_SUPPRESSED',
+        recipients: [err.recipient],
+      });
   }
 }
 
@@ -332,6 +441,8 @@ interface SentCopyInput {
   textBody: string | undefined;
   attachmentCount: number;
   now: Date;
+  /** Known at send time: a partial send, or recipients Cloudflare skipped. */
+  delivery?: { status: MailDeliveryStatus; detail: string };
 }
 
 /**
@@ -344,7 +455,7 @@ async function persistSentCopy(
   data: SendComposeInput,
   copy: SentCopyInput,
 ): Promise<SendResult | null> {
-  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, textBody, attachmentCount, now } = copy;
+  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, textBody, attachmentCount, now, delivery } = copy;
   const textPreview = (textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
   try {
     await db.insert(mailMessages).values({
@@ -371,6 +482,9 @@ async function persistSentCopy(
       idempotencyKey: data.idempotencyKey,
       hasAttachments: attachmentCount > 0,
       attachmentCount,
+      ...(delivery
+        ? { deliveryStatus: delivery.status, deliveryDetail: delivery.detail.slice(0, 500), deliveryUpdatedAt: now }
+        : {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -507,46 +621,31 @@ export async function sendAndPersist(
   // ---- Opt-in policies (public API): verified sender, daily limit ------
   await assertSendPolicy(db, account, opts);
 
-  // Sanitize the HTML once for both the transmitted and stored copies. Covers
-  // reply/forward too (they funnel through here), so a forwarded message can't
-  // re-emit script from quoted inbound HTML, and shared-mailbox composers can't
-  // store XSS for the next reader. Inbound mail is also sanitized at ingest.
-  // A client that put its editor HTML in `body` still gets a real HTML part,
-  // and the text/plain part is always tag-free (see ./text).
-  const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
-  const htmlBody = sanitizeEmailHtml(rawHtml) || undefined;
-  const textBody = plainTextBody(data.body, htmlBody);
+  const body = prepareBody(data);
+  await assertValidRecipients(env, data, opts?.dryRun);
 
-  // ---- Recipient validation (format + MX) ------------------------------
-  // Dry-run keeps the format check but skips the network MX lookup.
-  const check = await validateRecipients(data.to, data.cc, data.bcc, env, {
-    skipMx: opts?.dryRun,
-  });
-  if (!check.ok) {
-    throw new MailSendError('INVALID_RECIPIENTS', 'One or more recipient addresses are invalid', {
-      invalidFormat: check.invalidFormat,
-      unreachableDomains: check.unreachableDomains,
-    });
-  }
+  // ---- Outbound guard: sender, limits, cold-email screening ------------
+  // (docs/plans/weldmail-outbound-abuse.md). Dry-run sends never reach
+  // Cloudflare, so they are not counted.
+  const reservation = opts?.dryRun ? null : await reserveOutbound(env, db, orgId, account, data, body, opts);
 
   // ---- Attachment resolution (R2) --------------------------------------
   const extraAttachments = opts?.extraAttachments ?? [];
-  const resolvedAttachments = await resolveAttachments(
-    env,
-    orgId,
-    data,
-    extraAttachments.reduce((total, att) => total + att.content.byteLength, 0),
-  );
+  const resolvedAttachments = await resolveAttachmentsFor(env, orgId, data, extraAttachments, reservation);
 
   // ---- Send via Cloudflare ---------------------------------------------
-  const sendResult = await transmitEmail(
+  const { result: sendResult, partial } = await transmitGuarded(
     env,
     account,
     data,
-    { html: htmlBody, text: textBody },
+    body,
     [...resolvedAttachments, ...extraAttachments],
     opts?.dryRun,
+    reservation,
   );
+  if (reservation) {
+    await commitOutbound(env, db, reservation, { sentRecipients: partial?.sent, waitUntil: opts?.waitUntil });
+  }
 
   const externalMessageId = sendResult.messageId;
   const smtpMessageId = toSmtpMessageId(externalMessageId);
@@ -562,10 +661,11 @@ export async function sendAndPersist(
     smtpMessageId,
     externalMessageId,
     threadId,
-    htmlBody,
-    textBody,
+    htmlBody: body.html,
+    textBody: body.text,
     attachmentCount: resolvedAttachments.length + extraAttachments.length,
     now,
+    delivery: deliveryNote(partial, sendResult.suppressedRecipients ?? []),
   });
   if (replayed) return replayed;
 
@@ -584,6 +684,14 @@ export async function sendAndPersist(
   // /reset can't find (they carry no test marker).
   if (!opts?.dryRun) await upsertRecipientContacts(env, db, orgId, data, opts?.waitUntil);
 
+  if (partial) {
+    throw new MailSendError(
+      'PARTIALLY_SENT',
+      `Sent to ${partial.sent.length} of ${partial.sent.length + partial.failed.length} recipients.`,
+      { sent: partial.sent, failed: partial.failed, messageId },
+    );
+  }
+
   return {
     messageId,
     smtpMessageId,
@@ -592,6 +700,100 @@ export async function sendAndPersist(
     subject: data.subject || '(No subject)',
     pendingVerification: sendResult.pendingVerification ?? false,
   };
+}
+
+/**
+ * Sanitize the HTML once for both the transmitted and stored copies. Covers
+ * reply/forward too (they funnel through here), so a forwarded message can't
+ * re-emit script from quoted inbound HTML, and shared-mailbox composers can't
+ * store XSS for the next reader. Inbound mail is also sanitized at ingest.
+ * A client that put its editor HTML in `body` still gets a real HTML part,
+ * and the text/plain part is always tag-free (see ./text).
+ */
+function prepareBody(data: SendComposeInput): { html: string | undefined; text: string | undefined } {
+  const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
+  const html = sanitizeEmailHtml(rawHtml) || undefined;
+  return { html, text: plainTextBody(data.body, html) };
+}
+
+/** Recipient validation (format + MX). Dry-run keeps the format check but skips the network MX lookup. */
+async function assertValidRecipients(env: MailSendEnv, data: SendComposeInput, dryRun: boolean | undefined): Promise<void> {
+  const check = await validateRecipients(data.to, data.cc, data.bcc, env, { skipMx: dryRun });
+  if (check.ok) return;
+  throw new MailSendError('INVALID_RECIPIENTS', 'One or more recipient addresses are invalid', {
+    invalidFormat: check.invalidFormat,
+    unreachableDomains: check.unreachableDomains,
+  });
+}
+
+/** Resolve the uploaded attachments; give the reservation back when that fails. */
+async function resolveAttachmentsFor(
+  env: MailSendEnv,
+  orgId: string,
+  data: SendComposeInput,
+  extraAttachments: InlineAttachment[],
+  reservation: OutboundReservation | null,
+): Promise<ResolvedAttachment[]> {
+  try {
+    return await resolveAttachments(
+      env,
+      orgId,
+      data,
+      extraAttachments.reduce((total, att) => total + att.content.byteLength, 0),
+    );
+  } catch (err) {
+    if (reservation) await releaseOutbound(env, reservation);
+    throw err;
+  }
+}
+
+interface PartialSend {
+  sent: string[];
+  failed: string[];
+}
+
+/**
+ * Hand the message to Cloudflare. A send that failed halfway (some recipients
+ * already have it) comes back as `partial` so its copy is recorded; any other
+ * failure gives the reservation back and becomes a MailSendError where
+ * Cloudflare named the reason.
+ */
+async function transmitGuarded(
+  env: MailSendEnv,
+  account: MailAccountRow,
+  data: SendComposeInput,
+  body: { html: string | undefined; text: string | undefined },
+  attachments: InlineAttachment[],
+  dryRun: boolean | undefined,
+  reservation: OutboundReservation | null,
+): Promise<{ result: TransmitResult; partial: PartialSend | null }> {
+  try {
+    return { result: await transmitEmail(env, account, data, body, attachments, dryRun), partial: null };
+  } catch (err) {
+    const sent = err instanceof TransientProviderError ? err.sentRecipients : [];
+    if (!(err instanceof TransientProviderError) || sent.length === 0 || !err.messageId) {
+      if (reservation) await releaseOutbound(env, reservation);
+      throw await transmitFailure(env, err);
+    }
+    if (err instanceof ProviderRefusedError && err.refusal === 'daily_limit') {
+      await tripPlatformBreaker(env, 'Cloudflare refused a send with E_DAILY_LIMIT_EXCEEDED.');
+    }
+    const sentSet = new Set(sent.map((r) => r.toLowerCase()));
+    const everyone = [...data.to, ...(data.cc ?? []), ...(data.bcc ?? [])];
+    return {
+      result: { messageId: err.messageId, pendingVerification: false },
+      partial: { sent, failed: everyone.filter((r) => !sentSet.has(r.toLowerCase())) },
+    };
+  }
+}
+
+/** What the SENT copy should say about delivery when it is known at send time. */
+function deliveryNote(partial: PartialSend | null, suppressed: string[]): SentCopyInput['delivery'] {
+  if (partial) return { status: 'failed', detail: `Not sent to: ${partial.failed.join(', ')}` };
+  if (suppressed.length > 0) {
+    return { status: 'rejected', detail: `Skipped, on the suppression list: ${suppressed.join(', ')}` };
+  }
+  return undefined;
 }
 
 function tooLarge(): MailSendError {
@@ -874,9 +1076,38 @@ export async function forwardAndPersist(
       attachments: data.attachments,
       idempotencyKey: data.idempotencyKey,
     },
-    { ...opts, extraAttachments },
+    {
+      ...opts,
+      extraAttachments,
+      outbound: { ...opts?.outbound, source: opts?.outbound?.source ?? 'forward', kind: 'forward' },
+    },
   );
   return { ...result, forwardedFrom: originalMessageId };
+}
+
+/**
+ * Who a reply goes to: the original sender, and with reply-all everyone who was
+ * on the original To/Cc lines — Cc recipients stay on Cc — minus this mailbox,
+ * which is already the sender.
+ */
+function replyRecipients(
+  original: OriginalMessage,
+  mailbox: string,
+  replyAll: boolean,
+): { to: string[]; cc: string[] } {
+  const originalFrom = original.from as { email?: string; name?: string } | null;
+  const to: string[] = originalFrom?.email ? [originalFrom.email] : [];
+  const cc: string[] = [];
+  if (!replyAll) return { to, cc };
+  const isNew = (email: string | undefined): email is string =>
+    !!email && email !== mailbox && !to.includes(email) && !cc.includes(email);
+  for (const addr of (original.to as { email?: string }[] | null) ?? []) {
+    if (isNew(addr.email)) to.push(addr.email);
+  }
+  for (const addr of (original.cc as { email?: string }[] | null) ?? []) {
+    if (isNew(addr.email)) cc.push(addr.email);
+  }
+  return { to, cc };
 }
 
 /**
@@ -908,23 +1139,7 @@ export async function replyAndPersist(
     .limit(1);
   if (!account) throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
 
-  const originalFrom = original.from as { email?: string; name?: string } | null;
-  const toAddresses: string[] = [];
-  if (originalFrom?.email) toAddresses.push(originalFrom.email);
-  // Reply-all keeps everyone who was on the original To/Cc lines — Cc
-  // recipients stay on Cc — minus this mailbox, which is already the sender.
-  const ccAddresses: string[] = [];
-  if (data.replyAll) {
-    const isNew = (email: string | undefined): email is string =>
-      !!email && email !== account.email && !toAddresses.includes(email) && !ccAddresses.includes(email);
-    for (const addr of (original.to as { email?: string }[] | null) ?? []) {
-      if (isNew(addr.email)) toAddresses.push(addr.email);
-    }
-    for (const addr of (original.cc as { email?: string }[] | null) ?? []) {
-      if (isNew(addr.email)) ccAddresses.push(addr.email);
-    }
-  }
-
+  const { to: toAddresses, cc: ccAddresses } = replyRecipients(original, account.email, !!data.replyAll);
   const originalSmtpId = original.messageId;
   const existingRefs = (original.references as string[]) || [];
   const references = [...existingRefs, originalSmtpId].filter(Boolean);
@@ -946,7 +1161,15 @@ export async function replyAndPersist(
       attachments: data.attachments,
       idempotencyKey: data.idempotencyKey,
     },
-    opts,
+    {
+      ...opts,
+      outbound: {
+        ...opts?.outbound,
+        source: opts?.outbound?.source ?? 'reply',
+        // Following up on the mailbox's own sent mail is not answering anyone.
+        kind: original.source === 'sent' ? 'new_thread' : 'reply',
+      },
+    },
   );
   return { ...result, repliedTo: originalMessageId };
 }

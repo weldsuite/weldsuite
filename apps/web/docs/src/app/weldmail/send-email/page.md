@@ -43,7 +43,7 @@ The original message is quoted in your reply automatically.
 4. Attach files with the paperclip if needed.
 5. Click **Send**.
 
-Drafts save automatically if you navigate away before sending.
+Drafts save automatically if you navigate away before sending. If WeldMail cannot send the message, for example because you reached a [sending limit](/weldmail/sending-limits), it stays open so nothing is lost.
 
 ---
 
@@ -69,5 +69,6 @@ Scheduled messages appear under **Scheduled** in the sidebar until they go out.
 
 ## Next steps
 
+- [Sending limits](/weldmail/sending-limits)
 - [Connect an email account](/weldmail/connect-account)
 - [WeldMail overview](/weldmail)

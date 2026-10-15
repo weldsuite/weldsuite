@@ -43,6 +43,8 @@ describe('resolveAgentTools', () => {
     expect(tools.map((t) => t.id)).toEqual([
       'agent.save_setup',
       'agent.ask_user',
+      'agent.list_routines',
+      'agent.update_routine',
       'agent.save_skill',
       'agent.remember',
       'agent.create_routine',

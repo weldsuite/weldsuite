@@ -89,6 +89,7 @@ import {
 } from '@/hooks/queries/use-mail-queries';
 import { isSystemLabel } from '../lib/label-config';
 import { buildComposeBodies } from '../lib/compose-body';
+import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
 import { SignaturePicker, useComposeSignature } from './compose-signature';
 import { saveMailAttachment } from '../lib/download-attachment';
@@ -1329,6 +1330,7 @@ function inlineSignature(isReplying: boolean, isForwarding: boolean, round: numb
 
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
   const { t } = useI18n();
+  const notifySendError = useNotifySendError();
   const router = useRouter();
   const pathname = usePathname();
   const archiveThreadMutation = useArchiveThread();
@@ -1657,7 +1659,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         addOptimisticMessage(textContent, composeData.to, htmlContent);
         resetCompose();
       } else {
-        toast.error(result.error || t.mail.messageDetail.failedToSendReply);
+        notifySendError(result, t.mail.messageDetail.failedToSendReply);
       }
     } catch {
       toast.error(t.mail.messageDetail.failedToSendReply);
@@ -1696,7 +1698,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         addOptimisticMessage(textContent || `Forwarded: ${message.subject}`, composeData.to, htmlContent || undefined);
         resetCompose();
       } else {
-        toast.error(result.error || t.mail.messageDetail.failedToForwardEmail);
+        notifySendError(result, t.mail.messageDetail.failedToForwardEmail);
       }
     } catch {
       toast.error(t.mail.messageDetail.failedToForwardEmail);
