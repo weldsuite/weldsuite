@@ -1917,6 +1917,19 @@ function findAncestorContinuations(
 /** Whether the guide column at `depth` draws a line through a row. */
 type AncestorContinuation = { depth: number; show: boolean };
 
+// Subtask tree geometry. Level 0 is the root row; each level indents by
+// TREE_INDENT. A row's guide runs down the centre of its parent's checkbox
+// and turns into the row with a rounded elbow that stops TREE_ELBOW_GAP
+// short of the row's own checkbox.
+const TREE_CHECKBOX = 14;
+const TREE_INDENT = 20;
+const TREE_LEFT = 4;
+const TREE_ELBOW_RADIUS = 6;
+const TREE_ELBOW_GAP = 3;
+const treeCheckboxLeft = (level: number) => TREE_LEFT + level * TREE_INDENT;
+/** x of the guide for rows at `level`: the centre of the level-above checkbox. */
+const treeGuideX = (level: number) => treeCheckboxLeft(level - 1) + Math.floor(TREE_CHECKBOX / 2);
+
 /** Per-row guide-line data for the subtask tree (see the render comment for what each array means). */
 function computeSubtaskTreeGuides(subtasks: SubtaskItem[]): {
   nextSiblingAt: number[];
@@ -2029,18 +2042,19 @@ export function SubtasksSection({
       {/* Root row — the task whose children fill the list. Shown only when
           there ARE subtasks, so deep-level children's col-0 elbows visually
           thread back to THIS row (their real parent) instead of to the
-          `parentTask` breadcrumb above it (which is the grandparent). The
-          layout MIRRORS the subtask-row layout (18px connector column +
-          content with marginLeft -5 and padding-left 9) so the checkbox
-          lines up horizontally with every subtask checkbox and the col-0
-          tree guide stays in its own column. The connector column carries
-          only the BOTTOM-HALF descending trunk — there's no elbow because
-          this row is the root of the tree, nothing above it to connect to. */}
+          `parentTask` breadcrumb above it (which is the grandparent). It is
+          level 0 of the tree geometry (treeCheckboxLeft / treeGuideX), and
+          carries only a trunk down from its checkbox — no elbow, since
+          nothing sits above the root. */}
       {effectiveRoot && effectiveSubtasks.length > 0 && (
         <div
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', position: 'relative' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `5px 4px 5px ${treeCheckboxLeft(0)}px`, position: 'relative' }}
           className={cn('group/root-task rounded-md', effectiveRoot.id !== currentTaskId && 'cursor-pointer')}
         >
+          {/* Trunk from the root checkbox down into the first row's guide */}
+          <div
+            style={{ position: 'absolute', left: treeGuideX(1), top: `calc(50% + ${TREE_CHECKBOX / 2}px)`, bottom: 0, width: 1, backgroundColor: 'var(--color-border)', pointerEvents: 'none' }}
+          />
           {effectiveRoot.id !== currentTaskId && (
             <button
               type="button"
@@ -2118,6 +2132,11 @@ export function SubtasksSection({
                 const lowerDark = nextIsActive || nextIsHovered;
                 const DARK = 'color-mix(in srgb, var(--color-border), var(--color-foreground) 20%)';
                 const DEFAULT = 'var(--color-border)';
+                // Rows sit one level below the root row (level 0), also when
+                // there's no root row, so first-level rows keep their guide.
+                const level = depth + 1;
+                const checkboxLeft = treeCheckboxLeft(level);
+                const guideX = treeGuideX(level);
                 return (
                   <div
                     key={subtask.id}
@@ -2125,72 +2144,52 @@ export function SubtasksSection({
                     onMouseLeave={() => setHoveredIndex(null)}
                     className="flex overflow-hidden max-w-full relative"
                   >
-                    {/* Descending trunk — parent→first-child connector. Sits
-                        at col d+1 (which lands inside the content area in
-                        the flex layout, so it has to be absolutely
-                        positioned rather than laid out as a column). Runs
-                        from this row's middle down to its bottom where the
-                        child row below picks it up with its own upper
-                        vertical. */}
-                    {descendToChild && (
+                    {/* Tree guides, all measured from the checkbox they
+                        hang from: a row at level L (root row = level 0) has
+                        its checkbox at x = treeCheckboxLeft(L), and its guide
+                        runs down the centre of its parent's checkbox. Lines
+                        are absolutely positioned behind the row content. */}
+                    {continuations.map(({ depth: ancestorDepth, show }) => show && (
                       <div
-                        style={{
-                          position: 'absolute',
-                          left: (depth + 1) * 18 + 6,
-                          top: 'calc(50% + 2px)',
-                          bottom: 0,
-                          width: 1,
-                          backgroundColor: DEFAULT,
-                          zIndex: 0,
-                          pointerEvents: 'none',
-                        }}
+                        key={ancestorDepth}
+                        style={{ position: 'absolute', left: treeGuideX(ancestorDepth + 1), top: 0, bottom: 0, width: 1, backgroundColor: DEFAULT, pointerEvents: 'none' }}
+                      />
+                    ))}
+                    {/* Upper guide into the elbow — the very first row has
+                        nothing above it when there's no root row. */}
+                    {(index > 0 || !!effectiveRoot) && (
+                      <div
+                        style={{ position: 'absolute', left: guideX, top: 0, height: `calc(50% - ${TREE_ELBOW_RADIUS}px)`, width: 1, backgroundColor: upperDark ? DARK : DEFAULT, pointerEvents: 'none' }}
                       />
                     )}
-                    {/* Ancestor guide columns — one per depth level above
-                        this row. Each draws a continuous vertical line only
-                        if its ancestor has more siblings below, so the tree
-                        trunk "threads through" descendants back to its later
-                        siblings. */}
-                    {continuations.map(({ depth, show }) => (
-                      <div key={depth} style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                        {show && (
-                          <div
-                            style={{ position: 'absolute', left: 6, top: 0, bottom: 0, width: 1, backgroundColor: DEFAULT }}
-                          />
-                        )}
-                      </div>
-                    ))}
-                    {/* Tree connector with rounded corner */}
-                    <div style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                      {/* Vertical line above the curve — nothing sits above the very first
-                          row when the list has no root row, so skip it there. */}
-                      {(index > 0 || !!effectiveRoot) && (
-                        <div
-                          style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
-                        />
-                      )}
-                      {/* Rounded corner */}
+                    {/* Rounded elbow, ending just short of this row's checkbox */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: guideX,
+                        top: `calc(50% - ${TREE_ELBOW_RADIUS}px)`,
+                        width: checkboxLeft - TREE_ELBOW_GAP - guideX,
+                        height: TREE_ELBOW_RADIUS + 0.5,
+                        boxSizing: 'border-box',
+                        borderLeft: `1px solid ${upperDark ? DARK : DEFAULT}`,
+                        borderBottom: `1px solid ${upperDark ? DARK : DEFAULT}`,
+                        borderBottomLeftRadius: TREE_ELBOW_RADIUS,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    {/* Guide on down to the next sibling — darkens when that
+                        sibling is active OR hovered, so it leads into its elbow. */}
+                    {!isLast && (
                       <div
-                        style={{
-                          position: 'absolute',
-                          left: 6,
-                          top: 'calc(50% - 6px)',
-                          width: 8,
-                          height: 8,
-                          borderLeft: `1px solid ${upperDark ? DARK : DEFAULT}`,
-                          borderBottom: `1px solid ${upperDark ? DARK : DEFAULT}`,
-                          borderRadius: '0 0 0 6px',
-                        }}
+                        style={{ position: 'absolute', left: guideX, top: '50%', bottom: 0, width: 1, backgroundColor: lowerDark ? DARK : DEFAULT, pointerEvents: 'none' }}
                       />
-                      {/* Vertical line below the curve — darkens when the
-                          next sibling is active OR hovered, so the line that
-                          leads down into the next row's curve follows along. */}
-                      {!isLast && (
-                        <div
-                          style={{ position: 'absolute', left: 6, top: 'calc(50% + 2px)', bottom: 0, width: 1, backgroundColor: lowerDark ? DARK : DEFAULT }}
-                        />
-                      )}
-                    </div>
+                    )}
+                    {/* Trunk from this row's checkbox down to its first child */}
+                    {descendToChild && (
+                      <div
+                        style={{ position: 'absolute', left: treeGuideX(level + 1), top: `calc(50% + ${TREE_CHECKBOX / 2}px)`, bottom: 0, width: 1, backgroundColor: DEFAULT, pointerEvents: 'none' }}
+                      />
+                    )}
                     {/* Subtask row — no hover bg, darkening comes from the
                         connector lines and checkbox border instead. */}
                     <div
@@ -2198,7 +2197,7 @@ export function SubtasksSection({
                       tabIndex={0}
                       onClick={() => onNavigateToTask?.(subtask.id)}
                       onKeyDown={activateOnKey(() => onNavigateToTask?.(subtask.id))}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px 5px 9px', marginLeft: -5, overflow: 'hidden', flex: 1, minWidth: 0, cursor: 'pointer' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `5px 4px 5px ${checkboxLeft}px`, overflow: 'hidden', flex: 1, minWidth: 0, cursor: 'pointer' }}
                       className="group/subtask rounded-md relative"
                     >
                       <div>
