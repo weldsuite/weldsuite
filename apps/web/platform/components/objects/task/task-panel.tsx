@@ -194,7 +194,7 @@ function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: 
         checked={status === 'done'}
         onCheckedChange={onToggle}
         className={cn(
-          'h-5 w-5 flex-shrink-0 !rounded-[6px]',
+          'size-[18px] flex-shrink-0 !rounded-[6px]',
           status === 'done' && 'data-[state=checked]:!bg-green-600 data-[state=checked]:!border-green-600',
         )}
       />
