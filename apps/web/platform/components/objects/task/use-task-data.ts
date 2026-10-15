@@ -21,6 +21,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
 import type { CreateTaskInput, UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
+import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
 
 /**
  * Broad invalidation predicate — bumps every React-Query cache entry whose
@@ -56,6 +57,7 @@ const taskPanelKeys = {
   task: (taskId: string) => [...taskPanelKeys.all, 'task', taskId] as const,
   comments: (taskId: string) => [...taskPanelKeys.all, 'comments', taskId] as const,
   subtasks: (taskId: string) => [...taskPanelKeys.all, 'subtasks', taskId] as const,
+  ancestors: (parentTaskId: string) => [...taskPanelKeys.all, 'ancestors', parentTaskId] as const,
   labels: (projectId: string | null | undefined) =>
     [...taskPanelKeys.all, 'labels', projectId ?? '__workspace__'] as const,
   projectTasks: (projectId: string) =>
@@ -91,16 +93,56 @@ export function useTaskComments(taskId: string | null | undefined) {
   });
 }
 
-export function useTaskSubtasks(taskId: string | null | undefined) {
+/**
+ * The task's subtasks. With a `projectId` the API also nests every deeper
+ * level under `children` (includeSubtasks), so the panel shows the whole
+ * subtree; tasks outside a project get their direct children only.
+ */
+export function useTaskSubtasks(taskId: string | null | undefined, projectId: string | null | undefined) {
   const api = useAppApi();
   return useQuery({
-    queryKey: taskPanelKeys.subtasks(taskId ?? ''),
+    queryKey: [...taskPanelKeys.subtasks(taskId ?? ''), projectId ?? null],
     queryFn: async () => {
-      const res = await api.tasks.list({ parentTaskId: taskId!, limit: 100 });
+      const res = await api.tasks.list({
+        parentTaskId: taskId!,
+        limit: 100,
+        ...(projectId ? { projectId, includeSubtasks: true } : {}),
+      });
       return res.data ?? [];
     },
-    enabled: !!taskId,
+    // `projectId` is undefined until the task itself has loaded; null means
+    // "no project". Waiting avoids fetching the flat list and then the tree.
+    enabled: !!taskId && projectId !== undefined,
     staleTime: 10_000,
+  });
+}
+
+/** Deepest parent-chain walk; matches the API's MAX_SUBTASK_DEPTH. */
+const MAX_ANCESTOR_DEPTH = 10;
+
+/**
+ * The chain of tasks above a subtask, root first (last = `parentTaskId`
+ * itself), so the panel can show which main task a subtask belongs to.
+ */
+export function useTaskAncestors(parentTaskId: string | null | undefined) {
+  const api = useAppApi();
+  return useQuery({
+    queryKey: taskPanelKeys.ancestors(parentTaskId ?? ''),
+    queryFn: async () => {
+      const chain: TaskRow[] = [];
+      const seen = new Set<string>();
+      let nextId: string | null | undefined = parentTaskId;
+      while (nextId && !seen.has(nextId) && chain.length < MAX_ANCESTOR_DEPTH) {
+        seen.add(nextId);
+        const res = await api.tasks.get(nextId);
+        if (!res.data) break;
+        chain.unshift(res.data);
+        nextId = res.data.parentTaskId;
+      }
+      return chain;
+    },
+    enabled: !!parentTaskId,
+    staleTime: 15_000,
   });
 }
 
@@ -358,7 +400,9 @@ export function useCreateSubtask(parentTaskId: string, projectId: string | null 
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: taskPanelKeys.subtasks(parentTaskId) });
+      // Every open subtree can contain the new row (an ancestor's panel shows
+      // the whole tree), so refresh all of them, not just the parent's.
+      qc.invalidateQueries({ queryKey: [...taskPanelKeys.all, 'subtasks'] });
       qc.invalidateQueries({ queryKey: taskPanelKeys.task(parentTaskId) });
       invalidateAllTaskLists(qc);
     },

@@ -69,6 +69,7 @@ import {
   useTaskPersonOptions,
   useTaskComments,
   useTaskSubtasks,
+  useTaskAncestors,
   useToggleSubtask,
   useToggleTask,
   useUpdateTask,
@@ -263,7 +264,8 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const projectId = apiTask?.projectId ?? null;
 
   const commentsQuery = useTaskComments(id);
-  const subtasksQuery = useTaskSubtasks(id);
+  const subtasksQuery = useTaskSubtasks(id, apiTask ? projectId : undefined);
+  const ancestorsQuery = useTaskAncestors(apiTask?.parentTaskId);
   const labelsQuery = useProjectLabels(projectId);
   const projectTasksQuery = useProjectTasksForDeps(projectId);
   const projectMembersQuery = useProjectMembers(projectId);
@@ -377,20 +379,28 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     [labelsQuery.data],
   );
 
-  const subtasks: SubtaskItem[] = useMemo(
-    () => (subtasksQuery.data ?? []).map((s) => {
-      const hydrated = s.assigneeId ? memberByUserId.get(s.assigneeId) : undefined;
-      return {
-        id: s.id,
-        title: s.title,
-        status: s.status,
-        assignee: s.assigneeId
-          ? { id: s.assigneeId, name: hydrated?.name ?? '', avatar: hydrated?.avatar }
-          : null,
-      };
-    }),
-    [subtasksQuery.data, memberByUserId],
-  );
+  // The whole subtree, depth-first, each row tagged with its depth below
+  // the open task so the panel draws it as a tree.
+  const subtasks: SubtaskItem[] = useMemo(() => {
+    const out: SubtaskItem[] = [];
+    const walk = (rows: TaskRow[], depth: number) => {
+      for (const s of rows) {
+        const hydrated = s.assigneeId ? memberByUserId.get(s.assigneeId) : undefined;
+        out.push({
+          id: s.id,
+          title: s.title,
+          status: s.status,
+          assignee: s.assigneeId
+            ? { id: s.assigneeId, name: hydrated?.name ?? '', avatar: hydrated?.avatar }
+            : null,
+          depth,
+        });
+        if (s.children?.length) walk(s.children, depth + 1);
+      }
+    };
+    walk(subtasksQuery.data ?? [], 0);
+    return out;
+  }, [subtasksQuery.data, memberByUserId]);
 
   const comments: TaskComment[] = useMemo(
     () => (commentsQuery.data ?? []).map((c) => {
@@ -428,12 +438,12 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       .filter((pt): pt is DependencyTask => !!pt);
   }, [apiTask?.blocks, allProjectTasksForDeps]);
 
-  const parentTask = useMemo(() => {
-    const pid = apiTask?.parentTaskId;
-    if (!pid) return null;
-    const parent = allProjectTasksForDeps.find((pt) => pt.id === pid);
-    return parent ? { id: parent.id, title: parent.title, status: parent.status } : null;
-  }, [apiTask?.parentTaskId, allProjectTasksForDeps]);
+  // The chain this task hangs from, root first: shown above it in Subtasks
+  // so a subtask always reads in the context of its main task.
+  const ancestorTasks = useMemo(
+    () => (ancestorsQuery.data ?? []).map((a) => ({ id: a.id, title: a.title, status: a.status })),
+    [ancestorsQuery.data],
+  );
 
   const attachments: TaskAttachment[] = useMemo(() => {
     // Files-backed attachments (entityType='task'); fall back to the legacy
@@ -747,7 +757,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onCreateSubtask={projectId ? handleCreateSubtask : undefined}
             onToggleSubtask={handleToggleSubtask}
             onNavigateToTask={handleNavigateToTask}
-            parentTask={parentTask}
+            ancestorTasks={ancestorTasks}
             dependencyTasks={projectId ? dependencyTasks : undefined}
             blockingTasks={projectId ? blockingTasks : undefined}
             allProjectTasks={projectId ? allProjectTasksForDeps : undefined}

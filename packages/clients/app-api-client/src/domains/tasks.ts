@@ -58,6 +58,8 @@ export interface TaskRow {
   customFields?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
+  /** Subtask tree, present when listed with `includeSubtasks` (and a `projectId`). */
+  children?: TaskRow[];
 }
 
 export interface TaskAttachmentRow {
@@ -80,6 +82,8 @@ export interface ListTasksQuery {
   status?: string;
   priority?: string;
   search?: string;
+  /** Attach each row's subtask tree as `children`; the API honours it together with `projectId`. */
+  includeSubtasks?: boolean;
 }
 
 export function createTasksApi(api: ClientApi) {

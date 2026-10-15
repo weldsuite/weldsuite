@@ -568,6 +568,8 @@ export interface TaskDetailContentProps {
   onToggleSubtask?: (subtaskId: string, currentStatus: string) => void;
   onNavigateToTask?: (taskId: string) => void;
   parentTask?: { id: string; title: string; status?: string } | null;
+  /** The open task's ancestors, root first (last = direct parent). Wins over `parentTask`. */
+  ancestorTasks?: { id: string; title: string; status?: string }[];
   // Dependencies
   dependencyTasks?: DependencyTask[];
   blockingTasks?: DependencyTask[];
@@ -1016,6 +1018,7 @@ export function TaskDetailContent({
   onToggleSubtask,
   onNavigateToTask,
   parentTask,
+  ancestorTasks,
   dependencyTasks = [],
   blockingTasks = [],
   allProjectTasks = [],
@@ -1670,6 +1673,7 @@ export function TaskDetailContent({
               <SubtasksSection
                 subtasks={subtasks}
                 parentTask={parentTask}
+                ancestorTasks={ancestorTasks}
                 currentTaskId={task.id}
                 rootTask={{ id: task.id, title: task.title, status: task.status }}
                 onCreateSubtask={onCreateSubtask}
@@ -1938,6 +1942,7 @@ function computeSubtaskTreeGuides(subtasks: SubtaskItem[]): {
 export function SubtasksSection({
   subtasks,
   parentTask,
+  ancestorTasks,
   currentTaskId,
   rootTask,
   onCreateSubtask,
@@ -1946,6 +1951,8 @@ export function SubtasksSection({
 }: Readonly<{
   subtasks: SubtaskItem[];
   parentTask?: { id: string; title: string; status?: string } | null;
+  /** The open task's ancestors, root first (last = direct parent). Wins over `parentTask`. */
+  ancestorTasks?: { id: string; title: string; status?: string }[];
   /** The task currently shown in the panel — if it matches a subtask row,
    *  that row stays highlighted so the user can see which item they're on. */
   currentTaskId?: string;
@@ -1962,16 +1969,23 @@ export function SubtasksSection({
   const [collapsed, setCollapsed] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const completedCount = subtasks.filter(s => s.status === 'done').length;
-  const totalCount = subtasks.length;
+  // `subtasks` can carry the whole subtree (rows below depth 0); the count
+  // covers the open task's direct children only.
+  const directSubtasks = subtasks.filter(s => (s.depth ?? 0) === 0);
+  const completedCount = directSubtasks.filter(s => s.status === 'done').length;
+  const totalCount = directSubtasks.length;
 
-  // When the selected task has a parent, we surface the parent as the tree
-  // root AND prepend the selected task into the list at depth 0 (shifting
-  // the originally-loaded descendants down by one level). Effect: the panel
-  // reads as "parent → selected → selected's children". Top-level tasks
-  // (no parent) show only their children: repeating the open task as the
-  // first row made it read like the task was its own subtask.
-  const effectiveRoot = parentTask ?? undefined;
+  // When the selected task is a subtask, the chain it hangs from is shown
+  // above it: the top-most ancestor is the tree root, every further ancestor
+  // and then the selected task follow one level deeper each, and the
+  // selected task's own subtasks sit below it. Effect: "main task → subtask →
+  // selected → selected's children". Top-level tasks (no parent) show only
+  // their children: repeating the open task as the first row made it read
+  // like the task was its own subtask.
+  let ancestors: { id: string; title: string; status?: string }[] = [];
+  if (ancestorTasks && ancestorTasks.length > 0) ancestors = ancestorTasks;
+  else if (parentTask) ancestors = [parentTask];
+  const effectiveRoot = ancestors[0];
 
   // "Add subtask" only reveals an inline title field; the subtask is created
   // when the user submits a title (see InlineSubtaskInput).
@@ -1979,10 +1993,11 @@ export function SubtasksSection({
     setCollapsed(false);
     setIsAdding(true);
   };
-  const effectiveSubtasks: SubtaskItem[] = parentTask && rootTask
+  const effectiveSubtasks: SubtaskItem[] = effectiveRoot && rootTask
     ? [
-        { id: rootTask.id, title: rootTask.title, status: rootTask.status || 'todo', assignee: null, depth: 0 },
-        ...subtasks.map((s) => ({ ...s, depth: (s.depth ?? 0) + 1 })),
+        ...ancestors.slice(1).map((a, i) => ({ id: a.id, title: a.title, status: a.status || 'todo', assignee: null, depth: i })),
+        { id: rootTask.id, title: rootTask.title, status: rootTask.status || 'todo', assignee: null, depth: ancestors.length - 1 },
+        ...subtasks.map((s) => ({ ...s, depth: (s.depth ?? 0) + ancestors.length })),
       ]
     : subtasks;
 
