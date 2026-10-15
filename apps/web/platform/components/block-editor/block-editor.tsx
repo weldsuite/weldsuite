@@ -5,6 +5,7 @@ import {
   SuggestionMenuController,
   FloatingComposerController,
   FloatingThreadController,
+  FormattingToolbarController,
 } from '@blocknote/react';
 import type { Block, PartialBlock } from '@blocknote/core';
 import { CommentsExtension } from '@blocknote/core/comments';
@@ -17,6 +18,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { schema } from './schema';
 import { getBlockEditorStrings } from './strings';
 import { SuggestionMenu } from './suggestion-menu';
+import { SelectionToolbar } from './selection-toolbar';
 import {
   filterSlashMenuItems,
   getPageLinkItems,
@@ -112,6 +114,11 @@ export interface BlockEditorProps {
   projectId?: string;
   /** Entity ID for file uploads */
   entityId?: string;
+  /**
+   * Show a toolbar above selected text (block type, colors, link, bold /
+   * italic / strikethrough). For surfaces without the static toolbar, like notes.
+   */
+  selectionToolbar?: boolean;
   /** Called once the BlockNote editor is created — used to render external formatting toolbars */
   onEditorReady?: (editor: BlockNoteEditorInstance) => void;
   /**
@@ -178,6 +185,7 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   projectId,
   entityId,
   onEditorReady,
+  selectionToolbar = false,
   collaboration,
   comments,
   pageLinks,
@@ -360,6 +368,7 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
             )
           }
         />
+        {selectionToolbar ? <FormattingToolbarController formattingToolbar={SelectionToolbar} /> : null}
         {/* @ trigger — link to another page, where the host has pages */}
         {pageLinks ? (
           <SuggestionMenuController

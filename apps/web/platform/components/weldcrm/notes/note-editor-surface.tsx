@@ -283,6 +283,7 @@ export const NoteEditorSurface = forwardRef<NoteEditorSurfaceHandle, Readonly<No
                   initialHtml={initialHtml}
                   onContentChange={handleBlocksChange}
                   onEditorReady={handleEditorReady}
+                  selectionToolbar
                 />
               </div>
             </div>
