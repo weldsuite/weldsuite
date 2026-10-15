@@ -13,15 +13,18 @@ interface MobileHeaderProps {
   className?: string;
 }
 
+/** A live (not idle / ended) call that is shown fullscreen. */
+function isFullscreenCall(call: { isFullscreen: boolean; status: string } | null | undefined) {
+  return !!call?.isFullscreen && call.status !== 'idle' && call.status !== 'ended';
+}
+
 export function MobileHeader({ className }: Readonly<MobileHeaderProps>) {
   const t = useTranslations();
   const { isOpen, toggleOpen, moduleInfo, showWeldAgent, toggleWeldAgent, headerVariant } = useMobileNav();
   const { resolvedTheme } = useTheme();
   const meetCall = useWeldMeetCallOptional();
   const chatCall = useWeldChatCallOptional();
-  const meetingFullscreen =
-    (!!meetCall?.isFullscreen && meetCall.status !== 'idle' && meetCall.status !== 'ended') ||
-    (!!chatCall?.isFullscreen && chatCall.status !== 'idle' && chatCall.status !== 'ended');
+  const meetingFullscreen = isFullscreenCall(meetCall) || isFullscreenCall(chatCall);
   const isDark = resolvedTheme === 'dark';
 
   const Icon = moduleInfo?.icon || Home;
