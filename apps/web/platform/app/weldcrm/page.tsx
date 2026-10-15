@@ -788,7 +788,7 @@ export default function CrmTasksClient() {
               aria-label={isExpanded ? t('projects.myTasks.collapseSubtasks') : t('projects.myTasks.expandSubtasks')}
               aria-expanded={isExpanded}
               onClick={(e) => { e.stopPropagation(); toggleExpandTask(task.id); }}
-              className="relative z-[1] size-5 p-0 has-[>svg]:px-0 rounded-[6px] text-muted-foreground hover:text-foreground hover:bg-gray-200 dark:hover:bg-gray-700 transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              className="relative z-[1] size-5 p-0 has-[>svg]:px-0 rounded-[6px] text-muted-foreground hover:text-foreground hover:bg-accent dark:hover:bg-accent transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
             >
               <ChevronRight className={cn("h-3.5 w-3.5", isExpanded && "rotate-90")} />
             </Button>
