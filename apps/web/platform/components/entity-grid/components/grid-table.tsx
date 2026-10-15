@@ -92,8 +92,15 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
       root.style.removeProperty('--grid-hscrollbar-height');
     };
   }, [isEmpty]);
-  const entityNameLower = config.entityName.toLowerCase();
-  const entityNamePluralLower = (config.entityNamePlural || `${config.entityName}s`).toLowerCase();
+  let entityNameLower = config.entityName.toLowerCase();
+  let entityNamePluralLower = (config.entityNamePlural || `${config.entityName}s`).toLowerCase();
+  if (config.entityName === 'Person') {
+    entityNameLower = t('crm.entityGrid.personSingular');
+    entityNamePluralLower = t('crm.entityGrid.personPlural');
+  } else if (config.entityName === 'Company') {
+    entityNameLower = t('crm.entityGrid.companySingular');
+    entityNamePluralLower = t('crm.entityGrid.companyPlural');
+  }
 
   if (isEmpty) {
     return (
@@ -131,10 +138,10 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
           ) : (
             <>
               <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-                No {entityNamePluralLower} yet
+                {t('crm.entityGrid.emptyTitle', { entity: entityNamePluralLower })}
               </h3>
               <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed mb-5">
-                Add your first {entityNameLower} to get started.
+                {t('crm.entityGrid.emptyHint', { entity: entityNameLower })}
               </p>
             </>
           )}
@@ -144,7 +151,7 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
               className="h-8 text-sm px-3 gap-1.5 shadow-none"
             >
               <Plus className="h-4 w-4" />
-              New {entityNameLower}
+              {t('crm.entityGrid.newEntity', { entity: entityNameLower })}
             </Button>
           )}
         </div>

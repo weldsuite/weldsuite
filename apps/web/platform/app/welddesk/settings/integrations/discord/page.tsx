@@ -149,7 +149,7 @@ export default function DiscordSettingsPage() {
         isWorking={isConnecting || disconnectMutation.isPending}
         connectLabel={
           isConnected
-            ? 'Add Discord server'
+            ? t.helpdesk.discordServers.addDiscordServer
             : st('sweep.welddesk.discordIntegration.connectLabel')
         }
         onConnect={handleConnect}
@@ -173,13 +173,13 @@ export default function DiscordSettingsPage() {
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div className="space-y-1.5 min-w-0 flex-1">
-                <p className="text-sm font-medium">Connected servers</p>
+                <p className="text-sm font-medium">{t.helpdesk.discordServers.connectedServers}</p>
                 <Select
                   value={selectedIntegrationId ?? undefined}
                   onValueChange={setSelectedIntegrationId}
                 >
                   <SelectTrigger className="w-full max-w-md">
-                    <SelectValue placeholder="Select a Discord server" />
+                    <SelectValue placeholder={t.helpdesk.discordServers.selectServer} />
                   </SelectTrigger>
                   <SelectContent>
                     {servers.map((server) => (
@@ -198,7 +198,7 @@ export default function DiscordSettingsPage() {
                 className="shrink-0"
               >
                 <Plus className="h-4 w-4 mr-1.5" />
-                Add server
+                {t.helpdesk.discordServers.addServer}
               </Button>
             </div>
 

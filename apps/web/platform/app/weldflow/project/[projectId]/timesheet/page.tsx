@@ -1381,7 +1381,7 @@ function AddEntryDialog({
                 <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" size="sm" className="h-7 text-xs font-normal">
-                      {selectedDate ? format(selectedDate, 'MMM d') : 'Date'}
+                      {selectedDate ? format(selectedDate, 'MMM d') : tt.dateLabel}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">

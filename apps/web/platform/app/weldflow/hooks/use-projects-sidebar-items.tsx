@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
-import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
+import { coloredSquareColorLabel, coloredSquareColors, coloredSquareIconLabel, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
@@ -299,9 +299,10 @@ export function useProjectsSidebarItems(isActive: boolean): {
       icon: Layers,
       actions: [
         { label: t.projects.sidebar.duplicate, icon: Copy, onClick: () => {} },
-        { label: t.projects.sidebar.rename, icon: Edit2, onClick: () => {} },
+        { label: t.projects.sidebar.rename, separatorAfter: true, icon: Edit2, onClick: () => {} },
         {
           label: t.projects.sidebar.delete,
+          destructive: true,
           icon: Trash2,
           onClick: () => handleDeleteSubProjectRef.current(parentProjectId, subProjectId),
         },
@@ -518,7 +519,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
                             setSelectedColor(color.value);
                             setColorPopoverOpen(false);
                           }}
-                          title={color.label}
+                          title={coloredSquareColorLabel(t.common.coloredSquare, color.label)}
                         />
                       ))}
                     </div>
@@ -553,7 +554,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
                             setSelectedIcon(iconOption.value);
                             setIconPopoverOpen(false);
                           }}
-                          title={iconOption.label}
+                          title={coloredSquareIconLabel(t.common.coloredSquare, iconOption.label)}
                         >
                           {React.createElement(iconOption.value, { className: 'h-4 w-4' })}
                         </Button>
@@ -649,7 +650,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
                             setRenameColor(color.value);
                             setRenameColorPopoverOpen(false);
                           }}
-                          title={color.label}
+                          title={coloredSquareColorLabel(t.common.coloredSquare, color.label)}
                         />
                       ))}
                     </div>
@@ -684,7 +685,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
                             setRenameIcon(iconOption.value);
                             setRenameIconPopoverOpen(false);
                           }}
-                          title={iconOption.label}
+                          title={coloredSquareIconLabel(t.common.coloredSquare, iconOption.label)}
                         >
                           {React.createElement(iconOption.value, { className: 'h-4 w-4' })}
                         </Button>

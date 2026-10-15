@@ -16,19 +16,21 @@ interface WorkflowTemplate {
   triggers: WorkflowTrigger[];
 }
 
-const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+type TemplateContent = ReturnType<typeof useI18n>['t']['helpdesk']['workflowTemplateContent'];
+
+const getWorkflowTemplates = (c: TemplateContent): WorkflowTemplate[] => [
   // ── AI Support Bot ──
   {
     id: 'ai-support-bot',
-    name: 'AI Support Bot',
-    description: 'Greet the customer, ask what they need, then let the AI agent handle the conversation',
+    name: c.aiBotName,
+    description: c.aiBotDescription,
     icon: Bot,
     badge: 'Recommended',
     triggers: [
       {
         id: 'trig-1',
         type: 'entity_event',
-        name: 'New conversation',
+        name: c.triggerNewConversation,
         isEnabled: true,
         entityType: 'helpdesk_conversation',
         eventType: 'created',
@@ -39,21 +41,21 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-1',
         type: 'send_message',
-        name: 'Greeting',
-        config: { message: 'Hi there! Thanks for reaching out. I\'m here to help you.' },
+        name: c.stepGreeting,
+        config: { message: c.aiBotGreetingMessage },
         order: 0,
       },
       {
         id: 'step-2',
         type: 'send_choices',
-        name: 'What do you need?',
+        name: c.stepWhatDoYouNeed,
         config: {
-          message: 'What can I help you with today?',
+          message: c.msgWhatCanIHelp,
           options: [
-            { id: 'opt-question', label: 'I have a question', value: 'question' },
-            { id: 'opt-issue', label: 'Report an issue', value: 'issue' },
-            { id: 'opt-billing', label: 'Billing & account', value: 'billing' },
-            { id: 'opt-other', label: 'Something else', value: 'other' },
+            { id: 'opt-question', label: c.optQuestion, value: 'question' },
+            { id: 'opt-issue', label: c.optIssue, value: 'issue' },
+            { id: 'opt-billing', label: c.optBillingAccount, value: 'billing' },
+            { id: 'opt-other', label: c.optSomethingElse, value: 'other' },
           ],
         },
         order: 1,
@@ -61,24 +63,24 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-3',
         type: 'tag_conversation',
-        name: 'Tag with topic',
+        name: c.stepTagWithTopic,
         config: { tags: ['{{steps.step-2.selectedValue}}'] },
         order: 2,
       },
       {
         id: 'step-4',
         type: 'collect_input',
-        name: 'Collect email',
+        name: c.stepCollectEmail,
         config: {
-          message: 'Could you share your email address so we can follow up?',
-          fields: [{ id: 'email', label: 'Email', type: 'email', required: true }],
+          message: c.msgShareEmail,
+          fields: [{ id: 'email', label: c.fieldEmail, type: 'email', required: true }],
         },
         order: 3,
       },
       {
         id: 'step-5',
         type: 'ai_auto_reply',
-        name: 'AI Agent',
+        name: c.stepAiAgent,
         config: {},
         order: 4,
       },
@@ -88,14 +90,14 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   // ── Smart Topic Router ──
   {
     id: 'topic-router',
-    name: 'Smart Topic Router',
-    description: 'Ask the customer what they need help with, then route to the right team',
+    name: c.routerName,
+    description: c.routerDescription,
     icon: MessageSquare,
     triggers: [
       {
         id: 'trig-1',
         type: 'entity_event',
-        name: 'New conversation',
+        name: c.triggerNewConversation,
         isEnabled: true,
         entityType: 'helpdesk_conversation',
         eventType: 'created',
@@ -106,20 +108,20 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-1',
         type: 'send_message',
-        name: 'Greeting',
-        config: { message: 'Hi! Let me make sure you get to the right team.' },
+        name: c.stepGreeting,
+        config: { message: c.routerGreetingMessage },
         order: 0,
       },
       {
         id: 'step-2',
         type: 'send_choices',
-        name: 'Ask department',
+        name: c.stepAskDepartment,
         config: {
-          message: 'Which team can help you best?',
+          message: c.msgWhichTeam,
           options: [
-            { id: 'opt-support', label: 'Technical Support', value: 'support' },
-            { id: 'opt-billing', label: 'Billing', value: 'billing' },
-            { id: 'opt-sales', label: 'Sales', value: 'sales' },
+            { id: 'opt-support', label: c.optTechnicalSupport, value: 'support' },
+            { id: 'opt-billing', label: c.optBilling, value: 'billing' },
+            { id: 'opt-sales', label: c.optSales, value: 'sales' },
           ],
         },
         order: 1,
@@ -127,15 +129,15 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-3',
         type: 'assign_conversation',
-        name: 'Assign to team',
+        name: c.stepAssignToTeam,
         config: { strategy: 'round_robin' },
         order: 2,
       },
       {
         id: 'step-4',
         type: 'send_message',
-        name: 'Handoff message',
-        config: { message: 'Thanks! A team member will be with you shortly.' },
+        name: c.stepHandoffMessage,
+        config: { message: c.msgHandoff },
         order: 3,
       },
     ],
@@ -144,14 +146,14 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   // ── Lead Qualification ──
   {
     id: 'lead-qualification',
-    name: 'Lead Qualification',
-    description: 'Qualify new visitors by asking who they are and what they need, then route accordingly',
+    name: c.leadName,
+    description: c.leadDescription,
     icon: UserPlus,
     triggers: [
       {
         id: 'trig-1',
         type: 'entity_event',
-        name: 'New conversation',
+        name: c.triggerNewConversation,
         isEnabled: true,
         entityType: 'helpdesk_conversation',
         eventType: 'created',
@@ -162,20 +164,20 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-1',
         type: 'send_message',
-        name: 'Welcome',
-        config: { message: 'Welcome! Let me connect you with the right person.' },
+        name: c.stepWelcome,
+        config: { message: c.msgWelcome },
         order: 0,
       },
       {
         id: 'step-2',
         type: 'send_choices',
-        name: 'Who are you?',
+        name: c.stepWhoAreYou,
         config: {
-          message: 'Are you a current customer or looking to learn more?',
+          message: c.msgCustomerOrNot,
           options: [
-            { id: 'opt-customer', label: 'I\'m a customer', value: 'customer' },
-            { id: 'opt-prospect', label: 'I\'m exploring', value: 'prospect' },
-            { id: 'opt-partner', label: 'Partnership inquiry', value: 'partner' },
+            { id: 'opt-customer', label: c.optImCustomer, value: 'customer' },
+            { id: 'opt-prospect', label: c.optImExploring, value: 'prospect' },
+            { id: 'opt-partner', label: c.optPartnership, value: 'partner' },
           ],
         },
         order: 1,
@@ -183,12 +185,12 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-3',
         type: 'collect_input',
-        name: 'Collect info',
+        name: c.stepCollectInfo,
         config: {
-          message: 'Could you share your name and email?',
+          message: c.msgShareNameEmail,
           fields: [
-            { id: 'name', label: 'Name', type: 'text', required: true },
-            { id: 'email', label: 'Email', type: 'email', required: true },
+            { id: 'name', label: c.fieldName, type: 'text', required: true },
+            { id: 'email', label: c.fieldEmail, type: 'email', required: true },
           ],
         },
         order: 2,
@@ -196,7 +198,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-4',
         type: 'assign_conversation',
-        name: 'Route to team',
+        name: c.stepRouteToTeam,
         config: { strategy: 'round_robin' },
         order: 3,
       },
@@ -206,14 +208,14 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   // ── CSAT After Close ──
   {
     id: 'csat-after-close',
-    name: 'CSAT After Close',
-    description: 'Send a satisfaction survey after a conversation is closed',
+    name: c.csatName,
+    description: c.csatDescription,
     icon: Star,
     triggers: [
       {
         id: 'trig-1',
         type: 'entity_event',
-        name: 'Conversation closed',
+        name: c.triggerConversationClosed,
         isEnabled: true,
         entityType: 'helpdesk_conversation',
         eventType: 'closed',
@@ -224,21 +226,21 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       {
         id: 'step-1',
         type: 'delay',
-        name: 'Wait 2 minutes',
+        name: c.stepWait2Minutes,
         config: { duration: 2, unit: 'minutes' },
         order: 0,
       },
       {
         id: 'step-2',
         type: 'send_message',
-        name: 'Thank you',
-        config: { message: 'We hope we were able to help! Your feedback helps us improve.' },
+        name: c.stepThankYou,
+        config: { message: c.msgCsat },
         order: 1,
       },
       {
         id: 'step-3',
         type: 'trigger_csat',
-        name: 'CSAT Survey',
+        name: c.stepCsatSurvey,
         config: {},
         order: 2,
       },
@@ -255,6 +257,10 @@ interface WorkflowTemplatesDialogProps {
 export function WorkflowTemplatesDialog({ open, onOpenChange, onSelect }: Readonly<WorkflowTemplatesDialogProps>) {
   const { t } = useI18n();
   const tr = t.helpdesk.workflowTemplates;
+  const templates = React.useMemo(
+    () => getWorkflowTemplates(t.helpdesk.workflowTemplateContent),
+    [t.helpdesk.workflowTemplateContent],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -266,7 +272,7 @@ export function WorkflowTemplatesDialog({ open, onOpenChange, onSelect }: Readon
           {tr.dialogDescription}
         </p>
         <div className="grid gap-3 mt-1">
-          {WORKFLOW_TEMPLATES.map((template) => {
+          {templates.map((template) => {
             const Icon = template.icon;
             return (
               <Button

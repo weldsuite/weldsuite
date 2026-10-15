@@ -3,7 +3,7 @@ import PageComponent from '@/app/weldhr/attendance/page';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldhr/attendance/')({
-  staticData: { breadcrumb: { label: 'Attendance' } },
+  staticData: { breadcrumb: { labelKey: 'attendance' } },
   validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
     tab: typeof search.tab === 'string' ? search.tab : undefined,
   }),

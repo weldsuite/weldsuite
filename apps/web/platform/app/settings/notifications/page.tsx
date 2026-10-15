@@ -57,14 +57,14 @@ import {
 
 // Module definitions
 const NOTIFICATION_MODULES = [
-  { key: 'helpdesk', label: 'Helpdesk', icon: Headphones, appCode: 'welddesk' },
-  { key: 'crm', label: 'CRM', icon: Users, appCode: 'weldcrm' },
-  { key: 'mail', label: 'Mail', icon: Mail, appCode: 'weldmail' },
-  { key: 'projects', label: 'Projects', icon: FolderKanban, appCode: 'weldflow' },
-  { key: 'parcel', label: 'Parcel', icon: Package, appCode: 'parcel' },
-  { key: 'task', label: 'Workflows', icon: Workflow, appCode: 'weldconnect' },
-  { key: 'weldchat', label: 'WeldChat', icon: MessageSquare, appCode: 'weldchat' },
-  { key: 'digest', label: 'Daily Digest', icon: CalendarClock, appCode: 'weldcalendar' },
+  { key: 'helpdesk', icon: Headphones, appCode: 'welddesk' },
+  { key: 'crm', icon: Users, appCode: 'weldcrm' },
+  { key: 'mail', icon: Mail, appCode: 'weldmail' },
+  { key: 'projects', icon: FolderKanban, appCode: 'weldflow' },
+  { key: 'parcel', icon: Package, appCode: 'parcel' },
+  { key: 'task', icon: Workflow, appCode: 'weldconnect' },
+  { key: 'weldchat', icon: MessageSquare, appCode: 'weldchat' },
+  { key: 'digest', icon: CalendarClock, appCode: 'weldcalendar' },
 ] as const;
 
 interface ModuleChannelPreferences {
@@ -252,7 +252,7 @@ export default function NotificationsSettingsPage() {
 
   // Module table data
   const moduleData = React.useMemo<ModuleRow[]>(() => {
-    const moduleLabels: Record<string, string> = {
+    const moduleLabels: Record<(typeof NOTIFICATION_MODULES)[number]['key'], string> = {
       helpdesk: ts.modules.helpdesk,
       crm: ts.modules.crm,
       mail: ts.modules.mail,
@@ -265,7 +265,7 @@ export default function NotificationsSettingsPage() {
     const mp = preferences?.modulePreferences as Record<string, ModuleChannelPreferences> | undefined;
     return NOTIFICATION_MODULES.map((module) => ({
       key: module.key,
-      label: moduleLabels[module.key] || module.label,
+      label: moduleLabels[module.key],
       icon: module.icon,
       appCode: module.appCode,
       enabled: mp?.[module.key]?.enabled ?? true,

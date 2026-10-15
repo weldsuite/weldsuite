@@ -281,11 +281,11 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
             {/* Metadata */}
             <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
-                <span>By {article.author}</span>
+                <span>{t.helpdesk.articleMeta.by.replace('{author}', article.author)}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
-                <span>Updated {format(article.publishDate, 'MMMM d, yyyy')}</span>
+                <span>{t.helpdesk.articleMeta.updated.replace('{date}', format(article.publishDate, 'MMMM d, yyyy'))}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Tag className="h-3.5 w-3.5" />
@@ -320,7 +320,7 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
                 onClick={() => handleHelpful(true)}
               >
                 <ThumbsUp className="h-5 w-5 mr-2" />
-                Yes
+                {t.helpdesk.articleMeta.yes}
               </Button>
               <Button
                 variant={isHelpful === false ? 'destructive' : 'outline'}
@@ -328,7 +328,7 @@ export function NewsViewer({ article }: Readonly<NewsViewerProps>) {
                 onClick={() => handleHelpful(false)}
               >
                 <ThumbsDown className="h-5 w-5 mr-2" />
-                No
+                {t.helpdesk.articleMeta.no}
               </Button>
             </div>
             {isHelpful !== null && (

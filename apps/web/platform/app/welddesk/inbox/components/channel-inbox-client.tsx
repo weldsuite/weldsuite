@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { toast } from 'sonner';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
@@ -13,30 +13,30 @@ import { InboxConversationList, WELDAGENT_ASSIGNEE, conversationToItem } from '.
 type InboxTexts = ReturnType<typeof useI18n>['t']['helpdesk']['inbox'];
 
 interface ChannelConfig {
-  label: string;
+  label: (ti: InboxTexts) => string;
   /** Extra list-query parameters on top of `limit` and `channel`. */
   extraQuery: string;
-  toItem: (conv: Helpdesk.Conversation) => ConversationItem;
+  toItem: (conv: Helpdesk.Conversation, ti: InboxTexts) => ConversationItem;
   texts: (ti: InboxTexts) => { newTitle: string; newDescription: string; empty: string };
 }
 
 const CHANNELS: Record<'discord' | 'slack' | 'email', ChannelConfig> = {
   discord: {
-    label: 'Discord',
+    label: (ti) => ti.channels.discord,
     extraQuery: '&excludeStatus=closed',
-    toItem: (conv) => conversationToItem(conv, true, 'Unknown User'),
+    toItem: (conv, ti) => conversationToItem(conv, true, ti.unknownUser, ti.noSubject),
     texts: (ti) => ({ newTitle: ti.newDiscordMessage, newDescription: ti.newDiscordMessageDescription, empty: ti.noDiscordMessages }),
   },
   slack: {
-    label: 'Slack',
+    label: (ti) => ti.channels.slack,
     extraQuery: '',
-    toItem: (conv) => conversationToItem(conv, true, 'Unknown User'),
+    toItem: (conv, ti) => conversationToItem(conv, true, ti.unknownUser, ti.noSubject),
     texts: (ti) => ({ newTitle: ti.newSlackMessage, newDescription: ti.newSlackMessageDescription, empty: ti.noSlackMessages }),
   },
   email: {
-    label: 'Email',
+    label: (ti) => ti.channels.email,
     extraQuery: '',
-    toItem: (conv) => conversationToItem(conv, false, 'Unknown Sender'),
+    toItem: (conv, ti) => conversationToItem(conv, false, ti.unknownSender, ti.noSubject),
     texts: (ti) => ({ newTitle: ti.newEmail, newDescription: ti.newEmailDescription, empty: ti.noEmailConversations }),
   },
 };
@@ -56,13 +56,14 @@ export function ChannelInboxClient({
   const { t } = useI18n();
   const ti = t.helpdesk.inbox;
   const texts = config.texts(ti);
+  const toItem = useCallback((conv: Helpdesk.Conversation) => config.toItem(conv, ti), [config, ti]);
   const { getClient } = useAppApiClient();
   const [conversations, setConversations] = useState<Helpdesk.Conversation[]>(initialConversations);
 
   useBreadcrumbs([
-    { label: 'Helpdesk', href: '/welddesk' },
-    { label: 'Inbox', href: '/welddesk/inbox' },
-    { label: config.label },
+    { label: t.helpdesk.title, href: '/welddesk' },
+    { label: ti.title, href: '/welddesk/inbox' },
+    { label: config.label(ti) },
   ]);
 
   useEffect(() => {
@@ -108,7 +109,7 @@ export function ChannelInboxClient({
     <InboxConversationList
       conversations={conversations}
       setConversations={setConversations}
-      toItem={config.toItem}
+      toItem={toItem}
       itemUrl={(id) => `/welddesk/inbox/${channel}/${id}`}
       emptyMessage={texts.empty}
       hideAgentHandled

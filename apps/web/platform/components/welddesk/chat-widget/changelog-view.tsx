@@ -14,6 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 
 interface ChangelogViewProps {
@@ -52,32 +53,33 @@ export function ChangelogView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
 }: Readonly<ChangelogViewProps>) {
+  const { t } = useI18n();
   const [activeTab] = useState('changelog');
 
   const changelogItems: ChangelogItem[] = [
     {
       id: '1',
-      title: 'Train Fin to detect key attributes in every conversation',
-      description: 'Fin can now automatically detect the attributes you define—like issue type,...',
+      title: t.helpdeskWidget.changelog.items.trainFin.title,
+      description: t.helpdeskWidget.changelog.items.trainFin.description,
       imageUrl: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&h=400&fit=crop&q=90&sharp=20',
-      date: 'December 13, 2024',
-      tags: [{ label: 'Fin', color: 'gray' }, { label: 'New feature', color: 'blue' }]
+      date: t.helpdeskWidget.changelog.items.trainFin.date,
+      tags: [{ label: 'Fin', color: 'gray' }, { label: t.helpdeskWidget.changelog.tags.newFeature, color: 'blue' }]
     },
     {
       id: '2',
-      title: 'Introducing Smart Automation workflows',
-      description: 'Set up complex multi-step automations with our visual builder and AI-suggested optimizations.',
+      title: t.helpdeskWidget.changelog.items.smartAutomation.title,
+      description: t.helpdeskWidget.changelog.items.smartAutomation.description,
       imageUrl: 'https://images.unsplash.com/photo-1535378620166-273708d44e4c?w=800&h=400&fit=crop&q=90&sharp=20',
-      date: 'December 5, 2024',
-      tags: [{ label: 'Automation', color: 'purple' }, { label: 'New feature', color: 'blue' }]
+      date: t.helpdeskWidget.changelog.items.smartAutomation.date,
+      tags: [{ label: t.helpdeskWidget.changelog.tags.automation, color: 'purple' }, { label: t.helpdeskWidget.changelog.tags.newFeature, color: 'blue' }]
     },
     {
       id: '3',
-      title: 'Enhanced Security & Compliance features',
-      description: 'Enterprise-grade security with SOC 2 Type II compliance and advanced encryption.',
+      title: t.helpdeskWidget.changelog.items.security.title,
+      description: t.helpdeskWidget.changelog.items.security.description,
       imageUrl: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=800&h=400&fit=crop&q=90&sharp=20',
-      date: 'November 28, 2024',
-      tags: [{ label: 'Security', color: 'green' }, { label: 'Update', color: 'gray' }]
+      date: t.helpdeskWidget.changelog.items.security.date,
+      tags: [{ label: t.helpdeskWidget.changelog.tags.security, color: 'green' }, { label: t.helpdeskWidget.changelog.tags.update, color: 'gray' }]
     }
   ];
 
@@ -113,7 +115,7 @@ export function ChangelogView({
             letterSpacing: '-0.01em'
           }}
         >
-          Changelog
+          {t.helpdeskWidget.changelog.title}
         </h2>
 
         {/* Close button */}
@@ -121,7 +123,7 @@ export function ChangelogView({
           variant="ghost"
           onClick={onClose}
           className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-          aria-label="Close"
+          aria-label={t.helpdeskWidget.common.close}
         >
           <X
             size={18}
@@ -201,16 +203,16 @@ export function ChangelogView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: () => {} },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: () => {} },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

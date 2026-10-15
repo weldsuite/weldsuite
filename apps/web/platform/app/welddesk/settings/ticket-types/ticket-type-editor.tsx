@@ -46,62 +46,66 @@ import type {
   TicketTypeStateGroup,
 } from '@/hooks/queries/use-helpdesk-queries';
 
-const FIELD_TYPES: { value: TicketTypeField['type']; label: string }[] = [
-  { value: 'text', label: 'Text' },
-  { value: 'textarea', label: 'Text (multiline)' },
-  { value: 'number', label: 'Number' },
-  { value: 'email', label: 'Email' },
+type EditorOptionStrings = ReturnType<typeof useI18n>['t']['helpdesk']['ticketTypeEditorOptions'];
+
+const getFieldTypes = (o: EditorOptionStrings): { value: TicketTypeField['type']; label: string }[] => [
+  { value: 'text', label: o.fieldTypeText },
+  { value: 'textarea', label: o.fieldTypeTextarea },
+  { value: 'number', label: o.fieldTypeNumber },
+  { value: 'email', label: o.fieldTypeEmail },
   { value: 'url', label: 'URL' },
-  { value: 'select', label: 'Dropdown' },
-  { value: 'multiselect', label: 'Multi-select' },
-  { value: 'date', label: 'Date' },
-  { value: 'checkbox', label: 'Checkbox' },
+  { value: 'select', label: o.fieldTypeSelect },
+  { value: 'multiselect', label: o.fieldTypeMultiselect },
+  { value: 'date', label: o.fieldTypeDate },
+  { value: 'checkbox', label: o.fieldTypeCheckbox },
 ];
 
-const CONDITION_OPERATORS: { value: TicketTypeFieldCondition['operator']; label: string }[] = [
-  { value: 'equals', label: 'Equals' },
-  { value: 'not_equals', label: 'Does not equal' },
-  { value: 'is_set', label: 'Is set' },
-  { value: 'is_not_set', label: 'Is not set' },
+const getConditionOperators = (
+  o: EditorOptionStrings,
+): { value: TicketTypeFieldCondition['operator']; label: string }[] => [
+  { value: 'equals', label: o.opEquals },
+  { value: 'not_equals', label: o.opNotEquals },
+  { value: 'is_set', label: o.opIsSet },
+  { value: 'is_not_set', label: o.opIsNotSet },
 ];
 
-const CATEGORY_OPTIONS = [
-  { value: 'customer', label: 'Customer' },
-  { value: 'back-office', label: 'Back-office' },
-  { value: 'tracker', label: 'Tracker' },
+const getCategoryOptions = (o: EditorOptionStrings) => [
+  { value: 'customer', label: o.categoryCustomer },
+  { value: 'back-office', label: o.categoryBackOffice },
+  { value: 'tracker', label: o.categoryTracker },
 ];
 
-const DEFAULT_STATES: TicketTypeStateGroup[] = [
+const getDefaultStates = (o: EditorOptionStrings): TicketTypeStateGroup[] => [
   {
     groupKey: 'submitted',
-    groupLabel: 'Submitted',
-    customerGroupLabel: 'Submitted',
-    states: [{ key: 'submitted', label: 'Submitted', customerLabel: 'Submitted' }],
+    groupLabel: o.stateSubmitted,
+    customerGroupLabel: o.customerStateSubmitted,
+    states: [{ key: 'submitted', label: o.stateSubmitted, customerLabel: o.customerStateSubmitted }],
   },
   {
     groupKey: 'in_progress',
-    groupLabel: 'In Progress',
-    customerGroupLabel: 'In progress',
-    states: [{ key: 'in_progress', label: 'In Progress', customerLabel: 'In progress' }],
+    groupLabel: o.stateInProgress,
+    customerGroupLabel: o.customerStateInProgress,
+    states: [{ key: 'in_progress', label: o.stateInProgress, customerLabel: o.customerStateInProgress }],
   },
   {
     groupKey: 'waiting_on_customer',
-    groupLabel: 'Waiting on Customer',
-    customerGroupLabel: 'Waiting on you',
-    states: [{ key: 'waiting_on_customer', label: 'Waiting on Customer', customerLabel: 'Waiting on you' }],
+    groupLabel: o.stateWaitingOnCustomer,
+    customerGroupLabel: o.customerStateWaitingOnYou,
+    states: [{ key: 'waiting_on_customer', label: o.stateWaitingOnCustomer, customerLabel: o.customerStateWaitingOnYou }],
   },
   {
     groupKey: 'resolved',
-    groupLabel: 'Resolved',
-    customerGroupLabel: 'Resolved',
-    states: [{ key: 'resolved', label: 'Resolved', customerLabel: 'Resolved' }],
+    groupLabel: o.stateResolved,
+    customerGroupLabel: o.customerStateResolved,
+    states: [{ key: 'resolved', label: o.stateResolved, customerLabel: o.customerStateResolved }],
   },
 ];
 
-const DEFAULT_FIELDS: TicketTypeField[] = [
+const getDefaultFields = (o: EditorOptionStrings): TicketTypeField[] => [
   {
     key: 'title',
-    label: 'Title',
+    label: o.fieldTitle,
     type: 'text',
     required: true,
     order: 0,
@@ -111,7 +115,7 @@ const DEFAULT_FIELDS: TicketTypeField[] = [
   },
   {
     key: 'description',
-    label: 'Description',
+    label: o.fieldDescription,
     type: 'textarea',
     required: false,
     order: 1,
@@ -197,6 +201,10 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
   const { t } = useI18n();
   const st = useTranslations();
   const tte = t.helpdesk.ticketTypeEditor;
+  const to = t.helpdesk.ticketTypeEditorOptions;
+  const fieldTypes = getFieldTypes(to);
+  const conditionOperators = getConditionOperators(to);
+  const categoryOptions = getCategoryOptions(to);
   const isEditing = !!editingType;
 
   // Basic info
@@ -206,8 +214,8 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
   // Intercom-style fields
   const [category, setCategory] = useState('customer');
   const [disableAiAutofill, setDisableAiAutofill] = useState(false);
-  const [states, setStates] = useState<TicketTypeStateGroup[]>(DEFAULT_STATES);
-  const [fields, setFields] = useState<TicketTypeField[]>(DEFAULT_FIELDS);
+  const [states, setStates] = useState<TicketTypeStateGroup[]>(() => getDefaultStates(to));
+  const [fields, setFields] = useState<TicketTypeField[]>(() => getDefaultFields(to));
 
   // Section open state
   const [detailsOpen, setDetailsOpen] = useState(true);
@@ -222,22 +230,22 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
       setDescription(editingType.description || '');
       setCategory(editingType.category || 'customer');
       setDisableAiAutofill(editingType.disableAiAutofill || false);
-      setStates(editingType.states && editingType.states.length > 0 ? editingType.states : DEFAULT_STATES);
-      setFields(editingType.fields && editingType.fields.length > 0 ? editingType.fields : DEFAULT_FIELDS);
+      setStates(editingType.states && editingType.states.length > 0 ? editingType.states : getDefaultStates(to));
+      setFields(editingType.fields && editingType.fields.length > 0 ? editingType.fields : getDefaultFields(to));
     } else {
       setName('');
       setDescription('');
       setCategory('customer');
       setDisableAiAutofill(false);
-      setStates(DEFAULT_STATES);
-      setFields(DEFAULT_FIELDS);
+      setStates(getDefaultStates(to));
+      setFields(getDefaultFields(to));
     }
     setDetailsOpen(true);
     setStatesOpen(false);
     setAttributesOpen(false);
     setEditingState(null);
     setExpandedFieldIndex(null);
-  }, [editingType, open]);
+  }, [editingType, open, to]);
 
   // ===== Field handlers =====
   const handleAddField = () => {
@@ -417,7 +425,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {CATEGORY_OPTIONS.map((opt) => (
+                      {categoryOptions.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
                         </SelectItem>
@@ -631,7 +639,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                 {fields.map((field, index) => {
                   const isExpanded = expandedFieldIndex === index;
                   const conditionCount = field.conditions?.length || 0;
-                  const fieldTypeLabel = FIELD_TYPES.find((ft) => ft.value === field.type)?.label || field.type;
+                  const fieldTypeLabel = fieldTypes.find((ft) => ft.value === field.type)?.label || field.type;
 
                   // ── Default attribute row (non-expandable) ──
                   if (field.isDefault) {
@@ -717,7 +725,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {FIELD_TYPES.map((ft) => (
+                                  {fieldTypes.map((ft) => (
                                     <SelectItem key={ft.value} value={ft.value}>{ft.label}</SelectItem>
                                   ))}
                                 </SelectContent>
@@ -847,7 +855,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                                         <SelectValue />
                                       </SelectTrigger>
                                       <SelectContent>
-                                        {CONDITION_OPERATORS.map((op) => (
+                                        {conditionOperators.map((op) => (
                                           <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
                                         ))}
                                       </SelectContent>

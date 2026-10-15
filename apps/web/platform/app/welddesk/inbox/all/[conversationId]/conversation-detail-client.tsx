@@ -458,8 +458,9 @@ function SystemMessage({
 /** Shared frame of the interactive workflow messages (read-only for agents). */
 function InteractiveMessageFrame({
   message,
+  ti,
   children,
-}: Readonly<{ message: ConversationMessage; children: React.ReactNode }>) {
+}: Readonly<{ message: ConversationMessage; ti: InboxStrings; children: React.ReactNode }>) {
   return (
     <div className="flex justify-end mb-4">
       <div className="max-w-[75%] space-y-2">
@@ -468,7 +469,7 @@ function InteractiveMessageFrame({
         </div>
         {children}
         <div className="text-[10px] text-muted-foreground mt-1 text-right">
-          {message.authorName || 'Bot'} &middot; {new Date(message.createdAt || 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {message.authorName || ti.botFallback} &middot; {new Date(message.createdAt || 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </div>
       </div>
     </div>
@@ -484,7 +485,7 @@ function ChoicesMessage({
   const options = (meta?.options as Array<{ id: string; label: string; value: string }>) || [];
   const selectedOptionId = meta?.selectedOptionId as string | undefined;
   return (
-    <InteractiveMessageFrame message={message}>
+    <InteractiveMessageFrame message={message} ti={ti}>
       <div className="flex flex-col gap-1.5 w-full">
         {options.map((option) => {
           const isSelected = selectedOptionId === option.id;
@@ -520,7 +521,7 @@ function CollectInputMessage({
   const fields = (meta?.fields as Array<{ id: string; label: string; type: string; required?: boolean; placeholder?: string }>) || [];
   const submitted = meta?.submittedData as Record<string, string> | undefined;
   return (
-    <InteractiveMessageFrame message={message}>
+    <InteractiveMessageFrame message={message} ti={ti}>
       <div className="rounded-xl border border-border bg-white dark:bg-secondary overflow-hidden">
         <div className="p-3 space-y-2">
           {fields.map((field) => (
@@ -565,7 +566,7 @@ function CsatMessage({
   const submittedRating = meta?.submittedRating as number | undefined;
   const submittedFeedback = meta?.submittedFeedback as string | undefined;
   return (
-    <InteractiveMessageFrame message={message}>
+    <InteractiveMessageFrame message={message} ti={ti}>
       <div className="rounded-xl border border-border bg-white dark:bg-secondary overflow-hidden">
         <div className="p-3 space-y-2">
           <div className="flex items-center justify-center gap-1 py-1">
@@ -1109,10 +1110,10 @@ export default function ConversationDetailClient({
   const [conversation, setConversation] = useState(initialConversation);
 
   useBreadcrumbs([
-    { label: 'Helpdesk', href: '/welddesk' },
-    { label: 'Inbox', href: '/welddesk/inbox' },
-    { label: 'Conversations', href: '/welddesk/inbox/all' },
-    { label: initialConversation.subject || 'Conversation' },
+    { label: t.helpdesk.title, href: '/welddesk' },
+    { label: ti.title, href: '/welddesk/inbox' },
+    { label: ti.conversations, href: '/welddesk/inbox/all' },
+    { label: initialConversation.subject || ti.conversation },
   ]);
   const [messages, setMessages] = useState(() =>
     // Sort initial messages oldest first (ascending by createdAt)
@@ -1776,7 +1777,7 @@ export default function ConversationDetailClient({
                       setIsEditingSubject(true);
                     }}
                   >
-                    <span>{conversation.subject || 'No subject'}</span>
+                    <span>{conversation.subject || ti.noSubject}</span>
                   </button>
                 </h1>
                 {/*
@@ -2006,10 +2007,10 @@ export default function ConversationDetailClient({
       conversationId={conversation.id}
       onTicketCreated={(ticketId) => setLinkedTicketId(ticketId)}
       prefillData={{
-        subject: conversation.subject || 'No subject',
+        subject: conversation.subject || ti.noSubject,
         customerEmail: conversation.customerEmail || 'customer@example.com',
-        customerName: conversation.customerName || 'Unknown Customer',
-        description: messages[0]?.content || conversation.preview || 'No description available',
+        customerName: conversation.customerName || ti.unknownCustomer,
+        description: messages[0]?.content || conversation.preview || ti.noDescriptionAvailable,
       }}
     />
 

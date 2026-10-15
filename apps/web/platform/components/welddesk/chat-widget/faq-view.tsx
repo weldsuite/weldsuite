@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
+import { useI18n } from '@/lib/i18n/provider';
 import { ArticleView } from './article-view';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 
@@ -66,6 +67,7 @@ export function FAQView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
 }: Readonly<FAQViewProps>) {
+  const { t, format } = useI18n();
   const activeTab = 'help';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArticle, setSelectedArticle] = useState<FAQItem | null>(null);
@@ -75,62 +77,62 @@ export function FAQView({
   const helpCollections: HelpCollection[] = [
     {
       id: '1',
-      title: 'Getting Started',
-      description: 'Everything you need to know to get started with our platform.',
+      title: t.helpdeskWidget.faq.collections.gettingStarted.title,
+      description: t.helpdeskWidget.faq.collections.gettingStarted.description,
       articleCount: 24,
       articles: [
-        { id: '1-1', title: 'Creating your first project', description: 'Learn how to set up and configure your first project.' },
-        { id: '1-2', title: 'Inviting team members', description: 'Add collaborators to your workspace.' },
-        { id: '1-3', title: 'Understanding the dashboard', description: 'Navigate and customize your main dashboard.' },
-        { id: '1-4', title: 'Setting up notifications', description: 'Configure alerts and notification preferences.' }
+        { id: '1-1', title: t.helpdeskWidget.faq.collections.gettingStarted.articles.article1.title, description: t.helpdeskWidget.faq.collections.gettingStarted.articles.article1.description },
+        { id: '1-2', title: t.helpdeskWidget.faq.collections.gettingStarted.articles.article2.title, description: t.helpdeskWidget.faq.collections.gettingStarted.articles.article2.description },
+        { id: '1-3', title: t.helpdeskWidget.faq.collections.gettingStarted.articles.article3.title, description: t.helpdeskWidget.faq.collections.gettingStarted.articles.article3.description },
+        { id: '1-4', title: t.helpdeskWidget.faq.collections.gettingStarted.articles.article4.title, description: t.helpdeskWidget.faq.collections.gettingStarted.articles.article4.description }
       ]
     },
     {
       id: '2',
-      title: 'Account & Billing',
-      description: 'Manage your account settings, subscriptions, and payment methods.',
+      title: t.helpdeskWidget.faq.collections.accountBilling.title,
+      description: t.helpdeskWidget.faq.collections.accountBilling.description,
       articleCount: 18,
       articles: [
-        { id: '2-1', title: 'Updating your profile', description: 'Change your name, email, and profile picture.' },
-        { id: '2-2', title: 'Managing subscriptions', description: 'Upgrade, downgrade, or cancel your plan.' },
-        { id: '2-3', title: 'Payment methods', description: 'Add or update your payment information.' },
-        { id: '2-4', title: 'Viewing invoices', description: 'Access and download your billing history.' }
+        { id: '2-1', title: t.helpdeskWidget.faq.collections.accountBilling.articles.article1.title, description: t.helpdeskWidget.faq.collections.accountBilling.articles.article1.description },
+        { id: '2-2', title: t.helpdeskWidget.faq.collections.accountBilling.articles.article2.title, description: t.helpdeskWidget.faq.collections.accountBilling.articles.article2.description },
+        { id: '2-3', title: t.helpdeskWidget.faq.collections.accountBilling.articles.article3.title, description: t.helpdeskWidget.faq.collections.accountBilling.articles.article3.description },
+        { id: '2-4', title: t.helpdeskWidget.faq.collections.accountBilling.articles.article4.title, description: t.helpdeskWidget.faq.collections.accountBilling.articles.article4.description }
       ]
     },
     {
       id: '3',
-      title: 'Features & Tools',
-      description: 'Learn how to use all the features and tools available to you.',
+      title: t.helpdeskWidget.faq.collections.featuresTools.title,
+      description: t.helpdeskWidget.faq.collections.featuresTools.description,
       articleCount: 32,
       articles: [
-        { id: '3-1', title: 'Using the chat widget', description: 'Configure and customize your chat widget.' },
-        { id: '3-2', title: 'Setting up automations', description: 'Create automated workflows and responses.' },
-        { id: '3-3', title: 'Analytics and reporting', description: 'Track performance and generate reports.' },
-        { id: '3-4', title: 'Knowledge base setup', description: 'Create and organize help articles.' }
+        { id: '3-1', title: t.helpdeskWidget.faq.collections.featuresTools.articles.article1.title, description: t.helpdeskWidget.faq.collections.featuresTools.articles.article1.description },
+        { id: '3-2', title: t.helpdeskWidget.faq.collections.featuresTools.articles.article2.title, description: t.helpdeskWidget.faq.collections.featuresTools.articles.article2.description },
+        { id: '3-3', title: t.helpdeskWidget.faq.collections.featuresTools.articles.article3.title, description: t.helpdeskWidget.faq.collections.featuresTools.articles.article3.description },
+        { id: '3-4', title: t.helpdeskWidget.faq.collections.featuresTools.articles.article4.title, description: t.helpdeskWidget.faq.collections.featuresTools.articles.article4.description }
       ]
     },
     {
       id: '4',
-      title: 'Integrations',
-      description: 'Connect with third-party tools and services.',
+      title: t.helpdeskWidget.faq.collections.integrations.title,
+      description: t.helpdeskWidget.faq.collections.integrations.description,
       articleCount: 15,
       articles: [
-        { id: '4-1', title: 'Slack integration', description: 'Connect your workspace to Slack.' },
-        { id: '4-2', title: 'Zapier workflows', description: 'Automate tasks with Zapier.' },
-        { id: '4-3', title: 'CRM connections', description: 'Sync with Salesforce, HubSpot, and more.' },
-        { id: '4-4', title: 'API documentation', description: 'Build custom integrations with our API.' }
+        { id: '4-1', title: t.helpdeskWidget.faq.collections.integrations.articles.article1.title, description: t.helpdeskWidget.faq.collections.integrations.articles.article1.description },
+        { id: '4-2', title: t.helpdeskWidget.faq.collections.integrations.articles.article2.title, description: t.helpdeskWidget.faq.collections.integrations.articles.article2.description },
+        { id: '4-3', title: t.helpdeskWidget.faq.collections.integrations.articles.article3.title, description: t.helpdeskWidget.faq.collections.integrations.articles.article3.description },
+        { id: '4-4', title: t.helpdeskWidget.faq.collections.integrations.articles.article4.title, description: t.helpdeskWidget.faq.collections.integrations.articles.article4.description }
       ]
     },
     {
       id: '5',
-      title: 'Troubleshooting',
-      description: 'Find solutions to common issues and problems.',
+      title: t.helpdeskWidget.faq.collections.troubleshooting.title,
+      description: t.helpdeskWidget.faq.collections.troubleshooting.description,
       articleCount: 28,
       articles: [
-        { id: '5-1', title: 'Connection issues', description: 'Resolve connectivity and sync problems.' },
-        { id: '5-2', title: 'Login problems', description: 'Fix authentication and access issues.' },
-        { id: '5-3', title: 'Performance optimization', description: 'Speed up your workspace.' },
-        { id: '5-4', title: 'Error messages explained', description: 'Understand and resolve common errors.' }
+        { id: '5-1', title: t.helpdeskWidget.faq.collections.troubleshooting.articles.article1.title, description: t.helpdeskWidget.faq.collections.troubleshooting.articles.article1.description },
+        { id: '5-2', title: t.helpdeskWidget.faq.collections.troubleshooting.articles.article2.title, description: t.helpdeskWidget.faq.collections.troubleshooting.articles.article2.description },
+        { id: '5-3', title: t.helpdeskWidget.faq.collections.troubleshooting.articles.article3.title, description: t.helpdeskWidget.faq.collections.troubleshooting.articles.article3.description },
+        { id: '5-4', title: t.helpdeskWidget.faq.collections.troubleshooting.articles.article4.title, description: t.helpdeskWidget.faq.collections.troubleshooting.articles.article4.description }
       ]
     }
   ];
@@ -181,7 +183,7 @@ export function FAQView({
             variant="ghost"
             onClick={() => setSelectedHelpArticle(null)}
             className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-            aria-label="Back"
+            aria-label={t.helpdeskWidget.common.back}
           >
             <ChevronLeft
               size={18}
@@ -202,7 +204,7 @@ export function FAQView({
             variant="ghost"
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-            aria-label="Close"
+            aria-label={t.helpdeskWidget.common.close}
           >
             <X
               size={18}
@@ -220,13 +222,13 @@ export function FAQView({
           </p>
           <div className="mt-6 text-gray-500 dark:text-muted-foreground" style={{ fontSize: '14px', lineHeight: '1.7' }}>
             <p className="mb-4">
-              This is where the full article content would appear. The article provides detailed information about {selectedHelpArticle.title.toLowerCase()}.
+              {format(t.helpdeskWidget.faq.articlePlaceholder.intro, { title: selectedHelpArticle.title.toLowerCase() })}
             </p>
             <p className="mb-4">
-              You can include step-by-step instructions, screenshots, videos, and other helpful resources to guide users through the process.
+              {t.helpdeskWidget.faq.articlePlaceholder.details}
             </p>
             <p>
-              If you need additional help, feel free to start a conversation with our support team.
+              {t.helpdeskWidget.faq.articlePlaceholder.help}
             </p>
           </div>
         </div>
@@ -244,16 +246,16 @@ export function FAQView({
             <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               <div className="flex items-center min-w-full px-2">
                 {[
-                  { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                  { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                  { id: 'help', icon: HelpCircle, label: 'Help', onClick: () => { setSelectedHelpArticle(null); setSelectedCollection(null); } },
-                  { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                  { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                  { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                  { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                  { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                  { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                  { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                  { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                  { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                  { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: () => { setSelectedHelpArticle(null); setSelectedCollection(null); } },
+                  { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                  { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                  { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                  { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                  { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                  { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                  { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
                 ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                   <Button
                     variant="ghost"
@@ -314,7 +316,7 @@ export function FAQView({
             variant="ghost"
             onClick={() => setSelectedCollection(null)}
             className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-            aria-label="Back"
+            aria-label={t.helpdeskWidget.common.back}
           >
             <ChevronLeft
               size={18}
@@ -335,7 +337,7 @@ export function FAQView({
             variant="ghost"
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-            aria-label="Close"
+            aria-label={t.helpdeskWidget.common.close}
           >
             <X
               size={18}
@@ -402,16 +404,16 @@ export function FAQView({
             <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               <div className="flex items-center min-w-full px-2">
                 {[
-                  { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                  { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                  { id: 'help', icon: HelpCircle, label: 'Help', onClick: () => setSelectedCollection(null) },
-                  { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                  { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                  { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                  { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                  { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                  { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                  { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                  { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                  { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                  { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: () => setSelectedCollection(null) },
+                  { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                  { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                  { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                  { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                  { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                  { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                  { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
                 ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                   <Button
                     variant="ghost"
@@ -474,13 +476,13 @@ export function FAQView({
             fontWeight: 500
           }}
         >
-          Help
+          {t.helpdeskWidget.faq.title}
         </h2>
         <Button
           variant="ghost"
           onClick={onClose}
           className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-          aria-label="Close"
+          aria-label={t.helpdeskWidget.common.close}
         >
           <X
             size={18}
@@ -496,7 +498,7 @@ export function FAQView({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search for help..."
+            placeholder={t.helpdeskWidget.faq.searchPlaceholder}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className={cn(
@@ -546,7 +548,7 @@ export function FAQView({
                       style={{
                         fontSize: '12px'
                       }}>
-                      {collection.articleCount} articles
+                      {format(t.helpdeskWidget.faq.articleCount, { count: collection.articleCount })}
                     </span>
                   </div>
                   <ChevronRight
@@ -562,7 +564,7 @@ export function FAQView({
         {/* No results message */}
         {filteredCollections.length === 0 && (
           <div className="text-center py-10 text-gray-600 dark:text-muted-foreground text-sm">
-            No collections found matching your search
+            {t.helpdeskWidget.faq.noResults}
           </div>
         )}
       </div>
@@ -580,16 +582,16 @@ export function FAQView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: () => {} },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: () => {} },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   variant="ghost"

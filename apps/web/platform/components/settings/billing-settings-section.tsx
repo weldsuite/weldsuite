@@ -1,5 +1,6 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useI18n } from '@/lib/i18n/provider';
 import { useEffect, useState, memo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
@@ -97,155 +98,173 @@ const getEmailPrice = (_planName: string, creditCount: number, currency: string)
   return Math.round(creditCount * PRICE_PER_CREDIT_CENTS);
 };
 
-// Feature comparison table data (matching weldsuite.org/pricing)
-type ComparisonRow = { label: string; indent?: boolean; values: Record<string, string | boolean> };
-type ComparisonSection = { title: string; rows: ComparisonRow[] };
+// Feature comparison table data (matching weldsuite.org/pricing). Labels live in
+// the settings locale under `billingComparison`; a string value that is one of
+// COMPARISON_VALUE_TOKENS is resolved there too, any other string (`3–25`, `25MB`) is shown as is.
+const COMPARISON_VALUE_TOKENS = ['unlimited', 'custom', 'upTo2', 'days7', 'days30', 'days90'] as const;
+type ComparisonValueToken = (typeof COMPARISON_VALUE_TOKENS)[number];
+const isComparisonValueToken = (val: string): val is ComparisonValueToken =>
+  (COMPARISON_VALUE_TOKENS as readonly string[]).includes(val);
+
+type ComparisonSectionKey =
+  | 'platform'
+  | 'automations'
+  | 'crm'
+  | 'helpdesk'
+  | 'mail'
+  | 'projects'
+  | 'taskAutomation'
+  | 'host'
+  | 'mobileApp'
+  | 'communication';
+type ComparisonRow = { key: string; indent?: boolean; values: Record<string, string | boolean> };
+type ComparisonSection = { key: ComparisonSectionKey; rows: ComparisonRow[] };
 
 const COMPARISON_SECTIONS: ComparisonSection[] = [
   {
-    title: 'Platform & Workspace',
+    key: 'platform',
     rows: [
-      { label: 'Seat limit', values: { free: 'Up to 2', business: '3–25', scale: 'Unlimited', enterprise: 'Custom' } },
-      { label: 'Remove branding', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
-      { label: 'Priority support', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
-      { label: 'Dedicated support', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
-      { label: 'API access', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'SSO / SAML', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
-      { label: 'Custom integrations', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
-      { label: 'Roles & permissions', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
-      { label: 'Activity log', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
-      { label: 'Two-factor authentication', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'seatLimit', values: { free: 'upTo2', business: '3–25', scale: 'unlimited', enterprise: 'custom' } },
+      { key: 'removeBranding', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
+      { key: 'prioritySupport', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
+      { key: 'dedicatedSupport', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
+      { key: 'apiAccess', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'ssoSaml', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
+      { key: 'customIntegrations', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
+      { key: 'rolesAndPermissions', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
+      { key: 'activityLog', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
+      { key: 'twoFactorAuthentication', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'Automations',
+    key: 'automations',
     rows: [
-      { label: 'Credits included', values: { free: '100', business: '1,000', scale: '2,500', enterprise: 'Custom' } },
-      { label: 'Emails per month', values: { free: '1,000', business: '10,000', scale: '25,000', enterprise: 'Custom' } },
-      { label: 'Integration blocks', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Email sequences', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Workflow automations', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'creditsIncluded', values: { free: '100', business: '1,000', scale: '2,500', enterprise: 'custom' } },
+      { key: 'emailsPerMonth', values: { free: '1,000', business: '10,000', scale: '25,000', enterprise: 'custom' } },
+      { key: 'integrationBlocks', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'emailSequences', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'workflowAutomations', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'CRM',
+    key: 'crm',
     rows: [
-      { label: 'Customer management (B2B/B2C)', values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Contacts', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'Leads', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Opportunities', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Sales pipelines', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'Activities', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Customer lists', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'Import / export', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Tags & custom fields', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Call intelligence', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Meeting intelligence', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
+      { key: 'customerManagementB2bB2c', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'contacts', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'leads', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'opportunities', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'salesPipelines', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'activities', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'customerLists', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'importExport', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'tagsAndCustomFields', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'callIntelligence', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'meetingIntelligence', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'Helpdesk (WeldDesk)',
+    key: 'helpdesk',
     rows: [
-      { label: 'Tickets', values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Live chat', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Email channel', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Knowledge base', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Canned responses', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Departments', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'Agents', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'SLA management', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
-      { label: 'Customer reviews', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Multi-channel (Discord / Slack)', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Analytics', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'WeldAgent AI', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'tickets', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'liveChat', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'emailChannel', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'knowledgeBase', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'cannedResponses', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'departments', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'agents', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'slaManagement', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
+      { key: 'customerReviews', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'multiChannelDiscordSlack', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'analytics', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'weldagentAi', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'Mail (WeldMail)',
+    key: 'mail',
     rows: [
-      { label: 'Custom email domain', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
-      { label: 'Email accounts', values: { free: '2', business: '10', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'Email domains', values: { free: '0', business: '1', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'Templates', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Rules & filters', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Labels & folders', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Drafts & scheduled send', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Snooze', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'AI smart replies', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'AI summaries', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Contacts integration', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Attachments', values: { free: '25MB', business: '25MB', scale: '25MB', enterprise: 'Custom' } },
+      { key: 'customEmailDomain', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
+      { key: 'emailAccounts', values: { free: '2', business: '10', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'emailDomains', values: { free: '0', business: '1', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'templates', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'rulesAndFilters', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'labelsAndFolders', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'draftsAndScheduledSend', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'snooze', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'aiSmartReplies', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'aiSummaries', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'contactsIntegration', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'attachments', values: { free: '25MB', business: '25MB', scale: '25MB', enterprise: 'custom' } },
     ],
   },
   {
-    title: 'Projects (WeldFlow)',
+    key: 'projects',
     rows: [
-      { label: 'Projects', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'Tasks & subtasks', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Kanban boards', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Gantt charts', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Timeline view', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Calendar view', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Table view', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Workload view', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Time tracking', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Milestones', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Goals & OKRs', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Documents', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Files', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Messages', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Whiteboard', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Analytics', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'projects', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'tasksAndSubtasks', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'kanbanBoards', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'ganttCharts', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'timelineView', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'calendarView', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'tableView', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'workloadView', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'timeTracking', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'milestones', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'goalsAndOkrs', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'documents', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'files', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'messages', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'whiteboard', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'analytics', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'Task Automation (WeldConnect)',
+    key: 'taskAutomation',
     rows: [
-      { label: 'Visual workflow builder', values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Templates', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Cron triggers', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Entity triggers', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Variables', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Integrations marketplace', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Execution history', values: { free: '7 days', business: '30 days', scale: '90 days', enterprise: 'Unlimited' } },
-      { label: 'Error handling & retries', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Workflow chaining', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Analytics', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'visualWorkflowBuilder', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'templates', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'cronTriggers', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'entityTriggers', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'variables', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'integrationsMarketplace', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'executionHistory', values: { free: 'days7', business: 'days30', scale: 'days90', enterprise: 'unlimited' } },
+      { key: 'errorHandlingAndRetries', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'workflowChaining', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'analytics', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'Host (WeldHost)',
+    key: 'host',
     rows: [
-      { label: 'Domain registration', values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'External domains', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'DNS zones', values: { free: 'Unlimited', business: 'Unlimited', scale: 'Unlimited', enterprise: 'Unlimited' } },
-      { label: 'DNS records', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Domain transfers', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'SSL certificates', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Auto-renewal', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'WHOIS privacy', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'domainRegistration', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'externalDomains', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'dnsZones', values: { free: 'unlimited', business: 'unlimited', scale: 'unlimited', enterprise: 'unlimited' } },
+      { key: 'dnsRecords', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'domainTransfers', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'sslCertificates', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'autoRenewal', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'whoisPrivacy', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'Mobile App',
+    key: 'mobileApp',
     rows: [
-      { label: 'iOS & Android', values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'CRM mobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Helpdesk mobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Mail mobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Projects mobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Push notifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'iosAndAndroid', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'crmMobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'helpdeskMobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'mailMobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'projectsMobile', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'pushNotifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
-    title: 'Communication & Real-time',
+    key: 'communication',
     rows: [
-      { label: 'Real-time messaging', values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Typing indicators', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Presence status', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'In-app notifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Email notifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { label: 'Push notifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'realTimeMessaging', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'typingIndicators', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'presenceStatus', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'inAppNotifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'emailNotifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'pushNotifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
 ];
@@ -935,9 +954,10 @@ function ComparisonPlanColumn({
 }
 
 function ComparisonValue({ val }: Readonly<{ val: string | boolean }>) {
+  const { t } = useI18n();
   if (val === true) return <Check className="w-4 h-4 text-primary mx-auto" />;
   if (val === false) return <span className="text-muted-foreground/40">{'\u2715'}</span>;
-  return <span className="text-muted-foreground">{val}</span>;
+  return <span className="text-muted-foreground">{isComparisonValueToken(val) ? t.settings.billingComparison.values[val] : val}</span>;
 }
 
 function ComparisonSectionBlock({
@@ -947,12 +967,15 @@ function ComparisonSectionBlock({
   section: ComparisonSection;
   plans: Billing.BillingPlan[];
 }>) {
+  const { t } = useI18n();
+  const copy = t.settings.billingComparison.sections[section.key];
+  const rowLabels: Record<string, string> = copy.rows;
   return (
     <div className="mt-10">
-      <h4 className="text-lg font-semibold pb-4 border-b border-border/50">{section.title}</h4>
+      <h4 className="text-lg font-semibold pb-4 border-b border-border/50">{copy.title}</h4>
       {section.rows.map((row) => (
-        <div key={row.label} className="grid gap-0 py-4 border-b border-border/50" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
-          <div className={`flex items-center gap-2 text-sm ${row.indent ? 'text-muted-foreground pl-4' : 'font-medium'}`}>{row.label}</div>
+        <div key={row.key} className="grid gap-0 py-4 border-b border-border/50" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
+          <div className={`flex items-center gap-2 text-sm ${row.indent ? 'text-muted-foreground pl-4' : 'font-medium'}`}>{rowLabels[row.key]}</div>
           {plans.map((plan, index) => {
             const val = row.values[resolvePlanKey(plan, row.values)] ?? '';
             return (
@@ -1034,7 +1057,7 @@ function PlanComparisonTable({
 
       {/* Comparison sections rendered from data */}
       {COMPARISON_SECTIONS.map((section) => (
-        <ComparisonSectionBlock key={section.title} section={section} plans={plans} />
+        <ComparisonSectionBlock key={section.key} section={section} plans={plans} />
       ))}
     </div>
   );

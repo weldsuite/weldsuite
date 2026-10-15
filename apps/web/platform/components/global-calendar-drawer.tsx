@@ -12,6 +12,7 @@ import { effectiveEnd, isUpcomingOrOngoing } from '@/app/weldcalendar/lib/upcomi
 import { useRouter } from '@/lib/router';
 import { format, isToday, isTomorrow, startOfDay, endOfDay, setHours, addDays } from 'date-fns';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { useI18n } from '@/lib/i18n/provider';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 type DrawerView = 'list' | 'day';
@@ -33,8 +34,8 @@ const eventTypeIcons: Record<string, typeof Calendar> = {
   other: Calendar,
 };
 
-function formatEventTime(event: CalendarEvent, timeFormat: TimeFormat): string {
-  if (event.allDay) return 'All day';
+function formatEventTime(event: CalendarEvent, timeFormat: TimeFormat, allDayLabel: string): string {
+  if (event.allDay) return allDayLabel;
   const start = new Date(event.startTime);
   const end = effectiveEnd(event);
   // No end, or an end that is not after the start: show the start only (never a negative range).
@@ -42,10 +43,15 @@ function formatEventTime(event: CalendarEvent, timeFormat: TimeFormat): string {
   return formatClockRange(start, end, timeFormat);
 }
 
-function getDayLabel(date: Date): string {
-  if (isToday(date)) return `Today - ${format(date, 'EEEE, MMM d')}`;
-  if (isTomorrow(date)) return `Tomorrow - ${format(date, 'EEEE, MMM d')}`;
-  return format(date, 'EEEE, MMM d');
+function getDayLabel(
+  date: Date,
+  tc: { todayLabel: string; tomorrowLabel: string },
+  interpolate: (template: string, values: Record<string, unknown>) => string,
+): string {
+  const formatted = format(date, 'EEEE, MMM d');
+  if (isToday(date)) return interpolate(tc.todayLabel, { date: formatted });
+  if (isTomorrow(date)) return interpolate(tc.tomorrowLabel, { date: formatted });
+  return formatted;
 }
 
 interface DayGroup {
@@ -54,14 +60,14 @@ interface DayGroup {
   events: CalendarEvent[];
 }
 
-function groupEventsByDay(events: CalendarEvent[]): DayGroup[] {
+function groupEventsByDay(events: CalendarEvent[], labelFor: (date: Date) => string): DayGroup[] {
   const groups = new Map<string, DayGroup>();
 
   for (const event of events) {
     const date = startOfDay(new Date(event.startTime));
     const key = date.toISOString();
     if (!groups.has(key)) {
-      groups.set(key, { date, label: getDayLabel(date), events: [] });
+      groups.set(key, { date, label: labelFor(date), events: [] });
     }
     groups.get(key)!.events.push(event);
   }
@@ -77,6 +83,7 @@ interface EventListItemProps {
 }
 
 function EventListItem({ event, calendar, timeFormat, onClick }: Readonly<EventListItemProps>) {
+  const { t } = useI18n();
   const TypeIcon = eventTypeIcons[event.type] || Calendar;
   const eventColor = event.color || EVENT_TYPE_COLORS[event.type] || EVENT_TYPE_COLORS.other;
 
@@ -101,7 +108,7 @@ function EventListItem({ event, calendar, timeFormat, onClick }: Readonly<EventL
         </span>
         <span className="flex items-center gap-2 mt-0.5">
           <span className="text-xs text-gray-500 dark:text-muted-foreground">
-            {formatEventTime(event, timeFormat)}
+            {formatEventTime(event, timeFormat, t.common.calendarDrawer.allDay)}
           </span>
           {calendar && (
             <>
@@ -129,6 +136,8 @@ function EventListItem({ event, calendar, timeFormat, onClick }: Readonly<EventL
 }
 
 function EmptyEventsState({ hasSearch }: Readonly<{ hasSearch: boolean }>) {
+  const { t } = useI18n();
+  const tc = t.common.calendarDrawer;
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-6 bg-white dark:bg-background/30">
       <EmptyStateIllustration width={210} height={150}>
@@ -159,18 +168,20 @@ function EmptyEventsState({ hasSearch }: Readonly<{ hasSearch: boolean }>) {
         </svg>
       </EmptyStateIllustration>
       <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-        {hasSearch ? 'No matching events' : "You're all caught up"}
+        {hasSearch ? tc.noMatchingEvents : tc.allCaughtUp}
       </h3>
       <p className="text-sm text-muted-foreground max-w-[280px] leading-relaxed">
         {hasSearch
-          ? 'Try a different search term.'
-          : 'Your next 7 days are clear.'}
+          ? tc.tryDifferentSearch
+          : tc.next7DaysClear}
       </p>
     </div>
   );
 }
 
 export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimation }: Readonly<GlobalCalendarDrawerProps>) {
+  const { t, format: interpolate } = useI18n();
+  const tc = t.common.calendarDrawer;
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -237,7 +248,10 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
     return events.filter((e) => isUpcomingOrOngoing(e, now)).slice(0, 50);
   }, [events]);
 
-  const dayGroups = useMemo(() => groupEventsByDay(upcomingEvents), [upcomingEvents]);
+  const dayGroups = useMemo(
+    () => groupEventsByDay(upcomingEvents, (date) => getDayLabel(date, tc, interpolate)),
+    [upcomingEvents, tc, interpolate],
+  );
 
   const handleEventClick = (event: CalendarEvent) => {
     const date = format(new Date(event.startTime), 'yyyy-MM-dd');
@@ -250,7 +264,7 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
     body = (
       <div className="flex items-center justify-center gap-2 py-12 flex-1">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Loading...</span>
+        <span className="text-sm text-muted-foreground">{t.common.labels.loading}</span>
       </div>
     );
   } else if (view === 'day') {
@@ -304,8 +318,8 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
               align="start"
               className="[&:not(:has([data-highlighted]))_[data-state=checked]]:bg-accent [&:not(:has([data-highlighted]))_[data-state=checked]]:text-accent-foreground"
             >
-              <SelectItem value="list">List</SelectItem>
-              <SelectItem value="day">Day</SelectItem>
+              <SelectItem value="list">{tc.viewList}</SelectItem>
+              <SelectItem value="day">{tc.viewDay}</SelectItem>
             </SelectContent>
           </Select>
           <div className="relative flex items-center">
@@ -334,7 +348,7 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
                 <input
                   ref={searchInputRef}
                   type="text"
-                  placeholder="Search events..."
+                  placeholder={tc.searchPlaceholder}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onBlur={() => !searchQuery && setSearchOpen(false)}
@@ -374,6 +388,8 @@ interface PanelDayViewProps {
 }
 
 function PanelDayView({ events, timeFormat, onEventClick }: Readonly<PanelDayViewProps>) {
+  const { t } = useI18n();
+  const tc = t.common.calendarDrawer;
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -439,7 +455,7 @@ function PanelDayView({ events, timeFormat, onEventClick }: Readonly<PanelDayVie
           size="icon"
           onClick={goPrev}
           className="relative h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          aria-label="Previous day"
+          aria-label={tc.previousDay}
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
@@ -452,7 +468,7 @@ function PanelDayView({ events, timeFormat, onEventClick }: Readonly<PanelDayVie
           size="icon"
           onClick={goNext}
           className="relative h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          aria-label="Next day"
+          aria-label={tc.nextDay}
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
@@ -463,7 +479,7 @@ function PanelDayView({ events, timeFormat, onEventClick }: Readonly<PanelDayVie
             onClick={goToday}
             className="relative h-6 px-2 inline-flex items-center justify-center rounded text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
-            Today
+            {t.common.time.today}
           </Button>
         )}
       </div>
@@ -482,7 +498,7 @@ function PanelDayView({ events, timeFormat, onEventClick }: Readonly<PanelDayVie
               >
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
                 <span className="text-xs font-medium text-foreground truncate flex-1">{event.title}</span>
-                <span className="text-[10px] text-muted-foreground">All day</span>
+                <span className="text-[10px] text-muted-foreground">{tc.allDay}</span>
               </Button>
             );
           })}

@@ -377,9 +377,9 @@ export function MessageList({
   if (isError) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="text-sm text-muted-foreground">Could not load messages.</p>
+        <p className="text-sm text-muted-foreground">{t.messageList.loadError}</p>
         <Button variant="outline" size="sm" onClick={() => refetch?.()}>
-          Try again
+          {t.messageList.tryAgain}
         </Button>
       </div>
     );

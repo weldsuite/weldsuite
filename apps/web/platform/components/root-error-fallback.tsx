@@ -6,6 +6,7 @@ import { log } from '@/lib/logger';
 import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
 import { getDesktop } from '@/lib/desktop';
 import { copyText } from '@/lib/clipboard';
+import { getTranslations } from '@/lib/i18n';
 
 function DevErrorDetails({ error, componentStack }: Readonly<{ error: Error; componentStack?: string }>) {
   const [copied, setCopied] = useState(false);
@@ -63,6 +64,9 @@ export function goHomeFromError(): void {
 }
 
 export function RootErrorFallback({ error, info, reset }: Readonly<ErrorComponentProps>) {
+  // Rendered by the root route's error boundary, i.e. outside <I18nProvider>, so
+  // the hook is unavailable: read the active locale (cookie) directly.
+  const t = getTranslations('common').rootError;
   // A stale dynamic import (chunk removed by a redeploy) surfaces here as a
   // render error. Reload once to pick up the latest build rather than showing
   // a dead-end error screen. The guard in reloadForStaleChunk prevents loops.
@@ -80,7 +84,7 @@ export function RootErrorFallback({ error, info, reset }: Readonly<ErrorComponen
   if (reloading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Updating to the latest version…</p>
+        <p className="text-muted-foreground">{t.updating}</p>
       </div>
     );
   }
@@ -89,14 +93,14 @@ export function RootErrorFallback({ error, info, reset }: Readonly<ErrorComponen
     <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
         <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
-        <h1 className="mt-4 text-4xl font-bold">Something went wrong</h1>
+        <h1 className="mt-4 text-4xl font-bold">{t.title}</h1>
         <p className="mt-2 text-muted-foreground">
-          We&apos;re sorry, an unexpected error occurred. Please try again.
+          {t.description}
         </p>
         <div className="mt-6 flex items-center justify-center gap-3">
-          <Button onClick={reset}>Try again</Button>
+          <Button onClick={reset}>{t.tryAgain}</Button>
           <Button variant="outline" onClick={goHomeFromError}>
-            Go home
+            {t.goHome}
           </Button>
         </div>
 

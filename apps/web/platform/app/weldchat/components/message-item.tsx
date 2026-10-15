@@ -323,7 +323,7 @@ export function MessageItem({
   const [isHovered, setIsHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { userId } = useAuth();
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const { openUserProfile, openAgentProfile } = useChatContext();
   // Parsing is not free: render each body once per content/member-map change, not on every row render (hover, menu, …).
   const renderedContent = useMemo(
@@ -423,7 +423,7 @@ export function MessageItem({
             )}
             {showChannel && message.channelName && (
               <span className="text-xs text-muted-foreground">
-                in #{message.channelName}
+                {format(t.weldchat.messageItem.inChannel, { name: message.channelName })}
               </span>
             )}
           </div>

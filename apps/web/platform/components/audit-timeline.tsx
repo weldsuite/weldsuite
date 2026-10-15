@@ -5,6 +5,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { Button } from '@weldsuite/ui/components/button';
 import { asText } from '@weldsuite/text';
+import { useI18n } from '@/lib/i18n/provider';
 
 export interface AuditLogEntry {
   id: string;
@@ -39,8 +40,13 @@ const actionColors: Record<string, { icon: string; bg: string }> = {
   updated: { icon: 'text-gray-400', bg: 'bg-gray-500/10' },
 };
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return 'none';
+interface AuditValueLabels {
+  none: string;
+  todo: string;
+}
+
+function formatValue(value: unknown, labels: AuditValueLabels): string {
+  if (value === null || value === undefined) return labels.none;
   if (typeof value === 'object') return JSON.stringify(value);
   return asText(value);
 }
@@ -57,17 +63,17 @@ function formatFieldLabel(key: string): string {
 }
 
 const ENUM_LIKE_FIELDS = new Set(['status', 'priority', 'type']);
-const ENUM_LABEL_OVERRIDES: Record<string, string> = { todo: 'To Do' };
+const ENUM_LABEL_OVERRIDES: Record<string, keyof AuditValueLabels> = { todo: 'todo' };
 
 /** "in_progress" -> "In progress", "todo" -> "To Do" for status-like fields. */
-function formatChangeValue(key: string, value: unknown): string {
+function formatChangeValue(key: string, value: unknown, labels: AuditValueLabels): string {
   if (key === 'repeat' && value && typeof value === 'object') {
     const frequency = (value as { frequency?: unknown }).frequency;
     if (typeof frequency === 'string') return frequency;
   }
   if (typeof value === 'string' && ENUM_LIKE_FIELDS.has(key)) {
     const override = ENUM_LABEL_OVERRIDES[value];
-    if (override) return override;
+    if (override) return labels[override];
     const words = value.replaceAll('_', ' ');
     return words.charAt(0).toUpperCase() + words.slice(1);
   }
@@ -75,10 +81,11 @@ function formatChangeValue(key: string, value: unknown): string {
     const d = new Date(value);
     if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
   }
-  return formatValue(value);
+  return formatValue(value, labels);
 }
 
 function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }> }>) {
+  const { t } = useI18n();
   const entries = Object.entries(changes);
   if (entries.length === 0) return null;
 
@@ -87,9 +94,9 @@ function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: u
       {entries.map(([key, { from, to }]) => (
         <div key={key} className="text-[11px] text-muted-foreground">
           <span className="font-medium">{formatFieldLabel(key)}</span>:{' '}
-          <span className="line-through opacity-60">{formatChangeValue(key, from)}</span>
+          <span className="line-through opacity-60">{formatChangeValue(key, from, t.common.auditTimeline)}</span>
           {' → '}
-          <span>{formatChangeValue(key, to)}</span>
+          <span>{formatChangeValue(key, to, t.common.auditTimeline)}</span>
         </div>
       ))}
     </div>
@@ -99,6 +106,7 @@ function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: u
 const HIDDEN_DATA_KEYS = new Set(['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId']);
 
 function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
+  const { t } = useI18n();
   const entries = Object.entries(data).filter(
     ([key, value]) => !HIDDEN_DATA_KEYS.has(key) && value !== null && value !== undefined && value !== '',
   );
@@ -109,7 +117,7 @@ function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
       {entries.map(([key, value]) => (
         <div key={key} className="text-[11px] text-muted-foreground">
           <span className="font-medium">{key}</span>:{' '}
-          <span>{formatValue(value)}</span>
+          <span>{formatValue(value, t.common.auditTimeline)}</span>
         </div>
       ))}
     </div>
@@ -142,12 +150,13 @@ export function AuditTimeline({
   /** Render field changes under each entry instead of behind "Details". */
   alwaysShowChanges?: boolean;
 }>) {
+  const { t } = useI18n();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   if (logs.length === 0) {
     return (
       <div className="flex items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground">No activity yet</p>
+        <p className="text-sm text-muted-foreground">{t.common.auditTimeline.noActivity}</p>
       </div>
     );
   }
@@ -218,7 +227,7 @@ export function AuditTimeline({
                     className="flex items-center gap-0.5 mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                    Details
+                    {t.common.auditTimeline.details}
                   </Button>
                   {isExpanded && hasChanges && <ChangeDetails changes={log.changes!} />}
                   {isExpanded && !hasChanges && hasData && <DataSnapshot data={log.data!} />}

@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import PageComponent from '@/app/weldads/connect/callback/page';
 
 export const Route = createFileRoute('/weldads/connect/callback/')({
-  staticData: { breadcrumb: { label: 'Connect' } },
+  staticData: { breadcrumb: { labelKey: 'connect' } },
   validateSearch: (search: Record<string, unknown>) => ({
     code: typeof search.code === 'string' ? search.code : undefined,
     state: typeof search.state === 'string' ? search.state : undefined,

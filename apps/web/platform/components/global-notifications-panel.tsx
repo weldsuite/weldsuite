@@ -17,6 +17,7 @@ import { useResolveAccessRequest } from '@/hooks/queries/use-access-requests-que
 import { renderContentWithMentions } from '@/lib/render-mentions';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { webHrefForAction } from '@/lib/weldagent/action-links';
+import { useI18n } from '@/lib/i18n/provider';
 
 type NotificationType = 'message' | 'task' | 'mention' | 'system' | 'order' | 'invoice' | 'calendar' | 'mail' | 'helpdesk' | 'crm' | 'commerce' | 'parcel' | 'projects';
 
@@ -94,6 +95,8 @@ function transformNotification(notification: UnifiedNotification): DisplayNotifi
 }
 
 export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAnimation }: Readonly<GlobalNotificationsPanelProps>) {
+  const { t } = useI18n();
+  const tn = t.common.notificationsPanel;
   const {
     notifications: rawNotifications,
     unreadCount,
@@ -127,7 +130,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (minutes < 1) return 'Just now';
+    if (minutes < 1) return t.common.time.justNow;
     if (minutes < 60) return `${minutes}m`;
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
@@ -165,7 +168,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
       { id: requestId, status },
       {
         onSuccess: () => {
-          toast.success(status === 'approved' ? 'Access granted.' : 'Access denied.');
+          toast.success(status === 'approved' ? tn.accessGranted : tn.accessDenied);
           // Stamp the local notification so the row swaps to the status pill
           // immediately for the resolving admin (the workspace-wide topic
           // event covers the OTHER admins).
@@ -176,10 +179,10 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
         },
         onError: (err: Error & { status?: number }) => {
           if (err?.status === 409) {
-            toast.message('Already resolved by another admin.');
+            toast.message(tn.alreadyResolved);
             markAsReadAction(notificationId);
           } else {
-            toast.error('Could not resolve the request. Please try again.');
+            toast.error(tn.resolveFailed);
           }
         },
       },
@@ -198,7 +201,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
-            <span className="font-medium text-gray-900 dark:text-foreground">Notifications</span>
+            <span className="font-medium text-gray-900 dark:text-foreground">{tn.title}</span>
             {unreadCount > 0 && (
               <span className="h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600" />
             )}
@@ -211,8 +214,8 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
               onClick={handleMarkAllAsRead}
               disabled={unreadCount === 0}
               className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
-              title="Mark all as read"
-              aria-label="Mark all as read"
+              title={tn.markAllAsRead}
+              aria-label={tn.markAllAsRead}
             >
               <CheckCheck className="h-4 w-4" />
             </Button>
@@ -221,7 +224,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
               size="icon"
               onClick={onClose}
               className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all"
-              aria-label="Close panel"
+              aria-label={tn.closePanel}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -234,10 +237,10 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center px-4">
             <p className="text-[13px] font-medium text-gray-900 dark:text-foreground">
-              No notifications
+              {tn.empty}
             </p>
             <p className="text-[12px] text-gray-500 dark:text-muted-foreground mt-1">
-              You&apos;ll see notifications here
+              {tn.emptyHint}
             </p>
           </div>
         ) : (
@@ -325,8 +328,8 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                             className="h-7 px-3 text-xs font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {resolving && resolveVars?.id === notification.entityId && resolveVars?.status === 'approved'
-                              ? 'Approving…'
-                              : 'Approve'}
+                              ? tn.approving
+                              : tn.approve}
                           </Button>
                           <Button
                             type="button"
@@ -338,8 +341,8 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                             className="h-7 px-3 text-xs font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {resolving && resolveVars?.id === notification.entityId && resolveVars?.status === 'denied'
-                              ? 'Denying…'
-                              : 'Deny'}
+                              ? tn.denying
+                              : tn.deny}
                           </Button>
                         </div>
                       )}
@@ -356,12 +359,12 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                             {notification.resolvedStatus === 'approved' ? (
                               <>
                                 <Check className="h-3 w-3" />
-                                Approved
+                                {tn.approved}
                               </>
                             ) : (
                               <>
                                 <X className="h-3 w-3" />
-                                Denied
+                                {tn.denied}
                               </>
                             )}
                           </span>
@@ -377,7 +380,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                           size="icon"
                           onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleMarkAsRead(notification.id); }}
                           className="h-7 w-7 inline-flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-accent rounded-md transition-all"
-                          title="Mark as read"
+                          title={tn.markAsRead}
                         >
                           <Check className="h-3.5 w-3.5" />
                         </Button>
@@ -387,7 +390,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                         size="icon"
                         onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteNotification(notification.id); }}
                         className="h-7 w-7 inline-flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-all"
-                        title="Delete"
+                        title={t.common.actions.delete}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

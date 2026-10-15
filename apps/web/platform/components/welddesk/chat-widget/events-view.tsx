@@ -17,6 +17,7 @@ import {
   Package
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 
 interface EventsViewProps {
@@ -59,17 +60,18 @@ export function EventsView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking']
 }: Readonly<EventsViewProps>) {
+  const { t, format } = useI18n();
   const [activeTab] = useState('events');
   const [registeredEvents, setRegisteredEvents] = useState<string[]>([]);
 
   const events: EventItem[] = [
     {
       id: '1',
-      title: 'Product Roadmap Webinar Q1 2025',
-      description: 'Join us for an exclusive look at what\'s coming in Q1 2025. Learn about new features, improvements, and get your questions answered live.',
-      date: 'January 15, 2025',
-      time: '10:00 AM - 11:30 AM PST',
-      location: 'Online',
+      title: t.helpdeskWidget.events.items.roadmapWebinar.title,
+      description: t.helpdeskWidget.events.items.roadmapWebinar.description,
+      date: t.helpdeskWidget.events.items.roadmapWebinar.date,
+      time: t.helpdeskWidget.events.items.roadmapWebinar.time,
+      location: t.helpdeskWidget.events.online,
       attendees: 247,
       maxAttendees: 500,
       category: 'webinar',
@@ -77,11 +79,11 @@ export function EventsView({
     },
     {
       id: '2',
-      title: 'Advanced Analytics Workshop',
-      description: 'Deep dive into our analytics platform. Learn best practices, advanced techniques, and how to build custom dashboards.',
-      date: 'January 22, 2025',
-      time: '2:00 PM - 4:00 PM PST',
-      location: 'Online',
+      title: t.helpdeskWidget.events.items.analyticsWorkshop.title,
+      description: t.helpdeskWidget.events.items.analyticsWorkshop.description,
+      date: t.helpdeskWidget.events.items.analyticsWorkshop.date,
+      time: t.helpdeskWidget.events.items.analyticsWorkshop.time,
+      location: t.helpdeskWidget.events.online,
       attendees: 89,
       maxAttendees: 100,
       category: 'workshop',
@@ -89,10 +91,10 @@ export function EventsView({
     },
     {
       id: '3',
-      title: 'Customer Success Summit 2025',
-      description: 'Network with fellow users, share success stories, and learn from industry experts at our annual summit.',
-      date: 'February 5-6, 2025',
-      time: '9:00 AM - 5:00 PM PST',
+      title: t.helpdeskWidget.events.items.successSummit.title,
+      description: t.helpdeskWidget.events.items.successSummit.description,
+      date: t.helpdeskWidget.events.items.successSummit.date,
+      time: t.helpdeskWidget.events.items.successSummit.time,
       location: 'San Francisco, CA',
       attendees: 342,
       maxAttendees: 1000,
@@ -101,10 +103,10 @@ export function EventsView({
     },
     {
       id: '4',
-      title: 'Local User Meetup - NYC',
-      description: 'Connect with other users in the New York area. Casual networking, pizza, and product discussions.',
-      date: 'January 30, 2025',
-      time: '6:00 PM - 8:00 PM EST',
+      title: t.helpdeskWidget.events.items.nycMeetup.title,
+      description: t.helpdeskWidget.events.items.nycMeetup.description,
+      date: t.helpdeskWidget.events.items.nycMeetup.date,
+      time: t.helpdeskWidget.events.items.nycMeetup.time,
       location: 'New York, NY',
       attendees: 28,
       maxAttendees: 50,
@@ -169,7 +171,7 @@ export function EventsView({
             letterSpacing: '-0.01em'
           }}
         >
-          Upcoming Events
+          {t.helpdeskWidget.events.title}
         </h2>
 
         {/* Close button */}
@@ -211,7 +213,7 @@ export function EventsView({
                   {/* Category Badge */}
                   <div className="mb-2">
                     <span className={cn("text-xs px-2 py-1 rounded-full font-medium capitalize", getCategoryColor(event.category))}>
-                      {event.category}
+                      {t.helpdeskWidget.events.categories[event.category]}
                     </span>
                   </div>
 
@@ -241,10 +243,10 @@ export function EventsView({
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-600">
                       <Users size={14} className="text-gray-400" />
-                      <span>{event.attendees} / {event.maxAttendees} attendees</span>
+                      <span>{format(t.helpdeskWidget.events.attendees, { count: event.attendees, max: event.maxAttendees })}</span>
                       {isFilling && (
                         <span className="text-orange-600 font-medium">
-                          ({spotsRemaining} spots left!)
+                          ({format(t.helpdeskWidget.events.spotsLeft, { count: spotsRemaining })})
                         </span>
                       )}
                     </div>
@@ -264,11 +266,11 @@ export function EventsView({
                     {isRegistered ? (
                       <>
                         <span>✓</span>
-                        <span>Registered</span>
+                        <span>{t.helpdeskWidget.events.registered}</span>
                       </>
                     ) : (
                       <>
-                        <span>Register Now</span>
+                        <span>{t.helpdeskWidget.events.registerNow}</span>
                         <ExternalLink size={14} />
                       </>
                     )}
@@ -294,16 +296,16 @@ export function EventsView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: () => {} },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: () => {} },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

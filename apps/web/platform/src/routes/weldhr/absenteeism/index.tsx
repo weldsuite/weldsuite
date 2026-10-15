@@ -4,7 +4,7 @@ import { MY_HR_PATHS } from '@/app/weldhr/access';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldhr/absenteeism/')({
-  staticData: { breadcrumb: { label: 'Absenteeism' } },
+  staticData: { breadcrumb: { labelKey: 'absenteeism' } },
   validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
     tab: typeof search.tab === 'string' ? search.tab : undefined,
   }),

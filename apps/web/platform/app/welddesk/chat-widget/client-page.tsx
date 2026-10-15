@@ -30,9 +30,10 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
   function ChatWidgetClient({ initialSettings, widgetId }, ref) {
     const { t } = useI18n();
     const tw = t.helpdesk.chatWidget;
+    const tcp = t.helpdesk.chatWidgetPage;
     const updateWidget = useUpdateDeskWidget();
     const [enabled, setEnabled] = useState(initialSettings.enabled);
-    const [greeting, setGreeting] = useState(initialSettings.greeting ?? 'Hi — how can we help?');
+    const [greeting, setGreeting] = useState(initialSettings.greeting ?? tcp.defaultGreeting);
     const [primaryColor, setPrimaryColor] = useState(initialSettings.branding?.primaryColor ?? '#2563eb');
     const [position, setPosition] = useState<'right' | 'left'>(initialSettings.branding?.position ?? 'right');
 
@@ -103,8 +104,8 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="right">Right</SelectItem>
-                  <SelectItem value="left">Left</SelectItem>
+                  <SelectItem value="right">{tcp.positionRight}</SelectItem>
+                  <SelectItem value="left">{tcp.positionLeft}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

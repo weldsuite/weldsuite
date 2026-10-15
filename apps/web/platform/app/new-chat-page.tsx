@@ -30,7 +30,7 @@ const routeApi = getRouteApi('/new-chat');
 /** Derive a short sidebar-friendly title from the first user message. */
 function deriveTitle(firstMessage: string): string {
   const clean = firstMessage.replace(/\s+/g, ' ').trim();
-  return clean.slice(0, 60) || 'New Chat';
+  return clean.slice(0, 60) || getTranslations('weldsuiteHome').page.breadcrumbNewChat;
 }
 
 export default function ChatPage() {
@@ -43,6 +43,7 @@ export default function ChatPage() {
 
 function ChatSession() {
   const t = getTranslations('common').ai.chat;
+  const tHome = getTranslations('weldsuiteHome').page;
   const { prompt, conversation } = routeApi.useSearch();
   const navigate = useNavigate();
 
@@ -153,7 +154,7 @@ function ChatSession() {
       <BreadcrumbHeader
         segments={[
           { label: 'WeldSuite', href: '/' },
-          { label: 'New Chat', href: '/new-chat' },
+          { label: tHome.breadcrumbNewChat, href: '/new-chat' },
         ]}
       />
       <ModuleContent className="flex flex-col overflow-hidden">

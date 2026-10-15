@@ -3,6 +3,6 @@ import PageComponent from '@/app/weldpass/passwords/health/page';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldpass/passwords/health/')({
-  staticData: { breadcrumb: { label: 'Password health' } },
+  staticData: { breadcrumb: { labelKey: 'passwordHealth' } },
   component: PageComponent,
 });

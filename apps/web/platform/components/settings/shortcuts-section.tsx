@@ -5,60 +5,67 @@ import { Keyboard, Info } from "lucide-react"
 import { FilterPills, type ActiveFilter, type FilterConfig } from "@/components/entity-list"
 import { cn } from "@/lib/utils"
 import { ExpandingSearchInput } from "@/components/settings/expanding-search-input"
+import { useI18n } from '@/lib/i18n/provider'
+import type { TranslationNamespaces } from '@/lib/i18n'
 
-const shortcuts = {
-  "General": [
-    { keys: ["⌘", "K"], description: "Open command palette" },
-    { keys: ["⌘", ","], description: "Open settings" },
-    { keys: ["⌘", "/"], description: "Show keyboard shortcuts" },
-    { keys: ["Esc"], description: "Close dialog / Cancel" },
-    { keys: ["⌘", "Z"], description: "Undo" },
-    { keys: ["⌘", "Shift", "Z"], description: "Redo" },
+type ShortcutStrings = TranslationNamespaces['settings']['shortcutsList']
+type ShortcutCategory = keyof ShortcutStrings['categories']
+type ShortcutId = keyof ShortcutStrings['items']
+type ShortcutDefinition = { keys: string[]; id: ShortcutId }
+
+const shortcuts: Record<ShortcutCategory, ShortcutDefinition[]> = {
+  general: [
+    { keys: ["⌘", "K"], id: 'openCommandPalette' },
+    { keys: ["⌘", ","], id: 'openSettings' },
+    { keys: ["⌘", "/"], id: 'showKeyboardShortcuts' },
+    { keys: ["Esc"], id: 'closeDialogCancel' },
+    { keys: ["⌘", "Z"], id: 'undo' },
+    { keys: ["⌘", "Shift", "Z"], id: 'redo' },
   ],
-  "Navigation": [
-    { keys: ["⌘", "1"], description: "Go to Dashboard" },
-    { keys: ["⌘", "2"], description: "Go to Commerce" },
-    { keys: ["⌘", "3"], description: "Go to WMS" },
-    { keys: ["⌘", "4"], description: "Go to CRM" },
-    { keys: ["⌘", "5"], description: "Go to Accounting" },
-    { keys: ["Alt", "←"], description: "Navigate back" },
-    { keys: ["Alt", "→"], description: "Navigate forward" },
+  navigation: [
+    { keys: ["⌘", "1"], id: 'goToDashboard' },
+    { keys: ["⌘", "2"], id: 'goToCommerce' },
+    { keys: ["⌘", "3"], id: 'goToWms' },
+    { keys: ["⌘", "4"], id: 'goToCrm' },
+    { keys: ["⌘", "5"], id: 'goToAccounting' },
+    { keys: ["Alt", "←"], id: 'navigateBack' },
+    { keys: ["Alt", "→"], id: 'navigateForward' },
   ],
-  "Commerce": [
-    { keys: ["⌘", "N"], description: "Create new product" },
-    { keys: ["⌘", "Shift", "N"], description: "Create new order" },
-    { keys: ["⌘", "E"], description: "Edit selected item" },
-    { keys: ["⌘", "D"], description: "Duplicate selected item" },
-    { keys: ["Delete"], description: "Delete selected item" },
-    { keys: ["⌘", "S"], description: "Save changes" },
+  commerce: [
+    { keys: ["⌘", "N"], id: 'createNewProduct' },
+    { keys: ["⌘", "Shift", "N"], id: 'createNewOrder' },
+    { keys: ["⌘", "E"], id: 'editSelectedItem' },
+    { keys: ["⌘", "D"], id: 'duplicateSelectedItem' },
+    { keys: ["Delete"], id: 'deleteSelectedItem' },
+    { keys: ["⌘", "S"], id: 'saveChanges' },
   ],
-  "Search & Filter": [
-    { keys: ["⌘", "F"], description: "Focus search field" },
-    { keys: ["⌘", "Shift", "F"], description: "Advanced search" },
-    { keys: ["⌘", "G"], description: "Find next" },
-    { keys: ["⌘", "Shift", "G"], description: "Find previous" },
-    { keys: ["Esc"], description: "Clear search" },
+  searchAndFilter: [
+    { keys: ["⌘", "F"], id: 'focusSearchField' },
+    { keys: ["⌘", "Shift", "F"], id: 'advancedSearch' },
+    { keys: ["⌘", "G"], id: 'findNext' },
+    { keys: ["⌘", "Shift", "G"], id: 'findPrevious' },
+    { keys: ["Esc"], id: 'clearSearch' },
   ],
-  "Tables & Lists": [
-    { keys: ["↑"], description: "Move selection up" },
-    { keys: ["↓"], description: "Move selection down" },
-    { keys: ["Space"], description: "Select/Deselect item" },
-    { keys: ["⌘", "A"], description: "Select all" },
-    { keys: ["⌘", "Shift", "A"], description: "Deselect all" },
-    { keys: ["Enter"], description: "Open selected item" },
+  tablesAndLists: [
+    { keys: ["↑"], id: 'moveSelectionUp' },
+    { keys: ["↓"], id: 'moveSelectionDown' },
+    { keys: ["Space"], id: 'selectDeselectItem' },
+    { keys: ["⌘", "A"], id: 'selectAll' },
+    { keys: ["⌘", "Shift", "A"], id: 'deselectAll' },
+    { keys: ["Enter"], id: 'openSelectedItem' },
   ],
-  "Workspace": [
-    { keys: ["⌘", "Shift", "W"], description: "Switch workspace" },
-    { keys: ["⌘", "Shift", "U"], description: "Manage users" },
-    { keys: ["⌘", "Shift", "S"], description: "Workspace settings" },
-    { keys: ["⌘", "L"], description: "Lock workspace" },
+  workspace: [
+    { keys: ["⌘", "Shift", "W"], id: 'switchWorkspace' },
+    { keys: ["⌘", "Shift", "U"], id: 'manageUsers' },
+    { keys: ["⌘", "Shift", "S"], id: 'workspaceSettings' },
+    { keys: ["⌘", "L"], id: 'lockWorkspace' },
   ],
-  "Developer": [
-    { keys: ["⌘", "Shift", "D"], description: "Toggle developer tools" },
-    { keys: ["⌘", "Shift", "C"], description: "Copy debug info" },
-    { keys: ["⌘", "Option", "I"], description: "Inspect element" },
-    { keys: ["⌘", "Shift", "P"], description: "Performance monitor" },
-  ]
+  developer: [
+    { keys: ["⌘", "Shift", "D"], id: 'toggleDeveloperTools' },
+    { keys: ["⌘", "Shift", "C"], id: 'copyDebugInfo' },
+    { keys: ["⌘", "Option", "I"], id: 'inspectElement' },
+    { keys: ["⌘", "Shift", "P"], id: 'performanceMonitor' },
+  ],
 }
 
 function renderShortcutKey(key: string): React.ReactNode {
@@ -76,17 +83,19 @@ function renderShortcutKey(key: string): React.ReactNode {
 
 export function ShortcutsSection() {
   const t = useTranslations()
+  const { t: i18n } = useI18n()
+  const sl = i18n.settings.shortcutsList
   const [searchQuery, setSearchQuery] = React.useState("")
   const [activeFilters, setActiveFilters] = React.useState<ActiveFilter[]>([])
   const filterConfigs: FilterConfig[] = React.useMemo(() => [
     {
       field: 'category',
-      label: 'Category',
+      label: sl.categoryFilter,
       filterType: 'select',
       searchable: true,
-      options: Object.keys(shortcuts).map((c) => ({ value: c, label: c })),
+      options: Object.keys(shortcuts).map((c) => ({ value: c, label: sl.categories[c as ShortcutCategory] })),
     },
-  ], [])
+  ], [sl])
 
   const filteredShortcuts = React.useMemo(() => {
     const allowedCategories = activeFilters
@@ -99,15 +108,15 @@ export function ShortcutsSection() {
       const filtered = !searchQuery
         ? items
         : items.filter(item =>
-            item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            sl.items[item.id].toLowerCase().includes(searchQuery.toLowerCase()) ||
             item.keys.some(key => key.toLowerCase().includes(searchQuery.toLowerCase()))
           )
       if (filtered.length > 0) {
-        (acc as typeof shortcuts)[category as keyof typeof shortcuts] = filtered
+        acc[category] = filtered
       }
       return acc
-    }, {} as typeof shortcuts)
-  }, [searchQuery, activeFilters])
+    }, {} as Record<string, ShortcutDefinition[]>)
+  }, [searchQuery, activeFilters, sl])
 
   return (
     <div className="space-y-8">
@@ -133,12 +142,12 @@ export function ShortcutsSection() {
       <div className="space-y-10">
         {Object.entries(filteredShortcuts).map(([category, items]) => (
           <div key={category} className="space-y-3">
-            <h4 className="text-sm font-semibold text-muted-foreground">{category}</h4>
+            <h4 className="text-sm font-semibold text-muted-foreground">{sl.categories[category as ShortcutCategory]}</h4>
             <div className="rounded-lg border">
               <div className="divide-y">
                 {items.map((shortcut) => (
-                  <div key={shortcut.description} className="flex items-center justify-between p-3">
-                    <span className="text-sm">{shortcut.description}</span>
+                  <div key={shortcut.id} className="flex items-center justify-between p-3">
+                    <span className="text-sm">{sl.items[shortcut.id]}</span>
                     <div className="flex items-center gap-1.5">
                       {shortcut.keys.map((key, keyIndex) => (
                         <React.Fragment key={key}>
