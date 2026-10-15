@@ -198,7 +198,7 @@ function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: 
   );
 }
 
-function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void }>) {
+function TaskTitle({ title, isDone, onSave, editRequest }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void; editRequest?: number }>) {
   // 24px lines + 1px offset put the first line's centre on the same 26px line
   // as the checkbox and the header buttons.
   return (
@@ -206,6 +206,7 @@ function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: 
       <InlineTextEditor
         value={title}
         onSave={onSave}
+        editRequest={editRequest}
         className={cn(
           'text-[15px] font-medium leading-6 text-foreground',
           isDone && 'line-through text-muted-foreground',
@@ -227,6 +228,10 @@ function TaskActions({
   onDelete: () => void;
 }>) {
   const t = useTranslations();
+  // "Edit task" focuses the title editor. That has to wait until the menu has
+  // closed: while open it traps focus, and as it closes it hands focus back to
+  // its trigger, either of which would blur the editor straight away.
+  const editOnCloseRef = React.useRef(false);
   return (
     <div className="flex items-center gap-0.5">
       <DropdownMenu>
@@ -240,8 +245,20 @@ function TaskActions({
             <EllipsisVertical className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onEdit}>
+        <DropdownMenuContent
+          align="end"
+          onCloseAutoFocus={(e) => {
+            if (!editOnCloseRef.current) return;
+            editOnCloseRef.current = false;
+            e.preventDefault();
+            onEdit();
+          }}
+        >
+          <DropdownMenuItem
+            onClick={() => {
+              editOnCloseRef.current = true;
+            }}
+          >
             <Pencil />
             {t('sweep.entities.editTask')}
           </DropdownMenuItem>
@@ -554,18 +571,11 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   }, [apiTask, duplicateMutation, t]);
 
   /**
-   * Edit — the legacy panel handed control back to a per-page TaskDialog. The
-   * new panel makes every field in-place editable, so "Edit task" no longer
-   * needs to open a separate dialog. We still emit a `task-panel-edit-requested`
-   * window event so any caller that wants to surface the old dialog can hook
-   * in without the panel having to know about it.
+   * Edit — every field in the panel is edited in place, so "Edit task" puts
+   * the title into edit mode (the rest is already one click away).
    */
-  const handleEdit = useCallback(() => {
-    if (!apiTask) return;
-    window.dispatchEvent(
-      new CustomEvent('task-panel-edit-requested', { detail: { taskId: apiTask.id } }),
-    );
-  }, [apiTask]);
+  const [titleEditRequest, setTitleEditRequest] = useState(0);
+  const handleEdit = useCallback(() => setTitleEditRequest((n) => n + 1), []);
 
   /**
    * Copy link — the stable `/weldflow/task/{id}` URL, which resolves the
@@ -693,7 +703,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       avatar={<TaskAvatar status={task?.status} onToggle={handleToggle} />}
       title={
         task
-          ? <TaskTitle title={task.title} isDone={task.status === 'done'} onSave={(next) => handleUpdate(task.id, { title: next })} />
+          ? <TaskTitle title={task.title} isDone={task.status === 'done'} onSave={(next) => handleUpdate(task.id, { title: next })} editRequest={titleEditRequest} />
           : <div className="h-4 w-32 rounded bg-muted animate-pulse" />
       }
       // `TaskTitle` is a wrapping, auto-growing editor — without this the shell's
