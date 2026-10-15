@@ -1632,14 +1632,14 @@ export function TasksClient({
         {/* Attachments & Subtask count */}
         <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
           {(task.attachmentCount ?? 0) > 0 && (
-            <span className="inline-flex h-[18px] items-center gap-1 rounded bg-gray-100 px-1.5 font-mono text-[11px] leading-none tabular-nums text-gray-500 dark:bg-secondary dark:text-muted-foreground flex-shrink-0">
-              <Paperclip className="h-3 w-3 shrink-0" />
+            <span className="inline-flex h-[16px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
+              <Paperclip className="h-2.5 w-2.5 shrink-0" />
               {task.attachmentCount}
             </span>
           )}
           {(task.subtaskCount ?? 0) > 0 && (
-            <span className="inline-flex h-[18px] items-center gap-1 rounded bg-gray-100 px-1.5 font-mono text-[11px] leading-none tabular-nums text-gray-500 dark:bg-secondary dark:text-muted-foreground flex-shrink-0">
-              <ListTodo className="h-3 w-3 shrink-0" />
+            <span className="inline-flex h-[16px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
+              <ListTodo className="h-2.5 w-2.5 shrink-0" />
               {task.completedSubtaskCount}/{task.subtaskCount}
             </span>
           )}
