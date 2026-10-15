@@ -475,6 +475,8 @@ export function PipelineKanban({
   const containerRef = useRef<HTMLDivElement>(null);
   const stagesScrollRef = useRef<HTMLDivElement>(null);
   const calculationScrollRef = useRef<HTMLDivElement>(null);
+  // The bottom calculation bar: a stage's drop highlight stops above it.
+  const calcBarRef = useRef<HTMLDivElement>(null);
   const [calcBarBounds, setCalcBarBounds] = useState<{ left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -999,6 +1001,7 @@ export function PipelineKanban({
                       <DroppableStage
                         id={stage.id}
                         containerRef={containerRef}
+                        bottomBoundaryRef={calcBarRef}
                       >
                         <div className="flex flex-col h-full">
                           <StageHeader
@@ -1161,6 +1164,7 @@ export function PipelineKanban({
 
       {/* Calculation bar at bottom */}
       <div
+        ref={calcBarRef}
         className="fixed bottom-0 bg-white dark:bg-background border-t border-gray-100 dark:border-border z-40 py-0"
         style={calcBarBounds ? { left: calcBarBounds.left, width: calcBarBounds.width } : { left: 0, right: 0 }}
       >

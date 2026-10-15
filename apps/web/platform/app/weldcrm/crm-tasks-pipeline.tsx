@@ -34,6 +34,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { formatDealDate } from '@/lib/crm/deal-format';
+import { DROP_TARGET_HIGHLIGHT, dropHighlightBottom } from '@/components/weldcrm/pipeline/droppable-stage';
 import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 import type { Task } from '@/hooks/use-crm-tasks';
@@ -108,23 +109,22 @@ function applyTaskFilters(tasks: Task[], filters: ActiveFilter[]): Task[] {
 
 // ---------- DroppableColumn ----------
 
-function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null> }>) {
+function DroppableColumn({ id, children, containerRef, bottomBoundaryRef }: Readonly<{ id: string; children: React.ReactNode; containerRef?: React.RefObject<HTMLDivElement | null>; bottomBoundaryRef?: React.RefObject<HTMLElement | null> }>) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage-${id}` });
   const stageRef = useRef<HTMLDivElement>(null);
   const [overlayStyle, setOverlayStyle] = useState<React.CSSProperties>({});
 
   if (isOver && stageRef.current) {
     const rect = stageRef.current.getBoundingClientRect();
-    const containerBottom = containerRef?.current ? containerRef.current.getBoundingClientRect().bottom : undefined;
     const newStyle: React.CSSProperties = {
       position: 'fixed',
       top: rect.top - 16,
       left: rect.left - 8,
       width: rect.width + 16,
-      bottom: containerBottom !== undefined ? window.innerHeight - containerBottom : 0,
+      bottom: dropHighlightBottom(containerRef, bottomBoundaryRef),
       borderRadius: 0,
     };
-    if (overlayStyle.top !== newStyle.top || overlayStyle.left !== newStyle.left) {
+    if (overlayStyle.top !== newStyle.top || overlayStyle.left !== newStyle.left || overlayStyle.bottom !== newStyle.bottom) {
       setOverlayStyle(newStyle);
     }
   }
@@ -140,7 +140,7 @@ function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; 
         isOver && "!rounded-none"
       )}
     >
-      {isOver && <div className="!bg-blue-100 dark:!bg-blue-300 pointer-events-none z-10" style={overlayStyle} />}
+      {isOver && <div className={cn(DROP_TARGET_HIGHLIGHT, 'pointer-events-none z-10')} style={overlayStyle} />}
       <div className="relative z-20">{children}</div>
     </div>
   );
@@ -415,6 +415,8 @@ export function CrmTasksPipeline({
   // The columns and the calculation bar under them scroll together sideways.
   const columnsScrollRef = useRef<HTMLDivElement>(null);
   const calculationScrollRef = useRef<HTMLDivElement>(null);
+  // The calculation bar itself: a column's drop highlight stops above it.
+  const calculationBarRef = useRef<HTMLDivElement>(null);
   const [calculations, setCalculations] = useState<Record<string, TaskCalculation>>(readStoredCalculations);
   useEffect(() => {
     try {
@@ -591,7 +593,7 @@ export function CrmTasksPipeline({
               return (
                 <div key={column.id} className="flex-shrink-0 w-[240px] relative overflow-visible">
                   <div className="flex flex-col h-full overflow-visible">
-                    <DroppableColumn id={column.id} containerRef={containerRef}>
+                    <DroppableColumn id={column.id} containerRef={containerRef} bottomBoundaryRef={calculationBarRef}>
                       <div className="flex flex-col h-full">
                         <ColumnHeader
                           column={column}
@@ -644,7 +646,7 @@ export function CrmTasksPipeline({
       </div>
 
       {/* Calculation bar under the columns — the Deals board's bottom bar */}
-      <div className="flex-shrink-0 bg-white dark:bg-background border-t border-gray-100 dark:border-border">
+      <div ref={calculationBarRef} className="flex-shrink-0 bg-white dark:bg-background border-t border-gray-100 dark:border-border">
         <div
           ref={calculationScrollRef}
           className="flex gap-4 h-11 overflow-x-auto overflow-y-hidden scrollbar-hidden px-4"

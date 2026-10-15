@@ -7,13 +7,32 @@ interface DroppableStageProps {
   id: string;
   children: React.ReactNode;
   containerRef?: React.RefObject<HTMLDivElement | null>;
+  /**
+   * An element the drop highlight must stop above (the board's calculation
+   * bar), instead of running to the bottom of the container.
+   */
+  bottomBoundaryRef?: React.RefObject<HTMLElement | null>;
+}
+
+/** Highlight of the stage a card is dragged over — the neutral hover tint used by list rows. */
+export const DROP_TARGET_HIGHLIGHT = 'bg-gray-100 dark:bg-secondary/50';
+
+/** Viewport `bottom` offset for a drop highlight: above the boundary when given, else at the container's bottom. */
+export function dropHighlightBottom(
+  containerRef?: React.RefObject<HTMLElement | null>,
+  bottomBoundaryRef?: React.RefObject<HTMLElement | null>,
+): number {
+  const boundary = bottomBoundaryRef?.current;
+  if (boundary) return window.innerHeight - boundary.getBoundingClientRect().top;
+  const container = containerRef?.current;
+  return container ? window.innerHeight - container.getBoundingClientRect().bottom : 0;
 }
 
 const DroppableContext = createContext<{ isOver: boolean }>({ isOver: false });
 
 export const useDroppableContext = () => useContext(DroppableContext);
 
-export function DroppableStage({ id, children, containerRef }: Readonly<DroppableStageProps>) {
+export function DroppableStage({ id, children, containerRef, bottomBoundaryRef }: Readonly<DroppableStageProps>) {
   const { isOver, setNodeRef } = useDroppable({
     id: `stage-${id}`,
   });
@@ -23,19 +42,16 @@ export function DroppableStage({ id, children, containerRef }: Readonly<Droppabl
   React.useEffect(() => {
     if (isOver && stageRef.current) {
       const rect = stageRef.current.getBoundingClientRect();
-      const containerBottom = containerRef?.current
-        ? containerRef.current.getBoundingClientRect().bottom
-        : undefined;
       setOverlayStyle({
         position: 'fixed',
         top: rect.top - 16,
         left: rect.left - 8,
         width: rect.width + 16,
-        bottom: containerBottom !== undefined ? window.innerHeight - containerBottom : 0,
+        bottom: dropHighlightBottom(containerRef, bottomBoundaryRef),
         borderRadius: 0,
       });
     }
-  }, [isOver, containerRef]);
+  }, [isOver, containerRef, bottomBoundaryRef]);
 
   const contextValue = useMemo(() => ({ isOver }), [isOver]);
 
@@ -53,7 +69,7 @@ export function DroppableStage({ id, children, containerRef }: Readonly<Droppabl
       >
         {isOver && (
           <div
-            className="bg-blue-500/10 dark:bg-blue-500/15 pointer-events-none z-10"
+            className={cn(DROP_TARGET_HIGHLIGHT, 'pointer-events-none z-10')}
             style={overlayStyle}
           />
         )}
