@@ -9,7 +9,7 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { getTranslations } from '@/lib/i18n';
+import { getLocale, getTranslations } from '@/lib/i18n';
 import type { AgentWithRuns } from '@/hooks/queries/use-agent-queries';
 import {
   useAgentRoutines,
@@ -21,6 +21,7 @@ import {
 } from '@/hooks/queries/use-agent-parity-queries';
 import { errorMessage } from '../chat/labels';
 import { SettingsSection } from './general-tab';
+import { browserTimezone, describeCron, formatNextRun } from '../routine-schedule';
 
 type SchedulePreset = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom';
 const SCHEDULE_PRESETS: SchedulePreset[] = ['hourly', 'daily', 'weekdays', 'weekly', 'custom'];
@@ -32,21 +33,12 @@ const SCHEDULE_CRON: Record<Exclude<SchedulePreset, 'custom'>, string> = {
   weekly: '0 8 * * 1',
 };
 
-function browserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-}
-
 function scheduleLabel(routine: AgentRoutine): string {
   const t = getTranslations('common').agents.detail.parity.routines;
   if (routine.scheduleKind === 'event' && routine.eventKey) return t.onEvent.replace('{event}', routine.eventKey);
-  const preset = (Object.keys(SCHEDULE_CRON) as Array<keyof typeof SCHEDULE_CRON>).find(
-    (key) => SCHEDULE_CRON[key] === routine.cronExpr,
-  );
-  return preset ? t.schedules[preset] : (routine.cronExpr ?? routine.scheduleKind);
+  const labels = getTranslations('common').agents.detail.routineNotice.schedule;
+  const words = describeCron(routine.cronExpr, labels, getLocale()) || routine.scheduleKind;
+  return routine.timezone ? `${words} · ${routine.timezone}` : words;
 }
 
 function RoutineCard({ agentId, routine }: Readonly<{ agentId: string; routine: AgentRoutine }>) {
@@ -65,7 +57,7 @@ function RoutineCard({ agentId, routine }: Readonly<{ agentId: string; routine: 
             <CalendarClock className="h-3.5 w-3.5" />
             {scheduleLabel(routine)}
             {routine.enabled && routine.nextRunAt && (
-              <span>· {t.routines.next.replace('{time}', new Date(routine.nextRunAt).toLocaleString())}</span>
+              <span>· {t.routines.next.replace('{time}', formatNextRun(routine.nextRunAt, routine.timezone, getLocale()))}</span>
             )}
           </p>
         </div>

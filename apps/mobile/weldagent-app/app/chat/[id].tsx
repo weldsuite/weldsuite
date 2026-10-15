@@ -120,7 +120,9 @@ export default function ChatThreadScreen() {
     setSending(true);
     setCreditsEmpty(false);
     try {
-      const res = await appApi.weldagent.completeTurn(id, { content });
+      // The device timezone, so "every morning at 7" means 7 here.
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+      const res = await appApi.weldagent.completeTurn(id, { content, timezone });
       const userMsg = res.data.userMessage;
       setMessages((prev) => appendIfMissing(prev, userMsg));
 

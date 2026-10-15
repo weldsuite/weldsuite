@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock } from 'lucide-react';
+import { CalendarClock, Clock } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getTranslations } from '@/lib/i18n';
 import {
@@ -21,6 +21,8 @@ import {
 } from '@/components/weldagent/chat/chat-message';
 import { QuestionCard } from '@/components/weldagent/chat/question-card';
 import { ApprovalBar } from './approval-bar';
+import { RoutineNotice } from './routine-notice';
+import { browserTimezone } from '../routine-schedule';
 import { SetupWelcome } from './setup-welcome';
 import { buildThread, openQuestion, type ThreadItem } from './thread';
 import { errorMessage } from './labels';
@@ -37,6 +39,8 @@ interface AgentChatProps {
   /** The open conversation; null starts a new one on the first message. */
   conversationId: string | null;
   onConversationCreated: (id: string) => void;
+  /** Open the settings sheet on its Routines tab. */
+  onOpenRoutines: () => void;
 }
 
 function AssistantTurn({
@@ -44,31 +48,45 @@ function AssistantTurn({
   pendingApprovalIds,
   questionActive,
   onAnswer,
+  onOpenRoutines,
+  pendingAnswer,
 }: Readonly<{
   item: Extract<ThreadItem, { kind: 'assistant' }>;
+  /** The answer being sent for this turn's open question. */
+  pendingAnswer: string | null;
   pendingApprovalIds: Set<string>;
   questionActive: boolean;
   onAnswer: (text: string) => void;
+  onOpenRoutines: () => void;
 }>) {
-  const t = getTranslations('common').agents.detail.approvals;
+  const t = getTranslations('common').agents.detail;
   return (
     <div className="space-y-2.5 animate-in fade-in duration-200">
+      {item.routineName !== null && (
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <CalendarClock className="h-3.5 w-3.5" />
+          {item.routineName ? t.routineNotice.postedBy.replace('{name}', item.routineName) : t.routineNotice.postedByRoutine}
+        </p>
+      )}
       <AssistantMessage content={item.content} />
       {item.approvals.map((approval) => (
         <p key={approval.approvalId} className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
           <Clock className="h-3.5 w-3.5 shrink-0" />
-          {(pendingApprovalIds.has(approval.approvalId) ? t.waiting : t.handled).replace(
+          {(pendingApprovalIds.has(approval.approvalId) ? t.approvals.waiting : t.approvals.handled).replace(
             '{action}',
             humanizeToolName(approval.toolName).toLowerCase(),
           )}
         </p>
+      ))}
+      {item.routines.map((routine) => (
+        <RoutineNotice key={routine.routineId} routine={routine} onManage={onOpenRoutines} />
       ))}
       <ToolSteps steps={item.steps} />
       {item.questions.map(({ question, answer }) => (
         <QuestionCard
           key={question.question}
           question={question}
-          answer={answer}
+          answer={answer ?? pendingAnswer}
           active={questionActive && answer === null}
           onAnswer={onAnswer}
         />
@@ -83,6 +101,7 @@ export function AgentChat({
   needsSetup,
   conversationId,
   onConversationCreated,
+  onOpenRoutines,
 }: Readonly<AgentChatProps>) {
   const t = getTranslations('common').agents.detail;
   const qc = useQueryClient();
@@ -114,6 +133,7 @@ export function AgentChat({
   });
   const thread = useMemo(() => buildThread(messages), [messages]);
   const question = openQuestion(thread);
+  const lastId = thread[thread.length - 1]?.id;
   const pendingApprovalIds = useMemo(() => new Set(pendingApprovals.map((a) => a.id)), [pendingApprovals]);
 
   const refreshAgent = useCallback(() => {
@@ -182,7 +202,13 @@ export function AgentChat({
         }
         // The setup interview waits for its reply so a configuration error
         // shows at once; live agents reply in the background.
-        const result = await completeTurn.mutateAsync({ conversationId: id, content, agentId, wait: needsSetup });
+        const result = await completeTurn.mutateAsync({
+          conversationId: id,
+          content,
+          agentId,
+          wait: needsSetup,
+          timezone: browserTimezone(),
+        });
         if (result?.pending && result.userMessage?.id) {
           setAwaitingAfterId(result.userMessage.id);
           return;
@@ -231,20 +257,25 @@ export function AgentChat({
           )}
           {!empty && (
             <div className="space-y-6 py-6">
-              {thread.map((item) =>
-                item.kind === 'user' ? (
-                  <UserMessage key={item.id}>{item.content}</UserMessage>
-                ) : (
-                  <AssistantTurn
-                    key={item.id}
-                    item={item}
-                    pendingApprovalIds={pendingApprovalIds}
-                    questionActive={!busy}
-                    onAnswer={(text) => void send(text)}
-                  />
-                ),
-              )}
-              {pendingUser && (
+              {thread.map((item) => {
+                if (item.kind === 'assistant') {
+                  return (
+                    <AssistantTurn
+                      key={item.id}
+                      item={item}
+                      pendingApprovalIds={pendingApprovalIds}
+                      questionActive={!busy}
+                      onAnswer={(text) => void send(text)}
+                      onOpenRoutines={onOpenRoutines}
+                      pendingAnswer={item.id === lastId && question ? pendingUser : null}
+                    />
+                  );
+                }
+                // An answer to a question card is shown on the card itself.
+                if (item.answersQuestion) return null;
+                return <UserMessage key={item.id}>{item.content}</UserMessage>;
+              })}
+              {pendingUser && !question && (
                 <div className="animate-in fade-in duration-150">
                   <UserMessage>{pendingUser}</UserMessage>
                 </div>

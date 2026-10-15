@@ -32,6 +32,10 @@ export interface ToolContext {
   /** When running inside a WeldAgent conversation (chat panel / new-chat). */
   conversationId?: string;
   env?: import('./env').WeldAgentEnv;
+  /** The chatting user's IANA timezone; routines default to it. */
+  userTimezone?: string | null;
+  /** The chatting user's permissions: setup may grant the agent only what they hold. */
+  actorPermissions?: string[] | null;
   agentHop?: number;
   maxAgentHops?: number;
 }
@@ -178,12 +182,30 @@ const saveAgentSetupParams = z.object({
     .max(10000)
     .describe('Lasting instructions: purpose, when to act, and what steps to take.'),
   description: z.string().max(500).optional().describe('Short one-line summary of what this agent does.'),
+  permissions: z
+    .array(z.string().min(3).max(100))
+    .max(40)
+    .optional()
+    .describe(
+      'Workspace permissions the job needs, as object:action keys (e.g. "tasks:read", "tickets:read", "people:create"). ' +
+        'Only ask for what the instructions use. Ones the user does not hold are skipped.',
+    ),
   activate: z
     .boolean()
     .optional()
     .describe(
       'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false (stay draft).',
     ),
+});
+
+const updateRoutineParams = z.object({
+  routineId: z.string().min(1).max(30),
+  name: z.string().min(2).max(255).optional(),
+  instructions: z.string().min(10).max(20000).optional(),
+  cronExpr: z.string().max(100).optional().describe('Five-field cron, in the routine timezone.'),
+  timezone: z.string().max(64).optional().describe('IANA timezone, e.g. "Europe/Amsterdam".'),
+  enabled: z.boolean().optional(),
+  requireApproval: z.boolean().optional(),
 });
 
 export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
@@ -219,10 +241,16 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
 
       const eventSubscriptions = extractEventSubscriptions(prompt);
       const nextName = args.name.trim();
+      const { splitGrantable } = await import('./grants');
+      const { granted, refused } = splitGrantable(args.permissions ?? [], {
+        permissions: ctx.actorPermissions ?? [],
+      });
+      const permissions = [...new Set([...(existing.permissions ?? []), ...granted])];
       const updated = await updateAgent(ctx.db, ctx.agentId, {
         name: nextName,
         systemPrompt: prompt,
         description: args.description?.trim() || existing.description,
+        permissions,
         eventSubscriptions,
         ...(args.activate ? { status: 'active' as const } : { status: 'draft' as const }),
       });
@@ -236,6 +264,14 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         status: updated.status,
         description: updated.description,
         eventSubscriptions: updated.eventSubscriptions,
+        grantedPermissions: granted,
+        ...(refused.length > 0
+          ? {
+              notGranted: refused,
+              notGrantedHint:
+                'Tell the user these were not granted (they lack them or they do not exist); an admin can add them under Settings → Access.',
+            }
+          : {}),
         hint: args.activate
           ? 'Setup saved and activated. Confirm briefly with the user.'
           : 'Setup saved as draft. Confirm briefly; ask if they want you activated.',
@@ -260,6 +296,54 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         question: question.question,
         options: question.options.map((option) => option.label),
         hint: 'The question is on screen. End your turn now and wait for the answer.',
+      };
+    },
+  },
+  {
+    id: 'agent.list_routines',
+    name: 'list_routines',
+    description: "List this agent's routines with their schedule, timezone, next run and whether they are on.",
+    requiredPermissions: [],
+    parameters: z.object({}),
+    async execute(ctx) {
+      const { listRoutines } = await import('./parity');
+      const routines = await listRoutines(ctx.db, ctx.agentId);
+      return routines.map((r) => ({
+        routineId: r.id,
+        name: r.name,
+        scheduleKind: r.scheduleKind,
+        cronExpr: r.cronExpr,
+        timezone: r.timezone,
+        eventKey: r.eventKey,
+        enabled: r.enabled,
+        nextRunAt: r.nextRunAt,
+      }));
+    },
+  },
+  {
+    id: 'agent.update_routine',
+    name: 'update_routine',
+    description:
+      'Change one of this agent\'s routines: rename it, rewrite its instructions, move its schedule or timezone, or turn it on/off. ' +
+      'Get the routineId from list_routines.',
+    requiredPermissions: [],
+    parameters: updateRoutineParams,
+    async execute(ctx, raw) {
+      const { routineId, ...changes } = updateRoutineParams.parse(raw);
+      const { getRoutine, updateRoutine } = await import('./parity');
+      const existing = await getRoutine(ctx.db, routineId);
+      if (!existing || existing.agentId !== ctx.agentId) return { error: 'Routine not found for this agent' };
+      const updated = await updateRoutine(ctx.db, routineId, changes);
+      if (!updated) return { error: 'Failed to update routine' };
+      await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
+      return {
+        ok: true,
+        routineId: updated.id,
+        name: updated.name,
+        cronExpr: updated.cronExpr,
+        timezone: updated.timezone,
+        enabled: updated.enabled,
+        nextRunAt: updated.nextRunAt,
       };
     },
   },
@@ -328,7 +412,9 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     id: 'agent.create_routine',
     name: 'create_routine',
     description:
-      'Create a scheduled or connector-triggered routine for this agent. Prefer cron for recurring work.',
+      'Create a scheduled or connector-triggered routine for this agent. Prefer cron for recurring work. ' +
+      'Each run posts its result in a chat thread for the user who created the routine, and notifies them. ' +
+      "Routines only run while the agent is active. Give cronExpr in the user's timezone (it is the default).",
     requiredPermissions: [],
     parameters: z.object({
       name: z.string().min(2).max(255),
@@ -366,7 +452,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         instructions: args.instructions,
         scheduleKind: args.scheduleKind,
         cronExpr: args.cronExpr,
-        timezone: args.timezone,
+        timezone: args.timezone ?? ctx.userTimezone ?? undefined,
         eventKey: args.eventKey,
         requireApproval: args.requireApproval ?? true,
         connectorConfig: args.connectorProvider
@@ -380,7 +466,14 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         createdBy: ctx.actorUserId,
       });
       await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
-      return { ok: true, routineId: routine.id, name: routine.name, nextRunAt: routine.nextRunAt };
+      return {
+        ok: true,
+        routineId: routine.id,
+        name: routine.name,
+        cronExpr: routine.cronExpr,
+        timezone: routine.timezone,
+        nextRunAt: routine.nextRunAt,
+      };
     },
   },
   {
@@ -875,6 +968,8 @@ export function resolveAgentTools(
     'agent.save_skill',
     'agent.remember',
     'agent.create_routine',
+    'agent.list_routines',
+    'agent.update_routine',
   ]);
   const allowList = explicitToolAllowList(enabledTools);
   return PLATFORM_TOOLS.filter((tool) => {

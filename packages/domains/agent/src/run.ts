@@ -30,6 +30,8 @@ export async function executeAgentRun(params: {
   timeoutMs?: number;
   /** Routine with "ask for approval" turned off: act without parking approvals. */
   skipApprovals?: boolean;
+  /** False when the caller notifies on its own (routine runs post into a chat thread). */
+  notify?: boolean;
 }): Promise<{ runId: string; text: string; success: boolean; error?: string }> {
   const agent = await getAgent(params.db, params.agentId);
   if (!agent) {
@@ -107,7 +109,7 @@ export async function executeAgentRun(params: {
       toolCallCount: actionsPerformed.length,
     });
 
-    await notifyRun({
+    if (params.notify !== false) await notifyRun({
       db: params.db,
       env: params.env,
       workspaceId: params.workspaceId,
@@ -127,7 +129,7 @@ export async function executeAgentRun(params: {
       success: false,
       error: message,
     });
-    await notifyRun({
+    if (params.notify !== false) await notifyRun({
       db: params.db,
       env: params.env,
       workspaceId: params.workspaceId,

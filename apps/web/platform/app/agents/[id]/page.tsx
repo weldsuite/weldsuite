@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, History, Pause, Play, Settings2, SquarePen } from 'lucide-react';
+import { ArrowLeft, CalendarClock, History, Pause, Play, Settings2, SquarePen } from 'lucide-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useParams, useRouter } from '@/lib/router';
-import { getTranslations } from '@/lib/i18n';
+import { useParams, useRouter, useSearchParams } from '@/lib/router';
+import { getLocale, getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import {
@@ -18,11 +18,13 @@ import {
 import { cn } from '@/lib/utils';
 import { useActivateAgent, useAgent, usePauseAgent } from '@/hooks/queries/use-agent-queries';
 import { useWeldAgentConversations } from '@/hooks/queries/use-weldagent-queries';
+import { useAgentRoutines } from '@/hooks/queries/use-agent-parity-queries';
 import { AgentAvatar } from '../components/agent-avatar';
 import { agentNeedsSetup } from '../components/agent-state';
 import { AgentChat } from '../components/chat/agent-chat';
 import { errorMessage } from '../components/chat/labels';
-import { AgentSettingsSheet, type SettingsTab } from '../components/settings/agent-settings-sheet';
+import { AgentSettingsSheet, SETTINGS_TABS, type SettingsTab } from '../components/settings/agent-settings-sheet';
+import { formatNextRun } from '../components/routine-schedule';
 
 /** `'new'` = a fresh chat, created on its first message. */
 type Selection = string | 'new' | null;
@@ -67,10 +69,37 @@ function StatusButton({ agentId, status }: Readonly<{ agentId: string; status: s
   );
 }
 
+/** The agent's live routines, as a header button that opens them. */
+function ScheduledButton({ agentId, onOpen }: Readonly<{ agentId: string; onOpen: () => void }>) {
+  const t = getTranslations('common').agents.detail.header;
+  const { data: routines = [] } = useAgentRoutines(agentId);
+  const live = routines.filter((r) => r.enabled);
+  if (live.length === 0) return null;
+  const next = live
+    .map((r) => ({ at: r.nextRunAt, tz: r.timezone }))
+    .filter((r): r is { at: string; tz: string } => Boolean(r.at))
+    .sort((a, b) => a.at.localeCompare(b.at))[0];
+  const title = next ? t.nextRun.replace('{time}', formatNextRun(next.at, next.tz, getLocale())) : undefined;
+  return (
+    <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-xs" onClick={onOpen} title={title}>
+      <CalendarClock className="h-4 w-4" />
+      <span className="hidden sm:inline">{t.scheduled.replace('{count}', String(live.length))}</span>
+    </Button>
+  );
+}
+
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return !!value && (SETTINGS_TABS as readonly string[]).includes(value);
+}
+
 export default function AgentDetailPage() {
   const t = getTranslations('common').agents;
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
+  const search = useSearchParams();
+  // Links from notifications: ?conversation=<id> opens that thread, ?settings=<tab> the sheet.
+  const linkedConversation = search.get('conversation');
+  const linkedTab = search.get('settings');
   const { data: agent, isLoading } = useAgent(id);
   const { data: conversations = [] } = useWeldAgentConversations(50, id);
 
@@ -80,11 +109,12 @@ export default function AgentDetailPage() {
 
   useBreadcrumbs([{ label: t.pageTitle, href: '/agents' }, { label: agent?.name ?? t.detail.untitledAgent }]);
 
-  // Each agent opens on its latest chat, with the sheet closed.
+  // Each agent opens on its latest chat (or the linked one), with the sheet closed unless linked.
   useEffect(() => {
-    setSelection(null);
-    setSettingsOpen(false);
-  }, [id]);
+    setSelection(linkedConversation);
+    setSettingsOpen(isSettingsTab(linkedTab));
+    if (isSettingsTab(linkedTab)) setSettingsTab(linkedTab);
+  }, [id, linkedConversation, linkedTab]);
 
   if (isLoading) {
     return (
@@ -150,6 +180,7 @@ export default function AgentDetailPage() {
         </button>
 
         <div className="flex shrink-0 items-center gap-1">
+          <ScheduledButton agentId={agent.id} onOpen={() => openSettings('routines')} />
           {conversations.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -206,6 +237,7 @@ export default function AgentDetailPage() {
           needsSetup={setup}
           conversationId={conversationId}
           onConversationCreated={setSelection}
+          onOpenRoutines={() => openSettings('routines')}
         />
       </div>
 
