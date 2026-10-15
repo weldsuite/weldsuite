@@ -54,6 +54,7 @@ export const blockEditor = {
     untitled: 'Naamloos',
   },
   selectionToolbar: {
+    askAgent: 'Vraag Agent',
     body: 'Normaal',
     heading1: 'Kop 1',
     heading2: 'Kop 2',

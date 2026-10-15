@@ -54,6 +54,7 @@ export const blockEditor = {
     untitled: 'Untitled',
   },
   selectionToolbar: {
+    askAgent: 'Ask Agent',
     body: 'Body',
     heading1: 'Heading 1',
     heading2: 'Heading 2',

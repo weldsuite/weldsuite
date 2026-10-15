@@ -1,6 +1,8 @@
 /**
- * The toolbar that floats above a text selection (Attio's layout): block type
- * ("Body"), text color, highlight, link, then bold / italic / strikethrough.
+ * The toolbar that floats above a text selection (Attio's layout): Ask Agent,
+ * block type ("Body"), text color, highlight, link, then bold / italic /
+ * strikethrough. Editors with this toolbar opt out of the global "Ask Agent"
+ * selection bubble (components/text-selection-tooltip.tsx), so it lives here.
  * Rendered through BlockNote's FormattingToolbarController, which positions it
  * and shows it only while text is selected.
  */
@@ -18,6 +20,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { Input } from '@weldsuite/ui/components/input';
 import { cn } from '@/lib/utils';
+import { useMobileNav } from '@/contexts/mobile-nav-context';
 import { getBlockEditorStrings, type BlockEditorStrings } from './strings';
 
 type Strings = BlockEditorStrings['selectionToolbar'];
@@ -118,6 +121,7 @@ function ToolbarButton({
 export function SelectionToolbar() {
   const editor = useBlockNoteEditor();
   const s = getBlockEditorStrings().selectionToolbar;
+  const { setShowWeldAgent, setWeldAgentPrefill } = useMobileNav();
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
 
@@ -164,6 +168,14 @@ export function SelectionToolbar() {
     editor.toggleStyles({ [style]: true } as never);
   };
 
+  // Same as the global selection bubble: open WeldAgent with the selected text.
+  const askAgent = () => {
+    const text = editor.getSelectedText().trim();
+    if (!text) return;
+    setWeldAgentPrefill(text);
+    setShowWeldAgent(true);
+  };
+
   const applyLink = () => {
     const url = linkUrl.trim();
     if (url) {
@@ -185,6 +197,14 @@ export function SelectionToolbar() {
       className="flex h-9 items-center gap-0.5 rounded-lg border border-border bg-popover px-1 text-popover-foreground shadow-md"
       onMouseDown={keepSelection}
     >
+      {/* Ask Agent */}
+      <ToolbarButton label={s.askAgent} onClick={askAgent} className="text-foreground">
+        <img src="/assets/images/weldagent/logo-light.png" alt="" className="h-4 w-4" />
+        {s.askAgent}
+      </ToolbarButton>
+
+      <Divider />
+
       {/* Block type */}
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>

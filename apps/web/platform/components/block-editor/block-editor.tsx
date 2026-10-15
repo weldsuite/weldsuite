@@ -340,7 +340,12 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   const strings = getBlockEditorStrings();
 
   return (
-    <div ref={wrapperRef} className={cn('block-editor-wrapper', className)}>
+    <div
+      ref={wrapperRef}
+      className={cn('block-editor-wrapper', className)}
+      // Has its own Ask Agent button; keeps the global selection bubble away.
+      data-selection-toolbar={selectionToolbar ? '' : undefined}
+    >
       <BlockNoteView
         editor={editor}
         editable={editable}
