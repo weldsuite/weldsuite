@@ -38,6 +38,7 @@ interface Jurisdiction {
 const JURISDICTION_HINTS: Record<string, { vatHint: string; timezone: string }> = {
   NL: { vatHint: 'NL123456789B01', timezone: 'Europe/Amsterdam' },
   IN: { vatHint: '27AABCU9603R1ZN', timezone: 'Asia/Kolkata' },
+  BR: { vatHint: '11.222.333/0001-81', timezone: 'America/Sao_Paulo' },
 };
 
 function browserTimeZone(): string | undefined {
@@ -48,10 +49,10 @@ function browserTimeZone(): string | undefined {
   }
 }
 
-const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR', 'BRL'];
 
 /** The country of the business address that goes with a jurisdiction. */
-const ADDRESS_COUNTRY: Record<string, string> = { NL: 'NL', IN: 'IN' };
+const ADDRESS_COUNTRY: Record<string, string> = { NL: 'NL', IN: 'IN', BR: 'BR' };
 
 /** A business address an invoice can print: street, city and country. */
 function isUsableAddress(address: PostalAddress): boolean {
@@ -61,6 +62,7 @@ function isUsableAddress(address: PostalAddress): boolean {
 const FALLBACK_JURISDICTIONS = [
   { code: 'NL', name: 'Netherlands' },
   { code: 'IN', name: 'India' },
+  { code: 'BR', name: 'Brazil' },
 ];
 
 interface CreateEntityDialogProps {
@@ -80,6 +82,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const tus = useDocumentTexts().createEntity;
   const { t: tr } = useI18n();
   const tin = tr.weldbooksIn.address;
+  const tbr = tr.weldbooksBr.entity;
   const router = useRouter();
   const queryClient = useQueryClient();
   const { setEntityId } = useCurrentAccountingEntity();
@@ -133,6 +136,9 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const isIndia = jurisdictionCode === 'IN';
   // A US entity needs its legal form and tax classification, which the setup guide asks for.
   const isUs = jurisdictionCode === 'US';
+  // A Brazilian entity needs its legal form, tax regime and state registration: the full form asks for them.
+  const isBrazil = jurisdictionCode === 'BR';
+  const needsFullSetup = isUs || isBrazil;
   const startUsSetup = () => {
     onOpenChange(false);
     router.push('/weldbooks/entities/add');
@@ -141,6 +147,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const jurisdictionLabel = (j: { code: string; name: string }): string => {
     if (j.code === 'NL') return t('sweep.weldbooks.createEntity.netherlandsOption');
     if (j.code === 'IN') return t('sweep.weldbooks.createEntity.indiaOption');
+    if (j.code === 'BR') return t('sweep.weldbooks.createEntity.brazilOption');
     return `${j.name} (${j.code})`;
   };
   return (
@@ -153,7 +160,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {!isUs && (
+          {!needsFullSetup && (
           <div className="space-y-2">
             <Label htmlFor="entity-name">{t('sweep.weldbooks.createEntity.nameLabel')}</Label>
             <Input
@@ -192,7 +199,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
                 </SelectContent>
               </Select>
             </div>
-            {!isUs && (
+            {!needsFullSetup && (
             <div className="space-y-2">
               <Label>{t('sweep.weldbooks.createEntity.currencyLabel')}</Label>
               <Select value={baseCurrency} onValueChange={setBaseCurrency}>
@@ -212,7 +219,14 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
             </div>
           )}
 
-          {!isUs && (
+          {isBrazil && (
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-sm" data-testid="br-setup-notice">
+              <p className="font-medium">{tbr.setupTitle}</p>
+              <p className="mt-1 text-muted-foreground">{tbr.setupBody}</p>
+            </div>
+          )}
+
+          {!needsFullSetup && (
           <div className="space-y-2">
             <Label htmlFor="entity-vat">
               {isIndia
@@ -234,7 +248,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           </div>
           )}
 
-          {!isUs && (
+          {!needsFullSetup && (
             <div className="space-y-3 rounded-md border border-border p-3" data-testid="entity-address">
               <div>
                 <p className="text-sm font-medium">{tin.title}</p>
@@ -256,8 +270,8 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={createMutation.isPending}>
             {t('sweep.weldbooks.cancel')}
           </Button>
-          {isUs ? (
-            <Button onClick={startUsSetup}>{tus.usButton}</Button>
+          {needsFullSetup ? (
+            <Button onClick={startUsSetup}>{isUs ? tus.usButton : tbr.setupButton}</Button>
           ) : (
             <Button onClick={() => createMutation.mutate()} disabled={!name || !isUsableAddress(address) || createMutation.isPending}>
               {createMutation.isPending ? (

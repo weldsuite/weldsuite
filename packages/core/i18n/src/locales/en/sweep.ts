@@ -216,6 +216,7 @@ export const sweep = {
       "currencyLabel": "Currency",
       "netherlandsOption": "Netherlands (NL)",
       "indiaOption": "India (IN)",
+      "brazilOption": "Brazil (BR)",
       "vatLabel": "VAT number",
       "gstinLabel": "GSTIN",
       "panLabel": "PAN",

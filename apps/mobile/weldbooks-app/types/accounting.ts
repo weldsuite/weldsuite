@@ -85,6 +85,9 @@ export interface PostalAddress {
   country?: string;
 }
 
+/** How a Brazilian tax row sits in the document total. */
+export type TaxTreatment = 'added' | 'embedded' | 'withheld' | 'informational';
+
 export type TaxJurisdictionLevel = 'state' | 'county' | 'city' | 'district';
 
 /**
@@ -110,8 +113,13 @@ export interface TaxBreakdownRow {
   taxCode?: string;
   /** `use` = US use tax accrued on a purchase. */
   kind?: 'tax' | 'use';
-  /** GST component when expanded (cgst / sgst / igst). */
+  /** GST component when expanded (cgst / sgst / igst); BR tax component (icms, pis, cbs, irrf, ...). */
   component?: string;
+  /**
+   * BR: how the tax sits in the document total (total = subtotal + added - withheld).
+   * `embedded` is already inside the price, `informational` (CBS / IBS in the test years) changes nothing.
+   */
+  treatment?: TaxTreatment;
 }
 
 /** The result of `POST /api/sales-tax/calculate`: tax of a draft, nothing saved. */
@@ -335,7 +343,7 @@ export interface AccountingEntity {
   address?: PostalAddress | null;
   /** US: sole_proprietorship, single_member_llc, ..., c_corp, nonprofit. */
   entityType?: string;
-  /** US: how the IRS taxes the entity (sole_proprietor, disregarded, partnership, s_corp, c_corp, exempt). */
+  /** US: how the IRS taxes the entity (sole_proprietor, disregarded, partnership, s_corp, c_corp, exempt). BR: the regime (mei, simples_nacional, lucro_presumido, lucro_real). */
   taxClassification?: string;
   /** US: doing-business-as name. */
   dba?: string;
@@ -361,13 +369,19 @@ export interface JurisdictionFeatures {
   salesTax: boolean;
   /** US 1099 information returns. */
   form1099: boolean;
+  /** Brazil: the monthly tax apuração (DAS, PIS/COFINS, ICMS, ISS, ...). */
+  brTaxReturn: boolean;
+  /** Brazil: NF-e / NFS-e fiscal documents. */
+  fiscalDocuments: boolean;
+  /** Brazil: SPED ECD (digital bookkeeping) export. */
+  spedEcd: boolean;
 }
 
 /** Codes of the words that differ per jurisdiction; the UI translates them. */
 export interface JurisdictionTerminology {
-  tax: 'vat' | 'gst' | 'sales_tax';
-  taxId: 'vat_number' | 'gstin' | 'ein';
-  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id';
+  tax: 'vat' | 'gst' | 'sales_tax' | 'tributos';
+  taxId: 'vat_number' | 'gstin' | 'ein' | 'cnpj';
+  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id' | 'ie';
   supplier: 'supplier' | 'vendor';
   creditNote: 'credit_note' | 'credit_memo';
 }

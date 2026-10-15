@@ -14,6 +14,7 @@ import { getAdapter } from './jurisdictions/registry';
 import type { InvoiceLabels } from './jurisdictions/types';
 import { formatExemptSaleNotice } from './jurisdictions/us/invoice-format';
 import { gstStateName } from './jurisdictions/in/states';
+import { pixQrSvg } from './jurisdictions/br/pix';
 
 interface InvoiceLineItem {
   description: string;
@@ -45,6 +46,8 @@ interface TaxBreakdownItem {
   exemptAmount?: number;
   exemptReason?: string;
   certificateId?: string;
+  /** Brazil: added | embedded | withheld | informational. */
+  treatment?: string;
 }
 
 export interface InvoiceRenderData {
@@ -83,6 +86,10 @@ export interface InvoiceRenderData {
   certificateNumbers?: Record<string, string | null | undefined>;
   /** A draft prints a "not a valid invoice" banner and a watermark: it isn't booked and can still change. */
   draft?: boolean;
+  /** Brazil: Pix BR Code for the amount due (see jurisdictions/br/pix). */
+  pix?: { key: string; payload: string } | null;
+  /** Brazil: the authorised fiscal document of the invoice. */
+  fiscalDocument?: { label: string; number?: string | null; accessKey?: string | null } | null;
 }
 
 function makeCurrencyFmt(locale: string, currency: string) {
@@ -502,6 +509,63 @@ function buildPaidRows(
         </tr>`;
 }
 
+/** A titled group of Brazilian tax rows (name, base, amount); `sign` -1 prints them as deductions. */
+function brTaxGroup(title: string, rows: TaxBreakdownItem[], fmtCurrency: CurrencyFmt, sign: 1 | -1 = 1): string {
+  if (rows.length === 0) return '';
+  const lines = rows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding:2px 0 2px 8px;color:#666;font-size:13px;">${escapeHtml(row.taxRateName ?? '')} <span style="color:#999;">(${fmtCurrency(row.taxableAmount)})</span></td>
+          <td style="padding:2px 0;text-align:right;font-size:13px;">${sign < 0 ? '-' : ''}${fmtCurrency(row.taxAmount)}</td>
+        </tr>`,
+    )
+    .join('');
+  return `
+        <tr><td colspan="2" style="padding:8px 0 2px;font-size:11px;text-transform:uppercase;color:#999;">${escapeHtml(title)}</td></tr>${lines}`;
+}
+
+/**
+ * Brazil: taxes on top of the price (IPI) add to the total; taxes inside the
+ * price (ISS, ICMS, PIS, COFINS) are shown for information; withholdings come
+ * off what the customer pays; the 2026 CBS/IBS test amounts are informational.
+ */
+function buildBrTaxRows(taxBreakdown: TaxBreakdownItem[], labels: InvoiceLabels, fmtCurrency: CurrencyFmt): string {
+  const of = (treatment: string) => taxBreakdown.filter((row) => (row.treatment ?? 'added') === treatment && row.taxAmount !== 0);
+  return [
+    brTaxGroup(labels.tax, of('added'), fmtCurrency),
+    brTaxGroup(labels.withholdings ?? 'Retenções', of('withheld'), fmtCurrency, -1),
+    brTaxGroup(labels.includedTaxes ?? 'Tributos incluídos no preço', of('embedded'), fmtCurrency),
+    brTaxGroup(labels.informationalTaxes ?? 'CBS/IBS', of('informational'), fmtCurrency),
+  ].join('');
+}
+
+/** Brazil: the Pix QR code (BR Code) for the amount due and its "copia e cola" text. */
+function buildPixBlock(pix: InvoiceRenderData['pix'], labels: InvoiceLabels): string {
+  if (!pix) return '';
+  return `
+  <div style="margin-top:24px;display:flex;gap:20px;align-items:center;padding:16px;border:1px solid #e5e7eb;border-radius:6px;">
+    <div style="flex:none;">${pixQrSvg(pix.payload, 140)}</div>
+    <div style="font-size:12px;color:#555;min-width:0;">
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px;">${escapeHtml(labels.pixPayment ?? 'Pix')}</div>
+      <div>${escapeHtml(pix.key)}</div>
+      <div style="margin-top:6px;font-family:monospace;font-size:10px;word-break:break-all;color:#777;">${escapeHtml(pix.payload)}</div>
+    </div>
+  </div>`;
+}
+
+/** Brazil: the authorised NF-e / NFS-e this invoice belongs to. */
+function buildFiscalDocumentBlock(doc: InvoiceRenderData['fiscalDocument'], labels: InvoiceLabels): string {
+  if (!doc) return '';
+  const key = doc.accessKey ? `<div>${escapeHtml(labels.accessKey ?? 'Chave')}: <span style="font-family:monospace;">${escapeHtml(doc.accessKey.replace(/(\d{4})(?=\d)/g, '$1 '))}</span></div>` : '';
+  return `
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;color:#999;">${escapeHtml(labels.fiscalDocument ?? 'NF')}</div>
+      <div style="font-weight:500;">${escapeHtml(doc.label)}${doc.number ? ` nº ${escapeHtml(doc.number)}` : ''}</div>
+      <div style="font-size:11px;color:#777;">${key}</div>
+    </div>`;
+}
+
 function buildComplianceBlock(notices: string[]): string {
   if (notices.length === 0) return '';
   const rows = notices
@@ -595,10 +659,19 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const taxBreakdown = invoice.taxBreakdown || [];
   const usSalesTax = adapter.features.salesTax && taxBreakdown.some((row) => row.jurisdictionName);
   const gstInvoice = entity.jurisdictionCode === 'IN';
+  const brInvoice = entity.jurisdictionCode === 'BR';
   let buildRows = buildTaxRows;
   if (usSalesTax) buildRows = buildUsTaxRows;
   else if (gstInvoice) buildRows = buildGstTaxRows;
+  else if (brInvoice) buildRows = (rows, l, currencyFmt) => buildBrTaxRows(rows, l, currencyFmt);
   const taxRows = buildRows(taxBreakdown, labels, fmtCurrency, fmtNumber);
+  // Brazil prints its groups of taxes instead of one tax total (it can be negative: withholdings).
+  const taxTotalRow = brInvoice
+    ? ''
+    : `<tr>
+          <td style="padding:6px 0;color:#666;">${labels.taxTotal}</td>
+          <td style="padding:6px 0;text-align:right;">${fmtCurrency(invoice.taxTotal)}</td>
+        </tr>`;
   const exemptNotices = usSalesTax
     ? buildUsExemptNotices(taxBreakdown, invoice.certificateNumbers, fmtCurrency)
     : '';
@@ -671,6 +744,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
     </div>
     ${buildReferenceBlock(invoice.reference)}
     ${gstInvoice ? buildGstPlaceOfSupplyBlock(invoice.placeOfSupply, labels) : ''}
+    ${buildFiscalDocumentBlock(invoice.fiscalDocument, labels)}
   </div>
 
   ${
@@ -701,10 +775,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
         </tr>
         ${buildDiscountRow(invoice.discountTotal, labels, fmtCurrency)}
         ${taxRows}
-        <tr>
-          <td style="padding:6px 0;color:#666;">${labels.taxTotal}</td>
-          <td style="padding:6px 0;text-align:right;">${fmtCurrency(invoice.taxTotal)}</td>
-        </tr>
+        ${taxTotalRow}
         <tr style="border-top:2px solid ${primaryColor};">
           <td style="padding:12px 0;font-size:18px;font-weight:bold;">${labels.total}</td>
           <td style="padding:12px 0;text-align:right;font-size:18px;font-weight:bold;">${fmtCurrency(invoice.total)}</td>
@@ -724,6 +795,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
       <div>Ref: ${escapeHtml(invoice.invoiceNumber)}</div>
     </div>
     ${buildPaymentInstructionsNote(branding.paymentInstructions)}
+    ${buildPixBlock(invoice.pix, labels)}
   </div>
 
   ${buildNotesBlock(invoice.notes)}

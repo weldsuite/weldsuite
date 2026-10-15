@@ -31,6 +31,7 @@ import {
   itemTaxColumns,
 } from './sales-tax/persist';
 import type { SalesTaxRuntime } from './sales-tax/runtime';
+import { brDocumentFiscalSchema, brLineFiscalSchema, cfopSchema, ncmSchema } from '../lib/br-fiscal-schemas';
 
 const templateAddressSchema = z.object({
   line1: z.string().optional(),
@@ -57,6 +58,10 @@ export const recurringTemplateSchema = z.object({
     taxIncluded: z.boolean().optional(),
     /** India GST: HSN or SAC code. */
     hsnSac: z.string().regex(/^(\d{4,8})?$/).nullable().optional(),
+    /** Brazil: NCM, CFOP and the line's rate overrides. */
+    ncm: ncmSchema,
+    cfop: cfopSchema,
+    fiscalData: brLineFiscalSchema,
     classId: z.string().max(30).nullable().optional(),
     locationId: z.string().max(30).nullable().optional(),
   })).optional(),
@@ -68,6 +73,8 @@ export const recurringTemplateSchema = z.object({
   revenueAccountId: z.string().optional(),
   reference: z.string().optional(),
   currency: z.string().length(3).optional(),
+  /** Brazil: withholdings and the buyer's ICMS status for every generated invoice. */
+  fiscalData: brDocumentFiscalSchema,
 });
 
 export type RecurringTemplateData = z.infer<typeof recurringTemplateSchema>;
@@ -133,6 +140,9 @@ function templateTaxLines(items: NonNullable<RecurringTemplateData['items']>, it
     taxCode: item.taxCode ?? null,
     taxUse: item.taxUse ?? null,
     taxIncluded: item.taxIncluded ?? false,
+    ncm: item.ncm ?? null,
+    cfop: item.cfop ?? null,
+    fiscalData: item.fiscalData ?? null,
   }));
 }
 
@@ -228,6 +238,7 @@ export async function generateRecurringInvoice(
       billingAddress,
       shippingAddress,
       shipFromAddress,
+      fiscalData: template.fiscalData,
     },
   });
   const totals = drafted.calc;
@@ -249,6 +260,7 @@ export async function generateRecurringInvoice(
     ...(drafted.ok ? {} : { taxWarnings: [engineUnavailableWarning(drafted.message)] }),
     shipFromAddress,
     placeOfSupply: gst?.placeOfSupply ?? null,
+    fiscalData: template.fiscalData ?? null,
     amountPaid: '0',
     balanceDue: totals.balanceDue,
     paymentTermsDays,
@@ -278,6 +290,9 @@ export async function generateRecurringInvoice(
     sortOrder: idx,
     taxCode: item.taxCode || null,
     hsnSac: item.hsnSac || null,
+    ncm: item.ncm || null,
+    cfop: item.cfop || null,
+    fiscalData: item.fiscalData ?? null,
     taxUse: item.taxUse || null,
     taxIncluded: item.taxIncluded ?? false,
     classId: item.classId || null,

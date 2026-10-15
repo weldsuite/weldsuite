@@ -3684,6 +3684,9 @@ importers:
       tw-animate-css:
         specifier: ^1.3.6
         version: 1.4.0
+      uqr:
+        specifier: 0.1.2
+        version: 0.1.2
       ws:
         specifier: ^8.21.0
         version: 8.21.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)
@@ -7777,6 +7780,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
+      uqr:
+        specifier: 0.1.2
+        version: 0.1.2
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
@@ -24934,6 +24940,9 @@ packages:
 
   upper-case@1.1.3:
     resolution: {integrity: sha512-WRbjgmYzgXkCV7zNVpy5YgrHgbBv126rMALQQMrmzOVC4GM2waQ9x7xtm8VU+1yF2kWyPzI9zbZ48n4vSxwfSA==}
+
+  uqr@0.1.2:
+    resolution: {integrity: sha512-MJu7ypHq6QasgF5YRTjqscSzQp/W11zoUk6kvmlH+fmWEs63Y0Eib13hYFwAzagRJcVY8WVnlV+eBDUGMJ5IbA==}
 
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
@@ -51094,6 +51103,8 @@ snapshots:
       upper-case: 1.1.3
 
   upper-case@1.1.3: {}
+
+  uqr@0.1.2: {}
 
   uri-js@4.4.1:
     dependencies:

@@ -213,6 +213,7 @@ export const navigation = {
         exemptionCertificates: 'Exemption Certificates',
         nexus: 'Nexus Monitor',
         form1099: '1099s',
+        receivedNfe: 'Received NF-e',
         taxCalendar: 'Tax Calendar',
         paymentRuns: 'Payment Runs',
         deposits: 'Deposits',
@@ -227,6 +228,7 @@ export const navigation = {
           vat: 'VAT Returns',
           gst: 'GST Returns',
           sales_tax: 'Sales Tax',
+          tributos: 'Taxes (apuração)',
         },
       },
       agents: {

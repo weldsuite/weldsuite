@@ -59,11 +59,28 @@ import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
 import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
 import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
 import { isValidHsnSac } from '@/lib/weldbooks/gst';
+import {
+  EMPTY_BR_DOCUMENT,
+  EMPTY_BR_LINE,
+  brDocumentChecks,
+  brDocumentFields,
+  brDocumentPayload,
+  brDocumentProblems,
+  brDocumentValuesFromStored,
+  brLineChecks,
+  brLineFields,
+  brLineProblems,
+  brLineValuesFromStored,
+  type BrDocumentMessages,
+  type BrLineMessages,
+  type BrLineValues,
+} from '@/lib/weldbooks/br-fiscal';
 import { productTaxCode } from '@/lib/weldbooks/tax-codes';
 import type { ProductOption } from '@/hooks/queries/use-weldbooks-tax-preview';
 import { InvoiceAddressSection } from './invoice-address-section';
 import { AddressNeededNotice, DocumentTaxPanel } from './document-tax-panel';
 import { InvoiceLineExtras } from './invoice-line-extras';
+import { BrDocumentSection, BrLineFields, BrTaxSummary } from './br-fields';
 import { GstTaxSplit, PlaceOfSupplySelect } from './gst-fields';
 import { buildInvoicePayload } from './invoice-payload';
 import { ProductPicker } from './product-picker';
@@ -84,11 +101,13 @@ const addressSchema = z.object({
   state: z.string().optional(),
   postalCode: z.string().optional(),
   country: z.string().optional(),
+  county: z.string().optional(),
 });
 
 function createInvoiceFormSchema(
   st: (key: string) => string,
   overrideMessages: { reasonRequired: string; amountInvalid: string; hsnInvalid?: string },
+  brMessages: { line: BrLineMessages; document: BrDocumentMessages },
 ) {
   const lineItemSchema = z
     .object({
@@ -102,15 +121,19 @@ function createInvoiceFormSchema(
       hsnSac: z.string().optional().default(''),
       discountPercent: z.coerce.number().min(0).max(100).default(0),
       ...salesTaxLineFields,
+      ...brLineFields,
     })
     .superRefine(overrideChecks(overrideMessages))
+    .superRefine(brLineChecks(brMessages.line))
     .superRefine((line, ctx) => {
       if (!isValidHsnSac(line.hsnSac)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['hsnSac'], message: overrideMessages.hsnInvalid ?? 'HSN/SAC must be 4 to 8 digits' });
       }
     });
 
-  return z.object({
+  return z
+    .object({
+    ...brDocumentFields,
     contactId: z.string().min(1, st('sweep.weldbooks.invoiceDialog.customerRequired')),
     issueDate: z.string().min(1, st('sweep.weldbooks.invoiceDialog.issueDateRequired')),
     dueDate: z.string().min(1, st('sweep.weldbooks.invoiceDialog.dueDateRequired')),
@@ -128,7 +151,8 @@ function createInvoiceFormSchema(
     shipFromAddress: addressSchema,
     marketplaceFacilitated: z.boolean().default(false),
     items: z.array(lineItemSchema).min(1, st('sweep.weldbooks.invoiceDialog.atLeastOneLineItem')),
-  });
+    })
+    .superRefine(brDocumentChecks(brMessages.document));
 }
 
 type InvoiceFormValues = z.infer<ReturnType<typeof createInvoiceFormSchema>>;
@@ -143,6 +167,7 @@ const emptyLine = {
   hsnSac: '',
   discountPercent: 0,
   ...EMPTY_SALES_TAX_LINE,
+  ...EMPTY_BR_LINE,
 };
 
 /** The kind of document an invoice row is, for the tax calculation. */
@@ -150,6 +175,27 @@ function documentKind(invoice: Pick<InvoiceDetail, 'type'> | undefined): TaxDocu
   if (invoice?.type === 'credit_note') return 'credit_memo';
   if (invoice?.type === 'proforma') return 'estimate';
   return 'invoice';
+}
+
+/** The heading and the submit label of the form: a credit memo has its own, an invoice says new / edit. */
+function invoiceFormTitles(
+  mode: 'add' | 'edit',
+  isCreditMemo: boolean,
+  texts: {
+    tf: { newInvoice: string; editInvoice: string; createInvoice: string; updateInvoice: string };
+    creditMemoTitle: string;
+    creditMemoSave: string;
+    creditNoteName: string;
+  },
+): { title: string; submitText: string } {
+  const { tf } = texts;
+  const invoiceTitle = mode === 'add' ? tf.newInvoice : tf.editInvoice;
+  const title = isCreditMemo ? texts.creditMemoTitle : invoiceTitle;
+  // A credit note saves as "Update credit note", not "Update Invoice".
+  const creditNoteSave = texts.creditMemoSave.replace('{name}', texts.creditNoteName.toLowerCase());
+  const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
+  const submitText = isCreditMemo ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1) : invoiceSave;
+  return { title, submitText };
 }
 
 // ---------------------------------------------------------------------------
@@ -168,18 +214,28 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const st = useTranslations();
   const tf = t.accounting.invoiceForm;
   const td = useDocumentTexts();
+  const tbd = t.weldbooksBr.document;
+  const brMessages = useMemo(
+    () => ({
+      line: { ncm: tbd.errors.ncm, cfop: tbd.errors.cfop, cest: tbd.errors.cest, percent: tbd.errors.percent, issRate: tbd.errors.issRate },
+      document: { iss: tbd.errors.iss, irrf: tbd.errors.irrf, inss: tbd.errors.inss, accessKey: tbd.errors.accessKey },
+    }),
+    [tbd.errors],
+  );
   const invoiceFormSchema = useMemo(
     () =>
       createInvoiceFormSchema(st, {
         reasonRequired: td.line.overrideReasonRequired,
         amountInvalid: td.line.overrideAmountInvalid,
         hsnInvalid: t.weldbooksIn.gst.hsnSacInvalid,
-      }),
-    [st, td.line.overrideReasonRequired, td.line.overrideAmountInvalid, t.weldbooksIn.gst.hsnSacInvalid],
+      }, brMessages),
+    [st, td.line.overrideReasonRequired, td.line.overrideAmountInvalid, t.weldbooksIn.gst.hsnSacInvalid, brMessages],
   );
   const { currency, entityCurrency, formatMoney, formatDate, today, entity } = useWeldbooksFormat();
   const { labels, features } = useJurisdictionLabels();
   const gst = features.gstReturn;
+  // Brazil: NCM / CFOP and fiscal details per line, withholdings per invoice, taxes grouped by treatment.
+  const br = features.brTaxReturn;
   const describeError = useDescribeError();
 
   const createMutation = useCreateInvoice();
@@ -213,6 +269,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
         notes: stored.notes ?? '',
         internalNotes: stored.internalNotes ?? '',
         placeOfSupply: stored.placeOfSupply ?? '',
+        ...brDocumentValuesFromStored(stored.fiscalData),
         currency: stored.currency ?? '',
         exchangeRate: '',
         billingAddress: toPostalAddressFormValue(billing),
@@ -242,6 +299,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                 classId: item.classId ?? '',
                 locationId: item.locationId ?? '',
                 originalLineId: item.originalLineId ?? '',
+                ...brLineValuesFromStored(item),
               }))
             : [{ ...emptyLine }],
       };
@@ -254,6 +312,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       notes: '',
       internalNotes: '',
       placeOfSupply: '',
+      ...EMPTY_BR_DOCUMENT,
       // The customer's currency, else the entity's: set once the customer or the entity is known.
       currency: '',
       exchangeRate: '',
@@ -337,10 +396,11 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     marketplaceFacilitated: watched.marketplaceFacilitated,
     originalInvoiceId: stored?.creditNoteForInvoiceId,
     placeOfSupply: gst ? watched.placeOfSupply : undefined,
+    fiscalData: br ? brDocumentPayload(watched) : undefined,
     lines: (watchedItems ?? []).map(toTaxFormLine),
   });
 
-  const setLine = (index: number, patch: Partial<SalesTaxLineValues>) => {
+  const setLine = (index: number, patch: Partial<SalesTaxLineValues> | Partial<BrLineValues>) => {
     const current = form.getValues(`items.${index}`);
     form.setValue(`items.${index}`, { ...current, ...patch }, { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
   };
@@ -377,6 +437,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           kind,
           salesTax,
           gst,
+          br,
           currency: mode === 'edit' && invoice?.currency ? invoice.currency : entityCurrency,
           // An emptied rate field on an invoice that held one: back to the rate of the issue date.
           resetExchangeRate: mode === 'edit' && rateEdited.current,
@@ -683,6 +744,16 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                   )}
                 </div>
 
+                {br && line && (
+                  <BrLineFields
+                    idPrefix={`items-${index}`}
+                    value={line as Partial<BrLineValues>}
+                    onChange={(patch) => setLine(index, patch)}
+                    errors={brLineProblems(line as Partial<BrLineValues>, brMessages.line)}
+                    disabled={isCreditMemo}
+                  />
+                )}
+
                 {line && (
                   <InvoiceLineExtras
                     idPrefix={`items-${index}`}
@@ -730,6 +801,26 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
         </>
       ),
     },
+    ...(br && !isCreditMemo
+      ? [
+          {
+            title: tbd.sectionTitle,
+            icon: Landmark,
+            content: (
+              <BrDocumentSection
+                idPrefix="invoice-br"
+                direction="sales"
+                contactId={watchedContactId}
+                value={watched}
+                errors={brDocumentProblems(watched, brMessages.document)}
+                onChange={(patch) => {
+                  for (const [key, value] of Object.entries(patch)) form.setValue(key as keyof InvoiceFormValues, value as never, { shouldDirty: true });
+                }}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       title: tf.notes,
       icon: StickyNote,
@@ -781,11 +872,12 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     { label: tf.total, value: <span className="font-semibold">{formatMoney(totals.total, displayCurrency)}</span> },
   ];
 
-  const title = isCreditMemo ? td.form.creditMemoTitle : mode === 'add' ? tf.newInvoice : tf.editInvoice;
-  // A credit note saves as "Update credit note", not "Update Invoice".
-  const creditNoteSave = td.form.creditMemoSave.replace('{name}', labels.creditNote.toLowerCase());
-  const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
-  const submitText = isCreditMemo ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1) : invoiceSave;
+  const { title, submitText } = invoiceFormTitles(mode, isCreditMemo, {
+    tf,
+    creditMemoTitle: td.form.creditMemoTitle,
+    creditMemoSave: td.form.creditMemoSave,
+    creditNoteName: labels.creditNote,
+  });
 
   return (
     <EntityFormLayout
@@ -804,7 +896,15 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
             showAddressNotice={false}
           />
           {gst && <GstTaxSplit rows={preview.result?.taxBreakdown} currency={displayCurrency} />}
-          {!salesTax && <p className="text-xs text-muted-foreground">{tf.totalsPreview}</p>}
+          {br && (
+            <BrTaxSummary
+              rows={preview.result?.taxBreakdown}
+              warnings={preview.result?.warnings}
+              currency={displayCurrency}
+              previewNote
+            />
+          )}
+          {!salesTax && !br && <p className="text-xs text-muted-foreground">{tf.totalsPreview}</p>}
         </div>
       }
       onSubmit={form.handleSubmit(onSubmit)}

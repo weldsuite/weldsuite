@@ -64,6 +64,8 @@ export const bills = pgTable('bills', {
   taxBreakdown: jsonb('tax_breakdown').$type<DocumentTaxBreakdownRow[]>(),
   /** Where the goods were delivered; sets the US use tax rate. Defaults to the entity address. */
   deliveryAddress: jsonb('delivery_address').$type<StoredPostalAddress>(),
+  /** Brazil: withholdings on the services bought, the supplier's NF-e access key. */
+  fiscalData: jsonb('fiscal_data').$type<Record<string, unknown>>(),
 
   journalEntryId: varchar('journal_entry_id', { length: 30 }),
   createdBy: varchar('created_by', { length: 255 }),
@@ -107,6 +109,10 @@ export const billItems = pgTable('bill_items', {
   accrueUseTax: boolean('accrue_use_tax').default(false),
   /** 1099 box for payments of this line, overriding the account's default (`omit` to leave out). */
   form1099Box: varchar('form_1099_box', { length: 20 }),
+  /** Brazil: NCM, CFOP and the line's other fiscal fields (credit rates). */
+  ncm: varchar('ncm', { length: 8 }),
+  cfop: varchar('cfop', { length: 4 }),
+  fiscalData: jsonb('fiscal_data').$type<Record<string, unknown>>(),
   classId: varchar('class_id', { length: 30 }),
   locationId: varchar('location_id', { length: 30 }),
 }, (table) => [

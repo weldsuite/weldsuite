@@ -39,6 +39,23 @@ import { InvoiceLineExtras } from '@/app/weldbooks/invoices/components/invoice-l
 import { ProductPicker } from '@/app/weldbooks/invoices/components/product-picker';
 import { useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { ShipFromSection } from '@/app/weldbooks/invoices/components/ship-from-section';
+import { BrDocumentSection, BrLineFields } from '@/app/weldbooks/invoices/components/br-fields';
+import {
+  EMPTY_BR_DOCUMENT,
+  EMPTY_BR_LINE,
+  brDocumentChecks,
+  brDocumentFields,
+  brDocumentProblems,
+  brDocumentValuesFromStored,
+  brLineChecks,
+  brLineFields,
+  brLineProblems,
+  brLineValuesFromStored,
+  type BrDocumentMessages,
+  type BrLineMessages,
+  type BrLineValues,
+} from '@/lib/weldbooks/br-fiscal';
+import { useI18n } from '@/lib/i18n/provider';
 import { buildRecurringPayload, RECURRING_FREQUENCIES } from './recurring-payload';
 
 const addressSchema = z.object({
@@ -48,6 +65,7 @@ const addressSchema = z.object({
   state: z.string().optional(),
   postalCode: z.string().optional(),
   country: z.string().optional(),
+  county: z.string().optional(),
 });
 
 function createRecurringSchema(messages: {
@@ -55,8 +73,10 @@ function createRecurringSchema(messages: {
   dateRequired: string;
   descriptionRequired: string;
   atLeastOneLine: string;
+  br: { line: BrLineMessages; document: BrDocumentMessages };
 }) {
-  const lineSchema = z.object({
+  const lineSchema = z
+    .object({
     description: z.string().min(1, messages.descriptionRequired),
     quantity: z.coerce.number().min(0).default(1),
     unitPrice: z.coerce.number().min(0).default(0),
@@ -64,9 +84,13 @@ function createRecurringSchema(messages: {
     unit: z.string().optional().default(''),
     accountId: z.string().optional().default(''),
     ...salesTaxLineFields,
-  });
+    ...brLineFields,
+  })
+    .superRefine(brLineChecks(messages.br.line));
 
-  return z.object({
+  return z
+    .object({
+    ...brDocumentFields,
     name: z.string().max(255).optional().default(''),
     contactId: z.string().min(1, messages.customerRequired),
     frequency: z.enum(RECURRING_FREQUENCIES),
@@ -80,7 +104,8 @@ function createRecurringSchema(messages: {
     shipFromDifferent: z.boolean().default(false),
     shipFromAddress: addressSchema,
     items: z.array(lineSchema).min(1, messages.atLeastOneLine),
-  });
+    })
+    .superRefine(brDocumentChecks(messages.br.document));
 }
 
 type RecurringFormValues = z.infer<ReturnType<typeof createRecurringSchema>>;
@@ -93,6 +118,7 @@ const emptyLine = {
   unit: '',
   accountId: '',
   ...EMPTY_SALES_TAX_LINE,
+  ...EMPTY_BR_LINE,
 };
 
 interface RecurringInvoiceFormProps {
@@ -119,6 +145,10 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
   const createMutation = useCreateRecurringInvoice();
   const updateMutation = useUpdateRecurringInvoice();
   const salesTax = features.salesTax;
+  // Brazil: NCM / CFOP and fiscal details per template line, withholdings per template.
+  const br = features.brTaxReturn;
+  const { t } = useI18n();
+  const tbd = t.weldbooksBr.document;
 
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
@@ -133,8 +163,12 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
         dateRequired: tr.dateRequired,
         descriptionRequired: tr.descriptionRequired,
         atLeastOneLine: tr.atLeastOneLine,
+        br: {
+          line: { ncm: tbd.errors.ncm, cfop: tbd.errors.cfop, cest: tbd.errors.cest, percent: tbd.errors.percent, issRate: tbd.errors.issRate },
+          document: { iss: tbd.errors.iss, irrf: tbd.errors.irrf, inss: tbd.errors.inss, accessKey: tbd.errors.accessKey },
+        },
       }),
-    [tr.customerRequired, tr.dateRequired, tr.descriptionRequired, tr.atLeastOneLine],
+    [tr.customerRequired, tr.dateRequired, tr.descriptionRequired, tr.atLeastOneLine, tbd.errors],
   );
 
   const template = recurring?.templateData ?? null;
@@ -158,6 +192,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
       notes: template?.notes ?? '',
       shipFromDifferent: Boolean(shipFromStored),
       shipFromAddress: toPostalAddressFormValue(shipFromStored),
+      ...(br ? brDocumentValuesFromStored((template as { fiscalData?: Record<string, unknown> | null } | null)?.fiscalData) : EMPTY_BR_DOCUMENT),
       items:
         storedItems.length > 0
           ? storedItems.map((item) => ({
@@ -177,6 +212,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
               classId: item.classId ?? '',
               locationId: item.locationId ?? '',
               originalLineId: '',
+              ...brLineValuesFromStored(item),
             }))
           : [{ ...emptyLine }],
     },
@@ -187,7 +223,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
   const { data: contactData } = useAccountingCustomer(watched.contactId);
   const customerUse = (contactData?.data as { taxUse?: TaxUse | null } | undefined)?.taxUse ?? null;
 
-  const setLine = (index: number, patch: Partial<SalesTaxLineValues>) => {
+  const setLine = (index: number, patch: Partial<SalesTaxLineValues> | Partial<BrLineValues>) => {
     const current = form.getValues(`items.${index}`);
     form.setValue(`items.${index}`, { ...current, ...patch }, { shouldDirty: true });
   };
@@ -215,6 +251,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
     const payload = buildRecurringPayload(values, {
       mode,
       salesTax,
+      br,
       currency: entityCurrency,
       existing: recurring?.templateData,
     });
@@ -438,6 +475,15 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
                   )}
                 </div>
 
+                {br && line && (
+                  <BrLineFields
+                    idPrefix={`recurring-${index}`}
+                    value={line as Partial<BrLineValues>}
+                    onChange={(patch) => setLine(index, patch)}
+                    errors={brLineProblems(line as Partial<BrLineValues>, { ncm: tbd.errors.ncm, cfop: tbd.errors.cfop, cest: tbd.errors.cest, percent: tbd.errors.percent, issRate: tbd.errors.issRate })}
+                  />
+                )}
+
                 {line && (
                   <InvoiceLineExtras
                     idPrefix={`recurring-${index}`}
@@ -456,6 +502,28 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
           )}
         </CardContent>
       </Card>
+
+      {br && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{tbd.sectionTitle}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BrDocumentSection
+              idPrefix="recurring-br"
+              direction="sales"
+              contactId={watched.contactId}
+              value={watched}
+              errors={brDocumentProblems(watched, { iss: tbd.errors.iss, irrf: tbd.errors.irrf, inss: tbd.errors.inss, accessKey: tbd.errors.accessKey })}
+              onChange={(patch) => {
+                for (const [key, value] of Object.entries(patch)) {
+                  form.setValue(key as 'brIrrf', value as never, { shouldDirty: true });
+                }
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

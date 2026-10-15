@@ -167,6 +167,9 @@ export const inAdapter: JurisdictionAdapter = {
     gstReturn: true,
     salesTax: false,
     form1099: false,
+    brTaxReturn: false,
+    fiscalDocuments: false,
+    spedEcd: false,
   },
   terminology: {
     tax: 'gst',

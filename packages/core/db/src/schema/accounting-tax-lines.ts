@@ -47,6 +47,19 @@ export interface DocumentTaxBreakdownRow {
   taxCode?: string;
   /** use = US use tax accrued on a purchase. */
   kind?: 'tax' | 'use';
+  /**
+   * How the amount relates to the document total (Brazil). Omitted = `added`.
+   * - added: charged on top of the price (VAT/GST, BR IPI): part of the total.
+   * - embedded: already inside the price (BR ICMS, ISS, PIS, COFINS): no effect on
+   *   the total. A sale books it as a revenue deduction against the payable; a
+   *   purchase books the creditable part as a receivable out of the line's cost.
+   * - withheld: kept back by the payer (BR IRRF, CSRF, INSS, ISS retido): lowers
+   *   what is owed on the document.
+   * - informational: printed on the document only (BR CBS/IBS in the 2026 test year).
+   */
+  treatment?: 'added' | 'embedded' | 'withheld' | 'informational';
+  /** Embedded sales rows: the account debited against `accountRole` (a revenue deduction). */
+  offsetAccountRole?: string;
 }
 
 /**

@@ -2778,8 +2778,8 @@ export const accounting = {
       displayNamePlaceholder: 'WeldCorp BV',
       legalNamePlaceholder2: 'WeldCorp Inc.',
       // Example names that look like a company of the entity's jurisdiction (keyed by jurisdiction code).
-      displayNamePlaceholders: { NL: 'WeldCorp BV', IN: 'WeldCorp Pvt Ltd', US: 'WeldCorp Inc.' } as Record<string, string>,
-      legalNamePlaceholders: { NL: 'WeldCorp Besloten Vennootschap', IN: 'WeldCorp Private Limited', US: 'WeldCorp, Inc.' } as Record<string, string>,
+      displayNamePlaceholders: { NL: 'WeldCorp BV', IN: 'WeldCorp Pvt Ltd', US: 'WeldCorp Inc.', BR: 'WeldCorp Ltda' } as Record<string, string>,
+      legalNamePlaceholders: { NL: 'WeldCorp Besloten Vennootschap', IN: 'WeldCorp Private Limited', US: 'WeldCorp, Inc.', BR: 'WeldCorp Tecnologia Ltda' } as Record<string, string>,
       entityType: 'Entity type',
       jurisdiction: 'Jurisdiction',
       baseCurrency: 'Base currency',
@@ -3058,17 +3058,18 @@ export const accounting = {
 
     // Words that differ per jurisdiction. Keys are the adapter's terminology codes.
     terminology: {
-      tax: { vat: 'VAT', gst: 'GST', sales_tax: 'Sales tax' },
-      taxRate: { vat: 'VAT rate', gst: 'GST rate', sales_tax: 'Sales tax rate' },
-      noTax: { vat: 'No VAT', gst: 'No GST', sales_tax: 'No sales tax' },
-      taxReturns: { vat: 'VAT returns', gst: 'GST returns', sales_tax: 'Sales tax' },
-      taxId: { vat_number: 'VAT number', gstin: 'GSTIN', ein: 'EIN', tax_id: 'Tax ID' },
+      tax: { vat: 'VAT', gst: 'GST', sales_tax: 'Sales tax', tributos: 'Taxes' },
+      taxRate: { vat: 'VAT rate', gst: 'GST rate', sales_tax: 'Sales tax rate', tributos: 'Tax profile' },
+      noTax: { vat: 'No VAT', gst: 'No GST', sales_tax: 'No sales tax', tributos: 'No taxes' },
+      taxReturns: { vat: 'VAT returns', gst: 'GST returns', sales_tax: 'Sales tax', tributos: 'Tax apuração' },
+      taxId: { vat_number: 'VAT number', gstin: 'GSTIN', cnpj: 'CNPJ', ein: 'EIN', tax_id: 'Tax ID' },
       registrationId: {
         kvk: 'Chamber of Commerce (KvK) number',
         kbo: 'Enterprise number (KBO/BCE)',
         pan: 'PAN',
         company_number: 'Company registration number',
         state_id: 'State registration number',
+        ie: 'State registration (IE)',
       },
       supplier: { supplier: 'Supplier', vendor: 'Vendor' },
       suppliers: { supplier: 'Suppliers', vendor: 'Vendors' },
@@ -3090,6 +3091,9 @@ export const accounting = {
       selectState: 'Select a state',
       postalCode: 'Postal code',
       zipCode: 'ZIP code',
+      cep: 'CEP (postal code)',
+      neighborhood: 'Neighbourhood (bairro)',
+      line1PlaceholderBr: 'Street and number, e.g. Rua das Flores, 123',
       country: 'Country',
       selectCountry: 'Select a country',
       noCountry: 'No country',
@@ -3112,6 +3116,11 @@ export const accounting = {
       ltd: 'Ltd',
       inc: 'Inc.',
       sarl: 'SARL',
+      mei: 'MEI (individual microentrepreneur)',
+      ei: 'EI (sole proprietor)',
+      slu: 'SLU (single-member limited company)',
+      ltda: 'Ltda (limited company)',
+      sa: 'S.A. (corporation)',
     },
 
     // Entity edit page

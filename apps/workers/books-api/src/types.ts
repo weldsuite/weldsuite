@@ -31,6 +31,8 @@ export interface Env extends KitEnv, BankFeedEnv {
 
   /** Platform origin for links books-api hands out (online W-9 requests). */
   PLATFORM_URL?: string;
+  /** Public origin of this worker (https://books-api.weldsuite.org): the webhook URL registered with the fiscal provider. Defaults to the request's origin. */
+  BOOKS_API_URL?: string;
 
   // --- AI (@weldsuite/ai) — Cloudflare AI Gateway, accounting OCR ----------
   // Credits are metered through @weldsuite/core-domain/ai-billing (master DB).

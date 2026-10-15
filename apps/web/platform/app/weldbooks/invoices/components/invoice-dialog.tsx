@@ -67,6 +67,7 @@ const addressSchema = z.object({
   state: z.string().optional(),
   postalCode: z.string().optional(),
   country: z.string().optional(),
+  county: z.string().optional(),
 });
 
 function createInvoiceFormSchema(

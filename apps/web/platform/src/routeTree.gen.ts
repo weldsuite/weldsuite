@@ -183,6 +183,7 @@ import { Route as WeldbooksSettingsIndexRouteImport } from './routes/weldbooks/s
 import { Route as WeldbooksSalesTaxIndexRouteImport } from './routes/weldbooks/sales-tax/index'
 import { Route as WeldbooksReportsIndexRouteImport } from './routes/weldbooks/reports/index'
 import { Route as WeldbooksRecurringIndexRouteImport } from './routes/weldbooks/recurring/index'
+import { Route as WeldbooksReceivedNfeIndexRouteImport } from './routes/weldbooks/received-nfe/index'
 import { Route as WeldbooksPayrollIndexRouteImport } from './routes/weldbooks/payroll/index'
 import { Route as WeldbooksPaymentRunsIndexRouteImport } from './routes/weldbooks/payment-runs/index'
 import { Route as WeldbooksJournalIndexRouteImport } from './routes/weldbooks/journal/index'
@@ -1370,6 +1371,12 @@ const WeldbooksRecurringIndexRoute = WeldbooksRecurringIndexRouteImport.update({
   path: '/recurring/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldbooksReceivedNfeIndexRoute =
+  WeldbooksReceivedNfeIndexRouteImport.update({
+    id: '/received-nfe/',
+    path: '/received-nfe/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksPayrollIndexRoute = WeldbooksPayrollIndexRouteImport.update({
   id: '/payroll/',
   path: '/payroll/',
@@ -3232,6 +3239,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/journal/': typeof WeldbooksJournalIndexRoute
   '/weldbooks/payment-runs/': typeof WeldbooksPaymentRunsIndexRoute
   '/weldbooks/payroll/': typeof WeldbooksPayrollIndexRoute
+  '/weldbooks/received-nfe/': typeof WeldbooksReceivedNfeIndexRoute
   '/weldbooks/recurring/': typeof WeldbooksRecurringIndexRoute
   '/weldbooks/reports/': typeof WeldbooksReportsIndexRoute
   '/weldbooks/sales-tax/': typeof WeldbooksSalesTaxIndexRoute
@@ -3668,6 +3676,7 @@ export interface FileRoutesByTo {
   '/weldbooks/journal': typeof WeldbooksJournalIndexRoute
   '/weldbooks/payment-runs': typeof WeldbooksPaymentRunsIndexRoute
   '/weldbooks/payroll': typeof WeldbooksPayrollIndexRoute
+  '/weldbooks/received-nfe': typeof WeldbooksReceivedNfeIndexRoute
   '/weldbooks/recurring': typeof WeldbooksRecurringIndexRoute
   '/weldbooks/reports': typeof WeldbooksReportsIndexRoute
   '/weldbooks/sales-tax': typeof WeldbooksSalesTaxIndexRoute
@@ -4141,6 +4150,7 @@ export interface FileRoutesById {
   '/weldbooks/journal/': typeof WeldbooksJournalIndexRoute
   '/weldbooks/payment-runs/': typeof WeldbooksPaymentRunsIndexRoute
   '/weldbooks/payroll/': typeof WeldbooksPayrollIndexRoute
+  '/weldbooks/received-nfe/': typeof WeldbooksReceivedNfeIndexRoute
   '/weldbooks/recurring/': typeof WeldbooksRecurringIndexRoute
   '/weldbooks/reports/': typeof WeldbooksReportsIndexRoute
   '/weldbooks/sales-tax/': typeof WeldbooksSalesTaxIndexRoute
@@ -4617,6 +4627,7 @@ export interface FileRouteTypes {
     | '/weldbooks/journal/'
     | '/weldbooks/payment-runs/'
     | '/weldbooks/payroll/'
+    | '/weldbooks/received-nfe/'
     | '/weldbooks/recurring/'
     | '/weldbooks/reports/'
     | '/weldbooks/sales-tax/'
@@ -5053,6 +5064,7 @@ export interface FileRouteTypes {
     | '/weldbooks/journal'
     | '/weldbooks/payment-runs'
     | '/weldbooks/payroll'
+    | '/weldbooks/received-nfe'
     | '/weldbooks/recurring'
     | '/weldbooks/reports'
     | '/weldbooks/sales-tax'
@@ -5525,6 +5537,7 @@ export interface FileRouteTypes {
     | '/weldbooks/journal/'
     | '/weldbooks/payment-runs/'
     | '/weldbooks/payroll/'
+    | '/weldbooks/received-nfe/'
     | '/weldbooks/recurring/'
     | '/weldbooks/reports/'
     | '/weldbooks/sales-tax/'
@@ -7108,6 +7121,13 @@ declare module '@tanstack/react-router' {
       path: '/recurring'
       fullPath: '/weldbooks/recurring/'
       preLoaderRoute: typeof WeldbooksRecurringIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/received-nfe/': {
+      id: '/weldbooks/received-nfe/'
+      path: '/received-nfe'
+      fullPath: '/weldbooks/received-nfe/'
+      preLoaderRoute: typeof WeldbooksReceivedNfeIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
     '/weldbooks/payroll/': {
@@ -9446,6 +9466,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksJournalIndexRoute: typeof WeldbooksJournalIndexRoute
   WeldbooksPaymentRunsIndexRoute: typeof WeldbooksPaymentRunsIndexRoute
   WeldbooksPayrollIndexRoute: typeof WeldbooksPayrollIndexRoute
+  WeldbooksReceivedNfeIndexRoute: typeof WeldbooksReceivedNfeIndexRoute
   WeldbooksRecurringIndexRoute: typeof WeldbooksRecurringIndexRoute
   WeldbooksReportsIndexRoute: typeof WeldbooksReportsIndexRoute
   WeldbooksSalesTaxIndexRoute: typeof WeldbooksSalesTaxIndexRoute
@@ -9543,6 +9564,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksJournalIndexRoute: WeldbooksJournalIndexRoute,
   WeldbooksPaymentRunsIndexRoute: WeldbooksPaymentRunsIndexRoute,
   WeldbooksPayrollIndexRoute: WeldbooksPayrollIndexRoute,
+  WeldbooksReceivedNfeIndexRoute: WeldbooksReceivedNfeIndexRoute,
   WeldbooksRecurringIndexRoute: WeldbooksRecurringIndexRoute,
   WeldbooksReportsIndexRoute: WeldbooksReportsIndexRoute,
   WeldbooksSalesTaxIndexRoute: WeldbooksSalesTaxIndexRoute,

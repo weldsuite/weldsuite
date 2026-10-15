@@ -35,6 +35,8 @@ import { isWeldTaxCode } from '@/lib/weldbooks/tax-codes';
 import { isForeignCurrency } from '@/lib/weldbooks/currencies';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
+import { BrTaxSummary } from '../components/br-fields';
+import { isBrBreakdown } from '@/lib/weldbooks/br-fiscal';
 import { ExemptNotice, TaxBreakdownList, TaxWarnings } from '../components/tax-breakdown';
 import type { InvoiceCapabilities } from './invoice-capabilities';
 
@@ -523,6 +525,10 @@ function TaxLines({ invoice }: Readonly<{ invoice: InvoiceWithTax }>) {
   const { formatMoney } = useWeldbooksFormat();
   const { labels } = useJurisdictionLabels();
   const taxGroups = useMemo(() => groupTaxBreakdown(invoice.taxBreakdown), [invoice.taxBreakdown]);
+  // Brazil: taxes on top of the price, included in it, withholdings and the CBS / IBS test amounts, apart.
+  if (isBrBreakdown(invoice.taxBreakdown)) {
+    return <BrTaxSummary rows={invoice.taxBreakdown} warnings={invoice.taxWarnings} currency={invoice.currency} />;
+  }
   // US: one row per jurisdiction, with the exempt amounts a certificate covers.
   if (taxGroups.some((group) => group.isJurisdiction)) {
     return <TaxBreakdownList groups={taxGroups} currency={invoice.currency} taxLabel={labels.tax} />;

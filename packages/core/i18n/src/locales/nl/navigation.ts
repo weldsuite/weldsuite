@@ -213,6 +213,7 @@ export const navigation = {
         exemptionCertificates: 'Vrijstellingscertificaten',
         nexus: 'Nexusmonitor',
         form1099: '1099-formulieren',
+        receivedNfe: 'Ontvangen NF-e',
         taxCalendar: 'Belastingkalender',
         paymentRuns: 'Betaalruns',
         deposits: 'Stortingen',
@@ -227,6 +228,7 @@ export const navigation = {
           vat: 'BTW-aangiften',
           gst: 'GST-aangiften',
           sales_tax: 'Sales tax',
+          tributos: 'Belastingen (apuração)',
         },
       },
       agents: {

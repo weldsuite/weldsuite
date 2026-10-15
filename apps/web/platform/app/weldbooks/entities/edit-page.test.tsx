@@ -75,6 +75,9 @@ const features = {
   gstReturn: false,
   salesTax: true,
   form1099: true,
+  brTaxReturn: false,
+  fiscalDocuments: false,
+  spedEcd: false,
 };
 
 const jurisdictions: JurisdictionSummary[] = [

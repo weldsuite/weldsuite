@@ -280,7 +280,7 @@ function getFallbackRates(): Record<string, number> {
     EUR: 1,
     USD: 1.08, GBP: 0.86, CHF: 0.96, JPY: 162.5, CAD: 1.47, AUD: 1.66,
     SEK: 11.2, NOK: 11.5, DKK: 7.46, PLN: 4.31, CZK: 25.2, HUF: 395,
-    TRY: 35.0, CNY: 7.85, INR: 90.0,
+    TRY: 35.0, CNY: 7.85, INR: 90.0, BRL: 6.3,
   };
 }
 
@@ -299,6 +299,7 @@ export const SUPPORTED_CURRENCIES = [
   { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
   { code: 'CNY', name: 'Chinese Yuan', symbol: '¥' },
   { code: 'INR', name: 'INR', symbol: '₹' },
+  { code: 'BRL', name: 'Brazilian Real', symbol: 'R$' },
 ] as const;
 
 const INR_LOCALIZED_NAME: Record<string, string> = {
@@ -306,12 +307,18 @@ const INR_LOCALIZED_NAME: Record<string, string> = {
   nl: 'Indiase Roepie',
 };
 
-/** Localized currency list for API clients. INR names come from i18n catalogs. */
+const BRL_LOCALIZED_NAME: Record<string, string> = {
+  en: 'Brazilian Real',
+  nl: 'Braziliaanse real',
+  pt: 'Real brasileiro',
+};
+
+/** Localized currency list for API clients. INR and BRL names come from i18n catalogs. */
 export function getSupportedCurrencies(locale = 'en') {
   const lang = locale.slice(0, 2).toLowerCase();
-  return SUPPORTED_CURRENCIES.map((c) =>
-    c.code === 'INR'
-      ? { ...c, name: INR_LOCALIZED_NAME[lang] ?? INR_LOCALIZED_NAME.en }
-      : { ...c },
-  );
+  return SUPPORTED_CURRENCIES.map((c) => {
+    if (c.code === 'INR') return { ...c, name: INR_LOCALIZED_NAME[lang] ?? INR_LOCALIZED_NAME.en };
+    if (c.code === 'BRL') return { ...c, name: BRL_LOCALIZED_NAME[lang] ?? BRL_LOCALIZED_NAME.en };
+    return { ...c };
+  });
 }

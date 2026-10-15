@@ -58,7 +58,8 @@ export default function EntitiesPage() {
   const tt = t.accounting.terminology;
   // US legal forms have their own labels; the other jurisdictions keep the short code.
   const usTypeLabels = t.weldbooksUs.setup.entityTypes as Record<string, string>;
-  const entityTypeLabel = (type: string) => usTypeLabels[type] ?? type.toUpperCase();
+  const typeLabels = t.accounting.entityTypes as Record<string, string>;
+  const entityTypeLabel = (type: string) => usTypeLabels[type] ?? typeLabels[type] ?? type.toUpperCase();
 
   const korMutation = useMutation({
     mutationFn: async ({ entity, enabled }: { entity: EntityRow; enabled: boolean }) => {

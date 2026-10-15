@@ -14,6 +14,7 @@ export const DOCUMENT_CURRENCIES = [
   'JPY',
   'CNY',
   'INR',
+  'BRL',
 ] as const;
 
 /** The listed currencies, with any other code in use (a contact's, an older document's) kept selectable. */

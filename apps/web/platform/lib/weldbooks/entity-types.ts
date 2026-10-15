@@ -15,6 +15,12 @@ export const ENTITY_TYPES = [
   'ltd',
   'inc',
   'sarl',
+  // Brazil
+  'mei',
+  'ei',
+  'slu',
+  'ltda',
+  'sa',
 ] as const;
 
 export type EntityType = (typeof ENTITY_TYPES)[number];
@@ -23,6 +29,7 @@ const BY_JURISDICTION: Record<string, readonly EntityType[]> = {
   NL: ['bv', 'nv', 'vof', 'sole'],
   IN: ['pvt_ltd', 'llp', 'sole'],
   US: ['llc', 's_corp', 'c_corp', 'partnership', 'sole'],
+  BR: ['mei', 'ei', 'slu', 'ltda', 'sa'],
 };
 
 export function isEntityType(value: string | null | undefined): value is EntityType {

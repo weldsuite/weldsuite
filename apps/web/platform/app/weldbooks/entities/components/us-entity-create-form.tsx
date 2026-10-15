@@ -37,7 +37,7 @@ import {
   usPayload,
 } from './us-entity-form';
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'CHF', 'INR'];
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'CHF', 'INR', 'BRL'];
 
 function createFormSchema(messages: {
   nameRequired: string;

@@ -2,11 +2,13 @@ import type { JurisdictionAdapter, JurisdictionFeatures, JurisdictionTerminology
 import { nlAdapter } from './nl';
 import { inAdapter } from './in';
 import { usAdapter } from './us';
+import { brAdapter } from './br';
 
 const adapters: Record<string, JurisdictionAdapter> = {
   NL: nlAdapter,
   IN: inAdapter,
   US: usAdapter,
+  BR: brAdapter,
 };
 
 export function getAdapter(code: string): JurisdictionAdapter {
@@ -55,6 +57,9 @@ export function getJurisdictionFeatures(code: string | null | undefined): Jurisd
       gstReturn: false,
       salesTax: false,
       form1099: false,
+      brTaxReturn: false,
+      fiscalDocuments: false,
+      spedEcd: false,
     }
   );
 }

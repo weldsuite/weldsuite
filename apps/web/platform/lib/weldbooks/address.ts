@@ -35,6 +35,7 @@ export function normalizeAccountingAddress(raw: unknown): PostalAddress | null {
     state: str(row.state) ?? str(row.province),
     postalCode: str(row.postalCode),
     country: str(row.country)?.toUpperCase(),
+    county: str(row.county),
   };
 
   const hasAny = Object.values(address).some((v) => v !== undefined);

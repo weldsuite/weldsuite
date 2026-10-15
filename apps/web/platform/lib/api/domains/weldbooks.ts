@@ -1,6 +1,7 @@
 import { weldbooksApi } from '../weldbooks-client';
 import type { PostalAddress } from '@/components/address/postal-address';
 import type { StoredAccountingAddress } from '@/lib/weldbooks/address';
+import type { BrFiscalView } from '@/lib/weldbooks/br-contact';
 import type { WeekFiscalYearConfig } from '@/lib/weldbooks/fiscal-year';
 import type { JurisdictionSummary } from '@/lib/weldbooks/jurisdiction';
 import type { UsAccountingMethod } from '@/lib/weldbooks/us-entity';
@@ -394,6 +395,8 @@ export interface Customer {
   shippingAddress?: StoredAccountingAddress | null;
   paymentTermsDays?: number | null;
   notes?: string | null;
+  /** Brazil: municipal registration, municipality, ICMS / Simples status, the CPF of a person. */
+  brFiscal?: BrFiscalView | null;
   outstandingBalance?: string | null;
   /** `active` or `archived`; an archived contact is hidden from lists and pickers. */
   status?: string | null;

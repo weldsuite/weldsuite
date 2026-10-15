@@ -6,6 +6,9 @@
  * Used on the invoice detail (the saved breakdown) and on the invoice form
  * (the preview from `POST /sales-tax/calculate`). The app never calculates any
  * of this itself.
+ *
+ * `TreatmentBreakdownCard` is its Brazilian counterpart: the taxes of a
+ * document grouped by how they sit in its total.
  */
 
 import React, { useState } from 'react';
@@ -27,6 +30,7 @@ import {
   accruedUseTaxTotal,
   type JurisdictionTax,
 } from '@/lib/sales-tax';
+import { groupByTreatment, type TreatmentGroup, type TreatmentTax } from '@/lib/tax-treatment';
 import { SectionCard } from '@/components/detail';
 import type { TaxBreakdownRow } from '@/types/accounting';
 
@@ -69,6 +73,80 @@ function JurisdictionRow({
         {formatCurrency(group.taxAmount, currency)}
       </Text>
     </View>
+  );
+}
+
+function TreatmentRow({
+  tax,
+  treatment,
+  currency,
+}: Readonly<{ tax: TreatmentTax; treatment: TreatmentGroup['treatment']; currency: string }>) {
+  const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const { formatCurrency } = useLocaleFormatters();
+
+  const detail =
+    tax.rate > 0
+      ? format(t.salesTax.rateOn, { rate: tax.rate, amount: formatCurrency(tax.base, currency) })
+      : null;
+  // Withholdings come off the total; CBS / IBS in the test years are shown but not charged.
+  const informational = treatment === 'informational';
+  const amount = formatCurrency(tax.amount, currency);
+
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowText}>
+        <Text
+          style={[styles.rowName, { color: informational ? colors.mutedForeground : colors.text }]}
+          numberOfLines={2}
+        >
+          {tax.name}
+        </Text>
+        {detail ? <Text style={[styles.rowDetail, { color: colors.mutedForeground }]}>{detail}</Text> : null}
+      </View>
+      <Text style={[styles.rowAmount, { color: informational ? colors.mutedForeground : colors.text }]}>
+        {treatment === 'withheld' ? `−${amount}` : amount}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * A Brazilian document's taxes by treatment: taxes added on top of the price,
+ * taxes included in it, withholdings (shown negative, they come off the total)
+ * and CBS / IBS for information. The document's own totals rows carry the net
+ * figure; this card says where it comes from.
+ */
+export function TreatmentBreakdownCard({
+  rows,
+  currency,
+  title,
+}: Readonly<{
+  rows: readonly TaxBreakdownRow[] | null | undefined;
+  currency: string;
+  /** Defaults to "Tax breakdown". */
+  title?: string;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+
+  const groups = groupByTreatment(rows);
+  if (groups.length === 0) return null;
+
+  return (
+    <SectionCard title={title ?? t.taxTreatment.title}>
+      {groups.map((group, index) => (
+        <View key={group.treatment}>
+          {index > 0 ? <Divider style={styles.divider} /> : null}
+          <Text style={[styles.subTitle, styles.groupTitle, { color: colors.mutedForeground }]}>
+            {t.taxTreatment[group.treatment]}
+          </Text>
+          {group.taxes.map((tax) => (
+            <TreatmentRow key={tax.key} tax={tax} treatment={group.treatment} currency={currency} />
+          ))}
+        </View>
+      ))}
+    </SectionCard>
   );
 }
 
@@ -205,6 +283,7 @@ const styles = StyleSheet.create({
   rowDetail: { fontSize: 12, marginTop: 2 },
   rowAmount: { fontSize: 14, fontWeight: '600' },
   subTitle: { fontSize: 12, fontWeight: '600', marginTop: 10, marginBottom: 2 },
+  groupTitle: { marginTop: 0 },
   note: { fontSize: 12, lineHeight: 17, marginTop: 8 },
   banner: { marginTop: 12 },
 });

@@ -32,10 +32,19 @@ import { useTerminologyLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { entityTypesFor } from '@/lib/weldbooks/entity-types';
 import { classificationsOf, isUsJurisdictionCode, type UsEntityTypeSummary } from '@/lib/weldbooks/us-entity';
 import { useI18n } from '@/lib/i18n/provider';
-import { isValidIban } from '@/lib/weldbooks/identifiers';
+import { isValidIban, normalizeCep } from '@/lib/weldbooks/identifiers';
+import {
+  DEFAULT_BR_VALUES,
+  brEntityPayload,
+  brValuesFromEntity,
+  validBrRegime,
+  type BrEntityValues,
+} from '@/lib/weldbooks/br-entity';
 import { LockDatesCard } from './components/lock-dates-card';
 import { LockExceptionsCard } from './components/lock-exceptions-card';
 import { RemapTaxLinesDialog } from './components/remap-tax-lines-dialog';
+import { BrEntityCards } from './components/br-entity-cards';
+import { addBrEntityIssues, brFieldErrors, type BrEntityErrorMessages } from './components/br-entity-form';
 import { UsEntityCards, usFieldErrors } from './components/us-entity-cards';
 import {
   DEFAULT_US_VALUES,
@@ -56,6 +65,7 @@ const addressSchema = z.object({
   state: z.string().optional(),
   postalCode: z.string().optional(),
   country: z.string().optional(),
+  county: z.string().optional(),
 });
 
 interface EntitySchemaMessages {
@@ -67,14 +77,16 @@ interface EntitySchemaMessages {
   einInvalidPrefix: string;
   ssnInvalid: string;
   ibanInvalid: string;
+  br: BrEntityErrorMessages;
 }
 
-function createEntitySchema(messages: EntitySchemaMessages, isUs: boolean) {
+function createEntitySchema(messages: EntitySchemaMessages, isUs: boolean, isBr: boolean) {
   // The US values are only checked on a US entity; other jurisdictions carry unused defaults.
   const us: z.ZodType<UsEntityValues> = isUs
     ? createUsEntitySchema(messages, { requireType: false })
     : z.custom<UsEntityValues>();
-  return z.object({
+  return z
+    .object({
     name: z.string().trim().min(1, messages.nameRequired),
     legalName: z.string().optional(),
     entityType: z.string(),
@@ -95,6 +107,22 @@ function createEntitySchema(messages: EntitySchemaMessages, isUs: boolean) {
     taxId: z.string().optional(),
     registrationNumber: z.string().optional(),
     us,
+    br: z.custom<BrEntityValues>(),
+  })
+  .superRefine((values, ctx) => {
+    if (!isBr) return;
+    // The CNPJ and the state registration are the entity's tax identifiers; the rest of the BR fields sit in `br`.
+    addBrEntityIssues(
+      ctx,
+      values.br,
+      { entityType: values.entityType, cnpj: values.taxId ?? '', ie: values.registrationNumber ?? '' },
+      messages.br,
+      { br: ['br'], cnpj: ['taxId'], ie: ['registrationNumber'] },
+    );
+    const cep = values.address.postalCode?.trim();
+    if (cep && !normalizeCep(cep)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['address', 'postalCode'], message: messages.br.cep });
+    }
   });
 }
 
@@ -118,7 +146,7 @@ function compact<T extends Record<string, string | undefined>>(record: T): Parti
  * An entity's address is in its own country: without one the form would offer a free-text state
  * (US) or no GST state picker (India), so the country defaults from the jurisdiction.
  */
-const ADDRESS_COUNTRY_BY_JURISDICTION: Record<string, string> = { US: 'US', NL: 'NL', IN: 'IN' };
+const ADDRESS_COUNTRY_BY_JURISDICTION: Record<string, string> = { US: 'US', NL: 'NL', IN: 'IN', BR: 'BR' };
 
 function usAddressDefaults(address: PostalAddress, jurisdictionCode: string): PostalAddress {
   const country = ADDRESS_COUNTRY_BY_JURISDICTION[jurisdictionCode?.toUpperCase()];
@@ -148,7 +176,102 @@ function toFormValues(
     taxId: ids[taxIdField] ?? '',
     registrationNumber: ids.registrationNumber ?? '',
     us: isUsJurisdictionCode(entity.jurisdictionCode) ? usValuesFromEntity(entity, usEntityTypes) : DEFAULT_US_VALUES,
+    br: entity.jurisdictionCode?.toUpperCase() === 'BR' ? brValuesFromEntity(entity) : DEFAULT_BR_VALUES,
   };
+}
+
+type TaxIdentifiersInput = NonNullable<UpdateAccountingEntityInput['taxIdentifiers']>;
+
+interface EntityPayloadOptions {
+  isUs: boolean;
+  isBr: boolean;
+  ibanBanking: boolean;
+  taxIdField: 'vatNumber' | 'einOrSsn';
+}
+
+/**
+ * Send a tax identifier only when it changed: the server validates every
+ * identifier it receives against the jurisdiction (an untouched empty
+ * GSTIN would fail), and a cleared one is sent as '' to remove it.
+ */
+function changedTaxIdentifiers(
+  values: EntityFormValues,
+  entity: AccountingEntity,
+  { isUs, taxIdField }: Pick<EntityPayloadOptions, 'isUs' | 'taxIdField'>,
+): TaxIdentifiersInput {
+  const ids = entity.taxIdentifiers ?? {};
+  const taxIdentifiers: TaxIdentifiersInput = {};
+  if (isUs) {
+    const ein = einPayload(values.us) ?? '';
+    if (ein !== (ids.einOrSsn ?? ids.vatNumber ?? '')) taxIdentifiers.einOrSsn = ein;
+    if (trimmed(values.us.stateTaxId) !== (ids.registrationNumber ?? '')) {
+      taxIdentifiers.registrationNumber = trimmed(values.us.stateTaxId);
+    }
+  } else {
+    if (trimmed(values.taxId) !== (ids[taxIdField] ?? '')) taxIdentifiers[taxIdField] = trimmed(values.taxId);
+    if (trimmed(values.registrationNumber) !== (ids.registrationNumber ?? '')) {
+      taxIdentifiers.registrationNumber = trimmed(values.registrationNumber);
+    }
+  }
+  return taxIdentifiers;
+}
+
+/** The bank details of the form; the fields of the other banking style keep what is stored. */
+function bankDetailsPayload(values: EntityFormValues, entity: AccountingEntity, ibanBanking: boolean) {
+  return ibanBanking
+    ? compact({
+        bankName: values.bankName,
+        iban: values.iban?.replace(/\s+/g, '').toUpperCase(),
+        bic: values.bic?.toUpperCase(),
+        accountNumber: entity.bankDetails?.accountNumber,
+        routingNumber: entity.bankDetails?.routingNumber,
+      })
+    : compact({
+        bankName: values.bankName,
+        accountNumber: values.accountNumber,
+        routingNumber: values.routingNumber,
+        iban: entity.bankDetails?.iban,
+        bic: entity.bankDetails?.bic,
+      });
+}
+
+/** The BR settings of the form, without the identifiers (those go through `taxIdentifiers`). */
+function brSettingsOnly(br: BrEntityValues) {
+  const { taxIdentifiers, ...brPayload } = brEntityPayload(br, {});
+  return brPayload;
+}
+
+/** The update body of the entity form. */
+function entityUpdatePayload(
+  values: EntityFormValues,
+  entity: AccountingEntity,
+  { isUs, isBr, ibanBanking, taxIdField }: EntityPayloadOptions,
+): UpdateAccountingEntityInput {
+  const taxIdentifiers = changedTaxIdentifiers(values, entity, { isUs, taxIdField });
+
+  const payload: UpdateAccountingEntityInput = {
+    name: values.name.trim(),
+    legalName: trimmed(values.legalName),
+    address: cleanPostalAddress(values.address) ?? {},
+    contact: compact({ email: values.email, phone: values.phone, website: values.website }),
+    bankDetails: bankDetailsPayload(values, entity, ibanBanking),
+  };
+  if (isUs) {
+    Object.assign(payload, usPayload(values.us));
+    const ssn = ssnPayload(values.us);
+    if (ssn !== undefined) payload.ssn = ssn;
+  } else {
+    payload.fiscalYearStart = Number(values.fiscalYearStart);
+    if (values.entityType !== NO_ENTITY_TYPE) payload.entityType = values.entityType;
+  }
+  if (isBr) {
+    // Regime, municipality, ISS, Pix ... : the CNPJ and the state registration went with the identifiers above.
+    Object.assign(payload, brSettingsOnly(values.br));
+    const cep = values.address.postalCode ? normalizeCep(values.address.postalCode) : undefined;
+    if (cep && payload.address) payload.address = { ...payload.address, postalCode: cep };
+  }
+  if (Object.keys(taxIdentifiers).length > 0) payload.taxIdentifiers = taxIdentifiers;
+  return payload;
 }
 
 export default function EditEntityPage() {
@@ -260,6 +383,7 @@ function EntityDetailsForm({
   const entityTypeLabels = t.accounting.entityTypes;
   const updateEntity = useUpdateAccountingEntity();
   const isUs = isUsJurisdictionCode(entity.jurisdictionCode);
+  const isBr = entity.jurisdictionCode?.toUpperCase() === 'BR';
   const [remap, setRemap] = useState<{ formLabel: string | null } | null>(null);
   // The books rest on the fiscal year once there are postings or generated periods.
   const lockedBy = entity.hasPostings ? te.fiscalYearLockedPostings : te.fiscalYearLockedPeriods;
@@ -277,10 +401,12 @@ function EntityDetailsForm({
           einInvalidPrefix: tu.einInvalidPrefix,
           ssnInvalid: tu.ssnInvalid,
           ibanInvalid: t.accounting.contacts.ibanInvalid,
+          br: t.weldbooksBr.entity.errors as BrEntityErrorMessages,
         },
         isUs,
+        isBr,
       ),
-    [t.accounting.contacts.ibanInvalid, te.nameRequired, te.invalidEmail, tu.entityTypeRequired, tu.classificationRequired, tu.einInvalidFormat, tu.einInvalidPrefix, tu.ssnInvalid, isUs],
+    [isBr, t.weldbooksBr.entity.errors, t.accounting.contacts.ibanInvalid, te.nameRequired, te.invalidEmail, tu.entityTypeRequired, tu.classificationRequired, tu.einInvalidFormat, tu.einInvalidPrefix, tu.ssnInvalid, isUs],
   );
   const initial = useMemo(() => toFormValues(entity, taxIdField, usEntityTypes), [entity, taxIdField, usEntityTypes]);
 
@@ -302,54 +428,7 @@ function EntityDetailsForm({
   const disabled = !canUpdate || updateEntity.isPending;
 
   const submit = async (values: EntityFormValues) => {
-    const ids = entity.taxIdentifiers ?? {};
-    // Send a tax identifier only when it changed: the server validates every
-    // identifier it receives against the jurisdiction (an untouched empty
-    // GSTIN would fail), and a cleared one is sent as '' to remove it.
-    const taxIdentifiers: NonNullable<UpdateAccountingEntityInput['taxIdentifiers']> = {};
-    if (isUs) {
-      const ein = einPayload(values.us) ?? '';
-      if (ein !== (ids.einOrSsn ?? ids.vatNumber ?? '')) taxIdentifiers.einOrSsn = ein;
-      if (trimmed(values.us.stateTaxId) !== (ids.registrationNumber ?? '')) {
-        taxIdentifiers.registrationNumber = trimmed(values.us.stateTaxId);
-      }
-    } else {
-      if (trimmed(values.taxId) !== (ids[taxIdField] ?? '')) taxIdentifiers[taxIdField] = trimmed(values.taxId);
-      if (trimmed(values.registrationNumber) !== (ids.registrationNumber ?? '')) {
-        taxIdentifiers.registrationNumber = trimmed(values.registrationNumber);
-      }
-    }
-
-    const payload: UpdateAccountingEntityInput = {
-      name: values.name.trim(),
-      legalName: trimmed(values.legalName),
-      address: cleanPostalAddress(values.address) ?? {},
-      contact: compact({ email: values.email, phone: values.phone, website: values.website }),
-      bankDetails: ibanBanking
-        ? compact({
-            bankName: values.bankName,
-            iban: values.iban?.replace(/\s+/g, '').toUpperCase(),
-            bic: values.bic?.toUpperCase(),
-            accountNumber: entity.bankDetails?.accountNumber,
-            routingNumber: entity.bankDetails?.routingNumber,
-          })
-        : compact({
-            bankName: values.bankName,
-            accountNumber: values.accountNumber,
-            routingNumber: values.routingNumber,
-            iban: entity.bankDetails?.iban,
-            bic: entity.bankDetails?.bic,
-          }),
-    };
-    if (isUs) {
-      Object.assign(payload, usPayload(values.us));
-      const ssn = ssnPayload(values.us);
-      if (ssn !== undefined) payload.ssn = ssn;
-    } else {
-      payload.fiscalYearStart = Number(values.fiscalYearStart);
-      if (values.entityType !== NO_ENTITY_TYPE) payload.entityType = values.entityType;
-    }
-    if (Object.keys(taxIdentifiers).length > 0) payload.taxIdentifiers = taxIdentifiers;
+    const payload = entityUpdatePayload(values, entity, { isUs, isBr, ibanBanking, taxIdField });
 
     try {
       const res = await updateEntity.mutateAsync({ id: entity.id, data: payload });
@@ -405,7 +484,18 @@ function EntityDetailsForm({
                     control={form.control}
                     name="entityType"
                     render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                      <Select
+                        value={field.value}
+                        onValueChange={(next) => {
+                          field.onChange(next);
+                          // The legal form decides which tax regimes exist: keep the regime when it still fits.
+                          if (isBr) {
+                            const current = form.getValues('br');
+                            form.setValue('br', { ...current, regime: validBrRegime(next, current.regime) }, { shouldDirty: true });
+                          }
+                        }}
+                        disabled={disabled}
+                      >
                         <SelectTrigger id="entity-type">
                           <SelectValue placeholder={te.selectEntityType} />
                         </SelectTrigger>
@@ -461,6 +551,27 @@ function EntityDetailsForm({
           </CardContent>
         </Card>
 
+        {isBr && (
+          <Controller
+            control={form.control}
+            name="br"
+            render={({ field }) => (
+              <BrEntityCards
+                idPrefix="entity-br"
+                value={field.value}
+                onChange={field.onChange}
+                errors={brFieldErrors(errors.br)}
+                entityType={form.watch('entityType')}
+                disabled={disabled}
+                onUfChange={(uf) => {
+                  const address = form.getValues('address');
+                  if (!address.state) form.setValue('address', { ...address, state: uf }, { shouldDirty: true });
+                }}
+              />
+            )}
+          />
+        )}
+
         {isUs && (
           <Controller
             control={form.control}
@@ -494,6 +605,9 @@ function EntityDetailsForm({
                 <AddressFields idPrefix="entity-address" value={field.value} onChange={field.onChange} disabled={disabled} />
               )}
             />
+            {errors.address?.postalCode?.message && (
+              <p className="mt-2 text-sm text-destructive">{errors.address.postalCode.message}</p>
+            )}
           </CardContent>
         </Card>
 
@@ -532,6 +646,7 @@ function EntityDetailsForm({
                   aria-describedby={taxIdIsEin ? 'entity-taxId-help' : undefined}
                   {...form.register('taxId')}
                 />
+                {errors.taxId && <p className="text-sm text-destructive">{errors.taxId.message}</p>}
                 {taxIdIsEin && (
                   <p id="entity-taxId-help" className="text-xs text-muted-foreground">{te.einHelp}</p>
                 )}
@@ -539,6 +654,7 @@ function EntityDetailsForm({
               <div className="space-y-2">
                 <Label htmlFor="entity-registrationNumber">{registrationLabel}</Label>
                 <Input id="entity-registrationNumber" disabled={disabled} {...form.register('registrationNumber')} />
+                {errors.registrationNumber && <p className="text-sm text-destructive">{errors.registrationNumber.message}</p>}
               </div>
             </CardContent>
           </Card>
@@ -575,7 +691,7 @@ function EntityDetailsForm({
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="entity-accountNumber">{te.accountNumber}</Label>
+                  <Label htmlFor="entity-accountNumber">{isBr ? t.weldbooksBr.entity.conta : te.accountNumber}</Label>
                   <Input
                     id="entity-accountNumber"
                     inputMode="numeric"
@@ -585,7 +701,7 @@ function EntityDetailsForm({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="entity-routingNumber">{te.routingNumber}</Label>
+                  <Label htmlFor="entity-routingNumber">{isBr ? t.weldbooksBr.entity.agencia : te.routingNumber}</Label>
                   <Input
                     id="entity-routingNumber"
                     inputMode="numeric"

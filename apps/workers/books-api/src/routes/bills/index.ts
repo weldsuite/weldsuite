@@ -45,7 +45,13 @@ import {
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
-import { calculateDocumentTax, TaxCalculationError, type DocumentTaxItem } from '../../services/accounting-tax-resolve';
+import {
+  calculateDocumentTax,
+  hasDocumentTaxHook,
+  TaxCalculationError,
+  type DocumentTaxItem,
+} from '../../services/accounting-tax-resolve';
+import { brDocumentFiscalSchema, brLineFiscalSchema, cfopSchema, ncmSchema } from '../../lib/br-fiscal-schemas';
 import { postBill, PostingError } from '../../services/accounting-document-posting';
 import { draftRate } from '../../services/accounting-fx';
 import { exchangeRateSchema } from '../../lib/exchange-rate-schema';
@@ -112,6 +118,10 @@ const lineItemSchema = z.object({
   taxCode: z.string().max(30).nullable().optional(),
   accrueUseTax: z.boolean().optional(),
   form1099Box: z.string().max(20).nullable().optional(),
+  /** Brazil: NCM, CFOP and the credit rates of the line. */
+  ncm: ncmSchema,
+  cfop: cfopSchema,
+  fiscalData: brLineFiscalSchema,
   classId: z.string().max(30).nullable().optional(),
   locationId: z.string().max(30).nullable().optional(),
 });
@@ -147,6 +157,9 @@ function buildBillItemRecords(
     taxCode: item.taxCode || null,
     accrueUseTax: item.accrueUseTax ?? false,
     form1099Box: item.form1099Box || null,
+    ncm: item.ncm || null,
+    cfop: item.cfop || null,
+    fiscalData: item.fiscalData ?? null,
     classId: item.classId || null,
     locationId: item.locationId || null,
     createdAt: now,
@@ -180,6 +193,8 @@ const createBillSchema = z.object({
   vendorAddress: addressSchema.nullable().optional(),
   /** US: where the goods were delivered; sets the use tax rate. Defaults to the entity's address. */
   deliveryAddress: addressSchema.nullable().optional(),
+  /** Brazil: withholdings on the services bought, the supplier's NF-e access key. */
+  fiscalData: brDocumentFiscalSchema,
   sourceDocumentId: z.string().max(30).optional(),
   items: z.array(lineItemSchema).default([]),
 });
@@ -383,6 +398,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
         currency,
         billingAddress: vendorAddress,
         deliveryAddress,
+        fiscalData: data.fiscalData,
       },
     });
     const { processedItems, taxBreakdown, salesTax: _salesTax, ...billTotals } = totals;
@@ -410,6 +426,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       expenseAccountId: data.expenseAccountId || null,
       vendorAddress,
       deliveryAddress,
+      fiscalData: data.fiscalData ?? null,
       sourceDocumentId: data.sourceDocumentId || null,
       approvalStatus: 'pending' as const,
       createdBy: userId,
@@ -707,6 +724,7 @@ function billTextFieldsPatch(data: BillUpdate): Record<string, unknown> {
   if (data.expenseAccountId !== undefined) patch.expenseAccountId = data.expenseAccountId || null;
   if (data.vendorAddress !== undefined) patch.vendorAddress = normalizePostalAddress(data.vendorAddress);
   if (data.deliveryAddress !== undefined) patch.deliveryAddress = normalizePostalAddress(data.deliveryAddress);
+  if (data.fiscalData !== undefined) patch.fiscalData = data.fiscalData;
   return patch;
 }
 
@@ -779,6 +797,35 @@ async function retaxBillUseTax(
   updateData.taxBreakdown = calc.taxBreakdown;
 }
 
+/** The saved lines of a bill as line input, to tax them again. */
+async function storedBillLines(db: Database, billId: string): Promise<BillLineInput[]> {
+  const { billItems } = schema;
+  const stored = await db
+    .select()
+    .from(billItems)
+    .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)))
+    .orderBy(billItems.sortOrder);
+  return stored.map((item) => ({
+    description: item.description,
+    quantity: item.quantity ?? '1',
+    unitPrice: item.unitPrice,
+    unit: item.unit ?? undefined,
+    discountPercent: item.discountPercent ?? '0',
+    taxRateId: item.taxRateId,
+    accountId: item.accountId,
+    sortOrder: item.sortOrder ?? undefined,
+    productId: item.productId,
+    taxCode: item.taxCode,
+    accrueUseTax: item.accrueUseTax ?? false,
+    form1099Box: item.form1099Box,
+    ncm: item.ncm,
+    cfop: item.cfop,
+    fiscalData: (item.fiscalData as BillLineInput['fiscalData']) ?? null,
+    classId: item.classId,
+    locationId: item.locationId,
+  }));
+}
+
 /** India GST: another supplier (or supplier state) can turn CGST + SGST into IGST: re-split the saved lines. */
 async function resplitBillGst(db: Database, bill: BillRow, updateData: Record<string, unknown>): Promise<void> {
   const { billItems } = schema;
@@ -814,6 +861,13 @@ async function applyBillTaxChanges(
   updateData: Record<string, unknown>,
 ): Promise<BillItemRecords | undefined> {
   if (data.items) return replaceBillItems(c, db, bill, data.items, updateData);
+  if (
+    (data.fiscalData !== undefined || data.vendorAddress !== undefined || data.contactId !== undefined || data.issueDate !== undefined) &&
+    (await hasDocumentTaxHook(db, bill.entityId))
+  ) {
+    // Brazil: withholdings and credits move the totals, so the saved lines are taxed again as a whole.
+    return replaceBillItems(c, db, bill, await storedBillLines(db, bill.id), updateData);
+  }
   if (
     (data.deliveryAddress !== undefined || data.issueDate !== undefined || data.contactId !== undefined) &&
     usesSalesTax(await loadSalesTaxEntity(db, bill.entityId))

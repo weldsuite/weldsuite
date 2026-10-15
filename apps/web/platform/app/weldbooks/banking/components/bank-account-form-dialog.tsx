@@ -47,7 +47,7 @@ import {
 } from './bank-account-model';
 import { maskedAccountNumber } from './routing-number';
 
-const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR', 'CAD'];
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR', 'BRL', 'CAD'];
 
 interface BankAccountFormDialogProps {
   open: boolean;
