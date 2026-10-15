@@ -5,8 +5,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
-import { hasAppPermission, hasPermission, type PermissionSubject } from '@weldsuite/permissions';
-import { getAllPermissionKeys } from '@weldsuite/permissions/catalog';
+import { hasPermission, type PermissionSubject } from '@weldsuite/permissions';
 import {
   createWorkspaceAgentSchema,
   updateWorkspaceAgentSchema,
@@ -28,17 +27,9 @@ import { archiveManagedAgent } from '@weldsuite/agent-domain/managed-agents';
 import { listToolCatalog, resolveAgentTools } from '@weldsuite/agent-domain/tools';
 import { InsufficientAiCreditsError } from '@weldsuite/core-domain/ai-billing';
 import { reindexAgentRoutines, routineIndexSync } from '@weldsuite/agent-domain/routine-index';
+import { grantableAgentPermissions, granterHolds } from '@weldsuite/agent-domain/grants';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-/**
- * Does the caller hold `perm`? Agent grants are plain catalog keys
- * (`people:read`) while a caller's may be per app (`weldcrm:people:read`), so
- * a grant in any app counts; the caller's own denies apply.
- */
-function callerHolds(subject: PermissionSubject, perm: string): boolean {
-  return hasPermission(subject.permissions, perm) || hasAppPermission(subject, perm, null);
-}
 
 /**
  * Permissions in `requested` that the caller does not hold. Granting an agent
@@ -53,7 +44,7 @@ async function ungrantablePermissions(
   if (!requested) return [];
   const resolved = await ensurePermissionsResolved(c);
   const held: PermissionSubject = resolved ?? { permissions: [] };
-  return requested.filter((perm) => !existing.includes(perm) && !callerHolds(held, perm));
+  return requested.filter((perm) => !existing.includes(perm) && !granterHolds(held, perm));
 }
 
 /** GET /agents — list workspace agents. */
@@ -76,18 +67,7 @@ app.get('/tools', requirePermission('weldagent:read'), (c) => {
 
 /** GET /agents/grantable-permissions — platform permissions assignable to an agent. */
 app.get('/grantable-permissions', requirePermission('weldagent:read'), (c) => {
-  // Exclude weldagent:* self-management and settings noise — agents act on data objects.
-  // Keep computer:use / browser:use: they turn on the sandbox and web tools.
-  const keys = getAllPermissionKeys().filter(
-    (k) =>
-      !k.startsWith('weldagent:') &&
-      !k.startsWith('team:') &&
-      !k.startsWith('roles:') &&
-      !k.startsWith('apikeys:') &&
-      !k.startsWith('billing:') &&
-      !k.startsWith('general:'),
-  );
-  return success(c, keys);
+  return success(c, grantableAgentPermissions());
 });
 
 /** POST /agents — create a draft agent. */

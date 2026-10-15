@@ -66,6 +66,35 @@ async function runChatTurnJob(env: Env, tenantDb: AgentDb, job: ChatTurnJob): Pr
   });
 }
 
+/** Post a routine's result in its chat thread, so "send me a digest" arrives somewhere. */
+function isRoutineJob(job: AgentRunJob): boolean {
+  return Boolean(job.routineRunId) && typeof job.triggerData?.routineId === 'string';
+}
+
+async function deliverRoutineRun(
+  env: Env,
+  tenantDb: AgentDb,
+  job: AgentRunJob,
+  result: { runId: string; text: string; success: boolean; error?: string },
+): Promise<void> {
+  const routineId = job.triggerData?.routineId;
+  if (typeof routineId !== 'string') return;
+  const { getRoutine } = await import('./parity');
+  const { deliverRoutineResult } = await import('./routine-delivery');
+  const routine = await getRoutine(tenantDb, routineId);
+  if (!routine) return;
+  await deliverRoutineResult(tenantDb, env, {
+    workspaceId: job.workspaceId,
+    routine,
+    userId: job.triggerData?.test ? job.actorUserId : routine.createdBy,
+    agentId: job.agentId,
+    runId: result.runId,
+    success: result.success,
+    text: result.text,
+    error: result.error,
+  });
+}
+
 async function runAgentRunJob(env: Env, tenantDb: AgentDb, job: AgentRunJob): Promise<void> {
   const { completeRoutineRun } = await import('./parity');
   try {
@@ -82,6 +111,8 @@ async function runAgentRunJob(env: Env, tenantDb: AgentDb, job: AgentRunJob): Pr
       runId: job.runId,
       timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
       skipApprovals: job.skipApprovals,
+      // A routine posts its result in its own thread and notifies from there.
+      notify: !isRoutineJob(job),
     });
     if (job.routineRunId) {
       await completeRoutineRun(tenantDb, job.routineRunId, {
@@ -90,6 +121,7 @@ async function runAgentRunJob(env: Env, tenantDb: AgentDb, job: AgentRunJob): Pr
         error: result.error,
         agentRunId: result.runId,
       });
+      await deliverRoutineRun(env, tenantDb, job, result);
     }
   } catch (err) {
     if (job.routineRunId) {

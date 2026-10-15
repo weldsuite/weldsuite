@@ -4,10 +4,11 @@ import { useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { getTranslations } from '@/lib/i18n';
-import { useRouter } from '@/lib/router';
+import { useRouter, useSearchParams } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
+import { useWeldAgentConversations } from '@/hooks/queries/use-weldagent-queries';
 import { useCreateAndOpenAgent } from './components/agent-list';
 
 /**
@@ -20,13 +21,26 @@ export default function AgentsPage() {
   const router = useRouter();
   const { data: agents = [], isLoading } = useAgents();
   const { create, isPending } = useCreateAndOpenAgent();
+  // Notification links arrive as ?conversation=<id>: open it under its agent.
+  const linked = useSearchParams().get('conversation');
+  const { data: conversations, isLoading: loadingLinked } = useWeldAgentConversations(100, null, {
+    enabled: Boolean(linked),
+  });
+
+  useEffect(() => {
+    if (!linked || loadingLinked || !conversations) return;
+    const conv = conversations.find((c) => c.id === linked);
+    if (conv?.agentId) router.replace(`/agents/${conv.agentId}?conversation=${encodeURIComponent(linked)}`);
+    else if (conv) router.replace(`/new-chat?conversation=${encodeURIComponent(linked)}`);
+    else router.replace('/agents');
+  }, [conversations, linked, loadingLinked, router]);
 
   // Redirecting on mobile would make the list unreachable.
   useEffect(() => {
-    if (isLoading || agents.length === 0) return;
+    if (linked || isLoading || agents.length === 0) return;
     if (window.matchMedia('(max-width: 767px)').matches) return;
     router.replace(`/agents/${agents[0].id}`);
-  }, [agents, isLoading, router]);
+  }, [agents, isLoading, linked, router]);
 
   if (isLoading || agents.length > 0) return <div className="hidden h-full flex-1 md:block" />;
 

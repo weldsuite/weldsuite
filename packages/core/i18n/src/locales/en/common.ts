@@ -714,6 +714,22 @@ export const common = {
           notActive: 'Not active — only replies in chat',
           activateHint: 'Let this agent run its routines and react to events',
           pauseHint: 'Stop routines and event triggers; chat keeps working',
+          scheduled: '{count} scheduled',
+          nextRun: 'Next run: {time}',
+        },
+        routineNotice: {
+          scheduled: 'Scheduled "{name}"',
+          next: 'Next run: {time}',
+          delivery: 'Each run posts its result to you in a chat of its own, with a notification.',
+          manage: 'Manage',
+          postedBy: 'From routine "{name}"',
+          postedByRoutine: 'From a routine',
+          schedule: {
+            hourly: 'Every hour',
+            daily: 'Every day at {time}',
+            weekdays: 'Weekdays at {time}',
+            weekly: 'Every {day} at {time}',
+          },
         },
         chat: {
           newChat: 'New chat',

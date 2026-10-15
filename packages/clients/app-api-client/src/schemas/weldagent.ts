@@ -32,6 +32,8 @@ export const completeTurnSchema = z.object({
    * Default false — accept the user message and finish generation in the Worker background.
    */
   wait: z.boolean().optional(),
+  /** The user's IANA timezone (e.g. "Europe/Amsterdam"), so the agent schedules in local time. */
+  timezone: z.string().min(1).max(64).optional(),
 });
 
 export const updateConversationSchema = z.object({

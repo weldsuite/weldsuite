@@ -21,6 +21,11 @@ import {
 import { enqueueWeldAgentJob, type WeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import type { AgentDb } from '@weldsuite/agent-domain/agents';
 
+/** A routine's final reply is posted in its owner's chat thread (routine-delivery.ts). */
+const ROUTINE_RESULT_SYSTEM =
+  "Your final reply is posted in the user's chat with you as this routine's result, and they are notified. " +
+  'Write it as the message they should read (for a digest: the digest itself), not a report about running the routine.';
+
 /**
  * Start due cron routines for one tenant. Each run goes to the durable
  * WeldAgent job workflow, so one slow agent can't hold up the sweep.
@@ -54,6 +59,7 @@ export async function runWeldAgentRoutineSweepForTenant(params: {
         triggerType: 'event',
         triggerData: { routineId: routine.id, schedule: true },
         userMessage: `Scheduled routine "${routine.name}" is due.\n\n${routine.instructions}`,
+        extraSystem: ROUTINE_RESULT_SYSTEM,
         routineRunId: runId,
         skipApprovals: !routine.requireApproval,
       });

@@ -70,7 +70,11 @@ export interface WeldAgentUserSettings {
 // "Pinned" groups. Backed by app-api `GET /api/weldagent/conversations`.
 // Pass `agentId` to scope to one workspace agent (Grok-bot style history), or
 // `'none'` for personal assistant chats only.
-export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
+export function useWeldAgentConversations(
+  limit = 50,
+  agentId?: string | null,
+  opts?: { enabled?: boolean },
+) {
   const { weldAgent } = useAppApi();
   return useQuery({
     queryKey: weldagentKeys.conversationList(agentId),
@@ -80,6 +84,7 @@ export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
       });
       return (result.data || []) as unknown as ConversationSummary[];
     },
+    enabled: opts?.enabled ?? true,
   });
 }
 
@@ -128,6 +133,8 @@ export function useCompleteConversationTurn() {
       agentId?: string;
       /** When true, block until the assistant reply is ready. Default: cloud async. */
       wait?: boolean;
+      /** The user's IANA timezone, so the agent schedules in local time. */
+      timezone?: string;
     }) => {
       const { conversationId, ...body } = params;
       const result = await weldAgent.completeTurn(conversationId, body);

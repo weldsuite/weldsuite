@@ -287,6 +287,17 @@ app.post(
  * Worker via `waitUntil`. Pass `{ wait: true }` to block until the reply is
  * persisted (tests / callers that need the full turn in one response).
  */
+/** The client's IANA timezone, or null when it is missing or unknown to the runtime. */
+function validTimezone(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 app.post(
   '/conversations/:conversationId/complete-turn',
   requirePermission('agents:read', 'weldagent:use'),
@@ -294,6 +305,7 @@ app.post(
   async (c) => {
     const conversationId = c.req.param('conversationId');
     const { content, agentId, wait } = c.req.valid('json');
+    const timezone = validTimezone(c.req.valid('json').timezone);
     const db = c.get('tenantDb');
     const env = c.env;
     const workspaceId = c.get('workspaceId');
@@ -312,6 +324,7 @@ app.post(
           content,
           agentId,
           actorPermissions,
+          timezone,
         });
 
         c.executionCtx.waitUntil(
@@ -336,6 +349,7 @@ app.post(
         content,
         agentId,
         actorPermissions,
+        timezone,
       });
 
       // Generate the reply in the durable WeldAgent job workflow — a tool loop
