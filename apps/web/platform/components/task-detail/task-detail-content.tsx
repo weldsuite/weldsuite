@@ -2218,12 +2218,13 @@ export function SubtasksSection({
                       className="group/subtask rounded-md relative"
                     >
                       <div>
+                        {/* The open row keeps a normal checkbox; only hovering another row darkens it. */}
                         <Checkbox
                           checked={subtask.status === 'done'}
                           onClick={(e) => e.stopPropagation()}
                           onCheckedChange={() => onToggleSubtask?.(subtask.id, subtask.status)}
                           style={{ width: 14, height: 14, flexShrink: 0 }}
-                          className={cn(isActive ? 'border-muted-foreground/70' : isHovered && 'border-muted-foreground/70')}
+                          className={cn(isHovered && !isActive && 'border-muted-foreground/70')}
                         />
                       </div>
                       <span
