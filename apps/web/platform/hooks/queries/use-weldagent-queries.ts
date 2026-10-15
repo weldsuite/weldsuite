@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client/client';
 import { useAppApi } from '@/lib/api/use-app-api';
 
 // =============================================================================
@@ -70,11 +71,7 @@ export interface WeldAgentUserSettings {
 // "Pinned" groups. Backed by app-api `GET /api/weldagent/conversations`.
 // Pass `agentId` to scope to one workspace agent (Grok-bot style history), or
 // `'none'` for personal assistant chats only.
-export function useWeldAgentConversations(
-  limit = 50,
-  agentId?: string | null,
-  opts?: { enabled?: boolean },
-) {
+export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
   const { weldAgent } = useAppApi();
   return useQuery({
     queryKey: weldagentKeys.conversationList(agentId),
@@ -84,7 +81,29 @@ export function useWeldAgentConversations(
       });
       return (result.data || []) as unknown as ConversationSummary[];
     },
-    enabled: opts?.enabled ?? true,
+  });
+}
+
+/**
+ * One conversation by id (e.g. from a notification link). Resolves to null
+ * when it is gone or not the current user's.
+ */
+export function useWeldAgentConversation(conversationId: string | null) {
+  const { weldAgent } = useAppApi();
+  return useQuery({
+    queryKey: [...weldagentKeys.conversations(), 'one', conversationId ?? ''] as const,
+    queryFn: async (): Promise<ConversationSummary | null> => {
+      if (!conversationId) return null;
+      try {
+        const result = await weldAgent.getConversation(conversationId);
+        return (result.data ?? null) as unknown as ConversationSummary | null;
+      } catch (err) {
+        if (isApiError(err) && err.status === 404) return null;
+        throw err;
+      }
+    },
+    enabled: !!conversationId,
+    retry: false,
   });
 }
 

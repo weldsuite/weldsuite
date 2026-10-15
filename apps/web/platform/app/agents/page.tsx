@@ -8,7 +8,7 @@ import { useRouter, useSearchParams } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
-import { useWeldAgentConversations } from '@/hooks/queries/use-weldagent-queries';
+import { useWeldAgentConversation } from '@/hooks/queries/use-weldagent-queries';
 import { useCreateAndOpenAgent } from './components/agent-list';
 
 /**
@@ -23,17 +23,14 @@ export default function AgentsPage() {
   const { create, isPending } = useCreateAndOpenAgent();
   // Notification links arrive as ?conversation=<id>: open it under its agent.
   const linked = useSearchParams().get('conversation');
-  const { data: conversations, isLoading: loadingLinked } = useWeldAgentConversations(100, null, {
-    enabled: Boolean(linked),
-  });
+  const { data: conv, isSuccess: linkedResolved } = useWeldAgentConversation(linked);
 
   useEffect(() => {
-    if (!linked || loadingLinked || !conversations) return;
-    const conv = conversations.find((c) => c.id === linked);
+    if (!linked || !linkedResolved) return;
     if (conv?.agentId) router.replace(`/agents/${conv.agentId}?conversation=${encodeURIComponent(linked)}`);
     else if (conv) router.replace(`/new-chat?conversation=${encodeURIComponent(linked)}`);
     else router.replace('/agents');
-  }, [conversations, linked, loadingLinked, router]);
+  }, [conv, linked, linkedResolved, router]);
 
   // Redirecting on mobile would make the list unreachable.
   useEffect(() => {

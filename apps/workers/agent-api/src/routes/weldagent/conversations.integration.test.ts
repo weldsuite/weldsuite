@@ -65,6 +65,15 @@ describe('weldagent conversations', () => {
     expect(createConv.status).toBe(201);
     const conv = (await createConv.json()) as { data: { id: string; agentId: string | null } };
     expect(conv.data.agentId).toBe(agent.data.id);
+
+    // Looked up by id, as notification links do.
+    const one = await request(`/api/weldagent/conversations/${conv.data.id}`);
+    expect(one.status).toBe(200);
+    const body = (await one.json()) as { data: { id: string; agentId: string | null } };
+    expect(body.data).toMatchObject({ id: conv.data.id, agentId: agent.data.id });
+
+    const gone = await request('/api/weldagent/conversations/conv_missing');
+    expect(gone.status).toBe(404);
   });
 
   it('returns 404 for complete-turn on a missing conversation', async () => {

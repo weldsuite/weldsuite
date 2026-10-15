@@ -162,6 +162,32 @@ app.post('/conversations', zValidator('json', createConversationSchema), async (
 });
 
 /** GET /conversations/:conversationId/messages — list messages in a thread. */
+/** GET /conversations/:conversationId — one of the current user's conversations (notification links). */
+app.get('/conversations/:conversationId', async (c) => {
+  const userId = c.get('userId');
+  const conversationId = c.req.param('conversationId');
+  const { weldagentConversations } = schema;
+  try {
+    const [conversation] = await c
+      .get('tenantDb')
+      .select()
+      .from(weldagentConversations)
+      .where(
+        and(
+          eq(weldagentConversations.id, conversationId),
+          eq(weldagentConversations.userId, userId),
+          isNull(weldagentConversations.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!conversation) return error.notFound(c, 'Conversation', conversationId);
+    return success(c, toConversationSummary(conversation));
+  } catch (err) {
+    console.error('[app-api/weldagent] get conversation failed:', err);
+    return error.internal(c, 'Failed to load conversation');
+  }
+});
+
 app.get('/conversations/:conversationId/messages', async (c) => {
   const userId = c.get('userId');
   const conversationId = c.req.param('conversationId');

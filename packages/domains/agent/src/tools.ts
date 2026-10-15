@@ -330,9 +330,16 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     parameters: updateRoutineParams,
     async execute(ctx, raw) {
       const { routineId, ...changes } = updateRoutineParams.parse(raw);
-      const { getRoutine, updateRoutine } = await import('./parity');
+      const { getRoutine, updateRoutine, routineScheduleError } = await import('./parity');
       const existing = await getRoutine(ctx.db, routineId);
       if (!existing || existing.agentId !== ctx.agentId) return { error: 'Routine not found for this agent' };
+      if (existing.scheduleKind === 'cron' && (changes.cronExpr !== undefined || changes.timezone !== undefined)) {
+        const scheduleError = routineScheduleError(
+          changes.cronExpr ?? existing.cronExpr,
+          changes.timezone ?? existing.timezone,
+        );
+        if (scheduleError) return { error: scheduleError };
+      }
       const updated = await updateRoutine(ctx.db, routineId, changes);
       if (!updated) return { error: 'Failed to update routine' };
       await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
@@ -445,14 +452,19 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
           connectorRepo: z.string().max(200).optional(),
         })
         .parse(raw);
-      const { createRoutine } = await import('./parity');
+      const { createRoutine, routineScheduleError } = await import('./parity');
+      const timezone = args.timezone ?? ctx.userTimezone ?? undefined;
+      if (args.scheduleKind === 'cron') {
+        const scheduleError = routineScheduleError(args.cronExpr, timezone);
+        if (scheduleError) return { error: scheduleError };
+      }
       const routine = await createRoutine(ctx.db, {
         agentId: ctx.agentId,
         name: args.name,
         instructions: args.instructions,
         scheduleKind: args.scheduleKind,
         cronExpr: args.cronExpr,
-        timezone: args.timezone ?? ctx.userTimezone ?? undefined,
+        timezone,
         eventKey: args.eventKey,
         requireApproval: args.requireApproval ?? true,
         connectorConfig: args.connectorProvider

@@ -242,6 +242,33 @@ export function computeRoutineNextRun(
   return computeNextRunAt(expr, timezone || 'UTC', from) ?? computeNextHourlyRun(from);
 }
 
+/**
+ * Why a cron schedule can't run as given, or null when it can. Without this,
+ * a typo'd cron or timezone falls back to hourly (computeRoutineNextRun), so a
+ * daily digest would quietly run every hour.
+ */
+export function routineScheduleError(
+  cronExpr: string | null | undefined,
+  timezone: string | null | undefined,
+): string | null {
+  if (timezone) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    } catch {
+      return `Unknown timezone "${timezone}". Use an IANA name such as "Europe/Amsterdam".`;
+    }
+  }
+  const expr = cronExpr?.trim();
+  if (!expr) return null;
+  if (expr.split(/\s+/).length !== 5) {
+    return `cronExpr "${expr}" must have five fields (minute hour day month weekday), e.g. "0 7 * * 1-5".`;
+  }
+  if (!computeNextRunAt(expr, timezone || 'UTC', new Date())) {
+    return `cronExpr "${expr}" is not valid or never fires. Use five fields, e.g. "0 7 * * 1-5".`;
+  }
+  return null;
+}
+
 export async function listRoutines(db: AgentDb, agentId?: string) {
   const conditions = [isNull(schema.weldagentRoutines.deletedAt)];
   if (agentId) conditions.push(eq(schema.weldagentRoutines.agentId, agentId));
