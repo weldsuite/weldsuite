@@ -2102,7 +2102,7 @@ export function SubtasksSection({
               size="icon"
               onClick={(e) => { e.stopPropagation(); onNavigateToTask?.(effectiveRoot.id); }}
               style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}
-              className="z-[1] size-5 rounded-[5px] text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
+              className="z-[1] size-5 rounded-[6px] text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
             >
               <ChevronRight style={{ width: 14, height: 14 }} />
             </Button>
@@ -2241,7 +2241,7 @@ export function SubtasksSection({
                           size="icon"
                           onClick={() => onNavigateToTask?.(subtask.id)}
                           style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}
-                          className="size-5 rounded-[5px] text-muted-foreground opacity-0 group-hover/subtask:opacity-100 transition-opacity hover:text-foreground"
+                          className="size-5 rounded-[6px] text-muted-foreground opacity-0 group-hover/subtask:opacity-100 transition-opacity hover:text-foreground"
                         >
                           <ChevronRight style={{ width: 14, height: 14 }} />
                         </Button>
