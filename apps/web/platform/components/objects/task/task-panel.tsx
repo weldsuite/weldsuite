@@ -316,7 +316,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const updateCommentMutation = useUpdateTaskComment(id);
   const deleteCommentMutation = useDeleteTaskComment(id);
   const createLabelMutation = useCreateProjectLabel(projectId);
-  const createSubtaskMutation = useCreateSubtask(id, projectId);
+  const createSubtaskMutation = useCreateSubtask(id, apiTask);
   const toggleSubtaskMutation = useToggleSubtask();
 
   const shell = useObjectPanelShell({
@@ -789,7 +789,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onDeleteComment={handleDeleteComment}
             currentUserId={userId || undefined}
             subtasks={subtasks}
-            onCreateSubtask={projectId ? handleCreateSubtask : undefined}
+            onCreateSubtask={handleCreateSubtask}
             onToggleSubtask={handleToggleSubtask}
             onNavigateToTask={handleNavigateToTask}
             ancestorTasks={ancestorTasks}

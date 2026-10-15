@@ -379,16 +379,32 @@ export function useCreateProjectLabel(projectId: string | null | undefined) {
   });
 }
 
-export function useCreateSubtask(parentTaskId: string, projectId: string | null | undefined) {
+/**
+ * Create a subtask under `parent`. It joins the parent's project; a task
+ * outside a project (a CRM task) passes its company / person link on instead,
+ * so the subtask sits on the same record.
+ */
+export function useCreateSubtask(
+  parentTaskId: string,
+  parent: Pick<TaskRow, 'projectId' | 'customerId' | 'personId'> | undefined,
+) {
   const api = useAppApi();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: { title: string; status?: string }) => {
+      const projectId = parent?.projectId ?? null;
+      const recordLink = projectId
+        ? {}
+        : {
+            ...(parent?.customerId ? { customerId: parent.customerId } : {}),
+            ...(parent?.personId ? { personId: parent.personId } : {}),
+          };
       const res = await api.tasks.create({
         title: data.title,
         status: data.status ?? 'todo',
         parentTaskId,
         ...(projectId ? { projectId } : {}),
+        ...recordLink,
       });
       return res.data;
     },
