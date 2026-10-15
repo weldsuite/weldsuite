@@ -62,7 +62,14 @@ beforeEach(async () => {
 });
 
 let seq = 0;
-async function seedTaskEvent(opts: { start: Date; status?: string; autoScheduled?: boolean; organizerId?: string }) {
+async function seedTaskEvent(opts: {
+  start: Date;
+  status?: string;
+  autoScheduled?: boolean;
+  organizerId?: string;
+  /** A WeldCRM task (linked to a company) instead of a WeldFlow one. */
+  crm?: boolean;
+}) {
   seq += 1;
   const taskId = `task_dueidx_${seq}`;
   const eventId = `cev_dueidx_${seq}`;
@@ -72,6 +79,7 @@ async function seedTaskEvent(opts: { start: Date; status?: string; autoScheduled
     status: opts.status ?? 'todo',
     priority: 'medium',
     calendarEventId: eventId,
+    customerId: opts.crm ? 'cust_dueidx' : null,
   } as typeof schema.tasks.$inferInsert);
   await db.insert(schema.calendarEvents).values({
     id: eventId,
@@ -124,15 +132,73 @@ describe('nextAutoScheduledReplanAt', () => {
     await optOutOfAutoSchedule('user_noauto');
     expect(await nextAutoScheduledReplanAt(db)).toBeNull();
   });
+
+  it("ignores only the tasks of the app whose auto-scheduling is off", async () => {
+    const crmStart = new Date(Date.now() - 2 * HOUR);
+    await seedTaskEvent({ start: crmStart, organizerId: 'user_noflow', crm: true });
+    await seedTaskEvent({ start: new Date(Date.now() - HOUR), organizerId: 'user_noflow' });
+    await optOutOfAutoSchedule('user_noflow', { autoScheduleFlowTasks: false });
+    expect((await nextAutoScheduledReplanAt(db))?.getTime()).toBe(crmStart.getTime());
+  });
 });
 
-async function optOutOfAutoSchedule(userId: string) {
+async function optOutOfAutoSchedule(
+  userId: string,
+  uiPreferences: Record<string, boolean> = { autoScheduleTasks: false },
+) {
   await db.insert(schema.userPreferences).values({
     id: `upref_${userId}`,
     userId,
-    uiPreferences: { autoScheduleTasks: false },
+    uiPreferences,
   } as typeof schema.userPreferences.$inferInsert);
 }
+
+describe('auto-scheduling switched per app', () => {
+  async function createTask(id: string, crm: boolean) {
+    await db.insert(schema.tasks).values({
+      id,
+      title: id,
+      status: 'todo',
+      priority: 'medium',
+      personId: crm ? 'per_split' : null,
+    } as typeof schema.tasks.$inferInsert);
+    return createCalendarEventForTask(db, {
+      userId: 'user_split',
+      taskId: id,
+      title: id,
+      dueDate: new Date(Date.now() + 48 * HOUR),
+    });
+  }
+
+  it('places WeldFlow tasks but not WeldCRM tasks when only CRM is off', async () => {
+    await optOutOfAutoSchedule('user_split', { autoScheduleCrmTasks: false });
+    expect(await createTask('task_split_crm', true)).toBeNull();
+    expect(await createTask('task_split_flow', false)).not.toBeNull();
+  });
+
+  it("an app's own switch overrides the legacy shared one", async () => {
+    await optOutOfAutoSchedule('user_split', { autoScheduleTasks: false, autoScheduleFlowTasks: true });
+    expect(await createTask('task_split_flow', false)).not.toBeNull();
+    expect(await createTask('task_split_crm', true)).toBeNull();
+  });
+
+  it('removeAutoScheduledTaskEvents clears only the given app', async () => {
+    const crm = await seedTaskEvent({ start: new Date(Date.now() + HOUR), organizerId: 'user_split', crm: true });
+    const flow = await seedTaskEvent({ start: new Date(Date.now() + HOUR), organizerId: 'user_split' });
+
+    expect(await removeAutoScheduledTaskEvents(db, 'user_split', 'crm')).toBe(1);
+    const events = await db.select().from(schema.calendarEvents);
+    const deleted = events.filter((e) => e.deletedAt).map((e) => e.id);
+    expect(deleted).toEqual([crm.eventId]);
+
+    expect(await removeAutoScheduledTaskEvents(db, 'user_split', 'flow')).toBe(1);
+    const [flowEvent] = await db
+      .select()
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.id, flow.eventId));
+    expect(flowEvent.deletedAt).not.toBeNull();
+  });
+});
 
 describe('task auto-scheduling turned off', () => {
   it('places no event for a task without a start date', async () => {

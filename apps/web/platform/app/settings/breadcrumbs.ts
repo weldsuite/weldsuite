@@ -23,6 +23,7 @@ const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
   weldsuite: 'WeldSuite',
   weldcommerce: 'WeldCommerce',
   weldsocial: 'WeldSocial',
+  weldcalendar: 'WeldCalendar',
 };
 
 // The translated `t.settings.menu` titles the breadcrumbs reuse.

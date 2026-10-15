@@ -40,8 +40,10 @@ function makeAppLogoIcon(appCode: string, name: string) {
 // Built once so the icon components keep their identity across renders.
 const APP_SETTINGS_ITEMS = [
   { appCode: 'parcel', title: 'Parcel', href: '/settings/apps/parcel' },
+  { appCode: 'weldcalendar', title: 'WeldCalendar', href: '/settings/apps/weldcalendar' },
   { appCode: 'weldcrm', title: 'WeldCRM', href: '/settings/apps/weldcrm' },
   { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
+  { appCode: 'weldflow', title: 'WeldFlow', href: '/settings/apps/weldflow' },
   { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
   { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
 ].map(({ appCode, title, href }) => ({ appCode, title, href, icon: makeAppLogoIcon(appCode, title) }));

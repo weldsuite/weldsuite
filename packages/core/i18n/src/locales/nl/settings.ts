@@ -1073,6 +1073,26 @@ export const settings = {
       description: 'Afdelingen en verloftypes.',
     },
 
+    weldflow: {
+      title: 'WeldFlow',
+      description: 'Hoe WeldFlow-taken in je agenda terechtkomen.',
+    },
+
+    weldcalendar: {
+      title: 'WeldCalendar',
+      description: 'Hoe je agenda met ingeplande taken omgaat.',
+    },
+
+    taskScheduling: {
+      tab: 'Taken',
+      autoScheduleLabel: 'Taken automatisch in mijn agenda inplannen',
+      autoScheduleFlowDescription: 'Plan nieuwe WeldFlow-taken in een vrij tijdvak binnen je werktijden. Zet dit uit om ze uit je agenda te houden, tenzij je ze een startdatum geeft. WeldFlow-taken die al automatisch zijn ingepland, worden uit je agenda gehaald.',
+      autoScheduleCrmDescription: 'Plan nieuwe CRM-taken (taken gekoppeld aan een bedrijf of persoon) in een vrij tijdvak binnen je werktijden. Zet dit uit om ze uit je agenda te houden, tenzij je ze een startdatum geeft. CRM-taken die al automatisch zijn ingepland, worden uit je agenda gehaald.',
+      autoRescheduleLabel: 'Onafgeronde taken automatisch doorschuiven',
+      autoRescheduleDescription: "Als een automatisch ingeplande taak niet op de geplande dag is afgerond, wordt deze 's nachts naar het volgende vrije tijdvak verplaatst. Zet dit uit om de taak te laten staan.",
+      updateFailed: 'Instelling voor taakplanning bijwerken mislukt',
+    },
+
     weldcrm: {
       title: 'WeldCRM',
       description: 'CRM-instellingen configureren',
