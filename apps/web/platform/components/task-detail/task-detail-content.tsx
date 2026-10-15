@@ -1909,13 +1909,19 @@ function findAncestorContinuations(
   for (let c = 0; c < d; c++) {
     let j = i - 1;
     while (j >= 0 && (subtasks[j].depth ?? 0) !== c) j--;
-    arr.push({ depth: c, show: j >= 0 && nextSiblingAt[j] !== -1 });
+    const target = j >= 0 ? nextSiblingAt[j] : -1;
+    arr.push({ depth: c, show: target !== -1, target });
   }
   return arr;
 }
 
 /** Whether the guide column at `depth` draws a line through a row. */
-type AncestorContinuation = { depth: number; show: boolean };
+type AncestorContinuation = {
+  depth: number;
+  show: boolean;
+  /** Index of the later sibling this line runs down to (-1 when none). */
+  target: number;
+};
 
 // Subtask tree geometry. Level 0 is the root row; each level indents by
 // TREE_INDENT. A row's guide drops from TREE_TRUNK_GAP below its parent's
@@ -1926,6 +1932,9 @@ const TREE_INDENT = 20;
 const TREE_LEFT = 4;
 const TREE_ELBOW_RADIUS = 6;
 const TREE_ELBOW_GAP = 3;
+const TREE_LINE = 'var(--color-border)';
+/** A guide leading into the open or hovered row. */
+const TREE_LINE_DARK = 'color-mix(in srgb, var(--color-border), var(--color-foreground) 20%)';
 /** Space between a checkbox and the trunk that drops from it to its children. */
 const TREE_TRUNK_GAP = 3;
 const treeCheckboxLeft = (level: number) => TREE_LEFT + level * TREE_INDENT;
@@ -2015,6 +2024,11 @@ export function SubtasksSection({
         ...subtasks.map((s) => ({ ...s, depth: (s.depth ?? 0) + ancestors.length })),
       ]
     : subtasks;
+  // A guide darkens along its whole length when the row it leads into is
+  // the open task or hovered — trunk, pass-through and elbow alike.
+  const leadsToHighlighted = (idx: number): boolean =>
+    idx >= 0 && idx < effectiveSubtasks.length
+    && (effectiveSubtasks[idx].id === currentTaskId || hoveredIndex === idx);
 
   return (
     <div style={{ overflow: 'hidden', maxWidth: '100%' }} className="group/subtasks-section">
@@ -2055,7 +2069,7 @@ export function SubtasksSection({
         >
           {/* Trunk from the root checkbox down into the first row's guide */}
           <div
-            style={{ position: 'absolute', left: treeGuideX(1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: 'var(--color-border)', pointerEvents: 'none' }}
+            style={{ position: 'absolute', left: treeGuideX(1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: leadsToHighlighted(0) ? TREE_LINE_DARK : TREE_LINE, pointerEvents: 'none' }}
           />
           {effectiveRoot.id !== currentTaskId && (
             <button
@@ -2132,8 +2146,8 @@ export function SubtasksSection({
                 // so it darkens when the next row is active OR hovered.
                 const upperDark = isActive || isHovered;
                 const lowerDark = nextIsActive || nextIsHovered;
-                const DARK = 'color-mix(in srgb, var(--color-border), var(--color-foreground) 20%)';
-                const DEFAULT = 'var(--color-border)';
+                const DARK = TREE_LINE_DARK;
+                const DEFAULT = TREE_LINE;
                 // Rows sit one level below the root row (level 0), also when
                 // there's no root row, so first-level rows keep their guide.
                 const level = depth + 1;
@@ -2151,10 +2165,10 @@ export function SubtasksSection({
                         its checkbox at x = treeCheckboxLeft(L), and its guide
                         runs down the centre of its parent's checkbox. Lines
                         are absolutely positioned behind the row content. */}
-                    {continuations.map(({ depth: ancestorDepth, show }) => show && (
+                    {continuations.map(({ depth: ancestorDepth, show, target }) => show && (
                       <div
                         key={ancestorDepth}
-                        style={{ position: 'absolute', left: treeGuideX(ancestorDepth + 1), top: 0, bottom: 0, width: 1, backgroundColor: DEFAULT, pointerEvents: 'none' }}
+                        style={{ position: 'absolute', left: treeGuideX(ancestorDepth + 1), top: 0, bottom: 0, width: 1, backgroundColor: leadsToHighlighted(target) ? DARK : DEFAULT, pointerEvents: 'none' }}
                       />
                     ))}
                     {/* Upper guide into the elbow — the very first row has
@@ -2186,10 +2200,11 @@ export function SubtasksSection({
                         style={{ position: 'absolute', left: guideX, top: '50%', bottom: 0, width: 1, backgroundColor: lowerDark ? DARK : DEFAULT, pointerEvents: 'none' }}
                       />
                     )}
-                    {/* Trunk from this row's checkbox down to its first child */}
+                    {/* Trunk from this row's checkbox down to its first child;
+                        darkens with that child, like the child's own elbow. */}
                     {descendToChild && (
                       <div
-                        style={{ position: 'absolute', left: treeGuideX(level + 1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: DEFAULT, pointerEvents: 'none' }}
+                        style={{ position: 'absolute', left: treeGuideX(level + 1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: leadsToHighlighted(index + 1) ? DARK : DEFAULT, pointerEvents: 'none' }}
                       />
                     )}
                     {/* Subtask row — no hover bg, darkening comes from the
