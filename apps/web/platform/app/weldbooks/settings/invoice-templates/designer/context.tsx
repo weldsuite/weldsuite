@@ -15,6 +15,11 @@ const DesignerContext = createContext<DesignerContextValue | null>(null);
 
 export const DesignerProvider = DesignerContext.Provider;
 
+/** Whether the designer is read-only; false outside the designer, so shared controls work anywhere. */
+export function useDesignerReadOnly(): boolean {
+  return useContext(DesignerContext)?.readOnly ?? false;
+}
+
 export function useDesigner(): DesignerContextValue {
   const value = useContext(DesignerContext);
   if (!value) throw new Error('useDesigner must be used inside the invoice designer');

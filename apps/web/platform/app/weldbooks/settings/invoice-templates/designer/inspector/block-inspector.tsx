@@ -63,7 +63,7 @@ function PositionSection({ block, update }: Readonly<{ block: TemplateBlock; upd
           hint={isTable ? t.accounting.invoiceTemplates.inspector.lineItems.note : undefined}
           onChange={(v) => update({ everyPage: v || undefined })}
         />
-        <SwitchField label={tp.hidden} checked={Boolean(block.hidden)} onChange={(v) => update({ hidden: v || undefined })} />
+        <SwitchField label={tp.hidden} checked={Boolean(block.hidden)} disabled={isTable} onChange={(v) => update({ hidden: v || undefined })} />
         <SwitchField label={tp.locked} checked={Boolean(block.locked)} onChange={(v) => update({ locked: v || undefined })} />
       </div>
     </InspectorSection>

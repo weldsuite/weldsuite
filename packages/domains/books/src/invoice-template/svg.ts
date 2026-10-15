@@ -63,6 +63,8 @@ function col(value: string | undefined): string {
 
 const n = (v: number) => Number(v.toFixed(2));
 
+const IMAGE_ALIGN = { left: 'xMin', center: 'xMid', right: 'xMax' } as const;
+
 function fontAttrs(face: FontFace): string {
   return `font-family="${esc(fontStack(face.font))}"${face.bold ? ' font-weight="bold"' : ''}${face.italic ? ' font-style="italic"' : ''}`;
 }
@@ -82,8 +84,7 @@ function primitiveSvg(p: Primitive, width: number, height: number): string {
     case 'image': {
       const src = safeImageSrc(p.src);
       if (!src) return '';
-      const align = p.align === 'right' ? 'xMax' : p.align === 'center' ? 'xMid' : 'xMin';
-      return `<image href="${esc(src)}" x="${n(p.x)}" y="${n(p.y)}" width="${n(p.w)}" height="${n(p.h)}" preserveAspectRatio="${align}YMid meet"/>`;
+      return `<image href="${esc(src)}" x="${n(p.x)}" y="${n(p.y)}" width="${n(p.w)}" height="${n(p.h)}" preserveAspectRatio="${IMAGE_ALIGN[p.align]}YMid meet"/>`;
     }
     case 'qr': {
       const cell = p.size / Math.max(1, p.matrix.length);

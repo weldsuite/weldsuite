@@ -30,6 +30,7 @@ export function BrandingSection({ value, dirty, saving, canEdit, onChange, onSav
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const id = useId();
+  const logoButtonLabel = value.logoUrl ? tb.replaceLogo : tb.uploadLogo;
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -85,7 +86,7 @@ export function BrandingSection({ value, dirty, saving, canEdit, onChange, onSav
             onClick={() => fileRef.current?.click()}
           >
             {uploading ? <Loader2 className="animate-spin" aria-hidden /> : <ImageUp aria-hidden />}
-            {uploading ? tb.uploading : value.logoUrl ? tb.replaceLogo : tb.uploadLogo}
+            {uploading ? tb.uploading : logoButtonLabel}
           </Button>
           {value.logoUrl ? (
             <Button

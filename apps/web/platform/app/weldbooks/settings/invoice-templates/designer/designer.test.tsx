@@ -118,13 +118,13 @@ describe('InvoiceTemplateDesigner', { timeout: 30_000 }, () => {
     const before = container.querySelectorAll('[data-block-id]').length;
 
     await user.click(screen.getByRole('button', { name: 'Add Rectangle' }));
-    expect(container.querySelectorAll('[data-block-id]').length).toBe(before + 1);
+    expect(container.querySelectorAll('[data-block-id]')).toHaveLength(before + 1);
     expect(screen.getByText('Position and size')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(container.querySelectorAll('[data-block-id]').length).toBe(before);
+    expect(container.querySelectorAll('[data-block-id]')).toHaveLength(before);
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
@@ -197,7 +197,7 @@ describe('InvoiceTemplateDesigner', { timeout: 30_000 }, () => {
     fireEvent.pointerDown(container.querySelector('[data-block-id="items"]')!, { button: 0, clientX: 80, clientY: 330, pointerId: 1 });
     fireEvent.pointerUp(window, { pointerId: 1 });
     fireEvent.keyDown(document.body, { key: 'Backspace' });
-    expect(container.querySelectorAll('[data-block-id]').length).toBe(start);
+    expect(container.querySelectorAll('[data-block-id]')).toHaveLength(start);
     // The inspector explains why, on the disabled button.
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
   });

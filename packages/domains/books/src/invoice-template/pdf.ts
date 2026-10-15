@@ -96,11 +96,10 @@ export async function renderInvoicePdf(layout: InvoiceLayout, options: PdfPaintO
   return await pdf.save();
 }
 
-async function drawPrimitive(
-  page: PDFPage,
-  p: Primitive,
-  ctx: { H: number; width: number; fontFor: (face: FontFace) => Promise<PDFFont>; imageFor: (src: string) => Promise<PDFImage | null> },
-) {
+type DrawCtx = { H: number; width: number; fontFor: (face: FontFace) => Promise<PDFFont>; imageFor: (src: string) => Promise<PDFImage | null> };
+type Of<K extends Primitive['kind']> = Extract<Primitive, { kind: K }>;
+
+async function drawPrimitive(page: PDFPage, p: Primitive, ctx: DrawCtx) {
   const { H } = ctx;
   switch (p.kind) {
     case 'text': {
@@ -108,55 +107,74 @@ async function drawPrimitive(
       page.drawText(drawableText(p.text, p.face), { x: p.x, y: H - p.y, size: p.size, font, color: hex(p.color), ...slantOf(p.face) });
       return;
     }
-    case 'rect': {
-      const fill = p.fill ? hex(p.fill) : undefined;
-      const border = p.stroke ? hex(p.stroke) : undefined;
-      const borderWidth = p.stroke ? (p.strokeWidth ?? 1) : 0;
-      if (p.radius) {
-        page.drawSvgPath(roundedRectPath(p.x, p.y, p.w, p.h, p.radius), { x: 0, y: H, color: fill, borderColor: border, borderWidth });
-      } else {
-        page.drawRectangle({ x: p.x, y: H - p.y - p.h, width: p.w, height: p.h, color: fill, borderColor: border, borderWidth });
-      }
+    case 'rect':
+      drawRect(page, p, H);
       return;
-    }
     case 'line':
       page.drawLine({ start: { x: p.x1, y: H - p.y1 }, end: { x: p.x2, y: H - p.y2 }, thickness: p.width, color: hex(p.color) });
       return;
-    case 'image': {
-      const src = safeImageSrc(p.src);
-      const image = src ? await ctx.imageFor(src) : null;
-      if (!image) return;
-      const scale = Math.min(p.w / image.width, p.h / image.height);
-      const w = image.width * scale;
-      const h = image.height * scale;
-      const x = p.align === 'right' ? p.x + p.w - w : p.align === 'center' ? p.x + (p.w - w) / 2 : p.x;
-      const y = p.y + (p.h - h) / 2;
-      page.drawImage(image, { x, y: H - y - h, width: w, height: h });
+    case 'image':
+      await drawImage(page, p, ctx);
       return;
-    }
-    case 'qr': {
-      const cell = p.size / Math.max(1, p.matrix.length);
-      page.drawRectangle({ x: p.x, y: H - p.y - p.size, width: p.size, height: p.size, color: rgb(1, 1, 1) });
-      p.matrix.forEach((row, r) =>
-        row.forEach((dark, c) => {
-          if (!dark) return;
-          page.drawRectangle({ x: p.x + c * cell, y: H - p.y - (r + 1) * cell, width: cell + 0.15, height: cell + 0.15, color: rgb(0, 0, 0) });
-        }),
-      );
+    case 'qr':
+      drawQr(page, p, H);
       return;
-    }
-    case 'watermark': {
-      const font = await ctx.fontFor(p.face);
-      const text = drawableText(p.text, p.face);
-      const w = textWidth(text, p.size, p.face);
-      const angle = (30 * Math.PI) / 180;
-      const cx = ctx.width / 2;
-      const cy = H / 2;
-      // Start so the rotated run is centred on the page (baseline through the centre, shifted by a third of the size).
-      const x = cx - (w / 2) * Math.cos(angle) + (p.size / 3) * Math.sin(angle);
-      const y = cy - (w / 2) * Math.sin(angle) - (p.size / 3) * Math.cos(angle);
-      page.drawText(text, { x, y, size: p.size, font, color: hex(p.color), opacity: 0.08, rotate: degrees(30) });
+    case 'watermark':
+      await drawWatermark(page, p, ctx);
       return;
-    }
   }
+}
+
+function drawRect(page: PDFPage, p: Of<'rect'>, H: number) {
+  const fill = p.fill ? hex(p.fill) : undefined;
+  const border = p.stroke ? hex(p.stroke) : undefined;
+  const borderWidth = p.stroke ? (p.strokeWidth ?? 1) : 0;
+  if (p.radius) {
+    page.drawSvgPath(roundedRectPath(p.x, p.y, p.w, p.h, p.radius), { x: 0, y: H, color: fill, borderColor: border, borderWidth });
+  } else {
+    page.drawRectangle({ x: p.x, y: H - p.y - p.h, width: p.w, height: p.h, color: fill, borderColor: border, borderWidth });
+  }
+}
+
+/** Left edge of something `w` wide aligned in a box at `x`, `boxW` wide. */
+const ALIGNED_X = {
+  left: (x: number) => x,
+  center: (x: number, boxW: number, w: number) => x + (boxW - w) / 2,
+  right: (x: number, boxW: number, w: number) => x + boxW - w,
+} as const;
+
+async function drawImage(page: PDFPage, p: Of<'image'>, ctx: DrawCtx) {
+  const src = safeImageSrc(p.src);
+  const image = src ? await ctx.imageFor(src) : null;
+  if (!image) return;
+  const scale = Math.min(p.w / image.width, p.h / image.height);
+  const w = image.width * scale;
+  const h = image.height * scale;
+  const x = ALIGNED_X[p.align](p.x, p.w, w);
+  const y = p.y + (p.h - h) / 2;
+  page.drawImage(image, { x, y: ctx.H - y - h, width: w, height: h });
+}
+
+function drawQr(page: PDFPage, p: Of<'qr'>, H: number) {
+  const cell = p.size / Math.max(1, p.matrix.length);
+  page.drawRectangle({ x: p.x, y: H - p.y - p.size, width: p.size, height: p.size, color: rgb(1, 1, 1) });
+  p.matrix.forEach((row, r) =>
+    row.forEach((dark, c) => {
+      if (!dark) return;
+      page.drawRectangle({ x: p.x + c * cell, y: H - p.y - (r + 1) * cell, width: cell + 0.15, height: cell + 0.15, color: rgb(0, 0, 0) });
+    }),
+  );
+}
+
+async function drawWatermark(page: PDFPage, p: Of<'watermark'>, ctx: DrawCtx) {
+  const font = await ctx.fontFor(p.face);
+  const text = drawableText(p.text, p.face);
+  const w = textWidth(text, p.size, p.face);
+  const angle = (30 * Math.PI) / 180;
+  const cx = ctx.width / 2;
+  const cy = ctx.H / 2;
+  // Start so the rotated run is centred on the page (baseline through the centre, shifted by a third of the size).
+  const x = cx - (w / 2) * Math.cos(angle) + (p.size / 3) * Math.sin(angle);
+  const y = cy - (w / 2) * Math.sin(angle) - (p.size / 3) * Math.cos(angle);
+  page.drawText(text, { x, y, size: p.size, font, color: hex(p.color), opacity: 0.08, rotate: degrees(30) });
 }

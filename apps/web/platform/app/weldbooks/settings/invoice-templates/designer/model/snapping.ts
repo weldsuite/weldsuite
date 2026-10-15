@@ -51,21 +51,28 @@ const EPS = 0.01;
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 
-function targetsFor(axis: 'x' | 'y', ctx: SnapContext): Target[] {
+function xTargets(ctx: SnapContext): Target[] {
   const { width, height } = ctx.page;
   const out: Target[] = [];
-  if (axis === 'x') {
-    for (const pos of [0, SIDE_MARGIN, width / 2, width - SIDE_MARGIN, width]) out.push({ pos, from: 0, to: height });
-    for (const o of ctx.others) {
-      for (const pos of [o.x, o.x + o.w / 2, o.x + o.w]) out.push({ pos, from: o.y, to: o.y + o.h });
-    }
-  } else {
-    for (const pos of [0, ctx.margins.top, height / 2, height - ctx.margins.bottom, height]) out.push({ pos, from: 0, to: width });
-    for (const o of ctx.others) {
-      for (const pos of [o.y, o.y + o.h / 2, o.y + o.h]) out.push({ pos, from: o.x, to: o.x + o.w });
-    }
+  for (const pos of [0, SIDE_MARGIN, width / 2, width - SIDE_MARGIN, width]) out.push({ pos, from: 0, to: height });
+  for (const o of ctx.others) {
+    for (const pos of [o.x, o.x + o.w / 2, o.x + o.w]) out.push({ pos, from: o.y, to: o.y + o.h });
   }
   return out;
+}
+
+function yTargets(ctx: SnapContext): Target[] {
+  const { width, height } = ctx.page;
+  const out: Target[] = [];
+  for (const pos of [0, ctx.margins.top, height / 2, height - ctx.margins.bottom, height]) out.push({ pos, from: 0, to: width });
+  for (const o of ctx.others) {
+    for (const pos of [o.y, o.y + o.h / 2, o.y + o.h]) out.push({ pos, from: o.x, to: o.x + o.w });
+  }
+  return out;
+}
+
+function targetsFor(axis: 'x' | 'y', ctx: SnapContext): Target[] {
+  return axis === 'x' ? xTargets(ctx) : yTargets(ctx);
 }
 
 /** The smallest signed distance from any candidate to any target, when within the threshold. */
@@ -132,6 +139,24 @@ export function snapMove(rect: Rect, ctx: SnapContext): { rect: Rect; guides: Gu
   return { rect: next, guides };
 }
 
+/** Proportional corner resize: the corner follows whichever axis moved more. */
+function resizeProportional(start: Rect, handle: ResizeHandle, dx: number, dy: number, minW: number, minH: number): Rect {
+  const west = handle.includes('w');
+  const north = handle.includes('n');
+  const ratio = start.w / start.h;
+  const nw = Math.max(minW, west ? start.w - dx : start.w + dx);
+  const nh = Math.max(minH, north ? start.h - dy : start.h + dy);
+  const scale = Math.max(nw / start.w, nh / start.h);
+  const w = Math.max(minW, start.w * scale);
+  const h = Math.max(minH, w / ratio);
+  return {
+    x: west ? start.x + start.w - w : start.x,
+    y: north ? start.y + start.h - h : start.y,
+    w,
+    h,
+  };
+}
+
 /** Resizes from a start rectangle by a pointer delta, keeping at least the minimum size. */
 export function resizeRect(
   start: Rect,
@@ -149,16 +174,7 @@ export function resizeRect(
   const south = handle.includes('s');
 
   if (opts.aspect && handle.length === 2 && start.w > 0 && start.h > 0) {
-    // Proportional: the corner follows whichever axis moved more.
-    const ratio = start.w / start.h;
-    const nw = Math.max(minW, west ? start.w - dx : start.w + dx);
-    const nh = Math.max(minH, north ? start.h - dy : start.h + dy);
-    const scale = Math.max(nw / start.w, nh / start.h);
-    w = Math.max(minW, start.w * scale);
-    h = Math.max(minH, w / ratio);
-    x = west ? start.x + start.w - w : start.x;
-    y = north ? start.y + start.h - h : start.y;
-    return { x, y, w, h };
+    return resizeProportional(start, handle, dx, dy, minW, minH);
   }
 
   if (east) w = start.w + dx;

@@ -28,7 +28,8 @@ import { generateInvoicePdf, downloadPdf, type BrInvoicePdfExtras } from '@/lib/
 import { layoutInvoice } from '@weldsuite/books-domain/invoice-template/layout';
 import { buildInvoiceDocumentData } from '@/lib/weldbooks/invoice-template-data';
 import { useInvoiceDocumentLabels } from '@/lib/weldbooks/use-invoice-template-labels';
-import { useInvoiceTemplates } from '@/hooks/queries/use-invoice-template-queries';
+import { invoiceTemplatesQuery, useInvoiceTemplates } from '@/hooks/queries/use-invoice-template-queries';
+import { useQueryClient } from '@tanstack/react-query';
 import { RecordPaymentDialog } from '../components/record-payment-dialog';
 import { SendInvoiceDialog } from '../components/send-invoice-dialog';
 import { SalesTaxErrorNotice, useDescribeError } from '../components/sales-tax-error-notice';
@@ -102,8 +103,14 @@ export default function InvoiceDetailPage() {
 
   const documentLabels = useInvoiceDocumentLabels();
   // The invoice's designed template, else the entity's default; none prints the built-in layout.
-  const { data: templates } = useInvoiceTemplates(entityId);
-  const template = templates?.find((tpl) => tpl.id === invoice?.templateId) ?? templates?.find((tpl) => tpl.isDefault) ?? null;
+  const queryClient = useQueryClient();
+  // Warms the cache; the download waits for the list itself, so it never prints the built-in layout by accident.
+  useInvoiceTemplates(entityId);
+  const resolveTemplate = async () => {
+    if (!entityId) return null;
+    const templates = await queryClient.fetchQuery({ ...invoiceTemplatesQuery(entityId), staleTime: 60_000 });
+    return templates.find((tpl) => tpl.id === invoice?.templateId) ?? templates.find((tpl) => tpl.isDefault) ?? null;
+  };
 
   /** Brazil: the Pix QR, the authorised NF-e / NFS-e and the regime's statements the PDF prints. */
   const brPdfExtras = async (): Promise<BrInvoicePdfExtras | undefined> => {
@@ -146,6 +153,7 @@ export default function InvoiceDetailPage() {
       ).filter((number): number is string => Boolean(number));
       const pdfEntity = entity ?? { name: st('sweep.weldbooks.invoiceDetail.yourCompanyFallback') };
       const br = await brPdfExtras();
+      const template = await resolveTemplate();
       let bytes: Uint8Array;
       if (template) {
         // The template painter (pdf-lib, fontkit) and its fonts load on the first download.

@@ -34,7 +34,7 @@ import {
   placementForNew,
   removableIds,
 } from './model/block-factory';
-import { canRedo, canUndo, editorReducer, initialEditorState } from './model/editor-reducer';
+import { canRedo, canUndo, editorReducer, initialEditorState, type EditorAction, type EditorState } from './model/editor-reducer';
 import { BlockPalette } from './palette';
 import { PdfPreviewDialog } from './pdf-preview-dialog';
 import { DesignerTopBar, ZOOM_STEPS } from './top-bar';
@@ -72,6 +72,61 @@ function shortcutsSuspended(target: EventTarget | null): boolean {
       '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="radio"], [role="slider"], [role="combobox"], [aria-roledescription="sortable"]',
     ),
   );
+}
+
+interface ShortcutContext {
+  state: EditorState;
+  readOnly: boolean;
+  dispatch: (action: EditorAction) => void;
+  /** Tells the user the line-items table cannot be deleted. */
+  onCantDelete: () => void;
+}
+
+const ARROW_STEPS: Record<string, [number, number]> = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
+
+/** Undo, redo, select all and escape: they work with nothing selected. Returns true when the key was one of them. */
+function handleGlobalShortcut(e: KeyboardEvent, mod: boolean, key: string, { state, readOnly, dispatch }: ShortcutContext): boolean {
+  if (mod && key === 'z') {
+    e.preventDefault();
+    if (!readOnly) dispatch({ type: e.shiftKey ? 'redo' : 'undo' });
+    return true;
+  }
+  if (mod && key === 'y') {
+    e.preventDefault();
+    if (!readOnly) dispatch({ type: 'redo' });
+    return true;
+  }
+  if (mod && key === 'a') {
+    e.preventDefault();
+    dispatch({ type: 'select', ids: state.doc.blocks.filter((b) => !b.hidden).map((b) => b.id) });
+    return true;
+  }
+  if (key === 'escape') {
+    dispatch({ type: 'select', ids: [] });
+    return true;
+  }
+  return false;
+}
+
+/** Duplicate, delete and nudge: they act on the selection. */
+function handleSelectionShortcut(e: KeyboardEvent, mod: boolean, key: string, { state, dispatch, onCantDelete }: ShortcutContext): void {
+  if (mod && key === 'd') {
+    e.preventDefault();
+    dispatch({ type: 'duplicateBlocks', ids: state.selection });
+    return;
+  }
+  if (key === 'delete' || key === 'backspace') {
+    e.preventDefault();
+    if (removableIds(state.doc, state.selection).length === 0) onCantDelete();
+    else dispatch({ type: 'deleteBlocks', ids: state.selection });
+    return;
+  }
+  const arrow = ARROW_STEPS[key];
+  if (arrow && !mod) {
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    dispatch({ type: 'nudge', ids: state.selection, dx: arrow[0] * step, dy: arrow[1] * step });
+  }
 }
 
 interface InvoiceTemplateDesignerProps {
@@ -192,8 +247,9 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
     setSaving(true);
     try {
       await updateTemplate.mutateAsync({ id: template.id, data });
-      dispatch({ type: 'markSaved' });
-      setMeta({ name, isDefault: meta.isDefault });
+      // Only what was sent is saved: edits made while the request ran stay unsaved.
+      dispatch({ type: 'markSaved', doc });
+      setMeta((m) => (m.name === meta.name ? { ...m, name } : m));
       setSavedMeta({ name, isDefault: meta.isDefault });
       toast.success(ti.designer.saved);
     } catch (err) {
@@ -249,45 +305,15 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
       }
       if (shortcutsSuspended(e.target)) return;
 
-      if (mod && key === 'z') {
-        e.preventDefault();
-        if (!ro) dispatch({ type: e.shiftKey ? 'redo' : 'undo' });
-        return;
-      }
-      if (mod && key === 'y') {
-        e.preventDefault();
-        if (!ro) dispatch({ type: 'redo' });
-        return;
-      }
-      if (mod && key === 'a') {
-        e.preventDefault();
-        dispatch({ type: 'select', ids: s.doc.blocks.filter((b) => !b.hidden).map((b) => b.id) });
-        return;
-      }
-      if (key === 'escape') {
-        dispatch({ type: 'select', ids: [] });
-        return;
-      }
+      const context: ShortcutContext = {
+        state: s,
+        readOnly: ro,
+        dispatch,
+        onCantDelete: () => toast.info(t.accounting.invoiceTemplates.canvas.cantDeleteTable),
+      };
+      if (handleGlobalShortcut(e, mod, key, context)) return;
       if (s.selection.length === 0 || ro) return;
-
-      if (mod && key === 'd') {
-        e.preventDefault();
-        dispatch({ type: 'duplicateBlocks', ids: s.selection });
-        return;
-      }
-      if (key === 'delete' || key === 'backspace') {
-        e.preventDefault();
-        if (removableIds(s.doc, s.selection).length === 0) toast.info(t.accounting.invoiceTemplates.canvas.cantDeleteTable);
-        else dispatch({ type: 'deleteBlocks', ids: s.selection });
-        return;
-      }
-      const arrows: Record<string, [number, number]> = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
-      const arrow = arrows[key];
-      if (arrow && !mod) {
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        dispatch({ type: 'nudge', ids: s.selection, dx: arrow[0] * step, dy: arrow[1] * step });
-      }
+      handleSelectionShortcut(e, mod, key, context);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

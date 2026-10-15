@@ -83,8 +83,8 @@ describe('DesignerCanvas', () => {
 
   it('draws the page and one interaction box per block', () => {
     const { container } = renderWithProviders(<Harness initial={initial()} />);
-    expect(container.querySelectorAll('svg').length).toBe(1);
-    expect(container.querySelectorAll('[data-block-id]').length).toBe(initial().blocks.length);
+    expect(container.querySelectorAll('svg')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-block-id]')).toHaveLength(initial().blocks.length);
   });
 
   it('selects on click and extends the selection with shift', () => {

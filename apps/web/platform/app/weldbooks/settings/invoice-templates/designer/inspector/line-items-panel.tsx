@@ -37,7 +37,7 @@ interface ColumnRowProps {
   column: LineItemColumn;
   name: string;
   canDisable: boolean;
-  onChange: (patch: Partial<LineItemColumn> & { label?: string | undefined; align?: LineItemColumn['align'] | undefined }) => void;
+  onChange: (patch: Partial<LineItemColumn> & { label?: string; align?: LineItemColumn['align'] }) => void;
   onDisable: () => void;
 }
 

@@ -343,6 +343,9 @@ export const invoiceTemplateDocumentSchema = z
     if (tables[0]?.everyPage) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['blocks'], message: 'The line-items table cannot repeat on every page' });
     }
+    if (tables[0]?.hidden) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['blocks'], message: 'The line-items table cannot be hidden' });
+    }
     const ids = new Set<string>();
     for (const block of doc.blocks) {
       if (ids.has(block.id)) {
