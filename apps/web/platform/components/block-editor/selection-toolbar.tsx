@@ -312,7 +312,7 @@ export function SelectionToolbar() {
               (linkOpen || !!state.linkUrl) && 'bg-accent text-foreground',
             )}
           >
-            <Link2 className="h-4 w-4" />
+            <Link2 className="size-3.5" />
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-72 p-2" onCloseAutoFocus={(e) => e.preventDefault()}>
@@ -337,13 +337,13 @@ export function SelectionToolbar() {
 
       {/* Inline styles */}
       <ToolbarButton label={s.bold} active={state.bold} onClick={() => toggle('bold')} className="size-7 px-0 has-[>svg]:px-0">
-        <Bold className="h-4 w-4" />
+        <Bold className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton label={s.italic} active={state.italic} onClick={() => toggle('italic')} className="size-7 px-0 has-[>svg]:px-0">
-        <Italic className="h-4 w-4" />
+        <Italic className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton label={s.strike} active={state.strike} onClick={() => toggle('strike')} className="size-7 px-0 has-[>svg]:px-0">
-        <Strikethrough className="h-4 w-4" />
+        <Strikethrough className="size-3.5" />
       </ToolbarButton>
     </div>
   );
