@@ -661,6 +661,14 @@ export const crm = {
       taskName: 'Taaknaam',
       newTask: 'Nieuwe taak',
       duplicate: 'Dupliceren',
+      calculations: {
+        count: 'Taken',
+        overdue: 'Achterstallig',
+        dueThisWeek: 'Deze week',
+        highPriority: 'Hoge prioriteit',
+        unassigned: 'Niet toegewezen',
+        totalEstimate: 'Geschatte tijd',
+      },
       searchRecords: 'Zoek records...',
       priority: {
         low: 'Laag',

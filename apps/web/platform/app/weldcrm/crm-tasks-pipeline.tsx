@@ -1,5 +1,6 @@
 ﻿
-import { useState, useRef, useMemo, useCallback } from 'react';
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import { useTranslations } from '@weldsuite/i18n/client';
 import {
   DndContext,
   DragEndEvent,
@@ -21,7 +22,14 @@ import {
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@weldsuite/ui/components/button';
-import { Plus, Calendar, Search, Building2, User as UserIcon, Flag, ListTodo, Tag } from 'lucide-react';
+import { Plus, Calendar, Search, Building2, User as UserIcon, Flag, ListTodo, Tag, Hash, AlertCircle, CalendarClock, UserX, Clock, Trash2 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
@@ -139,6 +147,68 @@ function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; 
 }
 
 // ---------- TaskCard ----------
+
+// ---------- Column calculations ----------
+
+/** What a column's bottom-bar calculation can show (like the Deals board's). */
+const TASK_CALCULATIONS = ['count', 'overdue', 'dueThisWeek', 'highPriority', 'unassigned', 'totalEstimate'] as const;
+type TaskCalculation = (typeof TASK_CALCULATIONS)[number];
+
+const TASK_CALCULATION_ICONS: Record<TaskCalculation, typeof Hash> = {
+  count: Hash,
+  overdue: AlertCircle,
+  dueThisWeek: CalendarClock,
+  highPriority: Flag,
+  unassigned: UserX,
+  totalEstimate: Clock,
+};
+
+/** The board has no settings store, so the picks are a per-viewer convenience. */
+const CALCULATIONS_STORAGE_KEY = 'weldcrm.tasksBoard.calculations';
+
+function readStoredCalculations(): Record<string, TaskCalculation> {
+  try {
+    const raw = globalThis.localStorage?.getItem(CALCULATIONS_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, TaskCalculation] => TASK_CALCULATIONS.includes(entry[1] as TaskCalculation),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function formatMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/** The number a calculation shows for a column's tasks. */
+function computeTaskCalculation(type: TaskCalculation, tasks: readonly Task[]): string {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const inAWeek = new Date(startOfToday.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const isOpen = (task: Task) => task.status !== 'done' && task.status !== 'cancelled';
+  switch (type) {
+    case 'count':
+      return String(tasks.length);
+    case 'overdue':
+      return String(tasks.filter((task) => isOpen(task) && !!task.dueDate && task.dueDate < startOfToday).length);
+    case 'dueThisWeek':
+      return String(tasks.filter((task) => !!task.dueDate && task.dueDate >= startOfToday && task.dueDate < inAWeek).length);
+    case 'highPriority':
+      return String(tasks.filter((task) => task.priority === 'high').length);
+    case 'unassigned':
+      return String(tasks.filter((task) => !task.assignee && !(task.assignees && task.assignees.length > 0)).length);
+    case 'totalEstimate':
+      return formatMinutes(tasks.reduce((sum, task) => sum + (task.duration ?? 0), 0));
+  }
+}
 
 /** First letter of a name, for an avatar fallback. */
 function initialOf(name: string): string {
@@ -340,7 +410,27 @@ export function CrmTasksPipeline({
   members,
   subtaskProgress,
 }: Readonly<CrmTasksPipelineProps>) {
+  const t = useTranslations();
   const containerRef = useRef<HTMLDivElement>(null);
+  // The columns and the calculation bar under them scroll together sideways.
+  const columnsScrollRef = useRef<HTMLDivElement>(null);
+  const calculationScrollRef = useRef<HTMLDivElement>(null);
+  const [calculations, setCalculations] = useState<Record<string, TaskCalculation>>(readStoredCalculations);
+  useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(CALCULATIONS_STORAGE_KEY, JSON.stringify(calculations));
+    } catch {
+      // Storage unavailable (private window, blocked): the picks just don't persist.
+    }
+  }, [calculations]);
+  const setColumnCalculation = useCallback((columnId: string, type: TaskCalculation | null) => {
+    setCalculations((prev) => {
+      const next = { ...prev };
+      if (type) next[columnId] = type;
+      else delete next[columnId];
+      return next;
+    });
+  }, []);
   const cardContext = useMemo<CardContext>(() => ({
     priorityLabels,
     availableLabels: availableLabels ?? [],
@@ -489,8 +579,12 @@ export function CrmTasksPipeline({
       <div className="flex-1 flex flex-col overflow-hidden select-none">
         <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div
+            ref={columnsScrollRef}
             className="flex gap-4 flex-1 overflow-x-auto overflow-y-visible gantt-scroll pb-0"
             style={{ padding: '16px 16px' }}
+            onScroll={(e) => {
+              if (calculationScrollRef.current) calculationScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+            }}
           >
             {columns.map((column) => {
               const columnTasks = filteredTasks.filter(t => t.status === column.id);
@@ -547,6 +641,65 @@ export function CrmTasksPipeline({
             ) : null}
           </DragOverlay>
         </DndContext>
+      </div>
+
+      {/* Calculation bar under the columns — the Deals board's bottom bar */}
+      <div className="flex-shrink-0 bg-white dark:bg-background border-t border-gray-100 dark:border-border">
+        <div
+          ref={calculationScrollRef}
+          className="flex gap-4 h-11 overflow-x-auto overflow-y-hidden scrollbar-hidden px-4"
+          onScroll={(e) => {
+            if (columnsScrollRef.current) columnsScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
+          }}
+        >
+          {columns.map((column) => {
+            const calculation = calculations[column.id];
+            const columnTasks = filteredTasks.filter((task) => task.status === column.id);
+            return (
+              <div key={`calc-${column.id}`} className="flex-shrink-0 w-[240px]">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    {calculation ? (
+                      <Button variant="ghost" className="w-full h-11 flex items-center justify-between px-2 hover:bg-gray-50 dark:hover:bg-secondary/30 transition-colors cursor-pointer">
+                        <span className="text-sm text-gray-600 dark:text-muted-foreground">
+                          {t(`crm.tasks.calculations.${calculation}`)}
+                        </span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-foreground">
+                          {computeTaskCalculation(calculation, columnTasks)}
+                        </span>
+                      </Button>
+                    ) : (
+                      <Button variant="ghost" className="w-full h-11 text-sm text-gray-400 hover:text-gray-600 dark:text-muted-foreground dark:hover:text-muted-foreground flex items-center justify-start gap-1 pl-2 hover:bg-gray-100 dark:hover:bg-background transition-colors">
+                        <Plus className="h-3 w-3" />
+                        {t('sweep.weldcrm.pipelineKanban.addCalculation')}
+                      </Button>
+                    )}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[240px]">
+                    {TASK_CALCULATIONS.map((type) => {
+                      const Icon = TASK_CALCULATION_ICONS[type];
+                      return (
+                        <DropdownMenuItem key={type} onClick={() => setColumnCalculation(column.id, type)}>
+                          <Icon className="h-4 w-4 mr-1" />
+                          {t(`crm.tasks.calculations.${type}`)}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                    {calculation && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setColumnCalculation(column.id, null)} className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400">
+                          <Trash2 className="h-4 w-4 mr-1 text-red-600 dark:text-red-400" />
+                          {t('sweep.weldcrm.pipelineKanban.delete')}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
