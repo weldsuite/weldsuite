@@ -1942,7 +1942,7 @@ export function TasksClient({
                   this row's height by the `relative` wrapper. */}
               <div className="relative border-b border-gray-200/70 dark:border-border">
                 <div style={{ position: 'absolute', left: guideLeft, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
-                <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% - 6px)', width: 20, height: 8, borderLeft: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', borderRadius: '0 0 0 6px', zIndex: 1 }} />
+                <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% - 6px)', width: 15, height: 8, borderLeft: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', borderRadius: '0 0 0 6px', zIndex: 1 }} />
                 {!isLast && (
                   <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% + 2px)', bottom: 0, width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
                 )}
