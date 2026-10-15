@@ -1173,8 +1173,12 @@ export function PipelineKanban({
               }
             }}
           >
-            {filteredStages.map((stage) => (
-              <div key={`calc-${stage.id}`} className="flex-shrink-0 w-[240px]">
+            {filteredStages.map((stage, index) => (
+              <div key={`calc-${stage.id}`} className="relative flex-shrink-0 w-[240px]">
+                {/* Divider, centred in the 16px gap to the previous stage's cell */}
+                {index > 0 && (
+                  <div aria-hidden className="pointer-events-none absolute -left-2 top-0 bottom-0 w-px bg-gray-100 dark:bg-border" />
+                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     {stageCalculations[stage.id] ? (
