@@ -51,6 +51,7 @@ import {
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
+import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
 import { normalizeTaskStatus, type UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
 import type { TaskCommentRow } from '@weldsuite/core-api-client/domains/task-comments';
@@ -181,6 +182,9 @@ function toUiComment(row: TaskCommentRow): TaskComment {
   };
 }
 
+/** What the task dialog hands back when it saves an edit. */
+type TaskDialogUpdate = Parameters<React.ComponentProps<typeof TaskDialog>['onUpdate']>[1];
+
 function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: () => void }>) {
   // The header pins its items to the first line (the title can wrap), so the
   // checkbox is centred in a box as tall as the 28px header buttons.
@@ -198,7 +202,7 @@ function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: 
   );
 }
 
-function TaskTitle({ title, isDone, onSave, editRequest }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void; editRequest?: number }>) {
+function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void }>) {
   // 24px lines + 1px offset put the first line's centre on the same 26px line
   // as the checkbox and the header buttons.
   return (
@@ -206,7 +210,6 @@ function TaskTitle({ title, isDone, onSave, editRequest }: Readonly<{ title: str
       <InlineTextEditor
         value={title}
         onSave={onSave}
-        editRequest={editRequest}
         className={cn(
           'text-[15px] font-medium leading-6 text-foreground',
           isDone && 'line-through text-muted-foreground',
@@ -228,9 +231,9 @@ function TaskActions({
   onDelete: () => void;
 }>) {
   const t = useTranslations();
-  // "Edit task" focuses the title editor. That has to wait until the menu has
-  // closed: while open it traps focus, and as it closes it hands focus back to
-  // its trigger, either of which would blur the editor straight away.
+  // "Edit task" opens the task dialog only once the menu has closed: opening a
+  // dialog while the menu is still tearing down leaves the page unclickable
+  // (both lock pointer events) and the menu's focus return fights the dialog's.
   const editOnCloseRef = React.useRef(false);
   return (
     <div className="flex items-center gap-0.5">
@@ -571,11 +574,33 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   }, [apiTask, duplicateMutation, t]);
 
   /**
-   * Edit — every field in the panel is edited in place, so "Edit task" puts
-   * the title into edit mode (the rest is already one click away).
+   * Edit — opens the same dialog used to create a task, filled in with this
+   * task; saving writes the changed fields through the panel's update path.
    */
-  const [titleEditRequest, setTitleEditRequest] = useState(0);
-  const handleEdit = useCallback(() => setTitleEditRequest((n) => n + 1), []);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const handleEdit = useCallback(() => setEditDialogOpen(true), []);
+  const handleDialogUpdate = useCallback((taskId: string, data: TaskDialogUpdate) => {
+    const update: TaskUpdateData = {
+      title: data.title,
+      description: data.description ?? '',
+      status: data.status,
+      labels: data.labels ?? [],
+    };
+    if (data.priority) update.priority = data.priority;
+    if (data.dueDate) update.dueDate = data.dueDate;
+    // The dialog echoes the estimate back on every save, and writing it
+    // re-plans the task's calendar block, so only send a real change.
+    if (data.duration !== undefined && data.duration !== task?.duration) update.duration = data.duration;
+    // No repeat in the dialog means "doesn't repeat", which clears an existing one.
+    if (data.repeat || task?.repeat) update.repeat = data.repeat ?? null;
+    if (data.assigneeIds) update.assignees = data.assigneeIds.map((id) => ({ id, name: '' }));
+    if (showCompanyField) {
+      update.linkedCompany = data.linkedCompany ?? null;
+      update.linkedPerson = data.linkedPerson ?? null;
+    }
+    handleUpdate(taskId, update);
+    setEditDialogOpen(false);
+  }, [handleUpdate, task?.duration, task?.repeat, showCompanyField]);
 
   /**
    * Copy link — the stable `/weldflow/task/{id}` URL, which resolves the
@@ -703,7 +728,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       avatar={<TaskAvatar status={task?.status} onToggle={handleToggle} />}
       title={
         task
-          ? <TaskTitle title={task.title} isDone={task.status === 'done'} onSave={(next) => handleUpdate(task.id, { title: next })} editRequest={titleEditRequest} />
+          ? <TaskTitle title={task.title} isDone={task.status === 'done'} onSave={(next) => handleUpdate(task.id, { title: next })} />
           : <div className="h-4 w-32 rounded bg-muted animate-pulse" />
       }
       // `TaskTitle` is a wrapping, auto-growing editor — without this the shell's
@@ -783,6 +808,23 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onAddDependency={projectId ? handleAddDependency : undefined}
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
           />
+      )}
+      {task && (
+        <TaskDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          editingTask={task}
+          availableAssignees={availableAssignees}
+          availableCompanies={availableCompanies}
+          availablePeople={availablePeople}
+          hideRecord={!showCompanyField}
+          availableLabels={availableLabels}
+          onCreateLabel={handleCreateLabel}
+          projectId={projectId ?? undefined}
+          onSave={() => {}}
+          onUpdate={handleDialogUpdate}
+          isPending={updateMutation.isPending}
+        />
       )}
       <ConfirmDialog
         open={confirmDeleteOpen}

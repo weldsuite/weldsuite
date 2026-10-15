@@ -171,6 +171,8 @@ interface TaskDialogProps {
     description?: string;
     status: Task['status'];
     priority?: 'low' | 'medium' | 'high';
+    /** The assignees picked in the dialog (empty = none). */
+    assigneeIds?: string[];
     dueDate?: Date;
     duration?: number;
     linkedCompany?: { id: string; name: string } | null;
@@ -1325,6 +1327,7 @@ export function TaskDialog({
     if (editingTask) {
       onUpdate(editingTask.id, {
         ...common,
+        assigneeIds: assigneeList,
         linkedCompany: record && !isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,
         linkedPerson: record && isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,
       });

@@ -8,11 +8,6 @@ interface InlineTextEditorProps {
   onSave: (next: string) => void;
   /** Typography/colour classes shared by the idle and the editing state. */
   className?: string;
-  /**
-   * Bump to open the editor from outside (e.g. an "Edit" menu item). Each new
-   * value starts an edit; the initial value does nothing.
-   */
-  editRequest?: number;
 }
 
 /**
@@ -23,7 +18,7 @@ interface InlineTextEditorProps {
  * committed value so nothing flashes back to a stale prop while the API
  * update is in flight.
  */
-export function InlineTextEditor({ value, onSave, className, editRequest }: Readonly<InlineTextEditorProps>) {
+export function InlineTextEditor({ value, onSave, className }: Readonly<InlineTextEditorProps>) {
   const [isEditing, setIsEditing] = useState(false);
   const [local, setLocal] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -42,15 +37,6 @@ export function InlineTextEditor({ value, onSave, className, editRequest }: Read
     if (isEditingRef.current) return;
     setLocal(value);
   }, [value]);
-
-  // Enter edit mode when a caller bumps `editRequest`, not on mount.
-  const lastEditRequestRef = useRef(editRequest);
-  useEffect(() => {
-    if (editRequest === lastEditRequestRef.current) return;
-    lastEditRequestRef.current = editRequest;
-    finishedRef.current = false;
-    setIsEditing(true);
-  }, [editRequest]);
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
