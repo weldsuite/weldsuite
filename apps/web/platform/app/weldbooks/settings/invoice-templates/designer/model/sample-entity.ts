@@ -17,6 +17,11 @@ type EntityLike = Partial<InvoicePdfEntity> & { id?: string };
 
 const has = (value: string | null | undefined) => Boolean(value && value.trim());
 
+function sampleBankDetails(northAmerica: boolean, bankName: string) {
+  if (northAmerica) return { bankName, routingNumber: '021000021', accountNumber: '000123456789' };
+  return { bankName, iban: 'NL91 ABNA 0417 1643 00', bic: 'ABNANL2A' };
+}
+
 export function withSampleContent<T extends EntityLike>(entity: T | undefined, samples: SampleTexts): InvoicePdfEntity {
   const base: EntityLike = entity ?? {};
   const branding = base.branding ?? {};
@@ -33,10 +38,6 @@ export function withSampleContent<T extends EntityLike>(entity: T | undefined, s
       paymentInstructions: has(branding.paymentInstructions) ? branding.paymentInstructions : samples.paymentInstructions,
       termsAndConditions: has(branding.termsAndConditions) ? branding.termsAndConditions : samples.terms,
     },
-    bankDetails: hasBank
-      ? bank
-      : northAmerica
-        ? { bankName: samples.bankName, routingNumber: '021000021', accountNumber: '000123456789' }
-        : { bankName: samples.bankName, iban: 'NL91 ABNA 0417 1643 00', bic: 'ABNANL2A' },
+    bankDetails: hasBank ? bank : sampleBankDetails(northAmerica, samples.bankName),
   };
 }

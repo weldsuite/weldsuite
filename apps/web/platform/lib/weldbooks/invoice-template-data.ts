@@ -5,7 +5,7 @@
  * per-jurisdiction tax rows, India's HSN/SAC and place of supply, Brazil's tax
  * groups, NCM / CFOP and Pix, and the exempt-sale notice.
  */
-import type { InvoiceDocumentData, TableColumnData, TotalsRowData } from '@weldsuite/books-domain/invoice-template/data';
+import type { InvoiceDocumentData, LegalData, TableColumnData, TableRowData, TotalsRowData } from '@weldsuite/books-domain/invoice-template/data';
 import type { LineItemColumnKey } from '@weldsuite/books-domain/invoice-template/schema';
 import type { TranslationNamespaces } from '@weldsuite/i18n/types';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
@@ -47,38 +47,42 @@ type LooseInvoice = InvoiceWithTax & { paymentTermsDays?: number | null; discoun
 
 const positive = (value: string | number | null | undefined) => Number(value ?? 0) > 0;
 
-export function buildInvoiceDocumentData(
-  invoice: InvoiceWithTax,
-  entity: InvoicePdfEntity,
-  options: InvoiceTemplateDataOptions,
-  customer?: InvoiceCustomer,
-): InvoiceDocumentData {
-  const { pdfLabels: pl, labels: dl } = options;
-  const inv = invoice as LooseInvoice;
+/** What every part of the document needs: the invoice, the labels and the formatters. */
+interface DataCtx {
+  invoice: LooseInvoice;
+  entity: InvoicePdfEntity;
+  options: InvoiceTemplateDataOptions;
+  pl: InvoicePdfLabels;
+  dl: InvoiceTemplateDocumentLabels;
+  locale: string | undefined;
+  currency: string | null;
+  money: (value: string | number | null | undefined) => string;
+  gst: boolean;
+  br: boolean;
+}
+
+function dataCtx(invoice: InvoiceWithTax, entity: InvoicePdfEntity, options: InvoiceTemplateDataOptions): DataCtx {
   const locale = entity.locale || undefined;
   const currency = invoice.currency || entity.baseCurrency || null;
-  const money = (value: string | number | null | undefined) => formatCurrency(value, currency, locale);
-  const formatDate = options.formatDate ?? defaultFormatDate(locale);
   const jurisdiction = entity.jurisdictionCode?.toUpperCase();
-  const gst = jurisdiction === 'IN';
-  const br = jurisdiction === 'BR' || Boolean(options.br);
-  const addressLines = (address: unknown) =>
-    formatPostalAddressLines(normalizeAccountingAddress(address as never), { countryName: options.countryName });
+  return {
+    invoice: invoice as LooseInvoice,
+    entity,
+    options,
+    pl: options.pdfLabels,
+    dl: options.labels,
+    locale,
+    currency,
+    money: (value) => formatCurrency(value, currency, locale),
+    gst: jurisdiction === 'IN',
+    br: jurisdiction === 'BR' || Boolean(options.br),
+  };
+}
 
-  // Seller
-  const ids = entity.taxIdentifiers;
-  const sellerTaxId = ids?.vatNumber || printableEin(ids?.einOrSsn);
-  const bank = entity.bankDetails;
-
-  // Buyer
-  const billing = normalizeAccountingAddress(invoice.billingAddress);
-  const shipping = normalizeAccountingAddress(invoice.shippingAddress);
-  const buyerName = customer?.name ?? invoice.contactName ?? '';
-  const buyerEmail = customer?.email ?? invoice.contactEmail ?? '';
-  const shipsElsewhere = shipping && JSON.stringify(shipping) !== JSON.stringify(billing);
-
-  // Table
-  const items = invoice.items ?? [];
+/** The columns the invoice can fill; an Indian tax invoice requires its HSN/SAC and tax amounts. */
+function tableColumns(c: DataCtx): Partial<Record<LineItemColumnKey, TableColumnData>> {
+  const { pl, dl, gst } = c;
+  const items = c.invoice.items ?? [];
   const columns: Partial<Record<LineItemColumnKey, TableColumnData>> = {
     index: { label: dl.index, align: 'right' },
     description: { label: dl.description },
@@ -91,11 +95,16 @@ export function buildInvoiceDocumentData(
   };
   if (items.some((item) => item.unit)) columns.unit = { label: dl.unit };
   if (items.some((item) => positive(item.discountPercent))) columns.discount = { label: dl.discount, align: 'right' };
-  // An Indian tax invoice names each line's HSN/SAC code.
   if (gst) columns.hsnSac = { label: pl.hsnSac ?? 'HSN/SAC', required: true };
+  return columns;
+}
 
-  const rows = items.map((item, i) => {
-    const codes = br ? brLineCodes(item, pl) : null;
+/** The line items; a Brazilian line prints its NCM / CFOP under the description. */
+function tableRows(c: DataCtx): TableRowData[] {
+  const { money, locale } = c;
+  const percent = (value: string) => `${formatWeldbooksNumber(value, locale)}%`;
+  return (c.invoice.items ?? []).map((item, i) => {
+    const codes = c.br ? brLineCodes(item, c.pl) : null;
     return {
       cells: {
         index: String(i + 1),
@@ -104,8 +113,8 @@ export function buildInvoiceDocumentData(
         quantity: formatWeldbooksNumber(item.quantity ?? '1', locale),
         unit: item.unit ?? '',
         unitPrice: money(item.unitPrice),
-        discount: positive(item.discountPercent) ? `${formatWeldbooksNumber(item.discountPercent ?? '0', locale)}%` : '',
-        taxRate: item.taxRate ? `${formatWeldbooksNumber(item.taxRate, locale)}%` : '-',
+        discount: positive(item.discountPercent) ? percent(item.discountPercent ?? '0') : '',
+        taxRate: item.taxRate ? percent(item.taxRate) : '-',
         taxAmount: money(item.taxAmount),
         amount: money(item.lineTotal),
         amountWithTax: money(item.lineTotalWithTax ?? item.lineTotal),
@@ -113,11 +122,27 @@ export function buildInvoiceDocumentData(
       subLines: codes ? [codes] : undefined,
     };
   });
+}
 
-  // Totals
+/** Brazil: taxes inside the price and the CBS / IBS test amounts, for information under the total. */
+function brInformationRows(c: DataCtx, brTotals: ReturnType<typeof brTotalsOf>): TotalsRowData[] {
+  const groups: Array<[string | undefined, Array<{ label: string; amount: number }>]> = [
+    [c.pl.br?.includedTaxes, brTotals.embedded],
+    [c.pl.br?.informationalTaxes, brTotals.informational],
+  ];
+  return groups
+    .filter(([, rows]) => rows.length > 0)
+    .flatMap(([title, rows]) => [
+      { label: title ?? '', value: '', kind: 'heading' as const },
+      ...rows.map((row) => ({ label: row.label, value: c.money(row.amount), kind: 'muted' as const })),
+    ]);
+}
+
+function totalsRows(c: DataCtx): TotalsRowData[] {
+  const { invoice, pl, money } = c;
   const totals: TotalsRowData[] = [{ label: pl.subtotal, value: money(invoice.subtotal) }];
-  if (positive(inv.discountTotal)) totals.push({ label: dl.discount, value: '-' + money(inv.discountTotal) });
-  const brTotals = br ? brTotalsOf(invoice) : null;
+  if (positive(invoice.discountTotal)) totals.push({ label: c.dl.discount, value: '-' + money(invoice.discountTotal) });
+  const brTotals = c.br ? brTotalsOf(invoice) : null;
   const taxRows = brTotals ? [...brTotals.added, ...brTotals.withheld] : taxRowsOf(invoice, pl);
   for (const row of taxRows) totals.push({ label: row.label, value: money(row.amount) });
   totals.push({ label: brTotals ? (pl.br?.netAmount ?? pl.total) : pl.total, value: money(invoice.total), kind: 'total' });
@@ -125,19 +150,13 @@ export function buildInvoiceDocumentData(
     totals.push({ label: pl.paid, value: '-' + money(invoice.amountPaid), kind: 'muted' });
     totals.push({ label: pl.balanceDue, value: money(invoice.balanceDue), kind: 'balance' });
   }
-  if (brTotals) {
-    const info: Array<[string | undefined, Array<{ label: string; amount: number }>]> = [
-      [pl.br?.includedTaxes, brTotals.embedded],
-      [pl.br?.informationalTaxes, brTotals.informational],
-    ];
-    for (const [title, groupRows] of info) {
-      if (groupRows.length === 0) continue;
-      totals.push({ label: title ?? '', value: '', kind: 'heading' });
-      for (const row of groupRows) totals.push({ label: row.label, value: money(row.amount), kind: 'muted' });
-    }
-  }
+  if (brTotals) totals.push(...brInformationRows(c, brTotals));
+  return totals;
+}
 
-  // Legal
+/** The exempt-sale notice, Brazil's regime statements, fiscal document and Pix. */
+function legalData(c: DataCtx): LegalData {
+  const { invoice, pl, options } = c;
   const notices: string[] = [];
   if (pl.exempt && hasExemptRows(invoice.taxBreakdown)) {
     notices.push(exemptNoticeText(pl.exempt, exemptReasonsOf(invoice.taxBreakdown), options.certificateNumbers ?? []));
@@ -145,40 +164,76 @@ export function buildInvoiceDocumentData(
   notices.push(...(options.br?.notices ?? []));
   const fiscal = options.br?.fiscalDocument;
   const pix = options.br?.pix;
-
-  const placeOfSupply = gst && invoice.placeOfSupply ? placeOfSupplyName(invoice.placeOfSupply, pl.outsideIndia ?? 'Outside India') : '';
-  const balanceDue = invoice.balanceDue ?? invoice.total;
-
+  const fiscalNumber = fiscal?.number ? (pl.br?.fiscalDocumentNumber ?? '{number}').replace('{number}', fiscal.number) : '';
+  const accessKey = fiscal?.accessKey ? fiscal.accessKey.replace(/(\d{4})(?=\d)/g, '$1 ') : '';
   return {
-    fields: {
-      title: invoice.type === 'credit_note' ? dl.creditNote : dl.invoice,
-      invoiceNumber: invoice.invoiceNumber ?? '',
-      issueDate: formatDate(invoice.issueDate),
-      dueDate: formatDate(invoice.dueDate),
-      reference: invoice.reference ?? '',
-      placeOfSupply,
-      currency: currency ?? '',
-      total: money(invoice.total),
-      balanceDue: money(balanceDue),
-      amountPaid: positive(invoice.amountPaid) ? money(invoice.amountPaid) : '',
-      paymentTerms: inv.paymentTermsDays ? dl.paymentTermsDays.replace('{days}', String(inv.paymentTermsDays)) : '',
-      customerName: buyerName,
-      customerEmail: buyerEmail,
-      customerTaxId: invoice.contactTaxNumber ?? '',
-      sellerName: entity.name,
-      sellerLegalName: entity.legalName || entity.name,
-      sellerEmail: entity.contact?.email ?? '',
-      sellerPhone: entity.contact?.phone ?? '',
-      sellerWebsite: entity.contact?.website ?? '',
-      sellerTaxId: sellerTaxId ?? '',
-      sellerRegistrationId: ids?.registrationNumber ?? '',
-      sellerIban: bank?.iban ?? '',
-      sellerBic: bank?.bic ?? '',
-      footerText: entity.branding?.footerText ?? '',
-    },
-    fieldLabels: { ...dl.fields, placeOfSupply: pl.placeOfSupply ?? dl.fields.placeOfSupply, sellerTaxId: pl.taxId, sellerRegistrationId: pl.registrationId },
-    labels: { from: dl.from, billTo: dl.billTo, shipTo: dl.shipTo, payment: dl.payment, notes: dl.notes, terms: dl.terms, page: pl.page },
-    logoUrl: entity.branding?.logoUrl ?? null,
+    notices,
+    fiscalDocument: fiscal
+      ? [[fiscal.label, fiscalNumber].filter(Boolean).join(' '), accessKey ? `${pl.br?.accessKey ?? ''}: ${accessKey}` : ''].filter(Boolean)
+      : null,
+    pix: pix ? { title: pl.br?.pixPayment ?? 'Pix', key: pix.key, payload: pix.payload, matrix: pixQrMatrix(pix.payload) } : null,
+  };
+}
+
+/** Bank name and IBAN / BIC, or routing and account number. */
+function bankLines(c: DataCtx): string[] {
+  const bank = c.entity.bankDetails;
+  if (!bank) return [];
+  const { pl } = c;
+  const account = bank.iban
+    ? [`${pl.iban}: ${bank.iban}`, bank.bic ? `${pl.bic}: ${bank.bic}` : '']
+    : [bank.routingNumber ? `${pl.routingNumber}: ${bank.routingNumber}` : '', bank.accountNumber ? `${pl.accountNumber}: ${bank.accountNumber}` : ''];
+  return [bank.bankName ? `${pl.bank}: ${bank.bankName}` : '', ...account].filter(Boolean);
+}
+
+interface Buyer {
+  name: string;
+  email: string;
+}
+
+function fieldValues(c: DataCtx, buyer: Buyer): InvoiceDocumentData['fields'] {
+  const { invoice, entity, dl, money } = c;
+  const formatDate = c.options.formatDate ?? defaultFormatDate(c.locale);
+  const ids = entity.taxIdentifiers;
+  const placeOfSupply = c.gst && invoice.placeOfSupply ? placeOfSupplyName(invoice.placeOfSupply, c.pl.outsideIndia ?? 'Outside India') : '';
+  return {
+    title: invoice.type === 'credit_note' ? dl.creditNote : dl.invoice,
+    invoiceNumber: invoice.invoiceNumber ?? '',
+    issueDate: formatDate(invoice.issueDate),
+    dueDate: formatDate(invoice.dueDate),
+    reference: invoice.reference ?? '',
+    placeOfSupply,
+    currency: c.currency ?? '',
+    total: money(invoice.total),
+    balanceDue: money(invoice.balanceDue ?? invoice.total),
+    amountPaid: positive(invoice.amountPaid) ? money(invoice.amountPaid) : '',
+    paymentTerms: invoice.paymentTermsDays ? dl.paymentTermsDays.replace('{days}', String(invoice.paymentTermsDays)) : '',
+    customerName: buyer.name,
+    customerEmail: buyer.email,
+    customerTaxId: invoice.contactTaxNumber ?? '',
+    sellerName: entity.name,
+    sellerLegalName: entity.legalName || entity.name,
+    sellerEmail: entity.contact?.email ?? '',
+    sellerPhone: entity.contact?.phone ?? '',
+    sellerWebsite: entity.contact?.website ?? '',
+    sellerTaxId: ids?.vatNumber || printableEin(ids?.einOrSsn) || '',
+    sellerRegistrationId: ids?.registrationNumber ?? '',
+    sellerIban: entity.bankDetails?.iban ?? '',
+    sellerBic: entity.bankDetails?.bic ?? '',
+    footerText: entity.branding?.footerText ?? '',
+  };
+}
+
+function parties(c: DataCtx, buyer: Buyer): Pick<InvoiceDocumentData, 'seller' | 'billTo' | 'shipTo'> {
+  const { invoice, entity, pl } = c;
+  const addressLines = (address: unknown) =>
+    formatPostalAddressLines(normalizeAccountingAddress(address as never), { countryName: c.options.countryName });
+  const ids = entity.taxIdentifiers;
+  const sellerTaxId = ids?.vatNumber || printableEin(ids?.einOrSsn);
+  const billing = normalizeAccountingAddress(invoice.billingAddress);
+  const shipping = normalizeAccountingAddress(invoice.shippingAddress);
+  const shipsElsewhere = shipping && JSON.stringify(shipping) !== JSON.stringify(billing);
+  return {
     seller: {
       name: entity.legalName || entity.name,
       lines: addressLines(entity.address),
@@ -189,38 +244,37 @@ export function buildInvoiceDocumentData(
       ].filter(Boolean),
     },
     billTo: {
-      name: buyerName,
+      name: buyer.name,
       lines: addressLines(billing),
-      contactLines: buyerEmail ? [buyerEmail] : [],
+      contactLines: buyer.email ? [buyer.email] : [],
       // The buyer's VAT number / GSTIN as finalized: required on reverse-charge and GST invoices.
       taxIdLines: invoice.contactTaxNumber ? [`${pl.taxId}: ${invoice.contactTaxNumber}`] : [],
     },
-    shipTo: shipsElsewhere ? { name: buyerName, lines: addressLines(shipping) } : null,
-    table: { columns, rows },
-    totals,
-    payment: {
-      bankLines: bank
-        ? [
-            bank.bankName ? `${pl.bank}: ${bank.bankName}` : '',
-            ...(bank.iban
-              ? [`${pl.iban}: ${bank.iban}`, bank.bic ? `${pl.bic}: ${bank.bic}` : '']
-              : [bank.routingNumber ? `${pl.routingNumber}: ${bank.routingNumber}` : '', bank.accountNumber ? `${pl.accountNumber}: ${bank.accountNumber}` : '']),
-          ].filter(Boolean)
-        : [],
-      instructions: entity.branding?.paymentInstructions ?? null,
-    },
+    shipTo: shipsElsewhere ? { name: buyer.name, lines: addressLines(shipping) } : null,
+  };
+}
+
+export function buildInvoiceDocumentData(
+  invoice: InvoiceWithTax,
+  entity: InvoicePdfEntity,
+  options: InvoiceTemplateDataOptions,
+  customer?: InvoiceCustomer,
+): InvoiceDocumentData {
+  const c = dataCtx(invoice, entity, options);
+  const { pl, dl } = c;
+  const buyer: Buyer = { name: customer?.name ?? invoice.contactName ?? '', email: customer?.email ?? invoice.contactEmail ?? '' };
+  return {
+    fields: fieldValues(c, buyer),
+    fieldLabels: { ...dl.fields, placeOfSupply: pl.placeOfSupply ?? dl.fields.placeOfSupply, sellerTaxId: pl.taxId, sellerRegistrationId: pl.registrationId },
+    labels: { from: dl.from, billTo: dl.billTo, shipTo: dl.shipTo, payment: dl.payment, notes: dl.notes, terms: dl.terms, page: pl.page },
+    logoUrl: entity.branding?.logoUrl ?? null,
+    ...parties(c, buyer),
+    table: { columns: tableColumns(c), rows: tableRows(c) },
+    totals: totalsRows(c),
+    payment: { bankLines: bankLines(c), instructions: entity.branding?.paymentInstructions ?? null },
     notes: invoice.notes,
     terms: entity.branding?.termsAndConditions ?? null,
-    legal: {
-      notices,
-      fiscalDocument: fiscal
-        ? [
-            [fiscal.label, fiscal.number ? (pl.br?.fiscalDocumentNumber ?? '{number}').replace('{number}', fiscal.number) : ''].filter(Boolean).join(' '),
-            fiscal.accessKey ? `${pl.br?.accessKey ?? ''}: ${fiscal.accessKey.replace(/(\d{4})(?=\d)/g, '$1 ')}` : '',
-          ].filter(Boolean)
-        : null,
-      pix: pix ? { title: pl.br?.pixPayment ?? 'Pix', key: pix.key, payload: pix.payload, matrix: pixQrMatrix(pix.payload) } : null,
-    },
+    legal: legalData(c),
     draft: invoice.status === 'draft' ? { banner: dl.draftBanner, watermark: dl.draftWatermark } : null,
   };
 }

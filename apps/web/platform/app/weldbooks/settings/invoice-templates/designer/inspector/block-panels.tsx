@@ -168,6 +168,7 @@ export function ImagePanel({ block, update }: Readonly<P<'image'>>) {
   const id = useId();
 
   const isPlaceholder = isPlaceholderImage(block.src);
+  const imageButtonLabel = isPlaceholder ? ti.image.upload : ti.image.replace;
   const shownUrl = url ?? (isPlaceholder ? '' : block.src);
   const invalid = url !== null && url.trim() !== '' && !IMAGE_URL.test(url.trim());
 
@@ -203,7 +204,7 @@ export function ImagePanel({ block, update }: Readonly<P<'image'>>) {
         onClick={() => fileRef.current?.click()}
       >
         {uploading ? <Loader2 className="animate-spin" aria-hidden /> : <ImageUp aria-hidden />}
-        {uploading ? ti.branding.uploading : isPlaceholder ? ti.image.upload : ti.image.replace}
+        {uploading ? ti.branding.uploading : imageButtonLabel}
       </Button>
       <Field label={ti.image.url} htmlFor={id} hint={invalid ? undefined : ti.image.help}>
         <Input

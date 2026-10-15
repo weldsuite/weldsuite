@@ -85,26 +85,38 @@ export function ascentRatio(face: FontFace): number {
  */
 export function wrapText(text: string, size: number, face: FontFace, maxWidth: number): string[] {
   const fits = (value: string) => textWidth(value, size, face) <= maxWidth;
+  return text.split(/\r?\n/).flatMap((paragraph) => wrapParagraph(normalizeText(paragraph), fits));
+}
+
+function wrapParagraph(paragraph: string, fits: (value: string) => boolean): string[] {
   const lines: string[] = [];
-  for (const paragraph of text.split(/\r?\n/)) {
-    let current = '';
-    for (const word of normalizeText(paragraph).split(/ +/).filter(Boolean)) {
-      const candidate = current ? `${current} ${word}` : word;
-      if (fits(candidate)) {
-        current = candidate;
-        continue;
-      }
-      if (current) lines.push(current);
-      current = '';
-      for (const ch of word) {
-        if (current && !fits(current + ch)) {
-          lines.push(current);
-          current = '';
-        }
-        current += ch;
-      }
+  let current = '';
+  for (const word of paragraph.split(/ +/).filter(Boolean)) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (fits(candidate)) {
+      current = candidate;
+      continue;
     }
-    lines.push(current);
+    if (current) lines.push(current);
+    const pieces = breakWord(word, fits);
+    lines.push(...pieces.slice(0, -1));
+    current = pieces[pieces.length - 1];
   }
+  lines.push(current);
   return lines;
+}
+
+/** A word in pieces that each fit the line; a single piece when the whole word fits. */
+function breakWord(word: string, fits: (value: string) => boolean): string[] {
+  const pieces: string[] = [];
+  let piece = '';
+  for (const ch of word) {
+    if (piece && !fits(piece + ch)) {
+      pieces.push(piece);
+      piece = '';
+    }
+    piece += ch;
+  }
+  pieces.push(piece);
+  return pieces;
 }

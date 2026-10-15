@@ -241,6 +241,13 @@ function labelPiece(label: LabelStyle | undefined, fallback: string, ctx: Ctx, a
   return { text: [label?.text ?? fallback], style: labelStyle(label, ctx, align) };
 }
 
+/** Seller: email / phone / website; bill to: the email; ship to: none. */
+function partyShowsContact(block: BlockOf<'seller'> | BlockOf<'billTo'> | BlockOf<'shipTo'>): boolean {
+  if (block.type === 'seller') return block.showContact !== false;
+  if (block.type === 'billTo') return block.showEmail !== false;
+  return false;
+}
+
 function measureParty(
   block: BlockOf<'seller'> | BlockOf<'billTo'> | BlockOf<'shipTo'>,
   party: PartyData | null | undefined,
@@ -251,7 +258,7 @@ function measureParty(
   if (!party || (!party.name && party.lines.length === 0)) return NOTHING;
   const body = textStyle(block.style, ctx);
   const nameStyle: ResolvedText = { ...body, face: { ...body.face, bold: block.boldName ?? true } };
-  const showContact = block.type === 'seller' ? block.showContact !== false : block.type === 'billTo' ? block.showEmail !== false : false;
+  const showContact = partyShowsContact(block);
   const showTaxIds = block.type === 'seller' ? block.showTaxIds !== false : true;
   if (block.inline) {
     const parts = [party.name, ...party.lines, ...(showContact ? (party.contactLines ?? []) : []), ...(showTaxIds ? (party.taxIdLines ?? []) : [])];
@@ -691,24 +698,25 @@ interface FlowItem {
   h: number;
 }
 
-export function layoutInvoice(template: InvoiceTemplateDocument, data: InvoiceDocumentData): InvoiceLayout {
-  const size = PAPER_SIZES[template.paperSize];
-  const ctx: Ctx = { theme: template.theme, data };
-  const visible = template.blocks.filter((b) => !b.hidden);
-  const table = visible.find((b): b is BlockOf<'lineItems'> => b.type === 'lineItems');
-  if (!table) throw new Error('Invoice template has no line-items table');
+interface Band {
+  /** Where continuation pages start. */
+  top: number;
+  /** Where the body stops on every page (above the footer band). */
+  bottom: number;
+}
 
-  let currentPage = { page: 1, total: 1 };
-  const pageInfo = () => currentPage;
+/** The body of a page: margins, and the header and footer bands repeating blocks keep free. */
+function bodyBand(template: InvoiceTemplateDocument, repeating: TemplateBlock[]): Band {
+  const { height } = PAPER_SIZES[template.paperSize];
+  const inTopHalf = (b: TemplateBlock) => b.y + b.h / 2 < height / 2;
+  return {
+    top: Math.max(template.margins.top, ...repeating.filter(inTopHalf).map((b) => b.y + b.h + 8)),
+    bottom: Math.min(height - template.margins.bottom, ...repeating.filter((b) => !inTopHalf(b)).map((b) => b.y - 8)),
+  };
+}
 
-  // Bands kept free on continuation pages by repeating blocks.
-  const repeating = visible.filter((b) => b.everyPage && b.type !== 'lineItems');
-  const half = size.height / 2;
-  const bodyTop = Math.max(template.margins.top, ...repeating.filter((b) => b.y + b.h / 2 < half).map((b) => b.y + b.h + 8));
-  const bodyBottom = Math.min(size.height - template.margins.bottom, ...repeating.filter((b) => b.y + b.h / 2 >= half).map((b) => b.y - 8));
-
-  // Implicit blocks: totals and legal content are never dropped.
-  const flowing = visible.filter((b) => !b.everyPage && b.type !== 'lineItems');
+/** Totals and legal content are never dropped: blocks for them under the last one when a template has none. */
+function implicitBlocks(flowing: TemplateBlock[], table: BlockOf<'lineItems'>, data: InvoiceDocumentData): TemplateBlock[] {
   const extra: TemplateBlock[] = [];
   const tableBottom = table.y + table.h;
   const lastBottom = () => Math.max(tableBottom, ...[...flowing, ...extra].filter((b) => b.y >= tableBottom).map((b) => b.y + b.h));
@@ -719,15 +727,116 @@ export function layoutInvoice(template: InvoiceTemplateDocument, data: InvoiceDo
   if (!flowing.some((b) => b.type === 'legal') && hasLegalContent(data)) {
     extra.push({ id: '__legal', type: 'legal', x: table.x, y: lastBottom() + 14, w: table.w, h: 10 });
   }
+  return extra;
+}
 
+/** Pages that grow on demand. */
+function pageList() {
   const pages: LayoutPage[] = [{ primitives: [] }];
-  const placements: BlockPlacement[] = [];
-  const ensurePage = (n: number) => {
-    while (pages.length <= n) pages.push({ primitives: [] });
+  return {
+    pages,
+    on(n: number): Primitive[] {
+      while (pages.length <= n) pages.push({ primitives: [] });
+      return pages[n].primitives;
+    },
   };
+}
 
-  const measureAll = (blocks: TemplateBlock[]): FlowItem[] =>
-    blocks.map((block) => {
+interface PagePoint {
+  page: number;
+  y: number;
+}
+
+/** Paints the table from `top`, breaking pages and repeating its header; returns where it started and ended. */
+function paintTable(
+  table: BlockOf<'lineItems'>,
+  ctx: Ctx,
+  top: number,
+  band: Band,
+  on: (page: number) => Primitive[],
+): { start: PagePoint; end: PagePoint } {
+  const { headerRow, rows } = tableParts(table, ctx);
+  // When not even the header and one row fit, the table starts on the next page.
+  const start = top + headerRow.height + (rows[0]?.height ?? 0) > band.bottom ? { page: 1, y: band.top } : { page: 0, y: top };
+  let { page, y } = start;
+  const header = () => {
+    on(page).push(...headerRow.paint(table.x, y, 0));
+    y += headerRow.height;
+  };
+  header();
+  rows.forEach((row, i) => {
+    if (y + row.height > band.bottom && y > band.top + headerRow.height + 0.5) {
+      page += 1;
+      y = band.top;
+      header();
+    }
+    on(page).push(...row.paint(table.x, y, i));
+    y += row.height;
+  });
+  return { start, end: { page, y } };
+}
+
+/** Rows of blocks under the table, moved to a new page together when they no longer fit. */
+function placeFollowing(after: FlowItem[], firstPage: number, band: Band): { placed: Placed[]; lastPage: number } {
+  const placed: Placed[] = [];
+  let pageShift = 0;
+  let page = firstPage;
+  for (const row of groupRows(after)) {
+    const top = Math.min(...row.map((r) => r.top)) + pageShift;
+    const bottom = Math.max(...row.map((r) => r.top + r.h)) + pageShift;
+    if (bottom > band.bottom && top > band.top + 0.5) {
+      page += 1;
+      pageShift += band.top - top;
+    }
+    for (const r of row) placed.push({ block: r.block, measured: r.measured, page, y: r.top + pageShift, h: r.h });
+  }
+  return { placed, lastPage: page };
+}
+
+function placementOf(p: Placed): BlockPlacement {
+  return {
+    id: p.block.id,
+    page: p.page,
+    x: p.block.x,
+    y: p.y,
+    w: p.block.w,
+    h: p.h,
+    grew: p.h > p.block.h + 0.5,
+    moved: p.page !== 0 || Math.abs(p.y - p.block.y) > 0.5,
+  };
+}
+
+/** A draft's watermark on every page and its banner on the first. */
+function markDraft(pages: LayoutPage[], draft: NonNullable<InvoiceDocumentData['draft']>, ctx: Ctx, width: number) {
+  const face = { font: ctx.theme.font, bold: true };
+  pages.forEach((pg, i) => {
+    pg.primitives.push({ kind: 'watermark', text: draft.watermark, size: 80, color: '#c0392b', face });
+    if (i === 0) {
+      const style: ResolvedText = { size: 8, face, color: '#c0392b', align: 'center', lineHeight: 1.3, uppercase: true };
+      pg.primitives.push(...setText(draft.banner, style, 24, 10, width - 48).primitives);
+    }
+  });
+}
+
+export function layoutInvoice(template: InvoiceTemplateDocument, data: InvoiceDocumentData): InvoiceLayout {
+  const size = PAPER_SIZES[template.paperSize];
+  const ctx: Ctx = { theme: template.theme, data };
+  const visible = template.blocks.filter((b) => !b.hidden);
+  const table = visible.find((b): b is BlockOf<'lineItems'> => b.type === 'lineItems');
+  if (!table) throw new Error('Invoice template has no line-items table');
+
+  let currentPage = { page: 1, total: 1 };
+  const pageInfo = () => currentPage;
+  const repeating = visible.filter((b) => b.everyPage && b.type !== 'lineItems');
+  const band = bodyBand(template, repeating);
+  const flowing = visible.filter((b) => !b.everyPage && b.type !== 'lineItems');
+  const blocks = [...flowing, ...implicitBlocks(flowing, table, data)];
+  const tableBottom = table.y + table.h;
+  const { pages, on } = pageList();
+  const placements: BlockPlacement[] = [];
+
+  const measureAll = (list: TemplateBlock[]): FlowItem[] =>
+    list.map((block) => {
       const pad = block.box?.padding ?? 0;
       const measured = measureBlock(block, ctx, Math.max(1, block.w - 2 * pad), pageInfo);
       const contentH = measured.fixed ? block.h : measured.height + 2 * pad;
@@ -735,105 +844,50 @@ export function layoutInvoice(template: InvoiceTemplateDocument, data: InvoiceDo
     });
 
   // 1. Blocks above (or beside) the table, on the first page; they can push the table down.
-  const before = measureAll([...flowing, ...extra].filter((b) => b.y < tableBottom));
-  const after = measureAll([...flowing, ...extra].filter((b) => b.y >= tableBottom));
+  const before = measureAll(blocks.filter((b) => b.y < tableBottom));
+  const after = measureAll(blocks.filter((b) => b.y >= tableBottom));
   const tableItem: FlowItem = { block: table, measured: NOTHING, x: table.x, w: table.w, top: table.y, minH: table.h, h: table.h };
   pushDown([...before, tableItem]);
-  const placed: Placed[] = before.map((b) => ({ block: b.block, measured: b.measured, page: 0, y: b.top, h: b.h }));
 
-  // 2. The table, split over pages.
-  const { headerRow, rows } = tableParts(table, ctx);
-  let page = 0;
-  let y = tableItem.top;
-  if (y + headerRow.height + (rows[0]?.height ?? 0) > bodyBottom) {
-    page = 1;
-    y = bodyTop;
-  }
-  const tableStart = { page, y };
-  ensurePage(page);
-  pages[page].primitives.push(...headerRow.paint(table.x, y, 0));
-  y += headerRow.height;
-  rows.forEach((row, i) => {
-    if (y + row.height > bodyBottom && y > bodyTop + headerRow.height + 0.5) {
-      page += 1;
-      ensurePage(page);
-      y = bodyTop;
-      pages[page].primitives.push(...headerRow.paint(table.x, y, 0));
-      y += headerRow.height;
-    }
-    pages[page].primitives.push(...row.paint(table.x, y, i));
-    y += row.height;
-  });
-  const tableEnd = { page, y };
-  // On a single page the table keeps at least its designed height.
-  const designedEnd = tableStart.page === tableEnd.page ? Math.max(tableEnd.y, tableItem.top + table.h) : tableEnd.y;
+  // 2. The table, split over pages. On a single page it keeps at least its designed height.
+  const { start, end } = paintTable(table, ctx, tableItem.top, band, on);
+  const onePage = start.page === end.page;
+  const designedEnd = onePage ? Math.max(end.y, tableItem.top + table.h) : end.y;
   placements.push({
     id: table.id,
-    page: tableStart.page,
+    page: start.page,
     x: table.x,
-    y: tableStart.y,
+    y: start.y,
     w: table.w,
-    h: tableStart.page === tableEnd.page ? designedEnd - tableStart.y : bodyBottom - tableStart.y,
-    grew: tableEnd.page !== tableStart.page || tableEnd.y > tableItem.top + table.h + 0.5,
-    moved: tableStart.page !== 0 || Math.abs(tableStart.y - table.y) > 0.5,
+    h: onePage ? designedEnd - start.y : band.bottom - start.y,
+    grew: !onePage || end.y > tableItem.top + table.h + 0.5,
+    moved: start.page !== 0 || Math.abs(start.y - table.y) > 0.5,
   });
 
   // 3. Blocks below the table follow it, keeping their distance to it.
   for (const item of after) item.top = designedEnd + (item.block.y - tableBottom);
   pushDown(after);
-  const rowsOf = groupRows(after);
-  let pageShift = 0;
-  let afterPage = tableEnd.page;
-  for (const row of rowsOf) {
-    const top = Math.min(...row.map((r) => r.top)) + pageShift;
-    const bottom = Math.max(...row.map((r) => r.top + r.h)) + pageShift;
-    if (bottom > bodyBottom && top > bodyTop + 0.5) {
-      afterPage += 1;
-      pageShift += bodyTop - top;
-    }
-    for (const r of row) placed.push({ block: r.block, measured: r.measured, page: afterPage, y: r.top + pageShift, h: r.h });
-  }
-  const pageCount = Math.max(afterPage, tableEnd.page) + 1;
-  ensurePage(pageCount - 1);
+  const following = placeFollowing(after, end.page, band);
+  const placed: Placed[] = [...before.map((b) => ({ block: b.block, measured: b.measured, page: 0, y: b.top, h: b.h })), ...following.placed];
+  const pageCount = Math.max(following.lastPage, end.page) + 1;
+  on(pageCount - 1);
 
-  // 4. Paint flowing blocks, then the repeating ones on every page.
+  // 4. Paint flowing blocks, then the repeating ones on every page, underneath the rest (a letterhead band behind the title).
   for (const p of placed) {
     currentPage = { page: p.page + 1, total: pageCount };
-    pages[p.page].primitives.push(...paintBlock(p.block, p.measured, p.block.x, p.y, p.h, ctx));
-    if (!p.block.id.startsWith('__')) {
-      placements.push({
-        id: p.block.id,
-        page: p.page,
-        x: p.block.x,
-        y: p.y,
-        w: p.block.w,
-        h: p.h,
-        grew: p.h > p.block.h + 0.5,
-        moved: p.page !== 0 || Math.abs(p.y - p.block.y) > 0.5,
-      });
-    }
+    on(p.page).push(...paintBlock(p.block, p.measured, p.block.x, p.y, p.h, ctx));
+    if (!p.block.id.startsWith('__')) placements.push(placementOf(p));
   }
-  // Repeating blocks go underneath the rest (a letterhead band behind the title).
   const repeatingMeasured = measureAll(repeating);
   pages.forEach((pg, i) => {
     currentPage = { page: i + 1, total: pageCount };
-    const band = repeatingMeasured.flatMap((r) => paintBlock(r.block, r.measured, r.block.x, r.block.y, r.h, ctx));
-    pg.primitives.unshift(...band);
+    pg.primitives.unshift(...repeatingMeasured.flatMap((r) => paintBlock(r.block, r.measured, r.block.x, r.block.y, r.h, ctx)));
   });
   for (const r of repeatingMeasured) {
     placements.push({ id: r.block.id, page: 0, x: r.block.x, y: r.block.y, w: r.block.w, h: r.h, grew: r.h > r.block.h + 0.5, moved: false });
   }
 
-  if (data.draft) {
-    pages.forEach((pg, i) => {
-      pg.primitives.push({ kind: 'watermark', text: data.draft!.watermark, size: 80, color: '#c0392b', face: { font: ctx.theme.font, bold: true } });
-      if (i === 0) {
-        const style: ResolvedText = { size: 8, face: { font: ctx.theme.font, bold: true }, color: '#c0392b', align: 'center', lineHeight: 1.3, uppercase: true };
-        pg.primitives.push(...setText(data.draft!.banner, style, 24, 10, size.width - 48).primitives);
-      }
-    });
-  }
-
+  if (data.draft) markDraft(pages, data.draft, ctx, size.width);
   return { width: size.width, height: size.height, pages, placements };
 }
 
