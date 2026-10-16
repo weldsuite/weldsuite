@@ -519,6 +519,8 @@ export const projects = {
       noReportsDescription: 'Maak uw eerste analyserapport om projectstatistieken bij te houden zoals voltooiingspercentages van taken, tijdgebruik en mijlpalvoortgang.',
       createFirstReport: 'Maak Uw Eerste Rapport',
       noDataAvailable: 'Geen gegevens beschikbaar',
+      chartsLoadFailed: 'Kon de grafiekgegevens niet laden',
+      retry: 'Opnieuw proberen',
       configure: 'Configureren',
       addChart: 'Grafiek Toevoegen',
       addChartPending: 'Toevoegen...',

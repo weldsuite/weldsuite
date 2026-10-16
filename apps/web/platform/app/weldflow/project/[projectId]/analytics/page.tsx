@@ -16,7 +16,7 @@ export default function ProjectAnalyticsPage() {
     { label: t.projects.analytics.projectAnalytics },
   ]);
 
-  const { data, isLoading } = useProjectAnalyticsReports();
+  const { data, isLoading } = useProjectAnalyticsReports(projectId);
   const reports = data?.data || [];
   const basePath = `/weldflow/project/${projectId}/analytics`;
 
@@ -27,6 +27,7 @@ export default function ProjectAnalyticsPage() {
       <AnalyticsDashboardClient projectId={projectId} />
       <AnalyticsListClient
         reports={reports}
+        projectId={projectId}
         basePath={basePath}
         embedded
         sectionTitle={t.projects.dashboard.customReports}
