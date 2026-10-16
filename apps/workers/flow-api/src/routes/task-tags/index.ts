@@ -10,7 +10,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createTaskTagSchema, updateTaskTagSchema } from '@weldsuite/core-api-client/schemas/task-tags';
@@ -18,6 +18,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { containsPattern, parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.taskTags;
@@ -26,11 +27,11 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const limit = parseLimit(q.limit, 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt), eq(t.userId, userId)];
   if (q.search) {
-    conditions.push(like(t.name, `%${q.search}%`));
+    conditions.push(ilike(t.name, containsPattern(q.search)));
   }
   if (q.cursor) {
     const [cur] = await db
@@ -89,9 +90,16 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTaskTa
   // `userId` is NOT NULL at the DB layer; derive it from the auth
   // context. Tags are user-scoped — each user manages their own.
   try {
-    await db
-      .insert(t)
-      .values({ id, ...data, userId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    // Allow-list: the schema is passthrough, so spreading the body would let a
+    // client choose the primary key (`id`) or other server-owned columns.
+    await db.insert(t).values({
+      id,
+      name: data.name,
+      color: data.color ?? null,
+      userId,
+      createdAt: now,
+      updatedAt: now,
+    });
     publishEntityEvent({
       c,
       entityType: 'task_tag',
@@ -118,8 +126,12 @@ app.patch('/:id', requirePermission('tasks:update'), zValidator('json', updateTa
       .where(and(eq(t.id, id), isNull(t.deletedAt), eq(t.userId, userId)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Task tag', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    // Allow-list, not a copy of the body: the schema is passthrough, and a loop
+    // over its keys could rewrite `id`, `userId` (hand the tag to someone else)
+    // or `deletedAt`.
+    const update: { updatedAt: Date; name?: string; color?: string } = { updatedAt: new Date() };
+    if (data.name !== undefined) update.name = data.name;
+    if (data.color !== undefined) update.color = data.color;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt), eq(t.userId, userId)));
     publishEntityEvent({
       c,
