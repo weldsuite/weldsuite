@@ -16,6 +16,7 @@ import { createPgliteDb } from './pglite';
 import { CRUD_ENTITIES } from './entities';
 import { buildCreateBody, buildUpdateBody, requiresParentFk } from './factory';
 import type { Database } from '../db';
+import { schema } from '../db';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -44,12 +45,22 @@ const CONTRACT_ONLY: Record<string, string> = {
   'social-accounts': 'platform is a postgres enum — factory value "test" rejected by DB constraint',
   // social_analytics.postId + accountId are NOT NULL FKs to parent rows.
   'social-analytics': 'needs existing social_posts + social_accounts parent rows (FK NOT NULL)',
+  // DELETE cancels the PostPeer delivery first, which looks the workspace's Clerk org up in the
+  // master DB. social-publish.test.ts covers the route with that seam mocked.
+  'social-posts': 'delete resolves the Clerk org from the master DB, which this suite does not have',
 };
 
 let db: Database;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  // The harness session acts as `user_test`. Creating a teamspace makes the actor its
+  // first owner, which requires the actor to be a workspace member.
+  await db.insert(schema.workspaceMembers).values({
+    id: 'wm_crud_actor',
+    userId: 'user_test',
+    role: 'ADMIN',
+  } as typeof schema.workspaceMembers.$inferInsert);
 }, 60_000);
 
 describe('external-api · CRUD round-trip', () => {
