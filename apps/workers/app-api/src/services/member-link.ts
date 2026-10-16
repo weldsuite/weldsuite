@@ -43,12 +43,31 @@ export interface ClerkOrgMembership {
   public_user_data: { identifier: string; first_name: string | null; last_name: string | null; image_url: string | null };
 }
 
+/** How long a Clerk lookup may hold up the request that triggered it. */
+const CLERK_TIMEOUT_MS = 5_000;
+
+/** How long a caller with nothing to link skips the Clerk lookup (KV's minimum TTL is 60s). */
+const LINK_MISS_TTL_SECONDS = 300;
+
+function linkMissKey(orgId: string, userId: string): string {
+  return `member-link-miss:${orgId}:${userId}`;
+}
+
 /** The user's current Clerk org memberships; null when Clerk cannot be reached. */
 export async function fetchUserMemberships(env: Env, userId: string): Promise<ClerkOrgMembership[] | null> {
-  const membershipsResp = await fetch(
-    `https://api.clerk.com/v1/users/${userId}/organization_memberships?limit=100`,
-    { headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` } },
-  );
+  let membershipsResp: Response;
+  try {
+    membershipsResp = await fetch(
+      `https://api.clerk.com/v1/users/${userId}/organization_memberships?limit=100`,
+      {
+        headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` },
+        signal: AbortSignal.timeout(CLERK_TIMEOUT_MS),
+      },
+    );
+  } catch (err) {
+    console.error('[app-api/member-link] Clerk memberships request failed:', err);
+    return null;
+  }
 
   if (!membershipsResp.ok) {
     console.error('[app-api/member-link] Failed to fetch user memberships from Clerk');
@@ -245,8 +264,11 @@ export async function linkInvitedMember(
 /**
  * Make sure the caller has a member row in this workspace, linking their
  * invited row when the Clerk sync missed it. Cheap when the row exists (one
- * indexed read); only a miss asks Clerk. Never throws — a failed repair just
- * leaves the caller as unknown, which is what they were already.
+ * indexed read); only a miss asks Clerk. A caller Clerk answered for but with
+ * nothing to link (added in the Clerk dashboard, a removed tenant row) is
+ * remembered for a few minutes, so their page loads don't each ask Clerk
+ * again. A failed lookup is not remembered. Never throws — a failed repair
+ * just leaves the caller as unknown, which is what they were already.
  */
 export async function ensureMemberLinked(
   env: Env,
@@ -262,13 +284,18 @@ export async function ensureMemberLinked(
       .limit(1);
     if (existing) return;
 
-    const memberships = await fetchUserMemberships(env, userId);
-    const membership = memberships?.find((m) => m.organization.id === orgId);
-    if (!membership) return;
+    const missKey = linkMissKey(orgId, userId);
+    if (await env.WORKSPACE_CACHE.get(missKey).catch(() => null)) return;
 
-    if (await linkInvitedMember(env, tenantDb, membership, userId, null)) {
+    const memberships = await fetchUserMemberships(env, userId);
+    if (!memberships) return;
+
+    const membership = memberships.find((m) => m.organization.id === orgId);
+    if (membership && (await linkInvitedMember(env, tenantDb, membership, userId, null))) {
       console.log(`[app-api/member-link] Linked unlinked invited member for user ${userId} in org ${orgId}`);
+      return;
     }
+    await env.WORKSPACE_CACHE.put(missKey, '1', { expirationTtl: LINK_MISS_TTL_SECONDS }).catch(() => {});
   } catch (err) {
     console.error('[app-api/member-link] Failed to link member:', err);
   }

@@ -32,9 +32,18 @@ const { workspaceMembers } = schema;
 const ORG_ID = 'org_test';
 
 let db: Database;
+const cache = new Map<string, string>();
 const env = {
   CLERK_SECRET_KEY: 'sk_test',
-  WORKSPACE_CACHE: { delete: vi.fn(async () => {}) },
+  WORKSPACE_CACHE: {
+    get: vi.fn(async (key: string) => cache.get(key) ?? null),
+    put: vi.fn(async (key: string, value: string) => {
+      cache.set(key, value);
+    }),
+    delete: vi.fn(async (key: string) => {
+      cache.delete(key);
+    }),
+  },
 } as unknown as Env;
 
 function clerkMemberships(memberships: Array<{ orgId: string; role: string; email: string }>) {
@@ -67,6 +76,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.delete(workspaceMembers);
+  cache.clear();
 });
 
 afterEach(() => {
@@ -141,5 +151,25 @@ describe('ensureMemberLinked', () => {
 
     expect(await memberByUserId('user_intruder')).toBeUndefined();
     expect((await memberByUserId('user_original'))?.role).toBe('ADMIN');
+  });
+
+  it('remembers a caller with nothing to link so the next request skips Clerk', async () => {
+    const fetchMock = clerkMemberships([{ orgId: ORG_ID, role: 'org:member', email: 'dashboard-added@test.dev' }]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_dashboard');
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_dashboard');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks Clerk again after a failed lookup', async () => {
+    const fetchMock = vi.fn(async () => new Response('unavailable', { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_retry');
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_retry');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
