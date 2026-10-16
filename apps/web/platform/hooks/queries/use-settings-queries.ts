@@ -957,6 +957,10 @@ export interface UserPreferences {
     autoScheduleCrmTasks?: boolean;
     /** Legacy switch both apps shared; read as the fallback, no longer written. */
     autoScheduleTasks?: boolean;
+    /** WeldFlow: visible project tabs, in display order. Absent = every tab in the default order. */
+    weldflowProjectTabs?: string[];
+    /** WeldFlow: the user's own order of the projects in the sidebar (project ids). */
+    weldflowSidebarProjectOrder?: string[];
     /** WeldCalendar: move unfinished auto-scheduled tasks forward each night. Absent = true. */
     autoRescheduleTasks?: boolean;
     homeWidgets?: {
@@ -1027,7 +1031,7 @@ export function useUpdateFontSize() {
     },
   });
 }
-const preferencesKey = [...settingsKeys.all, 'preferences'] as const;
+export const preferencesKey = [...settingsKeys.all, 'preferences'] as const;
 
 // Optimistically patch the cached uiPreferences so mail landing prefs feel
 // instant; rolls back on error and re-syncs from the server on settle.
