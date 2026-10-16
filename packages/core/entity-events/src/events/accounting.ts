@@ -38,6 +38,7 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   w9_request: ['created', 'updated', 'deleted', 'completed'],
   fixed_asset: ['created', 'updated', 'deleted', 'disposed'],
   accounting_dimension: ['created', 'updated', 'deleted'],
+  invoice_template: ['created', 'updated', 'deleted'],
   payroll_import: ['created', 'updated', 'deleted'],
   payroll_connection: ['created', 'updated', 'deleted'],
   // Brazil: NF-e / NFS-e issued through the fiscal provider, and NF-e received from suppliers.
