@@ -19,36 +19,50 @@
  *   - GET /:id        — owner-only; 404 for another user's entry.
  *   - PATCH /:id      — owner-only; 404 for another user's entry.
  *   - DELETE /:id     — owner-only; 404 for another user's entry.
- *   - PATCH /:id/approve, PATCH /:id/reject — intentionally cross-user
- *                       (manager approval workflow); NOT scoped by userId.
+ *   - PATCH /:id/approve, PATCH /:id/reject — cross-user (manager approval
+ *                       workflow), so NOT scoped by userId, but restricted to
+ *                       people who manage the entry's project (`canManageProject`;
+ *                       `projects:scope:all` for entries without a project), and
+ *                       never on your own entry.
+ *   - Approved entries are locked: PATCH / DELETE answer 409 until a manager
+ *                       rejects the entry again.
+ *   - POST / PATCH / timer start+stop check the caller can write to the project
+ *                       (and task) the hours are logged against.
  *   - /timer/*        — the caller's own running timer; one per user.
  *
  * Permissions: time:read | time:create | time:update | time:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, getTableColumns, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { timeEntryAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
-import { canManageProject } from '../../lib/project-access';
+import { canManageProject, canWriteProject } from '../../lib/project-access';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.timeEntries;
 const timers = schema.activeTimers;
 
+/**
+ * A boolean query param. `z.coerce.boolean()` would turn the string "false" into
+ * `true` (any non-empty string is truthy), so `?billable=false` returned the
+ * billable entries.
+ */
+const queryBoolean = z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' || v === '1');
+
 const listFiltersSchema = z.object({
   projectId: z.string().optional(),
   taskId: z.string().optional(),
   userId: z.string().optional(),
   status: z.string().optional(),
-  billable: z.coerce.boolean().optional(),
+  billable: queryBoolean.optional(),
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
   page: z.coerce.number().int().min(1).optional(),
@@ -64,7 +78,7 @@ const teamSummarySchema = z.object({
   taskId: z.string().optional(),
   userId: z.string().optional(),
   status: z.string().optional(),
-  billable: z.coerce.boolean().optional(),
+  billable: queryBoolean.optional(),
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
   /** Caps the returned entry list. Totals are aggregated in SQL and stay exact. */
@@ -86,10 +100,47 @@ const createTimeEntrySchema = z
     endTime: z.string().optional(),
     location: z.string().optional(),
     isRemote: z.boolean().default(false),
-  })
-  .passthrough();
+  });
 
 const updateTimeEntrySchema = createTimeEntrySchema.partial();
+
+type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
+
+/**
+ * Checks the caller may log hours against `projectId` / `taskId` and resolves the
+ * project the entry belongs to (a task's project wins when none is given).
+ * Returns the project id, or the error response to send.
+ */
+async function resolveEntryTarget(
+  c: Ctx,
+  target: { projectId?: string | null; taskId?: string | null },
+): Promise<{ projectId: string | null } | Response> {
+  const db = c.get('tenantDb');
+  let projectId = target.projectId ?? null;
+
+  if (target.taskId) {
+    const [task] = await db
+      .select({ projectId: schema.tasks.projectId })
+      .from(schema.tasks)
+      .where(and(eq(schema.tasks.id, target.taskId), isNull(schema.tasks.deletedAt)))
+      .limit(1);
+    if (!task) return error.notFound(c, 'Task', target.taskId);
+    if (task.projectId) {
+      if (projectId && projectId !== task.projectId) {
+        return error.badRequest(c, 'The task does not belong to the given project');
+      }
+      projectId = task.projectId;
+    }
+  }
+
+  if (projectId && !(await canWriteProject(c, projectId))) {
+    return error.forbidden(c, 'You do not have write access to this project');
+  }
+  return { projectId };
+}
+
+/** Approved hours are final: change them by having a manager reject the entry first. */
+const APPROVED_LOCKED = 'Approved time entries are locked. A project manager has to reject the entry before it can change.';
 
 function computeCost(rate?: string | number | null, duration?: string | number | null): string | null {
   if (rate === undefined || rate === null || duration === undefined || duration === null) return null;
@@ -484,8 +535,30 @@ const startTimerSchema = z
     activity: z.string().optional(),
     billable: z.boolean().default(true),
     rate: z.union([z.string(), z.number()]).optional(),
-  })
-  .passthrough();
+  });
+
+/** An IANA time zone name such as `Europe/Amsterdam`. */
+const timeZoneSchema = z
+  .string()
+  .max(64)
+  .refine((tz) => {
+    try {
+      new Intl.DateTimeFormat('en-CA', { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Unknown time zone');
+
+/** The calendar date (`YYYY-MM-DD`) `instant` falls on in `timeZone` (UTC when none is given). */
+export function calendarDate(instant: Date, timeZone?: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timeZone ?? 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(instant);
+}
 
 /** Elapsed minutes between two instants, rounded to 2dp to match numeric(10,2). */
 function minutesBetween(from: Date, to: Date): string {
@@ -525,13 +598,16 @@ app.post(
         return error.conflict(c, 'A timer is already running', { timer: running });
       }
 
+      const target = await resolveEntryTarget(c, data);
+      if (target instanceof Response) return target;
+
       const id = generateId('timer');
       const now = new Date();
       const [created] = await db
         .insert(timers)
         .values({
           id,
-          projectId: data.projectId ?? null,
+          projectId: target.projectId,
           taskId: data.taskId ?? null,
           userId,
           startedAt: now,
@@ -558,7 +634,7 @@ app.post(
 app.post(
   '/timer/stop',
   requirePermission('time:create'),
-  zValidator('json', startTimerSchema.partial()),
+  zValidator('json', startTimerSchema.partial().extend({ timeZone: timeZoneSchema.optional() })),
   async (c) => {
     const db = c.get('tenantDb');
     const userId = c.get('userId');
@@ -566,7 +642,19 @@ app.post(
     const overrides = c.req.valid('json');
 
     try {
-      const [running] = await db.select().from(timers).where(eq(timers.userId, userId)).limit(1);
+      const [current] = await db.select().from(timers).where(eq(timers.userId, userId)).limit(1);
+      if (!current) return error.notFound(c, 'Running timer', userId);
+
+      // Validate the project / task the hours land on before the timer is consumed.
+      const target = await resolveEntryTarget(c, {
+        projectId: overrides.projectId ?? current.projectId,
+        taskId: overrides.taskId ?? current.taskId,
+      });
+      if (target instanceof Response) return target;
+
+      // Claim the timer atomically: DELETE ... RETURNING hands it to exactly one
+      // request, so a double click or a retry cannot write the entry twice.
+      const [running] = await db.delete(timers).where(eq(timers.id, current.id)).returning();
       if (!running) return error.notFound(c, 'Running timer', userId);
 
       const now = new Date();
@@ -574,32 +662,37 @@ app.post(
       const duration = minutesBetween(startedAt, now);
       const rate = overrides.rate !== undefined ? String(overrides.rate) : running.rate;
       const billable = overrides.billable ?? running.billable;
-      const projectId = overrides.projectId ?? running.projectId;
       const taskId = overrides.taskId ?? running.taskId;
+      const projectId = target.projectId;
       const id = generateId('time');
 
       const costStr = computeCost(rate, duration);
-      await db.insert(t).values({
-        id,
-        projectId: projectId ?? null,
-        taskId: taskId ?? null,
-        userId,
-        // Local calendar date of the start, so an entry lands on the day it began.
-        date: startedAt.toISOString().slice(0, 10),
-        startTime: startedAt,
-        endTime: now,
-        duration,
-        description: overrides.description ?? running.description,
-        activity: overrides.activity ?? running.activity,
-        billable,
-        rate: rate ?? null,
-        cost: costStr,
-        status: 'draft',
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await db.delete(timers).where(eq(timers.id, running.id));
+      try {
+        await db.insert(t).values({
+          id,
+          projectId: projectId ?? null,
+          taskId: taskId ?? null,
+          userId,
+          // The calendar day the timer started on in the caller's time zone (UTC
+          // when the client sends none), so an entry lands on the day it began.
+          date: calendarDate(startedAt, overrides.timeZone),
+          startTime: startedAt,
+          endTime: now,
+          duration,
+          description: overrides.description ?? running.description,
+          activity: overrides.activity ?? running.activity,
+          billable,
+          rate: rate ?? null,
+          cost: costStr,
+          status: 'draft',
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (insertErr) {
+        // Do not lose the running time when the entry could not be written.
+        await db.insert(timers).values(running).onConflictDoNothing();
+        throw insertErr;
+      }
 
       publishEntityEvent({
         c,
@@ -690,9 +783,12 @@ app.post(
       });
       if (violation) return error.badRequest(c, violation);
 
+      const target = await resolveEntryTarget(c, data);
+      if (target instanceof Response) return target;
+
       await db.insert(t).values({
         id,
-        projectId: data.projectId ?? null,
+        projectId: target.projectId,
         taskId: data.taskId ?? null,
         userId,
         date: data.date,
@@ -718,7 +814,7 @@ app.post(
         action: 'created',
         data: timeEntryAnalyticsPayload({
           id,
-          projectId: data.projectId ?? null,
+          projectId: target.projectId,
           taskId: data.taskId ?? null,
           userId,
           durationMinutes: Number(data.duration),
@@ -791,6 +887,17 @@ app.patch(
         .where(and(eq(t.id, id), isNull(t.deletedAt), eq(t.userId, callerId)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Time entry', id);
+      if (existing.status === 'approved') return error.conflict(c, APPROVED_LOCKED);
+
+      // Re-pointing the entry at another project or task needs write access there.
+      if (data.projectId !== undefined || data.taskId !== undefined) {
+        const target = await resolveEntryTarget(c, {
+          projectId: data.projectId ?? (data.taskId === undefined ? existing.projectId : null),
+          taskId: data.taskId ?? existing.taskId,
+        });
+        if (target instanceof Response) return target;
+        data.projectId = target.projectId ?? undefined;
+      }
 
       // Moving an entry to another day or lengthening it can both break the
       // 24h/day cap, so re-check whenever either changes.
@@ -842,9 +949,25 @@ app.patch(
 // PATCH /:id/approve  and  PATCH /:id/reject — timesheet status workflow
 // ============================================================================
 
-app.patch('/:id/approve', requirePermission('time:update'), async (c) => {
+/**
+ * Who may approve or reject an entry: whoever manages its project (project
+ * manager, owner/admin member, `projects:scope:all`), or a `projects:scope:all`
+ * holder for an entry that is not tied to a project. Never the entry's own
+ * author, so nobody signs off their own hours.
+ */
+async function reviewDenial(c: Ctx, entry: typeof t.$inferSelect): Promise<string | null> {
+  if (entry.userId === c.get('userId')) return 'You cannot approve or reject your own time entry';
+  const allowed = entry.projectId
+    ? await canManageProject(c, entry.projectId)
+    : await hasContextPermission(c, 'projects:scope:all');
+  return allowed ? null : 'Only a project manager can approve or reject time entries';
+}
+
+type ReviewStatus = 'approved' | 'rejected';
+
+/** Shared body of approve / reject: guard, write the status, publish both entity events. */
+async function reviewTimeEntry(c: Ctx, id: string, status: ReviewStatus) {
   const db = c.get('tenantDb');
-  const id = c.req.param('id');
   const userId = c.get('userId');
   try {
     const [existing] = await db
@@ -853,64 +976,51 @@ app.patch('/:id/approve', requirePermission('time:update'), async (c) => {
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Time entry', id);
+    const denial = await reviewDenial(c, existing);
+    if (denial) return error.forbidden(c, denial);
+
     const now = new Date();
     await db
       .update(t)
-      .set({ status: 'approved', approvedBy: userId ?? null, approvedAt: now, updatedAt: now })
+      .set(
+        status === 'approved'
+          ? { status, approvedBy: userId ?? null, approvedAt: now, updatedAt: now }
+          : // Rejecting also withdraws an earlier approval, which unlocks the entry for its owner.
+            { status, approvedBy: null, approvedAt: null, updatedAt: now },
+      )
       .where(eq(t.id, id));
-    publishEntityEvent({
-      c,
-      entityType: 'project_time_entry',
-      entityId: id,
-      action: 'updated',
-      data: {
-        id,
-        projectId: existing.projectId,
-        taskId: existing.taskId,
-        userId: existing.userId,
-        duration: Number(existing.duration),
-      },
-    });
-    return success(c, { id, status: 'approved' });
-  } catch (err) {
-    console.error('[app-api/time-entries] approve failed:', err);
-    return error.internal(c, 'Failed to approve time entry');
-  }
-});
 
-app.patch('/:id/reject', requirePermission('time:update'), async (c) => {
-  const db = c.get('tenantDb');
-  const id = c.req.param('id');
-  try {
-    const [existing] = await db
-      .select()
-      .from(t)
-      .where(and(eq(t.id, id), isNull(t.deletedAt)))
-      .limit(1);
-    if (!existing) return error.notFound(c, 'Time entry', id);
-    await db
-      .update(t)
-      .set({ status: 'rejected', updatedAt: new Date() })
-      .where(eq(t.id, id));
+    const payload = {
+      id,
+      projectId: existing.projectId,
+      taskId: existing.taskId,
+      userId: existing.userId,
+      duration: Number(existing.duration),
+    };
     publishEntityEvent({
       c,
       entityType: 'project_time_entry',
       entityId: id,
       action: 'updated',
-      data: {
-        id,
-        projectId: existing.projectId,
-        taskId: existing.taskId,
-        userId: existing.userId,
-        duration: Number(existing.duration),
-      },
+      data: payload,
     });
-    return success(c, { id, status: 'rejected' });
+    publishEntityEvent({
+      c,
+      entityType: 'project_timesheet',
+      entityId: id,
+      action: status,
+      data: { ...payload, reviewedBy: userId ?? null },
+    });
+    return success(c, { id, status });
   } catch (err) {
-    console.error('[app-api/time-entries] reject failed:', err);
-    return error.internal(c, 'Failed to reject time entry');
+    console.error(`[app-api/time-entries] ${status} failed:`, err);
+    return error.internal(c, status === 'approved' ? 'Failed to approve time entry' : 'Failed to reject time entry');
   }
-});
+}
+
+app.patch('/:id/approve', requirePermission('time:update'), (c) => reviewTimeEntry(c, c.req.param('id'), 'approved'));
+
+app.patch('/:id/reject', requirePermission('time:update'), (c) => reviewTimeEntry(c, c.req.param('id'), 'rejected'));
 
 // ============================================================================
 // DELETE /:id — owner-only.
@@ -927,6 +1037,7 @@ app.delete('/:id', requirePermission('time:delete'), async (c) => {
       .where(and(eq(t.id, id), isNull(t.deletedAt), eq(t.userId, callerId)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Time entry', id);
+    if (existing.status === 'approved') return error.conflict(c, APPROVED_LOCKED);
     await db
       .update(t)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
