@@ -1264,8 +1264,11 @@ export const whiteboardApi = {
   list: (projectId: string) =>
     appApiGet<ApiWhiteboard[]>(`/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=100`),
 
-  create: (projectId: string, data: { name: string }) =>
+  create: (projectId: string, data: { name: string; elements?: WhiteboardElement[] }) =>
     appApiPost<ApiWhiteboard>('/whiteboards', { projectId, ...data }),
+
+  /** Every whiteboard the caller can access, across projects (`projectId` is on each row). */
+  listAll: () => appApiGet<ApiWhiteboard[]>('/whiteboards?limit=100'),
 
   getById: (_projectId: string, whiteboardId: string) =>
     appApiGet<ApiWhiteboard>(`/whiteboards/${whiteboardId}`),
@@ -1607,7 +1610,8 @@ export const analyticsApi = {
     ),
 
   getChartData: (reportId: string, config: ChartDataQueryConfig) =>
-    appApiPost<Record<string, ChartDataPoint[]>>(`/project-analytics/reports/${reportId}/charts-data`, config),
+    // The endpoint reads `{ charts: [...] }` and keys the answer by `chartId`.
+    appApiPost<Record<string, ChartDataPoint[]>>(`/project-analytics/reports/${reportId}/charts-data`, { charts: [config] }),
 
   getChartsData: (reportId: string, configs: ChartDataQueryConfig[]) =>
     appApiPost<Record<string, ChartDataPoint[]>>(

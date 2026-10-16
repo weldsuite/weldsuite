@@ -53,10 +53,13 @@ interface AnalyticsListClientProps {
   sectionTitle?: string;
   /** Render reports as cards (default) or as a standalone EntityList of table rows. */
   layout?: 'grid' | 'table';
+  /** Set on a project's analytics page so new reports are created for that project. */
+  projectId?: string;
 }
 
 export function AnalyticsListClient({
   reports,
+  projectId,
   basePath = '/weldflow/analytics',
   embedded = false,
   sectionTitle,
@@ -92,7 +95,7 @@ export function AnalyticsListClient({
     }
 
     try {
-      const result = await createReportMutation.mutateAsync(formData);
+      const result = await createReportMutation.mutateAsync({ ...formData, projectId });
       if (result.data?.id) {
         setIsCreateDialogOpen(false);
         setFormData({ title: '', description: '' });

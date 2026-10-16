@@ -1,7 +1,9 @@
 
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type {
+  ChartDataPoint,
+  ChartDataQueryConfig,
   ApiProject,
   ApiProjectMember,
   ApiAvailableProjectUser,
@@ -344,13 +346,19 @@ export function useProjectKpiSummary(
   });
 }
 
-export function useProjectAnalyticsReports() {
+/**
+ * Analytics reports. Pass `projectId` on a project's analytics page so it lists that
+ * project's reports instead of every report in the workspace.
+ */
+export function useProjectAnalyticsReports(projectId?: string) {
   const { getClient } = useAppApiClient();
   return useQuery({
-    queryKey: projectKeys.analyticsReports(),
+    queryKey: [...projectKeys.analyticsReports(), projectId ?? 'workspace'] as const,
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: AnalyticsReportSummary[] }>('/project-analytics/reports');
+      return client.get<{ data: AnalyticsReportSummary[] }>(
+        `/project-analytics/reports${buildQueryString({ projectId })}`,
+      );
     },
   });
 }
@@ -379,6 +387,30 @@ export function useProjectAnalyticsCharts(reportId: string, enabled = true) {
   });
 }
 
+/**
+ * Data for every chart of a report in one `charts-data` call, keyed by chart id.
+ * Unlike the old fire-and-forget effect this surfaces a failed request as an error (so
+ * the page can show "failed to load" with a retry instead of a misleading "No data").
+ */
+export function useProjectAnalyticsChartsData(reportId: string, configs: ChartDataQueryConfig[]) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: [...projectKeys.analyticsChartsData(reportId), configs] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.post<{ data?: Record<string, ChartDataPoint[]> }>(
+        `/project-analytics/reports/${reportId}/charts-data`,
+        { charts: configs },
+      );
+      return res.data ?? {};
+    },
+    enabled: !!reportId && configs.length > 0,
+    staleTime: 30_000,
+    // Switching a widget's period keeps the other charts on screen while it reloads.
+    placeholderData: keepPreviousData,
+  });
+}
+
 // =============================================================================
 // Analytics Mutations
 // =============================================================================
@@ -387,7 +419,7 @@ export function useCreateProjectAnalyticsReport() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { title: string; description?: string }) => {
+    mutationFn: async (data: { title: string; description?: string; projectId?: string }) => {
       const client = await getClient();
       return client.post<{ data: { id: string } }>('/project-analytics/reports', data);
     },

@@ -519,6 +519,8 @@ export const projects = {
       noReportsDescription: 'Create your first analytics report to start tracking project metrics like task completion rates, time utilization, and milestone progress.',
       createFirstReport: 'Create Your First Report',
       noDataAvailable: 'No data available',
+      chartsLoadFailed: 'Could not load the chart data',
+      retry: 'Try again',
       configure: 'Configure',
       addChart: 'Add Chart',
       addChartPending: 'Adding...',

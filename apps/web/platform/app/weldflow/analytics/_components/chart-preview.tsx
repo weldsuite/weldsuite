@@ -1,29 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  PolarAngleAxis,
-  PolarGrid,
-  Radar,
-  RadarChart,
-  RadialBar,
-  RadialBarChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { analyticsApi, type ChartDataPoint } from '@/app/weldflow/lib/api-client';
 import { useI18n } from '@/lib/i18n/provider';
-
-const PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+import { AnalyticsChartView } from './analytics-chart';
 
 export interface ChartPreviewQuery {
   entity: string;
@@ -33,16 +11,18 @@ export interface ChartPreviewQuery {
   aggregation: string;
   sortOrder: string;
   limit?: number;
+  /** Project builders scope the preview like the saved project report will be. */
+  projectId?: string;
 }
 
 /** Loads the real data for the chart being configured in the builder. */
 export function useChartPreviewData(reportId: string | null, query: ChartPreviewQuery) {
-  const { entity, metric, timeRange, groupBy, aggregation, sortOrder, limit } = query;
+  const { entity, metric, timeRange, groupBy, aggregation, sortOrder, limit, projectId } = query;
   return useQuery({
-    queryKey: ['weldflow', 'analytics', 'chart-preview', reportId, entity, metric, timeRange, groupBy, aggregation, sortOrder, limit],
+    queryKey: ['weldflow', 'analytics', 'chart-preview', reportId, entity, metric, timeRange, groupBy, aggregation, sortOrder, limit, projectId],
     queryFn: async () => {
       const result = await analyticsApi.getChartsData(reportId ?? '', [
-        { chartId: 'preview', entity, metric, timeRange, groupBy, aggregation, sortOrder, limit },
+        { chartId: 'preview', entity, metric, timeRange, groupBy, aggregation, sortOrder, limit, projectId },
       ]);
       if (!result.success) throw new Error(result.error || 'Failed to load preview data');
       return result.data?.preview ?? [];
@@ -88,89 +68,16 @@ export function ChartPreview({
   const points: ChartDataPoint[] = data ?? [];
   if (points.length === 0) return <Message>{t.projects.analyticsReports.noDataAvailable}</Message>;
 
-  const type = chartType.toLowerCase();
-  let chart: React.ReactElement;
-
-  if (type.startsWith('area')) {
-    chart = (
-      <AreaChart data={points} margin={{ left: 12, right: 12 }}>
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
-        <YAxis tick={{ fontSize: 12 }} />
-        <Tooltip />
-        <Area
-          dataKey="value"
-          type={smoothCurve ? 'natural' : 'linear'}
-          stroke={color}
-          strokeWidth={2}
-          fill={fillArea ? color : 'transparent'}
-          fillOpacity={fillArea ? 0.2 : 0}
-          dot={showDataLabels}
-        />
-      </AreaChart>
-    );
-  } else if (type.startsWith('pie')) {
-    chart = (
-      <PieChart>
-        <Pie
-          data={points}
-          dataKey="value"
-          nameKey="label"
-          innerRadius={type.includes('donut') ? 50 : 0}
-          outerRadius={90}
-          label={showDataLabels}
-        >
-          {points.map((point, index) => (
-            <Cell key={point.label} fill={point.fill || PALETTE[index % PALETTE.length]} />
-          ))}
-        </Pie>
-        <Tooltip />
-        {showLegend && <Legend />}
-      </PieChart>
-    );
-  } else if (type.startsWith('radar')) {
-    chart = (
-      <RadarChart data={points}>
-        <PolarGrid />
-        <PolarAngleAxis dataKey="label" tick={{ fontSize: 12 }} />
-        <Tooltip />
-        <Radar dataKey="value" stroke={color} fill={color} fillOpacity={0.3} />
-      </RadarChart>
-    );
-  } else if (type.startsWith('radial')) {
-    chart = (
-      <RadialBarChart data={points.map((p, i) => ({ ...p, fill: p.fill || PALETTE[i % PALETTE.length] }))} innerRadius="20%" outerRadius="90%">
-        <RadialBar dataKey="value" background label={showDataLabels ? { position: 'insideStart', fill: '#fff' } : false} />
-        <Tooltip />
-        {showLegend && <Legend />}
-      </RadialBarChart>
-    );
-  } else {
-    chart = (
-      <BarChart data={points} layout={type.includes('mixed') ? 'vertical' : 'horizontal'}>
-        <CartesianGrid vertical={false} />
-        {type.includes('mixed') ? (
-          <>
-            <XAxis type="number" tick={{ fontSize: 12 }} />
-            <YAxis type="category" dataKey="label" tick={{ fontSize: 12 }} width={90} />
-          </>
-        ) : (
-          <>
-            <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} />
-          </>
-        )}
-        <Tooltip />
-        <Bar dataKey="value" fill={color} radius={4} />
-      </BarChart>
-    );
-  }
-
   return (
-    <div className="h-72 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        {chart}
-      </ResponsiveContainer>
-    </div>
+    <AnalyticsChartView
+      points={points}
+      chartType={chartType}
+      color={color}
+      showLegend={showLegend}
+      smoothCurve={smoothCurve}
+      fillArea={fillArea}
+      showDataLabels={showDataLabels}
+    />
   );
 }
+

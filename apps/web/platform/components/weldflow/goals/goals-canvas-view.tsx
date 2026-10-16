@@ -589,16 +589,45 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   // the canvas differs from what was loaded/last saved, so loading the page (or
   // layout-only effects) never overwrites server data, and a canvas without a
   // project or without write access never saves at all.
+  const pendingSaveRef = useRef(false);
   useEffect(() => {
     if (!projectId || !canWrite) return;
-    if (serializeCanvas(mission, goals) === lastSyncedRef.current) return;
+    if (serializeCanvas(mission, goals) === lastSyncedRef.current) {
+      pendingSaveRef.current = false;
+      return;
+    }
 
+    pendingSaveRef.current = true;
     const timeoutId = setTimeout(() => {
-      saveGoals();
+      pendingSaveRef.current = false;
+      void saveGoals();
     }, 1500); // Save 1.5 seconds after last change
 
     return () => clearTimeout(timeoutId);
   }, [goals, mission, projectId, canWrite, saveGoals]);
+
+  // The debounce above drops the last edit when the user leaves within 1.5s, so flush
+  // a pending save on unmount and warn before the tab closes (TASK-812).
+  const saveGoalsRef = useRef(saveGoals);
+  useEffect(() => {
+    saveGoalsRef.current = saveGoals;
+  }, [saveGoals]);
+  useEffect(() => {
+    const flush = () => {
+      if (!pendingSaveRef.current) return false;
+      pendingSaveRef.current = false;
+      void saveGoalsRef.current();
+      return true;
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (flush()) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      flush();
+    };
+  }, []);
 
   // Handle comments section resize
   const commentsHeightRef = useRef(commentsHeight);

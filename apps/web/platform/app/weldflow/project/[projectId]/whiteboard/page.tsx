@@ -53,6 +53,7 @@ export default function WhiteboardPage() {
 
   const [items, setItems] = useState<WhiteboardItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Create dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -71,6 +72,9 @@ export default function WhiteboardPage() {
     const result = await whiteboardApi.list(projectId);
     if (result.success && result.data) {
       setItems(result.data);
+      setLoadFailed(false);
+    } else {
+      setLoadFailed(true);
     }
     setIsLoading(false);
   }, [projectId]);
@@ -156,7 +160,17 @@ export default function WhiteboardPage() {
   };
 
   const handleDuplicateWhiteboard = useCallback(async (wb: WhiteboardItem) => {
-    const result = await whiteboardApi.create(projectId, { name: st('sweep.weldflow.whiteboardListPage.copyName', { name: wb.name || st('sweep.weldflow.whiteboardListPage.defaultName') }) });
+    // The list rows carry no elements, so fetch the source board and copy its content.
+    // Copying a board we could not read would produce a blank one, so stop instead.
+    const source = await whiteboardApi.getById(projectId, wb.id);
+    if (!source.success || !source.data) {
+      toast.error(st('sweep.weldflow.whiteboardListPage.duplicateFailedToast'));
+      return;
+    }
+    const result = await whiteboardApi.create(projectId, {
+      name: st('sweep.weldflow.whiteboardListPage.copyName', { name: wb.name || st('sweep.weldflow.whiteboardListPage.defaultName') }),
+      elements: source.data.elements ?? [],
+    });
     if (result.success && result.data) {
       setItems(prev => [result.data!, ...prev]);
       toast.success(st('sweep.weldflow.whiteboardListPage.duplicatedToast'));
@@ -248,6 +262,17 @@ export default function WhiteboardPage() {
   };
 
   if (isLoading) return <PageLoader fullScreen={false} />;
+
+  if (loadFailed && items.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+        <p className="text-sm text-muted-foreground">{st('sweep.weldflow.whiteboardListPage.loadFailed')}</p>
+        <Button variant="outline" size="sm" onClick={() => void loadWhiteboards()}>
+          {st('sweep.weldflow.whiteboardListPage.retry')}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <>
