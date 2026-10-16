@@ -34,7 +34,9 @@ echo "$DOCS"
 
 Shell state doesn't persist between commands, so use the printed absolute path
 with Read / Grep / Edit afterwards. If the clone fails (no access to the private
-repo), tell the user and carry on without the docs.
+repo), tell the user and continue only with work that doesn't depend on the
+docs. Don't finish an architectural change until its ADR and design doc have
+been checked or updated in `weldsuite-documentation`; say what is blocked.
 
 ## 2. Read before changing an area
 
