@@ -86,6 +86,7 @@ import {
   Rocket,
   Contact,
   Mailbox,
+  ReceiptText,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -428,7 +429,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: t.navigation.moduleSidebar.groups.sales,
         items: [
-          { title: t.navigation.moduleSidebar.weldbooks.invoices, href: '/weldbooks/invoices', icon: FileText },
+          { title: t.navigation.moduleSidebar.weldbooks.invoices, href: '/weldbooks/invoices', icon: ReceiptText },
           { title: t.navigation.moduleSidebar.weldbooks.creditNotes, href: '/weldbooks/credit-notes', icon: Receipt },
           { title: t.navigation.moduleSidebar.weldbooks.recurring, href: '/weldbooks/recurring', icon: RefreshCw },
         ],
