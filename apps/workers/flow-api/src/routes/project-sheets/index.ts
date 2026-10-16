@@ -69,6 +69,15 @@ app.post(
     if (!(await canWriteProject(c, projectId))) {
       return error.forbidden(c, 'You do not have write access to this project');
     }
+    // A workspace admin (scope:all) passes the access gate for any id, so the
+    // project itself must exist (and not be deleted) before a sheet is filed under it.
+    const [project] = await c
+      .get('tenantDb')
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.id, projectId), isNull(schema.projects.deletedAt)))
+      .limit(1);
+    if (!project) return error.notFound(c, 'Project', projectId);
 
     const { name, copyFromFileId } = c.req.valid('json');
     const fileName = name.endsWith('.xlsx') ? name : `${name}.xlsx`;

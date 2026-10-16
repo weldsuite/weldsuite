@@ -1,10 +1,12 @@
 /**
  * Project message routes — /api/project-messages/*.
  *
- * Project-scoped chat. Sender ownership is enforced on update/delete so users
- * can't edit each other's messages. Reactions are toggled via POST /:id/reactions.
+ * Project-scoped chat. Only the sender can edit a message (and only while they
+ * can still write to the project); the sender or a project owner/admin can delete
+ * it. Reactions are toggled via POST /:id/reactions.
  *
- * Permissions: projects:read | projects:create | projects:update | projects:delete.
+ * Permissions: projects:read | projects:create | projects:update (delete is gated
+ * by projects:read plus the author / project-admin rule in the handler).
  */
 
 import { Hono } from 'hono';
@@ -17,7 +19,14 @@ import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
+import {
+  accessibleProjectIds,
+  canAccessProject,
+  canWriteProject,
+  mayAccess,
+  projectNotDeleted,
+  resolveProjectAccess,
+} from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectMessages;
@@ -67,7 +76,9 @@ app.get('/', requirePermission('projects:read'), zValidator('query', listFilters
     if (!(await canAccessProject(c, f.projectId))) return error.forbidden(c, PROJECT_DENIED);
   } else {
     const accessible = await accessibleProjectIds(c);
-    if (accessible !== null) conditions.push(inArray(t.projectId, accessible.length ? accessible : ['']));
+    conditions.push(
+      accessible === null ? projectNotDeleted(t.projectId) : inArray(t.projectId, accessible.length ? accessible : ['']),
+    );
   }
   if (f.senderId) conditions.push(eq(t.senderId, f.senderId));
   const where = and(...conditions);
@@ -173,13 +184,18 @@ app.patch(
     const data = c.req.valid('json');
     try {
       const [existing] = await db
-        .select({ senderId: t.senderId })
+        .select({ senderId: t.senderId, projectId: t.projectId })
         .from(t)
         .where(and(eq(t.id, id), isNull(t.deletedAt)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Project message', id);
       if (existing.senderId !== userId) {
         return error.forbidden(c, 'You can only edit your own messages');
+      }
+      // Authorship is not enough: a removed member, or one demoted to viewer,
+      // must not keep editing their old messages.
+      if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
+        return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
       const update: Record<string, any> = { updatedAt: new Date() };
       if (data.message !== undefined) {
@@ -252,21 +268,32 @@ app.post(
 );
 
 // ============================================================================
-// DELETE /:id — only the sender can delete their message
+// DELETE /:id — the sender can delete their own message; project owners/admins
+// (and the project manager / scope:all holders) can delete any message in their
+// project. Gated by `projects:read` plus the in-handler rule rather than
+// `projects:delete`, which a plain member does not hold.
 // ============================================================================
 
-app.delete('/:id', requirePermission('projects:delete'), async (c) => {
+app.delete('/:id', requirePermission('projects:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const userId = c.get('userId');
   try {
     const [existing] = await db
-      .select({ senderId: t.senderId })
+      .select({ senderId: t.senderId, projectId: t.projectId })
       .from(t)
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Project message', id);
-    if (existing.senderId !== userId) {
+    const isAuthor = existing.senderId === userId;
+    let canModerate = false;
+    if (existing.projectId) {
+      const access = await resolveProjectAccess(c, existing.projectId);
+      // Not (or no longer) a member: not even your own old messages.
+      if (!mayAccess(access)) return error.forbidden(c, PROJECT_DENIED);
+      canModerate = access.isAdmin;
+    }
+    if (!isAuthor && !canModerate) {
       return error.forbidden(c, 'You can only delete your own messages');
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
