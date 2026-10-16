@@ -161,12 +161,13 @@ export function RowAmount({ children, className }: Readonly<{ children?: ReactNo
 }
 
 /** The 20px rounded-square avatar of the task assignee: the image when there is one, else the initial. */
-export function RowAvatar({ name, src }: Readonly<{ name: string; src?: string | null }>) {
+/** `icon` replaces the initial when there is no image (a building for a company, a person for a person). */
+export function RowAvatar({ name, src, icon }: Readonly<{ name: string; src?: string | null; icon?: ReactNode }>) {
   return (
     <Avatar className="h-5 w-5 flex-shrink-0 !rounded-[7px]">
       {src ? <AvatarImage src={src} alt={name} className="!rounded-[7px]" /> : null}
       <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-        {name.charAt(0).toUpperCase()}
+        {icon ?? name.charAt(0).toUpperCase()}
       </AvatarFallback>
     </Avatar>
   );

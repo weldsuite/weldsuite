@@ -383,10 +383,30 @@ export interface TaxRate {
   ledgerAccountId: string | null;
 }
 
+/** Whether an accounting contact is a business or an individual: the CRM company or person it wraps. */
+export type ContactKind = 'company' | 'person';
+
+/** The contact person of a company contact: a CRM person, the company's billing contact. */
+export interface ContactPerson {
+  personId: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
 export interface Customer {
   id: string;
   type?: string | null;
   role: string;
+  /** null for contacts from before contacts wrapped a CRM identity; their first save sets it. */
+  kind?: ContactKind | null;
+  /** The CRM company this contact is (kind 'company'). */
+  companyId?: string | null;
+  /** The CRM person this contact is (kind 'person'). */
+  personId?: string | null;
+  contactPerson?: ContactPerson | null;
   name: string;
   companyName?: string | null;
   firstName?: string | null;
@@ -860,6 +880,7 @@ export const accountingApi = {
   // Contacts
   listCustomers: (params?: {
     role?: 'customer' | 'supplier' | 'both' | 'none';
+    kind?: ContactKind;
     search?: string;
     page?: number;
     pageSize?: number;

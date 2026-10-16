@@ -430,13 +430,33 @@ export interface AppSettings {
 
 export type ContactRole = 'customer' | 'supplier' | 'both';
 
+/**
+ * Which WeldCRM record a contact wraps: a company (any business, sole traders
+ * included) or a person (a private individual).
+ */
+export type ContactKind = 'company' | 'person';
+
 export type TinType = 'ein' | 'ssn' | 'itin';
+
+/** A company's billing contact in WeldCRM. Read-only on mobile; set on the web. */
+export interface ContactPerson {
+  personId: string;
+  name: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+}
 
 export interface Contact {
   id: string;
   name: string;
   email: string;
   type: ContactRole;
+  /** Undefined for an older contact that wraps no CRM record yet. */
+  kind?: ContactKind;
+  /** Companies only: who invoices are addressed to there. */
+  contactPerson?: ContactPerson;
   phone?: string;
   vatNumber?: string;
   city?: string;
