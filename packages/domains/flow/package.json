@@ -8,6 +8,7 @@
     "./analytics-payload": "./src/analytics-payload.ts",
     "./project-access": "./src/project-access.ts",
     "./project-stats": "./src/project-stats.ts",
+    "./task-dependencies": "./src/task-dependencies.ts",
     "./task-numbering": "./src/task-numbering.ts",
     "./task-stage": "./src/task-stage.ts",
     "./task-tree": "./src/task-tree.ts",
