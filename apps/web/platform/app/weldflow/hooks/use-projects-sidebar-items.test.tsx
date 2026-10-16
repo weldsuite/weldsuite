@@ -17,6 +17,19 @@ vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({ t: en, language: 'en' }),
 }));
 
+const prefs = vi.hoisted(() => ({
+  order: null as string[] | null,
+  setOrder: vi.fn(),
+}));
+
+vi.mock('@/lib/router', () => ({
+  usePathname: () => '/weldflow/projects',
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+vi.mock('@/hooks/queries/use-weldflow-preferences', () => ({
+  useSidebarProjectOrder: () => ({ order: prefs.order, setOrder: prefs.setOrder, isLoaded: true }),
+}));
+
 vi.mock('@/lib/events/data-events', () => ({ useDataEvent: () => {} }));
 vi.mock('@weldsuite/realtime/react', () => ({ useTopic: () => {} }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -35,6 +48,52 @@ function Harness() {
     </>
   );
 }
+
+function OrderHarness() {
+  const { menuGroups } = useProjectsSidebarItems(true);
+  const projects = menuGroups.find((g) => g.onAdd)?.items ?? [];
+  return (
+    <>
+      <ol>
+        {projects.map((item) => (
+          <li key={item.href}>{item.title}</li>
+        ))}
+      </ol>
+      <button type="button" onClick={() => projects[0]?.onMoveDown?.()}>
+        move-first-down
+      </button>
+    </>
+  );
+}
+
+describe('useProjectsSidebarItems: project order', () => {
+  const projects = [
+    { id: 'p1', name: 'Alpha' },
+    { id: 'p2', name: 'Beta' },
+    { id: 'p3', name: 'Gamma' },
+  ];
+
+  beforeEach(() => {
+    api.list.mockReset().mockResolvedValue({ success: true, data: projects });
+    prefs.order = null;
+    prefs.setOrder.mockReset();
+  });
+
+  it('lists projects in the saved order', async () => {
+    prefs.order = ['p3', 'p1', 'p2'];
+    render(<OrderHarness />);
+    await act(async () => {});
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Gamma', 'Alpha', 'Beta']);
+  });
+
+  it('saves the new order when a project is moved (matching the real item href)', async () => {
+    render(<OrderHarness />);
+    await act(async () => {});
+    fireEvent.click(screen.getByText('move-first-down'));
+    expect(prefs.setOrder).toHaveBeenCalledWith(['p2', 'p1', 'p3']);
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Beta', 'Alpha', 'Gamma']);
+  });
+});
 
 describe('useProjectsSidebarItems: create project dialog', () => {
   beforeEach(() => {
