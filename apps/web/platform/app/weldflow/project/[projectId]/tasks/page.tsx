@@ -5,6 +5,8 @@ import { TasksClient } from './tasks-client';
 import { useInfiniteProjectTasks, type ProjectTaskFilters } from '@/hooks/queries/use-projects-queries';
 import { useDebounce } from '@/hooks/use-debounce';
 import { PageLoader } from '@/components/page-loader';
+import { useI18n } from '@/lib/i18n/provider';
+import { ListLoadError } from '@/app/weldflow/components/list-load-error';
 import type { ActiveFilter, SortState } from '@/components/entity-list';
 
 type ServerFilterKeys =
@@ -63,6 +65,7 @@ function sortStateToServer(state: SortState | null): Pick<ProjectTaskFilters, 's
 export default function TasksPage() {
   const params = useParams();
   const projectId = params.projectId as string;
+  const { t } = useI18n();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
@@ -79,6 +82,8 @@ export default function TasksPage() {
   const {
     data,
     isLoading,
+    isError,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -96,6 +101,15 @@ export default function TasksPage() {
   }, [data]);
 
   if (isLoading) return <PageLoader fullScreen={false} />;
+  if (isError && !data) {
+    return (
+      <ListLoadError
+        message={t.projects.tasks.failedToLoad}
+        retryLabel={t.projects.tasks.retry}
+        onRetry={() => { void refetch(); }}
+      />
+    );
+  }
 
   return (
     <TasksClient
