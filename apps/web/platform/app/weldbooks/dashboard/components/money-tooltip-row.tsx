@@ -1,10 +1,21 @@
-/** One series in a chart tooltip: colour swatch, label and a formatted money value. */
-export function MoneyTooltipRow({ label, color, value }: Readonly<{ label: string; color?: string; value: string }>) {
+/**
+ * One series in a chart tooltip: a short line in the series' colour (dashed
+ * for the comparison, as on the chart), its label and a formatted value.
+ */
+export function MoneyTooltipRow({
+  label,
+  color,
+  value,
+  dashed = false,
+}: Readonly<{ label: string; color?: string; value: string; dashed?: boolean }>) {
   return (
     <div className="flex w-full items-center gap-2">
-      <span className="size-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: color }} />
+      <span
+        className={`w-3 shrink-0 border-t-2 ${dashed ? 'border-dashed' : ''}`}
+        style={{ borderColor: color }}
+      />
       <span className="text-muted-foreground">{label}</span>
-      <span className="ml-auto pl-4 font-mono font-medium tabular-nums text-foreground">{value}</span>
+      <span className="ml-auto pl-4 font-medium tabular-nums text-foreground">{value}</span>
     </div>
   );
 }
