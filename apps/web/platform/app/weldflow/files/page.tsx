@@ -29,7 +29,7 @@ export default function FilesPage() {
           <p className="text-muted-foreground max-w-md mb-6">
             {t.projects.filesPage.selectProjectDescription}
           </p>
-          <Link href="/weldflow/all-projects">
+          <Link href="/weldflow/projects">
             <Button>
               <Folder className="h-4 w-4 mr-0.5" />
               {t.projects.filesPage.browseProjects}
