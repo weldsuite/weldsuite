@@ -20,7 +20,7 @@ import type { Context } from 'hono';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject, projectNotDeleted } from '../../lib/project-access';
 import {
   createProjectFolder,
   softDeleteProjectFolderCascade,
@@ -97,7 +97,7 @@ async function resolveListAccess(
     return (await canAccessProject(c, projectId)) ? { denied: false } : { denied: true };
   }
   const accessible = await accessibleProjectIds(c);
-  if (accessible === null) return { denied: false };
+  if (accessible === null) return { denied: false, condition: projectNotDeleted(t.projectId) };
   return { denied: false, condition: inArray(t.projectId, accessible.length ? accessible : ['']) };
 }
 

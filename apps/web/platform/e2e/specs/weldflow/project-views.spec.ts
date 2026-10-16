@@ -41,7 +41,6 @@ test.describe('WeldFlow · project sub-views (seeded)', () => {
     'list',
     'pipeline',
     'gantt',
-    'timeline',
     'calendar',
     'workload',
     'members',

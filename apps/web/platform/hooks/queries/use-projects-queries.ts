@@ -1,7 +1,10 @@
 
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type {
+  ChartDataPoint,
+  ChartDataQueryConfig,
   ApiProject,
   ApiProjectMember,
   ApiAvailableProjectUser,
@@ -120,6 +123,9 @@ export function useInfiniteProjects(filters: ProjectListFilters = {}, pageSize =
       }>(`/projects${query}`);
     },
     initialPageParam: null as string | null,
+    // Keep the previous list on screen while a new search/filter/sort loads, so the
+    // page (and the search box) is not replaced by a loader on every keystroke.
+    placeholderData: keepPreviousData,
     getNextPageParam: (lastPage) => {
       const pagination = lastPage.pagination;
       if (!pagination) return undefined;
@@ -137,6 +143,10 @@ export function useProject(id: string, enabled = true) {
       return client.get<{ data: ApiProject }>(`/projects/${id}`);
     },
     enabled: !!id && enabled,
+    // A 404/403 will not heal by retrying; surface it right away instead of
+    // after the default backoff.
+    retry: (failureCount, error) =>
+      !(isApiError(error) && error.status >= 400 && error.status < 500) && failureCount < 3,
   });
 }
 
@@ -145,19 +155,30 @@ export function useProjectTasks(projectId: string, params?: { page?: number; pag
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: projectKeys.tasks(projectId, params),
+    // Every top-level task of the project, not one page. A project-scoped
+    // `GET /tasks` without a cursor pages by `page` / `pageSize` (default 50) and
+    // ignores `limit`, so the old single request silently cut projects with more
+    // tasks off. `pageSize` is the size of each request, capped at 200 by the API.
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { projectId, ...params };
-      if (qs.pageSize !== undefined) {
-        qs.limit = qs.pageSize;
-        delete qs.pageSize;
+      const pageSize = Math.min(params?.pageSize ?? 200, 200);
+      const maxPages = 50;
+      const all: Projects.ProjectTask[] = [];
+      let totalCount = 0;
+      for (let page = 1; page <= maxPages; page++) {
+        const query = buildQueryString({ projectId, includeSubtasks: params?.includeSubtasks, page, pageSize });
+        const res = await client.get<{
+          data: Projects.ProjectTask[];
+          pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
+        }>(`/tasks${query}`);
+        all.push(...res.data);
+        totalCount = res.pagination?.totalCount ?? all.length;
+        if (!res.pagination?.hasMore || res.data.length === 0) break;
       }
-      delete qs.page;
-      const query = buildQueryString(qs);
-      return client.get<{
-        data: Projects.ProjectTask[];
-        pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
-      }>(`/tasks${query}`);
+      return {
+        data: all,
+        pagination: { totalCount, hasMore: false, cursor: null as string | null },
+      };
     },
     enabled: !!projectId && enabled,
   });
@@ -344,13 +365,19 @@ export function useProjectKpiSummary(
   });
 }
 
-export function useProjectAnalyticsReports() {
+/**
+ * Analytics reports. Pass `projectId` on a project's analytics page so it lists that
+ * project's reports instead of every report in the workspace.
+ */
+export function useProjectAnalyticsReports(projectId?: string) {
   const { getClient } = useAppApiClient();
   return useQuery({
-    queryKey: projectKeys.analyticsReports(),
+    queryKey: [...projectKeys.analyticsReports(), projectId ?? 'workspace'] as const,
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: AnalyticsReportSummary[] }>('/project-analytics/reports');
+      return client.get<{ data: AnalyticsReportSummary[] }>(
+        `/project-analytics/reports${buildQueryString({ projectId })}`,
+      );
     },
   });
 }
@@ -379,6 +406,30 @@ export function useProjectAnalyticsCharts(reportId: string, enabled = true) {
   });
 }
 
+/**
+ * Data for every chart of a report in one `charts-data` call, keyed by chart id.
+ * Unlike the old fire-and-forget effect this surfaces a failed request as an error (so
+ * the page can show "failed to load" with a retry instead of a misleading "No data").
+ */
+export function useProjectAnalyticsChartsData(reportId: string, configs: ChartDataQueryConfig[]) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: [...projectKeys.analyticsChartsData(reportId), configs] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.post<{ data?: Record<string, ChartDataPoint[]> }>(
+        `/project-analytics/reports/${reportId}/charts-data`,
+        { charts: configs },
+      );
+      return res.data ?? {};
+    },
+    enabled: !!reportId && configs.length > 0,
+    staleTime: 30_000,
+    // Switching a widget's period keeps the other charts on screen while it reloads.
+    placeholderData: keepPreviousData,
+  });
+}
+
 // =============================================================================
 // Analytics Mutations
 // =============================================================================
@@ -387,7 +438,7 @@ export function useCreateProjectAnalyticsReport() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { title: string; description?: string }) => {
+    mutationFn: async (data: { title: string; description?: string; projectId?: string }) => {
       const client = await getClient();
       return client.post<{ data: { id: string } }>('/project-analytics/reports', data);
     },

@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { Env } from './lib/protocol';
+import type { AuthInfo, Env } from './lib/protocol';
 import { AUTH_HEADERS } from './lib/protocol';
+import { resolveProjectRoomAccess } from './lib/project-room-access';
 import {
   verifyClerkJwt,
   verifyPersonalClerkJwt,
@@ -61,37 +62,36 @@ app.use('/publish/*', (c, next) => {
 });
 
 /**
- * Cross-tenant ownership guard for resource-keyed rooms (conversation,
- * whiteboard, document). Durable Objects here are addressed by a bare,
- * globally-unique resource id, so verifying the JWT is not enough — an
- * authenticated user in workspace A must not be able to join a room whose
- * resource belongs to workspace B just by knowing its id.
+ * Project gate for project-keyed rooms (whiteboards).
  *
- * Each workspace has its own physical tenant DB, so "does a row with this id
- * exist in the caller's tenant DB?" IS the ownership check — a resource from
- * another workspace simply isn't present. Mirrors the ChatRoom membership gate.
+ * Durable Objects here are addressed by a bare, globally-unique resource id, so
+ * verifying the JWT is not enough:
+ *  - cross-tenant: each workspace has its own physical tenant DB, so "does the
+ *    project exist in the caller's tenant DB?" is the ownership check — a
+ *    project from another workspace simply isn't present;
+ *  - project membership: within the workspace the caller must also manage, or be
+ *    an active member of, the project (same rule as flow-api's `canAccessProject`,
+ *    see lib/project-room-access.ts), and a soft-deleted project is off-limits.
  * Fail-closed: a DB error rejects rather than falling through.
  *
- * Returns `null` when access is allowed, or an error Response to return to the
- * caller when it is not.
+ * Returns the caller's room permissions, or an error Response to return to the
+ * caller when access is denied.
  */
-async function assertResourceInWorkspace(
+async function resolveProjectRoomGate(
   c: Context<{ Bindings: Env }>,
-  workspaceId: string,
-  table: typeof schema.projects | typeof schema.helpdeskConversations,
-  id: string,
-  label: string,
-): Promise<Response | null> {
+  auth: AuthInfo,
+  projectId: string,
+): Promise<{ canWrite: boolean } | Response> {
   try {
-    const db = await getTenantDbForWorkspace(c.env, workspaceId);
-    const [row] = await db.select({ id: table.id }).from(table).where(eq(table.id, id)).limit(1);
-    if (!row) {
-      return c.text(`Forbidden: ${label} not found`, 403);
+    const db = await getTenantDbForWorkspace(c.env, auth.workspaceId);
+    const access = await resolveProjectRoomAccess(db, { userId: auth.userId, orgRole: auth.role }, projectId);
+    if (!access.canRead) {
+      return c.text('Forbidden: not a member of this project', 403);
     }
-    return null;
+    return { canWrite: access.canWrite };
   } catch (dbErr) {
-    console.error(`[realtime] ${label} access check failed:`, (dbErr as Error).message);
-    return c.text(`Internal error checking ${label} access`, 500);
+    console.error('[realtime] whiteboard project access check failed:', (dbErr as Error).message);
+    return c.text('Internal error checking whiteboard project access', 500);
   }
 }
 
@@ -564,21 +564,16 @@ app.get('/ws/whiteboard/:whiteboardId', async (c) => {
 
   const whiteboardId = c.req.param('whiteboardId');
 
-  // Cross-tenant gate: the whiteboard room key is `${projectId}` or
-  // `${projectId}:${whiteboardId}` (see use-whiteboard-collaboration.ts), so the
-  // ownership anchor is the project — which must exist in the caller's own tenant
-  // DB. Without this, any authenticated user could join another workspace's
-  // whiteboard (read + edit) by id. Whiteboards are project-scoped, so a project
-  // owned by the caller's workspace implies the whiteboard is theirs too.
+  // Cross-tenant + project-membership gate: the whiteboard room key is
+  // `${projectId}` or `${projectId}:${whiteboardId}` (see
+  // use-whiteboard-collaboration.ts), so the ownership anchor is the project. It
+  // must exist in the caller's own tenant DB (else any authenticated user could
+  // join another workspace's whiteboard by id) AND the caller must be on the
+  // project: a workspace member who is not may neither watch nor edit its
+  // whiteboards. Viewers join read-only.
   const whiteboardProjectId = whiteboardId.split(':')[0];
-  const denied = await assertResourceInWorkspace(
-    c,
-    auth.workspaceId,
-    schema.projects,
-    whiteboardProjectId,
-    'whiteboard project',
-  );
-  if (denied) return denied;
+  const gate = await resolveProjectRoomGate(c, auth, whiteboardProjectId);
+  if (gate instanceof Response) return gate;
 
   const id = c.env.WHITEBOARD_ROOM.idFromName(whiteboardId);
   const stub = c.env.WHITEBOARD_ROOM.get(id);
@@ -589,6 +584,7 @@ app.get('/ws/whiteboard/:whiteboardId', async (c) => {
   const headers = new Headers(c.req.raw.headers);
   headers.set(AUTH_HEADERS.USER_ID, auth.userId);
   headers.set(AUTH_HEADERS.USER_NAME, auth.userName);
+  headers.set(AUTH_HEADERS.CAN_PUBLISH, String(gate.canWrite));
   headers.set('x-rt-session-id', sessionId);
 
   return stub.fetch(new Request(c.req.url, { headers, method: 'GET' }));

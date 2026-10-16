@@ -63,6 +63,7 @@ const priorityConfig = {
   'low': { label: 'Low', color: 'bg-gray-100 text-gray-600 dark:bg-secondary dark:text-muted-foreground', btnColor: 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200 dark:bg-secondary dark:text-muted-foreground dark:border-border' },
   'medium': { label: 'Medium', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', btnColor: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800' },
   'high': { label: 'High', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400', btnColor: 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800' },
+  'urgent': { label: 'Urgent', color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', btnColor: 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
 };
 
 
@@ -152,7 +153,7 @@ interface TaskDialogProps {
     title: string;
     description?: string;
     status: Task['status'];
-    priority?: 'low' | 'medium' | 'high';
+    priority?: PriorityValue;
     assigneeId?: string;
     assigneeIds?: string[];
     dueDate?: Date;
@@ -170,19 +171,22 @@ interface TaskDialogProps {
     title: string;
     description?: string;
     status: Task['status'];
-    priority?: 'low' | 'medium' | 'high';
+    priority?: PriorityValue;
     /** The assignees picked in the dialog (empty = none). */
     assigneeIds?: string[];
-    dueDate?: Date;
+    /** `null` = the user cleared the due date (`undefined` would be dropped by JSON and keep the stored one). */
+    dueDate?: Date | null;
     duration?: number;
     linkedCompany?: { id: string; name: string } | null;
     linkedPerson?: { id: string; name: string } | null;
+    /** The labels picked in the dialog; `[]` = none (the caller must send it, not skip it). */
     labels?: string[];
+    /** `null` = recurrence removed. */
     repeat?: {
       frequency: 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
       interval?: number;
       unit?: 'days' | 'weeks' | 'months' | 'years';
-    };
+    } | null;
   }) => void;
   isPending: boolean;
 }
@@ -234,6 +238,8 @@ function htmlToMarkdown(html: string): string {
 
 
 type PriorityValue = 'low' | 'medium' | 'high';
+/** What the form can hold: an existing task may carry 'urgent', which the picker only displays and never sends (omitting it keeps the stored value instead of downgrading it). */
+type PriorityState = PriorityValue | 'urgent';
 type RepeatValue = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
 type RepeatUnitValue = 'days' | 'weeks' | 'months' | 'years';
 type AssigneeOption = { id: string; name: string; avatar?: string };
@@ -260,7 +266,7 @@ interface TaskFormState {
   title: string;
   description: string;
   status: string;
-  priority: PriorityValue | null;
+  priority: PriorityState | null;
   assigneeList: string[];
   dueDate: Date | undefined;
   duration: number | null;
@@ -324,7 +330,9 @@ function buildCommonPayload(form: TaskFormState, description: string) {
     title: form.title,
     description: description || undefined,
     status: form.status as Task['status'],
-    priority: form.priority || undefined,
+    // An urgent task keeps its priority: it is not sent, so the edit cannot
+    // downgrade it to "high" (the picker has no urgent option to send).
+    priority: form.priority && form.priority !== 'urgent' ? form.priority : undefined,
     dueDate: form.dueDate,
     duration: form.duration ?? undefined,
     labels: form.selectedLabels.length > 0 ? form.selectedLabels : undefined,
@@ -425,12 +433,13 @@ function StatusPopover({
 function PriorityPopover({
   priority,
   onChange,
-}: Readonly<{ priority: PriorityValue | null; onChange: (priority: PriorityValue | null) => void }>) {
+}: Readonly<{ priority: PriorityState | null; onChange: (priority: PriorityValue | null) => void }>) {
   const tCrm = getTranslations('crm');
   const translatedPriorityLabels: Record<string, string> = {
     low: tCrm.tasks.priority.low,
     medium: tCrm.tasks.priority.medium,
     high: tCrm.tasks.priority.high,
+    urgent: tCrm.tasks.priority.urgent,
   };
   return (
     <Popover>
@@ -440,7 +449,7 @@ function PriorityPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-1" align="start">
-        {Object.entries(priorityConfig).map(([key, config]) => (
+        {Object.entries(priorityConfig).filter(([key]) => key !== 'urgent').map(([key, config]) => (
           <Button
             variant="ghost"
             key={key}
@@ -1027,7 +1036,7 @@ export function TaskDialog({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<string>('todo');
-  const [priority, setPriority] = useState<PriorityValue | null>(null);
+  const [priority, setPriority] = useState<PriorityState | null>(null);
   const [assigneeList, setAssigneeList] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [record, setRecord] = useState<string | null>(null);
@@ -1325,8 +1334,15 @@ export function TaskDialog({
     const isPersonRecord = recordType === 'person';
 
     if (editingTask) {
+      // An edit sends what the form holds, cleared fields included: `undefined`
+      // is dropped by JSON, so the caller could not tell "cleared" from "left
+      // alone" and the old date / description / labels / recurrence stayed.
       onUpdate(editingTask.id, {
         ...common,
+        description: finalDescription,
+        dueDate: dueDate ?? null,
+        labels: selectedLabels,
+        repeat: common.repeat ?? null,
         assigneeIds: assigneeList,
         linkedCompany: record && !isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,
         linkedPerson: record && isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,

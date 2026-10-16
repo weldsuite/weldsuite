@@ -220,7 +220,7 @@ export default function ProjectAnalyticsBuilderPage() {
                 <CardContent>
                   <ChartPreview
                     reportId={reportId}
-                    query={{ entity: selectedEntity, metric: selectedMetric, timeRange, groupBy, aggregation, sortOrder, limit: limit === 'All' ? undefined : Number.parseInt(limit, 10) }}
+                    query={{ entity: selectedEntity, metric: selectedMetric, timeRange, groupBy, aggregation, sortOrder, limit: limit === 'All' ? undefined : Number.parseInt(limit, 10), projectId }}
                     chartType={selectedChart.id}
                     color={chartColor}
                     showLegend={showLegend}

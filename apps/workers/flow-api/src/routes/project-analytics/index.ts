@@ -10,10 +10,10 @@
  * Permissions: projects:read | projects:create | projects:update | projects:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -27,6 +27,7 @@ import {
   createChartSchema,
   updateChartLayoutsSchema,
   projectKpiSummaryQuerySchema,
+  chartsDataRequestSchema,
 } from '@weldsuite/core-api-client/schemas/project-analytics';
 
 const APP_NAME = 'projects';
@@ -104,11 +105,14 @@ app.get(
   },
 );
 
-/** True when `reportId` names a live WeldFlow report (so child routes can answer 404 instead of 500). */
-async function reportExists(db: Database, reportId: string): Promise<boolean> {
+type AnalyticsCtx = Context<{ Bindings: Env; Variables: Variables }>;
+type ReportRow = typeof schema.analyticsReports.$inferSelect;
+
+/** The live WeldFlow report `reportId`, or null (so child routes can answer 404 instead of 500). */
+async function loadReport(db: Database, reportId: string): Promise<ReportRow | null> {
   const { analyticsReports } = schema;
   const [row] = await db
-    .select({ id: analyticsReports.id })
+    .select()
     .from(analyticsReports)
     .where(
       and(
@@ -118,7 +122,35 @@ async function reportExists(db: Database, reportId: string): Promise<boolean> {
       ),
     )
     .limit(1);
-  return !!row;
+  return row ?? null;
+}
+
+/**
+ * Reports belong to whoever created them: `projects:update` / `projects:delete`
+ * alone must not let a member rewrite or delete a colleague's report. Workspace
+ * admins (`projects:scope:all`) can manage any report, and legacy reports
+ * without an owner stay editable.
+ */
+async function canModifyReport(c: AnalyticsCtx, report: ReportRow): Promise<boolean> {
+  if (!report.createdById) return true;
+  if (report.createdById === c.get('userId')) return true;
+  return hasContextPermission(c, 'projects:scope:all');
+}
+
+const REPORT_OWNER_ONLY = 'Only the report owner or a workspace admin can change this report';
+
+/**
+ * Loads the report and checks the caller may change it. Returns the report, or
+ * the 404 / 403 response to send.
+ */
+async function loadModifiableReport(
+  c: AnalyticsCtx,
+  reportId: string,
+): Promise<ReportRow | Response> {
+  const report = await loadReport(c.get('tenantDb'), reportId);
+  if (!report) return error.notFound(c, 'Report', reportId);
+  if (!(await canModifyReport(c, report))) return error.forbidden(c, REPORT_OWNER_ONLY);
+  return report;
 }
 
 // ============================================================================
@@ -242,6 +274,9 @@ app.put(
     const { analyticsReports } = schema;
 
     try {
+      const owned = await loadModifiableReport(c, reportId);
+      if (owned instanceof Response) return owned;
+
       await db
         .update(analyticsReports)
         .set({ ...data, updatedAt: new Date() })
@@ -278,6 +313,9 @@ app.delete('/reports/:reportId', requirePermission('projects:delete'), async (c)
   const { analyticsReports } = schema;
 
   try {
+    const owned = await loadModifiableReport(c, reportId);
+    if (owned instanceof Response) return owned;
+
     await db
       .update(analyticsReports)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -405,7 +443,7 @@ app.get('/reports/:reportId/charts', requirePermission('projects:read'), async (
   const { analyticsCharts } = schema;
 
   try {
-    if (!(await reportExists(db, reportId))) return error.notFound(c, 'Report', reportId);
+    if (!(await loadReport(db, reportId))) return error.notFound(c, 'Report', reportId);
 
     const charts = await db
       .select()
@@ -436,7 +474,8 @@ app.post(
     const { analyticsReports, analyticsCharts } = schema;
 
     try {
-      if (!(await reportExists(db, reportId))) return error.notFound(c, 'Report', reportId);
+      const owned = await loadModifiableReport(c, reportId);
+      if (owned instanceof Response) return owned;
 
       const existingCharts = await db
         .select()
@@ -508,6 +547,9 @@ app.patch(
     const { analyticsCharts } = schema;
 
     try {
+      const owned = await loadModifiableReport(c, reportId);
+      if (owned instanceof Response) return owned;
+
       const now = new Date();
 
       await Promise.all(
@@ -546,6 +588,9 @@ app.delete(
     const { analyticsReports, analyticsCharts } = schema;
 
     try {
+      const owned = await loadModifiableReport(c, reportId);
+      if (owned instanceof Response) return owned;
+
       const now = new Date();
 
       await db
@@ -598,6 +643,9 @@ app.post(
     const { analyticsReports, analyticsCharts } = schema;
 
     try {
+      const owned = await loadModifiableReport(c, reportId);
+      if (owned instanceof Response) return owned;
+
       const [original] = await db
         .select()
         .from(analyticsCharts)
@@ -677,39 +725,60 @@ app.post(
 /**
  * POST /reports/:reportId/charts-data — compute chart data for multiple chart configs.
  * Queries Cloudflare R2 Data Catalog (Iceberg) via the SQL REST API.
+ *
+ * Body: `{ charts: [{ chartId, entity, metric, timeRange, groupBy, aggregation,
+ * sortOrder, limit?, projectId? }] }`, validated; `entity` is limited to WeldFlow
+ * entities. Configs come from the body (not the stored charts) so the builder can
+ * preview an unsaved chart. Every series is scoped to the projects the caller can
+ * access (`projects:scope:all` sees the whole workspace); a `projectId` narrows a
+ * chart to one project and must itself be accessible. Answers `{ data: { [chartId]: points[] } }`.
  */
-app.post('/reports/:reportId/charts-data', requirePermission('projects:read'), async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const chartConfigs: Array<{
-    chartId: string;
-    entity: string;
-    metric: string;
-    timeRange: string;
-    groupBy: string;
-    aggregation: string;
-    sortOrder: string;
-    limit?: number;
-  }> = (body as any)?.charts ?? [];
+app.post(
+  '/reports/:reportId/charts-data',
+  requirePermission('projects:read'),
+  zValidator('json', chartsDataRequestSchema),
+  async (c) => {
+    const reportId = c.req.param('reportId');
+    const db = c.get('tenantDb');
+    const { charts } = c.req.valid('json');
 
-  try {
-    const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
-    const workspaceId = c.get('workspaceId');
+    try {
+      if (!(await loadReport(db, reportId))) return error.notFound(c, 'Report', reportId);
 
-    const entries = await Promise.all(
-      chartConfigs.map(async (config) => {
-        const data = await queryAnalytics(c.env, workspaceId, config);
-        return [config.chartId, data] as const;
-      }),
-    );
+      // A project the caller cannot see is refused outright, not silently emptied.
+      const requestedProjects = [...new Set(charts.flatMap((chart) => (chart.projectId ? [chart.projectId] : [])))];
+      for (const projectId of requestedProjects) {
+        if (!(await canAccessProject(c, projectId))) {
+          return error.forbidden(c, 'You are not a member of this project');
+        }
+      }
 
-    const data: Record<string, Array<{ label: string; value: number; date?: string }>> =
-      Object.fromEntries(entries);
+      const projectIds = await accessibleProjectIds(c);
+      const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
+      const workspaceId = c.get('workspaceId');
 
-    return c.json({ success: true, data });
-  } catch (err) {
-    console.error('[app-api/project-analytics] charts-data failed:', err);
-    return error.internal(c, 'Failed to get charts data');
-  }
-});
+      const entries = await Promise.all(
+        charts.map(async (config) => {
+          const { chartId, projectId, limit, ...query } = config;
+          const points = await queryAnalytics(c.env, workspaceId, {
+            ...query,
+            limit: limit ?? undefined,
+            projectId: projectId ?? undefined,
+            projectIds,
+          });
+          return [chartId, points] as const;
+        }),
+      );
+
+      const data: Record<string, Array<{ label: string; value: number; date?: string }>> =
+        Object.fromEntries(entries);
+
+      return success(c, data);
+    } catch (err) {
+      console.error('[app-api/project-analytics] charts-data failed:', err);
+      return error.internal(c, 'Failed to get charts data');
+    }
+  },
+);
 
 export const projectAnalyticsRoutes = app;

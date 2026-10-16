@@ -125,7 +125,9 @@ function applyActiveFilter(tasks: Task[], filter: ActiveFilter): Task[] {
   const { field } = filter;
   if (field !== 'status' && field !== 'priority' && field !== 'project') return tasks;
   const wantMatch = filter.operator === 'is';
-  return tasks.filter(t => (t[field] === filter.value) === wantMatch);
+  // The project filter's value is a project id (what the server filters on).
+  const key = field === 'project' ? 'projectId' : field;
+  return tasks.filter(t => (t[key] === filter.value) === wantMatch);
 }
 
 function applyActiveFilters(tasks: Task[], activeFilters: ActiveFilter[]): Task[] {

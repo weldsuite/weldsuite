@@ -1739,6 +1739,29 @@ export default function TimesheetPage() {
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
 
+  // Entries are fetched for the visible range only (the API caps one page at 500
+  // rows, so loading "the newest 500" left older weeks empty on busy projects).
+  // The month grid also shows the neighbouring days of its first and last week,
+  // so its range covers the whole grid. Bounds are formatted from local parts,
+  // not toISOString: a UTC conversion shifts the boundary a day east of GMT.
+  const fetchRange = useMemo(() => {
+    if (viewMode === 'week') {
+      const end = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
+      return { fromDate: format(currentWeekStart, 'yyyy-MM-dd'), toDate: format(end, 'yyyy-MM-dd') };
+    }
+    const first = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const offsetToMonday = first.getDay() === 0 ? -6 : 1 - first.getDay();
+    const start = new Date(first.getFullYear(), first.getMonth(), first.getDate() + offsetToMonday);
+    // A month grid spans at most six weeks.
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 41);
+    return { fromDate: format(start, 'yyyy-MM-dd'), toDate: format(end, 'yyyy-MM-dd') };
+  }, [viewMode, currentWeekStart, currentMonth]);
+  const { fromDate: fetchFrom, toDate: fetchTo } = fetchRange;
+  // Only the first load of a project blanks the page; moving between weeks keeps the grid up.
+  const loadedProjectRef = useRef<string | null>(null);
+  // Drops the response of a superseded request (fast week navigation).
+  const loadSeqRef = useRef(0);
+
   // Focus search input when opened
   useEffect(() => {
     if (searchOpen && searchInputRef.current) {
@@ -1773,15 +1796,17 @@ export default function TimesheetPage() {
 
   // Load data
   const loadData = useCallback(async () => {
-    setIsLoading(true);
+    const seq = ++loadSeqRef.current;
+    if (loadedProjectRef.current !== projectId) setIsLoading(true);
     setError(null);
 
     try {
       const [entriesResult, tasksResult, membersResult] = await Promise.all([
-        timeEntriesApi.list(projectId, { limit: 500 }),
+        timeEntriesApi.list(projectId, { limit: 500, fromDate: fetchFrom, toDate: fetchTo }),
         tasksApi.list(projectId),
         membersApi.list(projectId),
       ]);
+      if (seq !== loadSeqRef.current) return;
 
       if (entriesResult.success) {
         const rawEntries = (Array.isArray(entriesResult.data)
@@ -1839,15 +1864,19 @@ export default function TimesheetPage() {
         setProjectMembers(membersResult.data || []);
       }
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       console.error('Error loading data:', err);
       setError(tt.failedToLoadData);
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) {
+        loadedProjectRef.current = projectId;
+        setIsLoading(false);
+      }
     }
     // The copy (`tt`) is deliberately not a dependency: a language switch must
     // re-translate the labels, not refetch every time entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, fetchFrom, fetchTo]);
 
   useEffect(() => {
     void loadData();

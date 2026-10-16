@@ -17,6 +17,9 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   BarChart3,
+  AlertCircle,
+  FolderX,
+  Lock,
   type LucideIcon,
 } from 'lucide-react';
 import { ProjectChatPanel } from '@/components/project-chat/project-chat-panel';
@@ -49,7 +52,9 @@ import {
 import { EyeOff, ArrowLeft, ArrowRight, Plus } from 'lucide-react';
 import { ProjectPermissionProvider } from '@/app/weldflow/contexts/project-permission-context';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
-import { projectsApi } from '@/app/weldflow/lib/api-client';
+import { isApiError } from '@weldsuite/api-client';
+import { useProject } from '@/hooks/queries/use-projects-queries';
+import { useProjectTabPreference } from '@/hooks/queries/use-weldflow-preferences';
 import {
   DndContext,
   closestCenter,
@@ -136,9 +141,25 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
   ];
 
-  // Load project name from localStorage
-  const [projectName, setProjectName] = React.useState<string>('');
-  const [tabs, setTabs] = React.useState<ProjectTab[]>(() => translatedTabs);
+  // Project header data. A failed load surfaces as a not-found / forbidden state
+  // instead of a skeleton that never resolves.
+  const projectQuery = useProject(projectId);
+  const [renamed, setRenamed] = React.useState<{ id: string; name: string } | null>(null);
+  const projectName =
+    (renamed?.id === projectId ? renamed.name : undefined) ?? projectQuery.data?.data?.name ?? '';
+
+  // Which tabs are shown, and in what order, is a per-user preference (saved
+  // server-side), not local state: it survives reloads and is the same in every
+  // project. The tab objects (labels included) are derived from the ids at render
+  // time, so they follow the locale.
+  const { tabIds: savedTabIds, setTabIds } = useProjectTabPreference();
+  const savedTabs = (savedTabIds ?? []).flatMap((id) => {
+    const tab = translatedTabs.find((candidate) => candidate.id === id);
+    return tab ? [tab] : [];
+  });
+  // No preference yet (or one that matches no known tab) shows every tab.
+  const tabs: ProjectTab[] = savedTabs.length > 0 ? savedTabs : translatedTabs;
+  const tabIdList = tabs.map((tab) => tab.id);
   const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
 
   // Expandable right-side chat panel — pixel width preference persists across
@@ -260,11 +281,10 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     setActiveId(null);
     const { active, over } = event;
     if (over && active.id !== over.id) {
-      setTabs((prev) => {
-        const oldIndex = prev.findIndex((t) => t.id === active.id);
-        const newIndex = prev.findIndex((t) => t.id === over.id);
-        return arrayMove(prev, oldIndex, newIndex);
-      });
+      const oldIndex = tabIdList.indexOf(String(active.id));
+      const newIndex = tabIdList.indexOf(String(over.id));
+      if (oldIndex === -1 || newIndex === -1) return;
+      setTabIds(arrayMove(tabIdList, oldIndex, newIndex));
     }
   };
 
@@ -275,16 +295,16 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
 
   const handleMoveLeft = (index: number) => {
     if (index <= 0) return;
-    const newTabs = [...tabs];
-    [newTabs[index - 1], newTabs[index]] = [newTabs[index], newTabs[index - 1]];
-    setTabs(newTabs);
+    const ids = [...tabIdList];
+    [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
+    setTabIds(ids);
   };
 
   const handleMoveRight = (index: number) => {
     if (index >= tabs.length - 1) return;
-    const newTabs = [...tabs];
-    [newTabs[index], newTabs[index + 1]] = [newTabs[index + 1], newTabs[index]];
-    setTabs(newTabs);
+    const ids = [...tabIdList];
+    [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
+    setTabIds(ids);
   };
 
   const confirmDelete = (index: number, name: string) => {
@@ -297,7 +317,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     if (tabs.length <= 1) return Promise.resolve();
     const deletedTab = tabs[index];
     const newTabs = tabs.filter((_, i) => i !== index);
-    setTabs(newTabs);
+    setTabIds(newTabs.map((tab) => tab.id));
 
     // If deleting the active tab, redirect to another tab
     if (deletedTab.id === activeTab) {
@@ -327,28 +347,16 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
   const handleAddTab = (tabId: string) => {
     const tabToAdd = translatedTabs.find((tab) => tab.id === tabId);
     if (tabToAdd) {
-      setTabs([...tabs, tabToAdd]);
+      setTabIds([...tabIdList, tabToAdd.id]);
     }
   };
-
-  const loadProjectName = React.useCallback(async () => {
-    const result = await projectsApi.get(projectId);
-    if (result.success && result.data) {
-      setProjectName(result.data.name);
-    }
-  }, [projectId]);
-
-  React.useEffect(() => {
-    loadProjectName();
-  }, [loadProjectName]);
-
 
   // Update project name instantly when renamed from sidebar
   React.useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail?.id === projectId) {
-        setProjectName(detail.name);
+        setRenamed({ id: projectId, name: String(detail.name) });
       }
     };
     window.addEventListener('project:renamed', handler);
@@ -373,6 +381,42 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     icon: tab.icon,
     href: `/weldflow/project/${projectId}${tab.href}`,
   }));
+
+  // The project could not be loaded: say why instead of showing a skeleton forever
+  // (and never mount tabs whose pages would just fail against the same project).
+  if (projectQuery.isError && !projectQuery.data) {
+    const status = isApiError(projectQuery.error) ? projectQuery.error.status : null;
+    const copy = t.projects.projectLayout;
+    let state = {
+      Icon: AlertCircle,
+      title: copy.loadFailedTitle,
+      description: copy.loadFailedDescription,
+    };
+    if (status === 404) {
+      state = { Icon: FolderX, title: copy.notFoundTitle, description: copy.notFoundDescription };
+    } else if (status === 403) {
+      state = { Icon: Lock, title: copy.forbiddenTitle, description: copy.forbiddenDescription };
+    }
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center" role="alert">
+        <div className="rounded-full bg-muted p-4">
+          <state.Icon className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <h1 className="text-lg font-semibold">{state.title}</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">{state.description}</p>
+        <div className="mt-2 flex items-center gap-2">
+          {status !== 404 && status !== 403 && (
+            <Button variant="outline" onClick={() => void projectQuery.refetch()}>
+              {copy.retry}
+            </Button>
+          )}
+          <Button asChild>
+            <Link href="/weldflow/projects">{copy.backToProjects}</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ProjectPermissionProvider projectId={projectId}>

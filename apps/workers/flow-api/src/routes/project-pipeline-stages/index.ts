@@ -11,14 +11,14 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { randomString } from '@weldsuite/worker-kit/random';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { canAccessProject, canWriteProject } from '../../lib/project-access';
 
@@ -59,15 +59,99 @@ export function positionForNewStage(
   return { position: firstClosed, shiftFrom: firstClosed };
 }
 
-function slugifyStage(name: string): string {
+type StageRow = typeof t.$inferSelect;
+
+/** Tasks that sit in a stage: by stage id, or (unassigned) by a custom stage's id used as their status. */
+function tasksInStage(projectId: string, stageId: string): SQL | undefined {
+  const tasks = schema.tasks;
+  return and(
+    eq(tasks.projectId, projectId),
+    isNull(tasks.deletedAt),
+    or(eq(tasks.stageId, stageId), and(isNull(tasks.stageId), eq(tasks.status, stageId))),
+  );
+}
+
+/** Tasks carry their stage's system status; closing one stamps its completion date, leaving `done` clears it. */
+function statusUpdate(status: string, now: Date) {
+  return { status, completedDate: status === 'done' ? now : null, updatedAt: now };
+}
+
+/** Re-labels the tasks already in a stage with its new system status. */
+async function setStageTasksStatus(db: Database, projectId: string, stageId: string, status: string): Promise<void> {
+  await db
+    .update(schema.tasks)
+    .set(statusUpdate(normalizeTaskStatus(status), new Date()))
+    .where(tasksInStage(projectId, stageId));
+}
+
+/**
+ * The stage a deleted stage's tasks fall back to when the caller names none:
+ * the project's "To Do" column, else "Backlog", else the first remaining one.
+ */
+async function findFallbackStage(
+  db: Database,
+  projectId: string | null,
+  excludeStageId: string,
+): Promise<{ id: string; systemStatus: string } | null> {
+  if (!projectId) return null;
+  const remaining = await db
+    .select({ id: t.id, systemStatus: t.systemStatus })
+    .from(t)
+    .where(and(eq(t.projectId, projectId), isNull(t.deletedAt), ne(t.id, excludeStageId)))
+    .orderBy(asc(t.position));
+  const byStatus = (status: string) => remaining.find((s) => normalizeTaskStatus(s.systemStatus) === status);
+  return byStatus('todo') ?? byStatus('backlog') ?? remaining[0] ?? null;
+}
+
+/** Moves a deleted stage's tasks to `target`, or just unassigns them when no stage is left. */
+async function moveStageTasks(
+  db: Database,
+  stage: StageRow,
+  target: { id: string; systemStatus: string } | null,
+  now: Date,
+): Promise<void> {
+  if (!stage.projectId) return;
+  const tasks = schema.tasks;
+  await db
+    .update(tasks)
+    .set(
+      target
+        ? { stageId: target.id, ...statusUpdate(normalizeTaskStatus(target.systemStatus), now) }
+        : { stageId: null, updatedAt: now },
+    )
+    .where(tasksInStage(stage.projectId, stage.id));
+}
+
+/** `project_pipeline_stages.id` is a varchar(30). */
+const STAGE_ID_MAX = 30;
+const STAGE_SUFFIX_LENGTH = 4;
+
+/**
+ * Id for a custom stage: a readable slug of the name plus a random suffix. The
+ * id doubles as the task status for custom stages, so it stays human-readable,
+ * but is cut so that `<slug>_<suffix>` always fits the column.
+ */
+export function slugifyStage(name: string): string {
   const base = name
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|(?<!_)_+$/g, '')
-    .slice(0, 40);
-  const suffix = randomString(4);
-  return `${base}_${suffix}`;
+    .replace(/^_+|_+$/g, '')
+    .slice(0, STAGE_ID_MAX - STAGE_SUFFIX_LENGTH - 1)
+    .replace(/_+$/g, '');
+  const suffix = randomString(STAGE_SUFFIX_LENGTH);
+  return base ? `${base}_${suffix}` : `stage_${suffix}`;
+}
+
+/**
+ * Id of a default stage. Derived from the project and the stage's index so two
+ * simultaneous first loads insert the *same* rows (the second is a no-op)
+ * instead of seeding the board twice: the table has no unique key to stop that.
+ * Falls back to a random id when the project id is too long to embed.
+ */
+export function defaultStageId(projectId: string, index: number): string {
+  const id = `stg${index}_${projectId}`;
+  return id.length <= STAGE_ID_MAX ? id : generateId('stg');
 }
 
 /** A stage's system status; legacy spellings (`in_review`) are stored as their current value. */
@@ -75,7 +159,7 @@ const stageSystemStatusSchema = z.string().transform((s) => normalizeTaskStatus(
 
 const createStageSchema = z.object({
   projectId: z.string().min(1),
-  id: z.string().min(1).optional(),
+  id: z.string().min(1).max(STAGE_ID_MAX).optional(),
   name: z.string().min(1),
   color: z.string().optional(),
   position: z.number().int().min(0).optional(),
@@ -117,10 +201,14 @@ app.get('/', requirePermission('projects:read'), async (c) => {
     // settings, kanban, and task-create dropdowns.
     if (results.length === 0) {
       const now = new Date();
-      try {
-        await db.insert(t).values(
+      // The default stages have fixed, project-derived ids, so a concurrent
+      // first load collides on the primary key and merges into the same rows
+      // rather than seeding twice (re-activating any a delete left behind).
+      await db
+        .insert(t)
+        .values(
           DEFAULT_STAGES.map((s, i) => ({
-            id: generateId('stg'),
+            id: defaultStageId(projectId, i),
             projectId,
             name: s.name,
             color: s.color,
@@ -129,11 +217,18 @@ app.get('/', requirePermission('projects:read'), async (c) => {
             createdAt: now,
             updatedAt: now,
           })),
-        );
-      } catch (seedErr) {
-        // Concurrent seed — tolerate unique-key collisions.
-        console.warn('[app-api/project-pipeline-stages] seed skipped (likely concurrent):', seedErr);
-      }
+        )
+        .onConflictDoUpdate({
+          target: t.id,
+          set: {
+            name: sql`excluded.name`,
+            color: sql`excluded.color`,
+            position: sql`excluded.position`,
+            systemStatus: sql`excluded.system_status`,
+            updatedAt: now,
+            deletedAt: null,
+          },
+        });
       results = await db
         .select()
         .from(t)
@@ -336,6 +431,13 @@ app.patch(
       if (data.systemStatus !== undefined) update.systemStatus = data.systemStatus;
       await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
+      // Tasks carry their stage's system status, so changing it re-labels the
+      // tasks already in the stage (otherwise they keep the old status until
+      // someone touches them).
+      if (data.systemStatus !== undefined && data.systemStatus !== existing.systemStatus && existing.projectId) {
+        await setStageTasksStatus(db, existing.projectId, id, data.systemStatus);
+      }
+
       const [updated] = await db.select().from(t).where(eq(t.id, id)).limit(1);
 
       publishEntityEvent({
@@ -377,27 +479,28 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
     }
 
     const now = new Date();
-    const tasks = schema.tasks;
 
+    // Where the tasks go: the requested stage, which must be another live stage
+    // of the SAME project, or else the project's default stage.
+    let target: { id: string; systemStatus: string } | null = null;
     if (moveTasksToStageId) {
-      const [target] = await db
-        .select({ id: t.id, systemStatus: t.systemStatus })
+      if (moveTasksToStageId === id) {
+        return error.badRequest(c, 'Cannot move tasks to the stage being deleted');
+      }
+      const [requested] = await db
+        .select({ id: t.id, systemStatus: t.systemStatus, projectId: t.projectId })
         .from(t)
         .where(and(eq(t.id, moveTasksToStageId), isNull(t.deletedAt)))
         .limit(1);
-      if (target) {
-        await db
-          .update(tasks)
-          .set({ stageId: target.id, status: target.systemStatus, updatedAt: now })
-          .where(
-            and(
-              eq(tasks.projectId, existing.projectId),
-              eq(tasks.stageId, id),
-              isNull(tasks.deletedAt),
-            ),
-          );
+      if (!requested || requested.projectId !== existing.projectId) {
+        return error.badRequest(c, 'moveTasksToStageId must be another stage of the same project');
       }
+      target = requested;
+    } else {
+      target = await findFallbackStage(db, existing.projectId, id);
     }
+
+    await moveStageTasks(db, existing, target, now);
 
     await db.update(t).set({ deletedAt: now, updatedAt: now }).where(eq(t.id, id));
 

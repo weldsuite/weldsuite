@@ -4,11 +4,7 @@ import {
   FolderKanban,
   SquareCheck,
   Users,
-  Trash2,
-  Layers,
   PanelsTopLeft,
-  Edit2,
-  Copy,
   BarChart3,
   type LucideIcon,
 } from 'lucide-react';
@@ -30,8 +26,35 @@ import { projectsApi, stagesApi, type ApiProject } from '../lib/api-client';
 import { toast } from 'sonner';
 import { useDataEvent } from '@/lib/events/data-events';
 import { useTopic } from '@weldsuite/realtime/react';
+import { usePathname, useRouter } from '@/lib/router';
+import { useSidebarProjectOrder } from '@/hooks/queries/use-weldflow-preferences';
 
 const findIconByLabel = findColoredSquareIconByLabel;
+
+const PROJECT_HREF_PREFIX = '/weldflow/project/';
+
+/** The project id behind a sidebar item's href (`/weldflow/project/:id`). */
+function projectIdFromHref(href: string | undefined): string {
+  return (href ?? '').slice(PROJECT_HREF_PREFIX.length);
+}
+
+/**
+ * Orders sidebar items by the user's saved project order. Projects missing from
+ * the saved order (new ones) keep their relative position after the saved ones.
+ */
+function applyProjectOrder(pages: MenuItemProps[], order: readonly string[] | null): MenuItemProps[] {
+  if (!order || order.length === 0) return pages;
+  const rank = new Map(order.map((id, index) => [id, index]));
+  const unranked = order.length;
+  return pages
+    .map((page, index) => ({ page, index }))
+    .sort((a, b) => {
+      const rankA = rank.get(projectIdFromHref(a.page.href)) ?? unranked;
+      const rankB = rank.get(projectIdFromHref(b.page.href)) ?? unranked;
+      return rankA - rankB || a.index - b.index;
+    })
+    .map(({ page }) => page);
+}
 
 /** Returns `value` when `allowed`, otherwise `undefined` (used for permission-gated menu actions). */
 function whenAllowed<T>(allowed: boolean, value: T): T | undefined {
@@ -47,7 +70,26 @@ export function useProjectsSidebarItems(isActive: boolean): {
   dialogs: React.ReactNode;
 } {
   const { t } = useI18n();
+  const router = useRouter();
+  const pathname = usePathname();
   const [projectPages, setProjectPages] = React.useState<MenuItemProps[]>([]);
+  // The user's own project order is a saved preference (follows them across
+  // devices); the refs let the stable handlers below read the latest values.
+  const { order: savedProjectOrder, setOrder: saveProjectOrder } = useSidebarProjectOrder();
+  const savedProjectOrderRef = React.useRef(savedProjectOrder);
+  const projectPagesRef = React.useRef(projectPages);
+  const pathnameRef = React.useRef(pathname);
+  React.useEffect(() => {
+    savedProjectOrderRef.current = savedProjectOrder;
+    // The saved order can arrive after the projects did.
+    setProjectPages((prev) => applyProjectOrder(prev, savedProjectOrder));
+  }, [savedProjectOrder]);
+  React.useEffect(() => {
+    projectPagesRef.current = projectPages;
+  }, [projectPages]);
+  React.useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
   const [showAddProjectDialog, setShowAddProjectDialog] = React.useState(false);
   const [newProjectName, setNewProjectName] = React.useState('');
   const [isCreatingProject, setIsCreatingProject] = React.useState(false);
@@ -104,7 +146,6 @@ export function useProjectsSidebarItems(isActive: boolean): {
   }, [isActive, visibleGeneralPages]);
 
   // Refs to break circular dependencies
-  const handleAddSubProjectRef = React.useRef<(projectId: string) => void>(() => {});
   const reloadProjectsRef = React.useRef<() => Promise<void>>(async () => {});
   const handleMoveProjectRef = React.useRef<(projectHref: string, direction: 'up' | 'down') => void>(() => {});
   const handleDuplicateProjectRef = React.useRef<(projectId: string) => Promise<void>>(async () => {});
@@ -126,7 +167,6 @@ export function useProjectsSidebarItems(isActive: boolean): {
         iconStyle: 'colored-square' as const,
         iconColor: project.color || coloredSquareColors[0].value,
         subItems: [],
-        onAddSubItem: whenAllowed(canWrite, () => handleAddSubProjectRef.current(projectId)),
         onRename: whenAllowed(canWrite, () => {
           setProjectToRename({ id: projectId, name: project.name });
           setRenameValue(project.name);
@@ -164,7 +204,8 @@ export function useProjectsSidebarItems(isActive: boolean): {
       const projectsWithHandlers = transformProjectsToMenuItems(result.data);
       // Preserve existing sidebar order: match current items first, then append new ones
       setProjectPages((prev) => {
-        if (prev.length === 0) return projectsWithHandlers;
+        // First load: the user's saved order (API order when there is none).
+        if (prev.length === 0) return applyProjectOrder(projectsWithHandlers, savedProjectOrderRef.current);
         const prevHrefs = prev.map((p) => p.href);
         const ordered: typeof projectsWithHandlers = [];
         for (const href of prevHrefs) {
@@ -185,18 +226,23 @@ export function useProjectsSidebarItems(isActive: boolean): {
   }, [reloadProjects]);
 
   // Move project up or down in sidebar
+  const persistProjectOrder = React.useCallback(
+    (pages: MenuItemProps[]) => saveProjectOrder(pages.map((page) => projectIdFromHref(page.href))),
+    [saveProjectOrder],
+  );
+
   const handleMoveProject = React.useCallback((projectHref: string, direction: 'up' | 'down') => {
-    setProjectPages((prev) => {
-      const index = prev.findIndex((p) => p.href === projectHref);
-      if (index === -1) return prev;
-      if (direction === 'up' && index === 0) return prev;
-      if (direction === 'down' && index === prev.length - 1) return prev;
-      const newPages = [...prev];
-      const swapIndex = direction === 'up' ? index - 1 : index + 1;
-      [newPages[index], newPages[swapIndex]] = [newPages[swapIndex], newPages[index]];
-      return newPages;
-    });
-  }, []);
+    const current = projectPagesRef.current;
+    const index = current.findIndex((p) => p.href === projectHref);
+    if (index === -1) return;
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === current.length - 1) return;
+    const newPages = [...current];
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    [newPages[index], newPages[swapIndex]] = [newPages[swapIndex], newPages[index]];
+    setProjectPages(newPages);
+    persistProjectOrder(newPages);
+  }, [persistProjectOrder]);
 
   React.useEffect(() => {
     handleMoveProjectRef.current = handleMoveProject;
@@ -271,6 +317,12 @@ export function useProjectsSidebarItems(isActive: boolean): {
     async (projectId: string) => {
       const result = await projectsApi.delete(projectId);
       if (result.success) {
+        // Deleting the project you are looking at must not leave you on its dead page.
+        const projectBase = `${PROJECT_HREF_PREFIX}${projectId}`;
+        const viewing = pathnameRef.current ?? '';
+        if (viewing === projectBase || viewing.startsWith(`${projectBase}/`)) {
+          router.replace('/weldflow/projects');
+        }
         await reloadProjects();
         toast.success(t.projects.sidebar.projectDeleted, {
           description: t.projects.sidebar.projectDeletedDescription,
@@ -281,73 +333,12 @@ export function useProjectsSidebarItems(isActive: boolean): {
         });
       }
     },
-    [reloadProjects, t.projects.sidebar.projectDeleted, t.projects.sidebar.projectDeletedDescription, t.projects.sidebar.error, t.projects.sidebar.projectDeleteFailed]
+    [reloadProjects, router, t.projects.sidebar.projectDeleted, t.projects.sidebar.projectDeletedDescription, t.projects.sidebar.error, t.projects.sidebar.projectDeleteFailed]
   );
 
   React.useEffect(() => {
     handleDeleteProjectRef.current = handleDeleteProject;
   }, [handleDeleteProject]);
-
-  // Handle adding a sub-project
-  const handleDeleteSubProjectRef = React.useRef<(parentProjectId: string, subProjectId: string) => void>(() => {});
-
-  const handleAddSubProject = React.useCallback((parentProjectId: string) => {
-    const subProjectId = `subproject-${Date.now()}`;
-    const newSubProject: MenuItemProps = {
-      title: t.projects.sidebar.newSubProject,
-      href: `/weldflow/project/${parentProjectId}/${subProjectId}/tasks`,
-      icon: Layers,
-      actions: [
-        { label: t.projects.sidebar.duplicate, icon: Copy, onClick: () => {} },
-        { label: t.projects.sidebar.rename, separatorAfter: true, icon: Edit2, onClick: () => {} },
-        {
-          label: t.projects.sidebar.delete,
-          destructive: true,
-          icon: Trash2,
-          onClick: () => handleDeleteSubProjectRef.current(parentProjectId, subProjectId),
-        },
-      ],
-    };
-
-    setProjectPages((currentProjects) =>
-      currentProjects.map((project) => {
-        if (project.href === `/weldflow/project/${parentProjectId}/tasks`) {
-          return {
-            ...project,
-            subItems: [...(project.subItems || []), newSubProject],
-          };
-        }
-        return project;
-      })
-    );
-  }, [t.projects.sidebar.newSubProject, t.projects.sidebar.duplicate, t.projects.sidebar.rename, t.projects.sidebar.delete]);
-
-  React.useEffect(() => {
-    handleAddSubProjectRef.current = handleAddSubProject;
-  }, [handleAddSubProject]);
-
-  const handleDeleteSubProject = React.useCallback(
-    (parentProjectId: string, subProjectId: string) => {
-      setProjectPages((currentProjects) =>
-        currentProjects.map((project) => {
-          if (project.href === `/weldflow/project/${parentProjectId}/tasks`) {
-            return {
-              ...project,
-              subItems: (project.subItems || []).filter(
-                (sub) => sub.href !== `/weldflow/project/${parentProjectId}/${subProjectId}/tasks`
-              ),
-            };
-          }
-          return project;
-        })
-      );
-    },
-    []
-  );
-
-  React.useEffect(() => {
-    handleDeleteSubProjectRef.current = handleDeleteSubProject;
-  }, [handleDeleteSubProject]);
 
   // Initialize projects
   React.useEffect(() => {
@@ -458,10 +449,11 @@ export function useProjectsSidebarItems(isActive: boolean): {
       draggable: true,
       // The items handed back carry the per-position move gating above; map them
       // back to the stored items so those callbacks are not lost after a reorder.
-      onReorder: (reorderedItems) =>
-        setProjectPages(
-          reorderedItems.map((item) => projectPages.find((page) => page.href === item.href) ?? item),
-        ),
+      onReorder: (reorderedItems) => {
+        const reordered = reorderedItems.map((item) => projectPages.find((page) => page.href === item.href) ?? item);
+        setProjectPages(reordered);
+        persistProjectOrder(reordered);
+      },
     },
   ];
 

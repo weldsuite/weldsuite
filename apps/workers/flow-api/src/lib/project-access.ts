@@ -20,7 +20,7 @@
  */
 
 import type { Context } from 'hono';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { hasContextPermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../types';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -56,7 +56,12 @@ export async function resolveProjectAccess(c: Ctx, projectId: string): Promise<P
  * the project manager, or any active member (viewers included).
  */
 export async function canAccessProject(c: Ctx, projectId: string): Promise<boolean> {
-  const access = await resolveProjectAccess(c, projectId);
+  return mayAccess(await resolveProjectAccess(c, projectId));
+}
+
+/** The read rule on an already-resolved access: a soft-deleted project is off-limits to everyone, scope:all holders included. */
+export function mayAccess(access: ProjectAccess): boolean {
+  if (access.deleted) return false;
   return access.scopeAll || access.isManager || access.isMember;
 }
 
@@ -126,10 +131,25 @@ export async function canWriteTaskProject(
 }
 
 /**
+ * SQL condition: the row's project is not soft-deleted. Rows without a project
+ * (personal tasks, workspace-wide labels) pass. Add it to list/aggregate queries
+ * that are not already constrained by `accessibleProjectIds` — in particular
+ * when that returns `null` (scope:all) — so a deleted project's children
+ * (tasks, sprints, milestones, hours, ...) stop showing up and inflating numbers.
+ */
+export function projectNotDeleted(projectIdColumn: AnyColumn): SQL {
+  return sql`(${projectIdColumn} IS NULL OR NOT EXISTS (
+    SELECT 1 FROM ${schema.projects}
+    WHERE ${schema.projects.id} = ${projectIdColumn} AND ${schema.projects.deletedAt} IS NOT NULL
+  ))`;
+}
+
+/**
  * The set of project IDs the caller may access — for constraining list queries.
- * Returns `null` when the caller holds `projects:scope:all` (no constraint;
- * every project). Otherwise the ids of projects they manage or actively belong
- * to (empty array = access nothing).
+ * Returns `null` when the caller holds `projects:scope:all` (no constraint on
+ * membership; combine with `projectNotDeleted` to still hide deleted projects).
+ * Otherwise the ids of live (not soft-deleted) projects they manage or actively
+ * belong to (empty array = access nothing).
  */
 export async function accessibleProjectIds(c: Ctx): Promise<string[] | null> {
   const { userId, scopeAll } = await callerContext(c);
@@ -140,15 +160,17 @@ export async function accessibleProjectIds(c: Ctx): Promise<string[] | null> {
     db
       .select({ id: schema.projects.id })
       .from(schema.projects)
-      .where(eq(schema.projects.projectManagerId, userId)),
+      .where(and(eq(schema.projects.projectManagerId, userId), isNull(schema.projects.deletedAt))),
     db
       .select({ projectId: schema.projectMembers.projectId })
       .from(schema.projectMembers)
+      .innerJoin(schema.projects, eq(schema.projects.id, schema.projectMembers.projectId))
       .where(
         and(
           eq(schema.projectMembers.userId, userId),
           eq(schema.projectMembers.isActive, true),
           isNull(schema.projectMembers.deletedAt),
+          isNull(schema.projects.deletedAt),
         ),
       ),
   ]);
