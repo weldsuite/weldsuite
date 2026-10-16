@@ -122,11 +122,6 @@ function emptyModel(projectId: string): WorkbookModel {
 function readWorkbook(buf: ArrayBuffer, projectId: string): WorkbookModel {
   try {
     const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
-    console.log('[useSpreadsheet] read xlsx:', {
-      byteLength: buf.byteLength,
-      sheetNames: wb.SheetNames,
-      hasMetaSheet: !!wb.Sheets[META_SHEET],
-    });
     const meta = wb.Sheets[META_SHEET];
     if (!meta) {
       console.warn('[useSpreadsheet] no meta sheet — starting empty');
