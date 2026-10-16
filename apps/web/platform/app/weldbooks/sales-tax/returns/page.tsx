@@ -28,7 +28,7 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { AgencyPeriods, PeriodRow, PeriodState } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { ErrorState } from '../shared/query-states';
 import { SalesTaxFrame } from '../shared/sales-tax-frame';
-import { dueCountdown, dueTone, fill } from '../shared/text';
+import { dueCountdown, dueTone, fill, type DueTone } from '../shared/text';
 import { useOpenReturn } from '../shared/use-open-return';
 import {
   PERIOD_STATUS_FILTERS,
@@ -60,6 +60,12 @@ const RETURN_STATUS_TONE: Record<string, ChipTone> = {
   reviewed: 'blue',
   filed: 'green',
   paid: 'green',
+};
+
+const DUE_TONE_CLASS: Record<DueTone, string> = {
+  overdue: 'font-medium text-destructive',
+  soon: 'text-amber-600 dark:text-amber-400',
+  later: 'text-muted-foreground',
 };
 
 /** The key that tells which period is being opened. */
@@ -174,16 +180,7 @@ function ReturnsContent() {
           <>
             <RowDate>{formatDate(period.dueDate)}</RowDate>
             {done ? null : (
-              <span
-                className={cn(
-                  'truncate text-xs',
-                  tone === 'overdue'
-                    ? 'font-medium text-destructive'
-                    : tone === 'soon'
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-muted-foreground',
-                )}
-              >
+              <span className={cn('truncate text-xs', DUE_TONE_CLASS[tone])}>
                 {dueCountdown(tc.due, period.daysUntilDue)}
               </span>
             )}

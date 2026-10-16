@@ -12,7 +12,7 @@ import {
   StatusChip,
   type ChipTone,
 } from '@/components/accounting/weldbooks-row-cells';
-import type { Form1099VendorRow } from '@/lib/api/domains/weldbooks-1099';
+import type { Form1099VendorRow, TinMatchStatus } from '@/lib/api/domains/weldbooks-1099';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -46,6 +46,14 @@ const VARIANT_TONE: Record<(typeof STATUS_VARIANT)[keyof typeof STATUS_VARIANT],
   secondary: 'gray',
   outline: 'gray',
   destructive: 'red',
+};
+
+const TIN_MATCH_TONE: Record<TinMatchStatus, ChipTone> = {
+  match: 'green',
+  pending: 'gray',
+  mismatch: 'red',
+  not_issued: 'red',
+  invalid: 'red',
 };
 
 const REVIEW_FILTER_FIELD = 'view';
@@ -181,7 +189,7 @@ export function VendorReviewTable({ vendors, onOpenDetails, initialFilter = 'to_
           <>
             <span className="font-mono text-xs text-gray-600 dark:text-muted-foreground">{row.tinMasked}</span>
             {row.tinMatchStatus ? (
-              <RowChip tone={row.tinMatchStatus === 'match' ? 'green' : row.tinMatchStatus === 'pending' ? 'gray' : 'red'}>
+              <RowChip tone={TIN_MATCH_TONE[row.tinMatchStatus]}>
                 {t.weldbooksUs.form1099.tinMatch.status[row.tinMatchStatus]}
               </RowChip>
             ) : null}

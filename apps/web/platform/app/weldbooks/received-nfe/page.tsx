@@ -72,6 +72,12 @@ function issuerTaxId(value: string | null): string {
   return n.length === 14 ? formatCnpj(n) : value;
 }
 
+/** The document number, with its series after a slash when it has one. */
+function documentNumber(doc: ReceivedFiscalDocument): string | null {
+  if (!doc.number) return null;
+  return doc.series ? `${doc.number} / ${doc.series}` : doc.number;
+}
+
 /** The status filter works on the loaded list: `is` keeps the status, `is not` drops it. */
 function applyStatusFilters(items: ReceivedFiscalDocument[], activeFilters: ActiveFilter[]): ReceivedFiscalDocument[] {
   let result = items;
@@ -177,7 +183,7 @@ export default function ReceivedNfePage() {
       width: 'w-[130px]',
       render: (doc) => (
         <span className="min-w-0" title={doc.accessKey}>
-          <RowText>{doc.number ? `${doc.number}${doc.series ? ` / ${doc.series}` : ''}` : null}</RowText>
+          <RowText>{documentNumber(doc)}</RowText>
         </span>
       ),
     },

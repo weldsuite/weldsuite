@@ -81,6 +81,12 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
   noResultsState?: { icon?: ReactNode; title: string; description: string };
 }
 
+/** The hover chevron of a clickable row without a row menu. */
+function RowChevron({ visible }: Readonly<{ visible: boolean }>) {
+  if (!visible) return null;
+  return <ChevronRight className="h-4 w-4 text-muted-foreground/50 opacity-0 group-hover:opacity-100" />;
+}
+
 export function WeldbooksEntityList<T extends { id: string }>({
   items,
   isLoading,
@@ -169,11 +175,7 @@ export function WeldbooksEntityList<T extends { id: string }>({
           ))}
           {/* h-7 matches the task row's menu button, so rows share its fixed 53px height. */}
           <div className={cn('w-[40px] h-7 flex items-center justify-end', renderRowMenu && 'relative z-[1]')}>
-            {renderRowMenu ? (
-              renderRowMenu(item)
-            ) : onRowClick ? (
-              <ChevronRight className="h-4 w-4 text-muted-foreground/50 opacity-0 group-hover:opacity-100" />
-            ) : null}
+            {renderRowMenu ? renderRowMenu(item) : <RowChevron visible={Boolean(onRowClick)} />}
           </div>
         </div>
       )}

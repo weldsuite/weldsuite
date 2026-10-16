@@ -109,9 +109,25 @@ export default function DimensionsPage() {
     }
   };
 
-  const addLabel = dimension === 'class' ? td.addClass : td.addLocation;
-  const EmptyIcon = dimension === 'class' ? Layers : MapPin;
+  const copy =
+    dimension === 'class'
+      ? { add: td.addClass, Icon: Layers, empty: td.emptyClasses, emptyDescription: td.emptyClassesDescription }
+      : { add: td.addLocation, Icon: MapPin, empty: td.emptyLocations, emptyDescription: td.emptyLocationsDescription };
   const canManage = canUpdate || canDelete;
+  const createAction = canCreate ? { label: copy.add, onClick: () => setForm({ value: null }) } : undefined;
+  const emptyState =
+    values.length > 0
+      ? { title: td.noMatches, description: '' }
+      : {
+          icon: (
+            <EmptyStateIllustration>
+              <copy.Icon className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            </EmptyStateIllustration>
+          ),
+          title: copy.empty,
+          description: copy.emptyDescription,
+          action: createAction,
+        };
 
   const columns: ColumnDef<DimensionListRow>[] = [
     {
@@ -234,21 +250,8 @@ export default function DimensionsPage() {
             </label>
           </>
         }
-        createButton={canCreate ? { label: addLabel, onClick: () => setForm({ value: null }) } : undefined}
-        emptyState={
-          values.length > 0
-            ? { title: td.noMatches, description: '' }
-            : {
-                icon: (
-                  <EmptyStateIllustration>
-                    <EmptyIcon className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
-                  </EmptyStateIllustration>
-                ),
-                title: dimension === 'class' ? td.emptyClasses : td.emptyLocations,
-                description: dimension === 'class' ? td.emptyClassesDescription : td.emptyLocationsDescription,
-                action: canCreate ? { label: addLabel, onClick: () => setForm({ value: null }) } : undefined,
-              }
-        }
+        createButton={createAction}
+        emptyState={emptyState}
         noResultsState={{ title: td.noMatches, description: '' }}
       />
 
