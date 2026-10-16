@@ -64,6 +64,7 @@ import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { copyText } from '@/lib/clipboard';
 import type { TranslationsType } from '@/lib/i18n/types';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
@@ -420,6 +421,7 @@ const SidebarItemWithContextMenu = ({
 
 const GanttPage = () => {
   const params = useParams();
+  const workspaceUrl = useWorkspaceUrl();
   const projectId = params.projectId as string;
   const { canWrite } = useProjectPermissions();
   const { t } = useI18n();
@@ -757,7 +759,7 @@ const GanttPage = () => {
 
 
   const handleCopyLink = (id: string) => {
-    copyText(`${window.location.origin}/projects/task/${id}`, () => toast.success(t.projects.gantt.linkCopied));
+    copyText(workspaceUrl(`/projects/task/${id}`), () => toast.success(t.projects.gantt.linkCopied));
   };
 
   const handleRemoveFeature = async (id: string) => {

@@ -11,17 +11,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { reachKeys, useReachBillingSetup } from '@/hooks/queries/use-reach-queries';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 type ReturnPath = '/weldreach/setup' | '/weldreach/mailboxes' | '/weldreach/settings';
 
 export function usePaymentMethodSetup(returnPath: ReturnPath, extraQuery: Record<string, string> = {}) {
   const t = useTranslations();
   const setup = useReachBillingSetup();
+  const workspaceUrl = useWorkspaceUrl();
   const [redirecting, setRedirecting] = useState(false);
 
   const start = async () => {
     const urlWith = (params: Record<string, string>) => {
-      const url = new URL(returnPath, window.location.origin);
+      const url = new URL(workspaceUrl(returnPath));
       for (const [key, value] of Object.entries({ ...extraQuery, ...params })) url.searchParams.set(key, value);
       return url.toString();
     };

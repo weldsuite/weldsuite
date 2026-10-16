@@ -7,6 +7,9 @@
  * right one. The org id is used rather than the slug because it survives a
  * slug change. Without an org id this is the bare `{baseUrl}{path}`, which
  * opens in whichever workspace the reader has active.
+ *
+ * Mirrored in packages/core/worker-kit/src/app-url.ts for workers that send
+ * no email; keep the two in sync.
  */
 export function workspaceAppUrl(baseUrl: string, clerkOrgId: string | null | undefined, path: string): string {
   let base = baseUrl.trim();

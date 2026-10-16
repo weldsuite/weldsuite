@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./app": "./src/app.ts",
     "./app-access": "./src/app-access.ts",
+    "./app-url": "./src/app-url.ts",
     "./atomically": "./src/atomically.ts",
     "./billing-worker": "./src/billing-worker.ts",
     "./cors": "./src/cors.ts",

@@ -65,6 +65,7 @@ import { useFileUpload } from '@/hooks/use-file-upload';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { InlineTextEditor } from '@/components/shared/inline-text-editor';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 interface CustomerDetailHeaderProps {
   variant?: 'page' | 'panel';
@@ -96,6 +97,7 @@ export function CustomerDetailHeader({
   onDelete,
 }: Readonly<CustomerDetailHeaderProps>) {
   const t = useTranslations();
+  const workspaceUrl = useWorkspaceUrl();
   const router = useRouter();
   const {
     data,
@@ -454,7 +456,7 @@ export function CustomerDetailHeader({
   };
 
   const shareRecordPath = recordPanelPath(customerId);
-  const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}${shareRecordPath}` : shareRecordPath;
+  const shareUrl = typeof window !== 'undefined' ? workspaceUrl(shareRecordPath) : shareRecordPath;
 
   const dialogs = (
     <HeaderDialogs

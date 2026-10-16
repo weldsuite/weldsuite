@@ -24,6 +24,7 @@ import {
 import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { cn } from '@/lib/utils';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 interface NoteEditorModalProps {
   note: {
@@ -59,6 +60,7 @@ export function NoteEditorModal({
   onToggleFavorite 
 }: Readonly<NoteEditorModalProps>) {
   const st = useTranslations();
+  const workspaceUrl = useWorkspaceUrl();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const { addPinnedNote } = usePinnedNotes();
@@ -171,7 +173,7 @@ export function NoteEditorModal({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => navigator.clipboard.writeText(`${window.location.origin}/projects/notes/${note.id}`)}>
+                  <DropdownMenuItem onClick={() => navigator.clipboard.writeText(workspaceUrl(`/projects/notes/${note.id}`))}>
                     <Copy className="h-3.5 w-3.5 mr-2" />
                     {st('sweep.weldflow.notesView.copyLink')}
                   </DropdownMenuItem>
