@@ -31,6 +31,7 @@ import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { cn } from '@/lib/utils';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { activateOnKey } from '@/lib/activate-on-key';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 interface LinkedCompany {
   id: string;
@@ -401,6 +402,7 @@ function NoteCard({ note, onToggleFavorite, onClick }: Readonly<{
   onClick: () => void;
 }>) {
   const st = useTranslations();
+  const workspaceUrl = useWorkspaceUrl();
   const router = useRouter();
 
   const getInitials = (name: string) => {
@@ -450,7 +452,7 @@ function NoteCard({ note, onToggleFavorite, onClick }: Readonly<{
                   <Copy className="h-3.5 w-3.5 mr-2" />
                   {st('sweep.weldflow.notesView.duplicate')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigator.clipboard.writeText(`${window.location.origin}/projects/notes/${note.id}`)}>
+                <DropdownMenuItem onClick={() => navigator.clipboard.writeText(workspaceUrl(`/projects/notes/${note.id}`))}>
                   <Copy className="h-3.5 w-3.5 mr-2" />
                   {st('sweep.weldflow.notesView.copyLink')}
                 </DropdownMenuItem>
@@ -504,7 +506,7 @@ function NoteCard({ note, onToggleFavorite, onClick }: Readonly<{
                 <Copy className="h-3.5 w-3.5 mr-2" />
                 {st('sweep.weldflow.notesView.duplicate')}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigator.clipboard.writeText(`${window.location.origin}/crm/notes/${note.id}`)}>
+              <DropdownMenuItem onClick={() => navigator.clipboard.writeText(workspaceUrl(`/crm/notes/${note.id}`))}>
                 <Copy className="h-3.5 w-3.5 mr-2" />
                 {st('sweep.weldflow.notesView.copyLink')}
               </DropdownMenuItem>

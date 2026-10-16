@@ -48,6 +48,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Link } from '@/lib/router';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import {
@@ -220,6 +221,7 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
   const connect = useConnectConnector();
   const authorize = useAuthorizeConnector();
   const test = useTestConnector();
+  const workspaceUrl = useWorkspaceUrl();
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [enabledSyncs, setEnabledSyncs] = useState<string[]>(defaultSyncKeys(connector));
   const { entities, currentEntityId } = useAccountingEntityOptions();
@@ -288,7 +290,7 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
           provider: 'woocommerce',
           storeUrl,
           enabledSyncs,
-          returnUrl: `${window.location.origin}${window.location.pathname}`,
+          returnUrl: workspaceUrl(window.location.pathname),
         },
         {
           onSuccess: (result) => {
@@ -310,7 +312,7 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
           provider: 'moneybird',
           enabledSyncs,
           entityId,
-          returnUrl: `${window.location.origin}${window.location.pathname}`,
+          returnUrl: workspaceUrl(window.location.pathname),
         },
         {
           onSuccess: (result) => {

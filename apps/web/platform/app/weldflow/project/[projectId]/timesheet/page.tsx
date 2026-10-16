@@ -733,7 +733,8 @@ function TimesheetWeekView({
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              title={st('sweep.weldflow.edit')}
+                              title={entry.status === 'approved' ? st('sweep.weldflow.timesheetPage.entryApprovedLocked') : st('sweep.weldflow.edit')}
+                              disabled={entry.status === 'approved'}
                               onClick={() => openEditDialog(entry)}
                             >
                               <Pencil className="h-3.5 w-3.5" />
@@ -742,8 +743,8 @@ function TimesheetWeekView({
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-red-600 hover:text-red-700"
-                              title={st('sweep.weldflow.delete')}
-                              disabled={deletingEntryId === entry.id}
+                              title={entry.status === 'approved' ? st('sweep.weldflow.timesheetPage.entryApprovedLocked') : st('sweep.weldflow.delete')}
+                              disabled={deletingEntryId === entry.id || entry.status === 'approved'}
                               onClick={() => setEntryToDelete(entry)}
                             >
                               {deletingEntryId === entry.id ? (
@@ -1803,7 +1804,7 @@ export default function TimesheetPage() {
     try {
       const [entriesResult, tasksResult, membersResult] = await Promise.all([
         timeEntriesApi.list(projectId, { limit: 500, fromDate: fetchFrom, toDate: fetchTo }),
-        tasksApi.list(projectId),
+        tasksApi.listAllPages(projectId),
         membersApi.list(projectId),
       ]);
       if (seq !== loadSeqRef.current) return;
@@ -2060,6 +2061,11 @@ export default function TimesheetPage() {
         setNewEntryEndTime('');
         setSelectedDate(null);
         void loadData();
+      } else if (result.status === 409) {
+        // Approved entries are locked server-side. Nothing was applied locally;
+        // reload so the row shows its approved state.
+        toast.error(st('sweep.weldflow.timesheetPage.entryApprovedLocked'));
+        void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.saveFailed'));
       }
@@ -2093,6 +2099,9 @@ export default function TimesheetPage() {
       const result = await timeEntriesApi.delete(projectId, entryId);
       if (result.success) {
         toast.success(st('sweep.weldflow.timesheetPage.timeEntryDeleted'));
+        void loadData();
+      } else if (result.status === 409) {
+        toast.error(st('sweep.weldflow.timesheetPage.entryApprovedLocked'));
         void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.deleteFailed'));

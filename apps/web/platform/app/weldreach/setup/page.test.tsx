@@ -30,6 +30,7 @@ const permissions = vi.hoisted(() => ({ can: vi.fn() }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 vi.mock('@weldsuite/permissions/react', () => ({ usePermissions: () => ({ can: permissions.can, isOwner: false }) }));
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }));
+vi.mock('@clerk/clerk-react', () => ({ useAuth: () => ({ orgSlug: 'acme', orgId: 'org_acme' }) }));
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => router.navigate,
   useSearch: () => router.search,
@@ -208,7 +209,7 @@ describe('Setup wizard', () => {
       await waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.stripe.test/s'));
       const input = api.reach.billingSetup.mock.calls[0][0] as { successUrl: string; cancelUrl: string };
       const success = new URL(input.successUrl);
-      expect(success.pathname).toBe('/weldreach/setup');
+      expect(success.pathname).toBe('/w/acme/weldreach/setup');
       expect(success.searchParams.get('step')).toBe('payment');
       expect(success.searchParams.get('billing')).toBe('done');
       expect(new URL(input.cancelUrl).searchParams.get('billing')).toBeNull();

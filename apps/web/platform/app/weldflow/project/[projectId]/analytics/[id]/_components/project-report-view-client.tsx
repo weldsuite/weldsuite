@@ -632,6 +632,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
                       <AnalyticsChartView
                         points={chartData[chart.id]}
                         chartType={chart.chartType}
+                        metric={chart.metric}
                         color={chart.color}
                         showLegend={chart.showLegend}
                         smoothCurve={chart.smoothCurve}

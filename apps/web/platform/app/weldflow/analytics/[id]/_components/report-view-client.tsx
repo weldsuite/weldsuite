@@ -80,6 +80,7 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
       <AnalyticsChartView
         points={data}
         chartType={chart.chartType}
+        metric={chart.metric}
         color={chart.color}
         showLegend={chart.showLegend}
         smoothCurve={chart.smoothCurve}

@@ -24,6 +24,7 @@ import type { Variables } from '../../types';
 import { schema, getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { success, error } from '@weldsuite/worker-kit/response';
+import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
 import {
   isTelnyxConfigured,
   telnyxRequest,
@@ -396,8 +397,8 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
       displayName: data.displayName,
       addressId: data.addressId,
       clerkOrgId,
-      successUrl: `${origin}/settings/apps/phone-numbers?billing=success`,
-      cancelUrl: `${origin}/settings/apps/phone-numbers?billing=canceled`,
+      successUrl: workspaceAppUrl(origin, clerkOrgId, '/settings/apps/phone-numbers?billing=success'),
+      cancelUrl: workspaceAppUrl(origin, clerkOrgId, '/settings/apps/phone-numbers?billing=canceled'),
     };
 
     const checkoutResp = await fetch(`${billingUrl}/api/billing/phone/checkout`, {

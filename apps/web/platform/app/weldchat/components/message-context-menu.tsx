@@ -48,6 +48,7 @@ import { useMessageMenuPermissions } from '../hooks/use-message-menu-permissions
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👀'];
 
@@ -66,6 +67,7 @@ interface MessageContextMenuProps {
 
 export function MessageContextMenu({ message, channelId, readBy, children }: Readonly<MessageContextMenuProps>) {
   const { t } = useI18n();
+  const workspaceUrl = useWorkspaceUrl();
   const st = useTranslations();
   const { canReact, canReplyInThread, canEdit, canDelete } = useMessageMenuPermissions(message, channelId);
   const { data: pinnedData } = usePinnedMessages(channelId);
@@ -99,7 +101,7 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
   };
 
   const handleCopyLink = () => {
-    const url = `${window.location.origin}/weldchat/${channelId}?msg=${message.id}`;
+    const url = workspaceUrl(`/weldchat/${channelId}?msg=${message.id}`);
     navigator.clipboard.writeText(url).then(
       () => toast.success(t.weldchat.messageContextMenu.messageLinkCopied),
       () => toast.error(t.sweep.entities.copyLinkFailed),
