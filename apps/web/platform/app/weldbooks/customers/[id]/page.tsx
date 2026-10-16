@@ -28,7 +28,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@weldsuite/ui/components/alert-dialog';
-import { Archive, ArchiveRestore, ArrowLeft, Pencil, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Building2, ExternalLink, Pencil, Trash2, User } from 'lucide-react';
+import { useObjectPanel } from '@/components/object-panel/use-object-panel';
 import { CustomerExemptionsTab } from '@/app/weldbooks/sales-tax/certificates/customer-exemptions-tab';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
@@ -130,6 +131,13 @@ function useContactActions(contact: Contact) {
 
 type ContactActions = ReturnType<typeof useContactActions>;
 
+/** The WeldCRM company or person the contact is; none for a contact from before contacts had a type. */
+function crmRecordOf(contact: Contact): { type: 'company' | 'person'; id: string } | null {
+  if (contact.kind === 'company' && contact.companyId) return { type: 'company', id: contact.companyId };
+  if (contact.kind === 'person' && contact.personId) return { type: 'person', id: contact.personId };
+  return null;
+}
+
 function ContactTitle({ contact, isArchived }: Readonly<{ contact: Contact; isArchived: boolean }>) {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
@@ -139,10 +147,16 @@ function ContactTitle({ contact, isArchived }: Readonly<{ contact: Contact; isAr
     supplier: labels.supplier,
     both: labels.customerAndSupplier,
   };
+  const kind = contact.kind ?? null;
+  const KindIcon = kind === 'person' ? User : Building2;
   return (
     <div>
-      <h1 className="text-2xl font-semibold">{contact.name}</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-semibold">
+        {kind ? <KindIcon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden /> : null}
+        {contact.name}
+      </h1>
       <div className="mt-1 flex flex-wrap gap-2">
+        {kind ? <Badge variant="secondary">{tc.kinds[kind]}</Badge> : null}
         {contact.role && contact.role !== 'none' ? (
           <Badge variant="outline">{roleLabel[contact.role] ?? contact.role}</Badge>
         ) : null}
@@ -154,12 +168,14 @@ function ContactTitle({ contact, isArchived }: Readonly<{ contact: Contact; isAr
 
 function ContactHeaderActions({
   contactId,
+  crmRecord,
   isArchived,
   canArchive,
   canDelete,
   actions,
 }: Readonly<{
   contactId: string;
+  crmRecord: { type: 'company' | 'person'; id: string } | null;
   isArchived: boolean;
   canArchive: boolean;
   canDelete: boolean;
@@ -167,9 +183,16 @@ function ContactHeaderActions({
 }>) {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
+  const { open: openObjectPanel } = useObjectPanel();
   const ArchiveIcon = isArchived ? ArchiveRestore : Archive;
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {crmRecord ? (
+        <Button variant="outline" size="sm" onClick={() => openObjectPanel(crmRecord)}>
+          <ExternalLink className="h-4 w-4 mr-1" />
+          {tc.openInCrm}
+        </Button>
+      ) : null}
       {canArchive ? (
         <Button
           variant="outline"
@@ -345,10 +368,45 @@ function BankingCard({ contact }: Readonly<{ contact: Contact }>) {
   );
 }
 
+/** A company contact's contact person: its billing contact in WeldCRM. */
+function ContactPersonCard({ contact }: Readonly<{ contact: Contact }>) {
+  const { t } = useI18n();
+  const tc = t.accounting.contacts;
+  const { open: openObjectPanel } = useObjectPanel();
+  const contactPerson = contact.contactPerson ?? null;
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <CardTitle>{tc.contactPerson}</CardTitle>
+        {contactPerson ? (
+          <Button variant="ghost" size="sm" onClick={() => openObjectPanel({ type: 'person', id: contactPerson.personId })}>
+            <ExternalLink className="h-4 w-4 mr-1" />
+            {tc.openInCrm}
+          </Button>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        {contactPerson ? (
+          <>
+            <DetailRow label={tc.name} value={contactPerson.name} />
+            <DetailRow label={tc.email} value={contactPerson.email} />
+            <DetailRow label={tc.phone} value={contactPerson.phone} />
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">{tc.noContactPerson}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ContactDetailsTab({ contact }: Readonly<{ contact: Contact }>) {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
   const { formatMoney } = useCurrentEntityCurrency();
+  const isPerson = contact.kind === 'person';
+  // A person has no VAT or registration number (a Brazilian one has a CPF).
+  const showTax = !isPerson || Boolean(contact.vatNumber || contact.registrationNumber || contact.brFiscal?.taxId);
   return (
     <TabsContent value="details" className="space-y-6">
       <Card>
@@ -356,8 +414,11 @@ function ContactDetailsTab({ contact }: Readonly<{ contact: Contact }>) {
           <CardTitle>{tc.general}</CardTitle>
         </CardHeader>
         <CardContent>
-          <DetailRow label={tc.nameOnInvoice} value={contact.name} />
           <DetailRow label={tc.companyName} value={contact.companyName} />
+          <DetailRow
+            label={tc.nameOnInvoice}
+            value={isPerson || contact.name === contact.companyName ? null : contact.name}
+          />
           <DetailRow label={tc.firstName} value={contact.firstName} />
           <DetailRow label={tc.lastName} value={contact.lastName} />
           <DetailRow label={tc.email} value={contact.email} />
@@ -365,8 +426,9 @@ function ContactDetailsTab({ contact }: Readonly<{ contact: Contact }>) {
         </CardContent>
       </Card>
 
+      {contact.kind === 'company' ? <ContactPersonCard contact={contact} /> : null}
       <AddressesCard contact={contact} />
-      <TaxRegistrationCard contact={contact} />
+      {showTax ? <TaxRegistrationCard contact={contact} /> : null}
       <BankingCard contact={contact} />
 
       <Card>
@@ -419,6 +481,7 @@ function ContactDetail({ contact }: Readonly<{ contact: Contact }>) {
         </div>
         <ContactHeaderActions
           contactId={contact.id}
+          crmRecord={crmRecordOf(contact)}
           isArchived={isArchived}
           canArchive={canArchive}
           canDelete={canDelete}

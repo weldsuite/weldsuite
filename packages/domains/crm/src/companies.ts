@@ -16,6 +16,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { assertValidMemberFields } from './member-validation';
+import { withSupplierRole } from './party-role';
 import {
   assertValidCustomerStatus,
   loadCustomerStatusLookup,
@@ -62,44 +63,54 @@ export function deriveDisplayName(input: {
 }
 
 /**
- * Lazily create or update the wrapping `parties` row when this company is
- * flagged as a supplier. Writes only the wrapper columns —
- * `displayName`/`role`/`partyCode`/`billingAddress`/accounting fields. The
- * legacy identity columns (`companyName`, `email`, `phone`, etc.) live on
- * the `companies` table; the wrapping party row joins to it via
- * `parties.companyId`.
+ * Keep the wrapping `parties` row in step with this company, creating it
+ * lazily when the company is flagged as a supplier. Writes only the wrapper
+ * columns. The identity columns (`name`, `email`, `phone`, etc.) live on the
+ * `companies` table; the party joins to it via `parties.companyId`.
+ *
+ * An existing party is a WeldBooks customer or supplier: its name follows the
+ * company, but its role and billing address belong to WeldBooks. The supplier
+ * flag only adds the supplier role, and the company's primary address only
+ * fills a billing address that is still empty.
  */
 async function ensureWrappingParty(db: Database, company: CompanyRow): Promise<void> {
   const { parties } = schema;
-  if (!company.isSupplier) return;
 
   const [existing] = await db
-    .select({ id: parties.id })
+    .select({ id: parties.id, role: parties.role, billingAddress: parties.billingAddress })
     .from(parties)
     .where(eq(parties.companyId, company.id))
     .limit(1);
 
-  const wrapperFields = {
-    role: 'supplier' as const,
-    displayName: company.displayName,
-    partyCode: company.partyCode,
-    billingAddress: company.primaryAddress,
-    archivedAt: company.archivedAt,
-  };
-
   if (existing) {
     await db
       .update(parties)
-      .set({ ...wrapperFields, updatedAt: new Date() })
+      .set({
+        displayName: company.displayName,
+        ...(company.isSupplier
+          ? {
+              role: withSupplierRole(existing.role),
+              partyCode: company.partyCode,
+              archivedAt: company.archivedAt,
+              ...(existing.billingAddress ? {} : { billingAddress: company.primaryAddress }),
+            }
+          : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(parties.id, existing.id));
     return;
   }
 
+  if (!company.isSupplier) return;
   await db.insert(parties).values({
     id: generateId('party'),
     kind: 'company',
     companyId: company.id,
-    ...wrapperFields,
+    role: 'supplier',
+    displayName: company.displayName,
+    partyCode: company.partyCode,
+    billingAddress: company.primaryAddress,
+    archivedAt: company.archivedAt,
     createdAt: new Date(),
     updatedAt: new Date(),
   });

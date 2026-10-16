@@ -421,6 +421,7 @@ export function useAccountingTaxRates(filters?: { type?: string }) {
 
 export function useAccountingCustomers(filters?: {
   role?: 'customer' | 'supplier' | 'both' | 'none';
+  kind?: 'company' | 'person';
   search?: string;
   page?: number;
   pageSize?: number;

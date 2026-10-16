@@ -5,13 +5,17 @@ import { Users } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAvatar, RowChip, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { EmptyStateIllustration, type ColumnDef, type FilterConfig, type ActiveFilter } from '@/components/entity-list';
+import type { ContactKind, ContactPerson } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from './components/contact-list-cells';
 
 interface CustomerRow {
   id: string;
   name: string;
+  kind?: ContactKind | null;
   email?: string | null;
+  contactPerson?: ContactPerson | null;
   role?: string | null;
   vatNumber?: string | null;
   archivedAt?: string | null;
@@ -28,6 +32,7 @@ export default function AccountingCustomersPage() {
   // Backend expands role=customer → customer + both. This pill lets the user
   // narrow to only the dual-role entries when they want to audit them.
   const filterConfigs: FilterConfig[] = [
+    contactKindFilter(tcp.filterKindLabel, t.accounting.contacts.kinds),
     {
       field: 'role',
       label: tcp.filterRoleLabel,
@@ -51,6 +56,7 @@ export default function AccountingCustomersPage() {
   const { data, isLoading } = useAccountingCustomers({
     search,
     role: roleFilter ?? 'customer',
+    kind: readKindFilter(filters),
     archived: archivedFilter,
   });
 
@@ -63,7 +69,7 @@ export default function AccountingCustomersPage() {
       width: 'min-w-[200px] flex-1 gap-2',
       render: (customer) => (
         <>
-          <RowAvatar name={customer.name || '?'} />
+          <RowAvatar name={customer.name || '?'} icon={contactKindIcon(customer)} />
           <RowTitle
             chips={customer.archivedAt ? <RowChip tone="gray">{t.accounting.contacts.archived}</RowChip> : null}
           >
@@ -76,7 +82,7 @@ export default function AccountingCustomersPage() {
       id: 'email',
       header: tcp.colEmail,
       width: 'w-[240px]',
-      render: (c) => <RowText>{c.email}</RowText>,
+      render: (c) => <RowText>{contactEmail(c)}</RowText>,
     },
     {
       id: 'role',

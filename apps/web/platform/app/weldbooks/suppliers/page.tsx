@@ -13,6 +13,7 @@ import { useSupplierContacts } from '@/hooks/queries/use-weldbooks-1099-queries'
 import type { VendorTaxContact } from '@/lib/api/domains/weldbooks-1099';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from '../customers/components/contact-list-cells';
 import { supplierTinStatus, type SupplierTinStatus } from './supplier-tax-status';
 
 interface SupplierRow extends VendorTaxContact {
@@ -40,6 +41,7 @@ export default function AccountingSuppliersPage() {
   // Backend expands role=supplier → supplier + both. This pill lets the user
   // narrow to only the dual-role entries when auditing.
   const filterConfigs: FilterConfig[] = [
+    contactKindFilter(tsp.filterKindLabel, t.accounting.contacts.kinds),
     {
       field: 'role',
       label: tsp.filterRoleLabel,
@@ -74,6 +76,7 @@ export default function AccountingSuppliersPage() {
   const { data, isLoading } = useSupplierContacts({
     search,
     role: roleFilter ?? 'supplier',
+    kind: readKindFilter(filters),
     only1099: form1099Filter !== undefined,
     archived: archivedFilter,
   });
@@ -91,7 +94,7 @@ export default function AccountingSuppliersPage() {
       width: 'min-w-[200px] flex-1 gap-2',
       render: (supplier) => (
         <>
-          <RowAvatar name={supplier.name || '?'} />
+          <RowAvatar name={supplier.name || '?'} icon={contactKindIcon(supplier)} />
           <RowTitle>{supplier.name}</RowTitle>
         </>
       ),
@@ -100,7 +103,7 @@ export default function AccountingSuppliersPage() {
       id: 'email',
       header: tsp.colEmail,
       width: 'w-[240px]',
-      render: (c) => <RowText>{c.email}</RowText>,
+      render: (c) => <RowText>{contactEmail(c)}</RowText>,
     },
     {
       id: 'role',
