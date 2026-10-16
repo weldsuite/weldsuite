@@ -262,6 +262,20 @@ function blanksToNull(input: Record<string, unknown>): Record<string, unknown> {
   return body;
 }
 
+const FIELD_ALIASES: ReadonlyArray<[alias: string, field: string]> = [
+  ['name', 'fullName'],
+  ['taxNumber', 'vatNumber'],
+  ['kvkNumber', 'registrationNumber'],
+];
+
+/** The platform's field names onto the schema's; the schema's own name wins when both are sent. */
+function applyFieldAliases(body: Record<string, unknown>): void {
+  for (const [alias, field] of FIELD_ALIASES) {
+    if (body[field] === undefined && body[alias] !== undefined) body[field] = body[alias];
+    delete body[alias];
+  }
+}
+
 function normalizeContactPayload(input: unknown, mode: 'create' | 'update'): unknown {
   if (!isPlainObject(input)) return input;
   const body: Record<string, unknown> = {};
@@ -276,15 +290,7 @@ function normalizeContactPayload(input: unknown, mode: 'create' | 'update'): unk
     }
     body[key] = value;
   }
-  const aliases: Array<[alias: string, field: string]> = [
-    ['name', 'fullName'],
-    ['taxNumber', 'vatNumber'],
-    ['kvkNumber', 'registrationNumber'],
-  ];
-  for (const [alias, field] of aliases) {
-    if (body[field] === undefined && body[alias] !== undefined) body[field] = body[alias];
-    delete body[alias];
-  }
+  applyFieldAliases(body);
   return body;
 }
 
@@ -727,19 +733,41 @@ async function createIdentity(
   const billing = normalizePostalAddress(data.billingAddress);
   const primaryAddress = billing ? { ...billing } : undefined;
 
-  if (kind === 'company') {
-    const input = presentOnly(companyIdentityInput(data, null));
-    const company = await createCompany(db, {
-      ...input,
-      name: input.name ?? data.fullName,
-      status: 'active',
-      primaryAddress,
-      ownerId,
-    });
-    publishIdentityEvent(c, 'company', 'created', company);
-    return { kind, companyId: company.id, personId: null, displayName: company.displayName };
-  }
+  return kind === 'company'
+    ? createCompanyIdentity(c, db, data, { primaryAddress, ownerId })
+    : createPersonIdentity(c, db, data, { primaryAddress, ownerId });
+}
 
+interface NewIdentityDefaults {
+  primaryAddress: Record<string, string | undefined> | undefined;
+  ownerId: string | undefined;
+}
+
+async function createCompanyIdentity(
+  c: AppContext,
+  db: Database,
+  data: ContactPayload & { fullName: string },
+  { primaryAddress, ownerId }: NewIdentityDefaults,
+): Promise<IdentityLink> {
+  const input = presentOnly(companyIdentityInput(data, null));
+  const company = await createCompany(db, {
+    ...input,
+    name: input.name ?? data.fullName,
+    status: 'active',
+    primaryAddress,
+    ownerId,
+  });
+  publishIdentityEvent(c, 'company', 'created', company);
+  return { kind: 'company', companyId: company.id, personId: null, displayName: company.displayName };
+}
+
+async function createPersonIdentity(
+  c: AppContext,
+  db: Database,
+  data: ContactPayload & { fullName: string },
+  { primaryAddress, ownerId }: NewIdentityDefaults,
+): Promise<IdentityLink> {
+  const kind = 'person';
   const input = presentOnly(personIdentityInput(data));
 
   // The user picked the person to link to.
@@ -899,6 +927,8 @@ function publishLinkEvents(
   }
 }
 
+type ContactPersonFields = ReturnType<typeof contactPersonIdentityInput>;
+
 /** The CRM person the input names (updated with its fields), or a new one built from them. */
 async function resolveContactPerson(
   c: AppContext,
@@ -906,34 +936,54 @@ async function resolveContactPerson(
   input: ContactPersonInput,
 ): Promise<PersonRow | null> {
   const fields = contactPersonIdentityInput(input);
+  return input.personId
+    ? updateChosenContactPerson(c, db, input.personId, fields)
+    : createContactPerson(c, db, fields);
+}
 
-  if (input.personId) {
-    const [existing] = await db
-      .select()
-      .from(schema.people)
-      .where(and(eq(schema.people.id, input.personId), isNull(schema.people.deletedAt)))
-      .limit(1);
-    if (!existing) {
-      throw new ContactIdentityError('badRequest', `contactPerson.personId: person ${input.personId} not found`);
-    }
-    // Only what differs, so saving the form unchanged leaves the CRM person alone.
-    const current: Record<string, string> = {
-      firstName: existing.firstName ?? '',
-      lastName: existing.lastName ?? '',
-      email: existing.email ?? '',
-      directPhone: personPhone(existing) ?? '',
-    };
-    const changes: Record<string, unknown> = existing.inCrm ? {} : { inCrm: true };
-    for (const [key, value] of Object.entries(definedOnly(fields))) {
-      if (value !== current[key]) changes[key] = value;
-    }
-    if (Object.keys(changes).length === 0) return existing;
-    const result = await updatePerson(db, existing.id, changes as Parameters<typeof updatePerson>[2]);
-    const person = result?.row ?? existing;
-    if (result?.changes) publishIdentityEvent(c, 'person', 'updated', person);
-    return person;
+/** What differs from the stored person, so saving the form unchanged leaves them alone. */
+function contactPersonChanges(existing: PersonRow, fields: ContactPersonFields): Record<string, unknown> {
+  const current: Record<string, string> = {
+    firstName: existing.firstName ?? '',
+    lastName: existing.lastName ?? '',
+    email: existing.email ?? '',
+    directPhone: personPhone(existing) ?? '',
+  };
+  const changes: Record<string, unknown> = existing.inCrm ? {} : { inCrm: true };
+  for (const [key, value] of Object.entries(definedOnly(fields))) {
+    if (value !== current[key]) changes[key] = value;
   }
+  return changes;
+}
 
+async function updateChosenContactPerson(
+  c: AppContext,
+  db: Database,
+  personId: string,
+  fields: ContactPersonFields,
+): Promise<PersonRow> {
+  const [existing] = await db
+    .select()
+    .from(schema.people)
+    .where(and(eq(schema.people.id, personId), isNull(schema.people.deletedAt)))
+    .limit(1);
+  if (!existing) {
+    throw new ContactIdentityError('badRequest', `contactPerson.personId: person ${personId} not found`);
+  }
+  const changes = contactPersonChanges(existing, fields);
+  if (Object.keys(changes).length === 0) return existing;
+  const result = await updatePerson(db, existing.id, changes as Parameters<typeof updatePerson>[2]);
+  const person = result?.row ?? existing;
+  if (result?.changes) publishIdentityEvent(c, 'person', 'updated', person);
+  return person;
+}
+
+/** A new contact person; one whose email the CRM already knows is that person. Null when nothing was filled in. */
+async function createContactPerson(
+  c: AppContext,
+  db: Database,
+  fields: ContactPersonFields,
+): Promise<PersonRow | null> {
   const present = presentOnly(fields);
   if (!present.firstName && !present.lastName && !present.email) return null;
   try {
@@ -1018,6 +1068,19 @@ async function updateWrappedPerson(
   return { kind: 'person', companyId: null, personId: result.row.id, displayName: result.row.displayName };
 }
 
+/** A contact keeps its kind and its CRM record; the update's fields have to fit that kind. */
+function assertKindUnchanged(currentKind: IdentityKind, contact: PartyRow, data: ContactPayload): void {
+  if (data.kind && data.kind !== currentKind) {
+    throw new ContactIdentityError('badRequest', `kind: this contact is a ${currentKind}, and a contact's type can't be changed.`);
+  }
+  const linked = currentKind === 'company' ? contact.companyId : contact.personId;
+  const asked = currentKind === 'company' ? data.companyId : data.personId;
+  if (asked && asked !== linked) {
+    throw new ContactIdentityError('badRequest', `${currentKind}Id: this contact already wraps another CRM ${currentKind}.`);
+  }
+  assertFitsKind(currentKind, data);
+}
+
 /**
  * Apply identity changes to the contact's company or person, creating the
  * identity first when the party wraps none (rows from the old route) or the
@@ -1030,17 +1093,7 @@ async function syncIdentity(
   data: ContactPayload,
 ): Promise<IdentityLink | null> {
   const currentKind = contact.kind === 'company' || contact.kind === 'person' ? contact.kind : null;
-  if (currentKind) {
-    if (data.kind && data.kind !== currentKind) {
-      throw new ContactIdentityError('badRequest', `kind: this contact is a ${currentKind}, and a contact's type can't be changed.`);
-    }
-    const linked = currentKind === 'company' ? contact.companyId : contact.personId;
-    const asked = currentKind === 'company' ? data.companyId : data.personId;
-    if (asked && asked !== linked) {
-      throw new ContactIdentityError('badRequest', `${currentKind}Id: this contact already wraps another CRM ${currentKind}.`);
-    }
-    assertFitsKind(currentKind, data);
-  }
+  if (currentKind) assertKindUnchanged(currentKind, contact, data);
 
   const wrappedCompanyId = contact.kind === 'company' ? contact.companyId : null;
   const wrappedPersonId = contact.kind === 'person' ? contact.personId : null;
