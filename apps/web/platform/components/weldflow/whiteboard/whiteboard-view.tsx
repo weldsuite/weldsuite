@@ -121,6 +121,16 @@ import {
   positionTextConnectionPoints,
   setPaddedBounds,
 } from './whiteboard-parts';
+import {
+  applyDelta,
+  applyRemoteAdd,
+  applyRemoteDelete,
+  applyRemoteUpdate,
+  diffElements,
+  isEmptyDelta,
+  mergeScenes,
+  type ElementDelta,
+} from './whiteboard-merge';
 
 // Fixed zoom stops. Module scope so the array identity is stable across renders.
 const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5]; // Same as commerce builder
@@ -522,55 +532,99 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const eraserBatchTimer = useRef<NodeJS.Timeout | null>(null);
   const needsHistoryRef = useRef(false);
 
-  // History management for undo/redo
-  const [history, setHistory] = useState<WhiteboardElement[][]>([initialElements]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  // History management for undo/redo. Kept in refs so the callbacks that fire from
+  // timeouts always see the current scene (a state-closure snapshot lagged one step
+  // behind), with a small state mirror to drive the undo/redo button states.
+  const historyRef = useRef<WhiteboardElement[][]>([initialElements]);
+  const historyIndexRef = useRef(0);
+  const [historyState, setHistoryState] = useState({ index: 0, length: 1 });
   const maxHistorySize = 50;
+  const elementsRef = useRef(elements);
+  useEffect(() => {
+    elementsRef.current = elements;
+  }, [elements]);
 
   // Auto-save whiteboard data to database
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedElementsRef = useRef<string>(JSON.stringify(initialElements));
+  // The scene as last loaded/saved: the base of the three-way merge done before a save.
+  const lastSavedSceneRef = useRef<WhiteboardElement[]>(initialElements);
+  const remoteCountRef = useRef(0);
+  useEffect(() => {
+    remoteCountRef.current = remotePresence.length;
+  }, [remotePresence.length]);
+  const [saveState, setSaveState] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
+  const saveEnabled = canWrite && Boolean(whiteboardId);
+
+  // A collaborator's (or merge) delta applies to the live scene and to every history
+  // snapshot, so remote work never enters the local undo stack and undo cannot erase it.
+  const applyRemoteDelta = useCallback((delta: ElementDelta<WhiteboardElement>) => {
+    historyRef.current = historyRef.current.map(snapshot => applyDelta(snapshot, delta));
+    setElements(prev => applyDelta(prev, delta));
+  }, []);
 
   // Save function that can be called directly
   const saveWhiteboard = useCallback(async (elementsToSave: WhiteboardElement[]) => {
     // Read-only viewers never write (the API would 403). Remote edits still land
     // in `elements`; once write access resolves the autosave effect re-runs.
-    if (!canWrite) return;
+    // Without a whiteboardId there is no stored board to save into (the old
+    // `POST /whiteboards {projectId}` fallback 403/500'd on every edit, TASK-811).
+    if (!saveEnabled) return;
     const elementsJson = JSON.stringify(elementsToSave);
     // Skip if nothing changed
     if (elementsJson === lastSavedElementsRef.current) {
+      setSaveState(saveTimeoutRef.current ? 'unsaved' : 'saved');
       return;
     }
 
+    setSaveState('saving');
     try {
       const client = await getClient();
-      // `PUT /projects/:projectId/whiteboard[/:id]` never existed (api-worker mounts
-      // no projects routes). Canonical surface: `PATCH /api/whiteboards/:id` to update
-      // an existing board, `POST /api/whiteboards` (with projectId) to create one.
-      // The client throws on a non-2xx, so reaching the next line means it saved.
-      if (whiteboardId) {
-        await client.patch<{ data: unknown }>(`/whiteboards/${whiteboardId}`, {
-          elements: elementsToSave,
-        });
-      } else {
-        await client.post<{ data: unknown }>('/whiteboards', {
-          projectId,
-          elements: elementsToSave,
-        });
+      let payload = elementsToSave;
+      // With collaborators present, merge their stored changes in per element instead
+      // of overwriting the whole scene with ours (last-writer-wins, TASK-813).
+      if (remoteCountRef.current > 0) {
+        const latest = await client.get<{ data?: { elements?: WhiteboardElement[] } }>(`/whiteboards/${whiteboardId}`);
+        const server = latest.data?.elements;
+        if (Array.isArray(server)) {
+          payload = mergeScenes(lastSavedSceneRef.current, elementsToSave, server);
+          const adopt = diffElements(elementsToSave, payload);
+          if (!isEmptyDelta(adopt)) applyRemoteDelta(adopt);
+        }
       }
-      lastSavedElementsRef.current = elementsJson;
+      // Canonical surface: `PATCH /api/whiteboards/:id`. The client throws on a
+      // non-2xx, so reaching the next line means it saved.
+      await client.patch<{ data: unknown }>(`/whiteboards/${whiteboardId}`, {
+        elements: payload,
+      });
+      lastSavedSceneRef.current = payload;
+      lastSavedElementsRef.current = JSON.stringify(payload);
+      setSaveState(saveTimeoutRef.current ? 'unsaved' : 'saved');
     } catch (error) {
       console.error('Failed to save whiteboard:', error);
+      setSaveState('error');
       toast.error(st('sweep.weldflow.whiteboardView.saveFailed'));
-    } finally {
     }
-  }, [canWrite, projectId, whiteboardId, getClient, st]);
+  }, [saveEnabled, whiteboardId, getClient, st, applyRemoteDelta]);
 
+  // Always points at the latest save function, so the unmount flush below never uses
+  // a stale closure.
+  const saveWhiteboardRef = useRef(saveWhiteboard);
   useEffect(() => {
-    // Skip initial render (when initialElements are being loaded)
-    if (elements === initialElements) {
+    saveWhiteboardRef.current = saveWhiteboard;
+  }, [saveWhiteboard]);
+
+  const isFirstElementsRun = useRef(true);
+  useEffect(() => {
+    // Nothing to save on mount. Later runs compare against the last saved scene (not
+    // the initial array reference), so undoing back to the loaded state is saved too.
+    if (isFirstElementsRun.current) {
+      isFirstElementsRun.current = false;
       return;
     }
+    if (!saveEnabled) return;
+
+    setSaveState(prev => (prev === 'saving' ? prev : 'unsaved'));
 
     // Quick debounce (500ms) to batch rapid changes
     if (saveTimeoutRef.current) {
@@ -578,6 +632,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     }
 
     saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
       void saveWhiteboard(elements);
     }, 500);
 
@@ -586,24 +641,53 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [elements, initialElements, saveWhiteboard]);
+  }, [elements, saveEnabled, saveWhiteboard]);
+
+  // Flush a pending save when leaving the board, and warn before closing the tab with
+  // unsaved edits (the debounce used to drop the last edit, TASK-812).
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        void saveWhiteboardRef.current(elementsRef.current);
+      }
+    };
+  }, []);
+
+  const hasUnsavedChanges = saveState === 'unsaved' || saveState === 'saving' || saveState === 'error';
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        void saveWhiteboardRef.current(elementsRef.current);
+      }
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Subscribe to remote element changes (real-time collaboration)
   useEffect(() => {
     if (!isConnected) return;
 
     const unsubAdd = onElementAdd((element: unknown, _userId: string) => {
-      setElements(prev => [...prev, element as WhiteboardElement]);
+      const added = element as WhiteboardElement;
+      historyRef.current = historyRef.current.map(snapshot => applyRemoteAdd(snapshot, added));
+      setElements(prev => applyRemoteAdd(prev, added));
     });
 
     const unsubUpdate = onElementUpdate((elementId: string, changes: Partial<WhiteboardElement>, _userId: string) => {
-      setElements(prev => prev.map(el =>
-        el.id === elementId ? { ...el, ...changes } : el
-      ));
+      historyRef.current = historyRef.current.map(snapshot => applyRemoteUpdate(snapshot, elementId, changes));
+      setElements(prev => applyRemoteUpdate(prev, elementId, changes));
     });
 
     const unsubDelete = onElementDelete((elementId: string, _userId: string) => {
-      setElements(prev => prev.filter(el => el.id !== elementId));
+      historyRef.current = historyRef.current.map(snapshot => applyRemoteDelete(snapshot, elementId));
+      setElements(prev => applyRemoteDelete(prev, elementId));
     });
 
     return () => {
@@ -622,25 +706,25 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     void broadcastSelectionChange(selectedIds);
   }, [selectedElement, selectedElements, isConnected, broadcastSelectionChange]);
 
-  // Add to history
+  // Record the current scene as an undo step. Callers invoke this right after (or
+  // 100ms after) an edit; the snapshot is taken from `elementsRef` once the edit has
+  // rendered, so it is always the scene after the edit.
+  const recordHistory = useCallback(() => {
+    const current = elementsRef.current;
+    const stack = historyRef.current.slice(0, historyIndexRef.current + 1);
+    const top = stack[stack.length - 1];
+    if (top === current || JSON.stringify(top) === JSON.stringify(current)) return;
+    stack.push([...current]);
+    // Limit history size
+    if (stack.length > maxHistorySize) stack.shift();
+    historyRef.current = stack;
+    historyIndexRef.current = stack.length - 1;
+    setHistoryState({ index: historyIndexRef.current, length: stack.length });
+  }, []);
+
   const addToHistory = useCallback(() => {
-    setHistory(prev => {
-      // Remove any history after current index (when we do something after undo)
-      const newHistory = prev.slice(0, historyIndex + 1);
-      
-      // Add current state
-      newHistory.push([...elements]);
-      
-      // Limit history size
-      if (newHistory.length > maxHistorySize) {
-        newHistory.shift();
-        return newHistory;
-      }
-      
-      return newHistory;
-    });
-    setHistoryIndex(prev => Math.min(prev + 1, maxHistorySize - 1));
-  }, [elements, historyIndex]);
+    setTimeout(recordHistory, 50);
+  }, [recordHistory]);
 
   // Handle history after document-level mouse up (for resize/drag over toolbar)
   useEffect(() => {
@@ -650,23 +734,24 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     }
   }, [isResizing, isDraggingElement, addToHistory]);
 
-  // Undo function
-  const undo = useCallback(() => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setElements(history[newIndex]);
-      setHistoryIndex(newIndex);
-    }
-  }, [history, historyIndex]);
+  // Move through history by applying only the delta between the two snapshots, so an
+  // undo/redo touches just the elements this user changed and keeps collaborators'
+  // work (TASK-813). The delta is broadcast so collaborators see it too.
+  const stepHistory = useCallback((direction: -1 | 1) => {
+    const from = historyIndexRef.current;
+    const to = from + direction;
+    if (to < 0 || to >= historyRef.current.length) return;
+    const delta = diffElements(historyRef.current[from], historyRef.current[to]);
+    historyIndexRef.current = to;
+    setHistoryState({ index: to, length: historyRef.current.length });
+    setElements(prev => applyDelta(prev, delta));
+    for (const id of delta.removed) void broadcastElementDelete(id);
+    for (const { element } of delta.added) void broadcastElementAdd(element);
+    for (const element of delta.changed) void broadcastElementUpdate(element.id, element);
+  }, [broadcastElementAdd, broadcastElementUpdate, broadcastElementDelete]);
 
-  // Redo function
-  const redo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      setElements(history[newIndex]);
-      setHistoryIndex(newIndex);
-    }
-  }, [history, historyIndex]);
+  const undo = useCallback(() => stepHistory(-1), [stepHistory]);
+  const redo = useCallback(() => stepHistory(1), [stepHistory]);
 
   // Helper functions for collaborative element operations
   const addElementWithBroadcast = useCallback((element: WhiteboardElement) => {
@@ -3294,7 +3379,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                     size="sm"
                     className="h-8 w-8 p-0"
                     onClick={undo}
-                    disabled={historyIndex <= 0}
+                    disabled={historyState.index <= 0}
                     title={st('sweep.weldflow.whiteboardView.undoShortcut')}
                   >
                     <Undo2 className="h-4 w-4" />
@@ -3304,7 +3389,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                     size="sm"
                     className="h-8 w-8 p-0"
                     onClick={redo}
-                    disabled={historyIndex >= history.length - 1}
+                    disabled={historyState.index >= historyState.length - 1}
                     title={st('sweep.weldflow.whiteboardView.redoShortcut')}
                   >
                     <Redo2 className="h-4 w-4" />
@@ -3389,6 +3474,22 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           <PresenceIndicator
             presence={remotePresence}
           />
+
+          {saveEnabled && (
+            <span
+              role="status"
+              aria-live="polite"
+              className={cn(
+                'px-1 text-xs whitespace-nowrap',
+                saveState === 'error' ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {saveState === 'saved' && st('sweep.weldflow.whiteboardView.statusSaved')}
+              {saveState === 'saving' && st('sweep.weldflow.whiteboardView.statusSaving')}
+              {saveState === 'unsaved' && st('sweep.weldflow.whiteboardView.statusUnsaved')}
+              {saveState === 'error' && st('sweep.weldflow.whiteboardView.statusError')}
+            </span>
+          )}
 
           <div className="w-px h-5 bg-border mx-1" />
 
