@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useTransition, useEffect, useLayoutEffect, useCallback, useRef, useContext } from 'react';
+import React, { useState, useMemo, useTransition, useEffect, useCallback, useRef, useContext } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -718,15 +718,10 @@ export function TasksClient({
   }, [companiesQuery.data]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   // The detail panel is rendered globally via ObjectPanelHost — opening it
-  // just pushes the task id onto the object-panel stack.
+  // just pushes the task id onto the object-panel stack. The row click opens it
+  // directly: an effect keyed on `selectedTask` would not fire again for a task
+  // that is still selected after its panel was closed (TASK-1072).
   const { open: openTaskPanel } = useObjectPanel();
-  useLayoutEffect(() => {
-    if (selectedTask) openTaskPanel({ type: 'task', id: selectedTask.id });
-    // Intentionally keyed on the id, not the whole object — re-opening the panel
-    // on every unrelated field edit (priority/status/etc. while the same task
-    // stays selected) would reset the panel's own transient UI state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTask?.id, openTaskPanel]);
 
   const [isPending, startTransition] = useTransition();
   // Read the permission context directly (not via useProjectPermissions which throws
@@ -1599,9 +1594,6 @@ export function TasksClient({
           aria-label={task.title}
           onClick={() => {
             setSelectedTask(task);
-            // Open directly as well: the selection effect is keyed on the id, so
-            // it would not fire again for a task that is still "selected" after
-            // its panel was closed.
             openTaskPanel({ type: 'task', id: task.id });
           }}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"

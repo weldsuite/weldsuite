@@ -261,7 +261,8 @@ function mapTaskToFeature(task: RawGanttTask, isSubtask: boolean = false): Gantt
     },
     owner: task.assignee ? {
       id: task.assignee.id || task.assigneeId || '',
-      name: task.assignee.name || task.assigneeName || 'Unknown',
+      // Empty when unresolved; labelled in the UI language at render (see `features`).
+      name: task.assignee.name || task.assigneeName || '',
       image: task.assignee.avatar || task.assignee.image,
     } : undefined,
     group: {
@@ -434,6 +435,9 @@ const GanttPage = () => {
     const label = (feature: GanttFeature): GanttFeature => ({
       ...feature,
       status: { ...feature.status, name: localizedStatusName(feature.status.id, t.projects.tasks) },
+      owner: feature.owner
+        ? { ...feature.owner, name: feature.owner.name || t.projects.gantt.unknownOwner }
+        : feature.owner,
       group: feature.group
         ? { ...feature.group, name: localizedStatusName(feature.group.id, t.projects.tasks) }
         : feature.group,
@@ -462,14 +466,10 @@ const GanttPage = () => {
   const [markerPopoverPosition, setMarkerPopoverPosition] = useState<{ x: number; y: number } | null>(null);
   const [selectedFeature, setSelectedFeature] = useState<GanttFeature | null>(null);
   // The task detail panel is now rendered globally via ObjectPanelHost.
+  // Opened straight from the click (`handleViewFeature`), not from an effect on
+  // `selectedFeature`: after the panel closes the selection stays the same, so
+  // an effect would not fire again and the task could not be reopened (TASK-1072).
   const { open: openTaskPanel } = useObjectPanel();
-  useEffect(() => {
-    if (selectedFeature) openTaskPanel({ type: 'task', id: selectedFeature.id });
-    // Deliberately keyed on the id, not the whole `selectedFeature` object — the
-    // object identity changes on every features refresh (see effect below), which
-    // would otherwise re-open the panel on every unrelated data reload.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFeature?.id, openTaskPanel]);
 
   // Keep selectedFeature in sync when features list updates (e.g. after save)
   useEffect(() => {
@@ -728,6 +728,7 @@ const GanttPage = () => {
     if (feature) {
       setSelectedFeature(feature);
       setViewSheetOpen(true);
+      openTaskPanel({ type: 'task', id: feature.id });
     }
   };
 

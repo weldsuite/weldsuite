@@ -338,12 +338,12 @@ export default function ProjectAnalyticsBuilderPage() {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="w-full h-9 justify-between text-sm">
-                      <span>{[{ id: 'hour', label: t.projects.analyticsBuilder.groupBy.hour }, { id: 'day', label: t.projects.analyticsBuilder.groupBy.day }, { id: 'week', label: t.projects.analyticsBuilder.groupBy.week }, { id: 'month', label: t.projects.analyticsBuilder.groupBy.month }].find(g => g.id === groupBy)?.label}</span>
+                      <span>{[{ id: 'day', label: t.projects.analyticsBuilder.groupBy.day }, { id: 'week', label: t.projects.analyticsBuilder.groupBy.week }, { id: 'month', label: t.projects.analyticsBuilder.groupBy.month }].find(g => g.id === groupBy)?.label}</span>
                       <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" style={{ width: 'var(--radix-dropdown-menu-trigger-width)' }}>
-                    {[{ id: 'hour', label: t.projects.analyticsBuilder.groupBy.hour }, { id: 'day', label: t.projects.analyticsBuilder.groupBy.day }, { id: 'week', label: t.projects.analyticsBuilder.groupBy.week }, { id: 'month', label: t.projects.analyticsBuilder.groupBy.month }].map(g => (<DropdownMenuItem key={g.id} onClick={() => setGroupBy(g.id)} className="text-sm">{g.label}</DropdownMenuItem>))}
+                    {[{ id: 'day', label: t.projects.analyticsBuilder.groupBy.day }, { id: 'week', label: t.projects.analyticsBuilder.groupBy.week }, { id: 'month', label: t.projects.analyticsBuilder.groupBy.month }].map(g => (<DropdownMenuItem key={g.id} onClick={() => setGroupBy(g.id)} className="text-sm">{g.label}</DropdownMenuItem>))}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>

@@ -1014,6 +1014,9 @@ const PipelinePage = () => {
       setFeatures(features.map(f => f.column === stageId ? { ...f, column: remaining[0].id } : f));
       setColumns(remaining);
       toast.success(t.projects.pipeline.stageDeleted);
+    } else if (result.status === 400) {
+      // The target stage was refused (gone, or from another project).
+      toast.error(t.projects.pipeline.stageDeleteInvalidTarget);
     } else {
       toast.error(t.projects.pipeline.stageDeleteFailed);
     }

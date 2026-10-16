@@ -72,6 +72,7 @@ export function ChartPreview({
     <AnalyticsChartView
       points={points}
       chartType={chartType}
+      metric={query.metric}
       color={color}
       showLegend={showLegend}
       smoothCurve={smoothCurve}

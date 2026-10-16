@@ -438,7 +438,7 @@ async function appApiGet<T>(path: string): Promise<ApiResponse<T>> {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
-      return { success: false, error: typeof message === 'string' ? message : 'Request failed' };
+      return { success: false, error: typeof message === 'string' ? message : 'Request failed', status: res.status, details: body?.error?.details };
     }
     const body = (await res.json()) as { data: T };
     return { success: true, data: body.data };
@@ -461,7 +461,7 @@ async function appApiPatch<T>(path: string, data?: unknown): Promise<ApiResponse
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
-      return { success: false, error: typeof message === 'string' ? message : 'Request failed' };
+      return { success: false, error: typeof message === 'string' ? message : 'Request failed', status: res.status, details: body?.error?.details };
     }
     const body = (await res.json()) as { data: T };
     return { success: true, data: body.data };
@@ -484,7 +484,7 @@ async function appApiPut<T>(path: string, data?: unknown): Promise<ApiResponse<T
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
-      return { success: false, error: typeof message === 'string' ? message : 'Request failed' };
+      return { success: false, error: typeof message === 'string' ? message : 'Request failed', status: res.status, details: body?.error?.details };
     }
     const body = (await res.json()) as { data: T };
     return { success: true, data: body.data };
@@ -501,7 +501,14 @@ async function appApiDelete<T>(path: string): Promise<ApiResponse<T>> {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok && res.status !== 204) {
-      return { success: false, error: `Request failed (${res.status})` };
+      const body = await res.json().catch(() => ({}));
+      const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
+      return {
+        success: false,
+        error: typeof message === 'string' ? message : 'Request failed',
+        status: res.status,
+        details: body?.error?.details,
+      };
     }
     return { success: true } as ApiResponse<T>;
   } catch (error) {
@@ -1464,6 +1471,8 @@ export const timerApi = {
       '/time-entries/timer/stop',
       {
         ...overrides,
+        // The server splits the entry per local day, so it needs the caller's zone.
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         rate: overrides.rate !== undefined ? String(overrides.rate) : undefined,
       },
     ),
@@ -1482,18 +1491,22 @@ export interface ApiTeamMemberWorkload {
   initials: string;
   role: string;
   capacity: number;
-  tasks: {
-    id: string;
-    title: string;
-    projectId: string | null;
-    projectName: string;
-    estimatedHours: number;
-    actualHours: number;
-    priority: string;
-    status: string;
-    startDate: string | null;
-    dueDate: string | null;
-  }[];
+  tasks: ApiWorkloadTask[];
+}
+
+export interface ApiWorkloadTask {
+  id: string;
+  number: number | null;
+  key: string | null;
+  title: string;
+  projectId: string | null;
+  projectName: string;
+  estimatedHours: number;
+  actualHours: number;
+  priority: string;
+  status: string;
+  startDate: string | null;
+  dueDate: string | null;
 }
 
 export interface ApiWorkloadOverview {
@@ -1504,6 +1517,8 @@ export interface ApiWorkloadOverview {
   utilization: number;
   overallocatedCount: number;
   teamMembers: ApiTeamMemberWorkload[];
+  /** Open tasks nobody on these projects carries. */
+  unassigned?: { tasks: ApiWorkloadTask[] };
 }
 
 export const workloadApi = {

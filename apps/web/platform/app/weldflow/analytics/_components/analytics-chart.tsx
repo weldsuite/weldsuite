@@ -22,6 +22,7 @@ import {
   type PieLabelRenderProps,
 } from 'recharts';
 import type { ChartDataPoint } from '@/app/weldflow/lib/api-client';
+import { formatMetricValue, metricUnit } from '../lib/metric-units';
 
 const PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
@@ -29,6 +30,8 @@ export interface AnalyticsChartViewProps {
   points: ChartDataPoint[];
   /** Builder chart type id, e.g. `area-chart`, `bar-mixed`, `pie-donut`, `radar-lines`. */
   chartType: string;
+  /** Metric id; percentage metrics get a % unit on axes, tooltips and labels. */
+  metric?: string;
   color: string;
   showLegend?: boolean;
   smoothCurve?: boolean;
@@ -50,6 +53,7 @@ function pieLabel(props: PieLabelRenderProps): string {
 export function AnalyticsChartView({
   points,
   chartType,
+  metric,
   color,
   showLegend = false,
   smoothCurve = true,
@@ -58,6 +62,8 @@ export function AnalyticsChartView({
   className = 'h-72 w-full',
 }: Readonly<AnalyticsChartViewProps>) {
   const type = chartType.toLowerCase();
+  const unit = metricUnit(metric);
+  const formatValue = (value: unknown) => formatMetricValue(value, unit);
   let chart: ReactElement;
 
   if (type.startsWith('area')) {
@@ -65,8 +71,8 @@ export function AnalyticsChartView({
       <AreaChart data={points} margin={{ left: 12, right: 12 }}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
-        <YAxis tick={{ fontSize: 12 }} />
-        <Tooltip />
+        <YAxis tick={{ fontSize: 12 }} tickFormatter={formatValue} />
+        <Tooltip formatter={formatValue} />
         <Area
           dataKey="value"
           type={smoothCurve ? 'monotone' : 'linear'}
@@ -93,7 +99,7 @@ export function AnalyticsChartView({
             <Cell key={point.label} fill={point.fill || PALETTE[index % PALETTE.length]} />
           ))}
         </Pie>
-        <Tooltip />
+        <Tooltip formatter={formatValue} />
         {showLegend && <Legend />}
       </PieChart>
     );
@@ -102,7 +108,7 @@ export function AnalyticsChartView({
       <RadarChart data={points}>
         <PolarGrid />
         <PolarAngleAxis dataKey="label" tick={{ fontSize: 12 }} />
-        <Tooltip />
+        <Tooltip formatter={formatValue} />
         <Radar dataKey="value" stroke={color} fill={color} fillOpacity={0.3} />
       </RadarChart>
     );
@@ -114,7 +120,7 @@ export function AnalyticsChartView({
         outerRadius="90%"
       >
         <RadialBar dataKey="value" background label={showDataLabels ? { position: 'insideStart', fill: '#fff' } : false} />
-        <Tooltip />
+        <Tooltip formatter={formatValue} />
         {showLegend && <Legend />}
       </RadialBarChart>
     );
@@ -125,16 +131,16 @@ export function AnalyticsChartView({
         <CartesianGrid vertical={false} />
         {horizontalBars ? (
           <>
-            <XAxis type="number" tick={{ fontSize: 12 }} />
+            <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={formatValue} />
             <YAxis type="category" dataKey="label" tick={{ fontSize: 12 }} width={90} />
           </>
         ) : (
           <>
             <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={formatValue} />
           </>
         )}
-        <Tooltip />
+        <Tooltip formatter={formatValue} />
         <Bar dataKey="value" fill={color} radius={4} />
       </BarChart>
     );

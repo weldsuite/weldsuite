@@ -484,7 +484,6 @@ export default function ProjectsAnalyticsBuilderPage() {
                       <Button variant="outline" className="w-full h-9 justify-between text-sm bg-white dark:bg-background border-gray-200 dark:border-border hover:bg-gray-50 dark:hover:bg-background shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-0 focus-visible:ring-offset-0 focus:border-gray-200 focus-visible:border-gray-200 data-[state=open]:border-gray-300">
                         <span>
                           {[
-                            { id: 'hour', label: t.projects.analyticsBuilder.groupBy.hour },
                             { id: 'day', label: t.projects.analyticsBuilder.groupBy.day },
                             { id: 'week', label: t.projects.analyticsBuilder.groupBy.week },
                             { id: 'month', label: t.projects.analyticsBuilder.groupBy.month },
@@ -497,7 +496,6 @@ export default function ProjectsAnalyticsBuilderPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" style={{ width: 'var(--radix-dropdown-menu-trigger-width)' }}>
                       {[
-                        { id: 'hour', label: t.projects.analyticsBuilder.groupBy.hour },
                         { id: 'day', label: t.projects.analyticsBuilder.groupBy.day },
                         { id: 'week', label: t.projects.analyticsBuilder.groupBy.week },
                         { id: 'month', label: t.projects.analyticsBuilder.groupBy.month },

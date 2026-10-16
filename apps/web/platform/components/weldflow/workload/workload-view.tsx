@@ -11,7 +11,7 @@ import {
   useGantt,
   type GanttFeature,
 } from '@weldsuite/ui/components/gantt';
-import { Check, ChevronDown, ChevronRight, MinusIcon, PlusIcon, AlertCircle, Search, CalendarIcon, SquarePen, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, MinusIcon, PlusIcon, AlertCircle, Search, CalendarIcon, SquarePen, Trash2, UserX } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useCallback, memo, type ReactNode } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
@@ -78,6 +78,9 @@ const TASK_COLORS = [
   '#86efac', '#fcd34d', '#f9a8d4', '#a5b4fc', '#67e8f9',
 ];
 
+/** Assignee id of the synthetic "Unassigned" bucket; never a real user id. */
+const UNASSIGNED_ID = '__unassigned__';
+
 // Transform API data to internal format
 function transformApiData(data: Projects.WorkloadOverview | null, defaultRole: string): { members: TeamMember[], tasks: Task[] } {
   if (!data?.teamMembers) {
@@ -113,6 +116,20 @@ function transformApiData(data: Projects.WorkloadOverview | null, defaultRole: s
         colorIndex++;
       });
     }
+  });
+
+  // Open tasks nobody carries: listed in their own section, never counted as load.
+  (data.unassigned?.tasks ?? []).forEach(task => {
+    tasks.push({
+      id: task.id,
+      number: task.number ?? null,
+      name: task.title,
+      assigneeId: UNASSIGNED_ID,
+      ...spreadTaskLoad(task),
+      color: TASK_COLORS[colorIndex % TASK_COLORS.length],
+      projectName: task.projectName,
+    });
+    colorIndex++;
   });
 
   return { members, tasks };
@@ -262,6 +279,51 @@ const TeamMemberSidebarItem = memo(({
 });
 
 TeamMemberSidebarItem.displayName = 'TeamMemberSidebarItem';
+
+// Section header for open tasks nobody carries: no capacity, so no availability figure
+const UnassignedSidebarItem = memo(({
+  taskCount,
+  rowHeight,
+  isExpanded,
+  onToggle,
+}: Readonly<{
+  taskCount: number;
+  rowHeight: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+}>) => {
+  const st = useTranslations();
+  return (
+    <button
+      type="button"
+      aria-expanded={isExpanded}
+      className="w-full text-left border-b border-border/50 flex items-center gap-3 px-3 cursor-pointer hover:bg-secondary/50"
+      style={{ height: rowHeight }}
+      onClick={onToggle}
+    >
+      <span className="h-5 w-5 flex items-center justify-center text-muted-foreground rounded-[5px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+        {isExpanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+      </span>
+      <span className="h-[30px] w-[30px] -ml-1 flex items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground">
+        <UserX className="h-4 w-4" />
+      </span>
+      <span className="block flex-1 min-w-0 -ml-1 text-sm font-medium truncate">
+        {st('sweep.weldflow.workloadView.unassignedTasks')}
+      </span>
+      <span className="block text-xs text-muted-foreground">
+        {taskCount === 1
+          ? st('sweep.weldflow.workloadView.taskCountSingular')
+          : st('sweep.weldflow.workloadView.taskCount', { count: taskCount })}
+      </span>
+    </button>
+  );
+});
+
+UnassignedSidebarItem.displayName = 'UnassignedSidebarItem';
 
 // Workload area chart component for a team member
 const WorkloadAreaChart = memo(({
@@ -891,6 +953,21 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     });
   }, [teamMembers, tasks, searchQuery, activeFilters]);
 
+  // The "Unassigned" section lists open tasks nobody carries. Role and workload
+  // pills describe people, so any complete pill hides it; the search box still
+  // matches it by name.
+  const unassignedScheduled = getScheduledTasks(UNASSIGNED_ID);
+  const unassignedUnscheduled = getUnscheduledTasks(UNASSIGNED_ID);
+  const unassignedTotal = unassignedScheduled.length + unassignedUnscheduled.length;
+  const unassignedExpanded = expandedMembers.has(UNASSIGNED_ID);
+  const unassignedLabel = st('sweep.weldflow.workloadView.unassignedTasks');
+  const showUnassigned = (() => {
+    if (unassignedTotal === 0) return false;
+    if (activeFilters.some((filter) => filter.operator && filter.value)) return false;
+    const query = searchQuery.trim().toLowerCase();
+    return !query || unassignedLabel.toLowerCase().includes(query);
+  })();
+
   // Open the real task in the shared task panel (live status, comments and activity).
   const openTask = (task: Task) => {
     setSelectedTaskId(task.id);
@@ -1016,12 +1093,12 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
       >
         <GanttSidebar sidebarLabel={st('sweep.weldflow.workloadView.members')} sidebarSecondaryLabel={st('sweep.weldflow.workloadView.availability')}>
           <div className="flex flex-col">
-            {teamMembers.length === 0 && (
+            {teamMembers.length === 0 && unassignedTotal === 0 && (
               <div className="flex flex-col items-center justify-center p-4 text-center h-32">
                 <p className="text-xs text-muted-foreground">{st('sweep.weldflow.workloadView.noTeamMembers')}</p>
               </div>
             )}
-            {teamMembers.length > 0 && visibleMembers.length === 0 && (
+            {teamMembers.length > 0 && visibleMembers.length === 0 && !showUnassigned && (
               <div className="flex flex-col items-center justify-center p-4 text-center h-32">
                 <p className="text-xs text-muted-foreground">{st('sweep.weldflow.workloadView.noMatchingMembers')}</p>
               </div>
@@ -1081,6 +1158,44 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                 </div>
               );
             })}
+            {showUnassigned && (
+              <div>
+                <UnassignedSidebarItem
+                  taskCount={unassignedTotal}
+                  rowHeight={ROW_HEIGHT}
+                  isExpanded={unassignedExpanded}
+                  onToggle={() => toggleMember(UNASSIGNED_ID)}
+                />
+                {unassignedExpanded && unassignedScheduled.map((task) => (
+                  <TaskSidebarItem
+                    key={task.id}
+                    task={task}
+                    rowHeight={TASK_ROW_HEIGHT}
+                    isSelected={selectedTaskId === task.id}
+                    onClick={() => openTask(task)}
+                  />
+                ))}
+                {unassignedExpanded && unassignedUnscheduled.length > 0 && (
+                  <>
+                    <div
+                      className="flex items-center pl-6 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                      style={{ height: TASK_ROW_HEIGHT }}
+                    >
+                      {st('sweep.weldflow.workloadView.unscheduled', { count: unassignedUnscheduled.length })}
+                    </div>
+                    {unassignedUnscheduled.map((task) => (
+                      <TaskSidebarItem
+                        key={task.id}
+                        task={task}
+                        rowHeight={TASK_ROW_HEIGHT}
+                        isSelected={selectedTaskId === task.id}
+                        onClick={() => openTask(task)}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </GanttSidebar>
         <GanttTimeline>
@@ -1153,6 +1268,40 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                 </div>
               );
             })}
+            {showUnassigned && (
+              <div>
+                {/* Mobile header - only visible on mobile */}
+                <button
+                  type="button"
+                  aria-expanded={unassignedExpanded}
+                  className="md:hidden flex items-center gap-2 px-3 py-2 bg-background border-b border-border cursor-pointer sticky left-0 z-20 text-left"
+                  style={{ width: '100vw', maxWidth: '100vw' }}
+                  onClick={() => toggleMember(UNASSIGNED_ID)}
+                >
+                  <span className="h-5 w-5 flex items-center justify-center text-muted-foreground">
+                    {unassignedExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </span>
+                  <span className="text-sm font-medium flex-1 truncate">{unassignedLabel}</span>
+                  <span className="text-xs text-muted-foreground">{unassignedTotal}</span>
+                </button>
+                {/* No capacity to chart: an empty row keeps the timeline aligned with the sidebar */}
+                <div className="relative border-b border-border" style={{ height: ROW_HEIGHT }} />
+                {unassignedExpanded && unassignedScheduled.map((task) => (
+                  <TaskTimelineRow
+                    key={task.id}
+                    task={task}
+                    rowHeight={TASK_ROW_HEIGHT}
+                  />
+                ))}
+                {unassignedExpanded && unassignedUnscheduled.length > 0 && (
+                  <div style={{ height: TASK_ROW_HEIGHT * (unassignedUnscheduled.length + 1) }} />
+                )}
+              </div>
+            )}
           </div>
           {markers.map((marker) => (
             <GanttMarker
