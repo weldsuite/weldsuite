@@ -1,25 +1,17 @@
+/** Settings → Entities — the WeldBooks legal entities (the Accounting tab). */
+
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
-import { Button } from '@weldsuite/ui/components/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { Building2, EllipsisVertical, Pencil } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import { useAccountingJurisdictions } from '@/hooks/queries/use-accounting-queries';
 import { localToday } from '@/lib/weldbooks/format';
 import { DEFAULT_TERMINOLOGY } from '@/lib/weldbooks/jurisdiction';
-import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { EmptyStateIllustration } from '@/components/entity-list';
 import { RowChip, RowText, RowTitle } from '@/components/accounting/weldbooks-row-cells';
-import {
-  EmptyStateIllustration,
-  type ColumnDef,
-} from '@/components/entity-list';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -43,13 +35,13 @@ interface EntityRow {
   } | null;
 }
 
-export default function EntitiesPage() {
+export function AccountingEntitiesTab() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const te = t.accounting.entities;
 
-  const { data = [], isLoading } = useQuery<EntityRow[]>({
+  const { data = [], isLoading, error } = useQuery<EntityRow[]>({
     queryKey: ['accounting', 'entities'],
     queryFn: async () => {
       const res = await weldbooksApi.get<{ data: EntityRow[] } | EntityRow[]>('/accounting-entities');
@@ -58,6 +50,7 @@ export default function EntitiesPage() {
   });
 
   const { data: jurisdictions = [] } = useAccountingJurisdictions();
+  const canCreate = useCan('entities:create');
   const canUpdate = useCan('entities:update');
   const jurisdictionOf = (e: EntityRow) =>
     jurisdictions.find((j) => j.code.toUpperCase() === e.jurisdictionCode?.toUpperCase());
@@ -85,48 +78,46 @@ export default function EntitiesPage() {
     onError: () => toast.error(te.korUpdateFailed),
   });
 
+  const openEntity = (e: EntityRow) => navigate({ to: '/settings/entities/$id/edit', params: { id: e.id } });
+  const openCreate = () => navigate({ to: '/settings/entities/add' });
+
   const columns: ColumnDef<EntityRow>[] = [
     {
       id: 'name',
       header: te.colName,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-[160px] flex-1',
+      // The legal name sits under the title: a column of its own does not fit the settings width.
       render: (e) => (
-        <RowTitle
-          chips={
-            <>
-              {e.isDefault ? <RowChip tone="indigo">{te.badgeDefault}</RowChip> : null}
-              {e.isActive === false ? <RowChip tone="gray">{te.badgeInactive}</RowChip> : null}
-            </>
-          }
-        >
-          {e.name}
-        </RowTitle>
+        <div className="min-w-0">
+          <RowTitle
+            chips={
+              <>
+                {e.isDefault ? <RowChip tone="indigo">{te.badgeDefault}</RowChip> : null}
+                {e.isActive === false ? <RowChip tone="gray">{te.badgeInactive}</RowChip> : null}
+              </>
+            }
+          >
+            {e.name}
+          </RowTitle>
+          {e.legalName ? <RowText className="text-xs">{e.legalName}</RowText> : null}
+        </div>
       ),
-    },
-    {
-      id: 'legalName',
-      header: te.legalName,
-      width: 'w-[200px]',
-      render: (e) => <RowText>{e.legalName}</RowText>,
     },
     {
       id: 'jurisdiction',
       header: te.colJurisdiction,
-      width: 'w-[160px]',
+      width: 'w-[150px]',
       render: (e) => (
-        <RowText>{e.entityType ? `${e.jurisdictionCode} · ${entityTypeLabel(e.entityType)}` : e.jurisdictionCode}</RowText>
+        <div className="min-w-0">
+          <RowText>{`${e.jurisdictionCode} · ${e.baseCurrency}`}</RowText>
+          {e.entityType ? <RowText className="text-xs">{entityTypeLabel(e.entityType)}</RowText> : null}
+        </div>
       ),
-    },
-    {
-      id: 'currency',
-      header: te.colCurrency,
-      width: 'w-[80px]',
-      render: (e) => <RowText>{e.baseCurrency}</RowText>,
     },
     {
       id: 'taxIds',
       header: te.colTaxIds,
-      width: 'w-[260px]',
+      width: 'w-[170px]',
       render: (e) => {
         const terminology = jurisdictionOf(e)?.terminology ?? DEFAULT_TERMINOLOGY;
         const parts = [
@@ -143,58 +134,41 @@ export default function EntitiesPage() {
         );
       },
     },
-    {
-      id: 'kor',
-      header: te.colKor,
-      width: 'w-[120px]',
-      render: (e) =>
-        jurisdictionOf(e)?.features.smallBusinessScheme ? (
-          <div title={e.jurisdictionSettings?.kor?.enabled ? te.korEnabled : te.korDisabled}>
-            <Switch
-              aria-label={te.colKor}
-              onClick={(ev) => ev.stopPropagation()}
-              checked={e.jurisdictionSettings?.kor?.enabled ?? false}
-              disabled={!canUpdate || korMutation.isPending}
-              onCheckedChange={(enabled) => korMutation.mutate({ entity: e, enabled })}
-            />
-          </div>
-        ) : null,
-    },
+    // Only when some entity's jurisdiction has a small-business scheme (the Dutch KOR).
+    ...(data.some((e) => jurisdictionOf(e)?.features.smallBusinessScheme)
+      ? [
+          {
+            id: 'kor',
+            header: te.colKor,
+            width: 'w-[110px]',
+            render: (e: EntityRow) =>
+              jurisdictionOf(e)?.features.smallBusinessScheme ? (
+                <div title={e.jurisdictionSettings?.kor?.enabled ? te.korEnabled : te.korDisabled}>
+                  <Switch
+                    aria-label={te.colKor}
+                    onClick={(ev) => ev.stopPropagation()}
+                    checked={e.jurisdictionSettings?.kor?.enabled ?? false}
+                    disabled={!canUpdate || korMutation.isPending}
+                    onCheckedChange={(enabled) => korMutation.mutate({ entity: e, enabled })}
+                  />
+                </div>
+              ) : null,
+          },
+        ]
+      : []),
   ];
 
   return (
-    <WeldbooksEntityList<EntityRow>
+    <PanelEntityList<EntityRow>
       items={data}
       isLoading={isLoading}
+      error={error as Error | null}
       columns={columns}
-      onRowClick={(e) => navigate({ to: '/weldbooks/entities/$id/edit', params: { id: e.id } })}
-      getRowLabel={(e) => e.name}
-      renderRowMenu={(e) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={te.editEntity}
-              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent"
-            >
-              <EllipsisVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => navigate({ to: '/weldbooks/entities/$id/edit', params: { id: e.id } })}>
-              <Pencil className="h-3.5 w-3.5 mr-0.5" />
-              {te.editEntity}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      onRowClick={openEntity}
+      onEdit={openEntity}
       searchFields={['name', 'legalName']}
       searchPlaceholder={te.colName}
-      createButton={{
-        label: te.newEntity2,
-        onClick: () => navigate({ to: '/weldbooks/entities/add' }),
-      }}
+      createButton={canCreate ? { label: te.newEntity2, onClick: openCreate } : undefined}
       emptyState={{
         icon: (
           <EmptyStateIllustration>
@@ -203,10 +177,7 @@ export default function EntitiesPage() {
         ),
         title: te.noEntities2,
         description: te.emptyDescription,
-        action: {
-          label: te.newEntity2,
-          onClick: () => navigate({ to: '/weldbooks/entities/add' }),
-        },
+        action: canCreate ? { label: te.newEntity2, onClick: openCreate } : undefined,
       }}
     />
   );

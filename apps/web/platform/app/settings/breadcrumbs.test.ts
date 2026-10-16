@@ -43,6 +43,16 @@ describe('buildBreadcrumbSegments', () => {
     ]);
   });
 
+  it('labels the entities pages and leaves the entity id out', () => {
+    expect(labels('/settings/entities')).toEqual([en.settings.title, 'Entities']);
+    expect(buildBreadcrumbSegments('/settings/entities/ent_123/edit', en.settings.title, en.settings.menu)).toEqual([
+      { label: en.settings.title, href: '/settings' },
+      { label: 'Entities', href: '/settings/entities' },
+      { label: 'Edit entity' },
+    ]);
+    expect(labels('/settings/entities/add')).toEqual([en.settings.title, 'Entities', 'New entity']);
+  });
+
   it('falls back to a capitalized segment for unknown paths', () => {
     expect(labels('/settings/some-new-page')).toEqual([en.settings.title, 'Some new page']);
   });

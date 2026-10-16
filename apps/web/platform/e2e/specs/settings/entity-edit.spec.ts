@@ -1,11 +1,11 @@
 /**
- * Spec for the entity edit page (/weldbooks/entities/$id/edit), reached from
+ * Spec for the entity edit page (/settings/entities/$id/edit), reached from
  * the entities list. Structural only: it does not save, so no seeded data is
  * changed. Assumes the test workspace has at least one accounting entity
  * (every other WeldBooks spec needs one too).
  *
  * Verifies:
- *   1. The Edit action on the entities list opens the edit page.
+ *   1. Clicking an entity in the Settings → Entities list opens the edit page.
  *   2. The page shows the address fields, tax identifiers and bank details.
  *   3. The lock dates card shows all five lock dates.
  *   4. The lock exceptions card is present.
@@ -13,14 +13,14 @@
 
 import { test, expect } from '../../fixtures';
 
-test.describe('WeldBooks · entity edit page', () => {
+test.describe('Settings · entity edit page', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/weldbooks/entities');
+    await page.goto('/settings/entities');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
-    const editButton = page.getByRole('button', { name: /^edit$/i }).first();
-    await expect(editButton).toBeVisible({ timeout: 10_000 });
-    await editButton.click();
-    await expect(page).toHaveURL(/\/weldbooks\/entities\/[^/]+\/edit/, { timeout: 10_000 });
+    const entityRow = page.getByRole('button', { name: /^view$/i }).first();
+    await expect(entityRow).toBeVisible({ timeout: 10_000 });
+    await entityRow.click();
+    await expect(page).toHaveURL(/\/settings\/entities\/[^/]+\/edit/, { timeout: 10_000 });
   });
 
   test('renders the company details form', async ({ page }) => {

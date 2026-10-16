@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Form } from '@weldsuite/ui/components/form';
 import { Input } from '@weldsuite/ui/components/input';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useCan } from '@weldsuite/permissions/react';
 import { SUPPORTED_STATES, stateModule } from '@weldsuite/payroll-domain/us/states';
 import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createHrPayrollEmployerSchema } from '@weldsuite/app-api-client/schemas/weldhr-payroll';
@@ -56,7 +57,9 @@ export function EmployerDialog({ employer, onClose }: Readonly<{ employer?: HrPa
   const t = useTranslations();
   const createEmployer = useCreateHrPayrollEmployer();
   const updateEmployer = useUpdateHrPayrollEmployer();
-  const { data: entities } = useAccountingEntities();
+  // The WeldBooks link needs entities:read; without it the picker only offers "Not linked".
+  const canReadEntities = useCan('entities:read');
+  const { data: entities } = useAccountingEntities({ enabled: canReadEntities });
   const saving = createEmployer.isPending || updateEmployer.isPending;
 
   const form = useForm<Values, unknown, Parsed>({

@@ -46,7 +46,7 @@ describe('CreateEntityDialog', { timeout: 30_000 }, () => {
 
     await user.click(screen.getByRole('button', { name: 'Start US setup' }));
 
-    expect(env.push).toHaveBeenCalledWith('/weldbooks/entities/add');
+    expect(env.push).toHaveBeenCalledWith('/settings/entities/add');
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(env.post).not.toHaveBeenCalled();
   });
