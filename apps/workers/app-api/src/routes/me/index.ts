@@ -20,6 +20,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import { ensureMemberLinked } from '../../services/member-link';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -39,6 +40,9 @@ app.get('/permissions', async (c) => {
 
   try {
     const db = c.get('tenantDb');
+    // A teammate whose invited row never got their Clerk user id would
+    // otherwise resolve to no permissions at all.
+    await ensureMemberLinked(c.env, db, orgId, userId);
     const queries = createDrizzlePermissionQueries(db, schema, { eq, and, isNull });
     const resolved = await resolveEffectivePermissions(queries, userId);
 

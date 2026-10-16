@@ -1,0 +1,145 @@
+/**
+ * pglite-backed test for ensureMemberLinked.
+ *
+ * An invited teammate whose row was flipped to ACTIVE by the
+ * invitation.accepted webhook but never got their Clerk user id (the
+ * membership.created sync missed) must be linked on their next request, so
+ * permissions and installed apps resolve for them again.
+ */
+
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { and, eq, isNull } from 'drizzle-orm';
+
+vi.mock('@weldsuite/chat-domain/weldchat-auto-join', () => ({
+  autoJoinUserToPublicChannels: vi.fn(async () => []),
+}));
+vi.mock('@weldsuite/chat-domain/weldchat-role-links', () => ({
+  applyRoleChangeToChannels: vi.fn(async () => ({ added: [], removed: [] })),
+}));
+vi.mock('@weldsuite/chat-domain/realtime/weldchat-publisher', () => ({
+  publishChatMemberJoined: vi.fn(),
+  publishChatUserChannelNew: vi.fn(),
+}));
+
+import { ensureMemberLinked } from './member-link';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import type { Database } from '@weldsuite/worker-kit/db';
+import type { Env } from '../types';
+
+const { workspaceMembers } = schema;
+const ORG_ID = 'org_test';
+
+let db: Database;
+const env = {
+  CLERK_SECRET_KEY: 'sk_test',
+  WORKSPACE_CACHE: { delete: vi.fn(async () => {}) },
+} as unknown as Env;
+
+function clerkMemberships(memberships: Array<{ orgId: string; role: string; email: string }>) {
+  return vi.fn(async () =>
+    new Response(
+      JSON.stringify({
+        data: memberships.map((m) => ({
+          id: `orgmem_${m.orgId}`,
+          organization: { id: m.orgId, name: 'Acme', slug: 'acme' },
+          role: m.role,
+          public_user_data: { identifier: m.email, first_name: 'New', last_name: 'Admin', image_url: null },
+        })),
+      }),
+      { status: 200 },
+    ),
+  );
+}
+
+async function memberByUserId(userId: string) {
+  const [row] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
+  return row;
+}
+
+beforeAll(async () => {
+  db = (await createPgliteDb()).db;
+}, 60_000);
+
+beforeEach(async () => {
+  await db.delete(workspaceMembers);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('ensureMemberLinked', () => {
+  it('links an accepted invitation row that still has its placeholder user id', async () => {
+    await db.insert(workspaceMembers).values({
+      id: generateId('mbr'),
+      userId: 'pending_clerk_orginv_1',
+      email: 'new.admin@test.dev',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      clerkInvitationId: 'orginv_1',
+    });
+    vi.stubGlobal('fetch', clerkMemberships([{ orgId: ORG_ID, role: 'org:admin', email: 'New.Admin@test.dev' }]));
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_new');
+
+    const row = await memberByUserId('user_new');
+    expect(row).toBeDefined();
+    expect(row.role).toBe('ADMIN');
+    expect(row.status).toBe('ACTIVE');
+    expect(row.clerkMembershipId).toBe(`orgmem_${ORG_ID}`);
+    expect(row.name).toBe('New Admin');
+  });
+
+  it('does not ask Clerk when the member is already linked', async () => {
+    await db.insert(workspaceMembers).values({
+      id: generateId('mbr'),
+      userId: 'user_linked',
+      email: 'linked@test.dev',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_linked');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves rows alone when Clerk has the user in another org only', async () => {
+    await db.insert(workspaceMembers).values({
+      id: generateId('mbr'),
+      userId: 'pending_clerk_orginv_2',
+      email: 'someone@test.dev',
+      role: 'MEMBER',
+      status: 'ACTIVE',
+    });
+    vi.stubGlobal('fetch', clerkMemberships([{ orgId: 'org_other', role: 'org:member', email: 'someone@test.dev' }]));
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_someone');
+
+    expect(await memberByUserId('user_someone')).toBeUndefined();
+    expect(await memberByUserId('pending_clerk_orginv_2')).toBeDefined();
+  });
+
+  it('does not take over an already linked teammate with the same email', async () => {
+    await db.insert(workspaceMembers).values({
+      id: generateId('mbr'),
+      userId: 'user_original',
+      email: 'shared@test.dev',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+    vi.stubGlobal('fetch', clerkMemberships([{ orgId: ORG_ID, role: 'org:member', email: 'shared@test.dev' }]));
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_intruder');
+
+    expect(await memberByUserId('user_intruder')).toBeUndefined();
+    expect((await memberByUserId('user_original'))?.role).toBe('ADMIN');
+  });
+});
