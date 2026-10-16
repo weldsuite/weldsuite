@@ -100,6 +100,14 @@ export function PayrollEmployersSection() {
   );
 }
 
+/** The masked salary account (IBAN for NL, account number for US) and its holder. */
+function salaryAccountText(employer: HrPayrollEmployer, noBank: string): string {
+  const bank = employer.bank;
+  if (!bank) return noBank;
+  const account = (employer.country === 'NL' ? bank.ibanMasked : bank.accountNumberMasked) ?? '—';
+  return bank.accountHolder ? `${account} · ${bank.accountHolder}` : account;
+}
+
 function EmployerCard({
   employer,
   onEdit,
@@ -109,7 +117,7 @@ function EmployerCard({
 }: Readonly<{ employer: HrPayrollEmployer; onEdit: () => void; onBank: () => void; onToggleActive: () => void; onDelete: () => void }>) {
   const t = useTranslations();
   const isNl = employer.country === 'NL';
-  const bank = employer.bank;
+  const salaryAccount = salaryAccountText(employer, t('weldhr.payroll.settings.employers.noBank'));
 
   return (
     <div className="space-y-4 rounded-lg border p-4">
@@ -163,10 +171,7 @@ function EmployerCard({
             ? { label: t('weldhr.payroll.settings.employers.loonheffingennummer'), value: employer.nlSettings.loonheffingennummer }
             : { label: t('weldhr.payroll.settings.employers.ein'), value: employer.usSettings.ein },
           { label: t('weldhr.payroll.settings.employers.accountingEntity'), value: employer.accountingEntityName ?? t('weldhr.payroll.settings.employers.notLinked') },
-          {
-            label: t('weldhr.payroll.settings.employers.salaryAccount'),
-            value: bank ? `${(isNl ? bank.ibanMasked : bank.accountNumberMasked) ?? '—'}${bank.accountHolder ? ` · ${bank.accountHolder}` : ''}` : t('weldhr.payroll.settings.employers.noBank'),
-          },
+          { label: t('weldhr.payroll.settings.employers.salaryAccount'), value: salaryAccount },
           { label: t('weldhr.payroll.settings.employers.fourEyes'), value: employer.requireSeparateApprover ? t('weldhr.common.yes') : t('weldhr.common.no') },
         ]}
       />
