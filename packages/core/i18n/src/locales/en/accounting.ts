@@ -62,9 +62,13 @@ export const accounting = {
       },
       charts: {
         overview: 'Your overview',
+        today: 'Today',
         dateRange: 'Date range',
         compare: 'Compare',
         compareOff: 'Off',
+        vsPreviousPeriod: 'vs. previous period',
+        vsPreviousYear: 'vs. previous year',
+        noComparisonShort: 'No comparison',
         last3Months: 'Last 3 months',
         last6Months: 'Last 6 months',
         last12Months: 'Last 12 months',
@@ -90,9 +94,6 @@ export const accounting = {
         documents: 'Documents to process',
         documentsWaiting: 'Waiting to be booked',
         dueSoon: 'Due in the next 30 days',
-        received: 'Received',
-        paid: 'Paid',
-        newInvoice: 'New invoice',
         info: {
           revenue: 'Revenue booked in the ledger, net of VAT',
           expenses: 'Expenses booked in the ledger, net of VAT',

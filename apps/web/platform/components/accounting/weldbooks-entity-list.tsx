@@ -81,6 +81,71 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
   noResultsState?: { icon?: ReactNode; title: string; description: string };
 }
 
+/** The column header of a WeldBooks list, the same row EntityList draws above its items (not sticky). */
+export function WeldbooksListHeader<T>({ columns }: Readonly<{ columns: ColumnDef<T>[] }>) {
+  return (
+    <div className="hidden h-[35px] items-center gap-4 border-b border-border/70 px-4 md:flex">
+      {columns.map((column) => (
+        <div key={column.id} className={column.width}>
+          <span className="text-xs font-medium text-muted-foreground">{column.header}</span>
+        </div>
+      ))}
+      <div className="w-[40px]" />
+    </div>
+  );
+}
+
+/**
+ * One WeldBooks list row: the WeldFlow task row's spacing, divider, hover and
+ * fixed 53px height, a stretched click target when `onRowClick` is given, and
+ * a trailing row menu or chevron. `WeldbooksEntityList` draws every row with
+ * it; a short list outside a list page (the dashboard) can use it directly.
+ */
+export function WeldbooksListRow<T extends { id: string }>({
+  item,
+  columns,
+  onRowClick,
+  getRowLabel,
+  getRowClassName,
+  renderRowMenu,
+}: Readonly<{
+  item: T;
+  columns: ColumnDef<T>[];
+  onRowClick?: (item: T) => void;
+  getRowLabel?: (item: T) => string;
+  getRowClassName?: (item: T) => string;
+  renderRowMenu?: (item: T) => ReactNode;
+}>) {
+  const t = useTranslations();
+  return (
+    <div
+      className={cn(
+        'group relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border',
+        onRowClick && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50',
+        getRowClassName?.(item),
+      )}
+    >
+      {onRowClick ? (
+        <RowOverlayButton label={getRowLabel?.(item) ?? t('common.actions.view')} onClick={() => onRowClick(item)} />
+      ) : null}
+      {columns.map((column) => (
+        <div key={column.id} className={cn('flex min-w-0 items-center', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
+          {column.render(item, {
+            onEdit: () => {},
+            onDelete: () => {},
+            onDuplicate: () => {},
+            onUpdate: () => {},
+          })}
+        </div>
+      ))}
+      {/* h-7 matches the task row's menu button, so rows share its fixed 53px height. */}
+      <div className={cn('w-[40px] h-7 flex items-center justify-end', renderRowMenu && 'relative z-[1]')}>
+        {renderRowMenu ? renderRowMenu(item) : <RowChevron visible={Boolean(onRowClick)} />}
+      </div>
+    </div>
+  );
+}
+
 /** The hover chevron of a clickable row without a row menu. */
 function RowChevron({ visible }: Readonly<{ visible: boolean }>) {
   if (!visible) return null;
@@ -116,7 +181,6 @@ export function WeldbooksEntityList<T extends { id: string }>({
   emptyState,
   noResultsState,
 }: Readonly<WeldbooksEntityListProps<T>>) {
-  const t = useTranslations();
   return (
     <EntityList<T>
       items={items}
@@ -146,38 +210,15 @@ export function WeldbooksEntityList<T extends { id: string }>({
       emptyState={emptyState}
       noResultsState={noResultsState}
       renderRow={(item) => (
-        <div
+        <WeldbooksListRow
           key={item.id}
-          className={cn(
-            'group relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border',
-            onRowClick && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50',
-            getRowClassName?.(item),
-          )}
-        >
-          {onRowClick ? (
-            <RowOverlayButton
-              label={getRowLabel?.(item) ?? t('common.actions.view')}
-              onClick={() => onRowClick(item)}
-            />
-          ) : null}
-          {columns.map((column) => (
-            <div
-              key={column.id}
-              className={cn('flex min-w-0 items-center', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}
-            >
-              {column.render(item, {
-                onEdit: () => {},
-                onDelete: () => {},
-                onDuplicate: () => {},
-                onUpdate: () => {},
-              })}
-            </div>
-          ))}
-          {/* h-7 matches the task row's menu button, so rows share its fixed 53px height. */}
-          <div className={cn('w-[40px] h-7 flex items-center justify-end', renderRowMenu && 'relative z-[1]')}>
-            {renderRowMenu ? renderRowMenu(item) : <RowChevron visible={Boolean(onRowClick)} />}
-          </div>
-        </div>
+          item={item}
+          columns={columns}
+          onRowClick={onRowClick}
+          getRowLabel={getRowLabel}
+          getRowClassName={getRowClassName}
+          renderRowMenu={renderRowMenu}
+        />
       )}
     />
   );

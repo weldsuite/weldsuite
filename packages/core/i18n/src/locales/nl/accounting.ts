@@ -272,9 +272,13 @@ export const accounting = {
       },
       charts: {
         overview: 'Jouw overzicht',
+        today: 'Vandaag',
         dateRange: 'Periode',
         compare: 'Vergelijken',
         compareOff: 'Uit',
+        vsPreviousPeriod: 'vs. vorige periode',
+        vsPreviousYear: 'vs. vorig jaar',
+        noComparisonShort: 'Geen vergelijking',
         last3Months: 'Laatste 3 maanden',
         last6Months: 'Laatste 6 maanden',
         last12Months: 'Laatste 12 maanden',
@@ -300,9 +304,6 @@ export const accounting = {
         documents: 'Te verwerken documenten',
         documentsWaiting: 'Wachten op boeking',
         dueSoon: 'Vervalt binnen 30 dagen',
-        received: 'Ontvangen',
-        paid: 'Betaald',
-        newInvoice: 'Nieuwe factuur',
         info: {
           revenue: 'Omzet geboekt in de boekhouding, exclusief btw',
           expenses: 'Kosten geboekt in de boekhouding, exclusief btw',

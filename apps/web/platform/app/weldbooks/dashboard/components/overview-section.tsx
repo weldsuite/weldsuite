@@ -1,6 +1,7 @@
 /**
- * Stripe's "Your overview": a heading, the date range and compare pills, and a
- * grid of blocks straight on the page, no backdrop or borders.
+ * Stripe's "Your overview": the heading with the date range and compare menus
+ * on the same line, then a grid of blocks straight on the page, no backdrop or
+ * borders.
  *
  * - Revenue, expenses and net profit are line cards over the chosen range:
  *   the total, its change against the comparison and the comparison's total,
@@ -46,18 +47,28 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
     { value: '12' as const, label: tc.last12Months },
   ];
   const compareOptions = [
-    { value: 'previousPeriod' as const, label: tc.previousPeriod },
-    { value: 'previousYear' as const, label: tc.previousYear },
-    { value: 'off' as const, label: tc.compareOff },
+    { value: 'previousPeriod' as const, label: tc.previousPeriod, short: tc.vsPreviousPeriod },
+    { value: 'previousYear' as const, label: tc.previousYear, short: tc.vsPreviousYear },
+    { value: 'off' as const, label: tc.compareOff, short: tc.noComparisonShort },
   ];
 
   return (
-    <section className="space-y-14">
-      <div className="space-y-3 border-b pb-4">
-        <h2 className="text-lg font-medium">{tc.overview}</h2>
+    <section className="space-y-14 pt-10">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b pb-4">
+        <h2 className="text-2xl font-medium leading-6">{tc.overview}</h2>
         <div className="flex flex-wrap items-center gap-2">
-          <FilterPill label={tc.dateRange} value={range} options={rangeOptions} onChange={setRange} />
-          <FilterPill label={tc.compare} value={compareChoice} options={compareOptions} onChange={setCompareChoice} />
+          <FilterPill
+            label={tc.dateRange}
+            value={range}
+            options={rangeOptions}
+            onChange={setRange}
+          />
+          <FilterPill
+            label={tc.compare}
+            value={compareChoice}
+            options={compareOptions}
+            onChange={setCompareChoice}
+          />
         </div>
       </div>
 

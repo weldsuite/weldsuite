@@ -1,6 +1,7 @@
 /**
- * The top of the dashboard, laid out like Stripe's "Today": a metric picker
- * and last year's figure above a running-total chart for this year, then the
+ * The top of the dashboard, laid out like Stripe's "Today": a header row
+ * like "Your overview" (heading over a hairline), a metric picker with this
+ * year's running total and last year's figure above the chart, then the
  * balances you act on (cash, receivables, payables, documents), each title
  * linking to its list.
  */
@@ -47,46 +48,52 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
   };
 
   return (
-    <section className="min-w-0 space-y-6">
-      <div className="flex flex-wrap gap-x-16 gap-y-4">
-        <div className="space-y-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-1 text-sm font-medium outline-none hover:text-foreground/80">
-              {metricLabels[activeMetric]}
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuRadioGroup value={activeMetric} onValueChange={(v) => setMetric(v as Metric)}>
-                {(hasTrend ? (['revenue', 'expenses', 'profit'] as const) : (['revenue'] as const)).map((m) => (
-                  <DropdownMenuRadioItem key={m} value={m}>
-                    {metricLabels[m]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <p className={`text-xl tabular-nums ${(ytd.total ?? 0) < 0 ? 'text-destructive' : ''}`}>
-            {ytd.total === null ? '—' : format.formatMoney(ytd.total)}
-          </p>
-          <p className="text-xs text-muted-foreground">{span(ytd.year)}</p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-sm font-medium">{tc.lastYear}</p>
-          <p className="text-xl tabular-nums text-muted-foreground">
-            {ytd.compareTotal === null ? '—' : format.formatMoney(ytd.compareTotal)}
-          </p>
-          <p className="text-xs text-muted-foreground">{ytd.compareTotal === null ? tc.noComparison : span(ytd.year - 1)}</p>
-        </div>
+    <section className="min-w-0 space-y-14">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b pb-4">
+        <h2 className="text-2xl font-medium leading-6">{tc.today}</h2>
       </div>
 
-      <ComparisonLineChart
-        variant="hero"
-        points={ytd.points}
-        label={metricLabels[activeMetric]}
-        compareLabel={tc.lastYear}
-        formatTick={format.monthShort}
-        className="aspect-auto h-[200px] w-full"
-      />
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-x-16 gap-y-4">
+          <div className="space-y-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex items-center gap-1 text-sm font-medium outline-none hover:text-foreground/80">
+                {metricLabels[activeMetric]}
+                <ChevronDown className="size-3.5 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuRadioGroup value={activeMetric} onValueChange={(v) => setMetric(v as Metric)}>
+                  {(hasTrend ? (['revenue', 'expenses', 'profit'] as const) : (['revenue'] as const)).map((m) => (
+                    <DropdownMenuRadioItem key={m} value={m}>
+                      {metricLabels[m]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <p className={`text-xl tabular-nums ${(ytd.total ?? 0) < 0 ? 'text-destructive' : ''}`}>
+              {ytd.total === null ? '—' : format.formatMoney(ytd.total)}
+            </p>
+            <p className="text-xs text-muted-foreground">{span(ytd.year)}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{tc.lastYear}</p>
+            <p className="text-xl tabular-nums text-muted-foreground">
+              {ytd.compareTotal === null ? '—' : format.formatMoney(ytd.compareTotal)}
+            </p>
+            <p className="text-xs text-muted-foreground">{ytd.compareTotal === null ? tc.noComparison : span(ytd.year - 1)}</p>
+          </div>
+        </div>
+
+        <ComparisonLineChart
+          variant="hero"
+          points={ytd.points}
+          label={metricLabels[activeMetric]}
+          compareLabel={tc.lastYear}
+          formatTick={format.monthShort}
+          className="aspect-auto h-[200px] w-full"
+        />
+      </div>
 
       <Balances dashboard={dashboard} />
     </section>
@@ -154,7 +161,7 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
   ];
 
   return (
-    <div className="!mt-14 grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
       {items.map((item) => (
         <div key={item.key} className="min-w-0 space-y-1">
           <Link to={item.to} className="block w-fit text-sm font-medium hover:underline">
