@@ -33,6 +33,7 @@ import {
   useAccountingCustomers,
   useAccountingTaxRates,
 } from '@/hooks/queries/use-accounting-queries';
+import { useInvoiceTemplates } from '@/hooks/queries/use-invoice-template-queries';
 import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
 import type { InvoiceWithTax, TaxDocumentKind, TaxUse } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import {
@@ -138,6 +139,8 @@ function createInvoiceFormSchema(
     issueDate: z.string().min(1, st('sweep.weldbooks.invoiceDialog.issueDateRequired')),
     dueDate: z.string().min(1, st('sweep.weldbooks.invoiceDialog.dueDateRequired')),
     reference: z.string().optional().default(''),
+    /** The invoice template it prints with; null uses the company's default. */
+    templateId: z.string().nullable().default(null),
     notes: z.string().optional().default(''),
     internalNotes: z.string().optional().default(''),
     /** India GST: two-digit state code of the place of supply; '' derives it from the customer. */
@@ -156,6 +159,9 @@ function createInvoiceFormSchema(
 }
 
 type InvoiceFormValues = z.infer<ReturnType<typeof createInvoiceFormSchema>>;
+
+/** The template select's value for "use the company's default". */
+const DEFAULT_TEMPLATE = '__default__';
 
 const emptyLine = {
   description: '',
@@ -196,6 +202,46 @@ function invoiceFormTitles(
   const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
   const submitText = isCreditMemo ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1) : invoiceSave;
   return { title, submitText };
+}
+
+interface InvoiceTemplateSelectProps {
+  entityId: string | undefined;
+  /** The chosen template; null uses the company's default. */
+  value: string | null | undefined;
+  onChange: (templateId: string | null) => void;
+}
+
+/** Picks the template an invoice prints with. Renders nothing while the company has none. */
+function InvoiceTemplateSelect({ entityId, value, onChange }: Readonly<InvoiceTemplateSelectProps>) {
+  const { t } = useI18n();
+  const tt = t.accounting.invoiceTemplates;
+  const { data: templates } = useInvoiceTemplates(entityId);
+  if (!templates || templates.length === 0) return null;
+
+  const defaultTemplate = templates.find((template) => template.isDefault);
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="templateId">{tt.form.label}</Label>
+      <Select value={value ?? DEFAULT_TEMPLATE} onValueChange={(val) => onChange(val === DEFAULT_TEMPLATE ? null : val)}>
+        <SelectTrigger id="templateId" className="shadow-none" aria-describedby="templateId-help">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={DEFAULT_TEMPLATE}>
+            {defaultTemplate ? tt.form.defaultNamed.replace('{name}', defaultTemplate.name) : tt.form.default}
+          </SelectItem>
+          {templates.map((template) => (
+            <SelectItem key={template.id} value={template.id}>
+              {template.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p id="templateId-help" className="text-xs text-muted-foreground">
+        {tt.form.hint}
+      </p>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +312,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
         issueDate: toCalendarDate(stored.issueDate) ?? issueDate,
         dueDate: toCalendarDate(stored.dueDate) ?? addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
         reference: stored.reference ?? '',
+        templateId: invoice?.templateId ?? null,
         notes: stored.notes ?? '',
         internalNotes: stored.internalNotes ?? '',
         placeOfSupply: stored.placeOfSupply ?? '',
@@ -309,6 +356,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       issueDate,
       dueDate: addDaysToIsoDate(issueDate, DEFAULT_PAYMENT_TERMS_DAYS),
       reference: '',
+      templateId: null,
       notes: '',
       internalNotes: '',
       placeOfSupply: '',
@@ -324,7 +372,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       marketplaceFacilitated: false,
       items: [{ ...emptyLine }],
     };
-  }, [mode, stored, today]);
+  }, [mode, stored, invoice?.templateId, today]);
 
   const form = useForm({
     resolver: zodResolver(invoiceFormSchema),
@@ -442,6 +490,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           // An emptied rate field on an invoice that held one: back to the rate of the issue date.
           resetExchangeRate: mode === 'edit' && rateEdited.current,
         });
+        // Only a changed choice is sent; null means the company's default template (and clears an earlier choice).
+        if (values.templateId !== (invoice?.templateId ?? null)) payload.templateId = values.templateId;
 
         if (mode === 'edit' && invoice) {
           await updateMutation.mutateAsync({ id: invoice.id, data: payload });
@@ -568,6 +618,12 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
               {...form.register('reference')}
             />
           </div>
+
+          <InvoiceTemplateSelect
+            entityId={entity?.id}
+            value={watched.templateId}
+            onChange={(templateId) => form.setValue('templateId', templateId, { shouldDirty: true })}
+          />
         </>
       ),
     },

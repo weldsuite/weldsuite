@@ -312,6 +312,7 @@ export * from './accounting-form-1099';
 export * from './accounting-payment-runs';
 export * from './accounting-fixed-assets';
 export * from './accounting-dimensions';
+export * from './accounting-invoice-templates';
 
 // Calendar module
 export * from './calendars';
