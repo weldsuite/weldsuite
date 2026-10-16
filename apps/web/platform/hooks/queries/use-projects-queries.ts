@@ -1,5 +1,6 @@
 
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type {
   ApiProject,
@@ -120,6 +121,9 @@ export function useInfiniteProjects(filters: ProjectListFilters = {}, pageSize =
       }>(`/projects${query}`);
     },
     initialPageParam: null as string | null,
+    // Keep the previous list on screen while a new search/filter/sort loads, so the
+    // page (and the search box) is not replaced by a loader on every keystroke.
+    placeholderData: keepPreviousData,
     getNextPageParam: (lastPage) => {
       const pagination = lastPage.pagination;
       if (!pagination) return undefined;
@@ -137,6 +141,10 @@ export function useProject(id: string, enabled = true) {
       return client.get<{ data: ApiProject }>(`/projects/${id}`);
     },
     enabled: !!id && enabled,
+    // A 404/403 will not heal by retrying; surface it right away instead of
+    // after the default backoff.
+    retry: (failureCount, error) =>
+      !(isApiError(error) && error.status >= 400 && error.status < 500) && failureCount < 3,
   });
 }
 

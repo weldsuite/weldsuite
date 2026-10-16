@@ -190,6 +190,8 @@ export function AllProjectsClient({
   ]);
 
   const [projects, setProjects] = useState<Project[]>([]);
+  // userId -> name of every project owner seen so far (options of the owner filter).
+  const [knownOwners, setKnownOwners] = useState<Map<string, string>>(() => new Map());
   const isSortControlled = onSortChange !== undefined;
   const [internalSortState, setInternalSortState] = useState<SortState | null>(null);
   const sortState = isSortControlled ? (sortStateProp ?? null) : internalSortState;
@@ -263,8 +265,21 @@ export function AllProjectsClient({
       ).then((owners) => {
         if (owners.some(Boolean)) {
           setProjects((prev) => applyOwnersToProjects(prev, owners));
+          // Remember every owner seen: the owner filter must keep offering them
+          // after it narrows the list to one person.
+          setKnownOwners((prev) => {
+            const next = new Map(prev);
+            for (const owner of owners) {
+              if (owner?.userId) next.set(owner.userId, owner.name);
+            }
+            return next;
+          });
         }
       });
+    } else {
+      // Always re-seed, an empty result included: a search or filter that matches
+      // nothing must empty the list, not leave the previous one on screen.
+      setProjects([]);
     }
   }, [initialProjects, t.allProjects.unassigned]);
 
@@ -405,9 +420,12 @@ export function AllProjectsClient({
     {
       field: 'owner',
       label: t.allProjects.filterOwner,
-      options: [...new Set(projects.map(p => p.owner.name))].map(name => ({ value: name, label: name })),
+      // The value is the owner's user id: that is what the server filters on.
+      options: [...knownOwners.entries()]
+        .sort(([, a], [, b]) => a.localeCompare(b))
+        .map(([userId, name]) => ({ value: userId, label: name })),
     },
-  ], [projects, t]);
+  ], [knownOwners, t]);
 
   // Apply filters
   const applyFilters = useCallback((items: Project[], filters: ActiveFilter[]) => {
@@ -424,8 +442,8 @@ export function AllProjectsClient({
           : result.filter(p => p.priority !== filter.value);
       } else if (filter.field === 'owner') {
         result = filter.operator === 'is'
-          ? result.filter(p => p.owner.name === filter.value)
-          : result.filter(p => p.owner.name !== filter.value);
+          ? result.filter(p => p.owner.userId === filter.value)
+          : result.filter(p => p.owner.userId !== filter.value);
       }
     });
     return result;
