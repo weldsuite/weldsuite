@@ -102,7 +102,12 @@ function CompanyDetailsCard({
         </div>
         {entity ? (
           <Button variant="outline" size="sm" asChild>
-            <Link to="/weldbooks/entities/$id/edit" params={{ id: entity.id }}>
+            <Link
+              to="/settings/entities/$id/edit"
+              params={{ id: entity.id }}
+              // The settings back button returns here.
+              onClick={() => sessionStorage.setItem('settings-return-url', globalThis.location.pathname)}
+            >
               <Pencil className="h-4 w-4 mr-1" aria-hidden />
               {ts.editEntityDetails}
             </Link>

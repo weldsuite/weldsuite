@@ -480,6 +480,8 @@ export const weldhrPayroll = {
       employers: {
         title: 'Werkgevers',
         add: 'Werkgever toevoegen',
+        movedNotice: 'Werkgevers beheer je in Instellingen → Entiteiten, naast je WeldBooks-entiteiten.',
+        manage: 'Werkgevers beheren',
         empty: 'Nog geen werkgevers. Voeg de juridische entiteit toe die je salarissen betaalt.',
         createTitle: 'Werkgever toevoegen',
         editTitle: 'Werkgever bewerken',

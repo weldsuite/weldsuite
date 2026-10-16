@@ -30,6 +30,9 @@ export const settings = {
       objectTemplates: 'Object Templates',
       integrations: 'Integrations',
       phoneNumbers: 'Phone Numbers',
+      entities: 'Entities',
+      newEntity: 'New entity',
+      editEntity: 'Edit entity',
 
       // Security section
       security: 'Security',
@@ -1066,6 +1069,16 @@ export const settings = {
           errorGeneric: 'Failed to recover installation. Please try again.',
         },
       },
+    },
+
+    entities: {
+      title: 'Entities',
+      description: 'The legal entities of this workspace: who keeps the books and who pays the salaries.',
+      tabs: {
+        accounting: 'Accounting',
+        employers: 'Payroll employers',
+      },
+      noAccess: "You don't have access to any entities.",
     },
 
     weldhr: {

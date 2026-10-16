@@ -30,6 +30,9 @@ export const settings = {
       objectTemplates: 'Objectsjablonen',
       integrations: 'Integraties',
       phoneNumbers: 'Telefoonnummers',
+      entities: 'Entiteiten',
+      newEntity: 'Nieuwe entiteit',
+      editEntity: 'Entiteit bewerken',
 
       // Security section
       security: 'Beveiliging',
@@ -1066,6 +1069,16 @@ export const settings = {
         keepInternal: 'WeldSuite behouden',
         keepExternal: 'Extern behouden',
       },
+    },
+
+    entities: {
+      title: 'Entiteiten',
+      description: 'De juridische entiteiten van deze werkruimte: wie de boekhouding voert en wie de salarissen betaalt.',
+      tabs: {
+        accounting: 'Boekhouding',
+        employers: 'Werkgevers (salaris)',
+      },
+      noAccess: 'Je hebt geen toegang tot entiteiten.',
     },
 
     weldhr: {

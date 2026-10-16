@@ -479,6 +479,8 @@ export const weldhrPayroll = {
       employers: {
         title: 'Employers',
         add: 'Add employer',
+        movedNotice: 'Employers are managed in Settings → Entities, next to your WeldBooks entities.',
+        manage: 'Manage employers',
         empty: 'No employers yet. Add the legal entity that pays your salaries.',
         createTitle: 'Add employer',
         editTitle: 'Edit employer',
