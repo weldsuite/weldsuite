@@ -12,6 +12,10 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import { KpiCards } from './components/kpi-cards';
+import { TrendChart } from './components/trend-chart';
+import { ProfitChart } from './components/profit-chart';
+import { AgingChart } from './components/aging-chart';
+import { CashChart } from './components/cash-chart';
 import { UndepositedFundsCallout } from '@/app/weldbooks/banking/components/undeposited-funds-callout';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -26,43 +30,29 @@ export default function AccountingDashboardPage() {
   const dashboard = data?.data;
   if (!dashboard)
     return (
-      <div className="p-6 text-muted-foreground">
+      <div className="mx-auto w-full max-w-7xl p-6 text-muted-foreground">
         {td.loadingMessage}
       </div>
     );
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="mx-auto w-full max-w-7xl p-6 space-y-6">
       <h1 className="text-2xl font-semibold">{td.title}</h1>
+
+      <TrendChart dashboard={dashboard} />
 
       <UndepositedFundsCallout />
       <KpiCards dashboard={dashboard} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Bank Balances */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{td.bankAccounts}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(dashboard.bankAccounts ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">{td.noBankAccounts}</p>
-            ) : (
-              <div className="space-y-3">
-                {dashboard.bankAccounts.map((ba) => (
-                  <div key={ba.id} className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">{ba.name}</p>
-                      <p className="text-xs text-muted-foreground">{ba.iban}</p>
-                    </div>
-                    <p className="text-sm font-semibold">{fmt(ba.currentBalance, ba.currency)}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <div className={`grid grid-cols-1 gap-6 ${dashboard.monthlyTrend?.length ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+        {dashboard.monthlyTrend?.length ? (
+          <ProfitChart trend={dashboard.monthlyTrend} profitYear={dashboard.profit?.year} />
+        ) : null}
+        <AgingChart dashboard={dashboard} />
+        <CashChart dashboard={dashboard} />
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming Due */}
         <Card>
           <CardHeader>
@@ -105,7 +95,7 @@ export default function AccountingDashboardPage() {
         </Card>
 
         {/* Recent Payments */}
-        <Card className="lg:col-span-2">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">{td.recentPayments}</CardTitle>
           </CardHeader>

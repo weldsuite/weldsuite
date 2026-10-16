@@ -315,14 +315,20 @@ export interface Dashboard {
   expenses: { month: string; year: string };
   profit: { month: string; year: string };
   /** Posted documents in base currency, credit notes subtracted; overdue leaves credit notes out. */
-  receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number };
-  payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number };
+  receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number; aging?: DashboardAging };
+  payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number; aging?: DashboardAging };
   bankAccounts: Array<{ id: string; name: string; iban: string | null; currentBalance: string | null; currency: string | null }>;
   recentPayments: Payment[];
   upcomingDue: Array<{ id: string; invoiceNumber: string | null; contactName: string | null; dueDate: string; balanceDue: string | null }>;
   pendingDocuments: number;
   monthlyRevenue: Array<{ month: string; total: string }>;
+  /** Ledger revenue, expenses and net profit for the last 24 months, oldest first (absent on older API versions). */
+  monthlyTrend?: Array<{ month: string; revenue: string; expenses: string; profit: string }>;
 }
+
+export type DashboardAgingBucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
+/** Open balance per days-past-due bucket, as in the aged receivables / payables report. */
+export type DashboardAging = Record<DashboardAgingBucket, { total: string; count: number }>;
 
 export interface Settings {
   id: string;
