@@ -9,7 +9,8 @@
  * opens in whichever workspace the reader has active.
  */
 export function workspaceAppUrl(baseUrl: string, clerkOrgId: string | null | undefined, path: string): string {
-  const base = baseUrl.trim().replace(/\/+$/, '');
+  let base = baseUrl.trim();
+  while (base.endsWith('/')) base = base.slice(0, -1);
   const inner = path.startsWith('/') ? path : `/${path}`;
   return clerkOrgId ? `${base}/w/${encodeURIComponent(clerkOrgId)}${inner}` : `${base}${inner}`;
 }

@@ -60,5 +60,6 @@ export function sameOriginPath(path: string, origin: string): string {
 
 /** `/w/{ref}{path}`: a link to `path` inside the given workspace. */
 export function workspacePath(ref: string, path = '/'): string {
-  return `/w/${encodeURIComponent(ref)}${path.startsWith('/') ? path : `/${path}`}`;
+  const inner = path.startsWith('/') ? path : '/' + path;
+  return `/w/${encodeURIComponent(ref)}${inner}`;
 }
