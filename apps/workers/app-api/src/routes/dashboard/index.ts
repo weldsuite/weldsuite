@@ -19,6 +19,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
 import { listMemberAppCodes } from '../../services/member-apps';
+import { ensureMemberLinked } from '../../services/member-link';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -81,7 +82,12 @@ app.get('/chart', async (c) => {
 
 app.get('/installed-apps', async (c) => {
   try {
-    return success(c, await listMemberAppCodes(c.get('tenantDb'), c.get('userId')));
+    const db = c.get('tenantDb');
+    const orgId = c.get('orgId');
+    // Same repair as GET /api/me/permissions: the platform asks for both on
+    // load, in parallel, and either may run first.
+    if (orgId) await ensureMemberLinked(c.env, db, orgId, c.get('userId'));
+    return success(c, await listMemberAppCodes(db, c.get('userId')));
   } catch (err) {
     console.error('[app-api/dashboard] installed-apps failed:', err);
     return success(c, ['welddesk', 'weldcrm', 'weldstash', 'weldmail', 'parcel', 'weldflow']);
