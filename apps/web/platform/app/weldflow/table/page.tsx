@@ -172,27 +172,27 @@ const projectsList = [
 ];
 
 const fieldTypeOptions = [
-  { value: "checkbox", label: "Checkbox", icon: CheckSquare },
-  { value: "single-select", label: "Single-select", icon: Circle },
-  { value: "multi-select", label: "Multi-select", icon: CheckSquare },
-  { value: "date", label: "Date", icon: Calendar },
-  { value: "people", label: "People", icon: User },
-  { value: "text", label: "Text", icon: Type },
-  { value: "number", label: "Number", icon: Hash },
-  { value: "formula", label: "Formula", icon: Calculator },
-  { value: "id", label: "ID", icon: Fingerprint },
-  { value: "timer", label: "Timer", icon: Timer },
-  { value: "time-tracking", label: "Time tracking", icon: Clock },
-  { value: "rollup", label: "Rollup", icon: Layers },
-  { value: "projects", label: "Projects", icon: FolderOpen },
-  { value: "due-date", label: "Due Date", icon: CalendarClock },
-  { value: "tags", label: "Tags", icon: Tag },
-  { value: "assignee", label: "Assignee", icon: UserCheck },
-  { value: "completed-on", label: "Completed on", icon: CheckCircle2 },
-  { value: "last-modified-on", label: "Last modified on", icon: Edit },
-  { value: "created-on", label: "Created on", icon: CalendarPlus },
-  { value: "created-by", label: "Created by", icon: UserPlus },
-  { value: "collaborators", label: "Collaborators", icon: UsersRound },
+  { value: "checkbox", labelKey: "checkbox", icon: CheckSquare },
+  { value: "single-select", labelKey: "singleSelect", icon: Circle },
+  { value: "multi-select", labelKey: "multiSelect", icon: CheckSquare },
+  { value: "date", labelKey: "date", icon: Calendar },
+  { value: "people", labelKey: "people", icon: User },
+  { value: "text", labelKey: "text", icon: Type },
+  { value: "number", labelKey: "number", icon: Hash },
+  { value: "formula", labelKey: "formula", icon: Calculator },
+  { value: "id", labelKey: "id", icon: Fingerprint },
+  { value: "timer", labelKey: "timer", icon: Timer },
+  { value: "time-tracking", labelKey: "timeTracking", icon: Clock },
+  { value: "rollup", labelKey: "rollup", icon: Layers },
+  { value: "projects", labelKey: "projects", icon: FolderOpen },
+  { value: "due-date", labelKey: "dueDate", icon: CalendarClock },
+  { value: "tags", labelKey: "tags", icon: Tag },
+  { value: "assignee", labelKey: "assignee", icon: UserCheck },
+  { value: "completed-on", labelKey: "completedOn", icon: CheckCircle2 },
+  { value: "last-modified-on", labelKey: "lastModifiedOn", icon: Edit },
+  { value: "created-on", labelKey: "createdOn", icon: CalendarPlus },
+  { value: "created-by", labelKey: "createdBy", icon: UserPlus },
+  { value: "collaborators", labelKey: "collaborators", icon: UsersRound },
 ];
 
 const companies = [
@@ -511,6 +511,11 @@ const renderInteractionCell: CellRenderer = (_field, value) => {
   );
 };
 
+const StatusLabel = ({ labelKey }: Readonly<{ labelKey: 'noCommunication' | 'veryWeak' }>) => {
+  const st = useTranslations();
+  return <>{st(`projects.flowTable.status.${labelKey}`)}</>;
+};
+
 const renderStatusCell: CellRenderer = (_field, value) => {
   if (!value) return "";
   if (value === "No communication") {
@@ -524,7 +529,7 @@ const renderStatusCell: CellRenderer = (_field, value) => {
           border: '1px solid #9ca3af',
           flexShrink: 0
         }} />
-        <span style={{ fontSize: '14px', color: '#9ca3af' }}>No communication</span>
+        <span style={{ fontSize: '14px', color: '#9ca3af' }}><StatusLabel labelKey="noCommunication" /></span>
       </>
     );
   }
@@ -538,7 +543,7 @@ const renderStatusCell: CellRenderer = (_field, value) => {
           backgroundColor: '#ef4444',
           flexShrink: 0
         }} />
-        <span style={{ fontSize: '14px', color: '#ef4444' }}>Very weak</span>
+        <span style={{ fontSize: '14px', color: '#ef4444' }}><StatusLabel labelKey="veryWeak" /></span>
       </>
     );
   }
@@ -1164,17 +1169,17 @@ export default function TablePage() {
       case 'number':
       case 'currency':
         return [
-          { value: 'sum', label: 'Sum', icon: Calculator },
-          { value: 'average', label: 'Average', icon: BarChart3 },
-          { value: 'min', label: 'Min', icon: ArrowDown },
-          { value: 'max', label: 'Max', icon: ArrowUp },
-          { value: 'median', label: 'Median', icon: Activity },
-          { value: 'range', label: 'Range', icon: ArrowUpDown },
-          { value: 'count', label: 'Count values', icon: Hash },
-          { value: 'count-empty', label: 'Count empty', icon: Circle },
-          { value: 'count-not-empty', label: 'Count not empty', icon: CheckCircle2 },
-          { value: 'percent-empty', label: 'Percent empty', icon: Percent },
-          { value: 'percent-not-empty', label: 'Percent not empty', icon: Percent },
+          { value: 'sum', label: st('projects.flowTable.calc.sum'), icon: Calculator },
+          { value: 'average', label: st('projects.flowTable.calc.average'), icon: BarChart3 },
+          { value: 'min', label: st('projects.flowTable.calc.min'), icon: ArrowDown },
+          { value: 'max', label: st('projects.flowTable.calc.max'), icon: ArrowUp },
+          { value: 'median', label: st('projects.flowTable.calc.median'), icon: Activity },
+          { value: 'range', label: st('projects.flowTable.calc.range'), icon: ArrowUpDown },
+          { value: 'count', label: st('projects.flowTable.calc.count'), icon: Hash },
+          { value: 'count-empty', label: st('projects.flowTable.calc.countEmpty'), icon: Circle },
+          { value: 'count-not-empty', label: st('projects.flowTable.calc.countNotEmpty'), icon: CheckCircle2 },
+          { value: 'percent-empty', label: st('projects.flowTable.calc.percentEmpty'), icon: Percent },
+          { value: 'percent-not-empty', label: st('projects.flowTable.calc.percentNotEmpty'), icon: Percent },
         ];
       case 'text':
       case 'email':
@@ -1183,18 +1188,18 @@ export default function TablePage() {
       case 'twitter':
       case 'domain':
         return [
-          { value: 'count', label: 'Count values', icon: Hash },
-          { value: 'count-empty', label: 'Count empty', icon: Circle },
-          { value: 'count-not-empty', label: 'Count not empty', icon: CheckCircle2 },
-          { value: 'percent-empty', label: 'Percent empty', icon: Percent },
-          { value: 'percent-not-empty', label: 'Percent not empty', icon: Percent },
-          { value: 'count-unique', label: 'Count unique', icon: Layers },
+          { value: 'count', label: st('projects.flowTable.calc.count'), icon: Hash },
+          { value: 'count-empty', label: st('projects.flowTable.calc.countEmpty'), icon: Circle },
+          { value: 'count-not-empty', label: st('projects.flowTable.calc.countNotEmpty'), icon: CheckCircle2 },
+          { value: 'percent-empty', label: st('projects.flowTable.calc.percentEmpty'), icon: Percent },
+          { value: 'percent-not-empty', label: st('projects.flowTable.calc.percentNotEmpty'), icon: Percent },
+          { value: 'count-unique', label: st('projects.flowTable.calc.countUnique'), icon: Layers },
         ];
       case 'checkbox':
         return [
-          { value: 'checked', label: 'Checked', icon: CheckSquare },
-          { value: 'unchecked', label: 'Unchecked', icon: Square },
-          { value: 'percent-checked', label: 'Percent checked', icon: Percent },
+          { value: 'checked', label: st('projects.flowTable.calc.checked'), icon: CheckSquare },
+          { value: 'unchecked', label: st('projects.flowTable.calc.unchecked'), icon: Square },
+          { value: 'percent-checked', label: st('projects.flowTable.calc.percentChecked'), icon: Percent },
         ];
       case 'date':
       case 'due-date':
@@ -1202,41 +1207,41 @@ export default function TablePage() {
       case 'created-on':
       case 'last-modified-on':
         return [
-          { value: 'earliest', label: 'Earliest', icon: ArrowUp },
-          { value: 'latest', label: 'Latest', icon: ArrowDown },
-          { value: 'date-range', label: 'Date range', icon: Calendar },
-          { value: 'count', label: 'Count values', icon: Hash },
-          { value: 'count-empty', label: 'Count empty', icon: Circle },
-          { value: 'count-not-empty', label: 'Count not empty', icon: CheckCircle2 },
+          { value: 'earliest', label: st('projects.flowTable.calc.earliest'), icon: ArrowUp },
+          { value: 'latest', label: st('projects.flowTable.calc.latest'), icon: ArrowDown },
+          { value: 'date-range', label: st('projects.flowTable.calc.dateRange'), icon: Calendar },
+          { value: 'count', label: st('projects.flowTable.calc.count'), icon: Hash },
+          { value: 'count-empty', label: st('projects.flowTable.calc.countEmpty'), icon: Circle },
+          { value: 'count-not-empty', label: st('projects.flowTable.calc.countNotEmpty'), icon: CheckCircle2 },
         ];
       case 'categories':
       case 'multi-select':
       case 'tags':
         return [
-          { value: 'count-unique', label: 'Count unique', icon: Layers },
-          { value: 'count-all', label: 'Count all', icon: Hash },
-          { value: 'count-empty', label: 'Count empty', icon: Circle },
-          { value: 'count-not-empty', label: 'Count not empty', icon: CheckCircle2 },
-          { value: 'percent-empty', label: 'Percent empty', icon: Percent },
-          { value: 'percent-not-empty', label: 'Percent not empty', icon: Percent },
+          { value: 'count-unique', label: st('projects.flowTable.calc.countUnique'), icon: Layers },
+          { value: 'count-all', label: st('projects.flowTable.calc.countAll'), icon: Hash },
+          { value: 'count-empty', label: st('projects.flowTable.calc.countEmpty'), icon: Circle },
+          { value: 'count-not-empty', label: st('projects.flowTable.calc.countNotEmpty'), icon: CheckCircle2 },
+          { value: 'percent-empty', label: st('projects.flowTable.calc.percentEmpty'), icon: Percent },
+          { value: 'percent-not-empty', label: st('projects.flowTable.calc.percentNotEmpty'), icon: Percent },
         ];
       case 'single-select':
       case 'people':
       case 'assignee':
       case 'created-by':
         return [
-          { value: 'count', label: 'Count values', icon: Hash },
-          { value: 'count-empty', label: 'Count empty', icon: Circle },
-          { value: 'count-not-empty', label: 'Count not empty', icon: CheckCircle2 },
-          { value: 'count-unique', label: 'Count unique', icon: Layers },
-          { value: 'percent-empty', label: 'Percent empty', icon: Percent },
-          { value: 'percent-not-empty', label: 'Percent not empty', icon: Percent },
+          { value: 'count', label: st('projects.flowTable.calc.count'), icon: Hash },
+          { value: 'count-empty', label: st('projects.flowTable.calc.countEmpty'), icon: Circle },
+          { value: 'count-not-empty', label: st('projects.flowTable.calc.countNotEmpty'), icon: CheckCircle2 },
+          { value: 'count-unique', label: st('projects.flowTable.calc.countUnique'), icon: Layers },
+          { value: 'percent-empty', label: st('projects.flowTable.calc.percentEmpty'), icon: Percent },
+          { value: 'percent-not-empty', label: st('projects.flowTable.calc.percentNotEmpty'), icon: Percent },
         ];
       default:
         return [
-          { value: 'count', label: 'Count values', icon: Hash },
-          { value: 'count-empty', label: 'Count empty', icon: Circle },
-          { value: 'count-not-empty', label: 'Count not empty', icon: CheckCircle2 },
+          { value: 'count', label: st('projects.flowTable.calc.count'), icon: Hash },
+          { value: 'count-empty', label: st('projects.flowTable.calc.countEmpty'), icon: Circle },
+          { value: 'count-not-empty', label: st('projects.flowTable.calc.countNotEmpty'), icon: CheckCircle2 },
         ];
     }
   };
@@ -1276,7 +1281,7 @@ export default function TablePage() {
       // Only allow basic math operations
       const sanitized = expression.replace(/[^0-9+\-*/().\s]/g, '');
       if (sanitized !== expression) {
-        return "Invalid formula";
+        return st('projects.flowTable.invalidFormula');
       }
 
       const result = evaluateArithmetic(sanitized);
@@ -1285,9 +1290,9 @@ export default function TablePage() {
         return Math.round(result * 100) / 100; // Round to 2 decimal places
       }
 
-      return "Error";
+      return st('projects.flowTable.formulaError');
     } catch {
-      return "Error";
+      return st('projects.flowTable.formulaError');
     }
   };
 
@@ -2022,7 +2027,7 @@ export default function TablePage() {
         <PopoverContent className="w-80" align="start">
           <div className="space-y-4">
             <div>
-              <Label className="text-xs text-muted-foreground mb-2">Relation Field</Label>
+              <Label className="text-xs text-muted-foreground mb-2">{st('projects.flowTable.relationField')}</Label>
               <Command className="rounded-lg border">
                 <CommandList>
                   <CommandGroup>
@@ -2038,7 +2043,7 @@ export default function TablePage() {
             </div>
 
             <div>
-              <Label className="text-xs text-muted-foreground mb-2">Target Field</Label>
+              <Label className="text-xs text-muted-foreground mb-2">{st('projects.flowTable.targetField')}</Label>
               <Command className="rounded-lg border">
                 <CommandList>
                   <CommandGroup>
@@ -2054,13 +2059,13 @@ export default function TablePage() {
             </div>
 
             <div>
-              <Label className="text-xs text-muted-foreground mb-2">Aggregation</Label>
+              <Label className="text-xs text-muted-foreground mb-2">{st('projects.flowTable.aggregation')}</Label>
               <Command className="rounded-lg border">
                 <CommandList>
                   <CommandGroup>
                     {(['sum', 'average', 'count', 'min', 'max'] as const).map((agg) => renderRollupConfigItem(
                       agg,
-                      <span className="capitalize">{agg}</span>,
+                      <span>{st(`projects.flowTable.rollupAgg.${agg}`)}</span>,
                       field.rollupConfig?.aggregation === agg,
                       () => updateRollupConfig(field, { aggregation: agg }),
                     ))}
@@ -2512,7 +2517,7 @@ export default function TablePage() {
                               onSelect={() => {
                                 const newField: Field = {
                                   id: `field_${Date.now()}`,
-                                  name: option.label,
+                                  name: st(`projects.flowTable.fieldTypes.${option.labelKey}`),
                                   type: option.value as FieldType,
                                   width: DEFAULT_FIELD_WIDTH,
                                   icon: option.icon,
@@ -2530,11 +2535,11 @@ export default function TablePage() {
                                   }
                                 })));
 
-                                toast.success(st('sweep.weldflow.tablePage.addedField', { name: option.label }));
+                                toast.success(st('sweep.weldflow.tablePage.addedField', { name: st(`projects.flowTable.fieldTypes.${option.labelKey}`) }));
                               }}
                             >
                               <option.icon className="mr-0.5 h-4 w-4" />
-                              {option.label}
+                              {st(`projects.flowTable.fieldTypes.${option.labelKey}`)}
                             </CommandItem>
                           ))}
                         </CommandGroup>

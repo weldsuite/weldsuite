@@ -5,7 +5,7 @@ import { ApiClientProvider } from '@/lib/api/api-provider';
 import { getRealtimeUrl } from '@/lib/api/public-env';
 import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
-import { I18nProvider } from '@/lib/i18n/provider';
+import { I18nProvider, useI18n } from '@/lib/i18n/provider';
 import { SettingsProvider } from '@/providers/settings-provider';
 import { NotificationProvider } from '@/contexts/notification-context';
 import { UnifiedNotificationProvider } from '@/contexts/unified-notification-context';
@@ -39,12 +39,13 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function DesktopAuthBridge() {
+  const { t, format } = useI18n();
   useDesktopAuthHandler({
     onSuccess: () => {
       window.location.href = '/';
     },
     onError: (message) => {
-      toast.error(`Desktop sign-in failed: ${message}`);
+      toast.error(format(t.common.desktopSignInFailed, { message }));
     },
   });
   return null;

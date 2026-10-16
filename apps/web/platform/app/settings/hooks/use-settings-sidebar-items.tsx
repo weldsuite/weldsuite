@@ -89,7 +89,11 @@ export function useSettingsSidebarItems(enabled: boolean) {
       WELDSUITE_SETTINGS_ITEM,
       ...APP_SETTINGS_ITEMS
         .filter((item) => installedAppCodes.has(item.appCode))
-        .map(({ title, href, icon }) => ({ title, href, icon })),
+        .map(({ appCode, title, href, icon }) => ({
+          title: appCode === 'parcel' ? ts.menu.parcel : title,
+          href,
+          icon,
+        })),
     ];
 
     return [
@@ -102,14 +106,14 @@ export function useSettingsSidebarItems(enabled: boolean) {
           { title: ts.menu.shortcuts, href: '/settings/shortcuts', icon: Keyboard },
           { title: ts.menu.security, href: '/settings/security', icon: Shield },
           // Only visible inside the Electron desktop shell.
-          ...(isDesktop() ? [{ title: 'Desktop app', href: '/settings/desktop', icon: Monitor }] : []),
+          ...(isDesktop() ? [{ title: ts.menu.desktopApp, href: '/settings/desktop', icon: Monitor }] : []),
         ],
       },
       {
         group: ts.menu.workspace,
         items: [
           { title: ts.menu.teamMembers, href: '/settings/team', icon: Users },
-          { title: 'Roles & Permissions', href: '/settings/roles', icon: ShieldCheck },
+          { title: ts.roles.title, href: '/settings/roles', icon: ShieldCheck },
           { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
           { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
           { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },

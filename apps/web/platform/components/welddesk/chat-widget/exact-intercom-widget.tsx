@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
+import { useI18n } from '@/lib/i18n/provider';
 import { useConversation, type ConversationMessage } from './use-conversation';
 import { detectEscalation } from '@/lib/ai/escalation-detector';
 import { detectTicketSuggestion } from '@/lib/ai/ticket-suggestion-detector';
@@ -160,6 +161,7 @@ function useWidgetChat({
   onEscalationRequested,
   onTicketCreationRequested,
 }: WidgetChatOptions) {
+  const { t } = useI18n();
   // AI Conversation Hook - only use if AI is enabled
   const sessionId = typeof window !== 'undefined' ? `session-${Date.now()}` : 'session-default';
   const aiConversation = useConversation({
@@ -210,7 +212,7 @@ function useWidgetChat({
 
     const aiEscalation = detectEscalation(lastMessage.content, 'assistant');
     if (aiEscalation.shouldEscalate) {
-      suggestEscalationIfAllowed(aiEscalation.reason || 'AI determined it cannot help');
+      suggestEscalationIfAllowed(aiEscalation.reason || t.helpdeskWidget.chat.escalation.aiCannotHelp);
     }
 
     const ticketSuggestion = detectTicketSuggestion(lastMessage.content, 'assistant');
@@ -233,12 +235,12 @@ function useWidgetChat({
     // Check if user is requesting human help (the message is still sent to the AI for context)
     const userEscalation = detectEscalation(userMessageContent, 'user');
     if (userEscalation.shouldEscalate) {
-      suggestEscalationIfAllowed(userEscalation.reason || 'Customer requested human assistance');
+      suggestEscalationIfAllowed(userEscalation.reason || t.helpdeskWidget.chat.escalation.humanRequested);
     }
 
     if (!enableAi) {
       // AI is disabled and there is no mock responder, so just offer the escalation option
-      suggestEscalationIfAllowed('AI assistant is not enabled. Would you like to speak with a human agent?');
+      suggestEscalationIfAllowed(t.helpdeskWidget.chat.escalation.aiDisabled);
       return;
     }
 
@@ -253,7 +255,7 @@ function useWidgetChat({
     } catch (error) {
       console.error('Error sending message:', error);
       // Error handling is done by the hook via aiConversation.error
-      suggestEscalationIfAllowed('Connection error - would you like to speak with a human agent?');
+      suggestEscalationIfAllowed(t.helpdeskWidget.chat.escalation.connectionError);
     }
   };
 
@@ -289,12 +291,12 @@ function useWidgetChat({
   };
 
   const requestHuman = () => {
-    suggestEscalation('Customer requested to speak with a human agent');
+    suggestEscalation(t.helpdeskWidget.chat.escalation.requestedHuman);
   };
 
   const connectToHuman = () => {
     onEscalationRequested?.(escalationReason);
-    aiConversation.addSystemMessage('Your request has been forwarded to our support team. A human agent will assist you shortly.');
+    aiConversation.addSystemMessage(t.helpdeskWidget.chat.escalation.forwarded);
     setShowEscalationSuggestion(false);
   };
 
@@ -410,6 +412,7 @@ interface ChatHeaderProps {
 }
 
 function ChatHeader({ themeSettings, disableBackNavigation, showTalkToHuman, onBack, onTalkToHuman, onClose }: Readonly<ChatHeaderProps>) {
+  const { t } = useI18n();
   return (
     <div className="flex items-center px-3 border-b border-gray-200 dark:border-border" style={{ height: '54px', backgroundColor: themeSettings?.headerColor || undefined }}>
       {/* Left side - Back arrow */}
@@ -438,10 +441,10 @@ function ChatHeader({ themeSettings, disableBackNavigation, showTalkToHuman, onB
             variant="ghost"
             onClick={onTalkToHuman}
             className="inline-flex items-center gap-1 justify-center rounded-md text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:bg-accent hover:text-accent-foreground px-2 h-7 border border-gray-300 dark:border-border text-gray-700 dark:text-muted-foreground"
-            title="Talk to a human agent"
+            title={t.helpdeskWidget.chat.talkToHumanTitle}
           >
             <UserCircle className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Talk to Human</span>
+            <span className="hidden sm:inline">{t.helpdeskWidget.chat.talkToHuman}</span>
           </Button>
         )}
 
@@ -512,6 +515,7 @@ interface EscalationSuggestionProps {
 }
 
 function EscalationSuggestion({ reason, onConnect, onDismiss }: Readonly<EscalationSuggestionProps>) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-1.5 items-start max-w-[85%]">
       <div className="bg-gray-100 dark:bg-secondary text-[13px] text-gray-900 dark:text-foreground px-3.5 py-2.5 rounded-2xl" style={{ borderBottomLeftRadius: '4px' }}>
@@ -523,14 +527,14 @@ function EscalationSuggestion({ reason, onConnect, onDismiss }: Readonly<Escalat
           onClick={onConnect}
           className="px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
         >
-          Connect to human
+          {t.helpdeskWidget.chat.connectToHuman}
         </Button>
         <Button
           variant="ghost"
           onClick={onDismiss}
           className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-muted-foreground border border-gray-200 dark:border-border rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors"
         >
-          Continue with AI
+          {t.helpdeskWidget.chat.continueWithAi}
         </Button>
       </div>
     </div>
@@ -538,14 +542,15 @@ function EscalationSuggestion({ reason, onConnect, onDismiss }: Readonly<Escalat
 }
 
 function TicketSuggestion({ onCreate, onDismiss }: Readonly<{ onCreate: () => void; onDismiss: () => void }>) {
+  const { t } = useI18n();
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] bg-amber-50 dark:bg-background/30 border border-amber-200 dark:border-border px-4 py-3 rounded-2xl" style={{ borderBottomLeftRadius: '4px' }}>
         <p className="text-sm text-amber-900 dark:text-foreground font-medium mb-2">
-          Create a support ticket?
+          {t.helpdeskWidget.chat.createTicketTitle}
         </p>
         <p className="text-xs text-amber-700 dark:text-muted-foreground mb-3">
-          This will create a ticket so our team can investigate and follow up with you.
+          {t.helpdeskWidget.chat.createTicketDescription}
         </p>
         <div className="flex gap-2">
           <Button
@@ -553,14 +558,14 @@ function TicketSuggestion({ onCreate, onDismiss }: Readonly<{ onCreate: () => vo
             onClick={onCreate}
             className="px-3 py-1.5 bg-amber-600 dark:bg-secondary text-white text-xs font-medium rounded-lg hover:bg-amber-700 dark:hover:bg-accent transition-colors"
           >
-            Create ticket
+            {t.helpdeskWidget.chat.createTicket}
           </Button>
           <Button
             variant="ghost"
             onClick={onDismiss}
             className="px-3 py-1.5 bg-white dark:bg-background text-gray-700 dark:text-muted-foreground text-xs font-medium rounded-lg border border-gray-300 dark:border-border hover:bg-gray-50 dark:hover:bg-background/50 transition-colors"
           >
-            Not now
+            {t.helpdeskWidget.chat.notNow}
           </Button>
         </div>
       </div>
@@ -617,11 +622,12 @@ interface SendButtonProps {
 }
 
 function SendButton({ hasText, buttonColor, buttonTextColor, onSend }: Readonly<SendButtonProps>) {
+  const { t } = useI18n();
   return (
     <Button
       variant="ghost"
       onClick={onSend}
-      aria-label="Send message"
+      aria-label={t.helpdeskWidget.chat.sendMessage}
       disabled={!hasText}
       className={cn(
         "w-[30px] h-[30px] rounded-full flex items-center justify-center transition-all duration-150 flex-shrink-0",
@@ -655,6 +661,7 @@ const SINGLE_LINE_TEXTAREA_STYLE: React.CSSProperties = {
 };
 
 function ChatInputBar({ chat, themeSettings }: Readonly<{ chat: WidgetChat; themeSettings?: WidgetThemeSettings }>) {
+  const { t } = useI18n();
   const { inputValue, isMultiLine } = chat;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -689,7 +696,7 @@ function ChatInputBar({ chat, themeSettings }: Readonly<{ chat: WidgetChat; them
           value={inputValue}
           onChange={(e) => chat.handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
+          placeholder={t.helpdeskWidget.chat.messagePlaceholder}
           rows={1}
           className={cn(
             "outline-none bg-transparent text-[14px] text-gray-900 dark:text-foreground placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none",
@@ -769,6 +776,7 @@ export function ExactIntercomWidget({
   previewWelcomeMessage,
   allowHumanEscalation = true,
 }: Readonly<ExactIntercomWidgetProps> = {}) {
+  const { t } = useI18n();
   const startingPage = themeSettings?.startingPage || 'home';
 
   const chat = useWidgetChat({
@@ -830,7 +838,7 @@ export function ExactIntercomWidget({
       >
         <img
           src="/assets/images/welddesk/launcher-icon.png"
-          alt="Chat"
+          alt={t.helpdeskWidget.chat.launcherAlt}
           width={24}
           height={24}
           style={{ width: 24, height: 'auto', marginTop: 1 }}

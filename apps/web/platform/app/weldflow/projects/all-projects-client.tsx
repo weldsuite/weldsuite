@@ -45,7 +45,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
-import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel } from "@/components/app-sidebar-layout";
+import { coloredSquareColorLabel, coloredSquareColors, coloredSquareIconLabel, coloredSquareIcons, findColoredSquareIconByLabel } from "@/components/app-sidebar-layout";
 import type { LucideIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { projectsApi, membersApi, type ApiProject } from "@/app/weldflow/lib/api-client";
@@ -166,6 +166,7 @@ export function AllProjectsClient({
   onSortChange,
 }: Readonly<AllProjectsClientProps>) {
   const t = useI18n().t.projects;
+  const squareLabels = useI18n().t.common.coloredSquare;
   const { formatShort } = useDateLocale();
 
   const statusConfig: Record<TableStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = useMemo(() => ({
@@ -811,7 +812,7 @@ export function AllProjectsClient({
                             setSelectedColor(color.value);
                             setColorPopoverOpen(false);
                           }}
-                          title={color.label}
+                          title={coloredSquareColorLabel(squareLabels, color.label)}
                         />
                       ))}
                     </div>
@@ -844,7 +845,7 @@ export function AllProjectsClient({
                             setSelectedIcon(iconOption.value);
                             setIconPopoverOpen(false);
                           }}
-                          title={iconOption.label}
+                          title={coloredSquareIconLabel(squareLabels, iconOption.label)}
                         >
                           {React.createElement(iconOption.value, { className: 'h-4 w-4' })}
                         </Button>

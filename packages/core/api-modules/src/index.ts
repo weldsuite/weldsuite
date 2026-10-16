@@ -244,6 +244,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/gl-accounts',
     '/api/icp-declarations',
     '/api/invoices',
+    '/api/invoice-templates',
     '/api/journal-entries',
     '/api/payments',
     '/api/reconciliation-rules',

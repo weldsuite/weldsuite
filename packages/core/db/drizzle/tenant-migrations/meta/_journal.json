@@ -1513,6 +1513,13 @@
       "when": 1792067331182,
       "tag": "0215_weldbooks_brazil",
       "breakpoints": true
+    },
+    {
+      "idx": 216,
+      "version": "7",
+      "when": 1792096517690,
+      "tag": "0216_weldbooks_invoice_templates",
+      "breakpoints": true
     }
   ]
 }

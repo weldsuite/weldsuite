@@ -2734,7 +2734,7 @@ function TransformDataForm({
 
       <div className="bg-muted/50 rounded-lg p-3">
         <p className="text-xs text-muted-foreground">
-          <strong>Tip:</strong> {acf.transformTip} <code className="bg-background px-1 rounded">input</code> variable.
+          <strong>{t.helpdesk.workflowEditor.tipLabel}</strong> {acf.transformTip} <code className="bg-background px-1 rounded">input</code> {t.helpdesk.workflowEditor.variableSuffix}
         </p>
       </div>
     </div>
@@ -2852,7 +2852,7 @@ function DeleteRecordForm({
         <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-3 flex items-start gap-2">
           <Info className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
           <p className="text-xs text-red-700 dark:text-red-300">
-            <strong>Warning:</strong> {acf.permanentDeleteWarning}
+            <strong>{t.helpdesk.workflowEditor.warningLabel}</strong> {acf.permanentDeleteWarning}
           </p>
         </div>
       )}
@@ -3893,13 +3893,13 @@ function CollectInputForm({ config, onChange }: Readonly<{
               <Plus className="h-3 w-3" />
               {acf.addFieldButton}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => addField({ label: 'Email', type: 'email' })}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => addField({ label: t.helpdesk.workflowEditor.fieldEmail, type: 'email' })}>
               {acf.emailPreset}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => addField({ label: 'Name', type: 'text' })}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => addField({ label: t.helpdesk.workflowEditor.fieldName, type: 'text' })}>
               {acf.namePreset}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => addField({ label: 'Phone', type: 'phone' })}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => addField({ label: t.helpdesk.workflowEditor.fieldPhone, type: 'phone' })}>
               {acf.phonePreset}
             </Button>
           </div>
@@ -3910,10 +3910,10 @@ function CollectInputForm({ config, onChange }: Readonly<{
 }
 
 const CUSTOMER_INFO_FIELDS = [
-  { id: 'name', label: 'Name', type: 'text', placeholder: 'John Doe' },
-  { id: 'email', label: 'Email', type: 'email', placeholder: 'your@email.com' },
-  { id: 'phone', label: 'Phone', type: 'phone', placeholder: '+1 555 123 4567' },
-  { id: 'company', label: 'Company', type: 'text', placeholder: 'Acme Inc.' },
+  { id: 'name', labelKey: 'fieldName', type: 'text' },
+  { id: 'email', labelKey: 'fieldEmail', type: 'email' },
+  { id: 'phone', labelKey: 'fieldPhone', type: 'phone' },
+  { id: 'company', labelKey: 'fieldCompany', type: 'text' },
 ] as const;
 
 interface CustomerFieldConfig {
@@ -3988,7 +3988,7 @@ function CollectCustomerInfoForm({ config, onChange }: Readonly<{
                   onCheckedChange={() => toggleField(field.id)}
                 />
                 <div className="flex-1">
-                  <span className="text-sm font-medium">{field.label}</span>
+                  <span className="text-sm font-medium">{t.helpdesk.workflowEditor[field.labelKey]}</span>
                   <span className="ml-2 text-xs text-muted-foreground">{field.type}</span>
                 </div>
                 {isSelected && (

@@ -97,13 +97,13 @@ const fontSizes = [
 ];
 
 const categories = [
-  { value: 'getting-started', label: 'Getting Started' },
-  { value: 'account', label: 'Account & Billing' },
-  { value: 'features', label: 'Features & Tools' },
-  { value: 'troubleshooting', label: 'Troubleshooting' },
-  { value: 'integrations', label: 'Integrations' },
-  { value: 'api', label: 'API & Developers' },
-];
+  { value: 'getting-started', labelKey: 'gettingStarted' },
+  { value: 'account', labelKey: 'accountBilling' },
+  { value: 'features', labelKey: 'featuresTools' },
+  { value: 'troubleshooting', labelKey: 'troubleshooting' },
+  { value: 'integrations', labelKey: 'integrations' },
+  { value: 'api', labelKey: 'apiDevelopers' },
+] as const;
 
 const FORMAT_COMMANDS: ReadonlyArray<readonly [command: string, format: string]> = [
   ['bold', 'bold'],
@@ -1489,7 +1489,7 @@ export default function NewHelpArticlePage() {
                   <SelectContent>
                     {categories.map((cat) => (
                       <SelectItem key={cat.value} value={cat.value}>
-                        {cat.label}
+                        {t.helpdesk.helpArticleCategories[cat.labelKey]}
                       </SelectItem>
                     ))}
                   </SelectContent>

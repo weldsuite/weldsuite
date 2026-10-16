@@ -7,6 +7,7 @@ import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { ConnectCard, type ExecutionRow, type ExecStatus } from '@/components/home/app-cards';
 import type { WorkflowExecution } from '@/lib/api/domains/weldconnect';
+import { useHomeTime, type HomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const weldconnectExecutionsSchema = z.object({
@@ -14,16 +15,16 @@ const weldconnectExecutionsSchema = z.object({
 });
 export type WeldconnectExecutionsSettings = z.infer<typeof weldconnectExecutionsSchema>;
 
-function relativeAgo(iso: string | undefined): string {
+function relativeAgo(iso: string | undefined, tm: HomeTime): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   const diffMin = Math.floor((Date.now() - d.getTime()) / 60_000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h ago`;
+  if (diffMin < 1) return tm.justNow;
+  if (diffMin < 60) return tm.minutesAgo(diffMin);
+  if (diffMin < 1440) return tm.hoursAgo(Math.floor(diffMin / 60));
   const diffDays = Math.floor(diffMin / 1440);
-  if (diffDays === 1) return 'Yest';
+  if (diffDays === 1) return tm.yesterday;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
@@ -40,7 +41,7 @@ function mapStatus(s: WorkflowExecution['status']): ExecStatus {
   return s;
 }
 
-function mapExec(api: WorkflowExecution): ExecutionRow {
+function mapExec(api: WorkflowExecution, tm: HomeTime): ExecutionRow {
   return {
     id: api.id,
     workflowName: api.workflowName ?? api.workflowId,
@@ -48,15 +49,16 @@ function mapExec(api: WorkflowExecution): ExecutionRow {
     completed: api.currentStepIndex ?? 0,
     total: api.totalSteps ?? 0,
     duration: formatDuration(api.duration),
-    startedAgo: relativeAgo(api.startedAt ?? api.createdAt),
+    startedAgo: relativeAgo(api.startedAt ?? api.createdAt, tm),
   };
 }
 
 function Render({ settings }: Readonly<{ settings: WeldconnectExecutionsSettings }>) {
+  const tm = useHomeTime();
   const router = useRouter();
   const res = useExecutions({ limit: settings.maxCount });
   const apiRows = ((res.data as { data?: WorkflowExecution[] } | undefined)?.data ?? []) as WorkflowExecution[];
-  const rows = apiRows.map(mapExec).slice(0, settings.maxCount);
+  const rows = apiRows.map((row) => mapExec(row, tm)).slice(0, settings.maxCount);
   return (
     <ConnectCard
       rows={rows}

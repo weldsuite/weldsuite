@@ -1,13 +1,11 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { toast } from 'sonner';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useHelpdeskWebSocket } from '@/hooks/helpdesk/use-helpdesk-websocket';
 import { useI18n } from '@/lib/i18n/provider';
 import { InboxConversationList, WELDAGENT_ASSIGNEE, conversationToItem } from '../components/inbox-conversation-list';
-
-const toItem = (conv: Helpdesk.Conversation) => conversationToItem(conv, false, 'Unknown');
 
 interface TeamListClientProps {
   teamId: string;
@@ -19,11 +17,15 @@ interface TeamListClientProps {
 export default function TeamListClient({ teamId, teamName, initialConversations, accessToken }: Readonly<TeamListClientProps>) {
   const { t } = useI18n();
   const ti = t.helpdesk.inbox;
+  const toItem = useCallback(
+    (conv: Helpdesk.Conversation) => conversationToItem(conv, false, ti.unknownLabel, ti.noSubject),
+    [ti],
+  );
   const [conversations, setConversations] = useState<Helpdesk.Conversation[]>(initialConversations);
 
   useBreadcrumbs([
-    { label: 'Helpdesk', href: '/welddesk' },
-    { label: 'Teams' },
+    { label: t.helpdesk.title, href: '/welddesk' },
+    { label: t.helpdesk.sidebar.teamsGroup },
     { label: teamName },
   ]);
 

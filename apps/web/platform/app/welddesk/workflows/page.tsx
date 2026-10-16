@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { PageLoader } from '@/components/page-loader';
 import { useHelpdeskWorkflows, useCreateWorkflow, type Workflow } from '@/hooks/queries/use-automation-queries';
 import { WorkflowsClient } from '@/app/weldconnect/workflows/components/workflows-client';
 import { WorkflowTemplatesDialog } from '@/app/welddesk/workflows/components/workflow-templates-dialog';
-import { HELPDESK_ROUTING_TRIGGERS, TRIGGER_CATEGORIES } from '@/app/welddesk/workflows/[id]/edit/helpdesk-workflow-constants';
+import { getHelpdeskRoutingTriggers } from '@/app/welddesk/workflows/[id]/edit/helpdesk-workflow-constants';
 import type { WorkflowStep, WorkflowTrigger } from '@/app/welddesk/workflows/[id]/edit/types';
+import type { HelpdeskTriggerDef } from '@/app/welddesk/workflows/[id]/edit/helpdesk-workflow-constants';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -51,10 +52,10 @@ function getTriggerKey(workflow: HelpdeskWorkflowRow): string {
  * Resolve a human-readable trigger label from a trigger key.
  * NOTE: 'unconfigured' case is handled with the locale key in the component.
  */
-function getTriggerLabel(key: string): string {
+function getTriggerLabel(key: string, routingTriggers: HelpdeskTriggerDef[]): string {
   if (key === 'unconfigured') return key;
   const [entityType, eventType] = key.split(':');
-  const match = HELPDESK_ROUTING_TRIGGERS.find(
+  const match = routingTriggers.find(
     (t) => t.entityType === entityType && t.eventType === eventType,
   );
   return match?.label ?? key;
@@ -64,6 +65,13 @@ export default function HelpdeskAutomationsPage() {
   const { t } = useI18n();
   const tw = t.helpdesk.workflowsPage;
   const twc = t.helpdesk.workflowsConfirm;
+  const wc = t.helpdesk.workflowConstants;
+  const routingTriggers = useMemo(() => getHelpdeskRoutingTriggers(wc), [wc]);
+  const triggerCategories = useMemo(
+    () => [{ id: 'conversation' as const, label: wc.triggerCategoryConversation }],
+    [wc],
+  );
+  const triggerLabelFn = useCallback((key: string) => getTriggerLabel(key, routingTriggers), [routingTriggers]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -139,7 +147,7 @@ export default function HelpdeskAutomationsPage() {
     const groups: Array<{ id: string; label: string; sortOrder: number; filter: (w: { triggerType?: string }) => boolean }> = [];
     let sortOrder = 1;
 
-    for (const rt of HELPDESK_ROUTING_TRIGGERS) {
+    for (const rt of routingTriggers) {
       const key = `${rt.entityType}:${rt.eventType}`;
       if (keysInData.has(key)) {
         groups.push({
@@ -161,13 +169,13 @@ export default function HelpdeskAutomationsPage() {
     }
 
     return groups;
-  }, [mappedWorkflows, twc.noTrigger]);
+  }, [mappedWorkflows, twc.noTrigger, routingTriggers]);
 
   // Build filter options from the triggers present in the data
   const triggerFilterOptions = useMemo(() => {
     const keysInData = new Set(mappedWorkflows.map((w) => w.triggerType));
     const options: Array<{ value: string; label: string }> = [];
-    for (const rt of HELPDESK_ROUTING_TRIGGERS) {
+    for (const rt of routingTriggers) {
       const key = `${rt.entityType}:${rt.eventType}`;
       if (keysInData.has(key)) {
         options.push({ value: key, label: rt.label });
@@ -177,14 +185,14 @@ export default function HelpdeskAutomationsPage() {
       options.push({ value: 'unconfigured', label: twc.noTriggerLabel });
     }
     return options;
-  }, [mappedWorkflows, twc.noTriggerLabel]);
+  }, [mappedWorkflows, twc.noTriggerLabel, routingTriggers]);
 
   // No restriction on duplicate triggers — multiple workflows can share the same
   // trigger type and will execute in sortOrder (like Intercom).
 
   // Trigger options for the create dialog
   const createTriggerOptions = useMemo(() =>
-    HELPDESK_ROUTING_TRIGGERS.map((rt) => ({
+    routingTriggers.map((rt) => ({
       id: rt.id,
       label: rt.label,
       description: rt.description,
@@ -193,7 +201,7 @@ export default function HelpdeskAutomationsPage() {
       eventType: rt.eventType,
       category: rt.category,
     })),
-  []);
+  [routingTriggers]);
 
   if (isWorkflowsLoading) {
     return <PageLoader fullScreen={false} />;
@@ -244,9 +252,9 @@ export default function HelpdeskAutomationsPage() {
         onNewFromTemplate={() => setShowTemplates(true)}
         triggerGroups={triggerGroups}
         triggerFilterOptions={triggerFilterOptions}
-        triggerLabelFn={getTriggerLabel}
+        triggerLabelFn={triggerLabelFn}
         createTriggerOptions={createTriggerOptions}
-        createTriggerCategories={TRIGGER_CATEGORIES}
+        createTriggerCategories={triggerCategories}
       />
       <WorkflowTemplatesDialog
         open={showTemplates}

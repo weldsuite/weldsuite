@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
+import { useI18n } from '@/lib/i18n/provider';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 
 interface ZapietHomeViewProps {
@@ -48,6 +49,7 @@ export function ZapietHomeView({
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking'],
   companyLogoUrl
 }: Readonly<ZapietHomeViewProps>) {
+  const { t } = useI18n();
   const [activeTab] = useState('home');
 
   return (
@@ -68,7 +70,7 @@ export function ZapietHomeView({
           size="icon"
           onClick={onClose}
           className="absolute top-4 right-4 w-7 h-7 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-          aria-label="Close"
+          aria-label={t.helpdeskWidget.common.close}
         >
           <X size={16} strokeWidth={2} className="text-gray-400 dark:text-muted-foreground" />
         </Button>
@@ -77,7 +79,7 @@ export function ZapietHomeView({
         {companyLogoUrl ? (
           <img
             src={companyLogoUrl}
-            alt="Logo"
+            alt={t.helpdeskWidget.home.logoAlt}
             className="h-7 object-contain mb-5"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none';
@@ -91,7 +93,7 @@ export function ZapietHomeView({
 
         {/* Welcome text */}
         <h1 className="text-gray-900 dark:text-white text-[17px] font-semibold tracking-[-0.01em]">
-          How can we help?
+          {t.helpdeskWidget.home.heading}
         </h1>
       </div>
 
@@ -110,7 +112,7 @@ export function ZapietHomeView({
               className="w-full flex items-center gap-3 px-3.5 py-2.5 bg-gray-50 dark:bg-background hover:bg-gray-100 dark:hover:bg-secondary border border-gray-200 dark:border-border rounded-lg transition-all duration-150"
             >
               <Search size={15} className="text-gray-400 dark:text-muted-foreground" />
-              <span className="text-[13px] text-gray-400 dark:text-muted-foreground">Search for help...</span>
+              <span className="text-[13px] text-gray-400 dark:text-muted-foreground">{t.helpdeskWidget.home.searchPlaceholder}</span>
             </Button>
           </div>
         )}
@@ -129,10 +131,10 @@ export function ZapietHomeView({
               </div>
               <div className="flex-1 text-left">
                 <p className="text-[13px] font-medium text-gray-900 dark:text-white">
-                  Send us a message
+                  {t.helpdeskWidget.home.sendMessageTitle}
                 </p>
                 <p className="text-[12px] text-gray-500 dark:text-muted-foreground mt-0.5">
-                  We&apos;ll reply as soon as we can
+                  {t.helpdeskWidget.home.sendMessageDescription}
                 </p>
               </div>
               <ChevronRight size={16} className="text-gray-300 dark:text-gray-600" />
@@ -152,10 +154,10 @@ export function ZapietHomeView({
                   </div>
                   <div className="flex-1 text-left">
                     <p className="text-[13px] font-medium text-gray-900 dark:text-white">
-                      Help center
+                      {t.helpdeskWidget.home.helpCenterTitle}
                     </p>
                     <p className="text-[12px] text-gray-500 dark:text-muted-foreground mt-0.5">
-                      Find answers in our articles
+                      {t.helpdeskWidget.home.helpCenterDescription}
                     </p>
                   </div>
                   <ChevronRight size={16} className="text-gray-300 dark:text-gray-600" />
@@ -177,10 +179,10 @@ export function ZapietHomeView({
                   </div>
                   <div className="flex-1 text-left">
                     <p className="text-[13px] font-medium text-gray-900 dark:text-white">
-                      Track order
+                      {t.helpdeskWidget.home.trackOrderTitle}
                     </p>
                     <p className="text-[12px] text-gray-500 dark:text-muted-foreground mt-0.5">
-                      Check your delivery status
+                      {t.helpdeskWidget.home.trackOrderDescription}
                     </p>
                   </div>
                   <ChevronRight size={16} className="text-gray-300 dark:text-gray-600" />
@@ -195,18 +197,18 @@ export function ZapietHomeView({
           <div className="px-5 pb-4">
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[11px] font-medium text-gray-400 dark:text-muted-foreground uppercase tracking-wider">
-                Updates
+                {t.helpdeskWidget.home.updates}
               </span>
             </div>
             <div className="space-y-2">
               {[
                 {
-                  title: 'New AI-powered features',
-                  date: 'Dec 5',
+                  title: t.helpdeskWidget.home.updateItems.aiFeatures,
+                  date: t.helpdeskWidget.home.updateItems.aiFeaturesDate,
                 },
                 {
-                  title: 'Performance improvements',
-                  date: 'Nov 28',
+                  title: t.helpdeskWidget.home.updateItems.performance,
+                  date: t.helpdeskWidget.home.updateItems.performanceDate,
                 }
               ].map((item) => (
                 <Button
@@ -235,14 +237,14 @@ export function ZapietHomeView({
           <div className="px-5 pb-4">
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[11px] font-medium text-gray-400 dark:text-muted-foreground uppercase tracking-wider">
-                Quick links
+                {t.helpdeskWidget.home.quickLinks}
               </span>
             </div>
             <div className="space-y-px rounded-lg border border-gray-200 dark:border-border overflow-hidden bg-white dark:bg-[#0a0a0a]">
               {[
-                'Getting started',
-                'Account settings',
-                'Billing & plans',
+                t.helpdeskWidget.home.quickLinkItems.gettingStarted,
+                t.helpdeskWidget.home.quickLinkItems.accountSettings,
+                t.helpdeskWidget.home.quickLinkItems.billing,
               ].map((item, index) => (
                 <Button
                   variant="ghost"
@@ -279,16 +281,16 @@ export function ZapietHomeView({
           <div className="flex items-center h-full overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home' },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onOpenMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onOpenFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onOpenStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Updates', onClick: onOpenChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onOpenNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onOpenAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onOpenAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onOpenEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onOpenParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onOpenMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onOpenFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onOpenStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.home.updatesTab, onClick: onOpenChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onOpenNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onOpenAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onOpenAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onOpenEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onOpenParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   variant="ghost"

@@ -30,6 +30,7 @@ import * as React from 'react';
 import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 import { Link } from '@tanstack/react-router';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Card,
@@ -145,24 +146,26 @@ const chartData = [
   { date: "2024-06-30", desktop: 446, mobile: 400 },
 ];
 
-const chartConfig = {
-  views: {
-    label: "Page Views",
-  },
-  desktop: {
-    label: "Desktop",
-    color: "var(--chart-2)",
-  },
-  mobile: {
-    label: "Mobile",
-    color: "var(--chart-1)",
-  },
-} satisfies ChartConfig;
+const CHART_COLORS = {
+  desktop: "var(--chart-2)",
+  mobile: "var(--chart-1)",
+} as const;
+type ChartKey = keyof typeof CHART_COLORS;
 
 // Card has its own header chrome; the demo badge is handled by the caller.
 export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
+  const { t, language } = useI18n();
+  const tc = t.weldsuiteHome.cards;
+  const chartConfig = React.useMemo(
+    (): ChartConfig => ({
+      views: { label: tc.analytics.pageViews },
+      desktop: { label: tc.analytics.desktop, color: CHART_COLORS.desktop },
+      mobile: { label: tc.analytics.mobile, color: CHART_COLORS.mobile },
+    }),
+    [tc],
+  );
   const [activeChart, setActiveChart] =
-    React.useState<keyof typeof chartConfig>("desktop");
+    React.useState<ChartKey>("desktop");
 
   const total = React.useMemo(
     () => ({
@@ -176,14 +179,14 @@ export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
     <Card className="py-0">
       <CardHeader className="flex flex-col items-stretch border-b p-0! sm:flex-row">
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 pt-4 pb-3 sm:py-0!">
-          <CardTitle>Bar Chart - Interactive</CardTitle>
+          <CardTitle>{tc.analytics.title}</CardTitle>
           <CardDescription>
-            Showing total visitors for the last 3 months
+            {tc.analytics.description}
           </CardDescription>
         </div>
         <div className="flex">
           {["desktop", "mobile"].map((key) => {
-            const chart = key as keyof typeof chartConfig;
+            const chart = key as ChartKey;
             return (
               <Button
                 key={chart}
@@ -225,7 +228,7 @@ export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
               minTickGap={32}
               tickFormatter={(value) => {
                 const date = new Date(value);
-                return date.toLocaleDateString("en-US", {
+                return date.toLocaleDateString(language, {
                   month: "short",
                   day: "numeric",
                 });
@@ -237,7 +240,7 @@ export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
                   className="w-[150px]"
                   nameKey="views"
                   labelFormatter={(value) => {
-                    return new Date(value).toLocaleDateString("en-US", {
+                    return new Date(value).toLocaleDateString(language, {
                       month: "short",
                       day: "numeric",
                       year: "numeric",
@@ -504,17 +507,17 @@ export function MailCard({
 export type FlowStatus = 'todo' | 'in_progress' | 'review' | 'done';
 export type FlowPriority = 'high' | 'medium' | 'low';
 
-const FLOW_STATUS: Record<FlowStatus, { label: string; color: string; bg: string }> = {
-  todo: { label: 'To do', color: 'text-gray-700 dark:text-gray-300', bg: 'bg-gray-100 dark:bg-gray-800' },
-  in_progress: { label: 'In progress', color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-900/40' },
-  review: { label: 'Review', color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-100 dark:bg-amber-900/40' },
-  done: { label: 'Done', color: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-100 dark:bg-emerald-900/40' },
+const FLOW_STATUS: Record<FlowStatus, { color: string; bg: string }> = {
+  todo: { color: 'text-gray-700 dark:text-gray-300', bg: 'bg-gray-100 dark:bg-gray-800' },
+  in_progress: { color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-900/40' },
+  review: { color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-100 dark:bg-amber-900/40' },
+  done: { color: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-100 dark:bg-emerald-900/40' },
 };
 
-const FLOW_PRIORITY: Record<FlowPriority, { label: string; color: string; bg: string }> = {
-  high: { label: 'High', color: 'text-red-700 dark:text-red-300', bg: 'bg-red-100 dark:bg-red-900/40' },
-  medium: { label: 'Medium', color: 'text-orange-700 dark:text-orange-300', bg: 'bg-orange-100 dark:bg-orange-900/40' },
-  low: { label: 'Low', color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' },
+const FLOW_PRIORITY: Record<FlowPriority, { color: string; bg: string }> = {
+  high: { color: 'text-red-700 dark:text-red-300', bg: 'bg-red-100 dark:bg-red-900/40' },
+  medium: { color: 'text-orange-700 dark:text-orange-300', bg: 'bg-orange-100 dark:bg-orange-900/40' },
+  low: { color: 'text-gray-600 dark:text-gray-400', bg: 'bg-gray-100 dark:bg-gray-800' },
 };
 
 export type FlowRow = {
@@ -546,6 +549,8 @@ export function FlowCard({
   isDemo?: boolean;
   onRowClick?: (row: FlowRow) => void;
 }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return (
       <CardShell>
@@ -564,11 +569,11 @@ export function FlowCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
         <TableHeader>
-          <HeaderCell className="w-4 shrink-0 whitespace-nowrap">Task</HeaderCell>
+          <HeaderCell className="w-4 shrink-0 whitespace-nowrap">{tc.headers.task}</HeaderCell>
           <div className="flex-1" />
-          <HeaderCell className="w-[100px]">Project</HeaderCell>
-          <HeaderCell className="w-[100px]">Status</HeaderCell>
-          <HeaderCell className="w-[80px]">Priority</HeaderCell>
+          <HeaderCell className="w-[100px]">{tc.headers.project}</HeaderCell>
+          <HeaderCell className="w-[100px]">{tc.headers.status}</HeaderCell>
+          <HeaderCell className="w-[80px]">{tc.headers.priority}</HeaderCell>
         </TableHeader>
         {rows.map((task) => {
           const status = FLOW_STATUS[task.status];
@@ -599,12 +604,12 @@ export function FlowCard({
               <span className="w-[100px] text-sm text-muted-foreground truncate">{task.project}</span>
               <span className="w-[100px]">
                 <span className={cn('inline-block text-[11px] font-medium rounded px-2 py-0.5', status.color, status.bg)}>
-                  {status.label}
+                  {tc.flowStatus[task.status]}
                 </span>
               </span>
               <span className="w-[80px]">
                 <span className={cn('inline-block text-[11px] font-medium rounded px-2 py-0.5', priority.color, priority.bg)}>
-                  {priority.label}
+                  {tc.flowPriority[task.priority]}
                 </span>
               </span>
             </ClickableRow>
@@ -619,19 +624,19 @@ export function FlowCard({
 export type ProjectStatus = 'on-track' | 'at-risk' | 'off-track' | 'on-hold' | 'completed';
 export type ProjectPriority = 'critical' | 'high' | 'medium' | 'low';
 
-const PROJECT_STATUS: Record<ProjectStatus, { label: string; color: string; bg: string }> = {
-  'on-track': { label: 'On track', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
-  'at-risk': { label: 'At risk', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
-  'off-track': { label: 'Off track', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
-  'on-hold': { label: 'On hold', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  completed: { label: 'Completed', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+const PROJECT_STATUS: Record<ProjectStatus, { color: string; bg: string }> = {
+  'on-track': { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
+  'at-risk': { color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
+  'off-track': { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
+  'on-hold': { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+  completed: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
 };
 
-const PROJECT_PRIORITY: Record<ProjectPriority, { label: string; color: string; bg: string }> = {
-  critical: { label: 'Critical', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
-  high: { label: 'High', color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
-  medium: { label: 'Medium', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-  low: { label: 'Low', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+const PROJECT_PRIORITY: Record<ProjectPriority, { color: string; bg: string }> = {
+  critical: { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
+  high: { color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
+  medium: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
+  low: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
 };
 
 export type ProjectRow = {
@@ -665,6 +670,8 @@ export function ProjectsCard({
   isDemo?: boolean;
   onRowClick?: (row: ProjectRow) => void;
 }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return (
       <CardShell>
@@ -682,11 +689,11 @@ export function ProjectsCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1 min-w-0">Project</HeaderCell>
-        <HeaderCell className="w-[90px]">Status</HeaderCell>
-        <HeaderCell className="w-[80px]">Priority</HeaderCell>
-        <HeaderCell className="w-[140px]">Progress</HeaderCell>
-        <HeaderCell className="w-[70px]">Due Date</HeaderCell>
+        <HeaderCell className="flex-1 min-w-0">{tc.headers.project}</HeaderCell>
+        <HeaderCell className="w-[90px]">{tc.headers.status}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.priority}</HeaderCell>
+        <HeaderCell className="w-[140px]">{tc.headers.progress}</HeaderCell>
+        <HeaderCell className="w-[70px]">{tc.headers.dueDate}</HeaderCell>
       </TableHeader>
       {rows.map((p) => {
         const status = PROJECT_STATUS[p.status];
@@ -709,14 +716,14 @@ export function ProjectsCard({
             {/* Status pill — exact h-[22px] px-2 rounded text-[12px] leading-none */}
             <div className="w-[90px]">
               <span className={cn('inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none', status.color, status.bg)}>
-                {status.label}
+                {tc.projectStatus[p.status]}
               </span>
             </div>
 
             {/* Priority pill — same style */}
             <div className="w-[80px]">
               <span className={cn('inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none', priority.color, priority.bg)}>
-                {priority.label}
+                {tc.projectPriority[p.priority]}
               </span>
             </div>
 
@@ -746,21 +753,30 @@ const WORKLOAD_AVATARS = ['bg-blue-500', 'bg-violet-500', 'bg-pink-500', 'bg-eme
 
 const WORKLOAD_ROW_HEIGHT = 54;
 
+type WorkloadRole =
+  | 'seniorFrontendEngineer'
+  | 'backendEngineer'
+  | 'customerSuccessLead'
+  | 'salesManager'
+  | 'designer'
+  | 'devopsEngineer'
+  | 'productManager';
+
 const WORKLOAD: Array<{
   name: string;
-  role: string;
+  role: WorkloadRole;
   hours: number;
   hoursPerDay: number;
   tasks: number;
   chart: number[];
 }> = [
-  { name: 'Lien De Smet', role: 'Senior Frontend Engineer', hours: 7.6, hoursPerDay: 8, tasks: 18, chart: [72, 85, 88, 76, 45, 80, 92, 88, 84, 50, 85, 92, 86, 80] },
-  { name: 'Tom Hendrickx', role: 'Backend Engineer', hours: 6.4, hoursPerDay: 8, tasks: 14, chart: [65, 72, 70, 62, 30, 68, 75, 72, 70, 35, 72, 78, 70, 65] },
-  { name: 'Sara Mertens', role: 'Customer Success Lead', hours: 8.8, hoursPerDay: 8, tasks: 22, chart: [105, 95, 88, 102, 60, 100, 120, 115, 108, 65, 110, 122, 105, 95] },
-  { name: 'Jeroen Van Damme', role: 'Sales Manager', hours: 5.2, hoursPerDay: 8, tasks: 11, chart: [55, 60, 52, 48, 25, 55, 65, 60, 58, 28, 58, 65, 60, 52] },
-  { name: 'Camille Rousseau', role: 'Designer', hours: 4.0, hoursPerDay: 8, tasks: 8, chart: [42, 48, 38, 36, 15, 42, 52, 48, 45, 18, 45, 52, 48, 40] },
-  { name: 'Pieter Janssens', role: 'DevOps Engineer', hours: 7.2, hoursPerDay: 8, tasks: 16, chart: [75, 80, 72, 70, 38, 78, 85, 82, 80, 40, 80, 88, 82, 72] },
-  { name: 'Maxime Leroy', role: 'Product Manager', hours: 5.6, hoursPerDay: 8, tasks: 12, chart: [60, 65, 55, 52, 28, 62, 70, 65, 62, 32, 65, 72, 65, 58] },
+  { name: 'Lien De Smet', role: 'seniorFrontendEngineer', hours: 7.6, hoursPerDay: 8, tasks: 18, chart: [72, 85, 88, 76, 45, 80, 92, 88, 84, 50, 85, 92, 86, 80] },
+  { name: 'Tom Hendrickx', role: 'backendEngineer', hours: 6.4, hoursPerDay: 8, tasks: 14, chart: [65, 72, 70, 62, 30, 68, 75, 72, 70, 35, 72, 78, 70, 65] },
+  { name: 'Sara Mertens', role: 'customerSuccessLead', hours: 8.8, hoursPerDay: 8, tasks: 22, chart: [105, 95, 88, 102, 60, 100, 120, 115, 108, 65, 110, 122, 105, 95] },
+  { name: 'Jeroen Van Damme', role: 'salesManager', hours: 5.2, hoursPerDay: 8, tasks: 11, chart: [55, 60, 52, 48, 25, 55, 65, 60, 58, 28, 58, 65, 60, 52] },
+  { name: 'Camille Rousseau', role: 'designer', hours: 4.0, hoursPerDay: 8, tasks: 8, chart: [42, 48, 38, 36, 15, 42, 52, 48, 45, 18, 45, 52, 48, 40] },
+  { name: 'Pieter Janssens', role: 'devopsEngineer', hours: 7.2, hoursPerDay: 8, tasks: 16, chart: [75, 80, 72, 70, 38, 78, 85, 82, 80, 40, 80, 88, 82, 72] },
+  { name: 'Maxime Leroy', role: 'productManager', hours: 5.6, hoursPerDay: 8, tasks: 12, chart: [60, 65, 55, 52, 28, 62, 70, 65, 62, 32, 65, 72, 65, 58] },
 ];
 
 // Step chart matching WorkloadAreaChart — indigo area + line, max 150% utilization scale,
@@ -814,16 +830,18 @@ function WorkloadAreaChart({ data, rowHeight }: Readonly<{ data: number[]; rowHe
 export function WorkloadCard({
   isDemo = false,
 }: Readonly<{ isDemo?: boolean }> = {}) {
+  const { t, plural } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       {/* Header bar — split between Members/Availability (sidebar) and Utilization (timeline) */}
       <div className="flex h-[35px] border-b border-border/70 bg-muted/30 sticky top-0 z-10">
         <div className="w-[280px] shrink-0 border-r border-border/70 flex items-center justify-between px-3">
-          <span className="text-xs font-medium text-muted-foreground">Members</span>
-          <span className="text-xs font-medium text-muted-foreground">Availability</span>
+          <span className="text-xs font-medium text-muted-foreground">{tc.headers.members}</span>
+          <span className="text-xs font-medium text-muted-foreground">{tc.headers.availability}</span>
         </div>
         <div className="flex-1 flex items-center px-3">
-          <span className="text-xs font-medium text-muted-foreground">Utilization · last 14 days</span>
+          <span className="text-xs font-medium text-muted-foreground">{tc.headers.utilizationLast14Days}</span>
         </div>
       </div>
 
@@ -855,13 +873,13 @@ export function WorkloadCard({
                 </div>
                 <div className="flex-1 min-w-0 -space-y-px">
                   <p className="text-sm font-medium truncate text-foreground">{w.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{w.role}</p>
+                  <p className="text-xs text-muted-foreground truncate">{tc.workload.roles[w.role]}</p>
                 </div>
                 <div className="text-right space-y-0.5 shrink-0">
                   <p className={cn('text-xs font-medium', hoursColor)}>
                     {w.hours.toFixed(1)}h / {w.hoursPerDay}h
                   </p>
-                  <p className="text-xs text-muted-foreground">{w.tasks} tasks</p>
+                  <p className="text-xs text-muted-foreground">{plural(w.tasks, tc.workload.tasks)}</p>
                 </div>
               </div>
             );
@@ -1007,6 +1025,8 @@ export function DeskEmailsCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: DeskEmailRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1017,8 +1037,8 @@ export function DeskEmailsCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-7" />
-        <HeaderCell className="flex-1">From</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">When</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.from}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((e, i) => (
         <div key={e.subject} className={ROW_CLASS}>
@@ -1065,6 +1085,8 @@ export function DeskLiveChatCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: DeskLiveChatRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1075,8 +1097,8 @@ export function DeskLiveChatCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
-        <HeaderCell className="flex-1">Visitor</HeaderCell>
-        <HeaderCell className="w-[60px] text-right">When</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.visitor}</HeaderCell>
+        <HeaderCell className="w-[60px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((c, i) => {
         const row = (
@@ -1137,12 +1159,14 @@ const DESK_SLACK: Array<{ channel: string; sender: string; message: string; when
 ];
 
 export function DeskSlackCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   return (
     <CardShell>
       <TableHeader>
         <div className="w-8" />
-        <HeaderCell className="flex-1">Channel</HeaderCell>
-        <HeaderCell className="w-[60px] text-right">When</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.channel}</HeaderCell>
+        <HeaderCell className="w-[60px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {DESK_SLACK.map((s) => (
         <div
@@ -1192,12 +1216,14 @@ const DESK_DISCORD: Array<{ guild: string; channel: string; sender: string; mess
 ];
 
 export function DeskDiscordCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   return (
     <CardShell>
       <TableHeader>
         <div className="w-8" />
-        <HeaderCell className="flex-1">Channel</HeaderCell>
-        <HeaderCell className="w-[60px] text-right">When</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.channel}</HeaderCell>
+        <HeaderCell className="w-[60px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {DESK_DISCORD.map((d) => (
         <div
@@ -1240,12 +1266,12 @@ export function DeskDiscordCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
 // ---------- WeldDesk — Active AI agent conversations ----------
 export type AiAgentState = 'resolving' | 'handing-off' | 'collecting-info' | 'searching-kb' | 'awaiting-customer';
 
-const AI_AGENT_STATE: Record<AiAgentState, { label: string; color: string; bg: string }> = {
-  resolving: { label: 'Resolving', color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-950' },
-  'handing-off': { label: 'Handing off', color: 'text-orange-700 dark:text-orange-300', bg: 'bg-orange-100 dark:bg-orange-950' },
-  'collecting-info': { label: 'Collecting info', color: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-100 dark:bg-violet-950' },
-  'searching-kb': { label: 'Searching KB', color: 'text-cyan-700 dark:text-cyan-300', bg: 'bg-cyan-100 dark:bg-cyan-950' },
-  'awaiting-customer': { label: 'Awaiting reply', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+const AI_AGENT_STATE: Record<AiAgentState, { color: string; bg: string }> = {
+  resolving: { color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-950' },
+  'handing-off': { color: 'text-orange-700 dark:text-orange-300', bg: 'bg-orange-100 dark:bg-orange-950' },
+  'collecting-info': { color: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-100 dark:bg-violet-950' },
+  'searching-kb': { color: 'text-cyan-700 dark:text-cyan-300', bg: 'bg-cyan-100 dark:bg-cyan-950' },
+  'awaiting-customer': { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
 };
 
 export type DeskAiActiveRow = { customer: string; initials: string; intent: string; state: AiAgentState; turns: number; started: string };
@@ -1263,6 +1289,8 @@ export function DeskAiActiveCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: DeskAiActiveRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1273,10 +1301,10 @@ export function DeskAiActiveCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
-        <HeaderCell className="flex-1">Conversation</HeaderCell>
-        <HeaderCell className="w-[110px]">State</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">Turns</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">Started</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.conversation}</HeaderCell>
+        <HeaderCell className="w-[110px]">{tc.headers.state}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.turns}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.started}</HeaderCell>
       </TableHeader>
       {rows.map((a, i) => {
         const state = AI_AGENT_STATE[a.state];
@@ -1296,7 +1324,7 @@ export function DeskAiActiveCard({
             </div>
             <div className="w-[110px] flex items-center">
               <span className={cn('inline-flex items-center h-[22px] px-2 rounded text-[11px] font-medium leading-none', state.color, state.bg)}>
-                {state.label}
+                {tc.aiAgentState[a.state]}
               </span>
             </div>
             <div className="w-[50px] text-right">
@@ -1315,12 +1343,12 @@ export function DeskAiActiveCard({
 // ---------- WeldDesk — AI agent resolved conversations ----------
 type AiResolution = 'kb-article' | 'self-serve' | 'workflow' | 'escalated' | 'macro';
 
-const AI_RESOLUTION: Record<AiResolution, { label: string; color: string; bg: string }> = {
-  'kb-article': { label: 'KB article', color: 'text-cyan-700 dark:text-cyan-300', bg: 'bg-cyan-100 dark:bg-cyan-950' },
-  'self-serve': { label: 'Self-serve', color: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-100 dark:bg-emerald-950' },
-  workflow: { label: 'Workflow', color: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-100 dark:bg-violet-950' },
-  escalated: { label: 'Escalated', color: 'text-orange-700 dark:text-orange-300', bg: 'bg-orange-100 dark:bg-orange-950' },
-  macro: { label: 'Macro', color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-950' },
+const AI_RESOLUTION: Record<AiResolution, { color: string; bg: string }> = {
+  'kb-article': { color: 'text-cyan-700 dark:text-cyan-300', bg: 'bg-cyan-100 dark:bg-cyan-950' },
+  'self-serve': { color: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-100 dark:bg-emerald-950' },
+  workflow: { color: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-100 dark:bg-violet-950' },
+  escalated: { color: 'text-orange-700 dark:text-orange-300', bg: 'bg-orange-100 dark:bg-orange-950' },
+  macro: { color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-950' },
 };
 
 export type DeskAiResolvedRow = { customer: string; initials: string; intent: string; resolution: AiResolution; csat: number | null; resolvedIn: string; when: string };
@@ -1338,6 +1366,8 @@ export function DeskAiResolvedCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: DeskAiResolvedRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1348,11 +1378,11 @@ export function DeskAiResolvedCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
-        <HeaderCell className="flex-1">Conversation</HeaderCell>
-        <HeaderCell className="w-[100px]">Resolution</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.conversation}</HeaderCell>
+        <HeaderCell className="w-[100px]">{tc.headers.resolution}</HeaderCell>
         <HeaderCell className="w-[70px]">CSAT</HeaderCell>
-        <HeaderCell className="w-[60px] text-right">Time</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">When</HeaderCell>
+        <HeaderCell className="w-[60px] text-right">{tc.headers.time}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((a, i) => {
         const res = AI_RESOLUTION[a.resolution];
@@ -1372,7 +1402,7 @@ export function DeskAiResolvedCard({
             </div>
             <div className="w-[100px] flex items-center">
               <span className={cn('inline-flex items-center h-[22px] px-2 rounded text-[11px] font-medium leading-none', res.color, res.bg)}>
-                {res.label}
+                {tc.aiResolution[a.resolution]}
               </span>
             </div>
             <div className="w-[70px] flex items-center gap-0.5">
@@ -1419,6 +1449,8 @@ export function DeskReviewsCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: DeskReviewRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -1429,10 +1461,10 @@ export function DeskReviewsCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
         <div className="w-8" />
-        <HeaderCell className="flex-1">Customer</HeaderCell>
-        <HeaderCell className="w-[90px]">Rating</HeaderCell>
-        <HeaderCell className="w-[70px]">Source</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">When</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.customer}</HeaderCell>
+        <HeaderCell className="w-[90px]">{tc.headers.rating}</HeaderCell>
+        <HeaderCell className="w-[70px]">{tc.headers.source}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((r, i) => (
         <div key={r.customer + r.when} className={ROW_CLASS}>
@@ -1470,20 +1502,20 @@ export function DeskReviewsCard({
 export type CrmTaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
 export type CrmTaskPriority = 'low' | 'medium' | 'high';
 
-const CRM_STATUS: Record<CrmTaskStatus, { label: string; color: string; bg: string }> = {
-  backlog: { label: 'Backlog', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  todo: { label: 'To Do', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  in_progress: { label: 'In Progress', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-  review: { label: 'In Review', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
-  testing: { label: 'Testing', color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
-  done: { label: 'Done', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
-  cancelled: { label: 'Cancelled', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+const CRM_STATUS: Record<CrmTaskStatus, { color: string; bg: string }> = {
+  backlog: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+  todo: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+  in_progress: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
+  review: { color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
+  testing: { color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
+  done: { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
+  cancelled: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
 };
 
-const CRM_PRIORITY: Record<CrmTaskPriority, { label: string; color: string; bg: string }> = {
-  low: { label: 'Low', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  medium: { label: 'Medium', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-  high: { label: 'High', color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
+const CRM_PRIORITY: Record<CrmTaskPriority, { color: string; bg: string }> = {
+  low: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+  medium: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
+  high: { color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
 };
 
 const CRM_COMPANY_TONE: Record<string, string> = {
@@ -1518,6 +1550,8 @@ export function CrmCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: CrmTaskRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -1527,12 +1561,12 @@ export function CrmCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="w-4 shrink-0 whitespace-nowrap">Task</HeaderCell>
+        <HeaderCell className="w-4 shrink-0 whitespace-nowrap">{tc.headers.task}</HeaderCell>
         <div className="flex-1" />
-        <HeaderCell className="w-[110px]">Company</HeaderCell>
-        <HeaderCell className="w-[100px]">Status</HeaderCell>
-        <HeaderCell className="w-[80px]">Priority</HeaderCell>
-        <HeaderCell className="w-[60px]">Due</HeaderCell>
+        <HeaderCell className="w-[110px]">{tc.headers.company}</HeaderCell>
+        <HeaderCell className="w-[100px]">{tc.headers.status}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.priority}</HeaderCell>
+        <HeaderCell className="w-[60px]">{tc.headers.due}</HeaderCell>
       </TableHeader>
       {rows.map((task) => {
         const status = CRM_STATUS[task.status];
@@ -1580,7 +1614,7 @@ export function CrmCard({
             {/* Status pill */}
             <div className="w-[100px]">
               <span className={cn('inline-block px-2 py-0.5 rounded text-[12px] font-medium', status.color, status.bg)}>
-                {status.label}
+                {tc.crmStatus[task.status]}
               </span>
             </div>
 
@@ -1588,7 +1622,7 @@ export function CrmCard({
             <div className="w-[80px]">
               {priority ? (
                 <span className={cn('inline-block px-2 py-0.5 rounded text-[12px] font-medium', priority.color, priority.bg)}>
-                  {priority.label}
+                  {task.priority && tc.crmPriority[task.priority]}
                 </span>
               ) : (
                 <span className="text-[12px] text-gray-400">—</span>
@@ -1614,11 +1648,11 @@ export function CrmCard({
 // ---------- WeldCRM Pipeline — matches /weldcrm/pipeline kanban deal card ----------
 export type PipelineStageId = 'lead' | 'qualified' | 'proposal' | 'negotiation';
 
-const PIPELINE_STAGES: Array<{ id: PipelineStageId; label: string; dot: string }> = [
-  { id: 'lead', label: 'Lead', dot: 'bg-gray-400' },
-  { id: 'qualified', label: 'Qualified', dot: 'bg-blue-500' },
-  { id: 'proposal', label: 'Proposal', dot: 'bg-amber-500' },
-  { id: 'negotiation', label: 'Negotiation', dot: 'bg-orange-500' },
+const PIPELINE_STAGES: Array<{ id: PipelineStageId; dot: string }> = [
+  { id: 'lead', dot: 'bg-gray-400' },
+  { id: 'qualified', dot: 'bg-blue-500' },
+  { id: 'proposal', dot: 'bg-amber-500' },
+  { id: 'negotiation', dot: 'bg-orange-500' },
 ];
 
 export type PipelineDealRow = {
@@ -1652,6 +1686,8 @@ export function PipelineCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: PipelineDealRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows variant="kanban" /></div></CardShell>;
   }
@@ -1673,7 +1709,7 @@ export function PipelineCard({
               <div className="flex items-center justify-between gap-2 shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className={cn('h-2 w-2 rounded-full shrink-0', stage.dot)} />
-                  <span className="text-xs font-semibold text-foreground truncate">{stage.label}</span>
+                  <span className="text-xs font-semibold text-foreground truncate">{tc.pipelineStage[stage.id]}</span>
                   <span className="text-[10px] text-muted-foreground tabular-nums">{stageDeals.length}</span>
                 </div>
                 <span className="text-[10px] font-mono text-muted-foreground tabular-nums shrink-0">
@@ -1718,10 +1754,10 @@ export function PipelineCard({
 // ---------- WeldCRM Sequences — matches /weldcrm/sequences row ----------
 export type SequenceStatus = 'active' | 'paused' | 'draft';
 
-const SEQ_STATUS: Record<SequenceStatus, { label: string; color: string; bg: string }> = {
-  active: { label: 'Active', color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-950' },
-  paused: { label: 'Paused', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
-  draft: { label: 'Draft', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+const SEQ_STATUS: Record<SequenceStatus, { color: string; bg: string }> = {
+  active: { color: 'text-green-600 dark:text-green-400', bg: 'bg-green-50 dark:bg-green-950' },
+  paused: { color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
+  draft: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
 };
 
 export type SequenceRow = {
@@ -1748,6 +1784,8 @@ export function SequencesCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: SequenceRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t, format } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -1758,10 +1796,10 @@ export function SequencesCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
       <TableHeader>
-        <HeaderCell className="flex-1 min-w-0">Sequence</HeaderCell>
-        <HeaderCell className="w-[80px]">Status</HeaderCell>
-        <HeaderCell className="w-[110px]">Enrolled</HeaderCell>
-        <HeaderCell className="w-[70px]">Last run</HeaderCell>
+        <HeaderCell className="flex-1 min-w-0">{tc.headers.sequence}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.status}</HeaderCell>
+        <HeaderCell className="w-[110px]">{tc.headers.enrolled}</HeaderCell>
+        <HeaderCell className="w-[70px]">{tc.headers.lastRun}</HeaderCell>
       </TableHeader>
       {rows.map((seq) => {
         const status = SEQ_STATUS[seq.status];
@@ -1782,7 +1820,7 @@ export function SequencesCard({
                 status.color,
                 status.bg
               )}>
-                {status.label}
+                {tc.sequenceStatus[seq.status]}
               </span>
             </div>
 
@@ -1793,7 +1831,7 @@ export function SequencesCard({
               </span>
               {seq.active > 0 && (
                 <span className="text-xs font-mono text-green-600 dark:text-green-400 tabular-nums">
-                  ({seq.active} active)
+                  {format(tc.sequenceActive, { count: seq.active })}
                 </span>
               )}
             </div>
@@ -1815,35 +1853,29 @@ export type ExecStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancel
 
 const EXEC_STATUS_CONFIG: Record<
   ExecStatus,
-  { label: string; icon: React.ComponentType<{ className?: string }>; className: string }
+  { icon: React.ComponentType<{ className?: string }>; className: string }
 > = {
   queued: {
-    label: 'Queued',
     icon: Clock,
     className: 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground border-gray-200 dark:border-border',
   },
   running: {
-    label: 'Running',
     icon: Play,
     className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800',
   },
   completed: {
-    label: 'Completed',
     icon: CheckCircle2,
     className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800',
   },
   failed: {
-    label: 'Failed',
     icon: XCircle,
     className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800',
   },
   cancelled: {
-    label: 'Cancelled',
     icon: Ban,
     className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800',
   },
   timeout: {
-    label: 'Timeout',
     icon: Clock,
     className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800',
   },
@@ -1889,6 +1921,8 @@ export function ConnectCard({
   isDemo?: boolean;
   onRowClick?: (row: ExecutionRow) => void;
 }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -1898,11 +1932,11 @@ export function ConnectCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1 min-w-0">Workflow</HeaderCell>
-        <HeaderCell className="w-[110px]">Status</HeaderCell>
-        <HeaderCell className="w-[100px]">Steps</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">Duration</HeaderCell>
-        <HeaderCell className="w-[60px] text-right">Started</HeaderCell>
+        <HeaderCell className="flex-1 min-w-0">{tc.headers.workflow}</HeaderCell>
+        <HeaderCell className="w-[110px]">{tc.headers.status}</HeaderCell>
+        <HeaderCell className="w-[100px]">{tc.headers.steps}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.duration}</HeaderCell>
+        <HeaderCell className="w-[60px] text-right">{tc.headers.started}</HeaderCell>
       </TableHeader>
       {rows.map((e) => {
         const config = EXEC_STATUS_CONFIG[e.status];
@@ -1936,7 +1970,7 @@ export function ConnectCard({
                 )}
               >
                 <Icon className={cn('h-3 w-3 mr-1', e.status === 'running' && 'animate-spin')} />
-                {config.label}
+                {tc.execStatus[e.status]}
               </span>
             </div>
 
@@ -1973,10 +2007,10 @@ export function ConnectCard({
 export type WorkflowStatus = 'active' | 'paused' | 'draft';
 export type TriggerType = 'webhook' | 'schedule' | 'manual';
 
-const WORKFLOW_STATUS: Record<WorkflowStatus, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; bg: string }> = {
-  active: { label: 'Active', icon: Play, color: 'text-green-700 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-950' },
-  paused: { label: 'Paused', icon: Pause, color: 'text-orange-700 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-950' },
-  draft: { label: 'Draft', icon: FileText, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+const WORKFLOW_STATUS: Record<WorkflowStatus, { icon: React.ComponentType<{ className?: string }>; color: string; bg: string }> = {
+  active: { icon: Play, color: 'text-green-700 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-950' },
+  paused: { icon: Pause, color: 'text-orange-700 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-950' },
+  draft: { icon: FileText, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
 };
 
 const TRIGGER_ICON: Record<TriggerType, React.ComponentType<{ className?: string }>> = {
@@ -2017,6 +2051,8 @@ export function WorkflowsCard({
   isDemo?: boolean;
   onRowClick?: (row: WorkflowRow) => void;
 }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2026,11 +2062,11 @@ export function WorkflowsCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1 min-w-0">Workflow</HeaderCell>
-        <HeaderCell className="w-[100px]">Trigger</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">Steps</HeaderCell>
-        <HeaderCell className="w-[80px] text-right">Runs</HeaderCell>
-        <HeaderCell className="w-[80px]">Status</HeaderCell>
+        <HeaderCell className="flex-1 min-w-0">{tc.headers.workflow}</HeaderCell>
+        <HeaderCell className="w-[100px]">{tc.headers.trigger}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.steps}</HeaderCell>
+        <HeaderCell className="w-[80px] text-right">{tc.headers.runs}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.status}</HeaderCell>
       </TableHeader>
       {rows.map((w) => {
         const status = WORKFLOW_STATUS[w.status];
@@ -2067,7 +2103,7 @@ export function WorkflowsCard({
             {/* Trigger — icon + label */}
             <div className="w-[100px] flex items-center gap-1.5">
               <TrigIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span className="text-sm text-foreground capitalize truncate">{w.trigger}</span>
+              <span className="text-sm text-foreground truncate">{tc.trigger[w.trigger]}</span>
             </div>
 
             {/* Steps — number, right aligned */}
@@ -2095,7 +2131,7 @@ export function WorkflowsCard({
                 )}
               >
                 <StatusIcon className="h-3 w-3" />
-                {status.label}
+                {tc.workflowStatus[w.status]}
               </span>
             </div>
           </ClickableRow>
@@ -2120,6 +2156,8 @@ export function MeetCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: MeetingRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2129,17 +2167,17 @@ export function MeetCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="w-[90px]">When</HeaderCell>
-        <HeaderCell className="flex-1">Title</HeaderCell>
-        <HeaderCell className="w-[50px] text-right">Duration</HeaderCell>
-        <HeaderCell className="w-[40px] text-right">Att.</HeaderCell>
+        <HeaderCell className="w-[90px]">{tc.headers.when}</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.title}</HeaderCell>
+        <HeaderCell className="w-[50px] text-right">{tc.headers.duration}</HeaderCell>
+        <HeaderCell className="w-[40px] text-right">{tc.headers.attendeesShort}</HeaderCell>
       </TableHeader>
       {rows.map((m) => (
         <div key={m.title} className={ROW_CLASS}>
           <div className="w-[90px] text-xs text-muted-foreground tabular-nums truncate">{m.time}</div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-foreground truncate">{m.title}</div>
-            <div className="text-[11px] text-muted-foreground capitalize">{m.status}</div>
+            <div className="text-[11px] text-muted-foreground ">{tc.meetStatus[m.status as keyof typeof tc.meetStatus] ?? m.status}</div>
           </div>
           <div className="w-[50px] text-right text-xs text-muted-foreground tabular-nums">{m.duration}</div>
           <div className="w-[40px] text-right text-xs text-muted-foreground">{m.attendees}</div>
@@ -2183,6 +2221,8 @@ export function MeetHistoryCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: MeetingHistoryRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2193,10 +2233,10 @@ export function MeetHistoryCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
         <TableHeader>
-          <HeaderCell className="flex-1 min-w-0">Meeting</HeaderCell>
-          <HeaderCell className="w-[130px]">Date</HeaderCell>
-          <HeaderCell className="w-[100px]">Participants</HeaderCell>
-          <HeaderCell className="w-[70px]">Duration</HeaderCell>
+          <HeaderCell className="flex-1 min-w-0">{tc.headers.meeting}</HeaderCell>
+          <HeaderCell className="w-[130px]">{tc.headers.date}</HeaderCell>
+          <HeaderCell className="w-[100px]">{tc.headers.participants}</HeaderCell>
+          <HeaderCell className="w-[70px]">{tc.headers.duration}</HeaderCell>
         </TableHeader>
         {rows.map((m) => {
           const type = MEET_TYPE[m.type];
@@ -2210,7 +2250,7 @@ export function MeetHistoryCard({
               {m.recorded && (
                 <span className="flex items-center gap-1 px-2 py-[3px] rounded-[6px] text-[11px] font-medium bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 shrink-0">
                   <div className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                  Rec
+                  {tc.meetRecorded}
                 </span>
               )}
             </div>
@@ -2280,21 +2320,31 @@ export type ChatActivityRow = {
   unread: boolean;
 };
 
-const DEMO_ACTIVITY: ChatActivityRow[] = [
-  { actor: 'Lien De Smet', initials: 'L', category: 'mentions', title: '@gert can you review the pricing page tonight?', body: 'Final pass before we ship — 5 min job, would love your eyes on it.', channel: 'product-launch', when: '12m ago', unread: true },
-  { actor: 'Sara Mertens', initials: 'S', category: 'replies', title: 'Replied to your message', body: 'Yes — Vermeulen got the corrected invoice this morning.', channel: 'support-escalations', when: '38m ago', unread: true },
-  { actor: 'Tom Hendrickx', initials: 'T', category: 'dms', title: 'Tom sent you a DM', body: 'Quick one — got 5 mins to talk about the VPN config?', when: '1h ago', unread: true },
-  { actor: 'Jeroen V.', initials: 'J', category: 'mentions', title: '@gert supplier quote needs your sign-off', body: 'Acme quote attached — please approve by EOD.', channel: 'sales', when: '2h ago', unread: false },
-  { actor: 'Camille R.', initials: 'C', category: 'replies', title: 'Replied in thread "Q3 onboarding"', body: 'Updated the Figma file with feedback from yesterday.', channel: 'design', when: '4h ago', unread: false },
-  { actor: 'Pieter J.', initials: 'P', category: 'mentions', title: '@gert tagged you in deployment notes', body: 'Production deploy at 22:00 CET — heads up.', channel: 'devops', when: 'Yest', unread: false },
-  { actor: 'Maxime L.', initials: 'M', category: 'dms', title: 'Maxime sent you a DM', body: 'Cool — let me know when you have time to sync.', when: '2d ago', unread: false },
-];
+type HomeStrings = ReturnType<typeof useI18n>['t']['weldsuiteHome'];
+type FormatFn = ReturnType<typeof useI18n>['format'];
+
+function buildDemoActivity(h: HomeStrings, format: FormatFn): ChatActivityRow[] {
+  const d = h.cards.chatDemo.activity;
+  const tm = h.time;
+  return [
+    { actor: 'Lien De Smet', initials: 'L', category: 'mentions', title: d.reviewPricing.title, body: d.reviewPricing.body, channel: 'product-launch', when: format(tm.minutesAgo, { count: 12 }), unread: true },
+    { actor: 'Sara Mertens', initials: 'S', category: 'replies', title: d.correctedInvoice.title, body: d.correctedInvoice.body, channel: 'support-escalations', when: format(tm.minutesAgo, { count: 38 }), unread: true },
+    { actor: 'Tom Hendrickx', initials: 'T', category: 'dms', title: d.vpnDm.title, body: d.vpnDm.body, when: format(tm.hoursAgo, { count: 1 }), unread: true },
+    { actor: 'Jeroen V.', initials: 'J', category: 'mentions', title: d.supplierQuote.title, body: d.supplierQuote.body, channel: 'sales', when: format(tm.hoursAgo, { count: 2 }), unread: false },
+    { actor: 'Camille R.', initials: 'C', category: 'replies', title: d.onboardingThread.title, body: d.onboardingThread.body, channel: 'design', when: format(tm.hoursAgo, { count: 4 }), unread: false },
+    { actor: 'Pieter J.', initials: 'P', category: 'mentions', title: d.deploymentNotes.title, body: d.deploymentNotes.body, channel: 'devops', when: tm.yesterdayShort, unread: false },
+    { actor: 'Maxime L.', initials: 'M', category: 'dms', title: d.syncDm.title, body: d.syncDm.body, when: format(tm.daysAgo, { count: 2 }), unread: false },
+  ];
+}
 
 export function ChatCard({
-  rows = DEMO_ACTIVITY,
+  rows: rowsProp,
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: ChatActivityRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t, format } = useI18n();
+  const tc = t.weldsuiteHome.cards;
+  const rows = rowsProp ?? buildDemoActivity(t.weldsuiteHome, format);
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -2304,9 +2354,9 @@ export function ChatCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1 min-w-0">Activity</HeaderCell>
-        <HeaderCell className="w-[140px]">Channel</HeaderCell>
-        <HeaderCell className="w-[80px]">When</HeaderCell>
+        <HeaderCell className="flex-1 min-w-0">{tc.headers.activity}</HeaderCell>
+        <HeaderCell className="w-[140px]">{tc.headers.channel}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((a, i) => {
         const Icon = CATEGORY_ICONS[a.category];
@@ -2336,7 +2386,7 @@ export function ChatCard({
                 )}>
                   {a.title}
                   {a.channel && (
-                    <span className="font-normal text-muted-foreground"> in #{a.channel}</span>
+                    <span className="font-normal text-muted-foreground"> {format(tc.chatInChannel, { channel: a.channel })}</span>
                   )}
                 </div>
                 {a.body && (
@@ -2372,21 +2422,29 @@ export function ChatCard({
 
 // ---------- WeldChat — Direct messages (people) ----------
 export type DmRow = { name: string; initials: string; preview: string; when: string; unread: number; online: boolean };
-const DEMO_DMS: DmRow[] = [
-  { name: 'Lien De Smet', initials: 'L', preview: 'Cool — let me know when the deploy is done.', when: '5m', unread: 2, online: true },
-  { name: 'Tom Hendrickx', initials: 'T', preview: 'Got 5 mins to talk about the VPN config?', when: '32m', unread: 1, online: true },
-  { name: 'Sara Mertens', initials: 'S', preview: 'Yes — Vermeulen got the corrected invoice.', when: '1h', unread: 0, online: false },
-  { name: 'Maxime L.', initials: 'M', preview: 'Sounds good — Wednesday works for me.', when: '3h', unread: 0, online: true },
-  { name: 'Jeroen V.', initials: 'J', preview: 'Acme quote attached, please review.', when: 'Yest', unread: 0, online: false },
-  { name: 'Camille R.', initials: 'C', preview: 'Updated the Figma file with the latest pass.', when: 'Mon', unread: 0, online: false },
-  { name: 'Pieter J.', initials: 'P', preview: 'Production deploy at 22:00 CET — heads up.', when: 'Sun', unread: 0, online: false },
-];
+function buildDemoDms(h: HomeStrings, format: FormatFn): DmRow[] {
+  const d = h.cards.chatDemo.dms;
+  const tm = h.time;
+  const wd = h.cards.calendar.weekdays;
+  return [
+    { name: 'Lien De Smet', initials: 'L', preview: d.deployDone, when: format(tm.minutesShort, { count: 5 }), unread: 2, online: true },
+    { name: 'Tom Hendrickx', initials: 'T', preview: d.vpnConfig, when: format(tm.minutesShort, { count: 32 }), unread: 1, online: true },
+    { name: 'Sara Mertens', initials: 'S', preview: d.correctedInvoice, when: format(tm.hoursShort, { count: 1 }), unread: 0, online: false },
+    { name: 'Maxime L.', initials: 'M', preview: d.wednesday, when: format(tm.hoursShort, { count: 3 }), unread: 0, online: true },
+    { name: 'Jeroen V.', initials: 'J', preview: d.acmeQuote, when: tm.yesterdayShort, unread: 0, online: false },
+    { name: 'Camille R.', initials: 'C', preview: d.figmaPass, when: wd.mon, unread: 0, online: false },
+    { name: 'Pieter J.', initials: 'P', preview: d.deployNotes, when: wd.sun, unread: 0, online: false },
+  ];
+}
 
 export function ChatDMsCard({
-  rows = DEMO_DMS,
+  rows: rowsProp,
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: DmRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t, format } = useI18n();
+  const tc = t.weldsuiteHome.cards;
+  const rows = rowsProp ?? buildDemoDms(t.weldsuiteHome, format);
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -2396,8 +2454,8 @@ export function ChatDMsCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1 min-w-0">Person</HeaderCell>
-        <HeaderCell className="w-[60px] text-right">When</HeaderCell>
+        <HeaderCell className="flex-1 min-w-0">{tc.headers.person}</HeaderCell>
+        <HeaderCell className="w-[60px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((dm, i) => (
         <div
@@ -2461,6 +2519,8 @@ export function ChatChannelsCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: ChannelRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="list" /></div></CardShell>;
   }
@@ -2470,8 +2530,8 @@ export function ChatChannelsCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1 min-w-0">Channel</HeaderCell>
-        <HeaderCell className="w-[60px] text-right">When</HeaderCell>
+        <HeaderCell className="flex-1 min-w-0">{tc.headers.channel}</HeaderCell>
+        <HeaderCell className="w-[60px] text-right">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((ch) => (
         <div
@@ -2516,10 +2576,10 @@ export function ChatChannelsCard({
 }
 
 // ---------- WeldHost ----------
-const DOMAIN_STATUS: Record<'active' | 'pending' | 'expiring', { label: string; color: string; bg: string }> = {
-  active: { label: 'Active', color: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-100 dark:bg-emerald-900/40' },
-  pending: { label: 'Pending', color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-900/40' },
-  expiring: { label: 'Expiring', color: 'text-red-700 dark:text-red-300', bg: 'bg-red-100 dark:bg-red-900/40' },
+const DOMAIN_STATUS: Record<'active' | 'pending' | 'expiring', { color: string; bg: string }> = {
+  active: { color: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-100 dark:bg-emerald-900/40' },
+  pending: { color: 'text-blue-700 dark:text-blue-300', bg: 'bg-blue-100 dark:bg-blue-900/40' },
+  expiring: { color: 'text-red-700 dark:text-red-300', bg: 'bg-red-100 dark:bg-red-900/40' },
 };
 
 export type DomainRow = { name: string; status: 'active' | 'pending' | 'expiring'; expires: string; registrar: string };
@@ -2536,6 +2596,8 @@ export function HostCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: DomainRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2545,10 +2607,10 @@ export function HostCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1">Domain</HeaderCell>
-        <HeaderCell className="w-[70px]">Status</HeaderCell>
-        <HeaderCell className="w-[70px]">Expires</HeaderCell>
-        <HeaderCell className="w-[80px]">Registrar</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.domain}</HeaderCell>
+        <HeaderCell className="w-[70px]">{tc.headers.status}</HeaderCell>
+        <HeaderCell className="w-[70px]">{tc.headers.expires}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.registrar}</HeaderCell>
       </TableHeader>
       {rows.map((d) => {
         const s = DOMAIN_STATUS[d.status];
@@ -2559,7 +2621,7 @@ export function HostCard({
               <span className="text-sm text-foreground truncate">{d.name}</span>
             </div>
             <div className="w-[70px]">
-              <span className={cn('inline-block text-[11px] font-medium rounded px-2 py-0.5', s.color, s.bg)}>{s.label}</span>
+              <span className={cn('inline-block text-[11px] font-medium rounded px-2 py-0.5', s.color, s.bg)}>{tc.domainStatus[d.status]}</span>
             </div>
             <div className="w-[70px] text-xs text-muted-foreground">{d.expires}</div>
             <div className="w-[80px] text-xs text-muted-foreground truncate">{d.registrar}</div>
@@ -2594,6 +2656,8 @@ export function DriveCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: FileRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2603,10 +2667,10 @@ export function DriveCard({
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <TableHeader>
-        <HeaderCell className="flex-1">Name</HeaderCell>
-        <HeaderCell className="w-[60px]">Size</HeaderCell>
-        <HeaderCell className="w-[80px]">Modified by</HeaderCell>
-        <HeaderCell className="w-[60px]">When</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.name}</HeaderCell>
+        <HeaderCell className="w-[60px]">{tc.headers.size}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.modifiedBy}</HeaderCell>
+        <HeaderCell className="w-[60px]">{tc.headers.when}</HeaderCell>
       </TableHeader>
       {rows.map((f) => (
         <div key={f.name} className={ROW_CLASS}>
@@ -2628,14 +2692,14 @@ export function DriveCard({
 // ---------- WeldCall — matches /weldcall/history row (call-intelligence-client.tsx) ----------
 export type CallStatus = 'completed' | 'failed' | 'busy' | 'no_answer' | 'canceled' | 'answered' | 'ringing';
 
-const CALL_STATUS: Record<CallStatus, { label: string; color: string; bg: string }> = {
-  completed: { label: 'Completed', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  failed: { label: 'Failed', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
-  busy: { label: 'Busy', color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
-  no_answer: { label: 'No Answer', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  canceled: { label: 'Canceled', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  answered: { label: 'Connected', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
-  ringing: { label: 'Ringing', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
+const CALL_STATUS: Record<CallStatus, { color: string; bg: string }> = {
+  completed: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+  failed: { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
+  busy: { color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
+  no_answer: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+  canceled: { color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
+  answered: { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
+  ringing: { color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
 };
 
 export type CallRow = {
@@ -2663,6 +2727,8 @@ export function CallCard({
   isLoading = false,
   isDemo = false,
 }: Readonly<{ rows?: CallRow[]; isLoading?: boolean; isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
   if (isLoading) {
     return <CardShell><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2673,13 +2739,13 @@ export function CallCard({
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <FitContent>
       <TableHeader>
-        <HeaderCell className="w-[80px]">Direction</HeaderCell>
-        <HeaderCell className="w-[100px]">From</HeaderCell>
-        <HeaderCell className="flex-1">To</HeaderCell>
-        <HeaderCell className="w-[50px]">Duration</HeaderCell>
-        <HeaderCell className="w-[70px]">Recording</HeaderCell>
-        <HeaderCell className="w-[80px]">Status</HeaderCell>
-        <HeaderCell className="w-[100px]">Date</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.direction}</HeaderCell>
+        <HeaderCell className="w-[100px]">{tc.headers.from}</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.to}</HeaderCell>
+        <HeaderCell className="w-[50px]">{tc.headers.duration}</HeaderCell>
+        <HeaderCell className="w-[70px]">{tc.headers.recording}</HeaderCell>
+        <HeaderCell className="w-[80px]">{tc.headers.status}</HeaderCell>
+        <HeaderCell className="w-[100px]">{tc.headers.date}</HeaderCell>
       </TableHeader>
       {rows.map((c) => {
         const status = CALL_STATUS[c.status];
@@ -2692,7 +2758,7 @@ export function CallCard({
               ) : (
                 <PhoneOutgoing className="h-4 w-4 text-blue-600 shrink-0" />
               )}
-              <span className="text-sm capitalize truncate">{c.direction}</span>
+              <span className="text-sm truncate">{tc.callDirection[c.direction]}</span>
             </div>
 
             {/* From — mono phone */}
@@ -2718,11 +2784,11 @@ export function CallCard({
             <div className="w-[70px]">
               {c.isRecorded ? (
                 <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950">
-                  Recorded
+                  {tc.callRecorded}
                 </span>
               ) : (
                 <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary">
-                  No
+                  {tc.callNotRecorded}
                 </span>
               )}
             </div>
@@ -2734,7 +2800,7 @@ export function CallCard({
                 status.color,
                 status.bg
               )}>
-                {status.label}
+                {tc.callStatus[c.status]}
               </span>
             </div>
 
@@ -2763,55 +2829,75 @@ type CalEvent = {
   color: string;
 };
 
-const CAL_EVENTS: CalEvent[] = [
-  // Today (Wed May 20)
-  { day: 0, time: '09:00', endTime: '09:15', duration: '15m', title: 'Engineering standup', attendees: 8, color: 'bg-blue-500' },
-  { day: 0, time: '10:00', endTime: '11:00', duration: '1h', title: 'Weekly leadership sync', attendees: 6, color: 'bg-violet-500' },
-  { day: 0, time: '11:30', endTime: '12:00', duration: '30m', title: 'Demo — Acme Logistics', attendees: 3, color: 'bg-emerald-500' },
-  { day: 0, time: '14:00', endTime: '14:30', duration: '30m', title: '1:1 with Lien', attendees: 2, color: 'bg-amber-500' },
-  { day: 0, time: '16:00', endTime: '17:30', duration: '1h 30m', title: 'Roadmap planning Q3', attendees: 8, color: 'bg-pink-500' },
-  // Thu 21
-  { day: 1, time: '09:30', endTime: '10:00', duration: '30m', title: 'Coffee with Sara', attendees: 2, color: 'bg-cyan-500' },
-  { day: 1, time: '11:00', endTime: '12:00', duration: '1h', title: 'Product review', attendees: 5, color: 'bg-blue-500' },
-  { day: 1, time: '15:00', endTime: '16:00', duration: '1h', title: 'Sales call — BlueTrack', attendees: 4, color: 'bg-orange-500' },
-  // Fri 22
-  { day: 2, time: '10:00', endTime: '11:30', duration: '1h 30m', title: 'Design review', attendees: 4, color: 'bg-violet-500' },
-  { day: 2, time: '14:00', endTime: '15:30', duration: '1h 30m', title: 'Customer interview — Vinta', attendees: 3, color: 'bg-emerald-500' },
-  // Sat 23
-  { day: 3, time: '09:00', endTime: '17:00', duration: 'All day', title: 'Offsite — Strategy day', attendees: 12, color: 'bg-rose-500' },
-];
+type CalCards = ReturnType<typeof useI18n>['t']['weldsuiteHome']['cards'];
 
-const CAL_DAY_LABELS = [
-  { full: 'Today, May 20', short: 'Wed', date: '20', today: true },
-  { full: 'Tomorrow, May 21', short: 'Thu', date: '21', today: false },
-  { full: 'Friday, May 22', short: 'Fri', date: '22', today: false },
-  { full: 'Saturday, May 23', short: 'Sat', date: '23', today: false },
-];
+function buildCalEvents(tc: CalCards): CalEvent[] {
+  const ti = tc.calendar.titles;
+  const du = tc.calendar.durations;
+  return [
+    // Today (Wed May 20)
+    { day: 0, time: '09:00', endTime: '09:15', duration: du.min15, title: ti.engineeringStandup, attendees: 8, color: 'bg-blue-500' },
+    { day: 0, time: '10:00', endTime: '11:00', duration: du.hour1, title: ti.weeklyLeadershipSync, attendees: 6, color: 'bg-violet-500' },
+    { day: 0, time: '11:30', endTime: '12:00', duration: du.min30, title: ti.demoAcme, attendees: 3, color: 'bg-emerald-500' },
+    { day: 0, time: '14:00', endTime: '14:30', duration: du.min30, title: ti.oneOnOneLien, attendees: 2, color: 'bg-amber-500' },
+    { day: 0, time: '16:00', endTime: '17:30', duration: du.hour1min30, title: ti.roadmapPlanningQ3, attendees: 8, color: 'bg-pink-500' },
+    // Thu 21
+    { day: 1, time: '09:30', endTime: '10:00', duration: du.min30, title: ti.coffeeWithSara, attendees: 2, color: 'bg-cyan-500' },
+    { day: 1, time: '11:00', endTime: '12:00', duration: du.hour1, title: ti.productReview, attendees: 5, color: 'bg-blue-500' },
+    { day: 1, time: '15:00', endTime: '16:00', duration: du.hour1, title: ti.salesCallBlueTrack, attendees: 4, color: 'bg-orange-500' },
+    // Fri 22
+    { day: 2, time: '10:00', endTime: '11:30', duration: du.hour1min30, title: ti.designReview, attendees: 4, color: 'bg-violet-500' },
+    { day: 2, time: '14:00', endTime: '15:30', duration: du.hour1min30, title: ti.customerInterviewVinta, attendees: 3, color: 'bg-emerald-500' },
+    // Sat 23
+    { day: 3, time: '09:00', endTime: '17:00', duration: du.allDay, title: ti.offsiteStrategyDay, attendees: 12, color: 'bg-rose-500' },
+  ];
+}
+
+function buildCalDayLabels(tc: CalCards) {
+  const wd = tc.calendar.weekdays;
+  const days = tc.calendar.days;
+  return [
+    { full: days.today, short: wd.wed, date: '20', today: true },
+    { full: days.tomorrow, short: wd.thu, date: '21', today: false },
+    { full: days.friday, short: wd.fri, date: '22', today: false },
+    { full: days.saturday, short: wd.sat, date: '23', today: false },
+  ];
+}
 
 // ---------- WeldCalendar (week strip + agenda) ----------
-const WEEK = [
-  { day: 'Mon', date: '18', events: 4 },
-  { day: 'Tue', date: '19', events: 2 },
-  { day: 'Wed', date: '20', events: 6, today: true },
-  { day: 'Thu', date: '21', events: 3 },
-  { day: 'Fri', date: '22', events: 1 },
-  { day: 'Sat', date: '23', events: 0 },
-  { day: 'Sun', date: '24', events: 0 },
-];
+function buildWeek(tc: CalCards) {
+  const wd = tc.calendar.weekdays;
+  return [
+    { day: wd.mon, date: '18', events: 4, today: false },
+    { day: wd.tue, date: '19', events: 2, today: false },
+    { day: wd.wed, date: '20', events: 6, today: true },
+    { day: wd.thu, date: '21', events: 3, today: false },
+    { day: wd.fri, date: '22', events: 1, today: false },
+    { day: wd.sat, date: '23', events: 0, today: false },
+    { day: wd.sun, date: '24', events: 0, today: false },
+  ];
+}
 
-const AGENDA = [
-  { time: '10:00', title: 'Weekly leadership sync', tone: 'bg-blue-500' },
-  { time: '11:30', title: 'Demo — Acme Logistics', tone: 'bg-emerald-500' },
-  { time: '14:00', title: '1:1 with Lien', tone: 'bg-amber-500' },
-  { time: '16:00', title: 'Roadmap planning Q3', tone: 'bg-violet-500' },
-];
+function buildAgenda(tc: CalCards) {
+  const ti = tc.calendar.titles;
+  return [
+    { time: '10:00', title: ti.weeklyLeadershipSync, tone: 'bg-blue-500' },
+    { time: '11:30', title: ti.demoAcme, tone: 'bg-emerald-500' },
+    { time: '14:00', title: ti.oneOnOneLien, tone: 'bg-amber-500' },
+    { time: '16:00', title: ti.roadmapPlanningQ3, tone: 'bg-violet-500' },
+  ];
+}
 
 export function CalendarCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
+  const week = buildWeek(tc);
+  const agenda = buildAgenda(tc);
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <div className="border-b border-border/70 bg-background sticky top-0 z-10">
         <div className="grid grid-cols-7 divide-x divide-border/70">
-          {WEEK.map((d) => (
+          {week.map((d) => (
             <Link
               key={d.day}
               to="/weldcalendar"
@@ -2829,10 +2915,10 @@ export function CalendarCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> 
         </div>
       </div>
       <div className="flex items-center gap-4 px-4 h-[35px] border-b border-border/70 bg-muted/30">
-        <HeaderCell className="w-[60px] shrink-0">Time</HeaderCell>
-        <HeaderCell className="flex-1">Event</HeaderCell>
+        <HeaderCell className="w-[60px] shrink-0">{tc.headers.time}</HeaderCell>
+        <HeaderCell className="flex-1">{tc.headers.event}</HeaderCell>
       </div>
-      {AGENDA.map((a) => (
+      {agenda.map((a) => (
         <div key={a.time + a.title} className={ROW_CLASS}>
           <div className="w-[60px] text-xs text-muted-foreground tabular-nums shrink-0">{a.time}</div>
           <span className={cn('h-2 w-2 rounded-full shrink-0', a.tone)} />
@@ -2845,10 +2931,14 @@ export function CalendarCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> 
 
 // ---------- WeldCalendar Schedule view ----------
 export function CalendarScheduleCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
-  const groups = CAL_DAY_LABELS.map((day, i) => ({
+  const { t } = useI18n();
+  const tc = t.weldsuiteHome.cards;
+  const calEvents = buildCalEvents(tc);
+  const dayLabels = buildCalDayLabels(tc);
+  const groups = dayLabels.map((day, i) => ({
     label: day.full,
     today: day.today,
-    events: CAL_EVENTS.filter((e) => e.day === i),
+    events: calEvents.filter((e) => e.day === i),
   })).filter((g) => g.events.length > 0);
 
   return (
@@ -2890,11 +2980,15 @@ export function CalendarScheduleCard({ isDemo = false }: Readonly<{ isDemo?: boo
 
 // ---------- WeldCalendar 4-Day view ----------
 export function CalendarFourDayCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
+  const { t, plural } = useI18n();
+  const tc = t.weldsuiteHome.cards;
+  const calEvents = buildCalEvents(tc);
+  const dayLabels = buildCalDayLabels(tc);
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       <div className="flex divide-x divide-border/60 h-full">
-        {CAL_DAY_LABELS.map((day, i) => {
-          const events = CAL_EVENTS.filter((e) => e.day === i);
+        {dayLabels.map((day, i) => {
+          const events = calEvents.filter((e) => e.day === i);
           return (
             <div key={day.date} className="flex-1 min-w-0 flex flex-col min-h-0">
               {/* Day header */}
@@ -2914,7 +3008,7 @@ export function CalendarFourDayCard({ isDemo = false }: Readonly<{ isDemo?: bool
                 )}>
                   {day.date}
                 </div>
-                <div className="text-[10px] text-muted-foreground mt-1">{events.length} evt</div>
+                <div className="text-[10px] text-muted-foreground mt-1">{plural(events.length, tc.calendar.eventsShort)}</div>
               </div>
               {/* Event blocks */}
               <div className="flex flex-col gap-1 p-1.5 flex-1">
@@ -2938,13 +3032,17 @@ export function CalendarFourDayCard({ isDemo = false }: Readonly<{ isDemo?: bool
 
 // ---------- WeldCalendar Day view ----------
 export function CalendarDayCard({ isDemo = false }: Readonly<{ isDemo?: boolean }> = {}) {
-  const todayEvents = CAL_EVENTS.filter((e) => e.day === 0);
+  const { t, plural } = useI18n();
+  const tc = t.weldsuiteHome.cards;
+  const calEvents = buildCalEvents(tc);
+  const dayLabels = buildCalDayLabels(tc);
+  const todayEvents = calEvents.filter((e) => e.day === 0);
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
       {/* Day header */}
       <div className="flex items-center justify-between px-4 h-[35px] border-b border-border/70 bg-muted/30 sticky top-0 z-10">
-        <span className="text-xs font-semibold text-foreground">{CAL_DAY_LABELS[0].full}</span>
-        <span className="text-xs text-muted-foreground tabular-nums">{todayEvents.length} events</span>
+        <span className="text-xs font-semibold text-foreground">{dayLabels[0].full}</span>
+        <span className="text-xs text-muted-foreground tabular-nums">{plural(todayEvents.length, tc.calendar.events)}</span>
       </div>
       {todayEvents.map((event) => (
         <div
@@ -2962,7 +3060,7 @@ export function CalendarDayCard({ isDemo = false }: Readonly<{ isDemo?: boolean 
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-foreground truncate">{event.title}</div>
             <div className="text-xs text-muted-foreground">
-              {event.duration} · {event.attendees} attendees
+              {event.duration} · {plural(event.attendees, tc.calendar.attendees)}
             </div>
           </div>
         </div>

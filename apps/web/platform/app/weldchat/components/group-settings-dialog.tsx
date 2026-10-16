@@ -442,7 +442,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
       >
         <DialogTitle className="sr-only">{target?.groupLabel ?? ''} {t.weldchat.groupSettings.header}</DialogTitle>
         <DialogDescription className="sr-only">
-          Configure visibility, sorting, and notifications for this group.
+          {t.weldchat.groupSettings.dialogDescription}
         </DialogDescription>
         <SidebarProvider className="items-start !min-h-0 h-full">
           <Sidebar collapsible="none" className="hidden md:flex border-r">

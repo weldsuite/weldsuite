@@ -7,7 +7,7 @@ import '@/lib/breadcrumbs/types';
  * reload and can be shared.
  */
 export const Route = createFileRoute('/weldreach/inbox/')({
-  staticData: { breadcrumb: { label: 'Inbox' } },
+  staticData: { breadcrumb: { labelKey: 'inbox' } },
   validateSearch: (search: Record<string, unknown>): { thread?: string } => ({
     // The router parses search values as JSON, so an all-digit key arrives as a number.
     thread:

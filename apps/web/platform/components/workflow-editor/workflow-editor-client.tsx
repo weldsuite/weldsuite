@@ -515,21 +515,32 @@ const TRIGGER_TYPE_IDS = [
   'api',
 ] as const;
 
+type WorkflowEditorStrings = ReturnType<typeof useI18n>['t']['helpdesk']['workflowEditor'];
+type WorkflowEditorStringKey = {
+  [K in keyof WorkflowEditorStrings]: WorkflowEditorStrings[K] extends string ? K : never;
+}[keyof WorkflowEditorStrings];
+
 // Helpdesk flat routing triggers (single-click selection)
-const HELPDESK_ROUTING_TRIGGERS = [
-  { id: 'msg_created', label: 'Customer sends a message', icon: MessageSquare, entityType: 'helpdesk_conversation_message', eventType: 'created' },
-  { id: 'conv_created', label: 'New conversation', icon: MessageSquare, entityType: 'helpdesk_conversation', eventType: 'created' },
-  { id: 'conv_assigned', label: 'Conversation assigned', icon: UserPlus, entityType: 'helpdesk_conversation', eventType: 'assigned' },
-  { id: 'conv_status', label: 'Status changed', icon: CircleDot, entityType: 'helpdesk_conversation', eventType: 'status_changed' },
-  { id: 'conv_priority', label: 'Priority changed', icon: ArrowUpCircle, entityType: 'helpdesk_conversation', eventType: 'priority_changed' },
-  { id: 'conv_tagged', label: 'Conversation tagged', icon: Tag, entityType: 'helpdesk_conversation', eventType: 'tagged' },
-  { id: 'conv_sla', label: 'SLA breached', icon: Shield, entityType: 'helpdesk_conversation', eventType: 'sla_breached' },
-  { id: 'ticket_created', label: 'Ticket created', icon: Ticket, entityType: 'helpdesk_ticket', eventType: 'created' },
-  { id: 'ticket_assigned', label: 'Ticket assigned', icon: UserPlus, entityType: 'helpdesk_ticket', eventType: 'assigned' },
-  { id: 'ticket_status', label: 'Ticket status changed', icon: CircleDot, entityType: 'helpdesk_ticket', eventType: 'status_changed' },
-  { id: 'ticket_priority', label: 'Ticket priority changed', icon: ArrowUpCircle, entityType: 'helpdesk_ticket', eventType: 'priority_changed' },
-  { id: 'ticket_tagged', label: 'Ticket tagged', icon: Tag, entityType: 'helpdesk_ticket', eventType: 'tagged' },
-  { id: 'ticket_sla', label: 'Ticket SLA breached', icon: Shield, entityType: 'helpdesk_ticket', eventType: 'sla_breached' },
+const HELPDESK_ROUTING_TRIGGERS: ReadonlyArray<{
+  id: string;
+  labelKey: WorkflowEditorStringKey;
+  icon: LucideIcon;
+  entityType: string;
+  eventType: string;
+}> = [
+  { id: 'msg_created', labelKey: 'triggerMsgCreated', icon: MessageSquare, entityType: 'helpdesk_conversation_message', eventType: 'created' },
+  { id: 'conv_created', labelKey: 'triggerConvCreated', icon: MessageSquare, entityType: 'helpdesk_conversation', eventType: 'created' },
+  { id: 'conv_assigned', labelKey: 'triggerConvAssigned', icon: UserPlus, entityType: 'helpdesk_conversation', eventType: 'assigned' },
+  { id: 'conv_status', labelKey: 'triggerConvStatus', icon: CircleDot, entityType: 'helpdesk_conversation', eventType: 'status_changed' },
+  { id: 'conv_priority', labelKey: 'triggerConvPriority', icon: ArrowUpCircle, entityType: 'helpdesk_conversation', eventType: 'priority_changed' },
+  { id: 'conv_tagged', labelKey: 'triggerConvTagged', icon: Tag, entityType: 'helpdesk_conversation', eventType: 'tagged' },
+  { id: 'conv_sla', labelKey: 'triggerConvSla', icon: Shield, entityType: 'helpdesk_conversation', eventType: 'sla_breached' },
+  { id: 'ticket_created', labelKey: 'triggerTicketCreated', icon: Ticket, entityType: 'helpdesk_ticket', eventType: 'created' },
+  { id: 'ticket_assigned', labelKey: 'triggerTicketAssigned', icon: UserPlus, entityType: 'helpdesk_ticket', eventType: 'assigned' },
+  { id: 'ticket_status', labelKey: 'triggerTicketStatus', icon: CircleDot, entityType: 'helpdesk_ticket', eventType: 'status_changed' },
+  { id: 'ticket_priority', labelKey: 'triggerTicketPriority', icon: ArrowUpCircle, entityType: 'helpdesk_ticket', eventType: 'priority_changed' },
+  { id: 'ticket_tagged', labelKey: 'triggerTicketTagged', icon: Tag, entityType: 'helpdesk_ticket', eventType: 'tagged' },
+  { id: 'ticket_sla', labelKey: 'triggerTicketSla', icon: Shield, entityType: 'helpdesk_ticket', eventType: 'sla_breached' },
 ];
 
 // Cron preset static values (labels resolved from i18n at runtime)
@@ -1039,6 +1050,7 @@ type HelpdeskRoutingTrigger = (typeof HELPDESK_ROUTING_TRIGGERS)[number];
 function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: TriggerFormApi; applyTriggerData: ApplyTriggerData }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
+  const twe = t.helpdesk.workflowEditor;
 
   const handleSelect = (rt: HelpdeskRoutingTrigger) => {
     form.setTriggerType('entity_event');
@@ -1049,7 +1061,7 @@ function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: Trigge
       isEnabled: true,
       entityType: rt.entityType,
       eventType: rt.eventType,
-      name: rt.label,
+      name: twe[rt.labelKey],
     });
   };
 
@@ -1073,7 +1085,7 @@ function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: Trigge
             )}
           >
             <Icon className={cn('w-4 h-4 flex-shrink-0', isSelected ? 'text-teal-600' : 'text-muted-foreground')} />
-            <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{rt.label}</span>
+            <span className={cn('text-sm', isSelected ? 'text-teal-700 dark:text-teal-300 font-medium' : '')}>{twe[rt.labelKey]}</span>
           </Button>
         );
       })}
@@ -2099,6 +2111,7 @@ interface BranchEditPanelProps {
 function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Readonly<BranchEditPanelProps>) {
   const { t } = useI18n();
   const tbp = t.weldconnect.workflowEditorClient.branchPanel;
+  const twe = t.helpdesk.workflowEditor;
   const parentStep = steps[branch.parentConditionStepIndex];
   const isLoop = parentStep?.type === 'loop';
   const branchChildren = steps.filter((s) => s.parentBranchId === branch.branchNodeId);
@@ -2114,9 +2127,18 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Re
     if: tbp.ifTrue,
     if_not: tbp.ifFalse,
     each: tbp.forEachItem,
+    escalated: twe.branchEscalated,
+    completed: twe.branchCompleted,
+    failed: twe.branchFailed,
   };
   const baseStyle = getBranchStyle(branch.branchType);
-  const branchStyle = { ...baseStyle, ...translatedBranch[branch.branchType] };
+  const branchStyle = {
+    ...baseStyle,
+    ...(branch.branchType in BRANCH_STYLE_MAP
+      ? {}
+      : { description: twe.branchOutcomeDescription.replace('{type}', branch.branchType) }),
+    ...translatedBranch[branch.branchType],
+  };
   const ParentIcon = isLoop ? Repeat : GitBranch;
 
   return (
@@ -2158,7 +2180,7 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Re
           <div className="border-t pt-4">
             <div className="flex items-center justify-between mb-3">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Steps ({branchChildren.length})
+                {twe.stepsCount.replace('{count}', String(branchChildren.length))}
               </Label>
             </div>
 
@@ -2642,18 +2664,18 @@ interface McpConnection {
 
 type SetSubAgentForm = React.Dispatch<React.SetStateAction<SubAgentForm | null>>;
 
-const BUILTIN_SUB_AGENT_TOOLS = [
-  { name: 'search_knowledge_base', label: 'Search Knowledge Base' },
-  { name: 'escalate_to_human', label: 'Escalate to Human' },
-  { name: 'get_conversation_history', label: 'Get Conversation History' },
-  { name: 'get_customer_info', label: 'Get Customer Info' },
-  { name: 'get_order_status', label: 'Get Order Status' },
-  { name: 'search_tickets', label: 'Search Tickets' },
-  { name: 'send_message_to_customer', label: 'Send Message' },
-  { name: 'tag_conversation', label: 'Tag Conversation' },
-  { name: 'update_conversation_status', label: 'Update Status' },
-  { name: 'create_ticket', label: 'Create Ticket' },
-  { name: 'assign_conversation', label: 'Assign Conversation' },
+const BUILTIN_SUB_AGENT_TOOLS: ReadonlyArray<{ name: string; labelKey: WorkflowEditorStringKey }> = [
+  { name: 'search_knowledge_base', labelKey: 'toolSearchKnowledgeBase' },
+  { name: 'escalate_to_human', labelKey: 'toolEscalateToHuman' },
+  { name: 'get_conversation_history', labelKey: 'toolGetConversationHistory' },
+  { name: 'get_customer_info', labelKey: 'toolGetCustomerInfo' },
+  { name: 'get_order_status', labelKey: 'toolGetOrderStatus' },
+  { name: 'search_tickets', labelKey: 'toolSearchTickets' },
+  { name: 'send_message_to_customer', labelKey: 'toolSendMessage' },
+  { name: 'tag_conversation', labelKey: 'toolTagConversation' },
+  { name: 'update_conversation_status', labelKey: 'toolUpdateStatus' },
+  { name: 'create_ticket', labelKey: 'toolCreateTicket' },
+  { name: 'assign_conversation', labelKey: 'toolAssignConversation' },
 ];
 
 function toggleBuiltinTool(form: SubAgentForm, toolName: string): SubAgentForm {
@@ -2952,6 +2974,7 @@ function SubAgentRightColumn({
 }>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
+  const twe = t.helpdesk.workflowEditor;
   const connections = mcpConnections || [];
   const patchEscalation = (partial: Partial<SubAgentForm['escalationRules']>) =>
     setForm({ ...form, escalationRules: { ...form.escalationRules, ...partial } });
@@ -2969,7 +2992,7 @@ function SubAgentRightColumn({
                   setForm((prev) => (prev ? toggleBuiltinTool(prev, tool.name) : prev));
                 }}
               />
-              <span className="text-sm">{tool.label}</span>
+              <span className="text-sm">{twe[tool.labelKey]}</span>
             </label>
           ))}
         </div>
@@ -3166,10 +3189,11 @@ export function WorkflowEditorClient({
   // Build translated helpdesk action types
   const translatedHelpdeskActionTypes = useMemo(() => {
     const actions = t.weldconnect.addNodePanel.actions as Record<string, { name: string; description: string }>;
+    const helpdeskActions: Record<string, { name: string; description: string }> = t.helpdesk.workflowEditor.helpdeskActions;
     return HELPDESK_ACTION_TYPES.map((a) => ({
       ...a,
-      name: actions[a.id]?.name ?? a.name,
-      description: actions[a.id]?.description ?? a.description,
+      name: actions[a.id]?.name ?? helpdeskActions[a.id]?.name ?? a.name,
+      description: actions[a.id]?.description ?? helpdeskActions[a.id]?.description ?? a.description,
     }));
   }, [t]);
 

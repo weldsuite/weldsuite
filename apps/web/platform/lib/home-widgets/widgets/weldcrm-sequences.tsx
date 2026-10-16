@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useSequences } from '@/hooks/queries/use-sequences-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { SequencesCard, type SequenceRow, type SequenceStatus } from '@/components/home/app-cards';
+import { useHomeTime, type HomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const weldcrmSequencesSchema = z.object({
@@ -28,33 +29,34 @@ function mapStatus(s: string | undefined): SequenceStatus {
   return 'draft';
 }
 
-function formatLastRun(iso: string | null | undefined): string {
+function formatLastRun(iso: string | null | undefined, tm: HomeTime): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) return 'Today';
+  if (d.toDateString() === now.toDateString()) return tm.today;
   const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
-  if (diffDays === 1) return 'Yest';
+  if (diffDays === 1) return tm.yesterday;
   if (diffDays < 7) return d.toLocaleDateString(undefined, { weekday: 'short' });
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function mapSequence(api: ApiSequence): SequenceRow {
+function mapSequence(api: ApiSequence, tm: HomeTime): SequenceRow {
   return {
     name: api.name,
     description: api.description ?? '',
     status: mapStatus(api.status),
     enrolled: api.enrolledCount ?? 0,
     active: api.activeCount ?? 0,
-    lastRun: formatLastRun(api.lastRunAt),
+    lastRun: formatLastRun(api.lastRunAt, tm),
   };
 }
 
 function Render({ settings }: Readonly<{ settings: WeldcrmSequencesSettings }>) {
+  const tm = useHomeTime();
   const res = useSequences({ pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiSequence[] } | undefined)?.data ?? []) as ApiSequence[];
-  const rows = apiRows.map(mapSequence).slice(0, settings.maxCount);
+  const rows = apiRows.map((row) => mapSequence(row, tm)).slice(0, settings.maxCount);
   return <SequencesCard rows={rows} isLoading={res.isLoading} />;
 }
 

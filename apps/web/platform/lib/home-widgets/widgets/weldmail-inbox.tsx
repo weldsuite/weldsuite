@@ -8,6 +8,7 @@ import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { useMailAccounts, useMailMessages } from '@/hooks/queries/use-mail-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { MailCard, type MailRow } from '@/components/home/app-cards';
+import { useHomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const folderValues = ['inbox', 'sent', 'drafts', 'archive', 'all'] as const;
@@ -53,7 +54,7 @@ interface ApiMailMessage {
   labels?: string[];
 }
 
-function mapMessage(api: ApiMailMessage, fallbackAccountId: string): MailRow {
+function mapMessage(api: ApiMailMessage, fallbackAccountId: string, noSubject: string): MailRow {
   const fromObj = typeof api.from === 'object' && api.from !== null ? api.from : undefined;
   const fromString = typeof api.from === 'string' ? api.from : undefined;
   const emailAddr = api.fromEmail ?? api.fromAddress ?? fromObj?.email;
@@ -67,7 +68,7 @@ function mapMessage(api: ApiMailMessage, fallbackAccountId: string): MailRow {
     name: displayName,
     email: emailAddr,
     avatarUrl: api.fromAvatarUrl ?? fromObj?.avatarUrl ?? undefined,
-    subject: api.subject ?? '(no subject)',
+    subject: api.subject ?? noSubject,
     preview: api.preview ?? api.snippet ?? api.bodyText?.slice(0, 200) ?? '',
     date: Number.isNaN(date.getTime()) ? new Date() : date,
     isRead,
@@ -88,6 +89,7 @@ function applyClientFilters(rows: MailRow[], _s: WeldmailInboxSettings): MailRow
 }
 
 function Render({ settings }: Readonly<{ settings: WeldmailInboxSettings }>) {
+  const tm = useHomeTime();
   const accountsRes = useMailAccounts();
   const accounts = ((accountsRes.data as { data?: ApiMailAccount[] } | undefined)?.data ?? []) as ApiMailAccount[];
   const activeAccountIds = settings.accountIds.length > 0 ? settings.accountIds : accounts.map((a) => a.id);
@@ -102,7 +104,7 @@ function Render({ settings }: Readonly<{ settings: WeldmailInboxSettings }>) {
     !!primaryAccountId,
   );
   const apiRows = ((messagesRes.data as { data?: ApiMailMessage[] } | undefined)?.data ?? []) as ApiMailMessage[];
-  const rows = applyClientFilters(apiRows.map((m) => mapMessage(m, primaryAccountId)), settings).slice(0, settings.maxCount);
+  const rows = applyClientFilters(apiRows.map((m) => mapMessage(m, primaryAccountId, tm.noSubject)), settings).slice(0, settings.maxCount);
 
   return <MailCard rows={rows} isLoading={messagesRes.isLoading && !!primaryAccountId} />;
 }

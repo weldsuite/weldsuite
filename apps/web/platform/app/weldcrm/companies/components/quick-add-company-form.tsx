@@ -36,9 +36,7 @@ const schema = z
       .string()
       .optional()
       .or(z.literal(''))
-      .refine((v) => !v || isValidWebsiteValue(v), {
-        message: 'Must be a valid URL (e.g. acme.com or https://acme.com)',
-      }),
+      .refine((v) => !v || isValidWebsiteValue(v)),
     industry: z.string().optional().or(z.literal('')),
     tradingName: z.string().optional().or(z.literal('')),
     registrationNumber: z.string().optional().or(z.literal('')),
@@ -49,9 +47,7 @@ const schema = z
       .string()
       .optional()
       .or(z.literal(''))
-      .refine((v) => !v || /^\d+(-\d+)?\+?$/.test(v), {
-        message: 'Must be a number or a range (e.g. 42 or 11-50)',
-      }),
+      .refine((v) => !v || /^\d+(-\d+)?\+?$/.test(v)),
     customFields: z.record(z.unknown()).optional(),
   })
   .passthrough();
@@ -118,10 +114,10 @@ export function QuickAddCompanyForm({ initialName, onCreated, onCancel }: Readon
         </p>
       )}
       {form.formState.errors.website && (
-        <p className="text-xs text-destructive">{form.formState.errors.website.message}</p>
+        <p className="text-xs text-destructive">{t('crm.quickAddCompany.websiteInvalid')}</p>
       )}
       {form.formState.errors.employeeCount && (
-        <p className="text-xs text-destructive">{form.formState.errors.employeeCount.message}</p>
+        <p className="text-xs text-destructive">{t('crm.quickAddCompany.employeeCountInvalid')}</p>
       )}
 
       <DialogFooter>

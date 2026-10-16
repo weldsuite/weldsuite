@@ -329,7 +329,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.welddesk.email, href: '/welddesk/email', icon: Mail },
           { title: t.navigation.moduleSidebar.welddesk.helpCenter, href: '/welddesk/help-center', icon: BookOpen },
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
-          { title: 'Phone settings', href: '/welddesk/settings/phone', icon: Settings },
+          { title: t.navigation.moduleSidebar.welddesk.phoneSettings, href: '/welddesk/settings/phone', icon: Settings },
         ],
       },
     ],

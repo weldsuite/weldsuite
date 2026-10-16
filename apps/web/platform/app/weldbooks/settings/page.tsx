@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { Layers, Pencil } from 'lucide-react';
+import { Layers, LayoutTemplate, Pencil } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
@@ -299,6 +299,7 @@ export default function AccountingSettingsPage() {
   const { entity, features } = jurisdiction;
   const { data: jurisdictions } = useAccountingJurisdictions();
   const tu = t.weldbooksUs.setup;
+  const tit = t.accounting.invoiceTemplates.settingsCard;
   const isUs = isUsJurisdictionCode(entity?.jurisdictionCode);
   const usEntityTypes = jurisdictions?.find((j) => isUsJurisdictionCode(j.code))?.entityTypes;
   const usClassification = classificationsOf(usEntityTypes, entity?.entityType).find(
@@ -328,6 +329,21 @@ export default function AccountingSettingsPage() {
             <Link to="/weldbooks/settings/dimensions">
               <Layers className="h-4 w-4 mr-1" aria-hidden />
               {tu.dimensions.settingsCardAction}
+            </Link>
+          </Button>
+        </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>{tit.title}</CardTitle>
+            <CardDescription>{tit.description}</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/weldbooks/settings/invoice-templates">
+              <LayoutTemplate className="h-4 w-4 mr-1" aria-hidden />
+              {tit.action}
             </Link>
           </Button>
         </CardHeader>

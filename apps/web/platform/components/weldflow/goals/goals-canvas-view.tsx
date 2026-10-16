@@ -350,8 +350,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
   const [mission, setMission] = useState<MissionCard>(initialGoalsData.mission || {
     id: 'mission-1',
-    title: 'My workspace',
-    description: 'Our mission',
+    title: st('projects.goalsCanvas.defaultMissionTitle'),
+    description: st('projects.goalsCanvas.defaultMissionDescription'),
     x: 600,
     y: 50,
     width: 320,
@@ -847,7 +847,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
     const newGoal: GoalCard = {
       id: newGoalId,
-      title: title || 'New goal',
+      title: title || st('projects.goalsCanvas.newGoalTitle'),
       description: '',
       owner: defaultOwner,
       status: 'not-started',
@@ -924,7 +924,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
     const newGoal: GoalCard = {
       id: newGoalId,
-      title: title || 'New goal',
+      title: title || st('projects.goalsCanvas.newGoalTitle'),
       description: '',
       owner: defaultOwner,
       status: 'not-started',

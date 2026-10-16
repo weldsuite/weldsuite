@@ -49,6 +49,7 @@ export const weldhr = {
     deleteFailed: 'Could not delete this item.',
     internalOnly: 'Internal only',
     noPermission: 'You do not have permission to see this.',
+    dismiss: 'Dismiss',
   },
 
   status: {

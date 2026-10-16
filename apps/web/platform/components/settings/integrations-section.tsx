@@ -1,6 +1,8 @@
 
 import * as React from "react"
 import { useRouter } from '@/lib/router'
+import { useI18n } from '@/lib/i18n/provider'
+import type { TranslationNamespaces } from '@/lib/i18n'
 import { ChevronRight } from "lucide-react"
 import { PageLoader } from "@/components/page-loader"
 import { Button } from "@weldsuite/ui/components/button"
@@ -11,6 +13,8 @@ import { useChannelIntegrations } from '@/hooks/queries/use-helpdesk-integration
 import { useGithubConnection } from '@/hooks/queries/use-github-queries'
 import { useConnectorCatalog } from '@/hooks/queries/use-connector-queries'
 import { useSendcloudSettings } from '@/hooks/queries/use-sendcloud-queries'
+
+type IntegrationListStrings = TranslationNamespaces['settings']['integrations']['list']
 
 interface Integration {
   id: string
@@ -34,11 +38,13 @@ function BrandLogo({ slug, alt, className = 'h-6 w-6' }: Readonly<{ slug: string
   )
 }
 
-const integrationDefinitions: Omit<Integration, 'connected'>[] = [
+const integrationDefinitions: (Omit<Integration, 'connected' | 'description'> & {
+  descriptionKey: keyof IntegrationListStrings['descriptions']
+})[] = [
   {
     id: 'attio',
     name: 'Attio',
-    description: 'Import companies and contacts from Attio CRM. Real-time sync via webhooks.',
+    descriptionKey: 'attio',
     category: 'CRM',
     icon: (
       <img
@@ -53,7 +59,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'salesforce',
     name: 'Salesforce',
-    description: 'Bidirectional sync with Salesforce CRM. Contacts, leads, opportunities, and more.',
+    descriptionKey: 'salesforce',
     category: 'CRM',
     icon: <BrandLogo slug="salesforce" alt="Salesforce" />,
     configurable: true,
@@ -61,7 +67,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'hubspot',
     name: 'HubSpot',
-    description: 'Sync contacts, companies, deals, and activities with HubSpot CRM.',
+    descriptionKey: 'hubspot',
     category: 'CRM',
     icon: (
       <img
@@ -76,7 +82,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'discord',
     name: 'Discord',
-    description: 'Receive and respond to Discord messages. Custom bot name and avatar per guild.',
+    descriptionKey: 'discord',
     category: 'Support',
     icon: (
       <img
@@ -92,7 +98,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'slack',
     name: 'Slack',
-    description: 'Receive and respond to Slack messages. Auto-threaded conversations in your support channels.',
+    descriptionKey: 'slack',
     category: 'Support',
     icon: (
       <img
@@ -108,7 +114,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'mcp_servers',
     name: 'MCP Servers',
-    description: 'Connect external tool servers (MCP) to give AI agents access to custom tools and APIs.',
+    descriptionKey: 'mcpServers',
     category: 'AI',
     icon: (
       <img
@@ -124,7 +130,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'google_calendar',
     name: 'Google Calendar',
-    description: 'Sync events and calendars from Google Calendar. Two-way sync keeps everything up to date.',
+    descriptionKey: 'googleCalendar',
     category: 'Calendar',
     icon: <BrandLogo slug="google-calendar" alt="Google Calendar" className="h-5 w-5" />,
     configurable: true,
@@ -133,7 +139,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'github',
     name: 'GitHub',
-    description: 'Two-way sync between GitHub Issues and your WeldFlow tasks. Link repositories to projects.',
+    descriptionKey: 'github',
     category: 'Developer Tools',
     icon: (
       <img
@@ -149,7 +155,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'woocommerce',
     name: 'WooCommerce',
-    description: 'Import products, orders, and customers from one or more stores. Updates arrive over webhooks.',
+    descriptionKey: 'woocommerce',
     category: 'E-Commerce',
     icon: <BrandLogo slug="woocommerce" alt="WooCommerce" />,
     configurable: true,
@@ -158,7 +164,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'shopify',
     name: 'Shopify',
-    description: 'Import products, orders, and customers from one or more shops. Updates arrive over webhooks.',
+    descriptionKey: 'shopify',
     category: 'E-Commerce',
     icon: <BrandLogo slug="shopify" alt="Shopify" />,
     configurable: true,
@@ -167,7 +173,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'moneybird',
     name: 'Moneybird',
-    description: 'Import contacts, sales invoices, products, and purchase invoices into WeldBooks.',
+    descriptionKey: 'moneybird',
     category: 'Accounting',
     icon: (
       <img
@@ -183,8 +189,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'picqer',
     name: 'Picqer',
-    description:
-      'Bidirectional sync of products, stock, warehouses, orders, pick lists, and purchases with Picqer WMS.',
+    descriptionKey: 'picqer',
     category: 'Warehouse',
     icon: (
       <img
@@ -200,7 +205,7 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
   {
     id: 'sendcloud',
     name: 'Sendcloud',
-    description: 'Create shipping labels from WeldStash pick lists with your own Sendcloud account.',
+    descriptionKey: 'sendcloud',
     category: 'Shipping',
     icon: (
       <img
@@ -217,8 +222,26 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
 
 const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Warehouse', 'Accounting', 'Shipping', 'Support', 'Calendar', 'AI', 'Developer Tools']
 
+const CATEGORY_LABEL_KEYS: Record<string, keyof IntegrationListStrings['categories']> = {
+  CRM: 'crm',
+  'E-Commerce': 'ecommerce',
+  Warehouse: 'warehouse',
+  Accounting: 'accounting',
+  Shipping: 'shipping',
+  Support: 'support',
+  Calendar: 'calendar',
+  AI: 'ai',
+  'Developer Tools': 'developerTools',
+}
+
 export function IntegrationsSection() {
   const router = useRouter()
+  const { t } = useI18n()
+  const list = t.settings.integrations.list
+  const categoryLabel = (category: string) => {
+    const key = CATEGORY_LABEL_KEYS[category]
+    return key ? list.categories[key] : category
+  }
   const [hoveredIntegration, setHoveredIntegration] = React.useState<string | null>(null)
 
   const { data: integrationConnectionsResult, isLoading: connectionsLoading } = useIntegrationConnections()
@@ -257,9 +280,10 @@ export function IntegrationsSection() {
       else if (def.id === 'woocommerce' || def.id === 'shopify' || def.id === 'moneybird' || def.id === 'picqer') connected = connectorConnected(def.id)
       else if (def.id === 'sendcloud') connected = Boolean(sendcloudResult?.data?.connected)
       else if (['attio', 'salesforce', 'hubspot', 'google_calendar'].includes(def.id)) connected = isProviderConnected(def.id)
-      return { ...def, connected }
+      const { descriptionKey, ...rest } = def
+      return { ...rest, description: list.descriptions[descriptionKey], connected }
     })
-  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult, sendcloudResult])
+  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult, sendcloudResult, list])
 
   const { integrationsByCategory, sortedCategories } = React.useMemo(() => {
     const grouped: Record<string, Integration[]> = {}
@@ -292,7 +316,7 @@ export function IntegrationsSection() {
           <div className="hidden md:flex md:w-60 md:shrink-0 py-6 md:pl-8 border-r border-border">
             <div className="sticky top-6 w-full">
               <h2 className="text-[0.7rem] font-semibold text-muted-foreground tracking-wider mb-4 uppercase">
-                CATEGORIES
+                {list.categoriesHeading}
               </h2>
               <div className="flex flex-col gap-1">
                 {sortedCategories.map((category) => (
@@ -306,7 +330,7 @@ export function IntegrationsSection() {
                       'text-muted-foreground font-normal'
                     )}
                   >
-                    {category}
+                    {categoryLabel(category)}
                   </Button>
                 ))}
               </div>
@@ -325,7 +349,7 @@ export function IntegrationsSection() {
                   <div className="border-t border-dashed border-border my-8" />
                 )}
                 <h2 className="text-[0.7rem] font-semibold text-muted-foreground tracking-wider mb-4 uppercase">
-                  {category}
+                  {categoryLabel(category)}
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {integrationsByCategory[category].map((integration) => (
@@ -339,7 +363,7 @@ export function IntegrationsSection() {
                     >
                       {integration.connected && hoveredIntegration !== integration.id && (
                         <Badge className="absolute top-3 right-3 rounded bg-blue-100 text-blue-600 border-transparent dark:bg-blue-950 dark:text-blue-400">
-                          Connected
+                          {list.connected}
                         </Badge>
                       )}
                       {hoveredIntegration === integration.id && (
@@ -357,7 +381,7 @@ export function IntegrationsSection() {
                               </span>
                             </span>
                             <span className="block text-xs text-muted-foreground m-0">
-                              {integration.category}
+                              {categoryLabel(integration.category)}
                             </span>
                           </span>
                         </span>

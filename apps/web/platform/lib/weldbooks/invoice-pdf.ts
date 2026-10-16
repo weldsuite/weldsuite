@@ -186,7 +186,7 @@ const NARROW_SPACES = new RegExp('[' + String.fromCharCode(0x202f, 0x2009) + ']'
 /** Characters the standard (WinAnsi) PDF fonts can draw. */
 const WIN_ANSI = /^[\x20-\x7E\xA0-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]*$/;
 
-function formatCurrency(value: string | number | null | undefined, currency: string | null, locale: string | undefined): string {
+export function formatCurrency(value: string | number | null | undefined, currency: string | null, locale: string | undefined): string {
   const n = Number(value ?? 0);
   const amount = Number.isFinite(n) ? n : 0;
   if (!currency) {
@@ -206,7 +206,7 @@ function formatCurrency(value: string | number | null | undefined, currency: str
   }
 }
 
-function defaultFormatDate(locale: string | undefined) {
+export function defaultFormatDate(locale: string | undefined) {
   return (value: string | null | undefined) => {
     if (!value) return '-';
     const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
@@ -319,7 +319,7 @@ function fill(template: string, values: Record<string, string | number>): string
  * `einOrSsn` printed only when it is written as an EIN (NN-NNNNNNN). Nine
  * bare digits could be an SSN, which must never appear on an invoice.
  */
-function printableEin(value: string | undefined): string | null {
+export function printableEin(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? '';
   return /^\d{2}-\d{7}$/.test(trimmed) ? trimmed : null;
 }
