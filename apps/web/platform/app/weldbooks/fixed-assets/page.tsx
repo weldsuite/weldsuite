@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Calculator, Landmark } from 'lucide-react';
+import { Calculator, SquareChartGantt } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
@@ -244,7 +244,7 @@ export default function FixedAssetsPage() {
           emptyState={{
             icon: (
               <EmptyStateIllustration>
-                <Landmark className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+                <SquareChartGantt className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
               </EmptyStateIllustration>
             ),
             title: tl.emptyTitle,
