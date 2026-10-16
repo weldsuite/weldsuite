@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { Link } from '@/lib/router';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { DeskVoiceAgent } from '@/app/welddesk/ai-agents/page';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface VoipPhoneNumber {
   id: string;
@@ -43,6 +44,8 @@ interface DeskPhoneRoute {
 }
 
 export function PhoneSettingsClient() {
+  const { t, format } = useI18n();
+  const tp = t.helpdesk.phoneSettingsPage;
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const [drafts, setDrafts] = useState<
@@ -115,9 +118,9 @@ export function PhoneSettingsClient() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['desk', 'phone', 'routes'] });
-      toast.success('Route saved');
+      toast.success(tp.routeSaved);
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to save route'),
+    onError: (err: Error) => toast.error(err.message || tp.saveFailed),
   });
 
   const syncMutation = useMutation({
@@ -127,9 +130,9 @@ export function PhoneSettingsClient() {
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['phone-numbers', 'list'] });
-      toast.success(`Synced ${res.data?.count ?? 0} number(s)`);
+      toast.success(format(tp.synced, { count: res.data?.count ?? 0 }));
     },
-    onError: (err: Error) => toast.error(err.message || 'Sync failed'),
+    onError: (err: Error) => toast.error(err.message || tp.syncFailed),
   });
 
   const renderNumbers = () => {
@@ -147,13 +150,13 @@ export function PhoneSettingsClient() {
             <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
               <Phone className="h-6 w-6" />
             </div>
-            <CardTitle>No phone numbers</CardTitle>
+            <CardTitle>{tp.emptyTitle}</CardTitle>
             <CardDescription>
-              Provision numbers in{' '}
+              {tp.provisionPrefix}{' '}
               <Link href="/settings/apps/phone-numbers" className="underline underline-offset-2">
-                Phone Numbers
+                {tp.phoneNumbersLink}
               </Link>
-              , then sync them here for inbound routing.
+              {tp.provisionSuffix}
             </CardDescription>
           </CardHeader>
         </Card>
@@ -176,7 +179,7 @@ export function PhoneSettingsClient() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Inbound action</Label>
+                  <Label>{tp.inboundAction}</Label>
                   <Select
                     value={draft.action}
                     onValueChange={(v) =>
@@ -187,22 +190,22 @@ export function PhoneSettingsClient() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ai_agent">AI voice agent</SelectItem>
-                      <SelectItem value="forward">Forward to number</SelectItem>
-                      <SelectItem value="hangup">Hang up</SelectItem>
+                      <SelectItem value="ai_agent">{tp.actionAiAgent}</SelectItem>
+                      <SelectItem value="forward">{tp.actionForward}</SelectItem>
+                      <SelectItem value="hangup">{tp.actionHangup}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 {draft.action === 'ai_agent' && (
                   <div className="space-y-2">
-                    <Label>Voice agent</Label>
+                    <Label>{tp.voiceAgent}</Label>
                     <Select
                       value={draft.voiceAgentId || undefined}
                       onValueChange={(v) => setDraft(num.id, { voiceAgentId: v })}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select agent" />
+                        <SelectValue placeholder={tp.selectAgent} />
                       </SelectTrigger>
                       <SelectContent>
                         {agents.map((a) => (
@@ -217,7 +220,7 @@ export function PhoneSettingsClient() {
 
                 {draft.action === 'forward' && (
                   <div className="space-y-2">
-                    <Label>Forward to (E.164)</Label>
+                    <Label>{tp.forwardToLabel}</Label>
                     <Input
                       value={draft.forwardToE164}
                       onChange={(e) => setDraft(num.id, { forwardToE164: e.target.value })}
@@ -232,7 +235,7 @@ export function PhoneSettingsClient() {
                   disabled={saveMutation.isPending}
                 >
                   {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save route
+                  {tp.saveRoute}
                 </Button>
               </CardContent>
             </Card>
@@ -248,18 +251,18 @@ export function PhoneSettingsClient() {
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Phone</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{tp.title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Route inbound calls to an AI voice agent, forward to a number, or hang up.
+              {tp.description}
             </p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" asChild>
-              <Link href="/welddesk/ai-agents">Voice agents</Link>
+              <Link href="/welddesk/ai-agents">{tp.voiceAgents}</Link>
             </Button>
             <Button variant="outline" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
               {syncMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Sync numbers
+              {tp.syncNumbers}
             </Button>
           </div>
         </div>

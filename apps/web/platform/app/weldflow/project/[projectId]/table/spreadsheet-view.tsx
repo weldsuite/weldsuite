@@ -527,15 +527,16 @@ function StatusBar({ columns, rows, selBounds }: Readonly<{
   rows: { id: string; position: number; data: Record<string, CellDataValue> }[];
   selBounds: { minCol: number; maxCol: number; minRow: number; maxRow: number } | null;
 }>) {
+  const { t, format } = useI18n();
   const stats = useMemo(() => computeSelectionStats(columns, rows, selBounds), [columns, rows, selBounds]);
 
   if (!stats) return null;
 
   return (
     <div className="flex items-center gap-4 text-xs text-muted-foreground px-3">
-      {stats.avg !== null && <span>Average: {stats.avg.toFixed(2)}</span>}
-      <span>Count: {stats.count}</span>
-      {stats.avg !== null && <span>Sum: {stats.sum.toFixed(2)}</span>}
+      {stats.avg !== null && <span>{format(t.projects.spreadsheetStatus.average, { value: stats.avg.toFixed(2) })}</span>}
+      <span>{format(t.projects.spreadsheetStatus.count, { value: stats.count })}</span>
+      {stats.avg !== null && <span>{format(t.projects.spreadsheetStatus.sum, { value: stats.sum.toFixed(2) })}</span>}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import { fiscalDocumentsRoutes } from './fiscal-documents';
 import { fixedAssetsRoutes } from './fixed-assets';
 import { form1099FilingsRoutes } from './form-1099/filings';
 import { invoicesRoutes } from './invoices';
+import { invoiceTemplatesRoutes } from './invoice-templates';
 import { paymentRunsRoutes } from './payment-runs';
 import { payrollConnectionsRoutes, payrollImportsRoutes } from './payroll';
 import { paymentsRoutes } from './payments';
@@ -65,6 +66,8 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/sales-tax-rules', router: salesTaxRulesRoutes, prefix: 'taxes' },
   { mount: '/api/exemption-certificates', router: exemptionCertificatesRoutes, prefix: 'taxes' },
   { mount: '/api/fixed-assets', router: fixedAssetsRoutes, prefix: 'accounts' },
+  // Invoice templates: read with invoices:read, changed with the accounts:* settings keys.
+  { mount: '/api/invoice-templates', router: invoiceTemplatesRoutes, prefix: 'accounts' },
   // Payroll: imports are created through POST /csv (not POST /) and reversed by DELETE; never patched.
   { mount: '/api/payroll/imports', router: payrollImportsRoutes, prefix: 'journal', skipPost: true, skipPatch: true },
   { mount: '/api/payroll/connections', router: payrollConnectionsRoutes, prefix: 'journal', skipPatch: true },
@@ -89,6 +92,7 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/exemption-certificates', router: exemptionCertificatesRoutes, permission: 'taxes:read' },
   { mount: '/api/bills', router: billsRoutes, permission: 'bills:read' },
   { mount: '/api/fixed-assets', router: fixedAssetsRoutes, permission: 'accounts:read' },
+  { mount: '/api/invoice-templates', router: invoiceTemplatesRoutes, permission: 'invoices:read' },
   { mount: '/api/payroll/imports', router: payrollImportsRoutes, permission: 'journal:read' },
   { mount: '/api/payroll/connections', router: payrollConnectionsRoutes, permission: 'journal:read' },
   { mount: '/api/fiscal-periods', router: fiscalPeriodsRoutes, permission: 'reports:read' },

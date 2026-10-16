@@ -11,7 +11,7 @@
  * entire header — the AppHeader returns null when ANY match has `hideAll`.
  */
 
-import type { BreadcrumbDescriptor, BreadcrumbLoaderData } from './types';
+import type { BreadcrumbDescriptor, BreadcrumbLabelKey, BreadcrumbLoaderData } from './types';
 import type { ComponentType } from 'react';
 
 export interface MatchLike {
@@ -69,13 +69,16 @@ function resolveLabel(
   match: MatchLike,
   descriptor: BreadcrumbDescriptor | undefined,
   fallbackRegistry: Map<string, string>,
+  resolveLabelKey?: (key: BreadcrumbLabelKey) => string | undefined,
 ): { label: string; source: BreadcrumbSegment['source'] } | null {
   const loaderLabel = match.loaderData?.breadcrumbLabel;
   if (loaderLabel?.trim()) {
     return { label: loaderLabel.trim(), source: 'loader' };
   }
-  if (descriptor?.label) {
-    return { label: descriptor.label, source: 'static' };
+  const translated = descriptor?.labelKey ? resolveLabelKey?.(descriptor.labelKey) : undefined;
+  const staticLabel = translated || descriptor?.label;
+  if (staticLabel) {
+    return { label: staticLabel, source: 'static' };
   }
   // No descriptor yet, fall back to segment-name heuristics
   const fallback = defaultLabelFor(match.pathname, fallbackRegistry);
@@ -100,6 +103,7 @@ function collapseDuplicateLabels(segments: BreadcrumbSegment[]): BreadcrumbSegme
 export function buildBreadcrumbSegments(
   matches: readonly MatchLike[],
   fallbackRegistry: Map<string, string> = new Map(),
+  resolveLabelKey?: (key: BreadcrumbLabelKey) => string | undefined,
 ): BuildBreadcrumbsResult {
   const segments: BreadcrumbSegment[] = [];
   let hideAll = false;
@@ -112,7 +116,7 @@ export function buildBreadcrumbSegments(
     }
     if (descriptor?.hidden) continue;
 
-    const resolved = resolveLabel(match, descriptor, fallbackRegistry);
+    const resolved = resolveLabel(match, descriptor, fallbackRegistry, resolveLabelKey);
     if (!resolved) continue; // skip — no usable label (e.g. ID segment with no descriptor)
 
     const { label, source } = resolved;

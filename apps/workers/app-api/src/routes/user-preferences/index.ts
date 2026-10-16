@@ -17,7 +17,10 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { removeAutoScheduledTaskEvents } from '@weldsuite/db/lib/calendar-sync';
+import {
+  removeAutoScheduledTaskEvents,
+  TASK_AUTO_SCHEDULE_PREFERENCE,
+} from '@weldsuite/db/lib/calendar-sync';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.userPreferences;
@@ -131,15 +134,23 @@ app.put('/', zValidator('json', updatePreferencesSchema), async (c) => {
       .where(and(eq(t.userId, userId), isNull(t.deletedAt)))
       .limit(1);
 
-    // Turning auto-scheduling off clears the task blocks it already placed;
-    // tasks with a start the user chose keep their (pinned) event. Runs after
-    // the preference is saved: a placement racing with this re-reads the
-    // preference after inserting (calendar-sync), so either this clear or that
-    // re-check removes its event. Repeating it is harmless, so a failed clear is
-    // retried by turning the switch off again.
+    // Turning an app's auto-scheduling off clears the task blocks it already
+    // placed for that app's tasks; tasks with a start the user chose keep their
+    // (pinned) event. Runs after the preference is saved: a placement racing
+    // with this re-reads the preference after inserting (calendar-sync), so
+    // either this clear or that re-check removes its event. Repeating it is
+    // harmless, so a failed clear is retried by turning the switch off again.
     const clearAutoScheduledEvents = async () => {
-      if (data.uiPreferences?.autoScheduleTasks === false) {
+      const ui = data.uiPreferences;
+      // The legacy switch covered both apps.
+      if (ui?.autoScheduleTasks === false) {
         await removeAutoScheduledTaskEvents(db, userId);
+        return;
+      }
+      for (const app of ['flow', 'crm'] as const) {
+        if (ui?.[TASK_AUTO_SCHEDULE_PREFERENCE[app]] === false) {
+          await removeAutoScheduledTaskEvents(db, userId, app);
+        }
       }
     };
 

@@ -11,8 +11,6 @@ import { showBrowserNotification } from '@/lib/utils/notification-sound';
 import { useI18n } from '@/lib/i18n/provider';
 import { InboxConversationList, conversationToItem } from '../components/inbox-conversation-list';
 
-const toItem = (conv: Helpdesk.Conversation) => conversationToItem(conv, true, 'Unknown Customer');
-
 interface ChatListClientProps {
   initialConversations: Helpdesk.Conversation[];
   workspaceId: string;
@@ -21,13 +19,17 @@ interface ChatListClientProps {
 export default function ChatListClient({ initialConversations, workspaceId }: Readonly<ChatListClientProps>) {
   const { t } = useI18n();
   const ti = t.helpdesk.inbox;
+  const toItem = useCallback(
+    (conv: Helpdesk.Conversation) => conversationToItem(conv, true, ti.unknownCustomer, ti.noSubject),
+    [ti],
+  );
   const queryClient = useQueryClient();
   const [conversations, setConversations] = useState<Helpdesk.Conversation[]>(initialConversations);
 
   useBreadcrumbs([
-    { label: 'Helpdesk', href: '/welddesk' },
-    { label: 'Inbox', href: '/welddesk/inbox' },
-    { label: 'Chat' },
+    { label: t.helpdesk.title, href: '/welddesk' },
+    { label: ti.title, href: '/welddesk/inbox' },
+    { label: ti.channels.chat },
   ]);
 
   useEffect(() => {
@@ -57,12 +59,12 @@ export default function ChatListClient({ initialConversations, workspaceId }: Re
       messageCount: conversation.messageCount || 1,
       preview: conversation.preview || '',
       lastMessageAt: conversation.lastMessageAt || conversation.createdAt || now,
-      customerName: conversation.customerName || 'Unknown Customer',
+      customerName: conversation.customerName || ti.unknownCustomer,
       customerEmail: conversation.customerEmail || '',
     };
 
     setConversations(prev => [newConversation, ...prev]);
-    const senderName = conversation.customerName || conversation.customerEmail || 'Customer';
+    const senderName = conversation.customerName || conversation.customerEmail || ti.customerFallback;
     toast.success(ti.newChat, {
       description: ti.newConversationFrom.replace('{name}', senderName),
     });
@@ -71,7 +73,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Re
       playSound: true,
       actionUrl: `/welddesk/inbox/chat/${newConversation.id}`,
     });
-  }, [queryClient, ti.newChat, ti.newConversationFrom, ti.newLiveChat]);
+  }, [queryClient, ti.newChat, ti.newConversationFrom, ti.newLiveChat, ti.unknownCustomer, ti.customerFallback]);
 
   const handleAgentAssigned = useCallback((data: { conversationId: string; agentId: string; agentName: string }) => {
     void queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });

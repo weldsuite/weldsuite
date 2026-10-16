@@ -55,6 +55,7 @@ import { admin } from './admin';
 import { partner } from './partner';
 import { reach } from './reach';
 import { reachEngage } from './reach-engage';
+import { helpdeskWidget } from './helpdeskWidget';
 
 export const nl = {
   common,
@@ -113,4 +114,5 @@ export const nl = {
   partner,
   reach,
   reachEngage,
+  helpdeskWidget,
 };

@@ -19,6 +19,21 @@ interface GridTableProps {
   listName?: string;
 }
 
+/** Lower-case entity nouns for the empty state; Person and Company come from the locale. */
+function getEntityNouns(
+  entityName: string,
+  entityNamePlural: string | undefined,
+  t: ReturnType<typeof useTranslations>,
+) {
+  if (entityName === 'Person') {
+    return { singular: t('crm.entityGrid.personSingular'), plural: t('crm.entityGrid.personPlural') };
+  }
+  if (entityName === 'Company') {
+    return { singular: t('crm.entityGrid.companySingular'), plural: t('crm.entityGrid.companyPlural') };
+  }
+  return { singular: entityName.toLowerCase(), plural: (entityNamePlural || `${entityName}s`).toLowerCase() };
+}
+
 export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Readonly<GridTableProps>) {
   const t = useTranslations();
   const { config, filteredEntities, calculateTableWidth, getVisibleColumns, actions } = useGridContext();
@@ -92,8 +107,7 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
       root.style.removeProperty('--grid-hscrollbar-height');
     };
   }, [isEmpty]);
-  const entityNameLower = config.entityName.toLowerCase();
-  const entityNamePluralLower = (config.entityNamePlural || `${config.entityName}s`).toLowerCase();
+  const { singular: entityNameLower, plural: entityNamePluralLower } = getEntityNouns(config.entityName, config.entityNamePlural, t);
 
   if (isEmpty) {
     return (
@@ -131,10 +145,10 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
           ) : (
             <>
               <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-                No {entityNamePluralLower} yet
+                {t('crm.entityGrid.emptyTitle', { entity: entityNamePluralLower })}
               </h3>
               <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed mb-5">
-                Add your first {entityNameLower} to get started.
+                {t('crm.entityGrid.emptyHint', { entity: entityNameLower })}
               </p>
             </>
           )}
@@ -144,7 +158,7 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
               className="h-8 text-sm px-3 gap-1.5 shadow-none"
             >
               <Plus className="h-4 w-4" />
-              New {entityNameLower}
+              {t('crm.entityGrid.newEntity', { entity: entityNameLower })}
             </Button>
           )}
         </div>

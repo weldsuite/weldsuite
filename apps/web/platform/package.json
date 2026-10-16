@@ -35,6 +35,7 @@
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/books-domain": "workspace:*",
     "@weldsuite/cloudflare-registrar": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",

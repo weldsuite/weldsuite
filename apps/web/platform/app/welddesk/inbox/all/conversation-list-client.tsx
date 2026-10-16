@@ -26,13 +26,16 @@ import { Star } from 'lucide-react';
 
 type FilterType = 'all' | 'unread' | 'starred' | 'urgent' | 'active';
 
-function conversationToItem(conv: Helpdesk.Conversation): ConversationItem {
+function conversationToItem(
+  conv: Helpdesk.Conversation,
+  labels: { unknownCustomer: string; noSubject: string },
+): ConversationItem {
   return {
     id: conv.id,
-    name: conv.customerName || conv.customerEmail || 'Unknown Customer',
+    name: conv.customerName || conv.customerEmail || labels.unknownCustomer,
     email: conv.customerEmail,
     avatarUrl: conv.customerAvatarUrl || conv.customerAvatar || undefined,
-    subject: conv.subject || 'No subject',
+    subject: conv.subject || labels.noSubject,
     preview: conv.preview || conv.lastMessage || '',
     date: new Date(conv.lastMessageAt || conv.createdAt),
     isRead: conv.isRead,
@@ -60,9 +63,9 @@ export default function ConversationListClient({ initialConversations, accessTok
   const [conversations, setConversations] = useState<Helpdesk.Conversation[]>(initialConversations);
 
   useBreadcrumbs([
-    { label: 'Helpdesk', href: '/welddesk' },
-    { label: 'Inbox', href: '/welddesk/inbox' },
-    { label: 'Conversations' },
+    { label: t.helpdesk.title, href: '/welddesk' },
+    { label: ti.title, href: '/welddesk/inbox' },
+    { label: ti.conversations },
   ]);
 
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
@@ -164,7 +167,7 @@ export default function ConversationListClient({ initialConversations, accessTok
     }
   });
 
-  const items = useMemo(() => filteredConversations.map((conv) => conversationToItem(conv)), [filteredConversations]);
+  const items = useMemo(() => filteredConversations.map((conv) => conversationToItem(conv, { unknownCustomer: ti.unknownCustomer, noSubject: ti.noSubject })), [filteredConversations, ti.unknownCustomer, ti.noSubject]);
 
   const handleItemClick = (item: ConversationItem) => {
     const conversation = conversations.find(c => c.id === item.id);
@@ -222,7 +225,7 @@ export default function ConversationListClient({ initialConversations, accessTok
             activeFilter !== 'all' ? 'text-foreground' : 'text-muted-foreground'
           )}
         >
-          Filter
+          {ti.filters.filter}
           {activeFilter !== 'all' && (
             <span className="inline-flex items-center justify-center size-5 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md">
               1

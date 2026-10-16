@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useMeetings } from '@/hooks/queries/use-weldmeet-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { MeetCard, type MeetingRow } from '@/components/home/app-cards';
+import { useHomeTime, type HomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const weldmeetUpcomingSchema = z.object({
@@ -22,14 +23,14 @@ interface ApiMeeting {
   status?: string;
 }
 
-function formatTime(iso: string | undefined): string {
+function formatTime(iso: string | undefined, tm: HomeTime): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
-  if (diffDays === -1) return `Tomorrow ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  if (diffDays === -1) return tm.tomorrowAt(d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
   return d.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -45,9 +46,9 @@ function formatDuration(min: number | undefined, start: string | undefined, end:
   return '—';
 }
 
-function mapMeeting(api: ApiMeeting): MeetingRow {
+function mapMeeting(api: ApiMeeting, tm: HomeTime): MeetingRow {
   return {
-    time: formatTime(api.scheduledStart),
+    time: formatTime(api.scheduledStart, tm),
     title: api.title ?? '—',
     duration: formatDuration(api.durationMinutes, api.scheduledStart, api.scheduledEnd),
     attendees: api.attendeeCount ?? 0,
@@ -56,9 +57,10 @@ function mapMeeting(api: ApiMeeting): MeetingRow {
 }
 
 function Render({ settings }: Readonly<{ settings: WeldmeetUpcomingSettings }>) {
+  const tm = useHomeTime();
   const res = useMeetings({ status: 'scheduled', pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiMeeting[] } | undefined)?.data ?? []) as ApiMeeting[];
-  const rows = apiRows.map(mapMeeting).slice(0, settings.maxCount);
+  const rows = apiRows.map((row) => mapMeeting(row, tm)).slice(0, settings.maxCount);
   return <MeetCard rows={rows} isLoading={res.isLoading} />;
 }
 

@@ -32,7 +32,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import type { MenuGroupProps, EmailAccount } from '@/components/app-sidebar-layout';
+import type { MenuGroupProps } from '@/components/app-sidebar-layout';
+import { SidebarScopeSwitcher, type ScopeOption } from '@/components/layout/sidebar-scope-switcher';
 import {
   SidebarMenu,
   SidebarMenuBadge,
@@ -78,6 +79,7 @@ import type { MailAccountRow } from '@weldsuite/app-api-client/domains/mail-acco
 import { isSystemLabel } from '../lib/label-config';
 import { getLabelColor } from '@/components/shared/conversation-list';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 
 function KeywordTagInput({
@@ -220,28 +222,9 @@ function resolveMailAccountId(
   return accounts.find((a) => a.isDefault)?.id || accounts[0]?.id;
 }
 
-function toSidebarEmailAccount(account: MailAccountRow | undefined): EmailAccount | null {
-  if (!account) return null;
-  return {
-    id: account.id,
-    email: account.email,
-    displayName: account.displayName ?? undefined,
-  };
-}
-
 export function useMailSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
-  emailAccountProps: {
-    currentEmailAccount: EmailAccount | null;
-    emailAccounts: EmailAccount[];
-    onEmailAccountSwitch: (accountId: string) => void;
-    onEmailAccountAdd: () => void;
-    defaultEmailAccountId: string | null;
-    onSetDefaultEmailAccount: (accountId: string | null) => void;
-    setDefaultLabel: string;
-    defaultLabel: string;
-  };
 } {
   const { t } = useI18n();
   const pathname = usePathname();
@@ -569,16 +552,6 @@ export function useMailSidebarItems(isActive: boolean): {
   const emptyResult = {
     menuGroups: [],
     dialogs: null,
-    emailAccountProps: {
-      currentEmailAccount: null as EmailAccount | null,
-      emailAccounts: [] as EmailAccount[],
-      onEmailAccountSwitch: handleAccountSwitch,
-      onEmailAccountAdd: handleAccountAdd,
-      defaultEmailAccountId,
-      onSetDefaultEmailAccount: handleSetDefaultAccount,
-      setDefaultLabel: t.mail.sidebar.setAsDefault,
-      defaultLabel: t.mail.sidebar.defaultAccount,
-    },
   };
 
   if (!isActive) {
@@ -803,30 +776,70 @@ export function useMailSidebarItems(isActive: boolean): {
     items: [],
   };
 
+  // Account switcher on top of the sidebar — "All Accounts" when 2+ accounts exist.
+  const accountOptions: ScopeOption[] = [
+    ...(localEmailAccounts.length >= 2
+      ? [
+          {
+            id: 'unified',
+            name: t.mail.sidebar.allAccounts,
+            stack: localEmailAccounts.map((acc) => acc.displayName || acc.email),
+          },
+        ]
+      : []),
+    ...localEmailAccounts.map((acc) => {
+      const isDefault = defaultEmailAccountId === acc.id;
+      const defaultToggleLabel = isDefault ? t.mail.sidebar.defaultAccount : t.mail.sidebar.setAsDefault;
+      return {
+        id: acc.id,
+        name: acc.displayName || acc.email,
+        description: acc.displayName ? acc.email : undefined,
+        trailing: (
+          <button
+            type="button"
+            title={defaultToggleLabel}
+            aria-label={defaultToggleLabel}
+            aria-pressed={isDefault}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSetDefaultAccount(acc.id);
+            }}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm hover:bg-accent-foreground/10"
+          >
+            <Star
+              className={cn(
+                'h-3.5 w-3.5',
+                isDefault ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground',
+              )}
+            />
+          </button>
+        ),
+      };
+    }),
+  ];
+
+  const accountSwitcherGroup: MenuGroupProps = {
+    group: '',
+    items: [],
+    customContent: (
+      <SidebarScopeSwitcher
+        options={accountOptions}
+        currentId={isUnified ? 'unified' : currentAccount?.id}
+        onSelect={handleAccountSwitch}
+        label={t.mail.sidebar.emailAccounts}
+        placeholder={t.mail.sidebar.emailAccounts}
+        addLabel={t.mail.sidebar.addAccount}
+        onAdd={handleAccountAdd}
+      />
+    ),
+  };
+
   const menuGroups: MenuGroupProps[] = [
+    ...(hasEmailAccounts ? [accountSwitcherGroup] : []),
     mailboxGroup,
     ...(hasEmailAccounts ? [labelsGroup] : []),
   ];
-
-  // Convert accounts for AppSidebarLayout — add "All Accounts" when 2+ accounts exist
-  const allAccountsEntry: EmailAccount = {
-    id: 'unified',
-    email: t.mail.sidebar.allAccounts,
-    displayName: t.mail.sidebar.allAccounts,
-  };
-
-  const userMenuAccounts: EmailAccount[] = [
-    ...(localEmailAccounts.length >= 2 ? [allAccountsEntry] : []),
-    ...localEmailAccounts.map((acc) => ({
-      id: acc.id,
-      email: acc.email,
-      displayName: acc.displayName ?? undefined,
-    })),
-  ];
-
-  const currentUserMenuAccount: EmailAccount | null = isUnified
-    ? allAccountsEntry
-    : toSidebarEmailAccount(currentAccount);
 
   const dialogs = (
     <>
@@ -1122,15 +1135,5 @@ export function useMailSidebarItems(isActive: boolean): {
   return {
     menuGroups,
     dialogs,
-    emailAccountProps: {
-      currentEmailAccount: currentUserMenuAccount,
-      emailAccounts: userMenuAccounts,
-      onEmailAccountSwitch: handleAccountSwitch,
-      onEmailAccountAdd: handleAccountAdd,
-      defaultEmailAccountId,
-      onSetDefaultEmailAccount: handleSetDefaultAccount,
-      setDefaultLabel: t.mail.sidebar.setAsDefault,
-      defaultLabel: t.mail.sidebar.defaultAccount,
-    },
   };
 }

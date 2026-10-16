@@ -3,6 +3,6 @@ import PageComponent from '@/app/weldhr/declarations/page';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldhr/declarations/')({
-  staticData: { breadcrumb: { label: 'Declarations' } },
+  staticData: { breadcrumb: { labelKey: 'declarations' } },
   component: PageComponent,
 });

@@ -393,7 +393,9 @@ describe('disconnect and delete', () => {
 
   it('lists pending transactions of a connection', async () => {
     const { provider, ctx, id } = await connectedWithData();
-    provider.script = [page({ upserts: [tx({ providerTransactionId: 'p1', pending: true, amountMinor: -2500, description: 'Hold' })] })];
+    // Dated today: the sync voids pending rows older than 14 days by the real clock.
+    const today = new Date().toISOString().slice(0, 10);
+    provider.script = [page({ upserts: [tx({ providerTransactionId: 'p1', pending: true, amountMinor: -2500, description: 'Hold', date: today })] })];
     await syncConnection(ctx, id);
     const pending = await listPendingTransactions(db, id);
     expect(pending).toEqual([expect.objectContaining({ amount: '-25.00', description: 'Hold', currency: 'USD' })]);

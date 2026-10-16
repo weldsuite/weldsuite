@@ -14,6 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 
 interface NewsViewProps {
@@ -53,13 +54,14 @@ export function NewsView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
 }: Readonly<NewsViewProps>) {
+  const { t } = useI18n();
   const [activeTab] = useState('news');
 
   const newsItems: NewsItem[] = [
     {
       id: '1',
-      title: 'We Raised $50M in Series B Funding',
-      description: 'We\'re thrilled to announce our Series B funding round led by top-tier investors.',
+      title: t.helpdeskWidget.news.items.funding.title,
+      description: t.helpdeskWidget.news.items.funding.description,
       imageUrl: 'https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=800&h=400&fit=crop&q=90&sharp=20',
       date: 'December 18, 2024',
       category: 'company',
@@ -67,8 +69,8 @@ export function NewsView({
     },
     {
       id: '2',
-      title: 'Introducing Our New Enterprise Plan',
-      description: 'The Enterprise Plan includes advanced security features, dedicated support, and custom integrations.',
+      title: t.helpdeskWidget.news.items.enterprise.title,
+      description: t.helpdeskWidget.news.items.enterprise.description,
       imageUrl: 'https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&h=400&fit=crop&q=90&sharp=20',
       date: 'December 14, 2024',
       category: 'product',
@@ -76,8 +78,8 @@ export function NewsView({
     },
     {
       id: '3',
-      title: 'Recognized as Leader in G2 Grid Report',
-      description: 'We\'re honored to be named a Leader in G2\'s Winter 2024 Grid Report for Customer Service Software.',
+      title: t.helpdeskWidget.news.items.g2.title,
+      description: t.helpdeskWidget.news.items.g2.description,
       imageUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=800&h=400&fit=crop&q=90&sharp=20',
       date: 'December 10, 2024',
       category: 'achievement',
@@ -118,7 +120,7 @@ export function NewsView({
             letterSpacing: '-0.01em'
           }}
         >
-          News
+          {t.helpdeskWidget.news.title}
         </h2>
 
         {/* Close button */}
@@ -205,16 +207,16 @@ export function NewsView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: () => {} },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: () => {} },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

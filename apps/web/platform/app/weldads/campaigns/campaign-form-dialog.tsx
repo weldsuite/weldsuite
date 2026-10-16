@@ -298,7 +298,7 @@ export function CampaignFormDialog({
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleClose(false)}>
-                Cancel
+                {getTranslations('common').actions.cancel}
               </Button>
               <Button type="submit" disabled={pending || (!isEdit && selectedAccounts.length === 0)}>
                 {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

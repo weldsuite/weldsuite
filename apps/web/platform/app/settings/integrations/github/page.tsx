@@ -486,8 +486,8 @@ export default function GithubSettingsPage() {
         canManage={canManage}
         provider="GitHub"
         resources={[
-          { label: 'Website', href: 'https://github.com', icon: Globe },
-          { label: 'Documentation', href: 'https://docs.github.com', icon: FileText },
+          { label: t.integrations.website, href: 'https://github.com', icon: Globe },
+          { label: t.integrations.documentation, href: 'https://docs.github.com', icon: FileText },
         ]}
         overview={github.connectDescription}
       >

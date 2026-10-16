@@ -187,23 +187,26 @@ export interface TeamMemberDetailsPanelProps {
 
 type MemberTab = 'messages' | 'profile' | 'notes' | 'common' | 'activity' | 'overview' | 'permissions' | 'working-hours';
 
-const baseTabItems: PageTab[] = [
-  { id: 'profile', label: 'Details', icon: LayoutDashboard },
-  { id: 'messages', label: 'Messages', icon: MessagesSquare },
-  { id: 'common', label: 'Common', icon: Users },
+type Translate = (path: string, params?: Record<string, unknown>) => string;
+
+const getBaseTabItems = (t: Translate): PageTab[] => [
+  { id: 'profile', label: t('projects.memberDetails.tabs.details'), icon: LayoutDashboard },
+  { id: 'messages', label: t('projects.memberDetails.tabs.messages'), icon: MessagesSquare },
+  { id: 'common', label: t('projects.memberDetails.tabs.common'), icon: Users },
 ];
 
-const activityTabItem: PageTab = { id: 'activity', label: 'Activity', icon: SquareActivity };
+const getActivityTabItem = (t: Translate): PageTab => ({ id: 'activity', label: t('projects.memberDetails.tabs.activity'), icon: SquareActivity });
 
-const expandedTabItems: PageTab[] = [
-  { id: 'overview', label: 'Details', icon: LayoutDashboard },
-  { id: 'common', label: 'Common', icon: Users },
-  { id: 'activity', label: 'Activity', icon: SquareActivity },
-  { id: 'permissions', label: 'Permissions', icon: Shield },
-  { id: 'working-hours', label: 'Working Hours', icon: Clock },
+const getExpandedTabItems = (t: Translate): PageTab[] => [
+  { id: 'overview', label: t('projects.memberDetails.tabs.details'), icon: LayoutDashboard },
+  { id: 'common', label: t('projects.memberDetails.tabs.common'), icon: Users },
+  { id: 'activity', label: t('projects.memberDetails.tabs.activity'), icon: SquareActivity },
+  { id: 'permissions', label: t('projects.memberDetails.tabs.permissions'), icon: Shield },
+  { id: 'working-hours', label: t('projects.memberDetails.tabs.workingHours'), icon: Clock },
 ];
 
 function EmbeddedDmChat({ targetUserId }: Readonly<{ targetUserId: string }>) {
+  const t = useTranslations();
   const { data, isLoading } = useDmByUser(targetUserId);
   const queryClient = useQueryClient();
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
@@ -270,7 +273,7 @@ function EmbeddedDmChat({ targetUserId }: Readonly<{ targetUserId: string }>) {
     return (
       <div className="flex-1 flex items-center justify-center gap-2 py-8">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Loading...</span>
+        <span className="text-sm text-muted-foreground">{t('projects.memberDetails.loading')}</span>
       </div>
     );
   }
@@ -278,7 +281,7 @@ function EmbeddedDmChat({ targetUserId }: Readonly<{ targetUserId: string }>) {
   if (!channelId) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        Start a conversation
+        {t('projects.memberDetails.startConversation')}
       </div>
     );
   }
@@ -311,6 +314,7 @@ export function TeamMemberDetailsPanel({
   onExpand,
   onCollapse,
 }: Readonly<TeamMemberDetailsPanelProps>) {
+  const t = useTranslations();
   const width = '480px';
   const widthNum = 480;
   const { getClient } = useAppApiClient();
@@ -636,9 +640,9 @@ export function TeamMemberDetailsPanel({
         `/team-members/${member.id}/resend-invite`,
         {}
       );
-      toast.success('Invitation resent to ' + member.email);
+      toast.success(t('projects.memberDetails.toasts.invitationResent', { email: member.email }));
     } catch {
-      toast.error('Failed to resend invitation');
+      toast.error(t('projects.memberDetails.toasts.failedResendInvitation'));
     }
   };
 
@@ -650,7 +654,7 @@ export function TeamMemberDetailsPanel({
         await onRoleChange(member.id, newRole);
         setLocalRole(newRole);
       } catch {
-        toast.error('Failed to update role');
+        toast.error(t('projects.memberDetails.toasts.failedUpdateRole'));
       }
       return;
     }
@@ -670,13 +674,13 @@ export function TeamMemberDetailsPanel({
       });
       if (result.success) {
         setLocalRole(newRole);
-        toast.success('Member role updated');
+        toast.success(t('projects.memberDetails.toasts.memberRoleUpdated'));
         onMemberUpdated();
       } else {
-        toast.error('Failed to update role');
+        toast.error(t('projects.memberDetails.toasts.failedUpdateRole'));
       }
     } catch {
-      toast.error('Failed to update role');
+      toast.error(t('projects.memberDetails.toasts.failedUpdateRole'));
     }
   };
 
@@ -690,12 +694,12 @@ export function TeamMemberDetailsPanel({
         enabled: !currentlyAssigned,
       });
       if (result.success) {
-        toast.success(`App ${!currentlyAssigned ? 'enabled' : 'disabled'}`);
+        toast.success(!currentlyAssigned ? t('projects.memberDetails.toasts.appEnabled') : t('projects.memberDetails.toasts.appDisabled'));
       } else {
-        toast.error('Failed to update app access');
+        toast.error(t('projects.memberDetails.toasts.failedUpdateAppAccess'));
       }
     } catch {
-      toast.error('Failed to update app access');
+      toast.error(t('projects.memberDetails.toasts.failedUpdateAppAccess'));
     } finally {
       setUpdatingApps((prev) => ({ ...prev, [appCode]: false }));
     }
@@ -717,8 +721,8 @@ export function TeamMemberDetailsPanel({
 
   const memberAsCustomer = {
     type: 'b2b' as const,
-    companyName: member.name || 'Unknown',
-    name: member.name || 'Unknown',
+    companyName: member.name || t('projects.memberDetails.unknown'),
+    name: member.name || t('projects.memberDetails.unknown'),
     firstName: member.name?.split(' ')[0] || '',
     lastName: member.name?.split(' ').slice(1).join(' ') || '',
     email: member.email,
@@ -784,7 +788,7 @@ export function TeamMemberDetailsPanel({
                 variant="ghost"
                 size="icon"
                 className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                title="Compose email"
+                title={t('projects.memberDetails.composeEmail')}
                 onClick={() => composeContext?.openCompose({ to: member.email })}
               >
                 <Mail className="h-4 w-4 text-gray-500" />
@@ -795,7 +799,7 @@ export function TeamMemberDetailsPanel({
                   variant="ghost"
                   size="icon"
                   className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                  title="Open chat"
+                  title={t('projects.memberDetails.openChat')}
                   onClick={() => {
                     navigate({
                       to: '/weldchat/dm/$userId',
@@ -813,7 +817,7 @@ export function TeamMemberDetailsPanel({
                 size="icon"
                 className="p-1.5 hover:bg-muted rounded-md transition-colors"
                 onClick={handleMaximize}
-                title="Expand"
+                title={t('projects.memberDetails.expand')}
               >
                 <Maximize className="h-4 w-4 text-gray-500" />
               </Button>
@@ -823,7 +827,7 @@ export function TeamMemberDetailsPanel({
                 size="icon"
                 className="p-1.5 hover:bg-muted rounded-md transition-colors"
                 onClick={onClose}
-                title="Close"
+                title={t('projects.memberDetails.close')}
               >
                 {closeIcon || <X className="h-4 w-4 text-gray-500" />}
               </Button>
@@ -833,14 +837,15 @@ export function TeamMemberDetailsPanel({
           {/* Tabs + Content area */}
           {(() => {
             const allTabs = buildCollapsedTabs({
+              t,
               hideMessages,
               canViewActivity: viewerIsWorkspaceAdmin,
               showPermissions: isSettings,
             });
-            const visibleTabs = allTabs.filter((t) => isCollapsedTabVisible(t.id));
+            const visibleTabs = allTabs.filter((tab) => isCollapsedTabVisible(tab.id));
             const fallbackTab = (visibleTabs[0]?.id ?? 'profile') as MemberTab;
             let effectiveActive: MemberTab = fallbackTab;
-            if (visibleTabs.some((t) => t.id === activeTab)) {
+            if (visibleTabs.some((tab) => tab.id === activeTab)) {
               effectiveActive = hideMessages && activeTab === 'messages' ? 'profile' : activeTab;
             }
             return (
@@ -855,11 +860,11 @@ export function TeamMemberDetailsPanel({
                   >
                     <div className="ml-auto flex items-center pl-2 flex-shrink-0 self-center -translate-y-[4px] opacity-0 group-hover/tabs-header:opacity-100 transition-opacity">
                       <DrawerFieldSettings
-                        fields={collapsedTabFields.filter((f) => allTabs.some((t) => t.id === f.id))}
+                        fields={collapsedTabFields.filter((f) => allTabs.some((tab) => tab.id === f.id))}
                         fieldVisibility={collapsedTabVisibility}
                         onToggle={toggleCollapsedTab}
                         onReset={resetCollapsedTabs}
-                        label="Visible tabs"
+                        label={t('projects.memberDetails.visibleTabs')}
                         maxVisible={3}
                       />
                     </div>
@@ -1025,6 +1030,7 @@ function ExpandedMemberContent({
   chatPanelWidth: number;
   onChatResizePointerDown: (e: React.PointerEvent) => void;
 }>) {
+  const t = useTranslations();
   return (
     <>
       {/* Expanded Header */}
@@ -1044,7 +1050,7 @@ function ExpandedMemberContent({
                 </div>
               )}
               <span className="text-[17px] font-semibold text-foreground truncate max-w-[200px] translate-y-[0.5px]">
-                {member.name || 'Unknown'}
+                {member.name || t('projects.memberDetails.unknown')}
               </span>
             </div>
           </div>
@@ -1056,7 +1062,7 @@ function ExpandedMemberContent({
               variant="ghost"
               size="icon"
               className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              title="Compose email"
+              title={t('projects.memberDetails.composeEmail')}
               onClick={() => onComposeEmail?.(member.email)}
             >
               <Mail className="h-4 w-4 text-gray-500" />
@@ -1067,7 +1073,7 @@ function ExpandedMemberContent({
                 variant="ghost"
                 size="icon"
                 className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                title="Open chat"
+                title={t('projects.memberDetails.openChat')}
                 onClick={() => onOpenChat?.(member.userId!)}
               >
                 <MessagesSquare className="h-4 w-4 text-gray-500" />
@@ -1079,7 +1085,7 @@ function ExpandedMemberContent({
               size="icon"
               className="p-1.5 hover:bg-muted rounded-md transition-colors"
               onClick={onToggleExpand}
-              title="Minimize"
+              title={t('projects.memberDetails.minimize')}
             >
               <Minimize className="h-4 w-4 text-gray-500" />
             </Button>
@@ -1089,7 +1095,7 @@ function ExpandedMemberContent({
               size="icon"
               className="p-1.5 hover:bg-muted rounded-md transition-colors"
               onClick={onClose}
-              title="Close"
+              title={t('projects.memberDetails.close')}
             >
               <X className="h-4 w-4 text-gray-500" />
             </Button>
@@ -1101,7 +1107,7 @@ function ExpandedMemberContent({
       {/* Tabs (full width, above content + chat) */}
       <div className="relative z-10">
         <PageTabs
-          tabs={expandedTabItems}
+          tabs={getExpandedTabItems(t)}
           activeTab={activeTab}
           onTabChange={onTabChange}
           innerClassName="px-4 pt-1"
@@ -1111,8 +1117,8 @@ function ExpandedMemberContent({
             variant="ghost"
             size="icon"
             onClick={onToggleChatPanel}
-            aria-label={chatPanelOpen ? 'Close chat' : 'Open chat'}
-            title={chatPanelOpen ? 'Close chat' : 'Open chat'}
+            aria-label={chatPanelOpen ? t('projects.memberDetails.closeChat') : t('projects.memberDetails.openChat')}
+            title={chatPanelOpen ? t('projects.memberDetails.closeChat') : t('projects.memberDetails.openChat')}
             className="h-7 w-7 text-muted-foreground hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
           >
             {chatPanelOpen ? (
@@ -1154,7 +1160,7 @@ function ExpandedMemberContent({
                       {
                         id: `${member.id}-created`,
                         type: 'customer_created',
-                        subject: isPending ? 'Invitation sent' : 'Joined the workspace',
+                        subject: isPending ? t('projects.memberDetails.activity.invitationSent') : t('projects.memberDetails.activity.joinedWorkspace'),
                         assignedToId: '',
                         status: 'completed',
                         createdAt: typeof member.joinedAt === 'string' ? member.joinedAt : new Date(member.joinedAt).toISOString(),
@@ -1207,7 +1213,7 @@ function ExpandedMemberContent({
               <EmbeddedDmChat targetUserId={member.userId} />
             ) : (
               <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-                No user ID available for direct messaging
+                {t('projects.memberDetails.noUserIdDm')}
               </div>
             )}
           </div>
@@ -1220,11 +1226,12 @@ function ExpandedMemberContent({
 /* ─── Expanded Common Content ─────────────────────────────────────────── */
 
 function ExpandedCommonContent({ userId }: Readonly<{ userId: string | null }>) {
+  const t = useTranslations();
   const { userId: viewerUserId } = useAuth();
   if (!userId) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        No user ID available
+        {t('projects.memberDetails.noUserId')}
       </div>
     );
   }
@@ -1242,13 +1249,14 @@ function ExpandedOverviewContent({
   // Render the same Details content the collapsed panel shows, so toggling
   // maximize/minimize doesn't switch the user between two visually different
   // representations of the same tab.
+  const t = useTranslations();
   const profileQuery = useMemberProfile(member.userId || undefined);
 
   if (profileQuery.isLoading) {
     return (
       <div className="flex items-center justify-center gap-2 py-12">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Loading...</span>
+        <span className="text-sm text-muted-foreground">{t('projects.memberDetails.loading')}</span>
       </div>
     );
   }
@@ -1256,7 +1264,7 @@ function ExpandedOverviewContent({
   if (!profileQuery.data) {
     return (
       <div className="flex-1 flex items-center justify-center py-12 text-sm text-muted-foreground">
-        Member not found.
+        {t('projects.memberDetails.memberNotFound')}
       </div>
     );
   }
@@ -1268,29 +1276,25 @@ function ExpandedOverviewContent({
 
 const ROLE_CARDS: {
   value: string;
-  label: string;
-  description: string;
+  labelKey: 'admin' | 'member' | 'viewer';
   icon: React.ElementType;
   color: string;
 }[] = [
   {
     value: 'ADMIN',
-    label: 'Admin',
-    description: 'Full access, manage members & integrations',
+    labelKey: 'admin',
     icon: ShieldCheck,
     color: 'text-blue-600 dark:text-blue-400',
   },
   {
     value: 'MEMBER',
-    label: 'Member',
-    description: 'Access features, create & manage own content',
+    labelKey: 'member',
     icon: User,
     color: 'text-green-600 dark:text-green-400',
   },
   {
     value: 'VIEWER',
-    label: 'Viewer',
-    description: 'View-only access to workspace content',
+    labelKey: 'viewer',
     icon: Eye,
     color: 'text-gray-600 dark:text-muted-foreground',
   },
@@ -1415,7 +1419,7 @@ function PermissionsContent({
       <div className="w-[848px] max-w-full mx-auto">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-foreground">
-            {context === 'projects' ? 'Project Role' : 'Workspace Role'}
+            {context === 'projects' ? t('projects.memberDetails.projectRole') : t('projects.memberDetails.workspaceRole')}
           </h3>
           {updatingRole && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
         </div>
@@ -1429,7 +1433,7 @@ function PermissionsContent({
                 <span className="truncate">
                   {(() => {
                     const card = ROLE_CARDS.find((r) => r.value === localRole);
-                    if (card) return card.label;
+                    if (card) return t(`projects.memberDetails.roles.${card.labelKey}.label`);
                     const custom = workspaceRoles.find((r) => r.id === localRole);
                     return custom?.name ?? getRoleLabel(localRole);
                   })()}
@@ -1439,7 +1443,7 @@ function PermissionsContent({
             <SelectContent className="w-[var(--radix-select-trigger-width)] min-w-[var(--radix-select-trigger-width)]">
               {ROLE_CARDS.map((role) => (
                 <SelectItem key={role.value} value={role.value} className="data-[state=checked]:bg-muted">
-                  <span>{role.label}</span>
+                  <span>{t(`projects.memberDetails.roles.${role.labelKey}.label`)}</span>
                 </SelectItem>
               ))}
               {workspaceRoles
@@ -1474,20 +1478,20 @@ function PermissionsContent({
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground">
                 {(() => {
-                  if (isOwner) return 'Owner';
+                  if (isOwner) return t('projects.memberDetails.roles.owner.label');
                   const card = ROLE_CARDS.find(r => r.value === activeRole);
-                  if (card) return card.label;
+                  if (card) return t(`projects.memberDetails.roles.${card.labelKey}.label`);
                   const custom = workspaceRoles.find((r) => r.id === activeRole);
                   return custom?.name ?? getRoleLabel(activeRole);
                 })()}
               </p>
               <p className="text-xs text-muted-foreground">
                 {(() => {
-                  if (isOwner) return 'Full control including billing & workspace deletion';
+                  if (isOwner) return t('projects.memberDetails.roles.owner.description');
                   const card = ROLE_CARDS.find(r => r.value === activeRole);
-                  if (card) return card.description;
+                  if (card) return t(`projects.memberDetails.roles.${card.labelKey}.description`);
                   const custom = workspaceRoles.find((r) => r.id === activeRole);
-                  return custom?.description ?? 'Custom role';
+                  return custom?.description ?? t('projects.memberDetails.roles.customRole');
                 })()}
               </p>
             </div>
@@ -1498,12 +1502,12 @@ function PermissionsContent({
       {/* App Access — settings only */}
       {context === 'settings' && (
         <div className="w-[848px] max-w-full mx-auto border-t border-border/70 pt-10">
-          <h3 className="text-sm font-medium text-foreground mb-3">App Access</h3>
+          <h3 className="text-sm font-medium text-foreground mb-3">{t('projects.memberDetails.appAccess')}</h3>
 
           {hasAllAppAccess && (
             <>
               <p className="text-xs text-muted-foreground mb-3">
-                Owners and admins automatically have access to every installed app.
+                {t('projects.memberDetails.appAccessOwnersAdmins')}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {memberApps.map((app) => (
@@ -1530,7 +1534,7 @@ function PermissionsContent({
             </>
           )}
           {!hasAllAppAccess && memberApps.length === 0 && (
-            <p className="text-xs text-muted-foreground">No apps available.</p>
+            <p className="text-xs text-muted-foreground">{t('projects.memberDetails.noAppsAvailable')}</p>
           )}
           {!hasAllAppAccess && memberApps.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
@@ -1560,7 +1564,7 @@ function PermissionsContent({
                       </div>
                     ) : (
                       <span className={cn('text-[11px] font-medium flex-shrink-0', app.isAssigned ? 'text-green-600' : 'text-muted-foreground')}>
-                        {app.isAssigned ? 'On' : 'Off'}
+                        {app.isAssigned ? t('projects.memberDetails.on') : t('projects.memberDetails.off')}
                       </span>
                     )}
                   </div>
@@ -1592,6 +1596,7 @@ function PermissionsContent({
 /* ─── Collapsed Header Additions ───────────────────────────────────── */
 
 function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>) {
+  const t = useTranslations();
   const { getStatus } = usePresence();
   const profileQuery = useMemberProfile(member.userId || undefined);
 
@@ -1624,7 +1629,7 @@ function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>
       </div>
       <div className="flex flex-col min-w-0 leading-tight">
         <h1 className="text-[15px] font-medium text-foreground truncate max-w-[200px]">
-          {member.name || 'Unknown'}
+          {member.name || t('projects.memberDetails.unknown')}
         </h1>
         {title && (
           <div className="flex items-center gap-2 text-[12px] text-muted-foreground truncate max-w-[220px]">
@@ -1637,6 +1642,7 @@ function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>
 }
 
 function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
+  const t = useTranslations();
   const dmQuery = useDmByUser(userId ?? '');
   const { startCall } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
@@ -1645,14 +1651,14 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
 
   const handleCall = async (kind: 'voice' | 'video') => {
     if (!dmChannelId) {
-      toast.error('Unable to start call — no DM channel yet.');
+      toast.error(t('projects.memberDetails.toasts.noDmChannel'));
       return;
     }
     // Already in a call or meeting: starting another asks to switch first.
     try {
       await startCall(dmChannelId, kind);
     } catch (err) {
-      toast.error('Failed to start call');
+      toast.error(t('projects.memberDetails.toasts.failedStartCall'));
       console.error(err);
     }
   };
@@ -1663,7 +1669,7 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
         variant="ghost"
         size="icon"
         className="p-1.5 hover:bg-muted rounded-md transition-colors disabled:opacity-50"
-        title="Voice call"
+        title={t('projects.memberDetails.voiceCall')}
         onClick={() => handleCall('voice')}
         disabled={!dmChannelId}
       >
@@ -1673,7 +1679,7 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
         variant="ghost"
         size="icon"
         className="p-1.5 hover:bg-muted rounded-md transition-colors disabled:opacity-50"
-        title="Video call"
+        title={t('projects.memberDetails.videoCall')}
         onClick={() => handleCall('video')}
         disabled={!dmChannelId}
       >
@@ -1686,11 +1692,12 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
 /* ─── Collapsed Tab Content Router ────────────────────────────────── */
 
 function buildCollapsedTabs({
-  hideMessages, canViewActivity, showPermissions,
-}: { hideMessages?: boolean; canViewActivity: boolean; showPermissions?: boolean }): PageTab[] {
-  const tabs = hideMessages ? baseTabItems.filter((t) => t.id !== 'messages') : [...baseTabItems];
-  if (canViewActivity) tabs.push(activityTabItem);
-  if (showPermissions) tabs.push({ id: 'permissions', label: 'Permissions', icon: Shield });
+  t, hideMessages, canViewActivity, showPermissions,
+}: { t: Translate; hideMessages?: boolean; canViewActivity: boolean; showPermissions?: boolean }): PageTab[] {
+  const baseTabItems = getBaseTabItems(t);
+  const tabs = hideMessages ? baseTabItems.filter((tab) => tab.id !== 'messages') : [...baseTabItems];
+  if (canViewActivity) tabs.push(getActivityTabItem(t));
+  if (showPermissions) tabs.push({ id: 'permissions', label: t('projects.memberDetails.tabs.permissions'), icon: Shield });
   return tabs;
 }
 
@@ -1702,6 +1709,7 @@ function CollapsedTabContent({
   hideMessages?: boolean;
   canViewActivity: boolean;
 }>) {
+  const t = useTranslations();
   // With hideMessages, treat 'messages' as 'profile' (tab is filtered out of the bar)
   const effective: MemberTab = hideMessages && tab === 'messages' ? 'profile' : tab;
 
@@ -1709,7 +1717,7 @@ function CollapsedTabContent({
     if (!member.userId) {
       return (
         <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-          No user ID available for direct messaging
+          {t('projects.memberDetails.noUserIdDm')}
         </div>
       );
     }
@@ -1719,7 +1727,7 @@ function CollapsedTabContent({
   if (!member.userId) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        No user ID available
+        {t('projects.memberDetails.noUserId')}
       </div>
     );
   }
@@ -1740,6 +1748,7 @@ function MemberProfileTabs({
   userId: string;
   canViewActivity: boolean;
 }>) {
+  const t = useTranslations();
   const { userId: viewerUserId } = useAuth();
   const profileQuery = useMemberProfile(userId);
   const isSelf = !!viewerUserId && viewerUserId === userId;
@@ -1757,7 +1766,7 @@ function MemberProfileTabs({
     return (
       <div className="flex-1 flex items-center justify-center gap-2">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Loading...</span>
+        <span className="text-sm text-muted-foreground">{t('projects.memberDetails.loading')}</span>
       </div>
     );
   }
@@ -1765,7 +1774,7 @@ function MemberProfileTabs({
   if (!profileQuery.data) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        Member not found.
+        {t('projects.memberDetails.memberNotFound')}
       </div>
     );
   }
@@ -1779,6 +1788,7 @@ function MemberProfileTabs({
 }
 
 function MemberWorkingHoursContent({ memberId }: Readonly<{ memberId: string }>) {
+  const t = useTranslations();
   const { data: workingHours, isLoading } = useMemberWorkingHours(memberId);
   const updateMemberWorkingHours = useUpdateMemberWorkingHours();
   const [hours, setHours] = useState<WorkingHours>(DEFAULT_HOURS);
@@ -1801,7 +1811,7 @@ function MemberWorkingHoursContent({ memberId }: Readonly<{ memberId: string }>)
       try {
         await updateMemberWorkingHours.mutateAsync({ memberId, workingHours: next });
       } catch {
-        toast.error('Failed to update working hours');
+        toast.error(t('projects.memberDetails.toasts.failedUpdateWorkingHours'));
       }
     }, 500);
   };
@@ -1810,9 +1820,9 @@ function MemberWorkingHoursContent({ memberId }: Readonly<{ memberId: string }>)
     <div className="px-4 py-10">
       <div className="w-fit max-w-full mx-auto">
         <div className="mb-4">
-          <h3 className="text-base font-semibold">Working Hours</h3>
+          <h3 className="text-base font-semibold">{t('projects.memberDetails.workingHours.title')}</h3>
           <p className="text-sm text-muted-foreground">
-            Set when this member is available for automatic task scheduling.
+            {t('projects.memberDetails.workingHours.description')}
           </p>
         </div>
         {isLoading ? (

@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useI18n } from '@/lib/i18n/provider';
 import { schema } from './schema';
-import { getBlockEditorStrings } from './strings';
+import { getBlockEditorStrings, type BlockEditorStrings } from './strings';
 import { SuggestionMenu } from './suggestion-menu';
 import {
   filterSlashMenuItems,
@@ -388,6 +388,7 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
 // ============================================================================
 
 type BasicStyle = 'bold' | 'italic' | 'underline' | 'strike' | 'code';
+type ColorLabelKey = keyof BlockEditorStrings['toolbar']['colors'];
 type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 
 const FONT_FAMILIES: { value: string; label: string }[] = [
@@ -468,58 +469,58 @@ const FONT_SIZES: string[] = [
   '64px',
 ];
 
-const TEXT_COLORS: { value: string; label: string; swatch: string }[] = [
-  { value: 'default', label: 'Default', swatch: '#111827' },
-  { value: 'gray', label: 'Gray', swatch: '#6b7280' },
-  { value: 'slate', label: 'Slate', swatch: '#475569' },
-  { value: 'stone', label: 'Stone', swatch: '#78716c' },
-  { value: 'brown', label: 'Brown', swatch: '#92400e' },
-  { value: 'red', label: 'Red', swatch: '#dc2626' },
-  { value: 'rose', label: 'Rose', swatch: '#e11d48' },
-  { value: 'pink', label: 'Pink', swatch: '#db2777' },
-  { value: 'fuchsia', label: 'Fuchsia', swatch: '#c026d3' },
-  { value: 'purple', label: 'Purple', swatch: '#9333ea' },
-  { value: 'violet', label: 'Violet', swatch: '#7c3aed' },
-  { value: 'indigo', label: 'Indigo', swatch: '#4f46e5' },
-  { value: 'blue', label: 'Blue', swatch: '#2563eb' },
-  { value: 'sky', label: 'Sky', swatch: '#0284c7' },
-  { value: 'cyan', label: 'Cyan', swatch: '#0891b2' },
-  { value: 'teal', label: 'Teal', swatch: '#0d9488' },
-  { value: 'emerald', label: 'Emerald', swatch: '#059669' },
-  { value: 'green', label: 'Green', swatch: '#16a34a' },
-  { value: 'lime', label: 'Lime', swatch: '#65a30d' },
-  { value: 'yellow', label: 'Yellow', swatch: '#ca8a04' },
-  { value: 'amber', label: 'Amber', swatch: '#d97706' },
-  { value: 'orange', label: 'Orange', swatch: '#ea580c' },
-  { value: 'zinc', label: 'Zinc', swatch: '#52525b' },
-  { value: 'neutral', label: 'Neutral', swatch: '#525252' },
+const TEXT_COLORS: { value: string; labelKey: ColorLabelKey; swatch: string }[] = [
+  { value: 'default', labelKey: 'default', swatch: '#111827' },
+  { value: 'gray', labelKey: 'gray', swatch: '#6b7280' },
+  { value: 'slate', labelKey: 'slate', swatch: '#475569' },
+  { value: 'stone', labelKey: 'stone', swatch: '#78716c' },
+  { value: 'brown', labelKey: 'brown', swatch: '#92400e' },
+  { value: 'red', labelKey: 'red', swatch: '#dc2626' },
+  { value: 'rose', labelKey: 'rose', swatch: '#e11d48' },
+  { value: 'pink', labelKey: 'pink', swatch: '#db2777' },
+  { value: 'fuchsia', labelKey: 'fuchsia', swatch: '#c026d3' },
+  { value: 'purple', labelKey: 'purple', swatch: '#9333ea' },
+  { value: 'violet', labelKey: 'violet', swatch: '#7c3aed' },
+  { value: 'indigo', labelKey: 'indigo', swatch: '#4f46e5' },
+  { value: 'blue', labelKey: 'blue', swatch: '#2563eb' },
+  { value: 'sky', labelKey: 'sky', swatch: '#0284c7' },
+  { value: 'cyan', labelKey: 'cyan', swatch: '#0891b2' },
+  { value: 'teal', labelKey: 'teal', swatch: '#0d9488' },
+  { value: 'emerald', labelKey: 'emerald', swatch: '#059669' },
+  { value: 'green', labelKey: 'green', swatch: '#16a34a' },
+  { value: 'lime', labelKey: 'lime', swatch: '#65a30d' },
+  { value: 'yellow', labelKey: 'yellow', swatch: '#ca8a04' },
+  { value: 'amber', labelKey: 'amber', swatch: '#d97706' },
+  { value: 'orange', labelKey: 'orange', swatch: '#ea580c' },
+  { value: 'zinc', labelKey: 'zinc', swatch: '#52525b' },
+  { value: 'neutral', labelKey: 'neutral', swatch: '#525252' },
 ];
 
-const BG_COLORS: { value: string; label: string; swatch: string }[] = [
-  { value: 'default', label: 'None', swatch: '#ffffff' },
-  { value: 'gray', label: 'Gray', swatch: '#e5e7eb' },
-  { value: 'slate', label: 'Slate', swatch: '#cbd5e1' },
-  { value: 'stone', label: 'Stone', swatch: '#d6d3d1' },
-  { value: 'brown', label: 'Brown', swatch: '#fde4c9' },
-  { value: 'red', label: 'Red', swatch: '#fecaca' },
-  { value: 'rose', label: 'Rose', swatch: '#fecdd3' },
-  { value: 'pink', label: 'Pink', swatch: '#fbcfe8' },
-  { value: 'fuchsia', label: 'Fuchsia', swatch: '#f5d0fe' },
-  { value: 'purple', label: 'Purple', swatch: '#e9d5ff' },
-  { value: 'violet', label: 'Violet', swatch: '#ddd6fe' },
-  { value: 'indigo', label: 'Indigo', swatch: '#c7d2fe' },
-  { value: 'blue', label: 'Blue', swatch: '#bfdbfe' },
-  { value: 'sky', label: 'Sky', swatch: '#bae6fd' },
-  { value: 'cyan', label: 'Cyan', swatch: '#a5f3fc' },
-  { value: 'teal', label: 'Teal', swatch: '#99f6e4' },
-  { value: 'emerald', label: 'Emerald', swatch: '#a7f3d0' },
-  { value: 'green', label: 'Green', swatch: '#bbf7d0' },
-  { value: 'lime', label: 'Lime', swatch: '#d9f99d' },
-  { value: 'yellow', label: 'Yellow', swatch: '#fde68a' },
-  { value: 'amber', label: 'Amber', swatch: '#fcd34d' },
-  { value: 'orange', label: 'Orange', swatch: '#fed7aa' },
-  { value: 'zinc', label: 'Zinc', swatch: '#e4e4e7' },
-  { value: 'neutral', label: 'Neutral', swatch: '#e5e5e5' },
+const BG_COLORS: { value: string; labelKey: ColorLabelKey; swatch: string }[] = [
+  { value: 'default', labelKey: 'none', swatch: '#ffffff' },
+  { value: 'gray', labelKey: 'gray', swatch: '#e5e7eb' },
+  { value: 'slate', labelKey: 'slate', swatch: '#cbd5e1' },
+  { value: 'stone', labelKey: 'stone', swatch: '#d6d3d1' },
+  { value: 'brown', labelKey: 'brown', swatch: '#fde4c9' },
+  { value: 'red', labelKey: 'red', swatch: '#fecaca' },
+  { value: 'rose', labelKey: 'rose', swatch: '#fecdd3' },
+  { value: 'pink', labelKey: 'pink', swatch: '#fbcfe8' },
+  { value: 'fuchsia', labelKey: 'fuchsia', swatch: '#f5d0fe' },
+  { value: 'purple', labelKey: 'purple', swatch: '#e9d5ff' },
+  { value: 'violet', labelKey: 'violet', swatch: '#ddd6fe' },
+  { value: 'indigo', labelKey: 'indigo', swatch: '#c7d2fe' },
+  { value: 'blue', labelKey: 'blue', swatch: '#bfdbfe' },
+  { value: 'sky', labelKey: 'sky', swatch: '#bae6fd' },
+  { value: 'cyan', labelKey: 'cyan', swatch: '#a5f3fc' },
+  { value: 'teal', labelKey: 'teal', swatch: '#99f6e4' },
+  { value: 'emerald', labelKey: 'emerald', swatch: '#a7f3d0' },
+  { value: 'green', labelKey: 'green', swatch: '#bbf7d0' },
+  { value: 'lime', labelKey: 'lime', swatch: '#d9f99d' },
+  { value: 'yellow', labelKey: 'yellow', swatch: '#fde68a' },
+  { value: 'amber', labelKey: 'amber', swatch: '#fcd34d' },
+  { value: 'orange', labelKey: 'orange', swatch: '#fed7aa' },
+  { value: 'zinc', labelKey: 'zinc', swatch: '#e4e4e7' },
+  { value: 'neutral', labelKey: 'neutral', swatch: '#e5e5e5' },
 ];
 
 interface ToolbarState {
@@ -747,6 +748,8 @@ function NumberedListGlyph() {
 }
 
 export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNoteEditorInstance }>) {
+  const strings = getBlockEditorStrings();
+  const tb = strings.toolbar;
   const [state, setState] = useState<ToolbarState>(INITIAL_TOOLBAR_STATE);
   const { activeStyles, activeBlockType, activeHeadingLevel, activeTextAlignment } = state;
   const lastStateRef = useRef<ToolbarState>(INITIAL_TOOLBAR_STATE);
@@ -993,18 +996,18 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
   // dictionary and our own strings are both in the app language.
   const toggleListLabel = editor.dictionary.slash_menu.toggle_list.title;
   const codeBlockLabel = editor.dictionary.slash_menu.code_block.title;
-  const calloutLabel = getBlockEditorStrings().slashMenu.items.callout.title;
+  const calloutLabel = strings.slashMenu.items.callout.title;
 
   const currentBlockLabel = (() => {
-    if (activeBlockType === 'heading' && activeHeadingLevel) return `Heading ${activeHeadingLevel}`;
-    if (activeBlockType === 'quote') return 'Quote';
-    if (activeBlockType === 'bulletListItem') return 'Bullet list';
-    if (activeBlockType === 'numberedListItem') return 'Numbered list';
-    if (activeBlockType === 'checkListItem') return 'Check list';
+    if (activeBlockType === 'heading' && activeHeadingLevel) return tb.blocks[`heading${activeHeadingLevel as 1 | 2 | 3}` as 'heading1' | 'heading2' | 'heading3'];
+    if (activeBlockType === 'quote') return tb.blocks.quote;
+    if (activeBlockType === 'bulletListItem') return tb.blocks.bulletList;
+    if (activeBlockType === 'numberedListItem') return tb.blocks.numberedList;
+    if (activeBlockType === 'checkListItem') return tb.blocks.checkList;
     if (activeBlockType === 'toggleListItem') return toggleListLabel;
     if (activeBlockType === 'codeBlock') return codeBlockLabel;
     if (activeBlockType === 'callout') return calloutLabel;
-    return 'Paragraph';
+    return tb.blocks.paragraph;
   })();
 
   const alignIcon = (a: TextAlignment) => {
@@ -1036,7 +1039,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       }}
     >
       {/* Undo / Redo */}
-      <ToolbarTooltip label="Undo">
+      <ToolbarTooltip label={tb.undo}>
         <Button
           variant="ghost"
           size="icon"
@@ -1052,7 +1055,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
           <Undo className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Redo">
+      <ToolbarTooltip label={tb.redo}>
         <Button
           variant="ghost"
           size="icon"
@@ -1079,7 +1082,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
             variant="ghost"
             type="button"
             className={TOOL_SELECT}
-            title="Block type"
+            title={tb.blockType}
           >
             <span className="truncate max-w-[110px]">{currentBlockLabel}</span>
             <ChevronDown className="h-4 w-4 opacity-50" />
@@ -1093,17 +1096,17 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         >
           {(() => {
             const items = [
-              { type: 'paragraph' as const, label: 'Paragraph', Icon: Pilcrow, match: activeBlockType === 'paragraph' },
-              { type: 'heading' as const, level: 1 as const, label: 'Heading 1', Icon: Heading1, match: activeBlockType === 'heading' && activeHeadingLevel === 1 },
-              { type: 'heading' as const, level: 2 as const, label: 'Heading 2', Icon: Heading2, match: activeBlockType === 'heading' && activeHeadingLevel === 2 },
-              { type: 'heading' as const, level: 3 as const, label: 'Heading 3', Icon: Heading3, match: activeBlockType === 'heading' && activeHeadingLevel === 3 },
+              { type: 'paragraph' as const, label: tb.blocks.paragraph, Icon: Pilcrow, match: activeBlockType === 'paragraph' },
+              { type: 'heading' as const, level: 1 as const, label: tb.blocks.heading1, Icon: Heading1, match: activeBlockType === 'heading' && activeHeadingLevel === 1 },
+              { type: 'heading' as const, level: 2 as const, label: tb.blocks.heading2, Icon: Heading2, match: activeBlockType === 'heading' && activeHeadingLevel === 2 },
+              { type: 'heading' as const, level: 3 as const, label: tb.blocks.heading3, Icon: Heading3, match: activeBlockType === 'heading' && activeHeadingLevel === 3 },
               { type: null, label: '__separator__', Icon: null as never, match: false },
-              { type: 'bulletListItem' as const, label: 'Bullet list', Icon: List, match: activeBlockType === 'bulletListItem' },
-              { type: 'numberedListItem' as const, label: 'Numbered list', Icon: ListOrdered, match: activeBlockType === 'numberedListItem' },
-              { type: 'checkListItem' as const, label: 'Check list', Icon: ListChecks, match: activeBlockType === 'checkListItem' },
+              { type: 'bulletListItem' as const, label: tb.blocks.bulletList, Icon: List, match: activeBlockType === 'bulletListItem' },
+              { type: 'numberedListItem' as const, label: tb.blocks.numberedList, Icon: ListOrdered, match: activeBlockType === 'numberedListItem' },
+              { type: 'checkListItem' as const, label: tb.blocks.checkList, Icon: ListChecks, match: activeBlockType === 'checkListItem' },
               { type: 'toggleListItem' as const, label: toggleListLabel, Icon: ListCollapse, match: activeBlockType === 'toggleListItem' },
               { type: null, label: '__separator__', Icon: null as never, match: false },
-              { type: 'quote' as const, label: 'Quote', Icon: Quote, match: activeBlockType === 'quote' },
+              { type: 'quote' as const, label: tb.blocks.quote, Icon: Quote, match: activeBlockType === 'quote' },
               { type: 'callout' as const, label: calloutLabel, Icon: Lightbulb, match: activeBlockType === 'callout' },
               { type: 'codeBlock' as const, label: codeBlockLabel, Icon: SquareCode, match: activeBlockType === 'codeBlock' },
             ];
@@ -1150,7 +1153,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
             variant="ghost"
             type="button"
             className={TOOL_SELECT}
-            title="Font size"
+            title={tb.fontSize}
           >
             <span className="tabular-nums">
               {state.caretInsideEditor && activeStyles.fontSize
@@ -1202,27 +1205,27 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       <div className={TOOL_SEPARATOR} />
 
       {/* Inline styles */}
-      <ToolbarTooltip label="Bold (⌘B)">
+      <ToolbarTooltip label={tb.bold}>
         <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.bold)} onClick={() => toggleStyle('bold')}>
           <BoldGlyph />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Italic (⌘I)">
+      <ToolbarTooltip label={tb.italic}>
         <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.italic)} onClick={() => toggleStyle('italic')}>
           <ItalicGlyph />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Underline (⌘U)">
+      <ToolbarTooltip label={tb.underline}>
         <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.underline)} onClick={() => toggleStyle('underline')}>
           <UnderlineGlyph />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Strikethrough">
+      <ToolbarTooltip label={tb.strikethrough}>
         <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.strike)} onClick={() => toggleStyle('strike')}>
           <Strikethrough className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Inline code">
+      <ToolbarTooltip label={tb.inlineCode}>
         <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.code)} onClick={() => toggleStyle('code')}>
           <Code className="h-4 w-4" />
         </Button>
@@ -1236,7 +1239,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
             size="icon"
             type="button"
             className={TOOL_MENU_BUTTON}
-            title="Text color"
+            title={tb.textColor}
           >
             <Baseline className="h-4 w-4" />
           </Button>
@@ -1282,7 +1285,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
             size="icon"
             type="button"
             className={TOOL_MENU_BUTTON}
-            title="Highlight"
+            title={tb.highlight}
           >
             <Highlighter className="h-4 w-4" />
           </Button>
@@ -1337,7 +1340,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
             size="icon"
             type="button"
             className={TOOL_MENU_BUTTON}
-            title="Alignment"
+            title={tb.alignment}
           >
             <AlignCurrent className="h-4 w-4" />
           </Button>
@@ -1349,10 +1352,10 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
           onCloseAutoFocus={(e: Event) => e.preventDefault()}
         >
           {([
-            { value: 'left', label: 'Left', Icon: AlignLeft },
-            { value: 'center', label: 'Center', Icon: AlignCenter },
-            { value: 'right', label: 'Right', Icon: AlignRight },
-            { value: 'justify', label: 'Justify', Icon: AlignJustify },
+            { value: 'left', label: tb.align.left, Icon: AlignLeft },
+            { value: 'center', label: tb.align.center, Icon: AlignCenter },
+            { value: 'right', label: tb.align.right, Icon: AlignRight },
+            { value: 'justify', label: tb.align.justify, Icon: AlignJustify },
           ] as const).map(({ value, label, Icon }) => {
             const isActive = activeTextAlignment === value;
             return (
@@ -1375,29 +1378,29 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       </Popover>
 
       {/* Lists */}
-      <ToolbarTooltip label="Bullet list">
+      <ToolbarTooltip label={tb.blocks.bulletList}>
         <Button variant="ghost" size="icon" type="button" className={btn(activeBlockType === 'bulletListItem')} onClick={() => setBlockType('bulletListItem')}>
           <BulletListGlyph />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Numbered list">
+      <ToolbarTooltip label={tb.blocks.numberedList}>
         <Button variant="ghost" size="icon" type="button" className={btn(activeBlockType === 'numberedListItem')} onClick={() => setBlockType('numberedListItem')}>
           <NumberedListGlyph />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Check list">
+      <ToolbarTooltip label={tb.blocks.checkList}>
         <Button variant="ghost" size="icon" type="button" className={btn(activeBlockType === 'checkListItem')} onClick={() => setBlockType('checkListItem')}>
           <ListChecks className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
 
       {/* Outdent / Indent */}
-      <ToolbarTooltip label="Decrease indent">
+      <ToolbarTooltip label={tb.decreaseIndent}>
         <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={unnestBlock}>
           <IndentDecrease className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Increase indent">
+      <ToolbarTooltip label={tb.increaseIndent}>
         <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={nestBlock}>
           <IndentIncrease className="h-4 w-4" />
         </Button>
@@ -1407,7 +1410,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
 
       {/* Add comment (collaborative documents only) */}
       {hasComments && (
-        <ToolbarTooltip label="Add comment">
+        <ToolbarTooltip label={tb.addComment}>
           <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={addComment}>
             <MessageSquarePlus className="h-4 w-4" />
           </Button>
@@ -1415,7 +1418,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       )}
 
       {/* Clear formatting */}
-      <ToolbarTooltip label="Clear formatting">
+      <ToolbarTooltip label={tb.clearFormatting}>
         <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={clearFormatting}>
           <RemoveFormatting className="h-4 w-4" />
         </Button>
@@ -1447,7 +1450,9 @@ function FontFamilyPicker({
   currentFamily: string;
   onPick: (value: string) => void;
 }>) {
+  const tb = getBlockEditorStrings().toolbar;
   const [open, setOpen] = useState(false);
+  const fontLabel = (f: { value: string; label: string }) => (f.value === '' ? tb.fontDefault : f.label);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -1456,10 +1461,10 @@ function FontFamilyPicker({
           variant="ghost"
           type="button"
           className={TOOL_SELECT}
-          title="Font"
+          title={tb.font}
         >
           <span className="truncate max-w-[90px]">
-            {FONT_FAMILIES.find((f) => f.value === currentFamily)?.label || 'Default'}
+            {fontLabel(FONT_FAMILIES.find((f) => f.value === currentFamily) ?? FONT_FAMILIES[0])}
           </span>
           <ChevronDown className="h-4 w-4 opacity-50" />
         </Button>
@@ -1473,14 +1478,14 @@ function FontFamilyPicker({
         onCloseAutoFocus={(e: Event) => e.preventDefault()}
       >
         <Command>
-          <CommandInput placeholder="Search fonts..." />
+          <CommandInput placeholder={tb.searchFonts} />
           <CommandList>
-            <CommandEmpty>No fonts match.</CommandEmpty>
+            <CommandEmpty>{tb.noFontsMatch}</CommandEmpty>
             <CommandGroup className="pl-1 pr-0 py-1">
               {FONT_FAMILIES.map((f) => (
                 <CommandItem
                   key={f.label}
-                  value={f.label}
+                  value={fontLabel(f)}
                   onSelect={() => {
                     onPick(f.value);
                     setOpen(false);
@@ -1490,7 +1495,7 @@ function FontFamilyPicker({
                     f.value === currentFamily && 'bg-accent text-accent-foreground',
                   )}
                 >
-                  <span>{f.label}</span>
+                  <span>{fontLabel(f)}</span>
                   <Check
                     className={cn(
                       'ml-auto h-4 w-4',
@@ -1514,12 +1519,13 @@ function ColorSwatchGridWithCustom({
   swatchBorder,
   checkIconClass,
 }: Readonly<{
-  swatches: { value: string; label: string; swatch: string }[];
+  swatches: { value: string; labelKey: ColorLabelKey; swatch: string }[];
   current: string | undefined;
   onPick: (value: string) => void;
   swatchBorder?: boolean;
   checkIconClass: string;
 }>) {
+  const strings = getBlockEditorStrings().toolbar;
   const [showCustom, setShowCustom] = useState(false);
   const [customValue, setCustomValue] = useState(
     typeof current === 'string' && current.startsWith('#') ? current : '#3b82f6',
@@ -1538,9 +1544,9 @@ function ColorSwatchGridWithCustom({
             onClick={() => setShowCustom(false)}
             className="text-xs text-muted-foreground hover:text-foreground"
           >
-            ← Back
+            {strings.back}
           </Button>
-          <span className="text-xs text-muted-foreground">Custom color</span>
+          <span className="text-xs text-muted-foreground">{strings.customColor}</span>
         </div>
         <ColorPicker
           defaultValue={customValue}
@@ -1572,7 +1578,7 @@ function ColorSwatchGridWithCustom({
             key={c.value}
             type="button"
             onClick={() => onPick(c.value)}
-            title={c.label}
+            title={strings.colors[c.labelKey]}
             className={cn(
               'w-6 h-6 rounded relative transition-all hover:scale-110',
               swatchBorder && 'border border-border',
@@ -1587,7 +1593,7 @@ function ColorSwatchGridWithCustom({
       <Button
         variant="ghost"
         type="button"
-        title="Custom color"
+        title={strings.customColor}
         onClick={() => setShowCustom(true)}
         className="w-6 h-6 rounded border border-border relative transition-all hover:scale-110 overflow-hidden"
         style={{
@@ -1606,6 +1612,7 @@ function LinkButton({
   onApply: (url: string, text?: string) => void;
   getSelectionText: () => string;
 }>) {
+  const tb = getBlockEditorStrings().toolbar;
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
@@ -1646,7 +1653,7 @@ function LinkButton({
           size="icon"
           type="button"
           className={TOOL_MENU_BUTTON}
-          title="Insert link"
+          title={tb.link.insertLink}
         >
           <LinkIcon className="h-4 w-4" />
         </Button>
@@ -1657,12 +1664,12 @@ function LinkButton({
         onCloseAutoFocus={(e: Event) => e.preventDefault()}
       >
         <div className="grid gap-4">
-          <h4 className="font-medium text-sm leading-none">Insert link</h4>
+          <h4 className="font-medium text-sm leading-none">{tb.link.insertLink}</h4>
 
           <div className="grid gap-2">
             {!hadSelection && (
               <div className="grid grid-cols-[70px_1fr] items-center gap-3">
-                <Label htmlFor="link-text" className="text-xs">Text</Label>
+                <Label htmlFor="link-text" className="text-xs">{tb.link.text}</Label>
                 <Input
                   id="link-text"
                   value={text}
@@ -1673,7 +1680,7 @@ function LinkButton({
                       submit();
                     }
                   }}
-                  placeholder="Link text"
+                  placeholder={tb.link.textPlaceholder}
                   autoFocus
                   spellCheck={false}
                   className="h-8"
@@ -1702,7 +1709,7 @@ function LinkButton({
 
           <div className="flex justify-end">
             <Button size="sm" onClick={submit} disabled={!url.trim()}>
-              Apply
+              {tb.link.apply}
             </Button>
           </div>
         </div>

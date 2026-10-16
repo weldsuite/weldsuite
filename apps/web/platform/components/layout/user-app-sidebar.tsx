@@ -4,6 +4,7 @@ import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { getAppLogoConfig, getAppLucideIcon } from '@/lib/apps/app-registry';
 import type { ModuleSidebarConfig } from './module-sidebar-configs';
+import type { TranslationsType } from '@/lib/i18n/types';
 
 /** Manifest navigation item shape (from weldapp.json → installed app manifest). */
 export interface UserAppNavItem {
@@ -19,15 +20,18 @@ export interface UserAppNavItem {
  * Fallback sidebar for known first-party hosted apps whose published manifest
  * predates the `navigation` field (or when production API stripped it).
  */
-export const HOSTED_APP_NAV_FALLBACKS: Record<string, UserAppNavItem[]> = {
-  weldcommerce: [
-    { id: 'overview', label: 'Overview', path: '/', icon: 'LayoutDashboard' },
-    { id: 'products', label: 'Products', path: '/products', icon: 'Package', permission: 'products:read' },
-    { id: 'categories', label: 'Categories', path: '/categories', icon: 'FolderTree', permission: 'categories:read' },
-    { id: 'orders', label: 'Orders', path: '/orders', icon: 'ShoppingCart', permission: 'orders:read' },
-    { id: 'customers', label: 'Customers', path: '/customers', icon: 'Building', permission: 'companies:read' },
-  ],
-};
+export function getHostedAppNavFallbacks(t: TranslationsType): Record<string, UserAppNavItem[]> {
+  const commerce = t.navigation.moduleSidebar.weldcommerce;
+  return {
+    weldcommerce: [
+      { id: 'overview', label: commerce.overview, path: '/', icon: 'LayoutDashboard' },
+      { id: 'products', label: commerce.products, path: '/products', icon: 'Package', permission: 'products:read' },
+      { id: 'categories', label: commerce.categories, path: '/categories', icon: 'FolderTree', permission: 'categories:read' },
+      { id: 'orders', label: commerce.orders, path: '/orders', icon: 'ShoppingCart', permission: 'orders:read' },
+      { id: 'customers', label: commerce.customers, path: '/customers', icon: 'Building', permission: 'companies:read' },
+    ],
+  };
+}
 
 function isAppLogoUrl(value?: string | null): boolean {
   if (!value) return false;
@@ -97,17 +101,6 @@ export function buildUserAppSidebarConfig(input: {
   navigation?: UserAppNavItem[] | null;
   defaultGroupLabel?: string;
 }): ModuleSidebarConfig {
-  const items =
-    input.navigation && input.navigation.length > 0
-      ? input.navigation
-      : (HOSTED_APP_NAV_FALLBACKS[input.appCode] ?? [
-          {
-            id: 'home',
-            label: 'Home',
-            path: '/',
-            icon: isAppLogoUrl(input.icon) ? 'LayoutDashboard' : (input.icon ?? 'LayoutDashboard'),
-          },
-        ]);
   const appIcon = appMarkIcon(input.icon, input.appCode);
   const appLogo = appMarkLogo(input.icon, input.appCode);
   const defaultGroup = input.defaultGroupLabel ?? 'General';
@@ -116,7 +109,18 @@ export function buildUserAppSidebarConfig(input: {
     appName: input.name,
     appIcon,
     appLogo,
-    getMenuItems: () => {
+    getMenuItems: (t) => {
+      const items =
+        input.navigation && input.navigation.length > 0
+          ? input.navigation
+          : (getHostedAppNavFallbacks(t)[input.appCode] ?? [
+              {
+                id: 'home',
+                label: t.navigation.home,
+                path: '/',
+                icon: isAppLogoUrl(input.icon) ? 'LayoutDashboard' : (input.icon ?? 'LayoutDashboard'),
+              },
+            ]);
       const groups = new Map<string, MenuGroupProps['items']>();
       for (const item of items) {
         const group = item.group?.trim() || defaultGroup;

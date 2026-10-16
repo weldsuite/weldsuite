@@ -7,6 +7,6 @@ export const Route = createFileRoute('/weldreach/settings/')({
   validateSearch: (search: Record<string, unknown>): { billing?: string } => ({
     billing: typeof search.billing === 'string' ? search.billing : undefined,
   }),
-  staticData: { breadcrumb: { label: 'Settings' } },
+  staticData: { breadcrumb: { labelKey: 'settings' } },
   component: PageComponent,
 });

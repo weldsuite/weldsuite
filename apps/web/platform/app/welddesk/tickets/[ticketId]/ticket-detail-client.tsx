@@ -281,7 +281,7 @@ function CustomerChatView({
           {ticket.status === 'closed' ? (
             <div className="flex items-center justify-center py-3 px-4 bg-gray-50 dark:bg-background rounded-lg border border-gray-200 dark:border-border">
               <span className="text-sm text-gray-500 dark:text-muted-foreground">
-                This ticket is closed
+                {tp.ticketIsClosedBanner}
               </span>
             </div>
           ) : (

@@ -165,6 +165,12 @@ export const weldobjects = {
     },
   },
 
+  // Pick list side panel
+  pickListPanel: {
+    assign: 'Assign',
+    items: 'Items',
+  },
+
   errors: {
     saveFailed: 'Could not save changes',
     deleteFailed: 'Could not delete',

@@ -1,5 +1,7 @@
 import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useI18n } from '@/lib/i18n/provider';
+import type { TranslationNamespaces } from '@/lib/i18n';
 import {
   ArrowLeftRight,
   ArrowDown,
@@ -29,91 +31,94 @@ function getEntityTypes(t: ReturnType<typeof useTranslations>) {
   ];
 }
 
-const EXTERNAL_FIELDS: Record<string, { value: string; label: string }[]> = {
+type FieldLabelKey = keyof TranslationNamespaces['settings']['fieldMappingFields'];
+type FieldOption = { value: string; labelKey: FieldLabelKey };
+
+const EXTERNAL_FIELDS: Record<string, FieldOption[]> = {
   contact: [
-    { value: 'properties.firstname', label: 'First Name' },
-    { value: 'properties.lastname', label: 'Last Name' },
-    { value: 'properties.email', label: 'Email' },
-    { value: 'properties.phone', label: 'Phone' },
-    { value: 'properties.mobilephone', label: 'Mobile Phone' },
-    { value: 'properties.jobtitle', label: 'Job Title' },
-    { value: 'properties.company', label: 'Company' },
-    { value: 'properties.website', label: 'Website' },
-    { value: 'properties.lifecyclestage', label: 'Lifecycle Stage' },
-    { value: 'properties.hs_lead_status', label: 'Lead Status' },
-    { value: 'properties.address', label: 'Address' },
-    { value: 'properties.city', label: 'City' },
-    { value: 'properties.state', label: 'State' },
-    { value: 'properties.zip', label: 'Zip' },
-    { value: 'properties.country', label: 'Country' },
+    { value: 'properties.firstname', labelKey: 'firstName' },
+    { value: 'properties.lastname', labelKey: 'lastName' },
+    { value: 'properties.email', labelKey: 'email' },
+    { value: 'properties.phone', labelKey: 'phone' },
+    { value: 'properties.mobilephone', labelKey: 'mobilePhone' },
+    { value: 'properties.jobtitle', labelKey: 'jobTitle' },
+    { value: 'properties.company', labelKey: 'company' },
+    { value: 'properties.website', labelKey: 'website' },
+    { value: 'properties.lifecyclestage', labelKey: 'lifecycleStage' },
+    { value: 'properties.hs_lead_status', labelKey: 'leadStatus' },
+    { value: 'properties.address', labelKey: 'address' },
+    { value: 'properties.city', labelKey: 'city' },
+    { value: 'properties.state', labelKey: 'state' },
+    { value: 'properties.zip', labelKey: 'zip' },
+    { value: 'properties.country', labelKey: 'country' },
   ],
   customer: [
-    { value: 'properties.name', label: 'Company Name' },
-    { value: 'properties.domain', label: 'Domain' },
-    { value: 'properties.phone', label: 'Phone' },
-    { value: 'properties.industry', label: 'Industry' },
-    { value: 'properties.description', label: 'Description' },
-    { value: 'properties.numberofemployees', label: 'Number of Employees' },
-    { value: 'properties.annualrevenue', label: 'Annual Revenue' },
-    { value: 'properties.website', label: 'Website' },
-    { value: 'properties.address', label: 'Address' },
-    { value: 'properties.city', label: 'City' },
-    { value: 'properties.state', label: 'State' },
-    { value: 'properties.zip', label: 'Zip' },
-    { value: 'properties.country', label: 'Country' },
+    { value: 'properties.name', labelKey: 'companyName' },
+    { value: 'properties.domain', labelKey: 'domain' },
+    { value: 'properties.phone', labelKey: 'phone' },
+    { value: 'properties.industry', labelKey: 'industry' },
+    { value: 'properties.description', labelKey: 'description' },
+    { value: 'properties.numberofemployees', labelKey: 'numberOfEmployees' },
+    { value: 'properties.annualrevenue', labelKey: 'annualRevenue' },
+    { value: 'properties.website', labelKey: 'website' },
+    { value: 'properties.address', labelKey: 'address' },
+    { value: 'properties.city', labelKey: 'city' },
+    { value: 'properties.state', labelKey: 'state' },
+    { value: 'properties.zip', labelKey: 'zip' },
+    { value: 'properties.country', labelKey: 'country' },
   ],
   opportunity: [
-    { value: 'properties.dealname', label: 'Deal Name' },
-    { value: 'properties.amount', label: 'Amount' },
-    { value: 'properties.dealstage', label: 'Deal Stage' },
-    { value: 'properties.pipeline', label: 'Pipeline' },
-    { value: 'properties.closedate', label: 'Close Date' },
-    { value: 'properties.description', label: 'Description' },
-    { value: 'properties.deal_currency_code', label: 'Currency' },
+    { value: 'properties.dealname', labelKey: 'dealName' },
+    { value: 'properties.amount', labelKey: 'amount' },
+    { value: 'properties.dealstage', labelKey: 'dealStage' },
+    { value: 'properties.pipeline', labelKey: 'pipeline' },
+    { value: 'properties.closedate', labelKey: 'closeDate' },
+    { value: 'properties.description', labelKey: 'description' },
+    { value: 'properties.deal_currency_code', labelKey: 'currency' },
   ],
   lead: [],
   activity: [],
 };
 
-const INTERNAL_FIELDS: Record<string, { value: string; label: string }[]> = {
+const INTERNAL_FIELDS: Record<string, FieldOption[]> = {
   contact: [
-    { value: 'firstName', label: 'First Name' },
-    { value: 'lastName', label: 'Last Name' },
-    { value: 'fullName', label: 'Full Name' },
-    { value: 'email', label: 'Email' },
-    { value: 'directPhone', label: 'Direct Phone' },
-    { value: 'mobile', label: 'Mobile' },
-    { value: 'title', label: 'Job Title' },
-    { value: 'department', label: 'Department' },
-    { value: 'status', label: 'Status' },
-    { value: 'address', label: 'Address' },
-    { value: 'city', label: 'City' },
-    { value: 'state', label: 'State' },
-    { value: 'zip', label: 'Zip' },
-    { value: 'country', label: 'Country' },
+    { value: 'firstName', labelKey: 'firstName' },
+    { value: 'lastName', labelKey: 'lastName' },
+    { value: 'fullName', labelKey: 'fullName' },
+    { value: 'email', labelKey: 'email' },
+    { value: 'directPhone', labelKey: 'directPhone' },
+    { value: 'mobile', labelKey: 'mobile' },
+    { value: 'title', labelKey: 'jobTitle' },
+    { value: 'department', labelKey: 'department' },
+    { value: 'status', labelKey: 'status' },
+    { value: 'address', labelKey: 'address' },
+    { value: 'city', labelKey: 'city' },
+    { value: 'state', labelKey: 'state' },
+    { value: 'zip', labelKey: 'zip' },
+    { value: 'country', labelKey: 'country' },
   ],
   customer: [
-    { value: 'companyName', label: 'Company Name' },
-    { value: 'email', label: 'Email' },
-    { value: 'phone', label: 'Phone' },
-    { value: 'website', label: 'Website' },
-    { value: 'industry', label: 'Industry' },
-    { value: 'notes', label: 'Notes' },
-    { value: 'billingAddress', label: 'Billing Address' },
-    { value: 'billingCity', label: 'Billing City' },
-    { value: 'billingCountry', label: 'Billing Country' },
-    { value: 'status', label: 'Status' },
-    { value: 'source', label: 'Source' },
+    { value: 'companyName', labelKey: 'companyName' },
+    { value: 'email', labelKey: 'email' },
+    { value: 'phone', labelKey: 'phone' },
+    { value: 'website', labelKey: 'website' },
+    { value: 'industry', labelKey: 'industry' },
+    { value: 'notes', labelKey: 'notes' },
+    { value: 'billingAddress', labelKey: 'billingAddress' },
+    { value: 'billingCity', labelKey: 'billingCity' },
+    { value: 'billingCountry', labelKey: 'billingCountry' },
+    { value: 'status', labelKey: 'status' },
+    { value: 'source', labelKey: 'source' },
   ],
   opportunity: [
-    { value: 'name', label: 'Deal Name' },
-    { value: 'amount', label: 'Amount' },
-    { value: 'currency', label: 'Currency' },
-    { value: 'stage', label: 'Stage' },
-    { value: 'pipeline', label: 'Pipeline' },
-    { value: 'closeDate', label: 'Close Date' },
-    { value: 'description', label: 'Description' },
-    { value: 'probability', label: 'Probability' },
+    { value: 'name', labelKey: 'dealName' },
+    { value: 'amount', labelKey: 'amount' },
+    { value: 'currency', labelKey: 'currency' },
+    { value: 'stage', labelKey: 'stage' },
+    { value: 'pipeline', labelKey: 'pipeline' },
+    { value: 'closeDate', labelKey: 'closeDate' },
+    { value: 'description', labelKey: 'description' },
+    { value: 'probability', labelKey: 'probability' },
   ],
   lead: [],
   activity: [],
@@ -164,6 +169,8 @@ function carryMappingKey<T extends object>(previous: object, next: T): T {
 
 export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: string }>) {
   const t = useTranslations();
+  const { t: i18n } = useI18n();
+  const fieldLabels = i18n.settings.fieldMappingFields;
   const ENTITY_TYPES = React.useMemo(() => getEntityTypes(t), [t]);
   const DIRECTION_LABELS = React.useMemo(() => getDirectionLabels(t), [t]);
   const [activeEntityType, setActiveEntityType] = React.useState('customer');
@@ -310,7 +317,7 @@ export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: st
                   </SelectTrigger>
                   <SelectContent>
                     {(EXTERNAL_FIELDS[activeEntityType] || []).map(f => (
-                      <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      <SelectItem key={f.value} value={f.value}>{fieldLabels[f.labelKey]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -334,7 +341,7 @@ export function FieldMappingEditor({ connectionId }: Readonly<{ connectionId: st
                   </SelectTrigger>
                   <SelectContent>
                     {(INTERNAL_FIELDS[activeEntityType] || []).map(f => (
-                      <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      <SelectItem key={f.value} value={f.value}>{fieldLabels[f.labelKey]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

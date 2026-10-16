@@ -285,9 +285,9 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
       setProvisioningPollCount(0);
       finalizationTriggered.current = false;
       setProvisioningSteps([
-        { id: 'database', label: 'Creating your database', status: 'in_progress' },
-        { id: 'security', label: 'Setting up security', status: 'pending' },
-        { id: 'features', label: 'Enabling features', status: 'pending' },
+        { id: 'database', label: t('sweep.shared.creatingYourDatabase'), status: 'in_progress' },
+        { id: 'security', label: t('sweep.shared.settingUpSecurity'), status: 'pending' },
+        { id: 'features', label: t('sweep.shared.enablingFeatures'), status: 'pending' },
       ]);
       // Provisioning was already triggered server-side by /api/onboard; the
       // effect below polls database-status and finalizes once it's ready.

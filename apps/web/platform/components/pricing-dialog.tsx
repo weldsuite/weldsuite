@@ -39,6 +39,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { EnterpriseContactForm } from '@/components/billing/enterprise-contact-form';
 import { ManagedPricingDialog } from '@/components/partner/managed-pricing-dialog';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
+import { useI18n } from '@/lib/i18n/provider';
 
 // Monthly email options (values in emails)
 const EMAIL_CREDIT_OPTIONS = [
@@ -53,7 +54,8 @@ const EMAIL_CREDIT_OPTIONS = [
   { value: 1000000, label: '1M' },
   { value: 1500000, label: '1.5M' },
   { value: 2000000, label: '2M' },
-  { value: -1, label: 'Custom' },
+  // Label is resolved from the locale at render time (`common.pricingDialog.custom`).
+  { value: -1, label: '' },
 ];
 
 // Price per 1,000 emails in US cents by plan
@@ -78,33 +80,8 @@ const getEmailPrice = (planName: string, emailCount: number, currency: string): 
   return Math.round((emailCount / 1000) * pricePerThousand);
 };
 
-// Curated feature lists per plan (matching settings/plans page)
-const PLAN_FEATURES: Record<string, string[]> = {
-  business: [
-    'Up to 25 users (3 user minimum)',
-    '250 GB storage per user',
-    'API access & webhooks',
-    'Custom email domains',
-    'Roles & permissions',
-    'Standard support',
-  ],
-  scale: [
-    'Unlimited users',
-    '1 TB storage per user',
-    'Priority support',
-    'Advanced roles & permissions',
-    '90-day automation history',
-    'Call & meeting intelligence',
-  ],
-  enterprise: [
-    'Custom seat limit',
-    'SSO / SAML',
-    '99.999% uptime SLA',
-    'Data residency',
-    'Dedicated support',
-    'Custom integrations',
-  ],
-};
+// Curated feature lists per plan (matching settings/plans page) live in the
+// locale: `common.pricingDialog.features.<plan>`.
 
 interface PricingDialogProps {
   open: boolean;
@@ -224,6 +201,8 @@ function CheckoutView({
   onClose,
   onCheckout,
 }: Readonly<CheckoutViewProps>) {
+  const { t, format } = useI18n();
+  const tp = t.common.pricingDialog;
   return (
     /* Checkout View */
     <div className="flex flex-col h-full">
@@ -232,7 +211,7 @@ function CheckoutView({
         <Button variant="ghost" size="icon" className="h-7 w-7 mr-2" onClick={onBack}>
           <ChevronLeft className="h-4 w-4 translate-y-px" />
         </Button>
-        <h2 className="text-base font-semibold flex-1">Change summary</h2>
+        <h2 className="text-base font-semibold flex-1">{tp.changeSummary}</h2>
         <Button variant="ghost" size="icon" className="h-5 w-5" onClick={onClose}>
           <X className="h-3.5 w-3.5" />
         </Button>
@@ -244,14 +223,14 @@ function CheckoutView({
           <div className="px-6 pt-4 pb-6 space-y-6">
             {/* Plan header */}
             <div>
-              <h3 className="text-sm font-semibold leading-none">Upgrade to {plan.name}</h3>
+              <h3 className="text-sm font-semibold leading-none">{format(tp.upgradeTo, { plan: plan.name })}</h3>
               <Button
                 type="button"
                 variant="link"
                 className="text-xs text-muted-foreground underline hover:text-foreground transition-colors leading-none mt-0.5 h-auto p-0"
                 onClick={onBack}
               >
-                Change plan
+                {tp.changePlan}
               </Button>
             </div>
 
@@ -288,9 +267,11 @@ function CheckoutBillingPeriod({
   billingCycle,
   onBillingCycleChange,
 }: Readonly<Pick<CheckoutViewProps, 'prices' | 'billingCycle' | 'onBillingCycleChange'>>) {
+  const { t, format } = useI18n();
+  const tp = t.common.pricingDialog;
   return (
     <div className="space-y-2">
-      <Label className="text-sm text-muted-foreground">Billing period</Label>
+      <Label className="text-sm text-muted-foreground">{tp.billingPeriod}</Label>
       <Select value={billingCycle} onValueChange={(v) => onBillingCycleChange(v as 'monthly' | 'annually')}>
         <SelectTrigger>
           <SelectValue />
@@ -298,14 +279,14 @@ function CheckoutBillingPeriod({
         <SelectContent>
           <SelectItem value="annually">
             <div className="flex items-center gap-2">
-              <span>Annually - {formatCurrency(prices.annualPricePerSeat / 12, prices.currency)} / user / month</span>
+              <span>{format(tp.annuallyOption, { price: formatCurrency(prices.annualPricePerSeat / 12, prices.currency) })}</span>
               {prices.annualSaving > 0 && (
-                <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">Save {prices.annualSaving}%</Badge>
+                <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">{format(tp.save, { percent: prices.annualSaving })}</Badge>
               )}
             </div>
           </SelectItem>
           <SelectItem value="monthly">
-            Monthly - {formatCurrency(prices.monthlyPricePerSeat, prices.currency)} / user / month
+            {format(tp.monthlyOption, { price: formatCurrency(prices.monthlyPricePerSeat, prices.currency) })}
           </SelectItem>
         </SelectContent>
       </Select>
@@ -318,16 +299,18 @@ function CheckoutSeats({
   seatCount,
   onSeatCountChange,
 }: Readonly<Pick<CheckoutViewProps, 'plan' | 'seatCount' | 'onSeatCountChange'>>) {
+  const { t, format } = useI18n();
+  const tp = t.common.pricingDialog;
   return (
     <div className="space-y-2">
-      <Label className="text-sm text-muted-foreground">Seats</Label>
+      <Label className="text-sm text-muted-foreground">{tp.seats}</Label>
       <div className="flex items-center justify-between px-4 py-3 border rounded-lg">
         <div>
-          <p className="text-sm font-medium">Seats</p>
+          <p className="text-sm font-medium">{tp.seats}</p>
           <p className="text-sm text-muted-foreground">
             {plan.maxMembers != null
-              ? `Up to ${plan.maxMembers} seats on ${plan.name}`
-              : 'Purchase additional seats to add more users'}
+              ? format(tp.seatsUpTo, { max: plan.maxMembers, plan: plan.name })
+              : tp.purchaseAdditionalSeats}
           </p>
         </div>
         <div className="flex items-center border rounded-md overflow-hidden">
@@ -359,10 +342,18 @@ function CheckoutSeats({
 }
 
 /** The email add-on's price for the checkout, or why there is none. */
-function creditsPriceLabel(price: number | null, currency: string, cycle: 'month' | 'year'): string {
-  if (price === null) return 'Priced separately';
-  if (price <= 0) return 'Included';
-  return `${formatCurrency(price, currency)}/ ${cycle}`;
+function creditsPriceLabel(
+  price: number | null,
+  currency: string,
+  cycle: 'month' | 'year',
+  labels: { pricedSeparately: string; included: string; pricePerMonth: string; pricePerYear: string },
+  interpolate: (template: string, values: Record<string, unknown>) => string,
+): string {
+  if (price === null) return labels.pricedSeparately;
+  if (price <= 0) return labels.included;
+  return interpolate(cycle === 'month' ? labels.pricePerMonth : labels.pricePerYear, {
+    price: formatCurrency(price, currency),
+  });
 }
 
 function CheckoutEmails({
@@ -371,20 +362,22 @@ function CheckoutEmails({
   emailCredits,
   onEmailCreditsChange,
 }: Readonly<Pick<CheckoutViewProps, 'plan' | 'prices' | 'emailCredits' | 'onEmailCreditsChange'>>) {
+  const { t, format } = useI18n();
+  const tp = t.common.pricingDialog;
   return (
     <div className="space-y-2">
-      <Label className="text-sm text-muted-foreground">Monthly Emails</Label>
+      <Label className="text-sm text-muted-foreground">{tp.monthlyEmails}</Label>
       <div className="p-4 border rounded-lg space-y-3">
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Extra monthly emails</p>
+            <p className="text-sm font-medium">{tp.extraMonthlyEmails}</p>
             <span className="text-sm font-medium">
-              {creditsPriceLabel(prices.creditsPriceMonthly, prices.currency, 'month')}
+              {creditsPriceLabel(prices.creditsPriceMonthly, prices.currency, 'month', tp, format)}
             </span>
           </div>
           <p className="text-sm text-muted-foreground">
-            {plan.emailsPerMonth?.toLocaleString() || '1000'} included on {plan.name}
-            {emailCredits > 0 && <span className="text-blue-600"> + {(emailCredits / 1000).toFixed(0)}k/ month</span>}
+            {format(tp.includedOnPlan, { count: plan.emailsPerMonth?.toLocaleString() || '1000', plan: plan.name })}
+            {emailCredits > 0 && <span className="text-blue-600"> {format(tp.extraEmailsPerMonth, { count: (emailCredits / 1000).toFixed(0) })}</span>}
           </p>
         </div>
 
@@ -418,7 +411,7 @@ function CheckoutEmails({
                   )}
                   style={{ left: `${position}%` }}
                 >
-                  {option.label}
+                  {option.value === -1 ? tp.custom : option.label}
                 </Button>
               );
             })}
@@ -440,15 +433,17 @@ function CheckoutSummary({
   CheckoutViewProps,
   'plan' | 'prices' | 'seatCount' | 'emailCredits' | 'processing' | 'onCheckout'
 >>) {
+  const { t, format, plural } = useI18n();
+  const tp = t.common.pricingDialog;
   return (
     <div className="w-[344px] border-l bg-muted/30 p-6 flex flex-col">
       <div className="flex-1 space-y-4">
         {/* Seats line item */}
         <div className="flex justify-between text-sm">
           <div>
-            <p>{seatCount} seat{seatCount !== 1 ? 's' : ''} &times; {plan.name}</p>
+            <p>{format(plural(seatCount, tp.seatLine), { plan: plan.name })}</p>
             <p className="text-muted-foreground text-xs">
-              (at {formatCurrency(prices.pricePerSeat, prices.currency)} / {prices.isAnnual ? 'year' : 'month'})
+              {format(prices.isAnnual ? tp.atPricePerYear : tp.atPricePerMonth, { price: formatCurrency(prices.pricePerSeat, prices.currency) })}
             </p>
           </div>
           <span className="font-medium">{formatCurrency(prices.seatsTotal, prices.currency)}</span>
@@ -458,15 +453,15 @@ function CheckoutSummary({
         {emailCredits > 0 && (
           <div className="flex justify-between text-sm">
             <div>
-              <p>Extra emails {(emailCredits / 1000).toFixed(0)}k</p>
+              <p>{format(tp.extraEmailsLine, { count: (emailCredits / 1000).toFixed(0) })}</p>
               {prices.creditsPrice !== null && (
                 <p className="text-muted-foreground text-xs">
-                  (at {formatCurrency(prices.creditsPrice, prices.currency)} / {prices.isAnnual ? 'year' : 'month'})
+                  {format(prices.isAnnual ? tp.atPricePerYear : tp.atPricePerMonth, { price: formatCurrency(prices.creditsPrice, prices.currency) })}
                 </p>
               )}
             </div>
             <span className="font-medium">
-              {prices.creditsPrice === null ? 'Priced separately' : formatCurrency(prices.creditsPrice, prices.currency)}
+              {prices.creditsPrice === null ? tp.pricedSeparately : formatCurrency(prices.creditsPrice, prices.currency)}
             </span>
           </div>
         )}
@@ -474,27 +469,27 @@ function CheckoutSummary({
         <Separator />
 
         <div className="flex justify-between text-sm">
-          <span>Subtotal</span>
+          <span>{tp.subtotal}</span>
           <span className="font-medium">{formatCurrency(prices.subtotal, prices.currency)}</span>
         </div>
 
         <div className="flex justify-between text-sm">
-          <span>Tax</span>
-          <span className="text-muted-foreground text-xs">Calculated at checkout</span>
+          <span>{tp.tax}</span>
+          <span className="text-muted-foreground text-xs">{tp.calculatedAtCheckout}</span>
         </div>
 
         <Separator />
 
         <div className="flex justify-between text-sm">
           <div className="flex items-center gap-1">
-            <span>Subtotal {prices.isAnnual ? '/ year' : '/ month'}</span>
+            <span>{prices.isAnnual ? tp.subtotalPerYear : tp.subtotalPerMonth}</span>
             <TooltipProvider delayDuration={0}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Info className="h-3.5 w-3.5 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  <p className="text-xs">Final price including applicable tax will be shown at checkout</p>
+                  <p className="text-xs">{tp.finalPriceNote}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -514,10 +509,10 @@ function CheckoutSummary({
         {processing ? (
           <>
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Redirecting to checkout...
+            {tp.redirecting}
           </>
         ) : (
-          'Continue to checkout'
+          tp.continueToCheckout
         )}
       </Button>
     </div>
@@ -588,6 +583,8 @@ function PlanCta({
 }: Readonly<Pick<PlanCardProps, 'isContact' | 'isCurrent' | 'highlighted' | 'showProcessing' | 'buttonText' | 'onSelect'> & {
   disabled: boolean;
 }>) {
+  const { t } = useI18n();
+  const tp = t.common.pricingDialog;
   if (isContact) {
     return (
       <EnterpriseContactForm
@@ -597,7 +594,7 @@ function PlanCta({
             className="block w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors mt-6 bg-card border hover:bg-muted disabled:opacity-50"
             disabled={isCurrent}
           >
-            {isCurrent ? 'Current Plan' : 'Contact sales'}
+            {isCurrent ? tp.currentPlan : tp.contactSales}
           </Button>
         }
       />
@@ -618,7 +615,7 @@ function PlanCta({
       {showProcessing ? (
         <>
           <Loader2 className="h-4 w-4 mr-2 animate-spin inline" />
-          Processing...
+          {tp.processing}
         </>
       ) : (
         buttonText
@@ -640,11 +637,13 @@ function PlanCard({
   buttonText,
   onSelect,
 }: Readonly<PlanCardProps>) {
-  let priceSubtitle = 'Per user/month';
+  const { t } = useI18n();
+  const tp = t.common.pricingDialog;
+  let priceSubtitle = tp.perUserMonth;
   if (isContact) {
-    priceSubtitle = 'Billed annually';
+    priceSubtitle = tp.billedAnnually;
   } else if (isAnnual) {
-    priceSubtitle = 'Per user/month, billed annually';
+    priceSubtitle = tp.perUserMonthBilledAnnually;
   }
 
   return (
@@ -767,13 +766,15 @@ function FeatureHighlightBanner({
   annualSaving: number;
   onToggle: () => void;
 }>) {
+  const { t, format } = useI18n();
+  const tp = t.common.pricingDialog;
   return (
     <div className="rounded-2xl border bg-card px-5 h-[53px] flex items-center justify-between gap-3">
       <p className="text-sm text-muted-foreground">{highlightTerm(featureHighlight.description, featureHighlight.feature)}</p>
       <div className="flex items-center gap-3 shrink-0">
-        <span className="text-sm font-medium">{billingCycle === 'yearly' ? 'Annual' : 'Monthly'}</span>
+        <span className="text-sm font-medium">{billingCycle === 'yearly' ? tp.annual : tp.monthly}</span>
         {billingCycle === 'yearly' && annualSaving > 0 && (
-          <span className="text-sm font-medium text-green-600 -ml-1.5">(Save {annualSaving}%)</span>
+          <span className="text-sm font-medium text-green-600 -ml-1.5">{format(tp.saveInline, { percent: annualSaving })}</span>
         )}
         <Button
           variant="ghost"
@@ -795,6 +796,8 @@ function FeatureHighlightBanner({
 
 
 function PricingDialogInner({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, featureHighlight }: Readonly<PricingDialogProps>) {
+  const { t } = useI18n();
+  const tp = t.common.pricingDialog;
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [allPlans, setAllPlans] = useState<Billing.BillingPlan[]>([]);
   const [subscription, setSubscription] = useState<Billing.Subscription | null>(null);
@@ -846,10 +849,10 @@ function PricingDialogInner({ open, onOpenChange, onPlanChanged, excludePlans = 
         setAllPlans(sortedPlans);
         setSubscription(result.data.subscription || null);
       } else {
-        setError('Failed to load plans');
+        setError(tp.failedToLoadPlans);
       }
     } catch {
-      setError('Failed to load pricing data');
+      setError(tp.failedToLoadPricing);
     } finally {
       setLoading(false);
     }
@@ -913,12 +916,12 @@ function PricingDialogInner({ open, onOpenChange, onPlanChanged, excludePlans = 
           onPlanChanged?.();
           onOpenChange(false);
         } else {
-          setError('Failed to change plan');
+          setError(tp.failedToChangePlan);
         }
         setProcessingPlanId(null);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : tp.errorOccurred);
       setProcessingPlanId(null);
     }
   };
@@ -965,26 +968,27 @@ function PricingDialogInner({ open, onOpenChange, onPlanChanged, excludePlans = 
           onPlanChanged?.();
           onOpenChange(false);
         } else {
-          setError('Failed to create checkout session');
+          setError(tp.failedToCreateCheckout);
         }
         setProcessingPlanId(null);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : tp.errorOccurred);
       setProcessingPlanId(null);
     }
   };
 
   const getButtonText = (plan: Billing.BillingPlan) => {
-    if (isPlanCurrent(plan)) return 'Current Plan';
-    if (isContactPlan(plan)) return 'Contact sales';
-    if (isUpgrade(plan)) return 'Upgrade';
-    if (isDowngrade(plan)) return 'Downgrade';
-    return 'Select Plan';
+    if (isPlanCurrent(plan)) return tp.currentPlan;
+    if (isContactPlan(plan)) return tp.contactSales;
+    if (isUpgrade(plan)) return tp.upgrade;
+    if (isDowngrade(plan)) return tp.downgrade;
+    return tp.selectPlan;
   };
 
   const getPlanFeatures = (plan: Billing.BillingPlan): string[] => {
-    return PLAN_FEATURES[plan.slug] ?? PLAN_FEATURES[plan.name.toLowerCase()] ?? [];
+    const features: Record<string, string[]> = tp.features;
+    return features[plan.slug] ?? features[plan.name.toLowerCase()] ?? [];
   };
 
   const isPlanHighlighted = (plan: Billing.BillingPlan): boolean => {
@@ -1052,7 +1056,7 @@ function PricingDialogInner({ open, onOpenChange, onPlanChanged, excludePlans = 
           <Alert variant="destructive" className="mt-4">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              <p className="font-medium mb-2">Cannot downgrade - please reduce usage first:</p>
+              <p className="font-medium mb-2">{tp.cannotDowngrade}</p>
               <ul className="list-disc list-inside space-y-1">
                 {downgradeBlockers.map((blocker) => (
                   <li key={blocker}>{blocker}</li>
@@ -1124,7 +1128,7 @@ function PricingDialogInner({ open, onOpenChange, onPlanChanged, excludePlans = 
             <div className="p-8">
             <DialogHeader className="text-center mb-8">
               <DialogTitle className="text-xl font-medium">
-                {subscription ? 'Upgrade plan' : 'Choose a plan'}
+                {subscription ? tp.upgradePlan : tp.choosePlan}
               </DialogTitle>
             </DialogHeader>
 

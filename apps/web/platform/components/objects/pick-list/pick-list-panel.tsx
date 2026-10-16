@@ -18,6 +18,7 @@ import { detailsTab } from '@/components/objects/_shared/focused-tabs';
 
 export function PickListPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = getTranslations('common').weldstash.pickLists;
+  const tp = getTranslations('weldobjects').pickListPanel;
   const { id } = props;
   const { data, isLoading, error } = useWeldstashPickList(id);
   const list = data?.data;
@@ -73,11 +74,11 @@ export function PickListPanel(props: Readonly<ObjectPanelComponentProps>) {
                     )
                   }
                 >
-                  Assign
+                  {tp.assign}
                 </Button>
               </div>
             ) : null}
-            <SectionHeader>Items</SectionHeader>
+            <SectionHeader>{tp.items}</SectionHeader>
             <LineItemList
               items={list.items ?? []}
               getKey={(item) => item.id}

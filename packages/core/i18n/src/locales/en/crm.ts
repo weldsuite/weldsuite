@@ -1927,6 +1927,8 @@ export const crm = {
       createdSuccess: 'Company created',
       nameRequired: 'Name is required',
       nameTooLong: 'Name can be at most {max} characters',
+      websiteInvalid: 'Must be a valid URL (e.g. acme.com or https://acme.com)',
+      employeeCountInvalid: 'Must be a number or a range (e.g. 42 or 11-50)',
     },
 
     bulkActions: {
@@ -2227,6 +2229,7 @@ export const crm = {
 
     peopleTab: {
       filterButton: 'Filter',
+      statusLabel: 'Status',
       statusAll: 'All',
       statusActive: 'Active',
       statusPending: 'Pending',
@@ -2319,6 +2322,16 @@ export const crm = {
     sequenceSettings: {
       notifyOnErrorLabel: 'Get notified when this sequence fails',
       notifyOnCompleteLabel: 'Get notified when this sequence completes',
+    },
+
+    entityGrid: {
+      emptyTitle: 'No {entity} yet',
+      emptyHint: 'Add your first {entity} to get started.',
+      newEntity: 'New {entity}',
+      personSingular: 'person',
+      personPlural: 'people',
+      companySingular: 'company',
+      companyPlural: 'companies',
     },
 
     listPage: {

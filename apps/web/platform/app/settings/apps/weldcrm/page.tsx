@@ -1,11 +1,12 @@
-import { Tag } from 'lucide-react';
+import { ListTodo, Tag } from 'lucide-react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import CustomerStatusesPage from '@/app/settings/weldcrm/customer-statuses/page';
+import { TaskSchedulingSwitch } from '@/app/settings/apps/task-scheduling-switch';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';
 
-const TAB_VALUES = ['statuses'] as const;
+const TAB_VALUES = ['statuses', 'tasks'] as const;
 type TabValue = (typeof TAB_VALUES)[number];
 
 export default function WeldCrmSettingsPage() {
@@ -20,6 +21,7 @@ export default function WeldCrmSettingsPage() {
 
   const tabs: PageTab[] = [
     { id: 'statuses', label: t.crm.settings.customerStatuses.title, icon: Tag },
+    { id: 'tasks', label: ts.taskScheduling.tab, icon: ListTodo },
   ];
 
   const handleTabChange = (value: string) => {
@@ -43,6 +45,7 @@ export default function WeldCrmSettingsPage() {
       <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={handleTabChange} />
       <div className="mt-6">
         {activeTab === 'statuses' && <CustomerStatusesPage />}
+        {activeTab === 'tasks' && <TaskSchedulingSwitch preference="autoScheduleCrmTasks" />}
       </div>
     </div>
   );

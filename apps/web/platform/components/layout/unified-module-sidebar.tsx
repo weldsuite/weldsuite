@@ -27,6 +27,7 @@ import { useWeldhrSidebarItems } from '@/app/weldhr/hooks/use-weldhr-sidebar-ite
 import { useSettingsSidebarItems } from '@/app/settings/hooks/use-settings-sidebar-items';
 import { resolveAppCode } from '@/lib/apps/app-registry';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
+import { EntitySwitcher } from '@/components/accounting/entity-switcher';
 
 interface UnifiedModuleSidebarProps {
   user?: UserInfo;
@@ -138,7 +139,6 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
       break;
     case 'weldmail':
       menuItems = mailItems.menuGroups;
-      extraProps = mailItems.emailAccountProps;
       break;
     case 'weldflow':
       menuItems = projectsItems.menuGroups;
@@ -166,7 +166,8 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
       break;
     case 'weldbooks':
       // Tax item gated + labelled by the entity's jurisdiction.
-      menuItems = weldbooksItems.adjust(staticItems);
+      // Entity switcher on top: every WeldBooks screen is scoped to it.
+      menuItems = [{ group: '', items: [], customContent: <EntitySwitcher /> }, ...weldbooksItems.adjust(staticItems)];
       break;
     case 'weldhr':
       // My HR on top for whoever has it, collapsible next to the team view;

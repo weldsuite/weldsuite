@@ -108,36 +108,54 @@ export interface AvailableNumber {
   address_requirements?: string;
 }
 
-const COUNTRIES = [
-  { code: 'US', name: 'United States', prefix: '+1', requiresAddress: false },
-  { code: 'CA', name: 'Canada', prefix: '+1', requiresAddress: false },
-  { code: 'GB', name: 'United Kingdom', prefix: '+44', requiresAddress: false },
-  { code: 'NL', name: 'Netherlands', prefix: '+31', requiresAddress: true },
-  { code: 'DE', name: 'Germany', prefix: '+49', requiresAddress: true },
-  { code: 'FR', name: 'France', prefix: '+33', requiresAddress: true },
-  { code: 'BE', name: 'Belgium', prefix: '+32', requiresAddress: true },
-  { code: 'AT', name: 'Austria', prefix: '+43', requiresAddress: true },
-  { code: 'CH', name: 'Switzerland', prefix: '+41', requiresAddress: true },
-  { code: 'AU', name: 'Australia', prefix: '+61', requiresAddress: false },
-  { code: 'ES', name: 'Spain', prefix: '+34', requiresAddress: true },
-  { code: 'IT', name: 'Italy', prefix: '+39', requiresAddress: true },
-  { code: 'SE', name: 'Sweden', prefix: '+46', requiresAddress: true },
-  { code: 'NO', name: 'Norway', prefix: '+47', requiresAddress: true },
-  { code: 'DK', name: 'Denmark', prefix: '+45', requiresAddress: true },
-  { code: 'PL', name: 'Poland', prefix: '+48', requiresAddress: true },
+const COUNTRY_DATA = [
+  { code: 'US', englishName: 'United States', prefix: '+1', requiresAddress: false },
+  { code: 'CA', englishName: 'Canada', prefix: '+1', requiresAddress: false },
+  { code: 'GB', englishName: 'United Kingdom', prefix: '+44', requiresAddress: false },
+  { code: 'NL', englishName: 'Netherlands', prefix: '+31', requiresAddress: true },
+  { code: 'DE', englishName: 'Germany', prefix: '+49', requiresAddress: true },
+  { code: 'FR', englishName: 'France', prefix: '+33', requiresAddress: true },
+  { code: 'BE', englishName: 'Belgium', prefix: '+32', requiresAddress: true },
+  { code: 'AT', englishName: 'Austria', prefix: '+43', requiresAddress: true },
+  { code: 'CH', englishName: 'Switzerland', prefix: '+41', requiresAddress: true },
+  { code: 'AU', englishName: 'Australia', prefix: '+61', requiresAddress: false },
+  { code: 'ES', englishName: 'Spain', prefix: '+34', requiresAddress: true },
+  { code: 'IT', englishName: 'Italy', prefix: '+39', requiresAddress: true },
+  { code: 'SE', englishName: 'Sweden', prefix: '+46', requiresAddress: true },
+  { code: 'NO', englishName: 'Norway', prefix: '+47', requiresAddress: true },
+  { code: 'DK', englishName: 'Denmark', prefix: '+45', requiresAddress: true },
+  { code: 'PL', englishName: 'Poland', prefix: '+48', requiresAddress: true },
 ];
 
 const NUMBER_TYPES = [
-  { value: 'local', label: 'Local' },
-  { value: 'toll-free', label: 'Toll-Free' },
-  { value: 'mobile', label: 'Mobile' },
-];
+  { value: 'local', labelKey: 'local' },
+  { value: 'toll-free', labelKey: 'tollFree' },
+  { value: 'mobile', labelKey: 'mobile' },
+] as const;
+
+/** Country name in the active locale; falls back to the English name when Intl has no data. */
+function localizedCountryName(code: string, fallback: string): string {
+  try {
+    return new Intl.DisplayNames([getLocale()], { type: 'region' }).of(code) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const COUNTRIES = COUNTRY_DATA.map((c) => ({
+  ...c,
+  get name(): string {
+    return localizedCountryName(c.code, c.englishName);
+  },
+}));
+
 
 function pricingKey(countryCode: string, numberType: string): string {
   return `${countryCode.trim().toUpperCase()}:${numberType.trim().toLowerCase().replaceAll('_', '-')}`;
 }
 
 type NewNumberStrings = TranslationNamespaces['settings']['phoneNumbers']['newNumber'];
+type PhoneNumberStrings = TranslationNamespaces['settings']['phoneNumbers'];
 
 /** Amount in the currency it is billed in, formatted for the user's locale (`€ 1,20`, `$1.20`). */
 export function formatMoney(currency: string, amount: number): string {
@@ -157,16 +175,17 @@ export function defaultSearchCountry(workspaceCountry: string | null | undefined
   return COUNTRIES.some((c) => c.code === code) ? code! : FALLBACK_COUNTRY;
 }
 
-function formatCapabilities(capabilities: AvailableNumber['capabilities']): string {
+function formatCapabilities(capabilities: AvailableNumber['capabilities'], labels: PhoneNumberStrings['capabilities']): string {
   return [
-    capabilities?.voice && 'Voice',
-    capabilities?.sms && 'SMS',
-    capabilities?.mms && 'MMS',
+    capabilities?.voice && labels.voice,
+    capabilities?.sms && labels.sms,
+    capabilities?.mms && labels.mms,
   ].filter(Boolean).join(', ');
 }
 
-function numberTypeLabel(numberType: string): string {
-  return NUMBER_TYPES.find(t => t.value === numberType)?.label || numberType;
+function numberTypeLabel(numberType: string, labels: PhoneNumberStrings['numberTypes']): string {
+  const match = NUMBER_TYPES.find(t => t.value === numberType);
+  return match ? labels[match.labelKey] : numberType;
 }
 
 function formatLocation(num: AvailableNumber): string {
@@ -178,17 +197,18 @@ function buildPreviewSummaryFields(
   num: AvailableNumber,
   searchType: string,
   tn: NewNumberStrings,
+  tp: PhoneNumberStrings,
   numberColumnLabel: string,
 ): HostSummaryField[] {
   const fields: HostSummaryField[] = [
     { label: numberColumnLabel, value: num.friendly_name },
     { label: tn.summaryCountry, value: COUNTRIES.find(c => c.code === num.iso_country)?.name || num.iso_country },
-    { label: tn.summaryType, value: numberTypeLabel(searchType) },
+    { label: tn.summaryType, value: numberTypeLabel(searchType, tp.numberTypes) },
   ];
   if (num.locality) {
     fields.push({ label: tn.summaryLocation, value: formatLocation(num) });
   }
-  const caps = formatCapabilities(num.capabilities);
+  const caps = formatCapabilities(num.capabilities, tp.capabilities);
   if (caps) {
     fields.push({ label: tn.summaryCapabilities, value: caps });
   }
@@ -205,6 +225,7 @@ interface CartItemSummaryProps {
   setup: number;
   monthly: number;
   tn: NewNumberStrings;
+  tp: PhoneNumberStrings;
   onToggle: () => void;
   onRemove: () => void;
 }
@@ -219,6 +240,7 @@ function CartItemSummary({
   setup,
   monthly,
   tn,
+  tp,
   onToggle,
   onRemove,
 }: Readonly<CartItemSummaryProps>) {
@@ -250,7 +272,7 @@ function CartItemSummary({
           </div>
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">{tn.summaryType}</span>
-            <span className="font-medium">{numberTypeLabel(searchType)}</span>
+            <span className="font-medium">{numberTypeLabel(searchType, tp.numberTypes)}</span>
           </div>
           {num.locality && (
             <div className="flex items-center justify-between">
@@ -267,7 +289,7 @@ function CartItemSummary({
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">{tn.summaryCapabilities}</span>
             <span className="font-medium">
-              {formatCapabilities(num.capabilities)}
+              {formatCapabilities(num.capabilities, tp.capabilities)}
             </span>
           </div>
         </div>
@@ -722,7 +744,7 @@ export function NewNumberClient({
   // Show preview fields when previewing a number
   const displayedNumber = previewedNumber;
   const summaryFields: HostSummaryField[] = displayedNumber
-    ? buildPreviewSummaryFields(displayedNumber, searchType, tn, ts.phoneNumbers.columns.number)
+    ? buildPreviewSummaryFields(displayedNumber, searchType, tn, ts.phoneNumbers, ts.phoneNumbers.columns.number)
     : [];
 
   // Summary content — cart items list (domain register style), hidden when previewing
@@ -743,6 +765,7 @@ export function NewNumberClient({
               setup={setupAmount(num)}
               monthly={monthlyAmount(num)}
               tn={tn}
+              tp={ts.phoneNumbers}
               onToggle={() => toggleCartExpand(num.phone_number)}
               onRemove={() => handleRemoveFromCart(num.phone_number)}
             />
@@ -821,7 +844,7 @@ export function NewNumberClient({
                     <SelectContent>
                       {NUMBER_TYPES.map((type) => (
                         <SelectItem key={type.value} value={type.value}>
-                          {type.label}
+                          {ts.phoneNumbers.numberTypes[type.labelKey]}
                         </SelectItem>
                       ))}
                     </SelectContent>

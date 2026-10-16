@@ -44,6 +44,7 @@ function getCountryOptions(st: ReturnType<typeof useTranslations>): Array<{ valu
 
 export function PortNumberWizard() {
   const t = getTranslations('porting');
+  const ts = getTranslations('settings');
   const st = useTranslations();
   const COUNTRY_OPTIONS = useMemo(() => getCountryOptions(st), [st]);
   const router = useRouter();
@@ -322,7 +323,7 @@ export function PortNumberWizard() {
                   <Label>{t.currentCarrier} *</Label>
                   <Input
                     value={currentCarrier}
-                    placeholder="KPN, Vodafone, Verizon..."
+                    placeholder={ts.phoneNumbers.portCarrierPlaceholder}
                     onChange={(e) => setCurrentCarrier(e.target.value)}
                   />
                 </div>

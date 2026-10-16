@@ -1,6 +1,5 @@
 import { usePathname } from '@/lib/router';
 import { BreadcrumbHeader, type BreadcrumbSegment } from '@/components/breadcrumb-header';
-import { EntitySwitcher } from '@/components/accounting/entity-switcher';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface WeldbooksHeaderProps {
@@ -129,7 +128,6 @@ export function WeldbooksHeader({
       onCalendarToggle={onCalendarToggle}
       onNotificationsToggle={onNotificationsToggle}
       moduleKey="weldbooks"
-      actions={<EntitySwitcher />}
     />
   );
 }

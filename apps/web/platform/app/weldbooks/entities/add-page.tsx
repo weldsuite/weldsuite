@@ -226,7 +226,7 @@ export default function AddEntityPage() {
             value={iban}
             onChange={(e) => setIban(e.target.value)}
             aria-invalid={ibanInvalid}
-            placeholder={isIndia ? 'Account number / IFSC' : 'NL91 ABNA 0417 1643 00'}
+            placeholder={isIndia ? te.accountNumberIfscPlaceholder : 'NL91 ABNA 0417 1643 00'}
           />
           {ibanInvalid && <p className="mt-1 text-sm text-destructive">{t.accounting.contacts.ibanInvalid}</p>}
         </div>

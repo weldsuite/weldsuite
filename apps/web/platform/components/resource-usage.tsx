@@ -107,9 +107,9 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
             </TooltipTrigger>
             <TooltipContent side="right" className="flex flex-col gap-2 py-2">
               <div className="flex flex-col gap-1.5">
-                <span className="font-medium">Credits</span>
+                <span className="font-medium">{t.common.resourceUsage.credits}</span>
                 <UsageProgressBar value={creditsData.usagePercentage} thresholds={{ red: 90, amber: 80 }} className="w-28" />
-                <span className="text-xs">{creditsData.currentBalance} of {creditsData.monthlyAllocation} remaining</span>
+                <span className="text-xs">{format(t.common.resourceUsage.remaining, { current: creditsData.currentBalance, total: creditsData.monthlyAllocation })}</span>
               </div>
               {managed ? (
                 <Button asChild size="sm" className="mt-1 w-full">
@@ -117,7 +117,7 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
                 </Button>
               ) : (
                 <Button size="sm" className="mt-1 w-full" onClick={() => setPricingOpen(true)}>
-                  Upgrade
+                  {t.common.actions.upgrade}
                 </Button>
               )}
             </TooltipContent>
@@ -134,7 +134,7 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
         <div className="flex items-center justify-between mb-1.5 px-1">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Coins className="h-3.5 w-3.5" />
-            <Link href="/settings/billing" className="hover:text-foreground transition-colors">Credits</Link>
+            <Link href="/settings/billing" className="hover:text-foreground transition-colors">{t.common.resourceUsage.credits}</Link>
           </div>
           <span className="text-xs text-muted-foreground">
             {creditsData.usagePercentage}%
@@ -143,7 +143,7 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
         <div className="px-1">
           <UsageProgressBar value={creditsData.usagePercentage} thresholds={{ red: 90, amber: 80 }} />
           <div className="mt-1 text-xs text-muted-foreground">
-            {creditsData.currentBalance} of {creditsData.monthlyAllocation} remaining
+            {format(t.common.resourceUsage.remaining, { current: creditsData.currentBalance, total: creditsData.monthlyAllocation })}
           </div>
         </div>
       </div>
@@ -155,7 +155,7 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
       ) : (
         <>
           <Button size="sm" className="mt-2.5 w-full h-9" onClick={() => setPricingOpen(true)}>
-            Upgrade
+            {t.common.actions.upgrade}
           </Button>
           <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />
         </>
