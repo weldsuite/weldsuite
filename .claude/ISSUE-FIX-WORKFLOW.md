@@ -134,6 +134,7 @@ pnpm build           # of the touched app(s)
 
 - `git status` clean (no stray files, no committed `node_modules`, no debug artifacts).
 - Schema change? It's edited in `packages/core/db/src/schema/` only, **no migration file without explicit user approval.**
+- Architectural decision made, reversed or replaced? Add or supersede the ADR and update the design doc in `weldsuite-documentation` (skill `weldsuite-docs`); link the docs PR from the code PR.
 - Re-read the enrichment's **Success criteria**: does the change satisfy each one?
 
 ---
