@@ -155,19 +155,30 @@ export function useProjectTasks(projectId: string, params?: { page?: number; pag
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: projectKeys.tasks(projectId, params),
+    // Every top-level task of the project, not one page. A project-scoped
+    // `GET /tasks` without a cursor pages by `page` / `pageSize` (default 50) and
+    // ignores `limit`, so the old single request silently cut projects with more
+    // tasks off. `pageSize` is the size of each request, capped at 200 by the API.
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, unknown> = { projectId, ...params };
-      if (qs.pageSize !== undefined) {
-        qs.limit = qs.pageSize;
-        delete qs.pageSize;
+      const pageSize = Math.min(params?.pageSize ?? 200, 200);
+      const maxPages = 50;
+      const all: Projects.ProjectTask[] = [];
+      let totalCount = 0;
+      for (let page = 1; page <= maxPages; page++) {
+        const query = buildQueryString({ projectId, includeSubtasks: params?.includeSubtasks, page, pageSize });
+        const res = await client.get<{
+          data: Projects.ProjectTask[];
+          pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
+        }>(`/tasks${query}`);
+        all.push(...res.data);
+        totalCount = res.pagination?.totalCount ?? all.length;
+        if (!res.pagination?.hasMore || res.data.length === 0) break;
       }
-      delete qs.page;
-      const query = buildQueryString(qs);
-      return client.get<{
-        data: Projects.ProjectTask[];
-        pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
-      }>(`/tasks${query}`);
+      return {
+        data: all,
+        pagination: { totalCount, hasMore: false, cursor: null as string | null },
+      };
     },
     enabled: !!projectId && enabled,
   });

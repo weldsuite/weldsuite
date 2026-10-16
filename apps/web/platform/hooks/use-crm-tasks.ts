@@ -247,11 +247,12 @@ export function useUpdateTask() {
     }: {
       taskId: string;
       data: Partial<
-        Pick<
-          Task,
-          'status' | 'dueDate' | 'priority' | 'title' | 'description' | 'repeat' | 'labels' | 'duration'
-        >
+        Pick<Task, 'status' | 'priority' | 'title' | 'description' | 'labels' | 'duration'>
       > & {
+        /** `null` clears the due date (`undefined` is dropped by JSON and keeps the stored one). */
+        dueDate?: Task['dueDate'] | null;
+        /** `null` removes the recurrence. */
+        repeat?: Task['repeat'] | null;
         assignee?: NonNullable<Task['assignee']> | null;
         assignees?: NonNullable<Task['assignees']> | null;
         linkedCompany?: NonNullable<Task['linkedCompany']> | null;

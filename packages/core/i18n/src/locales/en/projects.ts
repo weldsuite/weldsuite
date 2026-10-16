@@ -681,6 +681,10 @@ export const projects = {
       taskUpdateFailed: 'Failed to update task',
       taskDuplicated: 'Task duplicated',
       taskDuplicateFailed: 'Failed to duplicate task',
+      // Appended to a duplicated task's title
+      copySuffix: '(copy)',
+      failedToLoad: 'Failed to load tasks. Please try again.',
+      retry: 'Retry',
       reorderFailed: 'Failed to reorder tasks',
       nextRecurringCreated: 'Next recurring task created',
       taskUpdated: 'Task updated',
@@ -719,6 +723,7 @@ export const projects = {
         later: 'Later',
         noDueDate: 'No Due Date',
         noProject: 'No Project',
+        other: 'Other',
       },
       columns: {
         project: 'Project',
@@ -1093,6 +1098,12 @@ export const projects = {
       stageDeleteFailed: 'Failed to delete stage',
       stageDuplicated: 'Stage duplicated',
       stageDuplicateFailed: 'Failed to duplicate stage',
+      stageReorderFailed: 'Failed to reorder stages',
+      taskReorderFailed: 'Failed to reorder tasks',
+      nextRecurringCreated: 'Next recurring task created',
+      untitledTask: 'Untitled Task',
+      // Appended to a duplicated stage's name
+      stageCopySuffix: '(Copy)',
       taskStatusUpdateFailed: 'Failed to update task status',
       descriptionUpdateFailed: 'Failed to update description',
       confirmDeleteTask: 'Are you sure you want to delete this task?',
@@ -1703,6 +1714,7 @@ export const projects = {
       groupLater: 'Later',
       groupNoDate: 'No Due Date',
       groupUnassigned: 'Unassigned',
+      groupOther: 'Other',
       groupTodo: 'To Do',
       groupInProgress: 'In Progress',
       groupDone: 'Done',
@@ -1737,6 +1749,11 @@ export const projects = {
       // Row dropdown items
       editTaskItem: 'Edit',
       duplicateTaskItem: 'Duplicate',
+      // Appended to a duplicated task's title
+      copySuffix: '(copy)',
+      failedToDuplicateTask: 'Failed to duplicate task',
+      failedToLoad: 'Failed to load tasks. Please try again.',
+      retry: 'Retry',
       deleteTaskItem: 'Delete',
       // Move to project (weldflow-move-task flag)
       moveTaskItem: 'Move to project',

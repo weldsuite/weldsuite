@@ -681,6 +681,10 @@ export const projects = {
       taskUpdateFailed: 'Bijwerken van taak mislukt',
       taskDuplicated: 'Taak gedupliceerd',
       taskDuplicateFailed: 'Dupliceren van taak mislukt',
+      // Appended to a duplicated task's title
+      copySuffix: '(kopie)',
+      failedToLoad: 'Taken laden mislukt. Probeer het opnieuw.',
+      retry: 'Opnieuw proberen',
       reorderFailed: 'Herschikken van taken mislukt',
       nextRecurringCreated: 'Volgende terugkerende taak aangemaakt',
       taskUpdated: 'Taak bijgewerkt',
@@ -719,6 +723,7 @@ export const projects = {
         later: 'Later',
         noDueDate: 'Geen Vervaldatum',
         noProject: 'Geen Project',
+        other: 'Overig',
       },
       columns: {
         project: 'Project',
@@ -1093,6 +1098,12 @@ export const projects = {
       stageDeleteFailed: 'Verwijderen van fase mislukt',
       stageDuplicated: 'Fase gedupliceerd',
       stageDuplicateFailed: 'Dupliceren van fase mislukt',
+      stageReorderFailed: 'Fasen herordenen mislukt',
+      taskReorderFailed: 'Taken herordenen mislukt',
+      nextRecurringCreated: 'Volgende terugkerende taak aangemaakt',
+      untitledTask: 'Naamloze taak',
+      // Appended to a duplicated stage's name
+      stageCopySuffix: '(Kopie)',
       taskStatusUpdateFailed: 'Bijwerken van taakstatus mislukt',
       descriptionUpdateFailed: 'Bijwerken van beschrijving mislukt',
       confirmDeleteTask: 'Weet u zeker dat u deze taak wilt verwijderen?',
@@ -1703,6 +1714,7 @@ export const projects = {
       groupLater: 'Later',
       groupNoDate: 'Geen vervaldatum',
       groupUnassigned: 'Niet toegewezen',
+      groupOther: 'Overig',
       groupTodo: 'Te doen',
       groupInProgress: 'In uitvoering',
       groupDone: 'Klaar',
@@ -1737,6 +1749,11 @@ export const projects = {
       // Row dropdown items
       editTaskItem: 'Bewerken',
       duplicateTaskItem: 'Dupliceren',
+      // Appended to a duplicated task's title
+      copySuffix: '(kopie)',
+      failedToDuplicateTask: 'Taak dupliceren mislukt',
+      failedToLoad: 'Taken laden mislukt. Probeer het opnieuw.',
+      retry: 'Opnieuw proberen',
       deleteTaskItem: 'Verwijderen',
       // Move to project (weldflow-move-task flag)
       moveTaskItem: 'Verplaatsen naar project',

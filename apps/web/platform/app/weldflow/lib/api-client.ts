@@ -722,6 +722,22 @@ export const tasksApi = {
     return appApiGet<ApiTask[]>(`/tasks?${qs}`);
   },
 
+  // Every top-level task of a project. `list` returns a single page (the
+  // server's default page size is 50), which silently cut longer projects off
+  // the board; this walks the pages until one comes back short.
+  listAllPages: async (projectId: string, params?: { includeSubtasks?: boolean }): Promise<ApiResponse<ApiTask[]>> => {
+    const pageSize = 200;
+    const maxPages = 50;
+    const all: ApiTask[] = [];
+    for (let page = 1; page <= maxPages; page++) {
+      const res = await tasksApi.list(projectId, { ...params, page, pageSize });
+      if (!res.success || !res.data) return res;
+      all.push(...res.data);
+      if (res.data.length < pageSize) break;
+    }
+    return { success: true, data: all };
+  },
+
   get: (_projectId: string, taskId: string) => appApiGet<ApiTask>(`/tasks/${taskId}`),
 
   create: (projectId: string, data: {
@@ -742,16 +758,20 @@ export const tasksApi = {
     customFields?: Record<string, unknown> | null;
   }) => appApiPost<ApiTask>(`/tasks/projects/${projectId}`, data),
 
+  // Clearable fields take `null` (JSON drops `undefined`, so an unset key would
+  // leave the stored value untouched): `dueDate`, `startDate` and `description`
+  // null clear them, `assigneeIds` null or `[]` unassigns, and `labels: []` /
+  // `repeat: null` remove labels / recurrence.
   update: (_projectId: string, taskId: string, data: {
     title?: string;
-    description?: string;
+    description?: string | null;
     status?: string;
     stageId?: string | null;
     priority?: string;
-    startDate?: string;
-    dueDate?: string;
-    duration?: number;
-    assigneeId?: string;
+    startDate?: string | null;
+    dueDate?: string | null;
+    duration?: number | null;
+    assigneeId?: string | null;
     assigneeIds?: string[] | null;
     customerId?: string | null;
     tags?: string[];
@@ -815,12 +835,14 @@ export const tasksApi = {
   // recurring task (server-side creation of the next occurrence).
   updateById: (taskId: string, data: {
     title?: string;
-    description?: string;
+    description?: string | null;
     status?: string;
     priority?: string;
-    startDate?: string;
-    dueDate?: string;
-    assigneeId?: string;
+    startDate?: string | null;
+    dueDate?: string | null;
+    duration?: number | null;
+    assigneeId?: string | null;
+    assigneeIds?: string[] | null;
     tags?: string[];
     labels?: string[];
     repeat?: { frequency: string; interval?: number; unit?: string } | null;
