@@ -19,6 +19,21 @@ interface GridTableProps {
   listName?: string;
 }
 
+/** Lower-case entity nouns for the empty state; Person and Company come from the locale. */
+function getEntityNouns(
+  entityName: string,
+  entityNamePlural: string | undefined,
+  t: ReturnType<typeof useTranslations>,
+) {
+  if (entityName === 'Person') {
+    return { singular: t('crm.entityGrid.personSingular'), plural: t('crm.entityGrid.personPlural') };
+  }
+  if (entityName === 'Company') {
+    return { singular: t('crm.entityGrid.companySingular'), plural: t('crm.entityGrid.companyPlural') };
+  }
+  return { singular: entityName.toLowerCase(), plural: (entityNamePlural || `${entityName}s`).toLowerCase() };
+}
+
 export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Readonly<GridTableProps>) {
   const t = useTranslations();
   const { config, filteredEntities, calculateTableWidth, getVisibleColumns, actions } = useGridContext();
@@ -92,15 +107,7 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
       root.style.removeProperty('--grid-hscrollbar-height');
     };
   }, [isEmpty]);
-  let entityNameLower = config.entityName.toLowerCase();
-  let entityNamePluralLower = (config.entityNamePlural || `${config.entityName}s`).toLowerCase();
-  if (config.entityName === 'Person') {
-    entityNameLower = t('crm.entityGrid.personSingular');
-    entityNamePluralLower = t('crm.entityGrid.personPlural');
-  } else if (config.entityName === 'Company') {
-    entityNameLower = t('crm.entityGrid.companySingular');
-    entityNamePluralLower = t('crm.entityGrid.companyPlural');
-  }
+  const { singular: entityNameLower, plural: entityNamePluralLower } = getEntityNouns(config.entityName, config.entityNamePlural, t);
 
   if (isEmpty) {
     return (
