@@ -1,10 +1,6 @@
 
-<<<<<<< HEAD
 import { keepPreviousData, useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-=======
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { isApiError } from '@weldsuite/api-client';
->>>>>>> worktree-agent-a7536ade94d2c4470
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type {
   ChartDataPoint,
