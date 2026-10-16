@@ -3,6 +3,6 @@ import PageComponent from '@/app/weldpass/passwords/vaults/page';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldpass/passwords/vaults/')({
-  staticData: { breadcrumb: { label: 'Vaults' } },
+  staticData: { breadcrumb: { labelKey: 'vaults' } },
   component: PageComponent,
 });

@@ -9,6 +9,7 @@ import {
   Minimize2
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface ArticleViewProps {
   article: {
@@ -23,6 +24,7 @@ interface ArticleViewProps {
 }
 
 export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewProps>) {
+  const { t, format } = useI18n();
   const [showTableOfContents, setShowTableOfContents] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false); // Start small, then expand
 
@@ -37,11 +39,11 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
 
   // Parse article content into sections for table of contents
   const sections = [
-    { id: 'overview', title: 'Overview' },
-    { id: 'getting-started', title: 'Getting Started' },
-    { id: 'key-features', title: 'Key Features' },
-    { id: 'advanced-usage', title: 'Advanced Usage' },
-    { id: 'troubleshooting', title: 'Troubleshooting' },
+    { id: 'overview', title: t.helpdeskWidget.article.sections.overview },
+    { id: 'getting-started', title: t.helpdeskWidget.article.sections.gettingStarted },
+    { id: 'key-features', title: t.helpdeskWidget.article.sections.keyFeatures },
+    { id: 'advanced-usage', title: t.helpdeskWidget.article.sections.advancedUsage },
+    { id: 'troubleshooting', title: t.helpdeskWidget.article.sections.troubleshooting },
   ];
 
   return (
@@ -89,7 +91,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             variant="ghost"
             onClick={() => setIsExpanded(!isExpanded)}
             className="w-8 h-8 flex items-center justify-center hover:bg-gray-50 rounded-lg transition-colors p-0"
-            title={isExpanded ? "Minimize" : "Expand"}
+            title={isExpanded ? t.helpdeskWidget.article.minimize : t.helpdeskWidget.article.expand}
           >
             {isExpanded ? (
               <Minimize2
@@ -142,7 +144,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             color: '#6B7280',
             lineHeight: '1.5'
           }}>
-            Learn about each of our features for customer service.
+            {t.helpdeskWidget.article.subtitle}
           </p>
           
           {/* Author Info */}
@@ -169,13 +171,13 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
                 fontSize: '13px',
                 color: '#374151'
               }}>
-                Written by {article.author || 'Des Traynor'}
+                {format(t.helpdeskWidget.article.writtenBy, { author: article.author || 'Des Traynor' })}
               </p>
               <p style={{
                 fontSize: '12px',
                 color: '#9CA3AF'
               }}>
-                Updated {article.updatedAt || 'over 4 months ago'}
+                {format(t.helpdeskWidget.article.updated, { when: article.updatedAt || t.helpdeskWidget.article.defaultUpdatedAt })}
               </p>
             </div>
           </div>
@@ -200,7 +202,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
                 fontWeight: 500,
                 color: '#111827'
               }}>
-                Table of contents
+                {t.helpdeskWidget.article.tableOfContents}
               </span>
               {showTableOfContents ? (
                 <ChevronUp size={18} style={{ color: '#6B7280' }} />
@@ -241,7 +243,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             color: '#111827',
             marginBottom: '16px'
           }}>
-            Customer Service Suite
+            {t.helpdeskWidget.article.body.heading}
           </h2>
           
           <p style={{
@@ -250,7 +252,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             lineHeight: '1.6',
             marginBottom: '16px'
           }}>
-            The Customer Service Suite combines the #1 AI agent for customer support with a next-gen Helpdesk—built on a single platform that maximizes team efficiency and delivers superior service.
+            {t.helpdeskWidget.article.body.intro}
           </p>
 
           {/* Example Image Placeholder */}
@@ -268,7 +270,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
               fontSize: '13px',
               color: '#9CA3AF'
             }}>
-              Product Screenshot
+              {t.helpdeskWidget.article.body.screenshot}
             </span>
           </div>
 
@@ -278,7 +280,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             color: '#111827',
             marginBottom: '12px'
           }}>
-            AI Agent features
+            {t.helpdeskWidget.article.body.aiAgentHeading}
           </h3>
           
           <p style={{
@@ -287,7 +289,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             lineHeight: '1.6',
             marginBottom: '16px'
           }}>
-            Our AI is the highest-performing AI agent in customer service. It resolves complex issues with safe, accurate, conversational answers—no scripted responses.
+            {t.helpdeskWidget.article.body.aiAgentText}
           </p>
 
           <h3 style={{
@@ -297,7 +299,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             marginBottom: '12px',
             marginTop: '24px'
           }}>
-            Key Benefits
+            {t.helpdeskWidget.article.body.benefitsHeading}
           </h3>
           
           <ul style={{
@@ -310,7 +312,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
               lineHeight: '1.6',
               marginBottom: '8px'
             }}>
-              Instant resolution for common inquiries
+              {t.helpdeskWidget.article.body.benefits.instant}
             </li>
             <li style={{
               fontSize: '14px',
@@ -318,7 +320,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
               lineHeight: '1.6',
               marginBottom: '8px'
             }}>
-              24/7 availability for customer support
+              {t.helpdeskWidget.article.body.benefits.availability}
             </li>
             <li style={{
               fontSize: '14px',
@@ -326,14 +328,14 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
               lineHeight: '1.6',
               marginBottom: '8px'
             }}>
-              Seamless handoff to human agents when needed
+              {t.helpdeskWidget.article.body.benefits.handoff}
             </li>
             <li style={{
               fontSize: '14px',
               color: '#374151',
               lineHeight: '1.6'
             }}>
-              Continuous learning from interactions
+              {t.helpdeskWidget.article.body.benefits.learning}
             </li>
           </ul>
 
@@ -344,7 +346,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             marginBottom: '12px',
             marginTop: '24px'
           }}>
-            Getting Started
+            {t.helpdeskWidget.article.body.gettingStartedHeading}
           </h3>
           
           <p style={{
@@ -353,7 +355,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
             lineHeight: '1.6',
             marginBottom: '16px'
           }}>
-            To begin using our customer service features, follow these simple steps:
+            {t.helpdeskWidget.article.body.gettingStartedText}
           </p>
 
           <ol style={{
@@ -366,7 +368,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
               lineHeight: '1.6',
               marginBottom: '8px'
             }}>
-              Connect your communication channels (email, chat, social)
+              {t.helpdeskWidget.article.body.steps.connect}
             </li>
             <li style={{
               fontSize: '14px',
@@ -374,7 +376,7 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
               lineHeight: '1.6',
               marginBottom: '8px'
             }}>
-              Configure your AI agent settings and knowledge base
+              {t.helpdeskWidget.article.body.steps.configure}
             </li>
             <li style={{
               fontSize: '14px',
@@ -382,14 +384,14 @@ export function ArticleView({ article, onBack, onClose }: Readonly<ArticleViewPr
               lineHeight: '1.6',
               marginBottom: '8px'
             }}>
-              Set up team roles and permissions
+              {t.helpdeskWidget.article.body.steps.roles}
             </li>
             <li style={{
               fontSize: '14px',
               color: '#374151',
               lineHeight: '1.6'
             }}>
-              Customize your chat widget appearance
+              {t.helpdeskWidget.article.body.steps.customize}
             </li>
           </ol>
         </div>

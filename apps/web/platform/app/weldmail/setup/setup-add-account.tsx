@@ -63,10 +63,11 @@ interface SetupAddAccountProps {
 type MailTranslations = ReturnType<typeof useI18n>['t'];
 
 function LoadingRow() {
+  const { t } = useI18n();
   return (
     <div className="flex items-center justify-center gap-2 py-8">
       <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-      <span className="text-sm text-muted-foreground">Loading...</span>
+      <span className="text-sm text-muted-foreground">{t.mail.shared.loading}</span>
     </div>
   );
 }

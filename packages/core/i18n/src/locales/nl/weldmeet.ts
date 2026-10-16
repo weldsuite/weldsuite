@@ -412,6 +412,8 @@ export const weldmeet = {
     },
   },
   newMeetingPage: {
+    instantMeetingTitle: 'Direct overleg',
+    meetingTitle: 'Meeting',
     heroTitle: 'Start of neem deel aan een vergadering,',
     heroSubtitle: 'voor iedereen',
     heroDescription: 'Start een nieuwe vergadering of voer een code in om deel te nemen.',

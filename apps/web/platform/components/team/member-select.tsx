@@ -19,6 +19,7 @@ import {
 import { ClearPickerItem, PickerCheck, PickerFooter, PickerScrollArea } from '@/components/shared/picker-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 
 
 interface MemberSelectProps {
@@ -108,6 +109,8 @@ export function MemberSelect({
   onOpenMember,
   showChangeIcon = true,
 }: Readonly<MemberSelectProps>) {
+  const { t } = useI18n();
+  const tm = t.common.memberSelect;
   const { getClient } = useAppApiClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['team-members', 'list'],
@@ -208,7 +211,7 @@ export function MemberSelect({
               {showChangeIcon && (
                 <span
                   className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
-                  aria-label="Change"
+                  aria-label={tm.change}
                 >
                   <Plus className="h-4 w-4" />
                 </span>
@@ -216,17 +219,17 @@ export function MemberSelect({
             </>
           ) : (
             <span className="text-muted-foreground group-hover/field:underline">
-              {isLoading ? 'Loading…' : placeholder}
+              {isLoading ? tm.loading : placeholder}
             </span>
           )}
         </div>
         {/* Stock shadcn Command list — same pieces as the task panel's pickers. */}
         <PopoverContent className="w-64 p-0" align="start">
           <Command>
-            <CommandInput placeholder="Search…" />
+            <CommandInput placeholder={tm.search} />
             <CommandList className="max-h-none overflow-visible">
               <PickerScrollArea>
-                <CommandEmpty>No members found.</CommandEmpty>
+                <CommandEmpty>{tm.noMembersFound}</CommandEmpty>
                 <CommandGroup>
                   {members.map((member) => {
                     const email = 'email' in member ? member.email : null;
@@ -248,7 +251,7 @@ export function MemberSelect({
               </PickerScrollArea>
               {selected && allowClear && (
                 <PickerFooter>
-                  <ClearPickerItem label="Clear" onSelect={() => onChange('')} />
+                  <ClearPickerItem label={tm.clear} onSelect={() => onChange('')} />
                 </PickerFooter>
               )}
             </CommandList>
@@ -283,7 +286,7 @@ export function MemberSelect({
             </div>
           ) : (
             <span className="text-sm text-muted-foreground">
-              {isLoading ? 'Loading…' : placeholder}
+              {isLoading ? tm.loading : placeholder}
             </span>
           )}
           <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
@@ -291,9 +294,9 @@ export function MemberSelect({
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search members…" />
+          <CommandInput placeholder={tm.searchMembers} />
           <CommandList className="max-h-[260px] p-1">
-            <CommandEmpty>No members found.</CommandEmpty>
+            <CommandEmpty>{tm.noMembersFound}</CommandEmpty>
             {members.map((member) => {
               const email = 'email' in member ? member.email : null;
               const label = member.name?.trim() || email || member.userId;
@@ -336,7 +339,7 @@ export function MemberSelect({
                 <div className="h-5 w-5 flex items-center justify-center shrink-0">
                   <Trash2 className="h-3.5 w-3.5 text-red-600" />
                 </div>
-                <span>Clear</span>
+                <span>{tm.clear}</span>
               </div>
             </CommandItem>
           </CommandList>

@@ -13,6 +13,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { Plus } from 'lucide-react';
+import { useI18n } from '@/lib/i18n/provider';
 import type { CustomFieldDefinition } from '@/hooks/queries/use-settings-queries';
 import { getFieldSpec } from './registry';
 import type { TemplateInputType } from './types';
@@ -168,12 +169,14 @@ export function TemplateFieldsRenderer<T extends FieldValues>({
   templateId,
   setTemplateId,
   templates,
-  defaultTabLabel = 'Default',
+  defaultTabLabel,
 }: Readonly<Props<T>>) {
+  const { t } = useI18n();
+  const to = t.settings.objectTemplates;
   const activeTab = templateId || 'none';
 
   const tabs: PageTab[] = [
-    { id: 'none', label: defaultTabLabel },
+    { id: 'none', label: defaultTabLabel ?? to.defaultTab },
     ...templates.map((tpl) => ({ id: tpl.id, label: tpl.name })),
   ];
 
@@ -181,7 +184,7 @@ export function TemplateFieldsRenderer<T extends FieldValues>({
   if (templates.length === 0) {
     tabs.push({
       id: '__add_template',
-      label: 'Add template',
+      label: to.addTemplate,
       icon: Plus,
       href: `/settings/object-templates?type=${entityType}`,
     });

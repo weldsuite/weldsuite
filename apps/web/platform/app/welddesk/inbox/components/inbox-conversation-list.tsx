@@ -28,12 +28,14 @@ export const WELDAGENT_ASSIGNEE = 'weldagent-system';
 
 /**
  * Maps a conversation to a list row. `nameFirst` picks whether the customer's
- * name or e-mail address leads, `fallbackName` is shown when both are empty.
+ * name or e-mail address leads, `fallbackName` is shown when both are empty and
+ * `noSubject` when the conversation has no subject.
  */
 export function conversationToItem(
   conv: Helpdesk.Conversation,
   nameFirst: boolean,
   fallbackName: string,
+  noSubject: string,
 ): ConversationItem {
   const name = nameFirst
     ? conv.customerName || conv.customerEmail
@@ -42,7 +44,7 @@ export function conversationToItem(
     id: conv.id,
     name: name || fallbackName,
     email: conv.customerEmail,
-    subject: conv.subject || 'No subject',
+    subject: conv.subject || noSubject,
     preview: conv.preview || conv.lastMessage || '',
     date: new Date(conv.lastMessageAt || conv.createdAt),
     isRead: conv.isRead,

@@ -173,7 +173,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
               <span
                 role="button"
                 tabIndex={-1}
-                aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                aria-label={isExpanded ? t.common.collapse : t.common.expand}
                 className={cn(
                   'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-black/[0.06] dark:hover:bg-white/10',
                   !hasChildren && 'invisible',

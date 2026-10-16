@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 import { Button } from '@weldsuite/ui/components/button';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface AnnouncementsViewProps {
   onClose: () => void;
@@ -54,39 +55,40 @@ export function AnnouncementsView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking']
 }: Readonly<AnnouncementsViewProps>) {
+  const { t } = useI18n();
   const [activeTab] = useState('announcements');
 
   const announcements: AnnouncementItem[] = [
     {
       id: '1',
-      title: 'Scheduled Maintenance',
-      description: 'Our platform will undergo scheduled maintenance on December 20th from 2:00 AM to 4:00 AM UTC. During this time, some services may be temporarily unavailable.',
+      title: t.helpdeskWidget.announcements.items.maintenance.title,
+      description: t.helpdeskWidget.announcements.items.maintenance.description,
       type: 'warning',
-      date: 'December 15, 2024',
+      date: t.helpdeskWidget.announcements.items.maintenance.date,
       priority: 'high'
     },
     {
       id: '2',
-      title: 'New Feature Launch: Advanced Analytics',
-      description: 'We\'re excited to announce the launch of our Advanced Analytics dashboard. Get deeper insights into your data with customizable reports and real-time metrics.',
+      title: t.helpdeskWidget.announcements.items.featureLaunch.title,
+      description: t.helpdeskWidget.announcements.items.featureLaunch.description,
       type: 'announcement',
-      date: 'December 12, 2024',
+      date: t.helpdeskWidget.announcements.items.featureLaunch.date,
       priority: 'medium'
     },
     {
       id: '3',
-      title: 'Security Update Completed',
-      description: 'We\'ve successfully completed our latest security update. All systems are now running with enhanced encryption and improved authentication protocols.',
+      title: t.helpdeskWidget.announcements.items.securityUpdate.title,
+      description: t.helpdeskWidget.announcements.items.securityUpdate.description,
       type: 'success',
-      date: 'December 8, 2024',
+      date: t.helpdeskWidget.announcements.items.securityUpdate.date,
       priority: 'medium'
     },
     {
       id: '4',
-      title: 'Holiday Support Hours',
-      description: 'Please note that our support team will be operating on reduced hours from December 24th to January 2nd. We\'ll return to normal hours on January 3rd.',
+      title: t.helpdeskWidget.announcements.items.holidayHours.title,
+      description: t.helpdeskWidget.announcements.items.holidayHours.description,
       type: 'info',
-      date: 'December 5, 2024',
+      date: t.helpdeskWidget.announcements.items.holidayHours.date,
       priority: 'low'
     }
   ];
@@ -150,7 +152,7 @@ export function AnnouncementsView({
             letterSpacing: '-0.01em'
           }}
         >
-          Announcements
+          {t.helpdeskWidget.announcements.title}
         </h2>
 
         {/* Close button */}
@@ -192,7 +194,7 @@ export function AnnouncementsView({
                     </h3>
                     {announcement.priority === 'high' && (
                       <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full whitespace-nowrap">
-                        High Priority
+                        {t.helpdeskWidget.announcements.highPriority}
                       </span>
                     )}
                   </div>
@@ -223,16 +225,16 @@ export function AnnouncementsView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: () => {} },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: () => {} },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

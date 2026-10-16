@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useMobileNav } from '@/contexts/mobile-nav-context';
 import { Button } from '@weldsuite/ui/components/button';
+import { getBlockEditorStrings } from '@/components/block-editor/strings';
 
 export function TextSelectionTooltip() {
   const { setShowWeldAgent, setWeldAgentPrefill } = useMobileNav();
@@ -159,7 +160,7 @@ export function TextSelectionTooltip() {
         }}
       >
         <img src="/assets/images/weldagent/logo-light.png" alt="" className="h-4 w-4" />
-        <span>Ask Agent</span>
+        <span>{getBlockEditorStrings().textSelection.askAgent}</span>
       </Button>
     </div>
     </>

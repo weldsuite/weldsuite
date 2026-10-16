@@ -9,12 +9,14 @@ import {
 } from '@weldsuite/ui/components/tooltip';
 import { Button } from '@weldsuite/ui/components/button';
 import { UpgradeBusinessFeaturesDialog } from './upgrade-business-features-dialog';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface UpgradeButtonProps {
   collapsed?: boolean;
 }
 
 export function UpgradeButton({ collapsed = false }: Readonly<UpgradeButtonProps>) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
   if (collapsed) {
@@ -29,10 +31,10 @@ export function UpgradeButton({ collapsed = false }: Readonly<UpgradeButtonProps
               className="flex h-8 w-8 items-center justify-center rounded-md border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
             >
               <Sparkles className="h-4 w-4" />
-              <span className="sr-only">Upgrade</span>
+              <span className="sr-only">{t.common.actions.upgrade}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="right">Upgrade</TooltipContent>
+          <TooltipContent side="right">{t.common.actions.upgrade}</TooltipContent>
         </Tooltip>
         <UpgradeBusinessFeaturesDialog open={open} onOpenChange={setOpen} />
       </div>
@@ -46,7 +48,7 @@ export function UpgradeButton({ collapsed = false }: Readonly<UpgradeButtonProps
         onClick={() => setOpen(true)}
         className="flex w-full items-center justify-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-[7px] text-sm font-medium text-blue-600 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60 transition-colors"
       >
-        <span>Upgrade</span>
+        <span>{t.common.actions.upgrade}</span>
       </Button>
       <UpgradeBusinessFeaturesDialog open={open} onOpenChange={setOpen} />
     </>

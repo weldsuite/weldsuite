@@ -3,6 +3,6 @@ import PageComponent from '@/app/weldhr/me/time-off/page';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldhr/me/time-off/')({
-  staticData: { breadcrumb: { label: 'Time off' } },
+  staticData: { breadcrumb: { labelKey: 'timeOff' } },
   component: PageComponent,
 });

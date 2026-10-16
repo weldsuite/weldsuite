@@ -2819,6 +2819,7 @@ export const accounting = {
       vatNumber: 'BTW-nummer',
       registrationNumber: 'Inschrijvingsnummer (KVK / CoC / HRB)',
       ibanLabel: 'IBAN',
+      accountNumberIfscPlaceholder: 'Rekeningnummer / IFSC',
       makeDefault: 'Dit als standaardentiteit van de werkruimte instellen',
       seedDefaults: 'Standaard rekeningschema en belastingtarieven voor deze jurisdictie invoeren',
       createEntity2: 'Entiteit aanmaken',
@@ -3294,6 +3295,9 @@ export const accounting = {
       bic: 'BIC',
       accountNumber: 'Rekening',
       routingNumber: 'Routing',
+    },
+    reconciliationRuleForm: {
+      namePlaceholder: 'Kantoorhuur',
     },
     // Factuursjablonen: wat een ontworpen factuur afdrukt (gewone hoofdletters; een sjabloon kan alles in hoofdletters zetten)
     invoiceTemplateDocument: {

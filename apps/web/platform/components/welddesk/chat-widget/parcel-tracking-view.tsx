@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface ParcelTrackingViewProps {
   onClose: () => void;
@@ -58,6 +59,7 @@ export function ParcelTrackingView({
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking'],
   companyLogoUrl
 }: Readonly<ParcelTrackingViewProps>) {
+  const { t, format, language } = useI18n();
   const [trackingNumber, setTrackingNumber] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [parcelInfo, setParcelInfo] = useState<ParcelInfo | null>(null);
@@ -70,41 +72,41 @@ export function ParcelTrackingView({
     status: 'in_transit',
     carrier: 'DHL Express',
     estimatedDelivery: '2025-10-13',
-    currentLocation: 'Amsterdam Distribution Center',
+    currentLocation: t.helpdeskWidget.parcelTracking.mock.locations.amsterdam,
     events: [
       {
         id: '1',
-        status: 'In Transit',
-        location: 'Amsterdam Distribution Center',
+        status: t.helpdeskWidget.parcelTracking.statuses.in_transit,
+        location: t.helpdeskWidget.parcelTracking.mock.locations.amsterdam,
         timestamp: '2025-10-11 14:30',
-        description: 'Package is being processed at distribution center',
+        description: t.helpdeskWidget.parcelTracking.mock.events.processing,
         icon: Truck,
         iconColor: 'text-blue-600'
       },
       {
         id: '2',
-        status: 'Departed',
-        location: 'Rotterdam Hub',
+        status: t.helpdeskWidget.parcelTracking.mock.eventStatuses.departed,
+        location: t.helpdeskWidget.parcelTracking.mock.locations.rotterdam,
         timestamp: '2025-10-11 09:15',
-        description: 'Package has departed from facility',
+        description: t.helpdeskWidget.parcelTracking.mock.events.departed,
         icon: Package,
         iconColor: 'text-gray-400'
       },
       {
         id: '3',
-        status: 'Received',
-        location: 'Rotterdam Hub',
+        status: t.helpdeskWidget.parcelTracking.mock.eventStatuses.received,
+        location: t.helpdeskWidget.parcelTracking.mock.locations.rotterdam,
         timestamp: '2025-10-10 18:45',
-        description: 'Package received at sorting facility',
+        description: t.helpdeskWidget.parcelTracking.mock.events.received,
         icon: MapPin,
         iconColor: 'text-gray-400'
       },
       {
         id: '4',
-        status: 'Picked Up',
-        location: 'Origin Warehouse',
+        status: t.helpdeskWidget.parcelTracking.mock.eventStatuses.pickedUp,
+        location: t.helpdeskWidget.parcelTracking.mock.locations.origin,
         timestamp: '2025-10-10 10:00',
-        description: 'Package picked up from sender',
+        description: t.helpdeskWidget.parcelTracking.mock.events.pickedUp,
         icon: CheckCircle,
         iconColor: 'text-gray-400'
       }
@@ -114,7 +116,7 @@ export function ParcelTrackingView({
   const handleTrack = () => {
     setError(null);
     if (!trackingNumber.trim()) {
-      setError('Please enter a tracking number');
+      setError(t.helpdeskWidget.parcelTracking.enterTrackingNumber);
       return;
     }
 
@@ -144,15 +146,15 @@ export function ParcelTrackingView({
   const getStatusText = (status: string) => {
     switch (status) {
       case 'delivered':
-        return 'Delivered';
+        return t.helpdeskWidget.parcelTracking.statuses.delivered;
       case 'in_transit':
-        return 'In Transit';
+        return t.helpdeskWidget.parcelTracking.statuses.in_transit;
       case 'pending':
-        return 'Pending';
+        return t.helpdeskWidget.parcelTracking.statuses.pending;
       case 'exception':
-        return 'Exception';
+        return t.helpdeskWidget.parcelTracking.statuses.exception;
       default:
-        return 'Unknown';
+        return t.helpdeskWidget.parcelTracking.statuses.unknown;
     }
   };
 
@@ -185,7 +187,7 @@ export function ParcelTrackingView({
               setTrackingNumber('');
             }}
             className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-md transition-all duration-150 p-0"
-            aria-label="Go back"
+            aria-label={t.helpdeskWidget.parcelTracking.goBack}
           >
             <ChevronLeft
               size={20}
@@ -204,13 +206,13 @@ export function ParcelTrackingView({
             color: '#111827'
           }}
         >
-          {parcelInfo ? 'Tracking Details' : 'Track Parcel'}
+          {parcelInfo ? t.helpdeskWidget.parcelTracking.trackingDetails : t.helpdeskWidget.parcelTracking.trackParcel}
         </h2>
         <Button
           variant="ghost"
           onClick={onClose}
           className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-md transition-all duration-150 p-0"
-          aria-label="Close"
+          aria-label={t.helpdeskWidget.common.close}
         >
           <X
             size={18}
@@ -230,7 +232,7 @@ export function ParcelTrackingView({
               {companyLogoUrl ? (
                 <img
                   src={companyLogoUrl}
-                  alt="Company logo"
+                  alt={t.helpdeskWidget.parcelTracking.companyLogoAlt}
                   className="h-16 max-w-[120px] object-contain"
                 />
               ) : (
@@ -245,7 +247,7 @@ export function ParcelTrackingView({
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Enter tracking number..."
+                  placeholder={t.helpdeskWidget.parcelTracking.trackingNumberPlaceholder}
                   value={trackingNumber}
                   onChange={(e) => setTrackingNumber(e.target.value)}
                   onKeyPress={(e) => {
@@ -270,7 +272,7 @@ export function ParcelTrackingView({
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
-                {isTracking ? 'Tracking...' : 'Track Parcel'}
+                {isTracking ? t.helpdeskWidget.parcelTracking.tracking : t.helpdeskWidget.parcelTracking.trackParcel}
               </Button>
               {error && (
                 <p className="text-xs text-red-600 text-center">{error}</p>
@@ -310,11 +312,11 @@ export function ParcelTrackingView({
                 <div className="flex items-center gap-2" style={{ fontSize: '13px' }}>
                   <Calendar className="h-4 w-4 text-blue-600" />
                   <span className="text-gray-700">
-                    Est. Delivery: {new Date(parcelInfo.estimatedDelivery).toLocaleDateString('en-US', {
+                    {format(t.helpdeskWidget.parcelTracking.estimatedDelivery, { date: new Date(parcelInfo.estimatedDelivery).toLocaleDateString(language, {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric'
-                    })}
+                    }) })}
                   </span>
                 </div>
               </div>
@@ -323,7 +325,7 @@ export function ParcelTrackingView({
             {/* Tracking Timeline */}
             <div className="pt-2">
               <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
-                Tracking History
+                {t.helpdeskWidget.parcelTracking.trackingHistory}
               </h3>
               <div className="space-y-3">
                 {parcelInfo.events.map((event, index) => (
@@ -354,7 +356,7 @@ export function ParcelTrackingView({
             {/* Action Buttons */}
             <div className="pt-2 space-y-2">
               <Button variant="ghost" className="w-full py-2.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                View Full Details
+                {t.helpdeskWidget.parcelTracking.viewFullDetails}
               </Button>
             </div>
           </div>
@@ -376,12 +378,12 @@ export function ParcelTrackingView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: () => {} },
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: () => {} },
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

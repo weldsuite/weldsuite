@@ -53,7 +53,7 @@ export function GeneratePickListDialog({ open, onOpenChange }: Readonly<Generate
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
               {...form.register('warehouseId')}
             >
-              <option value="">Default warehouse</option>
+              <option value="">{t.defaultWarehouse}</option>
               {(warehouses.data?.data ?? []).map((wh) => (
                 <option key={wh.id} value={wh.id}>
                   {wh.name}

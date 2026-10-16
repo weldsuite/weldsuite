@@ -10,43 +10,38 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
 import { PricingDialog } from '@/components/pricing-dialog';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface UpgradeBusinessFeaturesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+type FeatureKey =
+  | 'allApps'
+  | 'customEmailDomain'
+  | 'weldAgent'
+  | 'bookingPages'
+  | 'unlimitedCrm'
+  | 'customBranding'
+  | 'securityControls';
+
 type FeatureRow = {
   icon: string;
-  label: string;
+  /** Key of the label in `common.upgradeBusinessFeatures.features`. */
+  key: FeatureKey;
   sublabel?: string;
   free: boolean;
 };
 
 const FEATURES: FeatureRow[] = [
-  {
-    icon: '/assets/images/weldsuite/icon.svg',
-    label: 'All business apps in one workspace',
-    free: true,
-  },
-  {
-    icon: '/assets/images/weldmail/icon.svg',
-    label: 'Custom email domain @your-company.com',
-    free: false,
-  },
-  { icon: '/assets/images/weldagent/icon.svg', label: 'WeldAgent AI assistant', free: false },
-  { icon: '/assets/images/weldmeet/icon.svg', label: 'Appointment booking pages', free: false },
-  {
-    icon: '/assets/images/weldcrm/icon.svg',
-    label: 'Unlimited contacts, deals, and sequences',
-    free: false,
-  },
-  { icon: '/assets/images/welddesk/icon.svg', label: 'Custom branding', free: false },
-  {
-    icon: '/assets/images/weldpass/icon.svg',
-    label: 'Security and management controls',
-    free: false,
-  },
+  { icon: '/assets/images/weldsuite/icon.svg', key: 'allApps', free: true },
+  { icon: '/assets/images/weldmail/icon.svg', key: 'customEmailDomain', free: false },
+  { icon: '/assets/images/weldagent/icon.svg', key: 'weldAgent', free: false },
+  { icon: '/assets/images/weldmeet/icon.svg', key: 'bookingPages', free: false },
+  { icon: '/assets/images/weldcrm/icon.svg', key: 'unlimitedCrm', free: false },
+  { icon: '/assets/images/welddesk/icon.svg', key: 'customBranding', free: false },
+  { icon: '/assets/images/weldpass/icon.svg', key: 'securityControls', free: false },
 ];
 
 const COLUMNS = 'grid grid-cols-[1fr_64px_88px] items-center';
@@ -55,6 +50,8 @@ export function UpgradeBusinessFeaturesDialog({
   open,
   onOpenChange,
 }: Readonly<UpgradeBusinessFeaturesDialogProps>) {
+  const { t } = useI18n();
+  const tu = t.common.upgradeBusinessFeatures;
   const [pricingOpen, setPricingOpen] = useState(false);
 
   const handleContinue = () => {
@@ -92,10 +89,10 @@ export function UpgradeBusinessFeaturesDialog({
                 />
               </div>
               <DialogTitle className="text-2xl leading-tight font-semibold tracking-tight">
-                Unlock business features
+                {tu.title}
               </DialogTitle>
               <DialogDescription className="mt-1.5">
-                Everything in Free, plus the tools your team needs to grow.
+                {tu.description}
               </DialogDescription>
             </div>
           </div>
@@ -109,20 +106,20 @@ export function UpgradeBusinessFeaturesDialog({
               {/* Column headers */}
               <div className={`relative ${COLUMNS} py-2.5 text-sm font-medium`}>
                 <div />
-                <div className="text-center text-muted-foreground">Free</div>
-                <div className="text-center text-blue-600 dark:text-blue-400">Upgrade</div>
+                <div className="text-center text-muted-foreground">{tu.free}</div>
+                <div className="text-center text-blue-600 dark:text-blue-400">{t.common.actions.upgrade}</div>
               </div>
 
               {/* Rows */}
               <div className="relative border-t">
                 {FEATURES.map((row) => (
-                  <div key={row.label} className={`${COLUMNS} border-b py-2.5 last:border-b-0`}>
+                  <div key={row.key} className={`${COLUMNS} border-b py-2.5 last:border-b-0`}>
                     <div className="flex items-center gap-3 pr-3">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
                         <img src={row.icon} alt="" className="h-4 w-4 object-contain" />
                       </div>
                       <div className="text-sm leading-snug text-foreground">
-                        {row.label}
+                        {tu.features[row.key]}
                         {row.sublabel && (
                           <div className="text-muted-foreground">{row.sublabel}</div>
                         )}
@@ -148,13 +145,13 @@ export function UpgradeBusinessFeaturesDialog({
           <div className="flex shrink-0 items-center justify-between gap-3 border-t bg-muted/40 px-6 py-4">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <CreditCard className="h-4 w-4" />
-              <span>Cancel anytime</span>
+              <span>{tu.cancelAnytime}</span>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Maybe later
+                {tu.maybeLater}
               </Button>
-              <Button onClick={handleContinue}>See plans</Button>
+              <Button onClick={handleContinue}>{tu.seePlans}</Button>
             </div>
           </div>
         </DialogContent>

@@ -17,12 +17,15 @@ import {
   ContextMenuSeparator,
 } from '@weldsuite/ui/components/context-menu';
 
-function conversationToItem(conv: Helpdesk.Conversation): ConversationItem {
+function conversationToItem(
+  conv: Helpdesk.Conversation,
+  labels: { unknownCustomer: string; noSubject: string },
+): ConversationItem {
   return {
     id: conv.id,
-    name: conv.customerName || conv.customerEmail || 'Unknown Customer',
+    name: conv.customerName || conv.customerEmail || labels.unknownCustomer,
     email: conv.customerEmail,
-    subject: conv.subject || 'No subject',
+    subject: conv.subject || labels.noSubject,
     preview: conv.preview || conv.lastMessage || '',
     date: new Date(conv.lastMessageAt || conv.createdAt),
     isRead: true,
@@ -47,9 +50,9 @@ export default function ArchivedListClient({ initialConversations }: Readonly<Ar
   const [conversations, setConversations] = useState<Helpdesk.Conversation[]>(initialConversations);
 
   useBreadcrumbs([
-    { label: 'Helpdesk', href: '/welddesk' },
-    { label: 'Inbox', href: '/welddesk/inbox' },
-    { label: 'Archived' },
+    { label: t.helpdesk.title, href: '/welddesk' },
+    { label: ti.title, href: '/welddesk/inbox' },
+    { label: ti.archived },
   ]);
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -61,7 +64,7 @@ export default function ArchivedListClient({ initialConversations }: Readonly<Ar
 
   const selectedConversationId = pathname.split('/').pop();
 
-  const items = useMemo(() => conversations.map(conversationToItem), [conversations]);
+  const items = useMemo(() => conversations.map((conv) => conversationToItem(conv, { unknownCustomer: ti.unknownCustomer, noSubject: ti.noSubject })), [conversations, ti.unknownCustomer, ti.noSubject]);
 
   const handleItemClick = (item: ConversationItem) => {
     router.push(`/welddesk/inbox/archived/${item.id}`);

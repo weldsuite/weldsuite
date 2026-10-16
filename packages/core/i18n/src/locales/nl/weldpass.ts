@@ -7,6 +7,7 @@ export const weldpass = {
   secretsTab: 'Secrets',
   sync: 'Synchronisatie',
   auditLog: 'Auditlog',
+  dismiss: 'Sluiten',
 
   projectList: {
     newProject: 'Nieuw project',

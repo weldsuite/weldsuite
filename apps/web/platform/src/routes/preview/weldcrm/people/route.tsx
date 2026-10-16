@@ -3,6 +3,6 @@ import LayoutComponent from '@/app/weldcrm/people/layout';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/preview/weldcrm/people')({
-  staticData: { breadcrumb: { label: 'People' } },
+  staticData: { breadcrumb: { labelKey: 'people' } },
   component: () => <LayoutComponent><Outlet /></LayoutComponent>,
 });

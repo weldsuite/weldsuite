@@ -497,7 +497,7 @@ export function PeopleTab({
               </PopoverTrigger>
               <PopoverContent align="start" className="w-[272px] p-0">
                 <div className="px-3 py-3">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Status</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">{t('crm.peopleTab.statusLabel')}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {[
                       { key: 'active', label: t('crm.peopleTab.statusActive') },

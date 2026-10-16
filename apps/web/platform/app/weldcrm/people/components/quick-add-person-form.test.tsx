@@ -12,6 +12,11 @@ vi.mock('@weldsuite/i18n/client', () => ({
   useTranslations: () => (key: string) => key,
 }));
 
+vi.mock('@/lib/i18n/provider', async () => {
+  const { en } = await import('@weldsuite/i18n/locales/en');
+  return { useI18n: () => ({ t: en, language: 'en' }) };
+});
+
 vi.mock('@/hooks/queries/use-people-queries', () => ({
   useCreatePerson: () => ({ mutateAsync, isPending: false }),
 }));

@@ -472,74 +472,75 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
     setLinkText('');
   };
 
+  const th = t.helpdesk.helpArticles;
   const commands: Command[] = [
     {
       id: 'text',
-      label: 'Text',
-      description: 'Just start writing with plain text',
+      label: th.cmdText,
+      description: th.cmdTextDesc,
       icon: <Type className="h-4 w-4" />,
       action: () => insertBlock('p'),
     },
     {
       id: 'heading1',
-      label: 'Heading 1',
-      description: 'Big section heading',
+      label: th.cmdHeading1,
+      description: th.cmdHeading1Desc,
       icon: <Heading1 className="h-4 w-4" />,
       action: () => insertBlock('h1'),
     },
     {
       id: 'heading2',
-      label: 'Heading 2',
-      description: 'Medium section heading',
+      label: th.cmdHeading2,
+      description: th.cmdHeading2Desc,
       icon: <Heading2 className="h-4 w-4" />,
       action: () => insertBlock('h2'),
     },
     {
       id: 'heading3',
-      label: 'Heading 3',
-      description: 'Small section heading',
+      label: th.cmdHeading3,
+      description: th.cmdHeading3Desc,
       icon: <Heading3 className="h-4 w-4" />,
       action: () => insertBlock('h3'),
     },
     {
       id: 'bulletlist',
-      label: 'Bulleted List',
-      description: 'Create a simple bulleted list',
+      label: th.cmdBulletedList,
+      description: th.cmdBulletedListDesc,
       icon: <List className="h-4 w-4" />,
       action: () => insertBlock('ul'),
     },
     {
       id: 'numberedlist',
-      label: 'Numbered List',
-      description: 'Create a list with numbering',
+      label: th.cmdNumberedList,
+      description: th.cmdNumberedListDesc,
       icon: <ListOrdered className="h-4 w-4" />,
       action: () => insertBlock('ol'),
     },
     {
       id: 'quote',
-      label: 'Quote',
-      description: 'Capture a quote',
+      label: th.cmdQuote,
+      description: th.cmdQuoteDesc,
       icon: <Quote className="h-4 w-4" />,
       action: () => insertBlock('blockquote'),
     },
     {
       id: 'code',
-      label: 'Code',
-      description: 'Capture a code snippet',
+      label: th.cmdCode,
+      description: th.cmdCodeDesc,
       icon: <Code className="h-4 w-4" />,
       action: () => insertBlock('pre'),
     },
     {
       id: 'divider',
-      label: 'Divider',
-      description: 'Visually divide blocks',
+      label: th.cmdDivider,
+      description: th.cmdDividerDesc,
       icon: <Minus className="h-4 w-4" />,
       action: () => insertBlock('hr'),
     },
     {
       id: 'link',
-      label: 'Link',
-      description: 'Add a hyperlink',
+      label: th.cmdLink,
+      description: th.cmdLinkDesc,
       icon: <LinkIcon className="h-4 w-4" />,
       action: () => openLinkDialog(),
     },
@@ -775,10 +776,10 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="company">🏢 Company</SelectItem>
-                    <SelectItem value="product">📦 Product</SelectItem>
-                    <SelectItem value="industry">📊 Industry</SelectItem>
-                    <SelectItem value="announcement">📢 Announcement</SelectItem>
+                    <SelectItem value="company">🏢 {tn.companyNews}</SelectItem>
+                    <SelectItem value="product">📦 {tn.productUpdates}</SelectItem>
+                    <SelectItem value="industry">📊 {tn.industryNews}</SelectItem>
+                    <SelectItem value="announcement">📢 {tn.announcements}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -18,7 +18,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
-import { coloredSquareColors, coloredSquareIcons } from '@/components/app-sidebar-layout';
+import { coloredSquareColorLabel, coloredSquareColors, coloredSquareIconLabel, coloredSquareIcons } from '@/components/app-sidebar-layout';
+import { useI18n } from '@/lib/i18n/provider';
 import type { ListKind } from '@/hooks/queries/use-lists-queries';
 
 interface CreateListDialogProps {
@@ -49,6 +50,7 @@ export function CreateListDialog({
   defaultKind = 'company',
 }: Readonly<CreateListDialogProps>) {
   const t = useTranslations();
+  const squareLabels = useI18n().t.common.coloredSquare;
   const dialogTitle = title ?? t('crm.createListDialog.title');
   const dialogButtonLabel = buttonLabel ?? t('crm.createListDialog.createButton');
   const dialogPlaceholder = placeholder ?? t('crm.createListDialog.namePlaceholder');
@@ -159,7 +161,7 @@ export function CreateListDialog({
                           setSelectedColor(color.value);
                           setColorPopoverOpen(false);
                         }}
-                        title={color.label}
+                        title={coloredSquareColorLabel(squareLabels, color.label)}
                       />
                     ))}
                   </div>
@@ -195,7 +197,7 @@ export function CreateListDialog({
                             setSelectedIcon(iconOption.value);
                             setIconPopoverOpen(false);
                           }}
-                          title={iconOption.label}
+                          title={coloredSquareIconLabel(squareLabels, iconOption.label)}
                         >
                           <IconComponent className="h-4 w-4" />
                         </Button>

@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { Link } from '@/lib/router';
+import { useI18n } from '@/lib/i18n/provider';
 
 export interface DeskVoiceAgent {
   id: string;
@@ -40,16 +41,16 @@ export interface DeskVoiceAgent {
   voice: string | null;
 }
 
-const emptyForm = {
-  name: '',
-  systemPrompt:
-    'You are a helpful phone support agent. Be concise and professional. Look up the caller in CRM when they are not already identified. If they need a human, transfer them.',
-  greeting: 'Hi, thanks for calling. How can I help you today?',
-  enabled: true,
-  forwardToE164: '',
-};
-
 export default function VoiceAgentsPage() {
+  const { t, format } = useI18n();
+  const tv = t.helpdesk.voiceAgentsPage;
+  const emptyForm = {
+    name: '',
+    systemPrompt: tv.defaultSystemPrompt,
+    greeting: tv.defaultGreeting,
+    enabled: true,
+    forwardToE164: '',
+  };
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -85,9 +86,9 @@ export default function VoiceAgentsPage() {
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
-      toast.success(editing ? 'Voice agent updated' : 'Voice agent created');
+      toast.success(editing ? tv.updated : tv.created);
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to save voice agent'),
+    onError: (err: Error) => toast.error(err.message || tv.saveFailed),
   });
 
   const deleteMutation = useMutation({
@@ -97,9 +98,9 @@ export default function VoiceAgentsPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['desk', 'phone', 'agents'] });
-      toast.success('Voice agent deleted');
+      toast.success(tv.deleted);
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to delete'),
+    onError: (err: Error) => toast.error(err.message || tv.deleteFailed),
   });
 
   const openCreate = () => {
@@ -125,22 +126,21 @@ export default function VoiceAgentsPage() {
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Voice agents</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{tv.title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Telnyx AI assistants that answer inbound WeldDesk phone calls. Configure transfer
-              numbers so callers can reach a human.
+              {tv.description}
             </p>
           </div>
           <Button onClick={openCreate}>
             <Plus className="mr-2 h-4 w-4" />
-            New agent
+            {tv.newAgent}
           </Button>
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Assign agents to numbers under{' '}
+          {tv.assignHint}{' '}
           <Link href="/welddesk/settings/phone" className="underline underline-offset-2">
-            Phone settings
+            {tv.phoneSettings}
           </Link>
           .
         </p>
@@ -156,10 +156,8 @@ export default function VoiceAgentsPage() {
               <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                 <Phone className="h-6 w-6" />
               </div>
-              <CardTitle>No voice agents yet</CardTitle>
-              <CardDescription>
-                Create an AI agent, then route a phone number to it for inbound calls.
-              </CardDescription>
+              <CardTitle>{tv.emptyTitle}</CardTitle>
+              <CardDescription>{tv.emptyDescription}</CardDescription>
             </CardHeader>
           </Card>
         )}
@@ -171,14 +169,16 @@ export default function VoiceAgentsPage() {
                   <div>
                     <CardTitle className="text-base">{agent.name}</CardTitle>
                     <CardDescription className="mt-1">
-                      {agent.enabled ? 'Enabled' : 'Disabled'}
-                      {agent.forwardToE164 ? ` · Transfer to ${agent.forwardToE164}` : ''}
-                      {agent.telnyxAssistantId ? ' · Synced to Telnyx' : ' · Not synced'}
+                      {agent.enabled ? tv.enabled : tv.disabled}
+                      {agent.forwardToE164
+                        ? ` · ${format(tv.transferTo, { number: agent.forwardToE164 })}`
+                        : ''}
+                      {agent.telnyxAssistantId ? ` · ${tv.syncedToTelnyx}` : ` · ${tv.notSynced}`}
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => openEdit(agent)}>
-                      Edit
+                      {t.common.actions.edit}
                     </Button>
                     <Button
                       variant="ghost"
@@ -202,20 +202,20 @@ export default function VoiceAgentsPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editing ? 'Edit voice agent' : 'New voice agent'}</DialogTitle>
+            <DialogTitle>{editing ? tv.editTitle : tv.newTitle}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="va-name">Name</Label>
+              <Label htmlFor="va-name">{tv.name}</Label>
               <Input
                 id="va-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Support AI"
+                placeholder={tv.namePlaceholder}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="va-greeting">Greeting</Label>
+              <Label htmlFor="va-greeting">{tv.greeting}</Label>
               <Input
                 id="va-greeting"
                 value={form.greeting}
@@ -223,7 +223,7 @@ export default function VoiceAgentsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="va-prompt">System prompt</Label>
+              <Label htmlFor="va-prompt">{tv.systemPrompt}</Label>
               <Textarea
                 id="va-prompt"
                 rows={5}
@@ -232,7 +232,7 @@ export default function VoiceAgentsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="va-forward">Transfer to (E.164)</Label>
+              <Label htmlFor="va-forward">{tv.transferToLabel}</Label>
               <Input
                 id="va-forward"
                 value={form.forwardToE164}
@@ -241,7 +241,7 @@ export default function VoiceAgentsPage() {
               />
             </div>
             <div className="flex items-center justify-between">
-              <Label htmlFor="va-enabled">Enabled</Label>
+              <Label htmlFor="va-enabled">{tv.enabled}</Label>
               <Switch
                 id="va-enabled"
                 checked={form.enabled}
@@ -251,14 +251,14 @@ export default function VoiceAgentsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
+              {t.common.actions.cancel}
             </Button>
             <Button
               onClick={() => saveMutation.mutate()}
               disabled={!form.name.trim() || !form.systemPrompt.trim() || saveMutation.isPending}
             >
               {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save
+              {t.common.actions.save}
             </Button>
           </DialogFooter>
         </DialogContent>

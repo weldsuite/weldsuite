@@ -98,6 +98,7 @@ function buildNewStep(
   actionType: string,
   actionTypes: ReadonlyArray<{ id: string; name: string }>,
   existingSteps: WorkflowStep[],
+  defaultOptionLabel: string,
 ): WorkflowStep {
   const actionNames: Record<string, string> = {};
   actionTypes.forEach((a) => { actionNames[a.id] = a.name; });
@@ -115,7 +116,7 @@ function buildNewStep(
   if (actionType === 'send_choices') {
     newStep.config = {
       message: '',
-      options: [{ label: 'Reply button', value: `btn_${Date.now()}` }],
+      options: [{ label: defaultOptionLabel, value: `btn_${Date.now()}` }],
     };
   }
 
@@ -308,6 +309,7 @@ export function HelpdeskWorkflowEditorClient({
   const { t } = useI18n();
   const wc = t.helpdesk.workflowConstants;
   const tw = t.helpdesk.workflowsPage;
+  const defaultOptionLabel = t.helpdesk.canvasNodes.defaultOptionLabel;
   const helpdeskActionTypes = useMemo(() => getHelpdeskActionTypes(wc), [wc]);
   const helpdeskVariableGroups = useMemo(() => getHelpdeskVariableGroups(wc), [wc]);
 
@@ -466,7 +468,7 @@ export function HelpdeskWorkflowEditorClient({
 
   /** Shared step-creation logic used by both sidebar and inline add */
   const createStep = useCallback((actionType: string, sourceId: string | null | undefined) => {
-    const newStep = buildNewStep(actionType, helpdeskActionTypes, workflow.steps);
+    const newStep = buildNewStep(actionType, helpdeskActionTypes, workflow.steps, defaultOptionLabel);
 
     // Determine branch membership
     const parentBranchId = resolveParentBranchId(sourceId, workflow.steps);
@@ -489,7 +491,7 @@ export function HelpdeskWorkflowEditorClient({
       setEditingStep(newStep);
     }
     return newStep;
-  }, [workflow, helpdeskActionTypes]);
+  }, [workflow, helpdeskActionTypes, defaultOptionLabel]);
 
   const handleAddAction = useCallback((actionType: string) => {
     createStep(actionType, addStepSourceNodeId);
@@ -733,7 +735,7 @@ export function HelpdeskWorkflowEditorClient({
                   onClick={() => setShowRunsPanel(false)}
                 >
                   <GitPullRequest className="h-3 w-3 mr-0.5" />
-                  Editor
+                  {tw.tabEditor}
                 </Button>
                 <div className={cn(
                   "absolute -bottom-[9px] left-2 right-2 h-0.5 transition-colors",
@@ -757,7 +759,7 @@ export function HelpdeskWorkflowEditorClient({
                   }}
                 >
                   <History className="h-3 w-3 mr-0.5" />
-                  Executions
+                  {tw.tabExecutions}
                 </Button>
                 <div className={cn(
                   "absolute -bottom-[9px] left-2 right-2 h-0.5 transition-colors",
@@ -773,7 +775,7 @@ export function HelpdeskWorkflowEditorClient({
                 >
                   <Link href={`/welddesk/workflows/${workflow.id}/settings`}>
                     <Settings className="h-3 w-3 mr-0.5" />
-                    Settings
+                    {tw.tabSettings}
                   </Link>
                 </Button>
                 <div className="absolute -bottom-[9px] left-0 right-0 h-0.5 transition-colors bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-gray-600" />
@@ -797,7 +799,7 @@ export function HelpdeskWorkflowEditorClient({
                 onClick={handleSave}
                 disabled={isSaving}
               >
-                Save
+                {t.common.actions.save}
               </Button>
               <Button
                 size="sm"
@@ -805,7 +807,7 @@ export function HelpdeskWorkflowEditorClient({
                 onClick={handlePublish}
                 disabled={isSaving || workflow.steps.length === 0}
               >
-                Publish
+                {tw.publish}
               </Button>
             </div>
           </div>

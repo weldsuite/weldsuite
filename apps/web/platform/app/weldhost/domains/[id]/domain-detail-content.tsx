@@ -85,12 +85,12 @@ const DNS_RECORD_TYPES: DnsRecordInput['type'][] = [
 
 const PILL = 'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none';
 
-const statusPill: Record<string, { label: string; color: string }> = {
-  active: { label: 'Active', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950' },
-  pending: { label: 'Pending', color: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950' },
-  expired: { label: 'Expired', color: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950' },
-  suspended: { label: 'Suspended', color: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950' },
-  cancelled: { label: 'Cancelled', color: 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary' },
+const statusPill: Record<string, { labelKey: 'statusActive' | 'statusPending' | 'statusExpired' | 'statusSuspended' | 'statusCancelled'; color: string }> = {
+  active: { labelKey: 'statusActive', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950' },
+  pending: { labelKey: 'statusPending', color: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950' },
+  expired: { labelKey: 'statusExpired', color: 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950' },
+  suspended: { labelKey: 'statusSuspended', color: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950' },
+  cancelled: { labelKey: 'statusCancelled', color: 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary' },
 };
 
 function parseRecordForm(form: FormData, td: ReturnType<typeof useI18n>['t']['host']['domainDetail']): DnsRecordInput | { error: string } {
@@ -464,7 +464,7 @@ export function DomainDetailContent({
               <h1 className="text-sm md:text-lg font-medium text-foreground truncate">
                 {domainName}
               </h1>
-              <span className={cn(PILL, status.color, 'shrink-0')}>{status.label}</span>
+              <span className={cn(PILL, status.color, 'shrink-0')}>{t.host.domainsList[status.labelKey]}</span>
               {domain.usedByWeldReach && <UsedByWeldReachBadge />}
             </div>
           </div>

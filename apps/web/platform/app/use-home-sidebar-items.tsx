@@ -4,6 +4,7 @@ import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-lay
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RenameDialog } from '@/app/weldcrm/components/rename-dialog';
 import { useSearchParams, usePathname } from '@/lib/router';
+import { useI18n } from '@/lib/i18n/provider';
 import {
   useDeleteConversation,
   useUpdateConversation,
@@ -15,6 +16,8 @@ export function useHomeSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
 } {
+  const { t, format } = useI18n();
+  const ts = t.weldsuiteHome.sidebar;
   const params = useSearchParams();
   const pathname = usePathname();
   const activeConvId = params.get('conversation');
@@ -30,16 +33,16 @@ export function useHomeSidebarItems(isActive: boolean): {
 
   const menuGroups = React.useMemo<MenuGroupProps[]>(() => {
     const generalGroup: MenuGroupProps = {
-      group: 'General',
+      group: ts.general,
       items: [
         {
-          title: 'Home',
+          title: ts.home,
           href: '/',
           icon: Home,
           isActive: isHome,
         },
         {
-          title: 'New Chat',
+          title: ts.newChat,
           href: '/new-chat',
           icon: Plus,
           isActive: isChat && !activeConvId,
@@ -50,25 +53,27 @@ export function useHomeSidebarItems(isActive: boolean): {
     if (!isActive) return [generalGroup];
 
     const buildItem = (c: ConversationSummary): MenuItemProps => ({
-      title: c.name || 'New Chat',
+      title: c.name || ts.newChat,
       href: `/new-chat?conversation=${c.id}`,
       icon: MessageSquare,
       id: c.id,
       isActive: c.id === activeConvId,
       actions: [
         {
-          label: c.isPinned ? 'Unpin' : 'Pin',
+          label: c.isPinned ? ts.unpin : ts.pin,
           icon: c.isPinned ? PinOff : Pin,
           onClick: () =>
             updateConvo.mutate({ conversationId: c.id, isPinned: !c.isPinned }),
         },
         {
-          label: 'Rename',
+          label: ts.rename,
+          separatorAfter: true,
           icon: Pencil,
           onClick: () => setPendingRename(c),
         },
         {
-          label: 'Delete',
+          label: ts.delete,
+          destructive: true,
           icon: Trash2,
           onClick: () => setPendingDelete(c),
         },
@@ -80,13 +85,13 @@ export function useHomeSidebarItems(isActive: boolean): {
 
     const groups: MenuGroupProps[] = [generalGroup];
     if (pinned.length > 0) {
-      groups.push({ group: 'Pinned', items: pinned.map(buildItem) });
+      groups.push({ group: ts.pinned, items: pinned.map(buildItem) });
     }
     if (recent.length > 0) {
-      groups.push({ group: 'Recent', items: recent.map(buildItem) });
+      groups.push({ group: ts.recent, items: recent.map(buildItem) });
     }
     return groups;
-  }, [isActive, conversations, activeConvId, isHome, isChat, updateConvo]);
+  }, [isActive, conversations, activeConvId, isHome, isChat, updateConvo, ts]);
 
   const dialogs = (
     <>
@@ -96,7 +101,7 @@ export function useHomeSidebarItems(isActive: boolean): {
           if (!open) setPendingRename(null);
         }}
         currentName={pendingRename?.name || ''}
-        title="Rename chat"
+        title={ts.renameChatTitle}
         onRename={(newName) => {
           if (!pendingRename) return;
           updateConvo.mutate({ conversationId: pendingRename.id, name: newName });
@@ -108,13 +113,13 @@ export function useHomeSidebarItems(isActive: boolean): {
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null);
         }}
-        title="Delete chat?"
+        title={ts.deleteChatTitle}
         description={
           pendingDelete
-            ? `"${pendingDelete.name || 'New Chat'}" and its messages will be permanently deleted.`
+            ? format(ts.deleteChatDescription, { name: pendingDelete.name || ts.newChat })
             : ''
         }
-        confirmLabel="Delete"
+        confirmLabel={ts.delete}
         variant="destructive"
         loading={deleteConvo.isPending}
         onConfirm={async () => {

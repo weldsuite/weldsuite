@@ -1928,6 +1928,8 @@ export const crm = {
       createdSuccess: 'Bedrijf aangemaakt',
       nameRequired: 'Naam is verplicht',
       nameTooLong: 'Naam mag maximaal {max} tekens bevatten',
+      websiteInvalid: 'Voer een geldige URL in (bijv. acme.nl of https://acme.nl)',
+      employeeCountInvalid: 'Voer een getal of bereik in (bijv. 42 of 11-50)',
     },
 
     bulkActions: {
@@ -2227,6 +2229,7 @@ export const crm = {
 
     peopleTab: {
       filterButton: 'Filteren',
+      statusLabel: 'Status',
       statusAll: 'Alle',
       statusActive: 'Actief',
       statusPending: 'In behandeling',
@@ -2319,6 +2322,16 @@ export const crm = {
     sequenceSettings: {
       notifyOnErrorLabel: 'Meldingen ontvangen als deze reeks mislukt',
       notifyOnCompleteLabel: 'Meldingen ontvangen als deze reeks voltooid is',
+    },
+
+    entityGrid: {
+      emptyTitle: 'Nog geen {entity}',
+      emptyHint: 'Voeg je eerste {entity} toe om te beginnen.',
+      newEntity: 'Nieuwe {entity}',
+      personSingular: 'persoon',
+      personPlural: 'personen',
+      companySingular: 'bedrijf',
+      companyPlural: 'bedrijven',
     },
 
     listPage: {

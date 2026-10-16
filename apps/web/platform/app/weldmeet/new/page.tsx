@@ -119,7 +119,7 @@ export default function NewMeetingPage() {
       const fast = await client.post<{ data: { meetingId: string; sessionId: string; authToken: string; rtkMeetingId: string; joinCode: string } }>(
         '/meetings/start-instant',
         {
-          title: 'Instant Meeting',
+          title: t.newMeetingPage.instantMeetingTitle,
           meetingType: 'video',
           accessType: 'anyone_with_link',
           waitingRoom: true,
@@ -139,7 +139,7 @@ export default function NewMeetingPage() {
 
     try {
       const result = await createMeeting.mutateAsync({
-        title: 'Instant Meeting',
+        title: t.newMeetingPage.instantMeetingTitle,
         meetingType: 'video',
         accessType: 'anyone_with_link',
         waitingRoom: true,
@@ -163,7 +163,7 @@ export default function NewMeetingPage() {
   const handleCreateForLater = async () => {
     try {
       const created = await createMeeting.mutateAsync({
-        title: 'Meeting',
+        title: t.newMeetingPage.meetingTitle,
         meetingType: 'video',
         accessType: 'anyone_with_link',
         waitingRoom: true,

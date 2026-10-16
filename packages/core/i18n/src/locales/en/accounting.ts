@@ -2786,6 +2786,7 @@ export const accounting = {
       vatNumber: 'VAT number',
       registrationNumber: 'Company registration number',
       ibanLabel: 'IBAN',
+      accountNumberIfscPlaceholder: 'Account number / IFSC',
       makeDefault: 'Make this the workspace default entity',
       seedDefaults: 'Seed standard chart of accounts + tax rates for this jurisdiction',
       createEntity2: 'Create entity',
@@ -3261,6 +3262,9 @@ export const accounting = {
       bic: 'BIC',
       accountNumber: 'Account',
       routingNumber: 'Routing',
+    },
+    reconciliationRuleForm: {
+      namePlaceholder: 'Office rent',
     },
     // Invoice templates: what a designed invoice prints (natural case; a template can uppercase it)
     invoiceTemplateDocument: {

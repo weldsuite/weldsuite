@@ -1,6 +1,7 @@
 
 import * as React from "react"
 import { useTranslations } from '@weldsuite/i18n/client'
+import { useI18n } from '@/lib/i18n/provider'
 import { Plus, Copy, Trash2, Check, AlertCircle, Pencil, EllipsisVertical } from "lucide-react"
 import { Button } from "@weldsuite/ui/components/button"
 import { FilterPills, type ActiveFilter, type FilterConfig } from "@/components/entity-list"
@@ -39,8 +40,8 @@ import { ExpandingSearchInput } from "@/components/settings/expanding-search-inp
 // external API (apps/workers/external-api/src/routes/v1/**, via requireScope(...)).
 // When you add or rename a route scope there, mirror it here. Read-only
 // resources simply omit the write scope.
-const rw = (object: string) => [{ id: `${object}:read`, label: 'Read' }, { id: `${object}:write`, label: 'Write' }];
-const ro = (object: string) => [{ id: `${object}:read`, label: 'Read' }];
+const rw = (object: string) => [{ id: `${object}:read` }, { id: `${object}:write` }];
+const ro = (object: string) => [{ id: `${object}:read` }];
 
 // Scopes the external API only grants by name: `*` and `<object>:*` never
 // include them (external-api `NAMED_ONLY_SCOPES`). The bulk "All" buttons skip
@@ -50,103 +51,93 @@ const NAMED_ONLY_SCOPES = ['mail_messages:send', 'reach_inbox:reply'];
 
 const PERMISSION_ENTITIES = [
   // CRM
-  { entity: 'People', group: 'CRM', description: 'CRM contacts', scopes: rw('people') },
-  { entity: 'Companies', group: 'CRM', description: 'CRM companies', scopes: rw('companies') },
-  { entity: 'Leads', group: 'CRM', description: 'CRM leads', scopes: rw('leads') },
-  { entity: 'Opportunities', group: 'CRM', description: 'CRM opportunities', scopes: rw('opportunities') },
-  { entity: 'Pipelines', group: 'CRM', description: 'CRM pipelines', scopes: rw('pipelines') },
-  { entity: 'Pipeline Stages', group: 'CRM', description: 'CRM pipeline stages', scopes: rw('pipeline_stages') },
-  { entity: 'Activities', group: 'CRM', description: 'CRM activities', scopes: rw('activities') },
-  { entity: 'Quotes', group: 'CRM', description: 'CRM quotes', scopes: rw('quotes') },
+  { entityKey: 'people', group: 'crm', scopes: rw('people') },
+  { entityKey: 'companies', group: 'crm', scopes: rw('companies') },
+  { entityKey: 'leads', group: 'crm', scopes: rw('leads') },
+  { entityKey: 'opportunities', group: 'crm', scopes: rw('opportunities') },
+  { entityKey: 'pipelines', group: 'crm', scopes: rw('pipelines') },
+  { entityKey: 'pipelineStages', group: 'crm', scopes: rw('pipeline_stages') },
+  { entityKey: 'activities', group: 'crm', scopes: rw('activities') },
+  { entityKey: 'quotes', group: 'crm', scopes: rw('quotes') },
   // Commerce
-  { entity: 'Products', group: 'Commerce', description: 'Commerce products', scopes: rw('products') },
-  { entity: 'Orders', group: 'Commerce', description: 'Commerce orders', scopes: rw('orders') },
+  { entityKey: 'products', group: 'commerce', scopes: rw('products') },
+  { entityKey: 'orders', group: 'commerce', scopes: rw('orders') },
   // Projects
-  { entity: 'Projects', group: 'Projects', description: 'Project management', scopes: rw('projects') },
-  { entity: 'Tasks', group: 'Projects', description: 'Project tasks', scopes: rw('tasks') },
-  { entity: 'Task Comments', group: 'Projects', description: 'Task comments', scopes: rw('task_comments') },
-  { entity: 'Task Tags', group: 'Projects', description: 'Task tags', scopes: rw('task_tags') },
-  { entity: 'Milestones', group: 'Projects', description: 'Project milestones', scopes: rw('milestones') },
-  { entity: 'Sprints', group: 'Projects', description: 'Project sprints', scopes: rw('sprints') },
-  { entity: 'Goals', group: 'Projects', description: 'Project goals', scopes: rw('goals') },
-  { entity: 'Time Entries', group: 'Projects', description: 'Time tracking', scopes: rw('time_entries') },
-  { entity: 'Project Members', group: 'Projects', description: 'Project team members', scopes: rw('project_members') },
-  { entity: 'Project Labels', group: 'Projects', description: 'Project labels', scopes: rw('project_labels') },
-  { entity: 'Project Documents', group: 'Projects', description: 'Project documents', scopes: rw('project_documents') },
-  { entity: 'Project Files', group: 'Projects', description: 'Project files', scopes: rw('project_files') },
-  { entity: 'Project Messages', group: 'Projects', description: 'Project messages', scopes: rw('project_messages') },
-  { entity: 'Project Sheets', group: 'Projects', description: 'Project sheets', scopes: ro('project_sheets') },
-  { entity: 'Whiteboards', group: 'Projects', description: 'Project whiteboards', scopes: rw('whiteboards') },
+  { entityKey: 'projects', group: 'projects', scopes: rw('projects') },
+  { entityKey: 'tasks', group: 'projects', scopes: rw('tasks') },
+  { entityKey: 'taskComments', group: 'projects', scopes: rw('task_comments') },
+  { entityKey: 'taskTags', group: 'projects', scopes: rw('task_tags') },
+  { entityKey: 'milestones', group: 'projects', scopes: rw('milestones') },
+  { entityKey: 'sprints', group: 'projects', scopes: rw('sprints') },
+  { entityKey: 'goals', group: 'projects', scopes: rw('goals') },
+  { entityKey: 'timeEntries', group: 'projects', scopes: rw('time_entries') },
+  { entityKey: 'projectMembers', group: 'projects', scopes: rw('project_members') },
+  { entityKey: 'projectLabels', group: 'projects', scopes: rw('project_labels') },
+  { entityKey: 'projectDocuments', group: 'projects', scopes: rw('project_documents') },
+  { entityKey: 'projectFiles', group: 'projects', scopes: rw('project_files') },
+  { entityKey: 'projectMessages', group: 'projects', scopes: rw('project_messages') },
+  { entityKey: 'projectSheets', group: 'projects', scopes: ro('project_sheets') },
+  { entityKey: 'whiteboards', group: 'projects', scopes: rw('whiteboards') },
   // Helpdesk
-  { entity: 'Tickets', group: 'Helpdesk', description: 'Helpdesk tickets and messages', scopes: rw('tickets') },
-  { entity: 'Articles', group: 'Helpdesk', description: 'Knowledge base articles', scopes: rw('articles') },
-  { entity: 'Conversations', group: 'Helpdesk', description: 'Helpdesk conversations', scopes: rw('conversations') },
+  { entityKey: 'tickets', group: 'helpdesk', scopes: rw('tickets') },
+  { entityKey: 'articles', group: 'helpdesk', scopes: rw('articles') },
+  { entityKey: 'conversations', group: 'helpdesk', scopes: rw('conversations') },
   // Files
-  { entity: 'Files', group: 'Files', description: 'Drive files', scopes: rw('files') },
-  { entity: 'Folders', group: 'Files', description: 'Drive folders', scopes: rw('folders') },
-  { entity: 'Drive', group: 'Files', description: 'Aggregated drive listing and stats', scopes: ro('drive') },
+  { entityKey: 'files', group: 'files', scopes: rw('files') },
+  { entityKey: 'folders', group: 'files', scopes: rw('folders') },
+  { entityKey: 'drive', group: 'files', scopes: ro('drive') },
   // Calendar
-  { entity: 'Calendars', group: 'Calendar', description: 'Calendars', scopes: rw('calendars') },
-  { entity: 'Calendar Events', group: 'Calendar', description: 'Calendar events', scopes: rw('calendar_events') },
+  { entityKey: 'calendars', group: 'calendar', scopes: rw('calendars') },
+  { entityKey: 'calendarEvents', group: 'calendar', scopes: rw('calendar_events') },
   // WeldMail — workspace keys reach shared mailboxes only; personal keys follow their owner's access.
-  { entity: 'Mail Accounts', group: 'WeldMail', description: 'Mailboxes (no credentials)', scopes: ro('mail_accounts') },
-  {
-    entity: 'Messages',
-    group: 'WeldMail',
-    description: 'Emails and threads; Send covers send, reply, forward and draft-send',
-    scopes: [...rw('mail_messages'), { id: 'mail_messages:send', label: 'Send' }],
-  },
-  { entity: 'Drafts', group: 'WeldMail', description: 'Unsent emails', scopes: rw('mail_drafts') },
-  { entity: 'Labels', group: 'WeldMail', description: 'Mailbox labels', scopes: rw('mail_labels') },
-  { entity: 'Folders', group: 'WeldMail', description: 'Mailbox folders', scopes: rw('mail_folders') },
-  { entity: 'Attachments', group: 'WeldMail', description: 'Download files; write uploads files to send', scopes: rw('mail_attachments') },
+  { entityKey: 'mailAccounts', group: 'weldmail', scopes: ro('mail_accounts') },
+  { entityKey: 'mailMessages', group: 'weldmail', scopes: [...rw('mail_messages'), { id: 'mail_messages:send' }] },
+  { entityKey: 'mailDrafts', group: 'weldmail', scopes: rw('mail_drafts') },
+  { entityKey: 'mailLabels', group: 'weldmail', scopes: rw('mail_labels') },
+  { entityKey: 'mailFolders', group: 'weldmail', scopes: rw('mail_folders') },
+  { entityKey: 'mailAttachments', group: 'weldmail', scopes: rw('mail_attachments') },
   // WeldReach (on request only: a key gets 403 APP_ACCESS_REQUIRED until WeldSuite approves the workspace).
   // Creating or deleting mailboxes and domains stays in the app, because every inbox is billed.
-  { entity: 'Campaigns', group: 'WeldReach', description: 'Campaigns, steps, enrollments, launch and pause, stats', scopes: rw('reach_campaigns') },
-  { entity: 'Prospects', group: 'WeldReach', description: 'Prospects, imports and prospect lists', scopes: rw('reach_prospects') },
-  { entity: 'Suppressions', group: 'WeldReach', description: 'Addresses and domains that are never emailed', scopes: rw('reach_settings') },
-  {
-    entity: 'Reply Inbox',
-    group: 'WeldReach',
-    description: 'Replies to campaigns; Reply sends an answer to a prospect',
-    scopes: [...ro('reach_inbox'), { id: 'reach_inbox:reply', label: 'Reply' }],
-  },
-  { entity: 'Mailboxes', group: 'WeldReach', description: 'Sending mailboxes and domains, warmup status (no credentials)', scopes: ro('reach_mailboxes') },
+  { entityKey: 'reachCampaigns', group: 'weldreach', scopes: rw('reach_campaigns') },
+  { entityKey: 'reachProspects', group: 'weldreach', scopes: rw('reach_prospects') },
+  { entityKey: 'reachSettings', group: 'weldreach', scopes: rw('reach_settings') },
+  { entityKey: 'reachInbox', group: 'weldreach', scopes: [...ro('reach_inbox'), { id: 'reach_inbox:reply' }] },
+  { entityKey: 'reachMailboxes', group: 'weldreach', scopes: ro('reach_mailboxes') },
   // Chat
-  { entity: 'Channels', group: 'Chat', description: 'Chat channels', scopes: rw('channels') },
-  { entity: 'Channel Members', group: 'Chat', description: 'Chat channel members', scopes: rw('channel_members') },
-  { entity: 'Messages', group: 'Chat', description: 'Chat messages', scopes: rw('chat_messages') },
-  { entity: 'Sections', group: 'Chat', description: 'Chat sections', scopes: rw('chat_sections') },
-  { entity: 'Drafts', group: 'Chat', description: 'Chat drafts', scopes: rw('chat_drafts') },
-  { entity: 'Bookmarks', group: 'Chat', description: 'Chat bookmarks', scopes: rw('chat_bookmarks') },
+  { entityKey: 'channels', group: 'chat', scopes: rw('channels') },
+  { entityKey: 'channelMembers', group: 'chat', scopes: rw('channel_members') },
+  { entityKey: 'chatMessages', group: 'chat', scopes: rw('chat_messages') },
+  { entityKey: 'chatSections', group: 'chat', scopes: rw('chat_sections') },
+  { entityKey: 'chatDrafts', group: 'chat', scopes: rw('chat_drafts') },
+  { entityKey: 'chatBookmarks', group: 'chat', scopes: rw('chat_bookmarks') },
   // Host
-  { entity: 'Domains', group: 'Host', description: 'Domains, DNS zones and records', scopes: rw('domains') },
+  { entityKey: 'domains', group: 'host', scopes: rw('domains') },
   // Automation
-  { entity: 'Workflows', group: 'Automation', description: 'Workflows, schedules and executions', scopes: rw('workflows') },
-  { entity: 'Webhooks', group: 'Automation', description: 'Webhook subscriptions', scopes: rw('webhooks') },
+  { entityKey: 'workflows', group: 'automation', scopes: rw('workflows') },
+  { entityKey: 'webhooks', group: 'automation', scopes: rw('webhooks') },
   // WeldBooks — the public API reads accounting data; only contacts can be
   // written there (documents are posted through the books services).
-  { entity: 'Accounting Entities', group: 'WeldBooks', description: 'Legal entities and books', scopes: ro('accounting_entities') },
-  { entity: 'GL Accounts', group: 'WeldBooks', description: 'Chart of accounts', scopes: ro('gl_accounts') },
-  { entity: 'Invoices', group: 'WeldBooks', description: 'Customer invoices (AR)', scopes: ro('invoices') },
-  { entity: 'Bills', group: 'WeldBooks', description: 'Supplier bills (AP)', scopes: ro('bills') },
-  { entity: 'Journal Entries', group: 'WeldBooks', description: 'Manual journal entries', scopes: ro('journal_entries') },
-  { entity: 'Payments', group: 'WeldBooks', description: 'Payments on invoices and bills', scopes: ro('payments') },
-  { entity: 'Bank Accounts', group: 'WeldBooks', description: 'Linked bank accounts', scopes: ro('bank_accounts') },
-  { entity: 'Bank Transactions', group: 'WeldBooks', description: 'Bank statement lines', scopes: ro('bank_transactions') },
-  { entity: 'Accounting Contacts', group: 'WeldBooks', description: 'Customers and suppliers', scopes: rw('accounting_contacts') },
-  { entity: 'Tax Rates', group: 'WeldBooks', description: 'VAT / GST rates', scopes: ro('tax_rates') },
-  { entity: 'Recurring Invoices', group: 'WeldBooks', description: 'Scheduled invoice templates', scopes: ro('recurring_invoices') },
-  { entity: 'Reconciliation Rules', group: 'WeldBooks', description: 'Auto-match bank transactions', scopes: ro('reconciliation_rules') },
-  { entity: 'Fiscal Periods', group: 'WeldBooks', description: 'Open and closed periods', scopes: ro('fiscal_periods') },
-  { entity: 'FX Rates', group: 'WeldBooks', description: 'Exchange rates', scopes: ro('fx_rates') },
-  { entity: 'VAT Returns', group: 'WeldBooks', description: 'Periodic VAT filings', scopes: ro('vat_returns') },
-  { entity: 'Accounting Documents', group: 'WeldBooks', description: 'Receipts and supporting files', scopes: ro('accounting_documents') },
-  { entity: 'ICP Declarations', group: 'WeldBooks', description: 'Intracommunity supply declarations', scopes: ro('icp_declarations') },
-  { entity: 'Accounting Settings', group: 'WeldBooks', description: 'Workspace accounting defaults', scopes: ro('accounting_settings') },
+  { entityKey: 'accountingEntities', group: 'weldbooks', scopes: ro('accounting_entities') },
+  { entityKey: 'glAccounts', group: 'weldbooks', scopes: ro('gl_accounts') },
+  { entityKey: 'invoices', group: 'weldbooks', scopes: ro('invoices') },
+  { entityKey: 'bills', group: 'weldbooks', scopes: ro('bills') },
+  { entityKey: 'journalEntries', group: 'weldbooks', scopes: ro('journal_entries') },
+  { entityKey: 'payments', group: 'weldbooks', scopes: ro('payments') },
+  { entityKey: 'bankAccounts', group: 'weldbooks', scopes: ro('bank_accounts') },
+  { entityKey: 'bankTransactions', group: 'weldbooks', scopes: ro('bank_transactions') },
+  { entityKey: 'accountingContacts', group: 'weldbooks', scopes: rw('accounting_contacts') },
+  { entityKey: 'taxRates', group: 'weldbooks', scopes: ro('tax_rates') },
+  { entityKey: 'recurringInvoices', group: 'weldbooks', scopes: ro('recurring_invoices') },
+  { entityKey: 'reconciliationRules', group: 'weldbooks', scopes: ro('reconciliation_rules') },
+  { entityKey: 'fiscalPeriods', group: 'weldbooks', scopes: ro('fiscal_periods') },
+  { entityKey: 'fxRates', group: 'weldbooks', scopes: ro('fx_rates') },
+  { entityKey: 'vatReturns', group: 'weldbooks', scopes: ro('vat_returns') },
+  { entityKey: 'accountingDocuments', group: 'weldbooks', scopes: ro('accounting_documents') },
+  { entityKey: 'icpDeclarations', group: 'weldbooks', scopes: ro('icp_declarations') },
+  { entityKey: 'accountingSettings', group: 'weldbooks', scopes: ro('accounting_settings') },
   // Settings
-  { entity: 'Workspace Settings', group: 'Settings', description: 'Workspace configuration', scopes: ro('settings') },
-  { entity: 'Members', group: 'Settings', description: 'Workspace members', scopes: ro('members') },
+  { entityKey: 'settings', group: 'settings', scopes: ro('settings') },
+  { entityKey: 'members', group: 'settings', scopes: ro('members') },
 ] as const;
 
 // Get all scope IDs the bulk buttons may select (named-only scopes excluded)
@@ -173,19 +164,19 @@ const NAMED_ONLY_HINT_KEYS: Record<(typeof NAMED_ONLY_ACTIONS)[number], string> 
 
 // Module logo per permission group
 const GROUP_LOGOS: Record<string, string> = {
-  CRM: '/assets/images/weldcrm/icon.svg',
-  Commerce: '/assets/images/weldsuite/icon.svg',
-  Projects: '/assets/images/weldflow/icon-projects.svg',
-  Helpdesk: '/assets/images/welddesk/icon.svg',
-  Files: '/assets/images/welddrive/icon.svg',
-  Calendar: '/assets/images/weldcalendar/icon.svg',
-  WeldMail: '/assets/images/weldmail/icon.svg',
-  WeldReach: '/assets/images/weldreach/icon.svg',
-  Chat: '/assets/images/weldchat/icon.svg',
-  Host: '/assets/images/weldhost/icon.svg',
-  Automation: '/assets/images/weldconnect/icon.svg',
-  WeldBooks: '/assets/images/weldbooks/icon.svg?v=2',
-  Settings: '/assets/images/weldsuite/icon.svg',
+  crm: '/assets/images/weldcrm/icon.svg',
+  commerce: '/assets/images/weldsuite/icon.svg',
+  projects: '/assets/images/weldflow/icon-projects.svg',
+  helpdesk: '/assets/images/welddesk/icon.svg',
+  files: '/assets/images/welddrive/icon.svg',
+  calendar: '/assets/images/weldcalendar/icon.svg',
+  weldmail: '/assets/images/weldmail/icon.svg',
+  weldreach: '/assets/images/weldreach/icon.svg',
+  chat: '/assets/images/weldchat/icon.svg',
+  host: '/assets/images/weldhost/icon.svg',
+  automation: '/assets/images/weldconnect/icon.svg',
+  weldbooks: '/assets/images/weldbooks/icon.svg?v=2',
+  settings: '/assets/images/weldsuite/icon.svg',
 };
 
 export interface WorkspaceApiKey {
@@ -202,8 +193,8 @@ export interface WorkspaceApiKey {
 type PermissionEntity = typeof PERMISSION_ENTITIES[number]
 
 // Consecutive entities that share a group are rendered as one table.
-function groupPermissionEntities(): { group: string; entities: PermissionEntity[] }[] {
-  const groups: { group: string; entities: PermissionEntity[] }[] = [];
+function groupPermissionEntities(): { group: PermissionEntity['group']; entities: PermissionEntity[] }[] {
+  const groups: { group: PermissionEntity['group']; entities: PermissionEntity[] }[] = [];
   for (const entity of PERMISSION_ENTITIES) {
     const last = groups.at(-1);
     if (last?.group === entity.group) {
@@ -222,12 +213,14 @@ function PermissionGroupTable({
   selectedScopes,
   onToggleScope,
 }: Readonly<{
-  group: string;
+  group: PermissionEntity['group'];
   entities: PermissionEntity[];
   selectedScopes: string[];
   onToggleScope: (scopeId: string) => void;
 }>) {
   const t = useTranslations();
+  const { t: i18n } = useI18n();
+  const tp = i18n.settings.apiKeyPermissions;
   const groupLogo = GROUP_LOGOS[group];
   // A Send or Reply column only for groups that have such a scope (WeldMail, WeldReach).
   const namedOnlyActions = NAMED_ONLY_ACTIONS.filter((action) =>
@@ -239,7 +232,7 @@ function PermissionGroupTable({
       <div className="bg-muted/40 px-3 py-1.5 text-[13px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40">
         <span className="inline-flex items-center gap-1.5">
           {groupLogo && <img src={groupLogo} alt="" className="h-3.5 w-3.5" />}
-          {group}
+          {tp.groups[group]}
         </span>
       </div>
       <table className="w-full text-sm border-collapse">
@@ -258,10 +251,10 @@ function PermissionGroupTable({
             const isLast = idx === entities.length - 1;
             const cellBorder = isLast ? '' : 'border-b border-border/40';
             return (
-              <tr key={entity.entity} className="bg-background">
+              <tr key={entity.entityKey} className="bg-background">
                 <td className={cn('px-3 py-2', cellBorder)}>
-                  <div className="font-medium">{entity.entity}</div>
-                  <div className="text-xs text-muted-foreground">{entity.description}</div>
+                  <div className="font-medium">{tp.entities[entity.entityKey].name}</div>
+                  <div className="text-xs text-muted-foreground">{tp.entities[entity.entityKey].description}</div>
                 </td>
                 {actions.map((action) => (
                   <PermissionScopeCell
