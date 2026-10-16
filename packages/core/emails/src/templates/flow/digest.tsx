@@ -109,7 +109,7 @@ export default defineTemplate<FlowDigestEmailProps>({
           { title: 'Book dentist', personal: true, dueDate: '2026-10-05T09:00:00.000Z' },
         ],
         dueThisWeek: [{ title: 'Prepare Q4 budget review', projectName: 'Finance', dueDate: '2026-10-09T15:00:00.000Z' }],
-        tasksUrl: 'https://app.weldsuite.org/task',
+        tasksUrl: 'https://app.weldsuite.org/weldflow/my-tasks',
         settingsUrl: 'https://app.weldsuite.org/settings/notifications',
       },
     },

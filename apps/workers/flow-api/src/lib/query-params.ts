@@ -24,10 +24,4 @@ export function parseLimit(raw: string | undefined, fallback: number, max: numbe
   return Math.min(parsed, max);
 }
 
-/**
- * `%term%` for an `ILIKE` contains-search with the user's `%`, `_` and `\`
- * escaped, so typing "50%" matches the text "50%" rather than everything.
- */
-export function containsPattern(term: string): string {
-  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-}
+export { containsPattern } from './ilike-pattern';
