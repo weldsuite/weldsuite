@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import { FileText, Eye, Scan, FileCheck, Upload, Loader2, Sparkles, UserPlus, X, Receipt, Ban } from 'lucide-react';
+import { FileText, Eye, Scan, FileCheck, Loader2, UserPlus, X, Receipt, Ban } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
@@ -31,6 +31,14 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import {
+  ContactCell,
+  RowAmount,
+  RowText,
+  RowTitle,
+  StatusChip,
+  type ChipTone,
+} from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
   type ColumnDef,
@@ -95,6 +103,13 @@ interface DocumentRow {
   ocrResult?: OcrResult | null;
 }
 
+/** Inbox statuses whose chip tone differs from the shared default mapping. */
+const DOCUMENT_STATUS_TONES: Partial<Record<string, ChipTone>> = {
+  pending: 'gray',
+  processing: 'blue',
+  linked: 'indigo',
+};
+
 const ACCEPTED_TYPES = 'image/jpeg,image/jpg,image/png,image/webp';
 
 export default function DocumentInboxPage() {
@@ -118,25 +133,24 @@ export default function DocumentInboxPage() {
     },
   ];
 
-  function statusBadge(status: string) {
-    switch (status) {
-      case 'pending':
-        return <Badge variant="outline">{td.pending}</Badge>;
-      case 'processing':
-        return <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />{td.processing}</Badge>;
-      case 'processed':
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{td.processed}</Badge>;
-      case 'review':
-        return <Badge variant="secondary">{td.review}</Badge>;
-      case 'linked':
-        return <Badge>{td.linked}</Badge>;
-      case 'rejected':
-        return <Badge variant="destructive">{td.rejected}</Badge>;
-      case 'failed':
-        return <Badge variant="destructive">{td.failed}</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
+  const statusLabels: Record<string, string> = {
+    pending: td.pending,
+    processing: td.processing,
+    processed: td.processed,
+    review: td.review,
+    linked: td.linked,
+    rejected: td.rejected,
+    failed: td.failed,
+  };
+
+  function statusChip(status: string) {
+    const tone = DOCUMENT_STATUS_TONES[status];
+    return (
+      <StatusChip status={status} tone={tone}>
+        {status === 'processing' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+        {statusLabels[status] ?? status}
+      </StatusChip>
+    );
   }
 
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
@@ -293,35 +307,26 @@ export default function DocumentInboxPage() {
     {
       id: 'fileName',
       header: td.colFileName,
-      width: 'flex-1',
-      render: (doc) => (
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          <span>{doc.fileName}</span>
-        </div>
-      ),
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (doc) => <RowTitle>{doc.fileName}</RowTitle>,
     },
     {
       id: 'type',
       header: td.colType,
       width: 'w-[120px]',
-      render: (doc) => (
-        <span className="capitalize text-sm">{doc.type?.replace('_', ' ')}</span>
-      ),
+      render: (doc) => <RowText className="capitalize">{doc.type?.replace('_', ' ')}</RowText>,
     },
     {
       id: 'source',
       header: td.colSource,
       width: 'w-[100px]',
-      render: (doc) => <span className="capitalize text-sm">{doc.source}</span>,
+      render: (doc) => <RowText className="capitalize">{doc.source}</RowText>,
     },
     {
       id: 'vendor',
       header: td.colSupplierDetected,
-      width: 'flex-1',
-      render: (doc) => (
-        <span className="text-sm">{doc.ocrResult?.vendor?.name ?? '-'}</span>
-      ),
+      width: 'w-[200px]',
+      render: (doc) => <ContactCell name={doc.ocrResult?.vendor?.name} />,
     },
     {
       id: 'amount',
@@ -329,25 +334,26 @@ export default function DocumentInboxPage() {
       width: 'w-[120px]',
       render: (doc) => {
         const total = doc.ocrResult?.total;
-        return <span className="text-sm">{total != null ? fmt(total) : '-'}</span>;
+        return <RowAmount>{total != null ? fmt(total) : null}</RowAmount>;
       },
     },
     {
       id: 'status',
       header: td.colStatus,
       width: 'w-[120px]',
-      render: (doc) => statusBadge(doc.status),
+      render: (doc) => statusChip(doc.status),
     },
     {
       id: 'actions',
       header: '',
-      width: 'w-[80px]',
+      width: 'w-[80px] justify-end gap-1',
       render: (doc) => (
-        <div className="flex items-center gap-1">
+        <>
           {doc.status === 'pending' && (
             <Button
               size="sm"
               variant="ghost"
+              className="h-7 w-7 p-0"
               onClick={() => processDoc.mutate(doc.id)}
               disabled={processDoc.isPending}
               title={td.processWithOcr}
@@ -359,69 +365,53 @@ export default function DocumentInboxPage() {
             <Button
               size="sm"
               variant="ghost"
+              className="h-7 w-7 p-0"
               onClick={() => setSelectedDoc(doc)}
               title={td.viewOcrResult}
             >
               <Eye className="h-4 w-4" />
             </Button>
           )}
-        </div>
+        </>
       ),
     },
   ];
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">{td.title}</h1>
+    // The whole page is a drop target for invoice images; the toolbar's upload button opens the picker.
+    <div
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false); }}
+      onDrop={onDrop}
+      className={`min-h-full transition-colors ${dragOver ? 'bg-primary/5 ring-2 ring-inset ring-primary' : ''}`}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={ACCEPTED_TYPES}
+        multiple
+        onChange={onSelectFiles}
+        className="hidden"
+      />
 
-      {/* Upload zone */}
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        className={`rounded-lg border-2 border-dashed p-6 flex flex-col items-center justify-center gap-2 text-center transition-colors ${
-          dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'
-        }`}
-      >
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Sparkles className="h-4 w-4" />
-          <span>{td.dropHint}</span>
+      {uploadQueue.length > 0 && (
+        <div className="space-y-1 px-4 pt-3">
+          {uploadQueue.slice(-5).map((item) => (
+            <div key={item.id} className="flex items-center justify-between text-xs bg-muted/40 rounded px-2 py-1">
+              <span className="truncate max-w-[60%]">{item.name}</span>
+              <span className="flex items-center gap-1">
+                {item.phase === 'uploading' && <><Loader2 className="h-3 w-3 animate-spin" />{td.phaseUploading}</>}
+                {item.phase === 'processing' && <><Loader2 className="h-3 w-3 animate-spin" />{td.phaseProcessing}</>}
+                {item.phase === 'done' && <span className="text-green-700">{td.phaseDone}</span>}
+                {item.phase === 'failed' && <span className="text-destructive">{td.phaseFailed}{item.error ? `: ${item.error}` : ''}</span>}
+              </span>
+            </div>
+          ))}
         </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="h-4 w-4 mr-1" />
-            {td.uploadInvoice}
-          </Button>
-          <span className="text-xs text-muted-foreground">{td.acceptedFormatsLabel}</span>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ACCEPTED_TYPES}
-          multiple
-          onChange={onSelectFiles}
-          className="hidden"
-        />
-
-        {uploadQueue.length > 0 && (
-          <div className="w-full mt-3 space-y-1">
-            {uploadQueue.slice(-5).map((item) => (
-              <div key={item.id} className="flex items-center justify-between text-xs bg-muted/40 rounded px-2 py-1">
-                <span className="truncate max-w-[60%]">{item.name}</span>
-                <span className="flex items-center gap-1">
-                  {item.phase === 'uploading' && <><Loader2 className="h-3 w-3 animate-spin" />{td.phaseUploading}</>}
-                  {item.phase === 'processing' && <><Loader2 className="h-3 w-3 animate-spin" />{td.phaseProcessing}</>}
-                  {item.phase === 'done' && <span className="text-green-700">{td.phaseDone}</span>}
-                  {item.phase === 'failed' && <span className="text-destructive">{td.phaseFailed}{item.error ? `: ${item.error}` : ''}</span>}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
       {stats.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-4 pt-3 pb-1">
           {stats.map((s) => (
             <Card
               key={s.status}
@@ -449,6 +439,7 @@ export default function DocumentInboxPage() {
         filters={filterConfigs}
         activeFilters={filters}
         onFiltersChange={setFilters}
+        createButton={{ label: td.uploadInvoice, onClick: () => fileInputRef.current?.click() }}
         emptyState={{
           icon: (
             <EmptyStateIllustration>
@@ -456,7 +447,8 @@ export default function DocumentInboxPage() {
             </EmptyStateIllustration>
           ),
           title: td.noDocumentsInbox,
-          description: td.dropHint,
+          description: td.emptyDescription,
+          action: { label: td.uploadInvoice, onClick: () => fileInputRef.current?.click() },
         }}
       />
 

@@ -64,7 +64,8 @@ describe('ExemptionCertificatesPage', () => {
     expect(await screen.findByText('Bolt Inc')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.getByText('2 certificates')).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: tc.columns.customer })).toBeInTheDocument();
+    expect(screen.getByText(tc.columns.customer)).toBeInTheDocument();
+    expect(document.querySelectorAll('div.group')).toHaveLength(2);
   });
 
   it('opens a certificate from its row', async () => {
@@ -72,7 +73,7 @@ describe('ExemptionCertificatesPage', () => {
     serve([makeCertificate({ id: 'exc_5' })]);
     renderWithProviders(<ExemptionCertificatesPage />);
 
-    await user.click(await screen.findByText('32-123'));
+    await user.click(await screen.findByRole('button', { name: 'View' }));
     expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/certificates/$id', params: { id: 'exc_5' } });
   });
 
@@ -128,12 +129,16 @@ describe('ExemptionCertificatesPage', () => {
   });
 
   it('explains an empty list and offers to add one', async () => {
+    const user = userEvent.setup();
     serve([]);
     renderWithProviders(<ExemptionCertificatesPage />);
 
     expect(await screen.findByText(tc.emptyTitle)).toBeInTheDocument();
     expect(screen.getByText(tc.emptyDescription)).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: tc.add }).every((l) => l.getAttribute('href') === '/weldbooks/sales-tax/certificates/new')).toBe(true);
+    const buttons = screen.getAllByRole('button', { name: tc.add });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[buttons.length - 1]);
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/certificates/new' });
   });
 
   it('links to the certificate reports and hides the add link without the create permission', async () => {
@@ -142,7 +147,7 @@ describe('ExemptionCertificatesPage', () => {
     renderWithProviders(<ExemptionCertificatesPage />);
 
     expect(await screen.findByRole('link', { name: tc.reports })).toHaveAttribute('href', '/weldbooks/sales-tax/certificates/reports');
-    expect(screen.queryByRole('link', { name: tc.add })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: tc.add })).not.toBeInTheDocument();
   });
 
   it('offers to try again when the certificates cannot be loaded', async () => {

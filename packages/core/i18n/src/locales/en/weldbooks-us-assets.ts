@@ -783,6 +783,7 @@ const payroll = {
 };
 
 const taxCalendar = {
+  columns: { deadline: 'Deadline', status: 'Status', actions: 'Actions' },
   title: 'Tax calendar',
   subtitle: 'Every tax due date of the year for this entity, with what is done and what is late.',
   loadFailed: 'The tax calendar could not be loaded.',

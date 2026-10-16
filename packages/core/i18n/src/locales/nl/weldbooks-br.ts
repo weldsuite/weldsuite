@@ -476,6 +476,9 @@ export const weldbooksBr = {
   },
 
   received: {
+    issuerTaxId: 'CNPJ',
+    noMatches: 'Geen NF-e gevonden voor dit filter',
+    noMatchesDescription: 'Probeer een andere status',
     title: 'Ontvangen NF-e',
     description:
       'De NF-e die je leveranciers op je CNPJ hebben uitgegeven. Haal ze op bij Focus NFe of upload een XML, bevestig de ontvangst bij de belastingdienst en maak er inkoopfacturen van.',

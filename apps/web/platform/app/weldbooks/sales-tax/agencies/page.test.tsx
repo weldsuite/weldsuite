@@ -35,6 +35,27 @@ import { installPointerPolyfills, makeAgency, renderWithProviders } from '../set
 
 const ta = en.weldbooksUs.salesTax.setup.agencies;
 
+/** The list rows (the `group` divs of the standard list), in the order shown. */
+function listRows(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('div.group'));
+}
+
+/**
+ * Adds a finished `is` filter pill through the toolbar: "Filter" > field > "is" > value.
+ * The pill opens its value picker on a timer, and the focus returning to the operator
+ * button can dismiss it again: when the options are not there, open the picker by hand.
+ */
+async function addIsFilter(user: ReturnType<typeof userEvent.setup>, field: string, value: string): Promise<void> {
+  await user.click(screen.getByRole('button', { name: 'Filter' }));
+  await user.click(await screen.findByRole('button', { name: field }));
+  await user.click(await screen.findByRole('button', { name: 'is' }));
+  const option = await screen.findByRole('button', { name: value }, { timeout: 400 }).catch(async () => {
+    await user.click(screen.getByRole('button', { name: `Select ${field.toLowerCase()}` }));
+    return screen.findByRole('button', { name: value });
+  });
+  await user.click(option);
+}
+
 function serve(agencies: unknown[]) {
   api.get.mockImplementation(async () => ({ data: agencies, pagination: { totalCount: agencies.length, hasMore: false, cursor: null } }));
 }
@@ -66,14 +87,17 @@ describe('SalesTaxAgenciesPage', () => {
     serve([monitoring, washington, texas]);
     renderWithProviders(<SalesTaxAgenciesPage />);
 
-    const rows = (await screen.findAllByRole('row')).slice(1);
+    await screen.findByText('Texas');
+    const rows = listRows();
     expect(rows).toHaveLength(3);
     // Registered agencies come first, by state; the one only being watched comes last.
-    expect(within(rows[0]).getByText(/Texas \(TX\)/)).toBeInTheDocument();
-    expect(within(rows[1]).getByText(/Washington \(WA\)/)).toBeInTheDocument();
-    expect(within(rows[2]).getByText(/California \(CA\)/)).toBeInTheDocument();
+    expect(within(rows[0]).getByText('Texas')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Washington')).toBeInTheDocument();
+    expect(within(rows[2]).getByText('California')).toBeInTheDocument();
 
     const wa = within(rows[1]);
+    expect(wa.getByText('WA')).toBeInTheDocument();
+    expect(wa.getByText('Washington State Department of Revenue')).toBeInTheDocument();
     expect(wa.getByText('Registered')).toBeInTheDocument();
     expect(wa.getByText('Monthly')).toBeInTheDocument();
     expect(wa.getByText('Day 25 of the next month')).toBeInTheDocument();
@@ -84,7 +108,6 @@ describe('SalesTaxAgenciesPage', () => {
     const ca = within(rows[2]);
     expect(ca.getByText('Monitoring')).toBeInTheDocument();
     expect(ca.getByText('Last day of the next month')).toBeInTheDocument();
-    expect(screen.getByText('3 agencies')).toBeInTheDocument();
   });
 
   it('opens an agency from its row', async () => {
@@ -92,39 +115,44 @@ describe('SalesTaxAgenciesPage', () => {
     serve([texas]);
     renderWithProviders(<SalesTaxAgenciesPage />);
 
-    await user.click(await screen.findByText(/Texas \(TX\)/));
+    await user.click(await screen.findByRole('button', { name: 'Texas Comptroller of Public Accounts' }));
     expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/agencies/$id', params: { id: 'sta_tx' } });
   });
 
-  it('asks the server for the chosen status', async () => {
+  it('filters by the chosen status', async () => {
     const user = userEvent.setup();
-    serve([texas]);
+    const pending = makeAgency({ id: 'sta_or', stateCode: 'OR', name: 'Oregon Department of Revenue', status: 'pending' });
+    serve([texas, pending]);
     renderWithProviders(<SalesTaxAgenciesPage />);
-    await screen.findByText(/Texas \(TX\)/);
-    expect(api.get.mock.calls[0][0]).not.toContain('status=');
+    await screen.findByText('Texas');
+    expect(listRows()).toHaveLength(2);
 
-    await user.click(screen.getByRole('combobox', { name: ta.filterStatus }));
-    await user.click(await screen.findByRole('option', { name: 'Pending' }));
+    await addIsFilter(user, ta.filterStatus, 'Pending');
 
-    await waitFor(() => expect(api.get.mock.calls.some(([path]) => String(path).includes('status=pending'))).toBe(true));
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    expect(screen.getByText('Oregon')).toBeInTheDocument();
+    expect(screen.queryByText('Texas')).not.toBeInTheDocument();
   });
 
   it('explains an empty list and offers to register', async () => {
+    const user = userEvent.setup();
     serve([]);
     renderWithProviders(<SalesTaxAgenciesPage />);
 
     expect(await screen.findByText(ta.emptyTitle)).toBeInTheDocument();
     expect(screen.getByText(ta.emptyDescription)).toBeInTheDocument();
-    const links = screen.getAllByRole('link', { name: ta.register });
-    expect(links.every((link) => link.getAttribute('href') === '/weldbooks/sales-tax/agencies/new')).toBe(true);
+    const buttons = screen.getAllByRole('button', { name: ta.register });
+    expect(buttons).toHaveLength(2);
+    await user.click(buttons[buttons.length - 1]);
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/agencies/new' });
   });
 
   it('does not offer to register without the create permission', async () => {
     permissions.allowed = new Set(['taxes:read']);
     serve([texas]);
     renderWithProviders(<SalesTaxAgenciesPage />);
-    await screen.findByText(/Texas \(TX\)/);
-    expect(screen.queryByRole('link', { name: ta.register })).not.toBeInTheDocument();
+    await screen.findByText('Texas');
+    expect(screen.queryByRole('button', { name: ta.register })).not.toBeInTheDocument();
   });
 
   it('offers to try again when the agencies cannot be loaded', async () => {
@@ -135,7 +163,7 @@ describe('SalesTaxAgenciesPage', () => {
     expect(await screen.findByText(ta.loadError)).toBeInTheDocument();
     serve([texas]);
     await user.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText(/Texas \(TX\)/)).toBeInTheDocument();
+    expect(await screen.findByText('Texas')).toBeInTheDocument();
   });
 
   it('links to the engine settings', async () => {

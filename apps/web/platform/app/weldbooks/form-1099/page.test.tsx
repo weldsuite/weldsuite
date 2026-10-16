@@ -174,10 +174,11 @@ describe('1099 Center', () => {
 
   it('lists the vendors with their statuses and the warnings the computation raised', async () => {
     renderPage();
-    const alpha = await screen.findByTestId('review-row-a');
-    expect(within(alpha).getByText('Goes on a form')).toBeTruthy();
-    expect(within(screen.getByTestId('review-row-c')).getByText('Needs a TIN')).toBeTruthy();
-    expect(screen.queryByTestId('review-row-d')).toBeNull();
+    const rowOf = (name: string) => screen.getByRole('button', { name: `Payments: ${name}` }).closest<HTMLElement>('div.group')!;
+    await screen.findByTestId('vendor-review');
+    expect(within(rowOf('Alpha')).getByText('Goes on a form')).toBeTruthy();
+    expect(within(rowOf('Charlie')).getByText('Needs a TIN')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Payments: Delta' })).toBeNull();
     expect(within(screen.getByTestId('review-warnings')).getByText('Charlie needs a TIN: collect a W-9 before filing.')).toBeTruthy();
   });
 

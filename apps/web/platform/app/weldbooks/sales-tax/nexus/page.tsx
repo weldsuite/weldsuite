@@ -1,38 +1,61 @@
 import { useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
-import { Check, MapPin, Search } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
+import { Check, MapPin } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
+import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
+  RowChip,
+  RowDate,
+  RowNumberChip,
+  RowText,
+  RowTitle,
+  StatusChip,
+  type ChipTone,
+} from '@/components/accounting/weldbooks-row-cells';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useNexusOverview } from '@/hooks/queries/use-weldbooks-sales-tax-center-queries';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
-import type { NexusRow } from '@/lib/api/domains/weldbooks-sales-tax-center';
-import { CardsSkeleton, EmptyState, ErrorState, RowsSkeleton } from '../shared/query-states';
+import type { NexusAlert, NexusRow, NexusStatus } from '@/lib/api/domains/weldbooks-sales-tax-center';
+import { CardsSkeleton, ErrorState } from '../shared/query-states';
 import { SalesTaxFrame } from '../shared/sales-tax-frame';
 import { RegisterStateLink } from '../shared/setup-links';
 import { fill } from '../shared/text';
-import { ALERT_FILTERS, alertVariant, countByAlert, filterNexusRows, statusVariant, type AlertFilter } from './nexus-model';
+import { ALERT_FILTERS, countByAlert } from './nexus-model';
 import { NexusProgressBar } from './nexus-progress-bar';
+
+/** A nexus row as the list takes it: the state code is the row's id. */
+type NexusListRow = NexusRow & { id: string };
+
+const ALERT_TONE: Record<NexusAlert, ChipTone> = {
+  register: 'red',
+  watch: 'amber',
+  registered: 'green',
+  ok: 'gray',
+};
+
+function statusTone(status: NexusStatus, registered: boolean): ChipTone {
+  if (status === 'exceeded') return registered ? 'gray' : 'red';
+  if (status === 'approaching') return 'amber';
+  return 'gray';
+}
+
+/** The alert filter works on the loaded states: `is` keeps the alert, `is not` drops it. */
+function applyAlertFilters(items: NexusListRow[], activeFilters: ActiveFilter[]): NexusListRow[] {
+  let result = items;
+  for (const filter of activeFilters) {
+    if (filter.field !== 'alert' || !filter.operator || !filter.value) continue;
+    result =
+      filter.operator === 'is'
+        ? result.filter((row) => row.alert === filter.value)
+        : result.filter((row) => row.alert !== filter.value);
+  }
+  return result;
+}
 
 interface SummaryCardProps {
   label: string;
@@ -64,111 +87,149 @@ function SummaryCard({ label, value, hint, tone, testId }: Readonly<SummaryCardP
   );
 }
 
-function NexusTableRow({ row, canRegister }: Readonly<{ row: NexusRow; canRegister: boolean }>) {
+function NexusContent() {
   const { t } = useI18n();
   const tn = t.weldbooksUs.salesTax.center.nexus;
-  const agencyStatuses = t.weldbooksUs.salesTax.center.agencyStatuses as Record<string, string>;
+  const { can } = usePermissions();
+  const navigate = useNavigate();
   const { formatMoney, formatDate } = useWeldbooksFormat();
+  const [asOf, setAsOf] = useState('');
+  const query = useNexusOverview(asOf || undefined);
+  const data = query.data;
+  const rows = useMemo<NexusListRow[]>(() => (data?.rows ?? []).map((row) => ({ ...row, id: row.stateCode })), [data]);
+  const counts = useMemo(() => countByAlert(data?.rows ?? []), [data]);
+  const filterLabels = tn.filters as Record<string, string>;
   const alerts = tn.alerts as Record<string, string>;
   const statuses = tn.statuses as Record<string, string>;
+  const agencyStatuses = t.weldbooksUs.salesTax.center.agencyStatuses as Record<string, string>;
+  const canRegister = can('taxes:create');
 
-  return (
-    <TableRow data-testid={`nexus-row-${row.stateCode}`} data-alert={row.alert}>
-      <TableCell>
-        <Link
-          to="/weldbooks/sales-tax/nexus/$state"
-          params={{ state: row.stateCode }}
-          className="font-medium text-primary hover:underline"
+  const filters: FilterConfig[] = [
+    {
+      field: 'alert',
+      label: tn.filters.alert,
+      options: ALERT_FILTERS.filter((value): value is NexusAlert => value !== 'all').map((value) => ({
+        value,
+        label: `${filterLabels[value]} (${counts[value]})`,
+      })),
+    },
+  ];
+
+  const columns: ColumnDef<NexusListRow>[] = [
+    {
+      id: 'state',
+      header: tn.columns.state,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (row) => (
+        <>
+          <RowNumberChip>{row.stateCode}</RowNumberChip>
+          <RowTitle>{row.stateName}</RowTitle>
+        </>
+      ),
+    },
+    {
+      id: 'status',
+      header: tn.columns.status,
+      width: 'w-[190px] gap-1.5',
+      render: (row) => (
+        <>
+          <StatusChip tone={ALERT_TONE[row.alert]}>{alerts[row.alert]}</StatusChip>
+          <RowChip tone={statusTone(row.status, row.registered)}>{statuses[row.status]}</RowChip>
+        </>
+      ),
+    },
+    {
+      id: 'progress',
+      header: tn.columns.progress,
+      width: 'w-[210px]',
+      render: (row) => (
+        <span
+          className="min-w-0"
+          title={
+            row.pending
+              ? fill(tn.pending, { date: formatDate(row.pending.collectFrom), crossed: formatDate(row.pending.exceededOn) })
+              : undefined
+          }
         >
-          {row.stateName}
-        </Link>
-        <span className="ml-2 text-xs text-muted-foreground">{row.stateCode}</span>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={alertVariant(row.alert)}>{alerts[row.alert]}</Badge>
-          <Badge variant={statusVariant(row.status, row.registered)}>{statuses[row.status]}</Badge>
-        </div>
-      </TableCell>
-      <TableCell>
-        <NexusProgressBar row={row} />
-        {row.pending ? (
-          <p className="mt-1 max-w-[16rem] whitespace-normal text-xs text-amber-700 dark:text-amber-400">
-            {fill(tn.pending, { date: formatDate(row.pending.collectFrom), crossed: formatDate(row.pending.exceededOn) })}
-          </p>
-        ) : null}
-      </TableCell>
-      <TableCell className="whitespace-nowrap text-right tabular-nums">
-        {row.thresholdSales === null
-          ? formatMoney(row.salesTotal)
-          : fill(tn.ofThreshold, { amount: formatMoney(row.salesTotal), threshold: formatMoney(row.thresholdSales) })}
-      </TableCell>
-      <TableCell className="hidden whitespace-nowrap text-right tabular-nums md:table-cell">
-        {row.thresholdTransactions === null
-          ? '—'
-          : fill(tn.transactionsOf, { count: row.transactionCount, threshold: row.thresholdTransactions })}
-      </TableCell>
-      <TableCell className="hidden whitespace-nowrap lg:table-cell">{row.exceededOn ? formatDate(row.exceededOn) : '—'}</TableCell>
-      <TableCell className="hidden whitespace-nowrap lg:table-cell">
-        {row.collectFrom ? (
-          <span className="inline-flex items-center gap-1">
-            {formatDate(row.collectFrom)}
-            {!row.collectFromVerified ? (
-              <Badge variant="outline" title={tn.unverified}>
-                ?
-              </Badge>
-            ) : null}
-          </span>
-        ) : (
-          '—'
-        )}
-      </TableCell>
-      <TableCell>
-        {row.registered ? (
+          <NexusProgressBar row={row} />
+        </span>
+      ),
+    },
+    {
+      id: 'sales',
+      header: tn.columns.sales,
+      width: 'w-[170px]',
+      render: (row) => (
+        <RowText className="tabular-nums">
+          {row.thresholdSales === null
+            ? formatMoney(row.salesTotal)
+            : fill(tn.ofThreshold, { amount: formatMoney(row.salesTotal), threshold: formatMoney(row.thresholdSales) })}
+        </RowText>
+      ),
+    },
+    {
+      id: 'transactions',
+      header: tn.columns.transactions,
+      width: 'hidden 2xl:flex w-[120px]',
+      render: (row) => (
+        <RowText className="tabular-nums">
+          {row.thresholdTransactions === null
+            ? null
+            : fill(tn.transactionsOf, { count: row.transactionCount, threshold: row.thresholdTransactions })}
+        </RowText>
+      ),
+    },
+    {
+      id: 'exceededOn',
+      header: tn.columns.exceededOn,
+      width: 'hidden 2xl:flex w-[110px]',
+      render: (row) => <RowDate>{row.exceededOn ? formatDate(row.exceededOn) : null}</RowDate>,
+    },
+    {
+      id: 'collectFrom',
+      header: tn.columns.collectFrom,
+      width: 'hidden xl:flex w-[130px] gap-1.5',
+      render: (row) => (
+        <>
+          <RowDate>{row.collectFrom ? formatDate(row.collectFrom) : null}</RowDate>
+          {row.collectFrom && !row.collectFromVerified ? (
+            <span title={tn.unverified}>
+              <RowChip tone="gray">?</RowChip>
+            </span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: 'registered',
+      header: tn.columns.registered,
+      width: 'w-[120px]',
+      render: (row) =>
+        row.registered ? (
           <span className="inline-flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
             <Check className="h-4 w-4" aria-hidden="true" />
             {tn.registeredYes}
           </span>
         ) : (
-          <span className="text-sm text-muted-foreground">
-            {row.agencyStatus ? (agencyStatuses[row.agencyStatus] ?? row.agencyStatus) : tn.registeredNo}
-          </span>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex justify-end gap-2">
-          {row.alert === 'register' && canRegister ? (
-            <Button asChild size="sm">
-              <RegisterStateLink stateCode={row.stateCode}>{tn.register}</RegisterStateLink>
-            </Button>
-          ) : null}
-          <Button asChild variant="outline" size="sm">
-            <Link to="/weldbooks/sales-tax/nexus/$state" params={{ state: row.stateCode }}>
-              {tn.viewDetails}
-            </Link>
+          <RowText>{row.agencyStatus ? (agencyStatuses[row.agencyStatus] ?? row.agencyStatus) : tn.registeredNo}</RowText>
+        ),
+    },
+    {
+      id: 'actions',
+      header: tn.columns.actions,
+      width: 'w-[90px] justify-end',
+      render: (row) =>
+        row.alert === 'register' && canRegister ? (
+          <Button asChild size="sm" className="h-7">
+            <RegisterStateLink stateCode={row.stateCode}>{tn.register}</RegisterStateLink>
           </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function NexusContent() {
-  const { t } = useI18n();
-  const tn = t.weldbooksUs.salesTax.center.nexus;
-  const { can } = usePermissions();
-  const { formatDate } = useWeldbooksFormat();
-  const [asOf, setAsOf] = useState('');
-  const [alert, setAlert] = useState<AlertFilter>('all');
-  const [search, setSearch] = useState('');
-  const query = useNexusOverview(asOf || undefined);
-  const data = query.data;
-  const rows = useMemo(() => (data ? filterNexusRows(data.rows, { alert, query: search }) : []), [data, alert, search]);
-  const counts = useMemo(() => countByAlert(data?.rows ?? []), [data]);
-  const filterLabels = tn.filters as Record<AlertFilter, string>;
+        ) : null,
+    },
+  ];
 
   return (
     <div className="space-y-4">
+      {query.isLoading ? <CardsSkeleton count={4} /> : null}
       {data ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard
@@ -196,86 +257,45 @@ function NexusContent() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="nexus-alert">{tn.filters.alert}</Label>
-          <Select value={alert} onValueChange={(value) => setAlert(value as AlertFilter)}>
-            <SelectTrigger id="nexus-alert" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ALERT_FILTERS.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {filterLabels[value]}
-                  {value !== 'all' && data ? ` (${counts[value]})` : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="nexus-search">{tn.filters.search}</Label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <Input
-              id="nexus-search"
-              className="w-56 pl-8"
-              placeholder={tn.filters.search}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="nexus-as-of">{tn.asOf}</Label>
-          <Input
-            id="nexus-as-of"
-            type="date"
-            className="w-40"
-            value={asOf}
-            onChange={(event) => setAsOf(event.target.value)}
+      {query.isError && !data ? (
+        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+      ) : (
+        <div className="overflow-hidden rounded-md border">
+          <WeldbooksEntityList<NexusListRow>
+            items={rows}
+            isLoading={query.isLoading}
+            columns={columns}
+            onRowClick={(row) => void navigate({ to: '/weldbooks/sales-tax/nexus/$state', params: { state: row.stateCode } })}
+            getRowLabel={(row) => `${row.stateName}: ${tn.viewDetails}`}
+            filters={filters}
+            applyFilters={applyAlertFilters}
+            searchFields={['stateName', 'stateCode']}
+            searchPlaceholder={tn.filters.search}
+            leftActionButtons={
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {tn.asOf}
+                <Input
+                  type="date"
+                  className="h-8 w-40"
+                  value={asOf}
+                  onChange={(event) => setAsOf(event.target.value)}
+                />
+              </label>
+            }
+            emptyState={{
+              icon: (
+                <EmptyStateIllustration>
+                  <MapPin className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+                </EmptyStateIllustration>
+              ),
+              title: tn.empty,
+              description: tn.emptyDescription,
+            }}
+            noResultsState={{ title: tn.empty, description: tn.emptyDescription }}
           />
         </div>
-        {data ? <p className="pb-2 text-xs text-muted-foreground">{fill(t.weldbooksUs.salesTax.center.common.asOfDate, { date: formatDate(data.asOf) })}</p> : null}
-      </div>
-
-      {query.isLoading ? (
-        <>
-          <CardsSkeleton count={4} />
-          <RowsSkeleton rows={8} />
-        </>
-      ) : query.isError && !data ? (
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
-      ) : rows.length === 0 ? (
-        <EmptyState icon={MapPin} title={tn.empty} description={tn.emptyDescription} />
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{tn.columns.state}</TableHead>
-                  <TableHead>{tn.columns.status}</TableHead>
-                  <TableHead>{tn.columns.progress}</TableHead>
-                  <TableHead className="text-right">{tn.columns.sales}</TableHead>
-                  <TableHead className="hidden text-right md:table-cell">{tn.columns.transactions}</TableHead>
-                  <TableHead className="hidden lg:table-cell">{tn.columns.exceededOn}</TableHead>
-                  <TableHead className="hidden lg:table-cell">{tn.columns.collectFrom}</TableHead>
-                  <TableHead>{tn.columns.registered}</TableHead>
-                  <TableHead className="text-right">
-                    <span className="sr-only">{tn.columns.actions}</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <NexusTableRow key={row.stateCode} row={row} canRegister={can('taxes:create')} />
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
       )}
+      {data ? <p className="text-xs text-muted-foreground">{fill(t.weldbooksUs.salesTax.center.common.asOfDate, { date: formatDate(data.asOf) })}</p> : null}
       <p className="text-xs text-muted-foreground">{tn.legend}</p>
     </div>
   );

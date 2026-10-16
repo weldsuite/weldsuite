@@ -59,7 +59,14 @@ const deadline = (key: string, dueDate: string, extra: Partial<TaxDeadline> = {}
   ...extra,
 });
 
-const statusOf = (key: string) => within(screen.getByTestId(`deadline-${key}`)).getByTestId('deadline-status');
+/** The list row (a `group` div of the standard list) of a deadline. */
+function rowOf(key: string): HTMLElement {
+  const row = screen.getByTestId(`deadline-${key}`).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row for ${key}`);
+  return row;
+}
+
+const statusOf = (key: string) => within(rowOf(key)).getByTestId('deadline-status');
 
 describe('Tax calendar page', () => {
   beforeEach(() => {
@@ -116,30 +123,34 @@ describe('Tax calendar page', () => {
 
   it('groups the year by month, earliest first', () => {
     renderWithProviders(<TaxCalendarPage />);
-    const months = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent);
-    expect(months).toEqual(['January 2026', 'February 2026', 'March 2026', 'April 2026', 'September 2026']);
+    const months = ['January 2026', 'February 2026', 'March 2026', 'April 2026', 'September 2026'].map((name) => screen.getByText(name));
+    months.slice(1).forEach((month, index) => {
+      expect(months[index].compareDocumentPosition(month) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+    // A deadline sits under its own month.
+    expect(rowOf('late').compareDocumentPosition(months[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('says how late or how soon a deadline is, and when one was moved or extended', () => {
     renderWithProviders(<TaxCalendarPage />);
-    expect(screen.getByTestId('deadline-late')).toHaveTextContent('38 days overdue');
-    expect(screen.getByTestId('deadline-soon')).toHaveTextContent('in 6 days');
-    expect(screen.getByTestId('deadline-soon')).toHaveTextContent('moved from 2026-03-15');
-    expect(screen.getByTestId('deadline-soon')).toHaveTextContent('extended with Form 7004');
+    expect(rowOf('late')).toHaveTextContent('38 days overdue');
+    expect(rowOf('soon')).toHaveTextContent('in 6 days');
+    const dueDate = rowOf('soon').querySelector('[title*="moved from"]');
+    expect(dueDate).toHaveAttribute('title', 'moved from 2026-03-15 · extended with Form 7004');
   });
 
   it('links sales tax deadlines and 1099s to their screens', () => {
     renderWithProviders(<TaxCalendarPage />);
-    expect(within(screen.getByTestId('deadline-filed')).getByRole('link', { name: /Sales tax returns/ })).toHaveAttribute('href', '/weldbooks/sales-tax/returns');
-    expect(within(screen.getByTestId('deadline-late')).getByRole('link', { name: /1099 forms/ })).toHaveAttribute('href', '/weldbooks/form-1099');
-    expect(within(screen.getByTestId('deadline-later')).queryByRole('link')).not.toBeInTheDocument();
+    expect(within(rowOf('filed')).getByRole('link', { name: /Sales tax returns/ })).toHaveAttribute('href', '/weldbooks/sales-tax/returns');
+    expect(within(rowOf('late')).getByRole('link', { name: /1099 forms/ })).toHaveAttribute('href', '/weldbooks/form-1099');
+    expect(within(rowOf('later')).queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('marks a deadline done with a note', async () => {
     const user = userEvent.setup();
     renderWithProviders(<TaxCalendarPage />);
 
-    await user.click(within(screen.getByTestId('deadline-soon')).getByTestId('deadline-mark-done'));
+    await user.click(within(rowOf('soon')).getByTestId('deadline-mark-done'));
     await user.type(await screen.findByLabelText('Notes'), 'Filed online');
     await user.click(screen.getByTestId('deadline-confirm'));
 
@@ -151,7 +162,7 @@ describe('Tax calendar page', () => {
     const user = userEvent.setup();
     renderWithProviders(<TaxCalendarPage />);
 
-    await user.click(within(screen.getByTestId('deadline-later')).getByTestId('deadline-mark-done'));
+    await user.click(within(rowOf('later')).getByTestId('deadline-mark-done'));
     await user.click(await screen.findByTestId('deadline-confirm'));
 
     await waitFor(() => expect(completeAsync).toHaveBeenCalledWith({ deadlineKey: 'later', dueDate: '2026-09-15' }));
@@ -162,7 +173,7 @@ describe('Tax calendar page', () => {
     const user = userEvent.setup();
     renderWithProviders(<TaxCalendarPage />);
 
-    await user.click(within(screen.getByTestId('deadline-soon')).getByTestId('deadline-mark-done'));
+    await user.click(within(rowOf('soon')).getByTestId('deadline-mark-done'));
     await user.click(await screen.findByTestId('deadline-confirm'));
     expect(await screen.findByText('Failed to mark the deadline done')).toBeInTheDocument();
   });
@@ -171,11 +182,11 @@ describe('Tax calendar page', () => {
     const user = userEvent.setup();
     renderWithProviders(<TaxCalendarPage />);
 
-    expect(within(screen.getByTestId('deadline-filed')).queryByTestId('deadline-undo')).not.toBeInTheDocument();
-    expect(screen.getByTestId('deadline-filed')).toHaveTextContent('Done because the return was filed.');
-    expect(screen.getByTestId('deadline-ticked')).toHaveTextContent('Confirmation 42');
+    expect(within(rowOf('filed')).queryByTestId('deadline-undo')).not.toBeInTheDocument();
+    expect(rowOf('filed').querySelector('[title*="Done because the return was filed."]')).not.toBeNull();
+    expect(rowOf('ticked').querySelector('[title*="Confirmation 42"]')).not.toBeNull();
 
-    await user.click(within(screen.getByTestId('deadline-ticked')).getByTestId('deadline-undo'));
+    await user.click(within(rowOf('ticked')).getByTestId('deadline-undo'));
     await waitFor(() => expect(reopenAsync).toHaveBeenCalledWith('ticked'));
   });
 
