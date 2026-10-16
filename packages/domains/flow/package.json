@@ -7,7 +7,10 @@
   "exports": {
     "./analytics-payload": "./src/analytics-payload.ts",
     "./project-access": "./src/project-access.ts",
+    "./day-boundaries": "./src/day-boundaries.ts",
     "./project-stats": "./src/project-stats.ts",
+    "./recurrence": "./src/recurrence.ts",
+    "./task-relations": "./src/task-relations.ts",
     "./task-numbering": "./src/task-numbering.ts",
     "./task-stage": "./src/task-stage.ts",
     "./task-tree": "./src/task-tree.ts",
