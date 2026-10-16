@@ -27,6 +27,7 @@ import {
   nextIcsSequence,
   resolveEmailLocale,
   sendSystemEmail,
+  workspaceAppUrl,
   type CalendarEventKind,
   type EmailTransport,
 } from '@weldsuite/emails';
@@ -59,12 +60,13 @@ export function getPlatformUrl(environment: string): string {
 }
 
 /**
- * The authenticated calendar deep-link. Only workspace members can open it, so
- * it is never put in a mail to an external guest (see `getMemberEmails`).
+ * The authenticated calendar deep-link, in the event's workspace (FE-013).
+ * Only workspace members can open it, so it is never put in a mail to an
+ * external guest (see `getMemberEmails`).
  */
-function eventUrlFor(env: Env): string {
+function eventUrlFor(env: Env, clerkOrgId: string): string {
   const override = (env as Env & AppUrlEnv).APP_URL?.trim().replace(/\/+$/, '');
-  return `${override || getPlatformUrl(env.ENVIRONMENT)}/weldcalendar`;
+  return workspaceAppUrl(override || getPlatformUrl(env.ENVIRONMENT), clerkOrgId, '/weldcalendar');
 }
 
 // ── Organizer / member lookups ───────────────────────────────────────────
@@ -303,7 +305,7 @@ function batchMailOf(env: Env, opts: SendOptions, transport: EmailTransport): Ba
   const { kind, event, organizer } = opts;
   return {
     transport,
-    appUrl: eventUrlFor(env),
+    appUrl: eventUrlFor(env, opts.outbound.clerkOrgId),
     method: isEndedKind(kind) ? 'CANCEL' : 'REQUEST',
     meetingUrl: isEndedKind(kind) ? undefined : event.meetingUrl?.trim() || undefined,
     zone: mailTimeZone(event, organizer),

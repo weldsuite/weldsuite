@@ -428,6 +428,15 @@ export const common = {
       title: 'Pagina niet gevonden',
       goHome: 'Naar home',
     },
+    workspaceLink: {
+      opening: 'Werkruimte openen…',
+      notFoundTitle: 'Werkruimte niet gevonden',
+      notFoundDescription: 'Deze link verwijst naar een werkruimte waar je geen lid van bent, of die een andere naam heeft gekregen.',
+      openIn: 'Deze pagina openen in:',
+      errorTitle: 'Kan deze werkruimte niet openen',
+      errorDescription: 'Overschakelen naar de werkruimte uit deze link is mislukt. Probeer het opnieuw of ga naar je huidige werkruimte.',
+      goHome: 'Naar mijn werkruimte',
+    },
     desktopSignInFailed: 'Inloggen op desktop mislukt: {message}',
     memberSelect: {
       change: 'Wijzigen',

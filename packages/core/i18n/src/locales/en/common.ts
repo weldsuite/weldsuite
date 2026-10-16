@@ -428,6 +428,15 @@ export const common = {
       title: 'Page not found',
       goHome: 'Go home',
     },
+    workspaceLink: {
+      opening: 'Opening workspace…',
+      notFoundTitle: 'Workspace not found',
+      notFoundDescription: "This link points to a workspace you're not a member of, or one that has been renamed.",
+      openIn: 'Open this page in:',
+      errorTitle: "Couldn't open this workspace",
+      errorDescription: 'Switching to the workspace in this link failed. Try again, or go to your current workspace.',
+      goHome: 'Go to my workspace',
+    },
     desktopSignInFailed: 'Desktop sign-in failed: {message}',
     memberSelect: {
       change: 'Change',

@@ -25,7 +25,14 @@ import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:work
 import { eq, and, isNull, lt, between, notInArray } from 'drizzle-orm';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
-import { resolveEmailLocale, sendSystemEmail, type EmailBrand, type EmailLocale, type FlowDigestEmailProps } from '@weldsuite/emails';
+import {
+  resolveEmailLocale,
+  sendSystemEmail,
+  workspaceAppUrl,
+  type EmailBrand,
+  type EmailLocale,
+  type FlowDigestEmailProps,
+} from '@weldsuite/emails';
 import { workerTransport, type SystemEmailEnv } from '@weldsuite/emails/transports/binding';
 
 /**
@@ -194,10 +201,10 @@ async function queryStandaloneTasks(
 }
 
 /** Map the internal query shape to the email template's plain-object task shape. */
-function toEmailTasks(tasks: DigestTask[], platformUrl: string): FlowDigestEmailProps['overdue'] {
+function toEmailTasks(tasks: DigestTask[], appUrl: (path: string) => string): FlowDigestEmailProps['overdue'] {
   return tasks.map((t) => ({
     title: t.title,
-    url: `${platformUrl}/weldflow/task/${t.id}`,
+    url: appUrl(`/weldflow/task/${t.id}`),
     projectName: t.projectName ?? null,
     personal: t.type === 'personal',
     dueDate: t.dueDate ? t.dueDate.toISOString() : null,
@@ -263,6 +270,8 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
       const logoUrl = wsSettings?.logoUrl || null;
       const primaryColor = wsSettings?.primaryColor || '#2563eb';
       const platformUrl = getPlatformUrl(this.env.ENVIRONMENT);
+      // Open every link in this digest's workspace (FE-013).
+      const appUrl = (path: string) => workspaceAppUrl(platformUrl, workspaceId, path);
       const locale = resolveEmailLocale(userPref?.language, wsSettings?.language);
 
       // Get digest config
@@ -299,17 +308,17 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
       }
 
       const firstName = name.split(' ')[0] || name;
-      const unsubscribeUrl = `${platformUrl}/settings/notifications`;
+      const unsubscribeUrl = appUrl('/settings/notifications');
 
       const props: FlowDigestEmailProps = {
         firstName,
         workspaceName,
-        overdue: toEmailTasks(overdue, platformUrl),
-        dueToday: toEmailTasks(dueToday, platformUrl),
-        dueThisWeek: toEmailTasks(dueThisWeek, platformUrl),
+        overdue: toEmailTasks(overdue, appUrl),
+        dueToday: toEmailTasks(dueToday, appUrl),
+        dueThisWeek: toEmailTasks(dueThisWeek, appUrl),
         timezone: wsTimezone,
         date: new Date().toISOString(),
-        tasksUrl: `${platformUrl}/weldflow`,
+        tasksUrl: appUrl('/weldflow'),
         settingsUrl: unsubscribeUrl,
       };
 
