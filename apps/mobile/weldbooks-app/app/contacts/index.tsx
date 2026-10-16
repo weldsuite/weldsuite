@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, FlatList, RefreshControl, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Users, Plus, Building2 } from 'lucide-react-native';
+import { Users, Plus } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
@@ -21,7 +21,7 @@ import api from '@/services/api';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
-import { IconTile } from '@/components/detail';
+import { ContactKindTile } from '@/components/contact-kind-tile';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n } from '@/lib/i18n';
@@ -162,7 +162,7 @@ export default function ContactsScreen() {
         }
         renderItem={({ item }) => (
           <RecordRow
-            leading={<IconTile icon={Building2} color={ACCENTS.contacts} />}
+            leading={<ContactKindTile kind={item.kind} />}
             title={item.name || t.contacts.unnamed}
             subtitle={item.email || undefined}
             meta={ROLE_LABELS[item.type] ?? item.type}
