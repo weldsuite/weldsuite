@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   updateEmployer: vi.fn(),
   createSchedule: vi.fn(),
   updateSchedule: vi.fn(),
+  accountingEntities: vi.fn((_options?: { enabled?: boolean }) => ({ data: [{ id: 'ent_1', name: 'Acme BV', baseCurrency: 'EUR' }] })),
 }));
 
 vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
@@ -32,7 +33,7 @@ vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
 }));
 
 vi.mock('@/hooks/use-current-entity-currency', () => ({
-  useAccountingEntities: () => ({ data: [{ id: 'ent_1', name: 'Acme BV', baseCurrency: 'EUR' }] }),
+  useAccountingEntities: (options?: { enabled?: boolean }) => mocks.accountingEntities(options),
 }));
 
 function renderInProvider(ui: React.ReactElement) {
@@ -64,6 +65,13 @@ beforeEach(() => {
 });
 
 describe('EmployerDialog', () => {
+  it('does not load the WeldBooks entities without entities:read', () => {
+    mocks.accountingEntities.mockClear();
+    renderInProvider(<EmployerDialog onClose={vi.fn()} />);
+
+    expect(mocks.accountingEntities).toHaveBeenCalledWith({ enabled: false });
+  });
+
   it('creates a Dutch employer with its loonheffingennummer', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

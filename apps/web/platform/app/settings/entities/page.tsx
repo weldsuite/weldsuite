@@ -51,8 +51,9 @@ export default function EntitiesSettingsPage() {
   const requested = isEntitiesTab(search.tab) ? search.tab : undefined;
   const activeTab = tabs.find((tab) => tab.id === requested)?.id ?? tabs[0]?.id;
 
+  // Always name the tab: which tab comes first depends on installed apps and permissions.
   function setTab(tab: string) {
-    navigate({ to: '/settings/entities', search: tab === tabs[0]?.id ? {} : { tab } });
+    navigate({ to: '/settings/entities', search: { tab } });
   }
 
   const loading = permissionsLoading || appsLoading || payrollFlag.isLoading;
