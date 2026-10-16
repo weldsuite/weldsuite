@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  useQueries,
   useQuery,
   useMutation,
   useQueryClient,
@@ -436,6 +437,30 @@ export function useAccountingCustomer(id: string) {
     queryKey: accountingKeys.customers.detail(id),
     queryFn: () => accountingApi.getCustomer(id),
     enabled: !!id,
+  });
+}
+
+/**
+ * Display names of the given contacts, keyed by id. Fetched one by one (sharing
+ * the detail cache) because the contacts list is paginated and a record's
+ * contact may sit beyond its first page. Unresolved ids are left out.
+ */
+export function useAccountingContactNames(ids: string[]): Map<string, string> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  return useQueries({
+    queries: unique.map((id) => ({
+      queryKey: accountingKeys.customers.detail(id),
+      queryFn: () => accountingApi.getCustomer(id),
+    })),
+    combine: (results) => {
+      const names = new Map<string, string>();
+      results.forEach((result, i) => {
+        const contact = result.data?.data;
+        const name = contact?.name || contact?.email;
+        if (name) names.set(unique[i]!, name);
+      });
+      return names;
+    },
   });
 }
 

@@ -783,6 +783,7 @@ const payroll = {
 };
 
 const taxCalendar = {
+  columns: { deadline: 'Termijn', status: 'Status', actions: 'Acties' },
   title: 'Belastingkalender',
   subtitle: 'Elke belastingdeadline van het jaar voor deze entiteit, met wat klaar is en wat te laat is.',
   loadFailed: 'De belastingkalender kon niet worden geladen.',

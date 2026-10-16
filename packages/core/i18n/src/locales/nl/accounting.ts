@@ -1819,6 +1819,9 @@ export const accounting = {
 
     // Banking pages
     bankingPages: {
+      transactionsEmptyTitle: 'Nog geen transacties',
+      transactionsEmptyDescription: 'Voeg je eerste transactie toe of importeer er een om te beginnen',
+      noRulesDescription: 'Maak je eerste regel aan om te beginnen',
       pageTitle: 'Bankrekeningen',
       addBankAccount: 'Bankrekening Toevoegen',
       comingSoon: 'Binnenkort beschikbaar',
@@ -1906,7 +1909,7 @@ export const accounting = {
 
       // Rules page
       newRule: 'Nieuwe Regel',
-      noRulesTitle: 'Nog geen afstemmingsregels. Maak er een aan om terugkerende transacties zoals huur, abonnementen of bankkosten automatisch te categoriseren.',
+      noRulesTitle: 'Nog geen afstemmingsregels',
       createFirstRule: 'Maak uw eerste regel aan',
       deleteRuleTitle: 'Deze regel verwijderen?',
       deleteRuleDesc: 'Bestaande afgestemde transacties worden niet beïnvloed. Nieuwe imports passen deze regel niet meer toe.',
@@ -2378,6 +2381,7 @@ export const accounting = {
 
     // Journal entries list page
     journalPage: {
+      emptyDescription: 'Maak je eerste journaalpost aan om te beginnen',
       newEntry: 'Nieuwe Post',
       ungrouped: 'Geen datum',
       colDate: 'Datum',
@@ -2555,6 +2559,9 @@ export const accounting = {
 
     // VAT pages
     vat: {
+      emptyTitle: 'Nog geen btw-aangiftes',
+      emptyDescription: 'Bereken je eerste btw-aangifte om te beginnen',
+      icpEmptyDescription: 'Bereken je eerste ICP-opgaaf om te beginnen',
       title: 'BTW-aangifte',
       newReturn: 'Nieuwe BTW-aangifte',
       period: 'Periode',
@@ -2704,6 +2711,7 @@ export const accounting = {
       dropHint: 'Sleep factuurafbeeldingen hier naartoe — WeldAgent extraheert leverancier, bedragen, regelitems en totalen.',
       uploadInvoice: 'Factuur uploaden',
       noDocumentsInbox: 'Geen documenten in inbox',
+      emptyDescription: 'Upload je eerste factuur om te beginnen',
       phaseUploading: 'Uploaden…',
       phaseProcessing: 'Scannen met WeldAgent…',
       phaseDone: 'Klaar',
@@ -2768,6 +2776,7 @@ export const accounting = {
 
     // Entities page
     entities: {
+      emptyDescription: 'Maak je eerste entiteit aan om te beginnen',
       title: 'Administraties',
       newEntity: 'Nieuwe Administratie',
       entityName: 'Naam',
@@ -2804,7 +2813,7 @@ export const accounting = {
       editEntity: 'Bewerken',
       badgeInactive: 'Inactief',
       newEntity2: 'Nieuwe Entiteit',
-      noEntities2: 'Nog geen entiteiten. Maak er een aan om WeldBooks te gaan gebruiken.',
+      noEntities2: 'Nog geen entiteiten',
       // Add entity page
       newLegalEntity: 'Nieuwe Rechtspersoon',
       newLegalEntityDesc: 'Bij het aanmaken van een entiteit worden het rekeningschema en de belastingtarieven van de jurisdictie-adapter ingevoerd.',
@@ -2829,6 +2838,7 @@ export const accounting = {
 
     // Recurring invoices list + detail pages
     recurringPage: {
+      colName: 'Naam',
       colContact: 'Contactpersoon',
       colFrequency: 'Frequentie',
       colNextDate: 'Volgende Datum',
@@ -2836,8 +2846,10 @@ export const accounting = {
       colStatus: 'Status',
       statusActive: 'Actief',
       statusPaused: 'Gepauzeerd',
+      statusCompleted: 'Voltooid',
       newRecurring: 'Nieuwe Terugkerende Factuur',
       noRecurring: 'Geen terugkerende facturen gevonden',
+      emptyDescription: 'Maak je eerste terugkerende factuur aan om te beginnen',
       // Detail page
       notFound: 'Terugkerende factuur niet gevonden.',
       defaultName: 'Terugkerende Factuur',
@@ -2867,6 +2879,7 @@ export const accounting = {
 
     // Bills list page
     billsPage: {
+      emptyDescription: 'Maak je eerste inkoopfactuur aan om te beginnen',
       searchPlaceholder: 'Inkoopfacturen zoeken...',
       newBill: 'Nieuwe Inkoopfactuur',
       groupOverdue: 'Achterstallig',
@@ -2885,6 +2898,7 @@ export const accounting = {
 
     // Accounts (Chart of Accounts) page
     accountsPage: {
+      emptyDescription: 'Maak je eerste rekening aan om te beginnen',
       filterTypeLabel: 'Type',
       filterAsset: 'Activa',
       filterLiability: 'Passiva',
@@ -2906,6 +2920,7 @@ export const accounting = {
 
     // Customers list page
     customersPage: {
+      emptyDescription: 'Maak je eerste klant aan om te beginnen',
       searchPlaceholder: 'Klanten zoeken...',
       newCustomer: 'Nieuwe Klant',
       filterRoleLabel: 'Rol',
@@ -2923,6 +2938,7 @@ export const accounting = {
 
     // Suppliers list page
     suppliersPage: {
+      emptyDescription: 'Maak je eerste leverancier aan om te beginnen',
       searchPlaceholder: 'Leveranciers zoeken...',
       newSupplier: 'Nieuwe Leverancier',
       filterRoleLabel: 'Rol',
@@ -2940,6 +2956,7 @@ export const accounting = {
 
     // Credit notes page
     creditNotesPage: {
+      emptyDescription: 'Maak een creditnota aan vanuit een gefinaliseerde factuur',
       searchPlaceholder: 'Creditnota\'s zoeken...',
       colNumber: 'Nummer',
       colContact: 'Contactpersoon',
@@ -2948,7 +2965,7 @@ export const accounting = {
       colTotal: 'Totaal',
       colStatus: 'Status',
       viewSource: 'Bronsfactuur bekijken',
-      noCreditNotes: 'Nog geen creditnota\'s. Open een gefinaliseerde factuur en gebruik "Creditnota aanmaken".',
+      noCreditNotes: 'Nog geen creditnota\'s',
     },
 
     // KPI cards

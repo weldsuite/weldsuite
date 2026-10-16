@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingBills } from '@/hooks/queries/use-accounting-queries';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { ReceiptText } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
   type ColumnDef,
@@ -22,21 +22,6 @@ interface BillRow {
   total?: string | number | null;
   currency?: string | null;
   status: string;
-}
-
-function statusVariant(status: string) {
-  switch (status) {
-    case 'paid':
-      return 'default' as const;
-    case 'approved':
-      return 'secondary' as const;
-    case 'overdue':
-      return 'destructive' as const;
-    case 'draft':
-      return 'outline' as const;
-    default:
-      return 'secondary' as const;
-  }
 }
 
 export default function BillsPage() {
@@ -66,44 +51,38 @@ export default function BillsPage() {
     {
       id: 'number',
       header: tbp.colNumber,
-      width: 'flex-1',
-      render: (bill) => <span className="font-medium">{bill.billNumber}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (bill) => <RowTitle>{bill.billNumber ?? '—'}</RowTitle>,
     },
     {
       id: 'supplier',
       header: tbp.colSupplier,
-      width: 'flex-1',
-      render: (bill) => (
-        <span className="text-muted-foreground">{bill.contactName ?? '—'}</span>
-      ),
+      width: 'w-[200px]',
+      render: (bill) => <ContactCell name={bill.contactName} />,
     },
     {
       id: 'issueDate',
       header: tbp.colDate,
-      width: 'w-[140px]',
-      render: (bill) => (
-        <span className="text-muted-foreground">{formatDate(bill.issueDate)}</span>
-      ),
+      width: 'w-[120px]',
+      render: (bill) => <RowDate>{formatDate(bill.issueDate)}</RowDate>,
     },
     {
       id: 'dueDate',
       header: tbp.colDueDate,
-      width: 'w-[140px]',
-      render: (bill) => (
-        <span className="text-muted-foreground">{formatDate(bill.dueDate)}</span>
-      ),
+      width: 'w-[120px]',
+      render: (bill) => <RowDate>{formatDate(bill.dueDate)}</RowDate>,
     },
     {
       id: 'total',
       header: tbp.colTotal,
-      width: 'w-[140px]',
-      render: (bill) => <span>{formatMoney(bill.total ?? bill.totalAmount, bill.currency)}</span>,
+      width: 'w-[130px]',
+      render: (bill) => <RowAmount>{formatMoney(bill.total ?? bill.totalAmount, bill.currency)}</RowAmount>,
     },
     {
       id: 'status',
       header: tbp.colStatus,
-      width: 'w-[140px]',
-      render: (bill) => <Badge variant={statusVariant(bill.status)}>{tsl[bill.status] ?? bill.status}</Badge>,
+      width: 'w-[110px]',
+      render: (bill) => <StatusChip status={bill.status}>{tsl[bill.status] ?? bill.status}</StatusChip>,
     },
   ];
 
@@ -128,7 +107,7 @@ export default function BillsPage() {
           </EmptyStateIllustration>
         ),
         title: tbp.noBills,
-        description: tbp.searchPlaceholder,
+        description: tbp.emptyDescription,
         action: {
           label: tbp.newBill,
           onClick: () => navigate({ to: '/weldbooks/bills/add' }),

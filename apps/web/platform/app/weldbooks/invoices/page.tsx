@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { FileText } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { InvoiceDialog } from './components/invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -19,22 +19,6 @@ interface InvoiceRow {
   total?: string | number | null;
   currency?: string | null;
   status: string;
-}
-
-function statusVariant(status: string) {
-  switch (status) {
-    case 'paid':
-      return 'default' as const;
-    case 'sent':
-    case 'finalized':
-      return 'secondary' as const;
-    case 'overdue':
-      return 'destructive' as const;
-    case 'draft':
-      return 'outline' as const;
-    default:
-      return 'secondary' as const;
-  }
 }
 
 export default function InvoicesPage() {
@@ -66,40 +50,38 @@ export default function InvoicesPage() {
     {
       id: 'number',
       header: tip.colNumber,
-      width: 'flex-1',
-      render: (inv) => <span className="font-medium">{inv.invoiceNumber}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (inv) => <RowTitle>{inv.invoiceNumber ?? '—'}</RowTitle>,
     },
     {
       id: 'contact',
       header: tip.colContact,
-      width: 'flex-1',
-      render: (inv) => <span className="text-muted-foreground">{inv.contactName ?? '—'}</span>,
+      width: 'w-[200px]',
+      render: (inv) => <ContactCell name={inv.contactName} />,
     },
     {
       id: 'issueDate',
       header: tip.colDate,
-      width: 'w-[140px]',
-      render: (inv) => <span className="text-muted-foreground">{formatDate(inv.issueDate)}</span>,
+      width: 'w-[120px]',
+      render: (inv) => <RowDate>{formatDate(inv.issueDate)}</RowDate>,
     },
     {
       id: 'dueDate',
       header: tip.colDueDate,
-      width: 'w-[140px]',
-      render: (inv) => <span className="text-muted-foreground">{formatDate(inv.dueDate)}</span>,
+      width: 'w-[120px]',
+      render: (inv) => <RowDate>{formatDate(inv.dueDate)}</RowDate>,
     },
     {
       id: 'total',
       header: tip.colTotal,
-      width: 'w-[140px]',
-      render: (inv) => formatMoney(inv.total ?? inv.totalAmount, inv.currency),
+      width: 'w-[130px]',
+      render: (inv) => <RowAmount>{formatMoney(inv.total ?? inv.totalAmount, inv.currency)}</RowAmount>,
     },
     {
       id: 'status',
       header: tip.colStatus,
-      width: 'w-[140px]',
-      render: (inv) => (
-        <Badge variant={statusVariant(inv.status)}>{tsl[inv.status as keyof typeof tsl] ?? inv.status}</Badge>
-      ),
+      width: 'w-[110px]',
+      render: (inv) => <StatusChip status={inv.status}>{tsl[inv.status as keyof typeof tsl] ?? inv.status}</StatusChip>,
     },
   ];
 

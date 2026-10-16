@@ -66,6 +66,27 @@ import PayrollConnectionsPage from './connections/page';
 import PayrollImportDetailPage from './[id]/page';
 import { polyfillRadixSelect, renderWithProviders } from '../fixed-assets/test-utils';
 
+/** The list row (a `group` div of the standard list) that shows `text`. */
+function rowWith(text: string): HTMLElement {
+  const row = screen.getByText(text).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row shows ${text}`);
+  return row;
+}
+
+/** Adds a finished `is` filter pill: "Filter" > field > "is" > value. */
+async function addIsFilter(user: ReturnType<typeof userEvent.setup>, field: string, value: string) {
+  await user.click(screen.getByRole('button', { name: 'Filter' }));
+  await user.click(await screen.findByRole('button', { name: field }));
+  await user.click(await screen.findByRole('button', { name: 'is' }));
+  // The pill opens its value picker on a timer, and the focus returning to the operator
+  // button can dismiss it again: when the options are not there, open the picker by hand.
+  const option = await screen.findByRole('button', { name: value }, { timeout: 400 }).catch(async () => {
+    await user.click(screen.getByRole('button', { name: `Select ${field.toLowerCase()}` }));
+    return screen.findByRole('button', { name: value });
+  });
+  await user.click(option);
+}
+
 const payroll = (id: string, extra: Partial<PayrollImport> = {}): PayrollImport => ({
   id,
   createdAt: '2026-02-01T00:00:00.000Z',
@@ -97,7 +118,7 @@ describe('Payroll imports page', () => {
 
   it('lists the payrolls with their source, amounts and status', () => {
     renderWithProviders(<PayrollImportsPage />);
-    const row = screen.getByTestId('payroll-row-pri_1');
+    const row = rowWith('january.csv');
     expect(row).toHaveTextContent('2026-01-15');
     expect(row).toHaveTextContent('2026-01-01 – 2026-01-15');
     expect(row).toHaveTextContent('CSV file');
@@ -105,16 +126,18 @@ describe('Payroll imports page', () => {
     expect(row).toHaveTextContent('$10000.00');
     expect(row).toHaveTextContent('$8000.00');
     expect(row).toHaveTextContent('Posted');
-    expect(screen.getByTestId('payroll-row-pri_2')).toHaveTextContent('Reversed');
-    expect(screen.getByTestId('payroll-row-pri_2')).toHaveTextContent('Gusto');
+    const reversed = rowWith('Reversed');
+    expect(reversed).toHaveTextContent('Gusto');
+    expect(reversed).toHaveTextContent('—');
   });
 
   it('offers to reverse only a posted payroll, and reverses it on the chosen date', async () => {
     const user = userEvent.setup();
     renderWithProviders(<PayrollImportsPage />);
-    expect(within(screen.getByTestId('payroll-row-pri_2')).queryByRole('button', { name: 'Reverse' })).not.toBeInTheDocument();
+    expect(within(rowWith('Reversed')).queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument();
 
-    await user.click(within(screen.getByTestId('payroll-row-pri_1')).getByRole('button', { name: 'Reverse' }));
+    await user.click(within(rowWith('january.csv')).getByRole('button', { name: 'Open menu' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Reverse' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByLabelText('Reversal date')).toHaveValue('2026-01-15');
     await user.clear(within(dialog).getByLabelText('Reversal date'));
@@ -130,7 +153,8 @@ describe('Payroll imports page', () => {
     reverseAsync.mockRejectedValueOnce(new Error('The period is locked'));
     const user = userEvent.setup();
     renderWithProviders(<PayrollImportsPage />);
-    await user.click(within(screen.getByTestId('payroll-row-pri_1')).getByRole('button', { name: 'Reverse' }));
+    await user.click(within(rowWith('january.csv')).getByRole('button', { name: 'Open menu' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Reverse' }));
     await user.click(await screen.findByTestId('reverse-submit'));
     expect(await screen.findByTestId('reverse-error')).toHaveTextContent('The period is locked');
   });
@@ -138,20 +162,19 @@ describe('Payroll imports page', () => {
   it('opens a payroll by its row, and filters by status', async () => {
     const user = userEvent.setup();
     renderWithProviders(<PayrollImportsPage />);
-    await user.click(screen.getByTestId('payroll-row-pri_1'));
+    await user.click(within(rowWith('january.csv')).getByRole('button', { name: '2026-01-15' }));
     expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/payroll/$id', params: { id: 'pri_1' } });
 
-    await user.click(screen.getByRole('combobox', { name: 'Status' }));
-    await user.click(await screen.findByRole('option', { name: 'Reversed' }));
-    expect(importFilters.at(-1)).toMatchObject({ status: 'reversed' });
+    await addIsFilter(user, 'Status', 'Reversed');
+    await waitFor(() => expect(importFilters.at(-1)).toMatchObject({ status: 'reversed' }));
   });
 
   it('hides reversing and importing without the permissions', () => {
     permissions.delete('journal:delete');
     permissions.delete('journal:create');
     renderWithProviders(<PayrollImportsPage />);
-    expect(screen.queryByRole('button', { name: 'Reverse' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Import CSV' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import CSV' })).not.toBeInTheDocument();
   });
 
   it('invites the first import when there are none', () => {

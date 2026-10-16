@@ -2,9 +2,14 @@ import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ClipboardCheck, Download, Landmark, Wallet } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import {
+  RowAmount,
+  RowChip,
+  RowText,
+  RowTitle,
+} from '@/components/accounting/weldbooks-row-cells';
 import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
 import { useBankAccounts } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { isLiabilityAccountType, type UsBankAccount } from '@/lib/api/domains/weldbooks-banking';
@@ -43,18 +48,18 @@ export default function BankAccountsPage() {
     {
       id: 'name',
       header: tbp.columns.name,
-      width: 'flex-1',
+      width: 'min-w-[200px] flex-1 gap-2',
       render: (a) => (
-        <div className="flex items-center gap-2 min-w-0">
-          <Landmark className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="font-medium truncate">{a.name}</span>
-          {a.isDefault ? (
-            <Badge variant="secondary" className="ml-1">{tbp.badges.default}</Badge>
-          ) : null}
-          {a.isActive === false ? (
-            <Badge variant="outline" className="ml-1">{tbp.badges.inactive}</Badge>
-          ) : null}
-        </div>
+        <RowTitle
+          chips={
+            <>
+              {a.isDefault ? <RowChip>{tbp.badges.default}</RowChip> : null}
+              {a.isActive === false ? <RowChip tone="gray">{tbp.badges.inactive}</RowChip> : null}
+            </>
+          }
+        >
+          {a.name}
+        </RowTitle>
       ),
     },
     ...(isUs
@@ -62,12 +67,14 @@ export default function BankAccountsPage() {
           {
             id: 'type',
             header: tb.accountList.type,
-            width: 'w-[150px]',
+            width: 'w-[150px] gap-1.5',
             render: (a: UsBankAccount) => (
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">{a.accountType ? tb.accountTypes[a.accountType] : '—'}</span>
-                {isLiabilityAccountType(a.accountType) ? <Badge variant="outline">{tb.accountList.liability}</Badge> : null}
-              </div>
+              <>
+                <RowText>{a.accountType ? tb.accountTypes[a.accountType] : null}</RowText>
+                {isLiabilityAccountType(a.accountType) ? (
+                  <RowChip tone="gray">{tb.accountList.liability}</RowChip>
+                ) : null}
+              </>
             ),
           },
           {
@@ -75,8 +82,10 @@ export default function BankAccountsPage() {
             header: tb.accountList.account,
             width: 'w-[140px]',
             render: (a: UsBankAccount) => (
-              <span className="font-mono text-sm text-muted-foreground" data-testid="account-last4">
-                {a.accountNumberLast4 ? maskedAccountNumber(a.accountNumberLast4) : '—'}
+              <span className="min-w-0" data-testid="account-last4">
+                <RowText className="font-mono">
+                  {a.accountNumberLast4 ? maskedAccountNumber(a.accountNumberLast4) : null}
+                </RowText>
               </span>
             ),
           },
@@ -86,32 +95,26 @@ export default function BankAccountsPage() {
             id: 'iban',
             header: tbp.columns.iban,
             width: 'w-[200px]',
-            render: (a: UsBankAccount) => (
-              <span className="font-mono text-sm text-muted-foreground">{a.iban || '—'}</span>
-            ),
+            render: (a: UsBankAccount) => <RowText className="font-mono">{a.iban}</RowText>,
           },
         ]),
     {
       id: 'bank',
       header: tbp.columns.bank,
       width: 'w-[160px]',
-      render: (a) => <span className="text-muted-foreground">{a.bankName ?? '—'}</span>,
+      render: (a) => <RowText>{a.bankName}</RowText>,
     },
     {
       id: 'currency',
       header: tbp.columns.currency,
       width: 'w-[100px]',
-      render: (a) => <span className="text-muted-foreground">{a.currency ?? entityCurrency ?? '—'}</span>,
+      render: (a) => <RowText>{a.currency ?? entityCurrency}</RowText>,
     },
     {
       id: 'balance',
       header: tbp.columns.balance,
       width: 'w-[180px]',
-      render: (a) => (
-        <span className="tabular-nums font-medium">
-          {formatMoney(a.currentBalance, a.currency ?? entityCurrency)}
-        </span>
-      ),
+      render: (a) => <RowAmount>{formatMoney(a.currentBalance, a.currency ?? entityCurrency)}</RowAmount>,
     },
   ];
 

@@ -1,279 +1,235 @@
 import { useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
-import { Download, Inbox, Plus } from 'lucide-react';
-import { PageLoader } from '@/components/page-loader';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { Download, Inbox } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { Input } from '@weldsuite/ui/components/input';
+import { useTranslations } from '@weldsuite/i18n/client';
+import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
+import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import { useBankAccounts, useBankLines } from '@/hooks/queries/use-weldbooks-banking-queries';
-import { BankTransactionsTable } from '@/components/accounting/bank-transactions-table';
+  ContactCell,
+  RowAmount,
+  RowChip,
+  RowDate,
+  RowText,
+  RowTitle,
+  StatusChip,
+} from '@/components/accounting/weldbooks-row-cells';
 import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
-import type { BankLineSource } from '@/lib/api/domains/weldbooks-banking';
+import { useBankAccounts, useBankLines } from '@/hooks/queries/use-weldbooks-banking-queries';
+import type { BankLine, BankLineSource } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { applyExclusions, dateBounds, pillValue } from '@/lib/weldbooks/list-filters';
+import { useLoadMorePages } from '@/lib/weldbooks/use-load-more-pages';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 const PAGE_SIZE = 50;
+const SOURCES: readonly BankLineSource[] = ['feed', 'import', 'manual'];
+const STATUSES = ['unreconciled', 'reconciled', 'excluded'] as const;
 
 export default function BankTransactionsPage() {
-  const [accountFilter, setAccountFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [sourceFilter, setSourceFilter] = useState<BankLineSource | 'all'>('all');
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [search, setSearch] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
+  const paging = useLoadMorePages<BankLine, number>(1);
+  const navigate = useNavigate();
   const { t } = useI18n();
-  const { currency: entityCurrency } = useCurrentEntityCurrency();
+  const st = useTranslations();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
   const tbp = t.accounting.bankingPages;
   const tl = t.weldbooksUs.banking.lines;
 
-  const STATUS_OPTIONS = [
-    { value: 'all', label: tbp.allStatuses },
-    { value: 'unreconciled', label: tbp.unreconciledFilter },
-    { value: 'reconciled', label: tbp.reconciledFilter },
-    { value: 'excluded', label: tbp.excludedFilter },
+  const { data: accountsRes } = useBankAccounts();
+  const accounts = useMemo(() => accountsRes?.data ?? [], [accountsRes]);
+  const currencyByAccountId = useMemo(() => new Map(accounts.map((a) => [a.id, a.currency])), [accounts]);
+
+  const accountId = pillValue(activeFilters, 'bankAccountId');
+  const status = pillValue(activeFilters, 'status');
+  const source = pillValue(activeFilters, 'source');
+  const { from, to } = dateBounds(activeFilters, 'date');
+  const query = useBankLines({
+    bankAccountId: accountId,
+    status,
+    source: SOURCES.find((s) => s === source),
+    from,
+    to,
+    search: search || undefined,
+    page: paging.key,
+    pageSize: PAGE_SIZE,
+  });
+  const totalCount = query.data?.pagination?.totalCount ?? 0;
+  const list = paging.view({
+    rows: query.data?.data,
+    nextKey: query.data && paging.key * PAGE_SIZE < totalCount ? paging.key + 1 : null,
+    isPlaceholder: query.isPlaceholderData,
+    isError: query.isError,
+  });
+  const transactions = useMemo(
+    () =>
+      applyExclusions(list.items, activeFilters, {
+        bankAccountId: (line) => line.bankAccountId,
+        status: (line) => line.status,
+        source: (line) => line.source,
+      }),
+    [list.items, activeFilters],
+  );
+
+  const statusLabels: Record<(typeof STATUSES)[number], string> = {
+    unreconciled: tbp.unreconciledFilter,
+    reconciled: tbp.reconciledFilter,
+    excluded: tbp.excludedFilter,
+  };
+  const statusLabel = (value: string) => statusLabels[value as (typeof STATUSES)[number]] ?? value;
+
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: 'bankAccountId',
+      label: tbp.accountLabel,
+      options: accounts.map((a) => ({ value: a.id, label: a.name })),
+    },
+    {
+      field: 'status',
+      label: tbp.statusLabel,
+      options: STATUSES.map((value) => ({ value, label: statusLabels[value] })),
+    },
+    {
+      field: 'source',
+      label: tl.source,
+      options: SOURCES.map((value) => ({ value, label: tl.sources[value] })),
+    },
+    { field: 'date', label: st('sweep.weldbooks.date'), filterType: 'date', options: [] },
   ];
 
-  const { data: accountsRes } = useBankAccounts();
-  const accounts = accountsRes?.data ?? [];
+  // Grouped by status like the task list, unless a status filter already picks one.
+  const groups: GroupConfig<BankLine>[] | undefined = status
+    ? undefined
+    : [
+        { id: 'unreconciled', label: st('sweep.weldbooks.bankTransactionsTable.unreconciled'), sortOrder: 1, filter: (l) => l.status === 'unreconciled' },
+        { id: 'reconciled', label: st('sweep.weldbooks.bankTransactionsTable.reconciled'), sortOrder: 2, filter: (l) => l.status === 'reconciled' },
+        { id: 'excluded', label: st('sweep.weldbooks.bankTransactionsTable.excluded'), sortOrder: 3, filter: (l) => l.status === 'excluded' },
+      ];
 
-  const filters = useMemo(
-    () => ({
-      bankAccountId: accountFilter === 'all' ? undefined : accountFilter,
-      status: statusFilter === 'all' ? undefined : statusFilter,
-      source: sourceFilter === 'all' ? undefined : sourceFilter,
-      from: from || undefined,
-      to: to || undefined,
-      search: search || undefined,
-      page,
-      pageSize: PAGE_SIZE,
-    }),
-    [accountFilter, statusFilter, sourceFilter, from, to, search, page],
-  );
+  const showSource = transactions.some((line) => line.source);
+  const columns: ColumnDef<BankLine>[] = [
+    {
+      id: 'description',
+      header: st('sweep.weldbooks.description'),
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (line) => (
+        <RowTitle
+          chips={
+            line.checkNumber ? (
+              <RowChip tone="gray">{tl.checkNumberBadge.replace('{number}', line.checkNumber)}</RowChip>
+            ) : null
+          }
+        >
+          {line.description || '—'}
+        </RowTitle>
+      ),
+    },
+    {
+      id: 'counterparty',
+      header: st('sweep.weldbooks.bankTransactionsTable.counterparty'),
+      width: 'w-[200px]',
+      render: (line) => <ContactCell name={line.counterpartyName} />,
+    },
+    {
+      id: 'reference',
+      header: st('sweep.weldbooks.bankTransactionsTable.reference'),
+      width: 'w-[160px]',
+      render: (line) => <RowText>{line.reference}</RowText>,
+    },
+    ...(showSource
+      ? [
+          {
+            id: 'source',
+            header: tl.source,
+            width: 'w-[110px]',
+            render: (line: BankLine) => <RowText>{line.source ? tl.sources[line.source] : null}</RowText>,
+          },
+        ]
+      : []),
+    {
+      id: 'date',
+      header: st('sweep.weldbooks.date'),
+      width: 'w-[120px]',
+      render: (line) => <RowDate>{formatDate(line.date)}</RowDate>,
+    },
+    {
+      id: 'amount',
+      header: st('sweep.weldbooks.amount'),
+      width: 'w-[130px]',
+      render: (line) => (
+        <RowAmount className={(Number(line.amount) || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : undefined}>
+          {formatMoney(line.amount, currencyByAccountId.get(line.bankAccountId))}
+        </RowAmount>
+      ),
+    },
+    {
+      id: 'status',
+      header: st('sweep.weldbooks.status'),
+      width: 'w-[110px]',
+      render: (line) => <StatusChip status={line.status}>{statusLabel(line.status)}</StatusChip>,
+    },
+  ];
 
-  const { data: txnData, isLoading } = useBankLines(filters);
-  const transactions = txnData?.data ?? [];
-  const total = txnData?.pagination?.totalCount ?? transactions.length;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  const currencyByAccountId = Object.fromEntries(
-    accounts.map((a) => [a.id, a.currency ?? entityCurrency]),
-  );
-  const currencyForDisplay =
-    accountFilter !== 'all'
-      ? accounts.find((a) => a.id === accountFilter)?.currency ?? entityCurrency
-      : entityCurrency;
-
-  function renderBody() {
-    if (isLoading) {
-      return (
-        <PageLoader fullScreen={false} />
-      );
-    }
-    if (transactions.length === 0) {
-      return (
-        <Card>
-          <CardContent className="py-10 text-center space-y-3">
-            <Inbox className="h-10 w-10 mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">{tbp.noTransactionsMatch}</p>
-            <div className="flex items-center justify-center gap-2">
-              <Button variant="outline" onClick={() => setAddOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                {tbp.addTransactionButton}
-              </Button>
-              <Link to="/weldbooks/banking/import">
-                <Button>
-                  <Download className="h-4 w-4 mr-1" />
-                  {tbp.importStatementButton}
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
+  if (query.isError && list.items.length === 0) {
     return (
-      <>
-        <BankTransactionsTable
-          transactions={transactions}
-          currency={currencyForDisplay}
-          currencyByAccountId={currencyByAccountId}
-          groupByStatus={statusFilter === 'all'}
-        />
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            {total === 1
-              ? tbp.transactionCount.replace('{count}', String(total))
-              : tbp.transactionCountPlural.replace('{count}', String(total))}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-            >
-              {tbp.previous}
-            </Button>
-            <span>
-              {tbp.pageOf
-                .replace('{page}', String(page))
-                .replace('{total}', String(totalPages))}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-            >
-              {tbp.next_page}
-            </Button>
-          </div>
-        </div>
-      </>
+      <p className="p-6 text-sm text-destructive" role="alert">
+        {t.common.toast.failedToLoad}
+      </p>
     );
   }
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{tbp.transactionsTitle}</h1>
-          <p className="text-sm text-muted-foreground">{tbp.transactionsSubtitle}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="add-bank-transaction"
-            onClick={() => setAddOpen(true)}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            {tbp.addTransactionButton}
+    <>
+      <WeldbooksEntityList<BankLine>
+        items={transactions}
+        isLoading={list.isLoading}
+        columns={columns}
+        groups={groups}
+        filters={filterConfigs}
+        activeFilters={activeFilters}
+        onFiltersChange={(next) => {
+          setActiveFilters(next);
+          paging.reset();
+        }}
+        searchQuery={search}
+        onSearchChange={(next) => {
+          setSearch(next);
+          paging.reset();
+        }}
+        searchFields={['description', 'counterpartyName', 'reference']}
+        searchPlaceholder={tl.searchPlaceholder}
+        hasMore={list.hasMore}
+        isLoadingMore={list.isLoadingMore}
+        onLoadMore={list.loadMore}
+        createButton={{ label: tbp.addTransactionButton, onClick: () => setAddOpen(true) }}
+        actionButtons={
+          <Button variant="outline" size="sm" className="h-8" asChild>
+            <Link to="/weldbooks/banking/import">
+              <Download className="h-4 w-4 md:mr-0.5" />
+              <span className="hidden md:inline">{tbp.importStatementButton}</span>
+            </Link>
           </Button>
-          <Link to="/weldbooks/banking/import">
-            <Button size="sm">
-              <Download className="h-4 w-4 mr-1" />
-              {tbp.importStatementButton}
-            </Button>
-          </Link>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="w-56">
-          <label className="text-xs text-muted-foreground">{tbp.accountLabel}</label>
-          <Select
-            value={accountFilter}
-            onValueChange={(v) => {
-              setAccountFilter(v);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{tbp.allAccounts}</SelectItem>
-              {accounts.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="w-48">
-          <label className="text-xs text-muted-foreground">{tbp.statusLabel}</label>
-          <Select
-            value={statusFilter}
-            onValueChange={(v) => {
-              setStatusFilter(v);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="w-44">
-          <label className="text-xs text-muted-foreground">{tl.source}</label>
-          <Select
-            value={sourceFilter}
-            onValueChange={(v) => {
-              setSourceFilter(v as BankLineSource | 'all');
-              setPage(1);
-            }}
-          >
-            <SelectTrigger data-testid="source-filter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{tl.allSources}</SelectItem>
-              <SelectItem value="feed">{tl.sources.feed}</SelectItem>
-              <SelectItem value="import">{tl.sources.import}</SelectItem>
-              <SelectItem value="manual">{tl.sources.manual}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="w-44">
-          <label className="text-xs text-muted-foreground">{tbp.fromLabel}</label>
-          <Input
-            type="date"
-            value={from}
-            onChange={(e) => {
-              setFrom(e.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-        <div className="w-44">
-          <label className="text-xs text-muted-foreground">{tbp.toLabel}</label>
-          <Input
-            type="date"
-            value={to}
-            onChange={(e) => {
-              setTo(e.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-        <div className="flex-1 min-w-[200px]">
-          <label className="text-xs text-muted-foreground">{tbp.searchLabel}</label>
-          <Input
-            placeholder={tl.searchPlaceholder}
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-      </div>
-
-      {renderBody()}
-
-      <BankTransactionFormDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        bankAccountId={accountFilter === 'all' ? undefined : accountFilter}
+        }
+        emptyState={{
+          icon: (
+            <EmptyStateIllustration>
+              <Inbox className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            </EmptyStateIllustration>
+          ),
+          title: tbp.transactionsEmptyTitle,
+          description: tbp.transactionsEmptyDescription,
+          action: { label: tbp.addTransactionButton, onClick: () => setAddOpen(true) },
+          secondaryAction: {
+            label: tbp.importStatementButton,
+            onClick: () => navigate({ to: '/weldbooks/banking/import' }),
+          },
+        }}
+        noResultsState={{ title: tbp.noTransactionsMatch, description: '' }}
       />
-    </div>
+
+      <BankTransactionFormDialog open={addOpen} onOpenChange={setAddOpen} bankAccountId={accountId} />
+    </>
   );
 }

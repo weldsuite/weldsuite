@@ -102,29 +102,59 @@ beforeEach(() => {
   api.post.mockResolvedValue({ data: { id: 'txr_new' } });
 });
 
+/** The list row (a `group` div of the standard list) of the period that ends on `end`. */
+async function periodRow(end: string): Promise<HTMLElement> {
+  const row = (await screen.findByText(new RegExp(end))).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row for the period ending ${end}`);
+  return row;
+}
+
+/**
+ * Adds a finished `is` filter pill through the toolbar: "Filter" > field > "is" > value.
+ * The pill opens its value picker on a timer, and the focus returning to the operator
+ * button can dismiss it again: when the options are not there, open the picker by hand.
+ */
+async function addIsFilter(user: ReturnType<typeof userEvent.setup>, field: string, value: string): Promise<void> {
+  await user.click(screen.getByRole('button', { name: 'Filter' }));
+  await user.click(await screen.findByRole('button', { name: field }));
+  await user.click(await screen.findByRole('button', { name: 'is' }));
+  const option = await screen.findByRole('button', { name: value }, { timeout: 400 }).catch(async () => {
+    await user.click(screen.getByRole('button', { name: `Select ${field.toLowerCase()}` }));
+    return screen.findByRole('button', { name: value });
+  });
+  await user.click(option);
+}
+
 describe('Returns page', () => {
   it('lists the periods of each agency, newest first, with the window the server used', async () => {
     renderWithProviders(<SalesTaxReturnsPage />);
 
-    const table = await screen.findByTestId('agency-periods-WA');
-    const rows = within(table).getAllByTestId(/^period-/).map((row) => row.getAttribute('data-testid'));
-    expect(rows).toEqual(['period-2027-03-31', 'period-2026-12-31', 'period-2026-09-30', 'period-2026-06-30']);
+    await periodRow('2026-09-30');
+    const labels = Array.from(document.querySelectorAll<HTMLElement>('div.group [data-row-overlay]')).map((button) =>
+      button.getAttribute('aria-label'),
+    );
+    expect(labels).toEqual([
+      'Washington Department of Revenue: 2027-03-31',
+      'Washington Department of Revenue: 2026-12-31',
+      'Washington Department of Revenue: 2026-09-30',
+      'Washington Department of Revenue: 2026-06-30',
+    ]);
     expect(screen.getByText('Showing 2025-10-08 to 2027-01-08')).toBeInTheDocument();
-    expect(table).toHaveTextContent('Quarterly, due day 25, Accrual basis');
+    expect(screen.getByText('Quarterly, due day 25, Accrual basis')).toBeInTheDocument();
   });
 
   it('shows the due date with its countdown, and the state and return of each period', async () => {
     renderWithProviders(<SalesTaxReturnsPage />);
 
-    const due = await screen.findByTestId('period-2026-09-30');
+    const due = await periodRow('2026-09-30');
     expect(due).toHaveTextContent('Due in 17 days');
     expect(due).toHaveTextContent('Due');
     expect(due).toHaveTextContent('No return yet');
 
-    const paid = screen.getByTestId('period-2026-06-30');
+    const paid = await periodRow('2026-06-30');
     expect(paid).toHaveTextContent('Paid');
     expect(paid).toHaveTextContent('$701.50');
-    expect(paid).toHaveTextContent('Confirmation WA-Q2');
+    expect(paid.querySelector('[title="Confirmation WA-Q2"]')).not.toBeNull();
     // A filed period needs no countdown.
     expect(paid).not.toHaveTextContent('overdue');
     expect(within(paid).getByRole('link', { name: 'Amended' })).toHaveAttribute('href', '/weldbooks/sales-tax/returns/txr_q2a');
@@ -135,7 +165,7 @@ describe('Returns page', () => {
     renderWithProviders(<SalesTaxReturnsPage />);
     const user = userEvent.setup();
 
-    const row = await screen.findByTestId('period-2026-09-30');
+    const row = await periodRow('2026-09-30');
     await user.click(within(row).getByRole('button', { name: 'Open return' }));
 
     await waitFor(() =>
@@ -146,10 +176,25 @@ describe('Returns page', () => {
     );
   });
 
+  it('opens the return of a period from its row, and does nothing for a period without one', async () => {
+    renderWithProviders(<SalesTaxReturnsPage />);
+    const user = userEvent.setup();
+
+    const paid = await periodRow('2026-06-30');
+    await user.click(within(paid).getByRole('button', { name: 'Washington Department of Revenue: 2026-06-30' }));
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/returns/$id', params: { id: 'txr_q2' } });
+
+    navigate.mockReset();
+    const due = await periodRow('2026-09-30');
+    await user.click(within(due).getByRole('button', { name: 'Washington Department of Revenue: 2026-09-30' }));
+    expect(navigate).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it('does not offer a return for a period that has not started', async () => {
     renderWithProviders(<SalesTaxReturnsPage />);
 
-    const upcoming = await screen.findByTestId('period-2027-03-31');
+    const upcoming = await periodRow('2027-03-31');
     expect(within(upcoming).queryByRole('button', { name: 'Open return' })).not.toBeInTheDocument();
   });
 
@@ -157,7 +202,7 @@ describe('Returns page', () => {
     permissions.allowed = new Set(['taxes:read']);
     renderWithProviders(<SalesTaxReturnsPage />);
 
-    await screen.findByTestId('period-2026-09-30');
+    await periodRow('2026-09-30');
     expect(screen.queryByRole('button', { name: 'Open return' })).not.toBeInTheDocument();
   });
 
@@ -165,26 +210,25 @@ describe('Returns page', () => {
     renderWithProviders(<SalesTaxReturnsPage />);
     const user = userEvent.setup();
 
-    await screen.findByTestId('period-2026-09-30');
-    await user.click(screen.getByLabelText('Status'));
-    await user.click(await screen.findByRole('option', { name: 'Needs attention' }));
+    await periodRow('2026-09-30');
+    await addIsFilter(user, 'Status', 'Needs attention');
 
-    expect(screen.getByTestId('period-2026-09-30')).toBeInTheDocument();
-    expect(screen.queryByTestId('period-2026-06-30')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('period-2027-03-31')).not.toBeInTheDocument();
+    expect(screen.getByText(/2026-09-30/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/2026-06-30/)).not.toBeInTheDocument());
+    expect(screen.queryByText(/2027-03-31/)).not.toBeInTheDocument();
   });
 
   it('asks the server for the dates the user picks', async () => {
     renderWithProviders(<SalesTaxReturnsPage />);
     const user = userEvent.setup();
 
-    await screen.findByTestId('period-2026-09-30');
+    await periodRow('2026-09-30');
     await user.type(screen.getByLabelText('From'), '2026-01-01');
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/tax-returns/periods?from=2026-01-01'));
   });
 
-  it('shows each agency on its own and can narrow to one', async () => {
+  it('shows each agency as its own group and can narrow to one', async () => {
     api.get.mockResolvedValue({
       data: periods([
         agency(),
@@ -194,12 +238,14 @@ describe('Returns page', () => {
     renderWithProviders(<SalesTaxReturnsPage />);
     const user = userEvent.setup();
 
-    await screen.findByTestId('agency-periods-TX');
-    await user.click(screen.getByLabelText('Agency'));
-    await user.click(await screen.findByRole('option', { name: 'Texas Comptroller' }));
+    expect(await screen.findByText('Texas Comptroller')).toBeInTheDocument();
+    expect(screen.getByText('Washington Department of Revenue')).toBeInTheDocument();
+    await addIsFilter(user, 'Agency', 'Texas Comptroller');
 
-    expect(screen.getByTestId('agency-periods-TX')).toBeInTheDocument();
-    expect(screen.queryByTestId('agency-periods-WA')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Washington Department of Revenue')).not.toBeInTheDocument());
+    // The filter pill and the group header both name the agency; the one period left is Texas's.
+    expect(screen.getByRole('button', { name: 'Texas Comptroller: 2026-09-30' })).toBeInTheDocument();
+    expect(document.querySelectorAll('div.group [data-row-overlay]')).toHaveLength(1);
   });
 
   it('says so when there are no periods', async () => {
@@ -216,6 +262,6 @@ describe('Returns page', () => {
     expect(await screen.findByText('Could not load this page')).toBeInTheDocument();
     api.get.mockResolvedValue({ data: periods([agency()]) });
     await user.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByTestId('agency-periods-WA')).toBeInTheDocument();
+    expect(await periodRow('2026-09-30')).toBeInTheDocument();
   });
 });

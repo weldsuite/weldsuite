@@ -4,7 +4,6 @@ import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Building2 } from 'lucide-react';
 import { useAccountingJurisdictions } from '@/hooks/queries/use-accounting-queries';
@@ -12,6 +11,7 @@ import { localToday } from '@/lib/weldbooks/format';
 import { DEFAULT_TERMINOLOGY } from '@/lib/weldbooks/jurisdiction';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { RowChip, RowText, RowTitle } from '@/components/accounting/weldbooks-row-cells';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -85,17 +85,21 @@ export function AccountingEntitiesTab() {
     {
       id: 'name',
       header: te.colName,
-      width: 'flex-1',
+      width: 'min-w-[160px] flex-1',
+      // The legal name sits under the title: a column of its own does not fit the settings width.
       render: (e) => (
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-medium">{e.name}</span>
-            {e.isDefault ? <Badge variant="secondary">{te.badgeDefault}</Badge> : null}
-            {e.isActive === false ? <Badge variant="outline">{te.badgeInactive}</Badge> : null}
-          </div>
-          {e.legalName ? (
-            <div className="truncate text-xs text-muted-foreground">{e.legalName}</div>
-          ) : null}
+          <RowTitle
+            chips={
+              <>
+                {e.isDefault ? <RowChip tone="indigo">{te.badgeDefault}</RowChip> : null}
+                {e.isActive === false ? <RowChip tone="gray">{te.badgeInactive}</RowChip> : null}
+              </>
+            }
+          >
+            {e.name}
+          </RowTitle>
+          {e.legalName ? <RowText className="text-xs">{e.legalName}</RowText> : null}
         </div>
       ),
     },
@@ -105,13 +109,8 @@ export function AccountingEntitiesTab() {
       width: 'w-[150px]',
       render: (e) => (
         <div className="min-w-0">
-          <div>
-            {e.jurisdictionCode}
-            <span className="ml-1 text-xs text-muted-foreground">· {e.baseCurrency}</span>
-          </div>
-          {e.entityType ? (
-            <div className="truncate text-xs text-muted-foreground">{entityTypeLabel(e.entityType)}</div>
-          ) : null}
+          <RowText>{`${e.jurisdictionCode} · ${e.baseCurrency}`}</RowText>
+          {e.entityType ? <RowText className="text-xs">{entityTypeLabel(e.entityType)}</RowText> : null}
         </div>
       ),
     },
@@ -121,14 +120,17 @@ export function AccountingEntitiesTab() {
       width: 'w-[170px]',
       render: (e) => {
         const terminology = jurisdictionOf(e)?.terminology ?? DEFAULT_TERMINOLOGY;
-        const taxId = e.taxIdentifiers?.vatNumber;
+        const parts = [
+          e.taxIdentifiers?.vatNumber ? `${tt.taxId[terminology.taxId]}: ${e.taxIdentifiers.vatNumber}` : null,
+          e.taxIdentifiers?.registrationNumber
+            ? `${tt.registrationId[terminology.registrationId]}: ${e.taxIdentifiers.registrationNumber}`
+            : null,
+        ].filter((part): part is string => part !== null);
+        const text = parts.join(' · ');
         return (
-          <div className="min-w-0 text-xs text-muted-foreground">
-            {taxId ? <div className="truncate">{`${tt.taxId[terminology.taxId]}: ${taxId}`}</div> : null}
-            {e.taxIdentifiers?.registrationNumber ? (
-              <div className="truncate">{`${tt.registrationId[terminology.registrationId]}: ${e.taxIdentifiers.registrationNumber}`}</div>
-            ) : null}
-          </div>
+          <RowText className="text-xs">
+            {text ? <span title={text}>{text}</span> : null}
+          </RowText>
         );
       },
     },
@@ -174,7 +176,7 @@ export function AccountingEntitiesTab() {
           </EmptyStateIllustration>
         ),
         title: te.noEntities2,
-        description: te.newLegalEntityDesc,
+        description: te.emptyDescription,
         action: canCreate ? { label: te.newEntity2, onClick: openCreate } : undefined,
       }}
     />
