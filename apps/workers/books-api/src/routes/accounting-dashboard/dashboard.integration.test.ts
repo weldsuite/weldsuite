@@ -174,6 +174,25 @@ describe('GET /api/accounting-dashboard', () => {
     expect(dashboard.monthlyRevenue[10]).toEqual({ month: lastMonth.toISOString().slice(0, 7), total: '500.00' });
   });
 
+  it('the monthly trend carries revenue, expenses and profit for 24 months', () => {
+    expect(dashboard.monthlyTrend).toHaveLength(24);
+    expect(dashboard.monthlyTrend[22]).toMatchObject({ month: lastMonth.toISOString().slice(0, 7), revenue: '500.00' });
+    expect(dashboard.monthlyTrend[23]).toEqual({
+      month: monthStart.toISOString().slice(0, 7),
+      revenue: '1010.00',
+      expenses: '325.00',
+      profit: '685.00',
+    });
+  });
+
+  it('receivables and payables carry their aging buckets', () => {
+    const total = (aging: Record<string, { total: string }>) =>
+      Object.values(aging).reduce((sum, bucket) => sum + Number(bucket.total), 0).toFixed(2);
+    expect(Object.keys(dashboard.receivables.aging)).toEqual(['current', '1-30', '31-60', '61-90', '90+']);
+    expect(total(dashboard.receivables.aging)).toBe(dashboard.receivables.outstanding);
+    expect(total(dashboard.payables.aging)).toBe(dashboard.payables.outstanding);
+  });
+
   it('keeps the response shape the platform and mobile apps read', () => {
     expect(Object.keys(dashboard)).toEqual(
       expect.arrayContaining(['revenue', 'expenses', 'profit', 'receivables', 'payables', 'bankAccounts', 'recentPayments', 'upcomingDue', 'pendingDocuments', 'monthlyRevenue']),
