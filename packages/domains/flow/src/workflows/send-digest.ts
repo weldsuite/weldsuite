@@ -22,9 +22,10 @@
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
-import { eq, and, isNull, lt, between, notInArray } from 'drizzle-orm';
+import { and, asc, eq, gte, isNotNull, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
-import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
+import { getTenantDbForWorkspace, schema, type Database } from '@weldsuite/worker-kit/db';
+import { dayBoundsInTimezone, type DayBounds } from '../day-boundaries';
 import {
   resolveEmailLocale,
   sendSystemEmail,
@@ -54,7 +55,7 @@ export interface SendDigestParams {
   timezone: string;
 }
 
-interface DigestTask {
+export interface DigestTask {
   id: string;
   title: string;
   dueDate: Date | null;
@@ -63,140 +64,108 @@ interface DigestTask {
   type: 'project' | 'personal';
 }
 
-// ── Date Helpers ─────────────────────────────────────────────────────────
-
-function getDateBoundaries(timezone: string): {
-  startOfToday: Date;
-  endOfToday: Date;
-  endOfWeek: Date;
-} {
-  const now = new Date();
-
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const todayStr = formatter.format(now); // "YYYY-MM-DD"
-
-  const startOfToday = new Date(`${todayStr}T00:00:00`);
-  const endOfToday = new Date(`${todayStr}T23:59:59.999`);
-
-  const todayDate = new Date(todayStr);
-  const dayOfWeek = todayDate.getDay();
-  const daysUntilSunday = dayOfWeek === 0 ? 6 : 7 - dayOfWeek;
-  const endOfWeekDate = new Date(todayDate);
-  endOfWeekDate.setDate(endOfWeekDate.getDate() + daysUntilSunday);
-  const endOfWeekStr = endOfWeekDate.toISOString().split('T')[0];
-  const endOfWeek = new Date(`${endOfWeekStr}T23:59:59.999`);
-
-  return { startOfToday, endOfToday, endOfWeek };
-}
-
 // ── Query Helpers ────────────────────────────────────────────────────────
 
 const DONE_STATUSES = ['done', 'cancelled'];
 
-async function queryProjectTasks(
-  db: any,
-  userId: string,
-  startOfToday: Date,
-  endOfToday: Date,
-  endOfWeek: Date,
-  sections: { overdue: boolean; dueToday: boolean; dueThisWeek: boolean },
-): Promise<{ overdue: DigestTask[]; dueToday: DigestTask[]; dueThisWeek: DigestTask[] }> {
-  const result = { overdue: [] as DigestTask[], dueToday: [] as DigestTask[], dueThisWeek: [] as DigestTask[] };
+/** Tasks listed per section, so a huge backlog cannot make the email unreadable. */
+const SECTION_LIMIT = 25;
 
-  const projectRows = await db.select({ id: schema.projects.id, name: schema.projects.name }).from(schema.projects);
-  const projectMap = new Map(projectRows.map((p: any) => [p.id, p.name]));
-
-  const mapTask = (t: any): DigestTask => ({
-    id: t.id,
-    title: t.title,
-    dueDate: t.dueDate,
-    priority: t.priority || 'medium',
-    projectName: (projectMap.get(t.projectId) as string) || null,
-    type: 'project' as const,
-  });
-
-  if (sections.overdue) {
-    const rows = await db
-      .select()
-      .from(schema.tasks)
-      .where(and(eq(schema.tasks.assigneeId, userId), lt(schema.tasks.dueDate, startOfToday), notInArray(schema.tasks.status, DONE_STATUSES), isNull(schema.tasks.deletedAt)))
-      .limit(25);
-    result.overdue = rows.map(mapTask);
-  }
-
-  if (sections.dueToday) {
-    const rows = await db
-      .select()
-      .from(schema.tasks)
-      .where(and(eq(schema.tasks.assigneeId, userId), between(schema.tasks.dueDate, startOfToday, endOfToday), notInArray(schema.tasks.status, DONE_STATUSES), isNull(schema.tasks.deletedAt)))
-      .limit(25);
-    result.dueToday = rows.map(mapTask);
-  }
-
-  if (sections.dueThisWeek) {
-    const rows = await db
-      .select()
-      .from(schema.tasks)
-      .where(and(eq(schema.tasks.assigneeId, userId), between(schema.tasks.dueDate, endOfToday, endOfWeek), notInArray(schema.tasks.status, DONE_STATUSES), isNull(schema.tasks.deletedAt)))
-      .limit(25);
-    result.dueThisWeek = rows.map(mapTask);
-  }
-
-  return result;
+export interface DigestSections {
+  overdue: boolean;
+  dueToday: boolean;
+  dueThisWeek: boolean;
 }
 
-async function queryStandaloneTasks(
-  db: any,
+export interface DigestTaskTypes {
+  projectTasks: boolean;
+  personalTasks: boolean;
+}
+
+export interface DigestTasks {
+  overdue: DigestTask[];
+  dueToday: DigestTask[];
+  dueThisWeek: DigestTask[];
+}
+
+/**
+ * One section of one kind of task, due in `[from, to)` (open-ended on the side
+ * left out), oldest due date first.
+ *
+ * Project tasks are those with a project (and a live one); personal tasks are
+ * those without. Keeping the two apart by `projectId` is what stops a personal
+ * task being listed twice, and what makes the "personal tasks" switch real. A
+ * task counts for the user when they are its `assigneeId` or sit in its
+ * multi-assignee `assigneeIds`.
+ */
+async function queryDigestSection(
+  db: Database,
   userId: string,
-  startOfToday: Date,
-  endOfToday: Date,
-  endOfWeek: Date,
-  sections: { overdue: boolean; dueToday: boolean; dueThisWeek: boolean },
-): Promise<{ overdue: DigestTask[]; dueToday: DigestTask[]; dueThisWeek: DigestTask[] }> {
-  const result = { overdue: [] as DigestTask[], dueToday: [] as DigestTask[], dueThisWeek: [] as DigestTask[] };
+  kind: DigestTask['type'],
+  window: { from?: Date; to: Date },
+): Promise<DigestTask[]> {
+  const t = schema.tasks;
+  const rows = await db
+    .select({
+      id: t.id,
+      title: t.title,
+      dueDate: t.dueDate,
+      priority: t.priority,
+      projectName: schema.projects.name,
+    })
+    .from(t)
+    .leftJoin(schema.projects, eq(t.projectId, schema.projects.id))
+    .where(
+      and(
+        or(eq(t.assigneeId, userId), sql`${t.assigneeIds}::jsonb @> ${JSON.stringify([userId])}::jsonb`),
+        kind === 'project' ? and(isNotNull(t.projectId), isNull(schema.projects.deletedAt)) : isNull(t.projectId),
+        window.from ? gte(t.dueDate, window.from) : isNotNull(t.dueDate),
+        lt(t.dueDate, window.to),
+        notInArray(t.status, DONE_STATUSES),
+        isNull(t.deletedAt),
+      ),
+    )
+    .orderBy(asc(t.dueDate), asc(t.id))
+    .limit(SECTION_LIMIT);
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    dueDate: row.dueDate,
+    priority: row.priority || 'medium',
+    projectName: kind === 'project' ? row.projectName : null,
+    type: kind,
+  }));
+}
 
-  const mapTask = (t: any): DigestTask => ({
-    id: t.id,
-    title: t.title,
-    dueDate: t.dueDate,
-    priority: t.priority || 'medium',
-    projectName: null,
-    type: 'personal' as const,
-  });
+/**
+ * The user's overdue / due-today / due-this-week tasks. Day boundaries are the
+ * workspace-timezone ones in `bounds`: overdue is before today's local midnight,
+ * today runs to tomorrow's, this week up to next Monday.
+ */
+export async function queryDigestTasks(
+  db: Database,
+  userId: string,
+  bounds: DayBounds,
+  taskTypes: DigestTaskTypes,
+  sections: DigestSections,
+): Promise<DigestTasks> {
+  const windows: Record<keyof DigestSections, { from?: Date; to: Date }> = {
+    overdue: { to: bounds.startOfToday },
+    dueToday: { from: bounds.startOfToday, to: bounds.startOfTomorrow },
+    dueThisWeek: { from: bounds.startOfTomorrow, to: bounds.startOfNextWeek },
+  };
+  const kinds: DigestTask['type'][] = [
+    ...(taskTypes.projectTasks ? (['project'] as const) : []),
+    ...(taskTypes.personalTasks ? (['personal'] as const) : []),
+  ];
 
-  // Standalone tasks = tasks without a projectId, assigned to this user
-  if (sections.overdue) {
-    const rows = await db
-      .select()
-      .from(schema.tasks)
-      .where(and(eq(schema.tasks.assigneeId, userId), isNull(schema.tasks.projectId), lt(schema.tasks.dueDate, startOfToday), notInArray(schema.tasks.status, DONE_STATUSES), isNull(schema.tasks.deletedAt)))
-      .limit(25);
-    result.overdue = rows.map(mapTask);
+  const result: DigestTasks = { overdue: [], dueToday: [], dueThisWeek: [] };
+  for (const section of Object.keys(windows) as (keyof DigestSections)[]) {
+    if (!sections[section]) continue;
+    for (const kind of kinds) {
+      result[section].push(...(await queryDigestSection(db, userId, kind, windows[section])));
+    }
   }
-
-  if (sections.dueToday) {
-    const rows = await db
-      .select()
-      .from(schema.tasks)
-      .where(and(eq(schema.tasks.assigneeId, userId), isNull(schema.tasks.projectId), between(schema.tasks.dueDate, startOfToday, endOfToday), notInArray(schema.tasks.status, DONE_STATUSES), isNull(schema.tasks.deletedAt)))
-      .limit(25);
-    result.dueToday = rows.map(mapTask);
-  }
-
-  if (sections.dueThisWeek) {
-    const rows = await db
-      .select()
-      .from(schema.tasks)
-      .where(and(eq(schema.tasks.assigneeId, userId), isNull(schema.tasks.projectId), between(schema.tasks.dueDate, endOfToday, endOfWeek), notInArray(schema.tasks.status, DONE_STATUSES), isNull(schema.tasks.deletedAt)))
-      .limit(25);
-    result.dueThisWeek = rows.map(mapTask);
-  }
-
   return result;
 }
 
@@ -276,30 +245,19 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
 
       // Get digest config
       const [digestSettings] = await db.select().from(schema.taskDigestSettings).limit(1);
-      const taskTypes = (digestSettings?.taskTypes as any) || { projectTasks: true, personalTasks: true };
-      const sections = (digestSettings?.sections as any) || { overdue: true, dueToday: true, dueThisWeek: true };
+      const taskTypes =
+        (digestSettings?.taskTypes as DigestTaskTypes | null) || { projectTasks: true, personalTasks: true };
+      const sections =
+        (digestSettings?.sections as DigestSections | null) || { overdue: true, dueToday: true, dueThisWeek: true };
 
-      // Compute date boundaries
-      const { startOfToday, endOfToday, endOfWeek } = getDateBoundaries(wsTimezone);
-
-      // Query tasks
-      const overdue: DigestTask[] = [];
-      const dueToday: DigestTask[] = [];
-      const dueThisWeek: DigestTask[] = [];
-
-      if (taskTypes.projectTasks) {
-        const pt = await queryProjectTasks(db, userId, startOfToday, endOfToday, endOfWeek, sections);
-        overdue.push(...pt.overdue);
-        dueToday.push(...pt.dueToday);
-        dueThisWeek.push(...pt.dueThisWeek);
-      }
-
-      if (taskTypes.personalTasks) {
-        const pt = await queryStandaloneTasks(db, userId, startOfToday, endOfToday, endOfWeek, sections);
-        overdue.push(...pt.overdue);
-        dueToday.push(...pt.dueToday);
-        dueThisWeek.push(...pt.dueThisWeek);
-      }
+      // Day boundaries in the workspace time zone, not the Worker's UTC clock.
+      const { overdue, dueToday, dueThisWeek } = await queryDigestTasks(
+        db,
+        userId,
+        dayBoundsInTimezone(wsTimezone),
+        taskTypes,
+        sections,
+      );
 
       const totalTasks = overdue.length + dueToday.length + dueThisWeek.length;
       if (totalTasks === 0) {
@@ -318,7 +276,7 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
         dueThisWeek: toEmailTasks(dueThisWeek, appUrl),
         timezone: wsTimezone,
         date: new Date().toISOString(),
-        tasksUrl: appUrl('/weldflow'),
+        tasksUrl: appUrl('/weldflow/my-tasks'),
         settingsUrl: unsubscribeUrl,
       };
 

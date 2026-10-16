@@ -34,7 +34,10 @@ export interface RemovedTask {
  *   behind would vanish there yet stay live in My Tasks, digests and counts;
  * - the calendar slot linked to each removed task;
  * - the removed ids from every other live task's `dependsOn` / `blocks`,
- *   workspace-wide, since a dependency can cross projects.
+ *   workspace-wide, since a dependency can cross projects;
+ * - the tasks' comments and attachments (`files` rows; the stored objects stay
+ *   put, like every other soft-deleted file). Time entries are deliberately
+ *   kept: they are billing history and stay reportable by project.
  *
  * Returns the removed tasks, the requested one first, or `null` when it does
  * not exist or is already deleted. Publishing the `project_task` `deleted`
@@ -102,6 +105,20 @@ export async function softDeleteTaskTree(db: Database, id: string): Promise<Remo
             ),
         ]
       : []),
+    handle
+      .update(schema.taskComments)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(inArray(schema.taskComments.taskId, removedIds), isNull(schema.taskComments.deletedAt))),
+    handle
+      .update(schema.files)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(schema.files.entityType, 'task'),
+          inArray(schema.files.entityId, removedIds),
+          isNull(schema.files.deletedAt),
+        ),
+      ),
     ...dependentTasks
       .filter((dep) => !removedIdSet.has(dep.id))
       .map((dep) =>
