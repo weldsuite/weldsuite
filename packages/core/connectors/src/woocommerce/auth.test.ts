@@ -71,6 +71,16 @@ describe('WooCommerce application authentication', () => {
     expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/settings/billing')).toBe(false);
   });
 
+  it('allows the same pages behind a /w/{workspace} prefix, and nothing else', () => {
+    expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/w/acme/weldconnect/connectors')).toBe(true);
+    expect(
+      isAllowedConnectorReturnUrl('https://app.weldsuite.org/w/org_2Abc/settings/integrations/moneybird?x=1'),
+    ).toBe(true);
+    expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/w/acme/settings/billing')).toBe(false);
+    expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/w/acme')).toBe(false);
+    expect(isAllowedConnectorReturnUrl('https://evil.example/w/acme/weldconnect/connectors')).toBe(false);
+  });
+
   it('resolves the HTTPS callback onto app-api, not the webhook worker', () => {
     expect(woocommerceAuthCallbackUrl('https://app-api.weldsuite.org/')).toBe(
       'https://app-api.weldsuite.org/webhooks/woocommerce/auth',

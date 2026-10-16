@@ -79,6 +79,7 @@ import {
   useUpdateTaskComment,
   useWorkspaceMembersForTaskPanel,
 } from './use-task-data';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 const TASK_PANEL_WIDTH = 400;
 
@@ -278,6 +279,7 @@ function TaskActions({
 
 export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
+  const workspaceUrl = useWorkspaceUrl();
   const { id, isOpen, onClose } = props;
   const { userId } = useAuth();
   const { open: openPanel } = useObjectPanel();
@@ -599,12 +601,12 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
    */
   const handleCopyLink = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/weldflow/task/${id}`);
+      await navigator.clipboard.writeText(workspaceUrl(`/weldflow/task/${id}`));
       toast.success(t('sweep.entities.linkCopied'));
     } catch {
       toast.error(t('sweep.entities.copyLinkFailed'));
     }
-  }, [id, t]);
+  }, [id, t, workspaceUrl]);
 
   const addAttachmentMutation = useAddTaskAttachment(id);
   const removeAttachmentMutation = useRemoveTaskAttachment(id);

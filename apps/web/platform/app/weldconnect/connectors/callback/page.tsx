@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
+import { parseWorkspacePath } from '@/lib/workspace-url';
 import {
   useConnectorOAuthCallback,
   useSelectConnectorAccount,
@@ -20,7 +21,9 @@ function safeReturnPath(returnUrl: string | undefined): string {
   if (!returnUrl) return '/weldconnect/connectors';
   try {
     const parsed = new URL(returnUrl);
-    if (parsed.pathname.startsWith('/weldconnect/connectors') || parsed.pathname.startsWith('/settings/integrations/')) {
+    // A `/w/{workspace}/…` return keeps its prefix, so the tab lands back in that workspace.
+    const page = parseWorkspacePath(parsed.pathname)?.rest ?? parsed.pathname;
+    if (page.startsWith('/weldconnect/connectors') || page.startsWith('/settings/integrations/')) {
       return `${parsed.pathname}${parsed.search}`;
     }
   } catch {
