@@ -16,7 +16,9 @@ const PREFIX = 'TASK-';
 
 /** Allocate a single task number. */
 export async function allocateTaskNumber(db: any): Promise<number> {
-  return (await allocateTaskNumbers(db, 1))[0];
+  const [allocated] = await allocateTaskNumbers(db, 1);
+  if (allocated === undefined) throw new Error('Failed to allocate a task number');
+  return allocated;
 }
 
 /**
