@@ -1785,6 +1785,9 @@ export const accounting = {
 
     // Banking pages
     bankingPages: {
+      transactionsEmptyTitle: 'No transactions yet',
+      transactionsEmptyDescription: 'Add or import your first transaction to get started',
+      noRulesDescription: 'Create your first rule to get started',
       pageTitle: 'Bank Accounts',
       addBankAccount: 'Add Bank Account',
       comingSoon: 'Coming soon',
@@ -1872,7 +1875,7 @@ export const accounting = {
 
       // Rules page
       newRule: 'New Rule',
-      noRulesTitle: 'No reconciliation rules yet. Create one to auto-categorize recurring transactions like rent, subscriptions, or bank fees.',
+      noRulesTitle: 'No reconciliation rules yet',
       createFirstRule: 'Create your first rule',
       deleteRuleTitle: 'Delete this rule?',
       deleteRuleDesc: 'Existing reconciled transactions are unaffected. New imports will no longer apply this rule.',
@@ -2344,6 +2347,7 @@ export const accounting = {
 
     // Journal entries list page
     journalPage: {
+      emptyDescription: 'Create your first journal entry to get started',
       newEntry: 'New Entry',
       ungrouped: 'Undated',
       colDate: 'Date',
@@ -2521,6 +2525,9 @@ export const accounting = {
 
     // VAT pages
     vat: {
+      emptyTitle: 'No VAT returns yet',
+      emptyDescription: 'Calculate your first VAT return to get started',
+      icpEmptyDescription: 'Calculate your first ICP declaration to get started',
       title: 'VAT return',
       newReturn: 'New VAT Return',
       period: 'Period',
@@ -2670,6 +2677,7 @@ export const accounting = {
       dropHint: 'Drop invoice images here — WeldAgent will extract supplier, amounts, line items, and totals.',
       uploadInvoice: 'Upload invoice',
       noDocumentsInbox: 'No documents in inbox',
+      emptyDescription: 'Upload your first invoice to get started',
       phaseUploading: 'Uploading…',
       phaseProcessing: 'Scanning with WeldAgent…',
       phaseDone: 'Done',
@@ -2734,6 +2742,7 @@ export const accounting = {
 
     // Entities page
     entities: {
+      emptyDescription: 'Create your first entity to get started',
       title: 'Administrations',
       newEntity: 'New Administration',
       entityName: 'Name',
@@ -2770,7 +2779,7 @@ export const accounting = {
       editEntity: 'Edit',
       badgeInactive: 'Inactive',
       newEntity2: 'New Entity',
-      noEntities2: 'No entities yet. Create one to start using WeldBooks.',
+      noEntities2: 'No entities yet',
       // Add entity page
       newLegalEntity: 'New Legal Entity',
       newLegalEntityDesc: 'Creating an entity seeds its chart of accounts and tax rates from the jurisdiction adapter.',
@@ -2795,6 +2804,7 @@ export const accounting = {
 
     // Recurring invoices list + detail pages
     recurringPage: {
+      colName: 'Name',
       colContact: 'Contact',
       colFrequency: 'Frequency',
       colNextDate: 'Next Date',
@@ -2802,8 +2812,10 @@ export const accounting = {
       colStatus: 'Status',
       statusActive: 'Active',
       statusPaused: 'Paused',
+      statusCompleted: 'Completed',
       newRecurring: 'New Recurring Invoice',
       noRecurring: 'No recurring invoices found',
+      emptyDescription: 'Create your first recurring invoice to get started',
       // Detail page
       notFound: 'Recurring invoice not found.',
       defaultName: 'Recurring Invoice',
@@ -2833,6 +2845,7 @@ export const accounting = {
 
     // Bills list page
     billsPage: {
+      emptyDescription: 'Create your first bill to get started',
       searchPlaceholder: 'Search bills...',
       newBill: 'New Bill',
       groupOverdue: 'Overdue',
@@ -2851,6 +2864,7 @@ export const accounting = {
 
     // Accounts (Chart of Accounts) page
     accountsPage: {
+      emptyDescription: 'Create your first account to get started',
       filterTypeLabel: 'Type',
       filterAsset: 'Asset',
       filterLiability: 'Liability',
@@ -2872,6 +2886,7 @@ export const accounting = {
 
     // Customers list page
     customersPage: {
+      emptyDescription: 'Create your first customer to get started',
       searchPlaceholder: 'Search customers...',
       newCustomer: 'New Customer',
       filterRoleLabel: 'Role',
@@ -2889,6 +2904,7 @@ export const accounting = {
 
     // Suppliers list page
     suppliersPage: {
+      emptyDescription: 'Create your first supplier to get started',
       searchPlaceholder: 'Search suppliers...',
       newSupplier: 'New Supplier',
       filterRoleLabel: 'Role',
@@ -2906,6 +2922,7 @@ export const accounting = {
 
     // Credit notes page
     creditNotesPage: {
+      emptyDescription: 'Create a credit note from a finalized invoice',
       searchPlaceholder: 'Search credit notes...',
       colNumber: 'Number',
       colContact: 'Contact',
@@ -2914,7 +2931,7 @@ export const accounting = {
       colTotal: 'Total',
       colStatus: 'Status',
       viewSource: 'View source',
-      noCreditNotes: 'No credit notes yet. Open a finalized invoice and use "Create credit note".',
+      noCreditNotes: 'No credit notes yet',
     },
 
     // KPI cards

@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render as renderPlain, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { I18nProvider } from '@weldsuite/i18n/provider';
 import type { DimensionValue } from '@/lib/api/domains/weldbooks';
 
 const mocks = vi.hoisted(() => ({
@@ -45,6 +46,18 @@ vi.mock('@/lib/i18n/provider', async () => {
 });
 
 import DimensionsPage from './page';
+
+/** The standard list reads its strings from the i18n provider. */
+function render(ui: React.ReactElement) {
+  return renderPlain(<I18nProvider initialLanguage="en">{ui}</I18nProvider>);
+}
+
+/** The list row (a `group` div of the standard list) of a value, found by its click target. */
+function rowOf(name: string): HTMLElement {
+  const row = screen.getByRole('button', { name }).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row for ${name}`);
+  return row;
+}
 
 function value(id: string, name: string, extra: Partial<DimensionValue> = {}): DimensionValue {
   return {
@@ -97,21 +110,22 @@ describe('DimensionsPage', () => {
     const user = userEvent.setup();
     render(<DimensionsPage />);
 
-    const table = screen.getByRole('table');
-    const names = within(table).getAllByRole('row').slice(1).map((row) => within(row).getAllByRole('cell')[0].textContent);
+    const names = Array.from(document.querySelectorAll<HTMLElement>('div.group [data-row-overlay]')).map((button) =>
+      button.getAttribute('aria-label'),
+    );
     expect(names).toEqual(['East', 'East 1']);
-    expect(within(table).getByText('E')).toBeInTheDocument();
+    expect(within(rowOf('East')).getByText('E')).toBeInTheDocument();
 
     await user.click(screen.getByRole('checkbox', { name: 'Show inactive' }));
-    expect(within(screen.getByRole('table')).getByText('Old')).toBeInTheDocument();
-    expect(within(screen.getByRole('table')).getByText('Inactive')).toBeInTheDocument();
+    expect(within(rowOf('Old')).getByText('Old', { selector: 'span' })).toBeInTheDocument();
+    expect(within(rowOf('Old')).getByText('Inactive')).toBeInTheDocument();
   });
 
   it('searches by name or code', async () => {
     const user = userEvent.setup();
     render(<DimensionsPage />);
-    await user.type(screen.getByRole('searchbox', { name: 'Search by name or code' }), 'east 1');
-    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    await user.type(screen.getAllByPlaceholderText('Search by name or code')[0], 'east 1');
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('div.group'));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveTextContent('East 1');
   });
@@ -159,8 +173,7 @@ describe('DimensionsPage', () => {
   it('does not offer a value or its children as its own parent', async () => {
     const user = userEvent.setup();
     render(<DimensionsPage />);
-    const row = screen.getByRole('row', { name: /^East E/ });
-    await user.click(within(row).getByRole('button', { name: 'Edit: East' }));
+    await user.click(within(rowOf('East')).getByRole('button', { name: 'Edit: East' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
 
     const dialog = await screen.findByRole('dialog');
@@ -172,8 +185,7 @@ describe('DimensionsPage', () => {
   it('deactivates a value from its menu', async () => {
     const user = userEvent.setup();
     render(<DimensionsPage />);
-    const row = screen.getByRole('row', { name: /East 1/ });
-    await user.click(within(row).getByRole('button', { name: 'Edit: East 1' }));
+    await user.click(within(rowOf('East 1')).getByRole('button', { name: 'Edit: East 1' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Deactivate' }));
 
     await waitFor(() => expect(mocks.updateValue).toHaveBeenCalledWith({ id: 'east-1', data: { isActive: false } }));
@@ -183,8 +195,7 @@ describe('DimensionsPage', () => {
   it('deletes a value that is not in use after a confirmation', async () => {
     const user = userEvent.setup();
     render(<DimensionsPage />);
-    const row = screen.getByRole('row', { name: /East 1/ });
-    await user.click(within(row).getByRole('button', { name: 'Edit: East 1' }));
+    await user.click(within(rowOf('East 1')).getByRole('button', { name: 'Edit: East 1' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 
     const dialog = await screen.findByRole('dialog');
@@ -200,8 +211,7 @@ describe('DimensionsPage', () => {
     const user = userEvent.setup();
     mocks.deleteValue.mockRejectedValue(conflict("This class is used on bookings — deactivate it instead"));
     render(<DimensionsPage />);
-    const row = screen.getByRole('row', { name: /East 1/ });
-    await user.click(within(row).getByRole('button', { name: 'Edit: East 1' }));
+    await user.click(within(rowOf('East 1')).getByRole('button', { name: 'Edit: East 1' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
@@ -217,8 +227,7 @@ describe('DimensionsPage', () => {
     const user = userEvent.setup();
     mocks.deleteValue.mockRejectedValue(new Error('Boom'));
     render(<DimensionsPage />);
-    const row = screen.getByRole('row', { name: /East 1/ });
-    await user.click(within(row).getByRole('button', { name: 'Edit: East 1' }));
+    await user.click(within(rowOf('East 1')).getByRole('button', { name: 'Edit: East 1' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }));
 

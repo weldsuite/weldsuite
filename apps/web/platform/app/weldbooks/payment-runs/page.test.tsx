@@ -27,7 +27,7 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', async () => {
 });
 
 import PaymentRunsPage from './page';
-import { installPointerPolyfills, renderWithProviders } from './test-utils';
+import { addIsFilter, installPointerPolyfills, renderWithProviders, rowWith } from './test-utils';
 
 const at = '2026-10-08T10:00:00.000Z';
 
@@ -79,18 +79,16 @@ describe('PaymentRunsPage', () => {
     routes([run(), run({ id: 'prn_2', method: 'check', status: 'draft', sameDay: false, heldVendorCount: 0, totalAmount: '10.00' })]);
     renderWithProviders(<PaymentRunsPage />);
 
-    const rows = await screen.findAllByRole('row');
-    const first = within(rows[1]!);
+    await screen.findByText('$350.50');
+    const first = within(rowWith('$350.50'));
     expect(first.getByText('ACH')).toBeInTheDocument();
     expect(first.getByText('Same Day ACH')).toBeInTheDocument();
     expect(first.getByText('1 of 2')).toBeInTheDocument();
     expect(first.getByText('Pending approval')).toBeInTheDocument();
     expect(first.getByText('1 on hold')).toBeInTheDocument();
-    expect(first.getByText('$350.50')).toBeInTheDocument();
-    const second = within(rows[2]!);
+    const second = within(rowWith('$10.00'));
     expect(second.getByText('Draft')).toBeInTheDocument();
     expect(second.queryByText(/on hold/)).not.toBeInTheDocument();
-    expect(screen.getByText('Runs: 2')).toBeInTheDocument();
   });
 
   it('opens a run when its row is clicked', async () => {
@@ -98,16 +96,21 @@ describe('PaymentRunsPage', () => {
     const user = userEvent.setup();
     renderWithProviders(<PaymentRunsPage />);
 
-    await user.click((await screen.findAllByRole('row'))[1]!);
+    await screen.findByText('$350.50');
+    await user.click(within(rowWith('$350.50')).getByRole('button', { name: 'View' }));
     expect(router.navigate).toHaveBeenCalledWith({ to: '/weldbooks/payment-runs/$id', params: { id: 'prn_1' } });
   });
 
   it('offers the first run when there is none, to people who can create one', async () => {
     routes([]);
+    const user = userEvent.setup();
     renderWithProviders(<PaymentRunsPage />);
 
     expect(await screen.findByText('No payment runs yet')).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /New payment run/ }).length).toBeGreaterThan(0);
+    const buttons = screen.getAllByRole('button', { name: /New payment run/ });
+    expect(buttons.length).toBeGreaterThan(0);
+    await user.click(buttons[0]!);
+    expect(router.navigate).toHaveBeenCalledWith({ to: '/weldbooks/payment-runs/new' });
   });
 
   it('hides the new-run buttons without permission to create', async () => {
@@ -116,24 +119,23 @@ describe('PaymentRunsPage', () => {
     renderWithProviders(<PaymentRunsPage />);
 
     expect(await screen.findByText('No payment runs yet')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /New payment run/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /New payment run/ })).not.toBeInTheDocument();
   });
 
   it('filters by status through the server', async () => {
     routes([run()]);
     const user = userEvent.setup();
     renderWithProviders(<PaymentRunsPage />);
-    await screen.findAllByRole('row');
+    await screen.findByText('$350.50');
 
-    await user.click(screen.getByRole('combobox', { name: 'Status' }));
-    await user.click(await screen.findByRole('option', { name: 'Completed' }));
+    await addIsFilter(user, 'Status', 'Completed');
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=completed')));
   });
 
   it('shows the section tabs and marks the current one', async () => {
     routes([run()]);
     renderWithProviders(<PaymentRunsPage />);
-    await screen.findAllByRole('row');
+    await screen.findByText('$350.50');
     const nav = screen.getByRole('navigation', { name: 'Vendor payments' });
     expect(within(nav).getByRole('link', { name: 'Payment runs' })).toHaveAttribute('aria-current', 'page');
     for (const name of ['Check register', 'Positive Pay', 'Payment settings']) {

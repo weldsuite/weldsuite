@@ -1,15 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingCustomers } from '@/hooks/queries/use-accounting-queries';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Users } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
-import {
-  EmptyStateIllustration,
-  type ColumnDef,
-  type FilterConfig,
-  type ActiveFilter,
-} from '@/components/entity-list';
+import { RowAvatar, RowChip, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { EmptyStateIllustration, type ColumnDef, type FilterConfig, type ActiveFilter } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 
@@ -65,33 +60,42 @@ export default function AccountingCustomersPage() {
     {
       id: 'name',
       header: tcp.colName,
-      width: 'flex-1',
-      render: (customer) => <span className="font-medium">{customer.name}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (customer) => (
+        <>
+          <RowAvatar name={customer.name || '?'} />
+          <RowTitle
+            chips={customer.archivedAt ? <RowChip tone="gray">{t.accounting.contacts.archived}</RowChip> : null}
+          >
+            {customer.name}
+          </RowTitle>
+        </>
+      ),
     },
     {
       id: 'email',
       header: tcp.colEmail,
-      width: 'flex-1',
-      render: (c) => <span className="text-muted-foreground">{c.email ?? '—'}</span>,
+      width: 'w-[240px]',
+      render: (c) => <RowText>{c.email}</RowText>,
     },
     {
       id: 'role',
       header: tcp.colRole,
-      width: 'w-[140px]',
-      render: (c) => (
-        <>
-          <Badge variant="outline" className="capitalize">
-            {c.role === 'both' ? labels.customerAndSupplier : c.role ?? '—'}
-          </Badge>
-          {c.archivedAt ? <Badge variant="secondary" className="ml-1">{t.accounting.contacts.archived}</Badge> : null}
-        </>
-      ),
+      width: 'w-[170px]',
+      render: (c) =>
+        c.role ? (
+          <StatusChip tone={c.role === 'both' ? 'indigo' : 'blue'}>
+            <span className="capitalize">{c.role === 'both' ? labels.customerAndSupplier : c.role}</span>
+          </StatusChip>
+        ) : (
+          <RowText />
+        ),
     },
     {
       id: 'vat',
       header: labels.taxId,
       width: 'w-[180px]',
-      render: (c) => <span className="text-muted-foreground">{c.vatNumber ?? '—'}</span>,
+      render: (c) => <RowText>{c.vatNumber}</RowText>,
     },
   ];
 
@@ -118,7 +122,7 @@ export default function AccountingCustomersPage() {
           </EmptyStateIllustration>
         ),
         title: tcp.noCustomers,
-        description: tcp.searchPlaceholder,
+        description: tcp.emptyDescription,
         action: {
           label: tcp.newCustomer,
           onClick: () => navigate({ to: '/weldbooks/customers/add' }),
@@ -127,4 +131,3 @@ export default function AccountingCustomersPage() {
     />
   );
 }
-

@@ -4,7 +4,8 @@
  * WeldBooks formatter and toasts, then renders through here.
  */
 import type { ReactElement } from 'react';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import type userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import type { CheckPrintData, CheckPrintItem, CheckLayoutId } from '@/lib/api/domains/weldbooks-payment-runs';
@@ -88,4 +89,25 @@ export function makePrintData(
     bank: { name: 'First Bank', addressLines: ['1 Bank Plaza'], accountNumberLast4: '1234' },
     checks,
   };
+}
+
+/** The list row (a `group` div of the standard list) that shows `text`. */
+export function rowWith(text: string | RegExp): HTMLElement {
+  const row = screen.getByText(text).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row shows ${String(text)}`);
+  return row;
+}
+
+/** Adds a finished `is` filter pill through the toolbar: "Filter" > field > "is" > value. */
+export async function addIsFilter(user: ReturnType<typeof userEvent.setup>, field: string, value: string): Promise<void> {
+  await user.click(screen.getByRole('button', { name: 'Filter' }));
+  await user.click(await screen.findByRole('button', { name: field }));
+  await user.click(await screen.findByRole('button', { name: 'is' }));
+  // The pill opens its value picker on a timer, and the focus returning to the operator
+  // button can dismiss it again: when the options are not there, open the picker by hand.
+  const option = await screen.findByRole('button', { name: value }, { timeout: 400 }).catch(async () => {
+    await user.click(screen.getByRole('button', { name: `Select ${field.toLowerCase()}` }));
+    return screen.findByRole('button', { name: value });
+  });
+  await user.click(option);
 }

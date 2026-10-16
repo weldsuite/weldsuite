@@ -3,6 +3,13 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReconciliationHistoryRow, UsBankAccount } from '@/lib/api/domains/weldbooks-banking';
 
+/** The list row (a `group` div of the standard list) that shows `text`. */
+function rowWith(text: string): HTMLElement {
+  const row = screen.getByText(text).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row shows ${text}`);
+  return row;
+}
+
 const startMutate = vi.fn();
 const undoMutateAsync = vi.fn();
 const navigate = vi.fn();
@@ -123,10 +130,15 @@ describe('Statement reconciliation page', () => {
   it('can undo only the latest completed reconciliation, and only with banking:manage', async () => {
     history.rows = [row('r2', 'completed', '2026-02-28'), row('r1', 'completed', '2026-01-31')];
     const { unmount } = renderWithProviders(<StatementReconciliationsPage />);
-    expect(screen.getAllByTestId('undo-reconciliation')).toHaveLength(1);
-
     const user = userEvent.setup();
-    await user.click(screen.getByTestId('undo-reconciliation'));
+
+    await user.click(within(rowWith('2026-01-31')).getByRole('button', { name: 'Open menu' }));
+    expect(await screen.findByRole('menuitem', { name: 'Report' })).toBeInTheDocument();
+    expect(screen.queryByTestId('undo-reconciliation')).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    await user.click(within(rowWith('2026-02-28')).getByRole('button', { name: 'Open menu' }));
+    await user.click(await screen.findByTestId('undo-reconciliation'));
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'Undo' }));
     expect(undoMutateAsync).toHaveBeenCalledWith('r2');
@@ -134,7 +146,20 @@ describe('Statement reconciliation page', () => {
 
     permissions.delete('banking:manage');
     renderWithProviders(<StatementReconciliationsPage />);
+    await user.click(within(rowWith('2026-02-28')).getByRole('button', { name: 'Open menu' }));
+    expect(await screen.findByRole('menuitem', { name: 'Report' })).toBeInTheDocument();
     expect(screen.queryByTestId('undo-reconciliation')).not.toBeInTheDocument();
+  });
+
+  it('opens a reconciliation from its row: the worksheet while in progress, the report once done', async () => {
+    history.rows = [row('r3', 'in_progress', '2026-03-31'), row('r2', 'completed', '2026-02-28')];
+    const user = userEvent.setup();
+    renderWithProviders(<StatementReconciliationsPage />);
+
+    await user.click(within(rowWith('2026-02-28')).getByRole('button', { name: '2026-02-28' }));
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/banking/statements/$id/report', params: { id: 'r2' } });
+    await user.click(within(rowWith('2026-03-31')).getByRole('button', { name: '2026-03-31' }));
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/banking/statements/$id', params: { id: 'r3' } });
   });
 
   it('uses balance owed wording for a credit card', async () => {

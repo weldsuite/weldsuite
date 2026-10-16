@@ -1,12 +1,10 @@
 import { useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { AlertTriangle, Download, Loader2, MoreHorizontal, RefreshCw, Upload } from 'lucide-react';
+import { AlertTriangle, Download, FileInput, Loader2, MoreHorizontal, RefreshCw, Upload } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
 import {
   Dialog,
   DialogContent,
@@ -25,10 +23,19 @@ import {
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import {
+  RowAmount,
+  RowChip,
+  RowDate,
+  RowText,
+  RowTitle,
+  StatusChip,
+  type ChipTone,
+} from '@/components/accounting/weldbooks-row-cells';
 import { useAccountingCustomers } from '@/hooks/queries/use-accounting-queries';
 import {
   useCreateBillFromReceived,
@@ -47,11 +54,17 @@ import { useI18n } from '@/lib/i18n/provider';
 import { formatCnpj, normalizeCnpj } from '@/lib/weldbooks/identifiers';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
-const ALL = '__all__';
 const AUTO_SUPPLIER = '__auto__';
 const MANIFESTATIONS: ManifestationType[] = ['ciencia', 'confirmacao', 'desconhecimento', 'nao_realizada'];
+const RECEIVED_STATUSES: ReceivedStatus[] = ['new', 'imported', 'ignored'];
 /** The XML of an NF-e is far below this; a larger file is not one. */
 const MAX_XML_BYTES = 2 * 1024 * 1024;
+
+const STATUS_TONE: Record<ReceivedStatus, ChipTone> = {
+  new: 'blue',
+  imported: 'green',
+  ignored: 'gray',
+};
 
 function issuerTaxId(value: string | null): string {
   if (!value) return '';
@@ -59,9 +72,17 @@ function issuerTaxId(value: string | null): string {
   return n.length === 14 ? formatCnpj(n) : value;
 }
 
-function statusVariant(status: ReceivedStatus): 'default' | 'secondary' | 'outline' {
-  if (status === 'imported') return 'default';
-  return status === 'ignored' ? 'outline' : 'secondary';
+/** The status filter works on the loaded list: `is` keeps the status, `is not` drops it. */
+function applyStatusFilters(items: ReceivedFiscalDocument[], activeFilters: ActiveFilter[]): ReceivedFiscalDocument[] {
+  let result = items;
+  for (const filter of activeFilters) {
+    if (filter.field !== 'status' || !filter.operator || !filter.value) continue;
+    result =
+      filter.operator === 'is'
+        ? result.filter((doc) => doc.status === filter.value)
+        : result.filter((doc) => doc.status !== filter.value);
+  }
+  return result;
 }
 
 /**
@@ -73,10 +94,10 @@ export default function ReceivedNfePage() {
   const { t } = useI18n();
   const tr = t.weldbooksBr.received;
   const { formatMoney, formatDate } = useWeldbooksFormat();
+  const navigate = useNavigate();
   const canCreate = useCan('bills:create');
   const canUpdate = useCan('bills:update');
-  const [status, setStatus] = useState<ReceivedStatus | undefined>(undefined);
-  const query = useReceivedFiscalDocuments(status);
+  const query = useReceivedFiscalDocuments();
   const sync = useSyncReceivedFiscalDocuments();
   const upload = useUploadReceivedFiscalDocument();
   const manifest = useManifestReceivedFiscalDocument();
@@ -129,52 +150,67 @@ export default function ReceivedNfePage() {
     );
   };
 
-  return (
-    <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">{tr.title}</h1>
-          <p className="max-w-3xl text-sm text-muted-foreground">{tr.description}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".xml,text/xml,application/xml"
-            className="sr-only"
-            aria-label={tr.upload}
-            data-testid="received-upload-input"
-            onChange={(e) => void onFile(e.target.files?.[0])}
-          />
-          <Button type="button" variant="outline" disabled={!canCreate || upload.isPending} onClick={() => fileInput.current?.click()}>
-            {upload.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : <Upload className="mr-1 h-4 w-4" aria-hidden />}
-            {tr.upload}
-          </Button>
-          <Button type="button" disabled={!canCreate || sync.isPending} onClick={runSync}>
-            {sync.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="mr-1 h-4 w-4" aria-hidden />}
-            {hasMore ? tr.syncMore : tr.sync}
-          </Button>
-        </div>
-      </div>
+  const filters: FilterConfig[] = [
+    {
+      field: 'status',
+      label: tr.statusFilter,
+      options: RECEIVED_STATUSES.map((value) => ({ value, label: tr.statuses[value] })),
+    },
+  ];
 
-      <div className="max-w-52 space-y-2">
-        <Label htmlFor="received-status">{tr.statusFilter}</Label>
-        <Select value={status ?? ALL} onValueChange={(v) => setStatus(v === ALL ? undefined : (v as ReceivedStatus))}>
-          <SelectTrigger id="received-status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>{tr.all}</SelectItem>
-            <SelectItem value="new">{tr.statuses.new}</SelectItem>
-            <SelectItem value="imported">{tr.statuses.imported}</SelectItem>
-            <SelectItem value="ignored">{tr.statuses.ignored}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+  const columns: ColumnDef<ReceivedFiscalDocument>[] = [
+    {
+      id: 'issuer',
+      header: tr.issuer,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (doc) => <RowTitle>{doc.issuerName ?? '—'}</RowTitle>,
+    },
+    {
+      id: 'taxId',
+      header: tr.issuerTaxId,
+      width: 'w-[160px]',
+      render: (doc) => <RowText className="font-mono">{issuerTaxId(doc.issuerTaxId)}</RowText>,
+    },
+    {
+      id: 'number',
+      header: tr.number,
+      width: 'w-[130px]',
+      render: (doc) => (
+        <span className="min-w-0" title={doc.accessKey}>
+          <RowText>{doc.number ? `${doc.number}${doc.series ? ` / ${doc.series}` : ''}` : null}</RowText>
+        </span>
+      ),
+    },
+    {
+      id: 'issueDate',
+      header: tr.issueDate,
+      width: 'w-[120px]',
+      render: (doc) => <RowDate>{doc.issueDate ? formatDate(doc.issueDate) : null}</RowDate>,
+    },
+    {
+      id: 'total',
+      header: tr.total,
+      width: 'w-[130px]',
+      render: (doc) => <RowAmount>{doc.total ? formatMoney(doc.total, 'BRL') : null}</RowAmount>,
+    },
+    {
+      id: 'status',
+      header: tr.status,
+      width: 'w-[220px] gap-1.5',
+      render: (doc) => (
+        <>
+          <StatusChip tone={STATUS_TONE[doc.status]}>{tr.statuses[doc.status]}</StatusChip>
+          {doc.manifestation ? (
+            <RowChip>{(tr.manifestations as Record<string, string>)[doc.manifestation]}</RowChip>
+          ) : null}
+        </>
+      ),
+    },
+  ];
 
-      {query.isLoading && <PageLoader fullScreen={false} />}
-
-      {query.isError && (
+  if (query.isError) {
+    return (
+      <div className="p-4 sm:p-6">
         <Alert variant="destructive" data-testid="received-load-error">
           <AlertTriangle />
           <AlertDescription className="flex items-center justify-between gap-3">
@@ -184,100 +220,98 @@ export default function ReceivedNfePage() {
             </Button>
           </AlertDescription>
         </Alert>
-      )}
+      </div>
+    );
+  }
 
-      {query.data && rows.length === 0 && (
-        <Card>
-          <CardContent className="space-y-1 py-10 text-center">
-            <p className="font-medium">{tr.emptyTitle}</p>
-            <p className="text-sm text-muted-foreground">{tr.emptyDescription}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {rows.length > 0 && (
-        <Card>
-          <CardContent className="overflow-x-auto pt-6">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{tr.issuer}</TableHead>
-                  <TableHead>{tr.number}</TableHead>
-                  <TableHead>{tr.issueDate}</TableHead>
-                  <TableHead className="text-right">{tr.total}</TableHead>
-                  <TableHead>{tr.status}</TableHead>
-                  <TableHead className="w-12" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((doc) => (
-                  <TableRow key={doc.id}>
-                    <TableCell>
-                      <div className="font-medium">{doc.issuerName ?? '—'}</div>
-                      <div className="text-xs text-muted-foreground">{issuerTaxId(doc.issuerTaxId)}</div>
-                    </TableCell>
-                    <TableCell>
-                      {doc.number ?? '—'}
-                      {doc.series ? <span className="text-xs text-muted-foreground"> / {doc.series}</span> : null}
-                      <div className="break-all font-mono text-[10px] text-muted-foreground">{doc.accessKey}</div>
-                    </TableCell>
-                    <TableCell>{doc.issueDate ? formatDate(doc.issueDate) : '—'}</TableCell>
-                    <TableCell className="text-right tabular-nums">{doc.total ? formatMoney(doc.total, 'BRL') : '—'}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        <Badge variant={statusVariant(doc.status)}>{tr.statuses[doc.status]}</Badge>
-                        {doc.manifestation && (
-                          <Badge variant="outline">{(tr.manifestations as Record<string, string>)[doc.manifestation]}</Badge>
-                        )}
-                      </div>
-                      {doc.billId && (
-                        <Link
-                          to="/weldbooks/bills/$id"
-                          params={{ id: doc.billId }}
-                          className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-                        >
-                          {tr.viewBill}
-                        </Link>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" aria-label={tr.actions}>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {doc.status === 'new' && (
-                            <DropdownMenuItem disabled={!canCreate} onSelect={() => setBillFor(doc)}>
-                              {tr.createBill}
-                            </DropdownMenuItem>
-                          )}
-                          {doc.status === 'new' && (
-                            <DropdownMenuItem disabled={!canCreate} onSelect={() => setIgnoreFor(doc)}>
-                              {tr.ignore}
-                            </DropdownMenuItem>
-                          )}
-                          {doc.status === 'new' && <DropdownMenuSeparator />}
-                          {MANIFESTATIONS.map((type) => (
-                            <DropdownMenuItem
-                              key={type}
-                              disabled={!canUpdate || manifest.isPending || doc.manifestation === type}
-                              onSelect={() => (type === 'nao_realizada' ? setNotDone(doc) : sendManifest(doc, type))}
-                            >
-                              {(tr.manifestationActions as Record<string, string>)[type]}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
+  return (
+    <>
+      <WeldbooksEntityList<ReceivedFiscalDocument>
+        items={rows}
+        isLoading={query.isLoading}
+        columns={columns}
+        filters={filters}
+        applyFilters={applyStatusFilters}
+        getRowLabel={(doc) => doc.issuerName ?? doc.accessKey}
+        renderRowMenu={(doc) => {
+          const billId = doc.billId;
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" aria-label={tr.actions}>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {billId ? (
+                  <DropdownMenuItem onSelect={() => void navigate({ to: '/weldbooks/bills/$id', params: { id: billId } })}>
+                    {tr.viewBill}
+                  </DropdownMenuItem>
+                ) : null}
+                {billId ? <DropdownMenuSeparator /> : null}
+                {doc.status === 'new' && (
+                  <DropdownMenuItem disabled={!canCreate} onSelect={() => setBillFor(doc)}>
+                    {tr.createBill}
+                  </DropdownMenuItem>
+                )}
+                {doc.status === 'new' && (
+                  <DropdownMenuItem disabled={!canCreate} onSelect={() => setIgnoreFor(doc)}>
+                    {tr.ignore}
+                  </DropdownMenuItem>
+                )}
+                {doc.status === 'new' && <DropdownMenuSeparator />}
+                {MANIFESTATIONS.map((type) => (
+                  <DropdownMenuItem
+                    key={type}
+                    disabled={!canUpdate || manifest.isPending || doc.manifestation === type}
+                    onSelect={() => (type === 'nao_realizada' ? setNotDone(doc) : sendManifest(doc, type))}
+                  >
+                    {(tr.manifestationActions as Record<string, string>)[type]}
+                  </DropdownMenuItem>
                 ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        }}
+        actionButtons={
+          <>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".xml,text/xml,application/xml"
+              className="sr-only"
+              aria-label={tr.upload}
+              data-testid="received-upload-input"
+              onChange={(e) => void onFile(e.target.files?.[0])}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8"
+              disabled={!canCreate || upload.isPending}
+              onClick={() => fileInput.current?.click()}
+            >
+              {upload.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" aria-hidden />}
+              <span className="hidden md:inline">{tr.upload}</span>
+            </Button>
+            <Button type="button" size="sm" className="h-8" disabled={!canCreate || sync.isPending} onClick={runSync}>
+              {sync.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}
+              <span className="hidden md:inline">{hasMore ? tr.syncMore : tr.sync}</span>
+            </Button>
+          </>
+        }
+        emptyState={{
+          icon: (
+            <EmptyStateIllustration>
+              <FileInput className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            </EmptyStateIllustration>
+          ),
+          title: tr.emptyTitle,
+          description: tr.emptyDescription,
+        }}
+        noResultsState={{ title: tr.noMatches, description: tr.noMatchesDescription }}
+      />
 
       <CreateBillDialog doc={billFor} onClose={() => setBillFor(null)} />
 
@@ -309,7 +343,7 @@ export default function ReceivedNfePage() {
         onClose={() => setNotDone(null)}
         onConfirm={(doc, reason) => sendManifest(doc, 'nao_realizada', reason, () => setNotDone(null))}
       />
-    </div>
+    </>
   );
 }
 
