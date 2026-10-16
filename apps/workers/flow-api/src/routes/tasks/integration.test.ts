@@ -233,10 +233,44 @@ describe('/api/tasks/:id/move · pglite integration', () => {
     // Hierarchy is preserved — the subtask still points at its parent.
     expect(child?.parentTaskId).toBe('task_mv_parent');
 
-    expect(mockedPublish).toHaveBeenCalledTimes(1);
-    const call = mockedPublish.mock.calls[0]![0] as { entityType: string; action: string };
-    expect(call.entityType).toBe('project_task');
-    expect(call.action).toBe('updated');
+    // One `updated` event per moved task, the root and each subtask.
+    expect(mockedPublish).toHaveBeenCalledTimes(2);
+    const calls = mockedPublish.mock.calls.map(
+      (args) => args[0] as { entityType: string; action: string; entityId: string },
+    );
+    expect(calls.every((call) => call.entityType === 'project_task' && call.action === 'updated')).toBe(true);
+    expect(calls.map((call) => call.entityId).sort()).toEqual(['task_mv_child', 'task_mv_parent']);
+  });
+
+  // A subtask moved on its own would keep pointing at a parent that stays in
+  // the source project: it is not top-level in the destination and its parent
+  // is not there, so it would never appear in the destination's list.
+  it('detaches a moved subtask from the parent it leaves behind', async () => {
+    await seedProject('proj_src_detach', 'Source');
+    await seedProject('proj_dst_detach', 'Destination');
+    await db.insert(schema.tasks).values([
+      { id: 'task_dt_parent', title: 'Stays', projectId: 'proj_src_detach' },
+      { id: 'task_dt_child', title: 'Leaves', projectId: 'proj_src_detach', parentTaskId: 'task_dt_parent' },
+      { id: 'task_dt_grandchild', title: 'Follows', projectId: 'proj_src_detach', parentTaskId: 'task_dt_child' },
+    ] as (typeof schema.tasks.$inferInsert)[]);
+
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db, flags: flagsOn },
+    });
+    const res = await request('/api/tasks/task_dt_child/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: 'proj_dst_detach' }),
+    });
+    expect(res.status).toBe(200);
+
+    const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.projectId, 'proj_dst_detach'));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get('task_dt_child')?.parentTaskId).toBeNull();
+    // Its own subtree stays intact under it.
+    expect(byId.get('task_dt_grandchild')?.parentTaskId).toBe('task_dt_child');
+    const [parent] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'task_dt_parent')).limit(1);
+    expect(parent?.projectId).toBe('proj_src_detach');
   });
 
   it('is forbidden (403) when the weldflow-move-task flag is off', async () => {
