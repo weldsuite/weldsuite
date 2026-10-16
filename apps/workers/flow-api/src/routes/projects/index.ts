@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createProjectSchema, updateProjectSchema, normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
@@ -17,11 +17,19 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
+  accessibleProjectIds,
   canAccessProject,
   canManageProject,
   canWriteProject,
   resolveProjectAccess,
 } from '../../lib/project-access';
+import { containsPattern } from '../../lib/ilike-pattern';
+import {
+  PROJECT_TIMESTAMP_FIELDS,
+  PROJECT_WRITABLE_FIELDS,
+  coerceTimestamps,
+  pickWritable,
+} from '../../lib/writable-columns';
 import {
   getMilestoneStats,
   getProjectStats,
@@ -31,6 +39,14 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projects;
+
+const EMPTY_WORKLOAD = {
+  totalProjects: 0,
+  totalMembers: 0,
+  totalTasks: 0,
+  teamMembers: [],
+  unassigned: { tasks: [] },
+};
 
 /**
  * Membership boundary for callers without `projects:scope:all`: projects the
@@ -54,24 +70,120 @@ async function buildMembershipCondition(db: Variables['tenantDb'], userId: strin
     : eq(t.projectManagerId, userId);
 }
 
+/**
+ * The status the All Projects table shows for a row: a set `health` wins, else
+ * the stored `status` (same mapping as the platform's table: on-track, at-risk,
+ * off-track, on-hold, completed). The `status` list filter and sort run on this,
+ * so the values the UI offers ("on-track", "at-risk", ...) match what it displays.
+ */
+const DERIVED_STATUS_SQL = sql`CASE
+  WHEN coalesce(btrim(${t.health}), '') <> '' THEN
+    CASE regexp_replace(lower(btrim(${t.health})), '[\\s-]+', '_', 'g')
+      WHEN 'at_risk' THEN 'at-risk'
+      WHEN 'off_track' THEN 'off-track'
+      WHEN 'critical' THEN 'off-track'
+      ELSE 'on-track'
+    END
+  ELSE
+    CASE regexp_replace(lower(btrim(${t.status})), '[\\s-]+', '_', 'g')
+      WHEN 'on_hold' THEN 'on-hold'
+      WHEN 'completed' THEN 'completed'
+      WHEN 'archived' THEN 'completed'
+      WHEN 'cancelled' THEN 'off-track'
+      ELSE 'on-track'
+    END
+END`;
+const DERIVED_STATUSES = new Set(['on-track', 'at-risk', 'off-track', 'on-hold', 'completed']);
+
+/** Priority rank for sorting; an unset priority shows (and sorts) as "medium". */
+const PRIORITY_RANK_SQL = sql`CASE lower(coalesce(nullif(btrim(${t.priority}), ''), 'medium'))
+  WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0
+END`;
+
+const pm = schema.projectMembers;
+const wm = schema.workspaceMembers;
+
+/** Name of the project's owner member (first owner row), falling back to nothing. */
+const OWNER_NAME_SQL = sql`(
+  SELECT ${wm.name} FROM ${pm}
+  JOIN ${wm} ON ${wm.userId} = ${pm.userId}
+  WHERE ${pm.projectId} = ${t.id} AND lower(${pm.role}) = 'owner'
+    AND ${pm.isActive} = true AND ${pm.deletedAt} IS NULL
+  ORDER BY ${pm.createdAt} ASC LIMIT 1
+)`;
+
+/** ownerId matches the project manager or an active owner member. */
+function ownerCondition(ownerId: string): SQL {
+  return or(
+    eq(t.projectManagerId, ownerId),
+    sql`EXISTS (
+      SELECT 1 FROM ${pm}
+      WHERE ${pm.projectId} = ${t.id} AND ${pm.userId} = ${ownerId} AND lower(${pm.role}) = 'owner'
+        AND ${pm.isActive} = true AND ${pm.deletedAt} IS NULL
+    )`,
+  )!;
+}
+
 /** Filters derived from the list query string. */
 function buildProjectFilters(q: Record<string, string>): SQL[] {
   const conditions: SQL[] = [];
   if (q.status !== undefined && q.status !== '') {
-    // Rows written before statuses were normalised may be lowercase or snake_case
-    // ("planning", "on_hold"), so compare on a spelling-insensitive key.
-    const key = normalizeProjectStatus(q.status).toLowerCase().replace(/[\s_-]+/g, '');
-    conditions.push(sql`lower(regexp_replace(${t.status}, '[\\s_-]+', '', 'g')) = ${key}`);
+    if (DERIVED_STATUSES.has(q.status)) {
+      conditions.push(sql`${DERIVED_STATUS_SQL} = ${q.status}`);
+    } else {
+      // Rows written before statuses were normalised may be lowercase or snake_case
+      // ("planning", "on_hold"), so compare on a spelling-insensitive key.
+      const key = normalizeProjectStatus(q.status).toLowerCase().replace(/[\s_-]+/g, '');
+      conditions.push(sql`lower(regexp_replace(${t.status}, '[\\s_-]+', '', 'g')) = ${key}`);
+    }
   }
+  if (q.priority !== undefined && q.priority !== '') {
+    const priority = q.priority.trim().toLowerCase();
+    conditions.push(
+      priority === 'medium'
+        ? sql`lower(coalesce(nullif(btrim(${t.priority}), ''), 'medium')) = 'medium'`
+        : sql`lower(btrim(${t.priority})) = ${priority}`,
+    );
+  }
+  if (q.ownerId !== undefined && q.ownerId !== '') conditions.push(ownerCondition(q.ownerId));
+  if (q.customerId !== undefined && q.customerId !== '') conditions.push(eq(t.customerId, q.customerId));
   if (q.isActive !== undefined && q.isActive !== '') {
     // Accept the truthy strings the WeldFlow UI sends (`?isActive=true`).
     conditions.push(eq(t.isActive, q.isActive === 'true' || q.isActive === '1'));
   }
   if (q.search) {
-    conditions.push(like(t.name, `%${q.search}%`));
+    conditions.push(or(ilike(t.name, containsPattern(q.search)), ilike(t.code, containsPattern(q.search)))!);
   }
   return conditions;
 }
+
+const SORT_EXPRESSIONS: Record<string, SQL> = {
+  name: sql`lower(${t.name})`,
+  status: DERIVED_STATUS_SQL,
+  priority: PRIORITY_RANK_SQL,
+  dueDate: sql`${t.endDate}`,
+  owner: sql`lower(${OWNER_NAME_SQL})`,
+  createdAt: sql`${t.createdAt}`,
+};
+
+/**
+ * ORDER BY for an explicit `sortField` / `sortDirection`, or null for the default
+ * newest-first keyset order. Sorted lists page by offset (cursor `o:<n>`), since
+ * a keyset cursor only works for the default order.
+ */
+function buildProjectOrder(q: Record<string, string>): SQL[] | null {
+  const expression = q.sortField ? SORT_EXPRESSIONS[q.sortField] : undefined;
+  if (!expression) return null;
+  const direction = q.sortDirection === 'asc' ? 'asc' : 'desc';
+  if (q.sortField === 'createdAt' && direction === 'desc') return null;
+  return [
+    sql`${expression} ${sql.raw(direction)} NULLS LAST`,
+    direction === 'asc' ? asc(t.createdAt) : desc(t.createdAt),
+    direction === 'asc' ? asc(t.id) : desc(t.id),
+  ];
+}
+
+const OFFSET_CURSOR = /^o:(\d+)$/;
 
 /** Keyset condition for the row after `cursor`, or undefined when the cursor row is unknown. */
 async function buildProjectCursorCondition(
@@ -101,25 +213,36 @@ app.get('/', async (c) => {
 
   const canSeeAll = await hasContextPermission(c, 'projects:scope:all');
 
-  const conditions: SQL[] = [isNull(t.deletedAt)];
-  if (!canSeeAll) conditions.push(await buildMembershipCondition(db, userId));
-  conditions.push(...buildProjectFilters(q));
-  if (q.cursor) {
+  const filterConditions: SQL[] = [isNull(t.deletedAt)];
+  if (!canSeeAll) filterConditions.push(await buildMembershipCondition(db, userId));
+  filterConditions.push(...buildProjectFilters(q));
+  const countWhere = and(...filterConditions);
+
+  // Default order: newest first, keyset cursor. An explicit sort pages by offset.
+  const order = buildProjectOrder(q);
+  const offset = order ? Number(OFFSET_CURSOR.exec(q.cursor ?? '')?.[1] ?? 0) : 0;
+  const conditions = [...filterConditions];
+  if (!order && q.cursor) {
     const cursorCondition = await buildProjectCursorCondition(db, q.cursor);
     if (cursorCondition) conditions.push(cursorCondition);
   }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const where = and(...conditions);
 
   try {
     const [rows, countRes] = await Promise.all([
-      db.select().from(t).where(where).orderBy(desc(t.createdAt), desc(t.id)).limit(limit + 1),
+      db
+        .select()
+        .from(t)
+        .where(where)
+        .orderBy(...(order ?? [desc(t.createdAt), desc(t.id)]))
+        .limit(limit + 1)
+        .offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(t).where(countWhere),
     ]);
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
+    let nextCursor: string | null = null;
+    if (hasMore && data.length > 0) nextCursor = order ? `o:${offset + limit}` : data[data.length - 1].id;
     const totalCount = Number(countRes[0]?.count ?? 0);
     const stats = await getProjectStats(db, data.map((p) => p.id));
     return list(c, withProjectStats(data, stats), cursorPagination(totalCount, hasMore, nextCursor));
@@ -142,25 +265,19 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
   try {
     const { projects, projectMembers, workspaceMembers, tasks } = schema;
 
-    // Get project IDs where the current user is an active member.
-    const userMemberships = await db
-      .select({ projectId: projectMembers.projectId })
-      .from(projectMembers)
-      .where(
-        and(
-          eq(projectMembers.userId, userId),
-          eq(projectMembers.isActive, true),
-          isNull(projectMembers.deletedAt),
-        ),
-      );
+    // Live projects the caller may access: everything for scope:all holders,
+    // otherwise the ones they manage or belong to. Soft-deleted projects never count.
+    const accessible = await accessibleProjectIds(c);
+    if (accessible !== null && accessible.length === 0) return success(c, EMPTY_WORKLOAD);
+    const projectList = await db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(and(isNull(projects.deletedAt), accessible === null ? undefined : inArray(projects.id, accessible)));
+    const userProjectIds = projectList.map((p) => p.id);
+    if (userProjectIds.length === 0) return success(c, EMPTY_WORKLOAD);
+    const projectNameMap = new Map(projectList.map((p) => [p.id, p.name]));
 
-    const userProjectIds = userMemberships.map((m) => m.projectId);
-
-    if (userProjectIds.length === 0) {
-      return success(c, { totalProjects: 0, totalMembers: 0, totalTasks: 0, teamMembers: [] });
-    }
-
-    // All active members across the user's projects with workspace user details.
+    // All active members across those projects with workspace user details.
     const members = await db
       .select({
         userId: projectMembers.userId,
@@ -181,16 +298,22 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
         ),
       );
 
-    // Deduplicate members across projects — keep first occurrence.
-    const uniqueMembers = new Map<string, (typeof members)[0]>();
+    // One row per person across projects: the first row's profile and role, and
+    // the allocations summed (a missing allocation counts as 100%), capped at 100%.
+    const uniqueMembers = new Map<string, (typeof members)[0] & { allocation: number }>();
     for (const m of members) {
-      if (!uniqueMembers.has(m.userId)) uniqueMembers.set(m.userId, m);
+      const allocation = Number(m.allocationPercentage) || 100;
+      const seen = uniqueMembers.get(m.userId);
+      if (seen) seen.allocation += allocation;
+      else uniqueMembers.set(m.userId, { ...m, allocation });
     }
 
-    // Active, assigned, non-terminal tasks across all user projects.
+    // Active, non-terminal tasks across all those projects (assigned or not).
     const projectTasks = await db
       .select({
         id: tasks.id,
+        number: tasks.number,
+        key: tasks.key,
         title: tasks.title,
         projectId: tasks.projectId,
         assigneeId: tasks.assigneeId,
@@ -206,33 +329,43 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
         and(
           inArray(tasks.projectId, userProjectIds),
           isNull(tasks.deletedAt),
-          sql`${tasks.assigneeId} is not null`,
           sql`${tasks.status} not in ('done', 'cancelled')`,
         ),
       );
 
-    // Project name lookup for task enrichment.
-    const projectList = await db
-      .select({ id: projects.id, name: projects.name })
-      .from(projects)
-      .where(inArray(projects.id, userProjectIds));
-    const projectNameMap = new Map(projectList.map((p) => [p.id, p.name]));
+    const toTaskRow = (t: (typeof projectTasks)[0]) => ({
+      id: t.id,
+      number: t.number,
+      key: t.key,
+      title: t.title,
+      projectId: t.projectId,
+      projectName: projectNameMap.get(t.projectId ?? '') ?? '',
+      estimatedHours: t.estimatedHours ?? 0,
+      actualHours: t.actualHours ?? 0,
+      priority: t.priority ?? 'medium',
+      status: t.status ?? 'todo',
+      startDate: t.startDate ? t.startDate.toISOString() : null,
+      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+    });
 
-    // Group tasks by assignee.
+    // Group tasks by assignee; tasks nobody on these projects carries go to the
+    // "unassigned / other" bucket so the totals add up.
     const tasksByAssignee = new Map<string, typeof projectTasks>();
+    const otherTasks: typeof projectTasks = [];
     for (const task of projectTasks) {
-      if (!task.assigneeId) continue;
+      if (!task.assigneeId || !uniqueMembers.has(task.assigneeId)) {
+        otherTasks.push(task);
+        continue;
+      }
       const existing = tasksByAssignee.get(task.assigneeId) ?? [];
       existing.push(task);
       tasksByAssignee.set(task.assigneeId, existing);
     }
 
-    const totalTasks = projectTasks.length;
-
     const teamMembers = Array.from(uniqueMembers.values()).map((m) => {
       const memberTasks = tasksByAssignee.get(m.userId) ?? [];
       const hoursPerWeek = Number(m.hoursPerWeek) || 40;
-      const capacity = Math.round(((Number(m.allocationPercentage) || 100) / 100) * hoursPerWeek);
+      const capacity = Math.round((Math.min(m.allocation, 100) / 100) * hoursPerWeek);
       const initials = (m.name ?? m.email ?? m.userId).slice(0, 2).toUpperCase();
       return {
         userId: m.userId,
@@ -242,26 +375,16 @@ app.get('/workload/overview', requirePermission('projects:read'), async (c) => {
         initials,
         role: m.role,
         capacity,
-        tasks: memberTasks.map((t) => ({
-          id: t.id,
-          title: t.title,
-          projectId: t.projectId,
-          projectName: projectNameMap.get(t.projectId ?? '') ?? '',
-          estimatedHours: t.estimatedHours ?? 0,
-          actualHours: t.actualHours ?? 0,
-          priority: t.priority ?? 'medium',
-          status: t.status ?? 'todo',
-          startDate: t.startDate ? t.startDate.toISOString() : null,
-          dueDate: t.dueDate ? t.dueDate.toISOString() : null,
-        })),
+        tasks: memberTasks.map(toTaskRow),
       };
     });
 
     return success(c, {
       totalProjects: userProjectIds.length,
       totalMembers: uniqueMembers.size,
-      totalTasks,
+      totalTasks: projectTasks.length,
       teamMembers,
+      unassigned: { tasks: otherTasks.map(toTaskRow) },
     });
   } catch (err) {
     console.error('[app-api/projects] workload overview failed:', err);
@@ -280,25 +403,17 @@ app.get('/search', requirePermission('projects:read'), async (c) => {
   if (!userId) return error.unauthorized(c);
   const q = c.req.query('q') ?? '';
   try {
-    const { projects, projectMembers } = schema;
-    const memberships = await db
-      .select({ projectId: projectMembers.projectId })
-      .from(projectMembers)
-      .where(
-        and(
-          eq(projectMembers.userId, userId),
-          eq(projectMembers.isActive, true),
-          isNull(projectMembers.deletedAt),
-        ),
-      );
-    const userProjectIds = memberships.map((m) => m.projectId);
-    if (userProjectIds.length === 0) return success(c, []);
+    const { projects } = schema;
+    // Projects the caller may access (everything for scope:all holders).
+    const accessible = await accessibleProjectIds(c);
+    if (accessible !== null && accessible.length === 0) return success(c, []);
 
-    const conditions: any[] = [isNull(projects.deletedAt), inArray(projects.id, userProjectIds)];
+    const conditions: SQL[] = [isNull(projects.deletedAt)];
+    if (accessible !== null) conditions.push(inArray(projects.id, accessible));
     if (q) {
-      const term = `%${q}%`;
+      const term = containsPattern(q);
       conditions.push(
-        or(like(projects.name, term), like(projects.description, term), like(projects.code, term))!,
+        or(ilike(projects.name, term), ilike(projects.description, term), ilike(projects.code, term))!,
       );
     }
 
@@ -566,16 +681,23 @@ app.get('/:id', requirePermission('projects:read'), async (c) => {
 app.post('/', requirePermission('projects:create'), zValidator('json', createProjectSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
-  const data = c.req.valid('json') as Record<string, any>;
+  // Allow-listed columns only (the schema is passthrough, the DB row is not), with
+  // date strings coerced to Date so the timestamp columns bind.
+  const writable = coerceTimestamps(
+    pickWritable(c.req.valid('json') as Record<string, unknown>, PROJECT_WRITABLE_FIELDS),
+    PROJECT_TIMESTAMP_FIELDS,
+  );
+  if (!writable.ok) return error.badRequest(c, `Invalid date: ${writable.field}`);
+  const data = writable.values;
   const id = generateId('prj');
   const now = new Date();
   try {
     // Default the project manager to the creator so the owner-fallback in the
     // permissions endpoint resolves even if the membership row is ever missing.
-    const projectManagerId = data.projectManagerId ?? userId ?? null;
+    const projectManagerId = (data.projectManagerId as string | null | undefined) ?? userId ?? null;
     await db
       .insert(t)
-      .values({ id, ...data, projectManagerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+      .values({ ...data, id, projectManagerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
 
     // Add the creator as an `owner` member so they can actually work in the
     // project they just created. Without this row the project is inaccessible
@@ -624,17 +746,21 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createPro
 app.patch('/:id', requirePermission('projects:update'), zValidator('json', updateProjectSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
   // Row-level guard: only the project's owner/admin/manager (or scope:all) may
   // edit it — `projects:update` alone gates the feature, not the specific row.
   if (!(await canManageProject(c, id))) {
     return error.forbidden(c, 'You must be a project owner, admin, or manager to edit this project');
   }
+  const writable = coerceTimestamps(
+    pickWritable(c.req.valid('json') as Record<string, unknown>, PROJECT_WRITABLE_FIELDS),
+    PROJECT_TIMESTAMP_FIELDS,
+  );
+  if (!writable.ok) return error.badRequest(c, `Invalid date: ${writable.field}`);
+  const data = writable.values;
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    const update = { ...data, updatedAt: new Date() } as Partial<typeof t.$inferInsert>;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,

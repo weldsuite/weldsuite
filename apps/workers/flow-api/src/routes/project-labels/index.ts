@@ -4,9 +4,9 @@
  * Permissions: projects:read | projects:create | projects:update | projects:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createProjectLabelSchema, updateProjectLabelSchema } from '@weldsuite/core-api-client/schemas/project-labels';
@@ -14,14 +14,28 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { canWriteProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject, projectNotDeleted } from '../../lib/project-access';
+import { containsPattern } from '../../lib/ilike-pattern';
+import { PROJECT_LABEL_WRITABLE_FIELDS, pickWritable } from '../../lib/writable-columns';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectLabels;
 
+const PROJECT_DENIED = 'You are not a member of this project';
 const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
+/** `project_labels.color` is NOT NULL; a label created without one gets a neutral grey. */
+const DEFAULT_LABEL_COLOR = '#6b7280';
 
 type TenantDb = Variables['tenantDb'];
+type LabelCtx = Context<{ Bindings: Env; Variables: Variables }>;
+
+/** Restricts the label-usage scan to tasks of projects the caller can access (or personal tasks). */
+async function taskUsageScope(c: LabelCtx, taskProjectId: AnyColumn): Promise<SQL> {
+  const accessible = await accessibleProjectIds(c);
+  if (accessible === null) return projectNotDeleted(taskProjectId);
+  if (accessible.length === 0) return sql`${taskProjectId} IS NULL`;
+  return sql`(${taskProjectId} IS NULL OR ${inArray(taskProjectId, accessible)})`;
+}
 
 /**
  * A live label whose name matches case-insensitively (ignoring surrounding
@@ -51,15 +65,22 @@ app.get('/', requirePermission('projects:read'), async (c) => {
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
-  // Match api-worker behaviour: when projectId is provided, return that
-  // project's labels PLUS workspace-wide labels (projectId IS NULL). Without
-  // a projectId (cross-project views like my-tasks / CRM), return everything.
+  const conditions: SQL[] = [isNull(t.deletedAt)];
+  // Project-membership boundary. With a projectId: that project's labels PLUS
+  // workspace-wide labels (projectId IS NULL), and the caller must have access to
+  // the project. Without one (cross-project views like my-tasks / CRM): the
+  // workspace-wide labels plus the labels of the projects the caller can access.
   if (q.projectId !== undefined && q.projectId !== '') {
+    if (!(await canAccessProject(c, q.projectId))) return error.forbidden(c, PROJECT_DENIED);
     conditions.push(sql`(${t.projectId} = ${q.projectId} OR ${t.projectId} IS NULL)`);
+  } else {
+    const accessible = await accessibleProjectIds(c);
+    if (accessible === null) conditions.push(projectNotDeleted(t.projectId));
+    else if (accessible.length) conditions.push(sql`(${t.projectId} IS NULL OR ${inArray(t.projectId, accessible)})`);
+    else conditions.push(isNull(t.projectId));
   }
   if (q.search) {
-    conditions.push(like(t.name, `%${q.search}%`));
+    conditions.push(ilike(t.name, containsPattern(q.search)));
   }
   if (q.cursor) {
     const [cur] = await db
@@ -77,6 +98,9 @@ app.get('/', requirePermission('projects:read'), async (c) => {
 
   try {
     const tasks = schema.tasks;
+    // Usage only counts tasks of projects the caller can see, so a workspace-wide
+    // label's number does not leak activity in other projects.
+    const usageScope = await taskUsageScope(c, tasks.projectId);
     const [rows, countRes, usageRows] = await Promise.all([
       db.select().from(t).where(where).orderBy(desc(t.createdAt), desc(t.id)).limit(limit + 1),
       db.select({ count: sql<number>`count(*)` }).from(t).where(countWhere),
@@ -88,6 +112,7 @@ app.get('/', requirePermission('projects:read'), async (c) => {
         FROM ${tasks}
         WHERE ${tasks.labels} IS NOT NULL
           AND ${tasks.deletedAt} IS NULL
+          AND ${usageScope}
         GROUP BY label_id
       `),
     ]);
@@ -116,6 +141,9 @@ app.get('/:id', requirePermission('projects:read'), async (c) => {
   try {
     const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!row) return error.notFound(c, 'Project label', id);
+    if (row.projectId && !(await canAccessProject(c, row.projectId))) {
+      return error.forbidden(c, PROJECT_DENIED);
+    }
     return success(c, row);
   } catch (err) {
     console.error('[app-api/project-labels] get failed:', err);
@@ -125,7 +153,12 @@ app.get('/:id', requirePermission('projects:read'), async (c) => {
 
 app.post('/', requirePermission('projects:create'), zValidator('json', createProjectLabelSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  // Allow-listed columns only (the schema is passthrough, the DB row is not).
+  const data = pickWritable(c.req.valid('json') as Record<string, unknown>, PROJECT_LABEL_WRITABLE_FIELDS) as {
+    name: string;
+    color?: string;
+    projectId?: string | null;
+  };
   const id = generateId('plbl');
   const now = new Date();
   // Workspace-wide labels (null projectId) stay permission-only; project labels need write access.
@@ -134,19 +167,20 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createPro
   }
   data.name = String(data.name).trim();
   if (!data.name) return error.badRequest(c, 'Label name is required');
+  const values = { ...data, color: data.color ?? DEFAULT_LABEL_COLOR };
   try {
     if (await findDuplicateLabel(db, data.name, data.projectId)) {
       return error.conflict(c, duplicateLabelMessage(data.name));
     }
-    await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    await db.insert(t).values({ ...values, id, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
     publishEntityEvent({
       c,
       entityType: 'project_label',
       entityId: id,
       action: 'created',
-      data: { id, ...data },
+      data: { id, ...values },
     });
-    return success(c, { id, ...data }, 201);
+    return success(c, { id, ...values }, 201);
   } catch (err) {
     console.error('[app-api/project-labels] create failed:', err);
     return error.internal(c, 'Failed to create project label');
@@ -156,7 +190,11 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createPro
 app.patch('/:id', requirePermission('projects:update'), zValidator('json', updateProjectLabelSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = pickWritable(c.req.valid('json') as Record<string, unknown>, PROJECT_LABEL_WRITABLE_FIELDS) as {
+    name?: string;
+    color?: string;
+    projectId?: string | null;
+  };
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project label', id);
@@ -174,8 +212,7 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
         return error.conflict(c, duplicateLabelMessage(data.name));
       }
     }
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    const update = { ...data, updatedAt: new Date() } as Partial<typeof t.$inferInsert>;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,

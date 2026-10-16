@@ -109,8 +109,11 @@ class_name = "ImportTasksWorkflow"
 # Hourly task digest sweep (src/cron/digest-sweep.ts, scheduled() in
 # src/index.ts). Moved here from app-api, which keeps the same expression for
 # its WeldAgent routine sweep.
+# Weekly (Sunday 03:30 UTC) purge of project files, task attachments and
+# documents that were soft-deleted more than 30 days ago
+# (src/cron/purge-deleted-files.ts).
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 * * * *", "30 3 * * 0"]
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -184,7 +187,7 @@ class_name = "GithubProjectOutboundSyncWorkflow"
 script_name = "weldsuite-integration-webhooks-test"
 
 [env.test.triggers]
-crons = ["0 * * * *"]
+crons = ["0 * * * *", "30 3 * * 0"]
 
 [env.test.observability]
 enabled = true
@@ -268,7 +271,7 @@ script_name = "weldsuite-integration-webhooks"
 
 # Hourly task digest sweep (moved here from app-api).
 [env.production.triggers]
-crons = ["0 * * * *"]
+crons = ["0 * * * *", "30 3 * * 0"]
 
 [env.production.observability]
 enabled = true
