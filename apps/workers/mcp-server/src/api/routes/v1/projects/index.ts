@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { getProjectStats, withProjectStats } from '@weldsuite/flow-domain/project-stats';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
@@ -44,7 +45,11 @@ app.get('/', requireScope('projects:read'), zValidator('query', listProjectsQuer
   if (q.status) where.push(eq(table.status, q.status));
   if (q.isActive !== undefined) where.push(eq(table.isActive, q.isActive));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
-  return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
+  // The stored counter columns are never maintained; compute them on read
+  // (same definitions as flow-api).
+  const rows = result.data as Array<{ id: string }>;
+  const stats = await getProjectStats(db, rows.map((r) => r.id));
+  return list(c, withProjectStats(rows, stats) as unknown as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
 app.get('/:id', requireScope('projects:read'), async (c) => {
@@ -56,7 +61,8 @@ app.get('/:id', requireScope('projects:read'), async (c) => {
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
   if (!row) return error.notFound(c, 'Project', id);
-  return success(c, row);
+  const stats = await getProjectStats(db, [row.id]);
+  return success(c, withProjectStats([row], stats)[0]);
 });
 
 app.post('/', requireScope('projects:write'), zValidator('json', createProjectSchema), async (c) => {
