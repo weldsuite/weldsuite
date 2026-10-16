@@ -58,6 +58,8 @@ import { w9RequestsRoutes } from './routes/w9-requests';
 import { bankConnectionsInternalRoutes } from './routes/bank-connections/internal';
 import { payrollInternalRoutes } from './routes/payroll/internal';
 import { publicW9Routes } from './routes/public-w9';
+import { publicInvoiceFontsRoutes } from './routes/public-invoice-fonts';
+import { PUBLIC_INVOICE_FONTS_PATH } from './services/invoice-fonts';
 import type { Env, Variables } from './types';
 import { registerBooksWorkspace, runBooksDailySweep } from './cron/books-sweep';
 
@@ -67,6 +69,8 @@ const app = createModuleApi<Env, Variables>({ service: 'books-api' });
 app.route('/public/w9', publicW9Routes);
 // Fiscal document provider callbacks (Focus NFe): no Clerk auth, the token in the path is the credential.
 app.route('/public/fiscal-webhooks', publicFiscalWebhooksRoutes);
+// The fonts printable invoice HTML loads (@font-face): public OFL files, no auth.
+app.route(PUBLIC_INVOICE_FONTS_PATH, publicInvoiceFontsRoutes);
 
 // Auth + tenant DB + feature flags for everything under /api/*
 app.use('/api/*', ...apiAuth());

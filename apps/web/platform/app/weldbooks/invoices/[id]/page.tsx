@@ -26,7 +26,6 @@ import {
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { generateInvoicePdf, downloadPdf, type BrInvoicePdfExtras } from '@/lib/weldbooks/invoice-pdf';
 import { layoutInvoice } from '@weldsuite/books-domain/invoice-template/layout';
-import { renderInvoicePdf } from '@weldsuite/books-domain/invoice-template/pdf';
 import { buildInvoiceDocumentData } from '@/lib/weldbooks/invoice-template-data';
 import { useInvoiceDocumentLabels } from '@/lib/weldbooks/use-invoice-template-labels';
 import { invoiceTemplatesQuery, useInvoiceTemplates } from '@/hooks/queries/use-invoice-template-queries';
@@ -155,28 +154,34 @@ export default function InvoiceDetailPage() {
       const pdfEntity = entity ?? { name: st('sweep.weldbooks.invoiceDetail.yourCompanyFallback') };
       const br = await brPdfExtras();
       const template = await resolveTemplate();
-      const bytes = template
-        ? await renderInvoicePdf(
-            layoutInvoice(
-              template.document,
-              buildInvoiceDocumentData(invoice, pdfEntity, {
-                pdfLabels: documentLabels.pdfLabels,
-                labels: documentLabels.labels,
-                formatDate: documentLabels.formatDate,
-                countryName: country,
-                certificateNumbers: numbers,
-                br,
-              }),
-            ),
-            { title: invoice.invoiceNumber ?? undefined },
-          )
-        : await generateInvoicePdf(invoice, pdfEntity, {
-            labels: documentLabels.pdfLabels,
-            formatDate: documentLabels.formatDate,
-            countryName: country,
-            certificateNumbers: numbers,
-            br,
-          });
+      let bytes: Uint8Array;
+      if (template) {
+        // The template painter (pdf-lib, fontkit) and its fonts load on the first download.
+        const [{ renderInvoicePdf }, { loadInvoiceFont }] = await Promise.all([
+          import('@weldsuite/books-domain/invoice-template/pdf'),
+          import('@/lib/weldbooks/invoice-fonts'),
+        ]);
+        const data = buildInvoiceDocumentData(invoice, pdfEntity, {
+          pdfLabels: documentLabels.pdfLabels,
+          labels: documentLabels.labels,
+          formatDate: documentLabels.formatDate,
+          countryName: country,
+          certificateNumbers: numbers,
+          br,
+        });
+        bytes = await renderInvoicePdf(layoutInvoice(template.document, data), {
+          title: invoice.invoiceNumber ?? undefined,
+          loadFont: loadInvoiceFont,
+        });
+      } else {
+        bytes = await generateInvoicePdf(invoice, pdfEntity, {
+          labels: documentLabels.pdfLabels,
+          formatDate: documentLabels.formatDate,
+          countryName: country,
+          certificateNumbers: numbers,
+          br,
+        });
+      }
       const filename = (invoice.invoiceNumber || 'invoice') + '.pdf';
       downloadPdf(bytes, filename);
     } catch {

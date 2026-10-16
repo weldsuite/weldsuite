@@ -1,13 +1,18 @@
 /**
- * PDF painter (pdf-lib, standard fonts): draws a layout from `./layout`.
- * Runs in the browser and in Workers alike.
+ * PDF painter (pdf-lib): draws a layout from `./layout` with the bundled Noto
+ * fonts, each embedded as a subset of the glyphs the invoice uses.
+ * Runs in the browser and in Workers alike; the caller supplies the font
+ * bytes (`loadFont`), since how a file is reached differs per runtime.
  */
+import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, degrees, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
-import { drawableText, standardFontName, textWidth, type FontFace } from './fonts';
+import { FONT_METRICS, drawableText, faceKeyOf, isSlanted, textWidth, type FontFace, type FontFaceKey } from './fonts';
 import type { InvoiceLayout, Primitive } from './layout';
 import { safeImageSrc } from './layout';
 
 export interface PdfPaintOptions {
+  /** The bytes of a bundled font file: a name under `./fonts`, e.g. `noto-sans-regular.ttf`. */
+  loadFont: (file: string) => Promise<Uint8Array | ArrayBuffer>;
   /** Loads an image's bytes; defaults to `fetch` (and decodes data: URLs). Return null to skip the image. */
   loadImage?: (src: string) => Promise<Uint8Array | null>;
   title?: string;
@@ -45,23 +50,29 @@ async function embedImage(pdf: PDFDocument, bytes: Uint8Array): Promise<PDFImage
   return null;
 }
 
+/** Italic mono runs: the upright face at the slant of a browser's synthesised oblique. */
+function slantOf(face: FontFace): { ySkew?: ReturnType<typeof degrees> } {
+  return isSlanted(face) ? { ySkew: degrees(14) } : {};
+}
+
 function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string {
   const rr = Math.min(r, w / 2, h / 2);
   return `M${x + rr} ${y} H${x + w - rr} Q${x + w} ${y} ${x + w} ${y + rr} V${y + h - rr} Q${x + w} ${y + h} ${x + w - rr} ${y + h} H${x + rr} Q${x} ${y + h} ${x} ${y + h - rr} V${y + rr} Q${x} ${y} ${x + rr} ${y} Z`;
 }
 
-export async function renderInvoicePdf(layout: InvoiceLayout, options: PdfPaintOptions = {}): Promise<Uint8Array> {
+export async function renderInvoicePdf(layout: InvoiceLayout, options: PdfPaintOptions): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
   if (options.title) pdf.setTitle(options.title);
   const H = layout.height;
 
-  const fonts = new Map<string, PDFFont>();
-  const fontFor = async (face: FontFace) => {
-    const name = standardFontName(face);
-    let font = fonts.get(name);
+  const fonts = new Map<FontFaceKey, Promise<PDFFont>>();
+  const fontFor = (face: FontFace) => {
+    const key = faceKeyOf(face);
+    let font = fonts.get(key);
     if (!font) {
-      font = await pdf.embedFont(name);
-      fonts.set(name, font);
+      font = options.loadFont(FONT_METRICS[key].file).then((bytes) => pdf.embedFont(bytes, { subset: true }));
+      fonts.set(key, font);
     }
     return font;
   };
@@ -93,7 +104,7 @@ async function drawPrimitive(page: PDFPage, p: Primitive, ctx: DrawCtx) {
   switch (p.kind) {
     case 'text': {
       const font = await ctx.fontFor(p.face);
-      page.drawText(drawableText(p.text), { x: p.x, y: H - p.y, size: p.size, font, color: hex(p.color) });
+      page.drawText(drawableText(p.text, p.face), { x: p.x, y: H - p.y, size: p.size, font, color: hex(p.color), ...slantOf(p.face) });
       return;
     }
     case 'rect':
@@ -157,7 +168,7 @@ function drawQr(page: PDFPage, p: Of<'qr'>, H: number) {
 
 async function drawWatermark(page: PDFPage, p: Of<'watermark'>, ctx: DrawCtx) {
   const font = await ctx.fontFor(p.face);
-  const text = drawableText(p.text);
+  const text = drawableText(p.text, p.face);
   const w = textWidth(text, p.size, p.face);
   const angle = (30 * Math.PI) / 180;
   const cx = ctx.width / 2;

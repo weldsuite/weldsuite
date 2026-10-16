@@ -18,7 +18,7 @@ import { pixQrMatrix, pixQrSvg } from './jurisdictions/br/pix';
 import type { InvoiceDocumentData, TotalsRowData } from './invoice-template/data';
 import { layoutInvoice } from './invoice-template/layout';
 import type { InvoiceTemplateDocument } from './invoice-template/schema';
-import { renderInvoiceHtmlDocument } from './invoice-template/svg';
+import { renderInvoiceHtmlDocument, type FontUrlResolver } from './invoice-template/svg';
 
 interface InvoiceLineItem {
   description: string;
@@ -1133,11 +1133,20 @@ export function invoiceTemplateData(invoice: InvoiceRenderData, entity: Entity):
   };
 }
 
-/** The printable HTML of an invoice laid out with a designed template. */
-export function generateTemplatedInvoiceHtml(template: InvoiceTemplateDocument, invoice: InvoiceRenderData, entity: Entity): string {
+/**
+ * The printable HTML of an invoice laid out with a designed template.
+ * `fontUrl` says where the reader's browser fetches the bundled fonts the
+ * layout was measured with (see `invoiceFontFaceCss`).
+ */
+export function generateTemplatedInvoiceHtml(
+  template: InvoiceTemplateDocument,
+  invoice: InvoiceRenderData,
+  entity: Entity,
+  opts: { fontUrl?: FontUrlResolver } = {},
+): string {
   const labels = getAdapter(entity.jurisdictionCode).getInvoiceRequirements(entity.locale || 'en-US').labels;
   const layout = layoutInvoice(template, invoiceTemplateData(invoice, entity));
   const typeLabel = invoice.type === 'credit_note' ? labels.creditNote : labels.invoice;
   const draftPrefix = invoice.draft ? `${labels.draftNotice} · ` : '';
-  return renderInvoiceHtmlDocument(layout, { title: `${draftPrefix}${typeLabel} ${invoice.invoiceNumber}`, lang: entity.locale || 'en-US' });
+  return renderInvoiceHtmlDocument(layout, { title: `${draftPrefix}${typeLabel} ${invoice.invoiceNumber}`, lang: entity.locale || 'en-US', fontUrl: opts.fontUrl });
 }

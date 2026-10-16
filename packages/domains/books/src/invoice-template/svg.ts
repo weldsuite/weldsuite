@@ -3,19 +3,53 @@
  * layout engine placed. The designer's live preview and the printable HTML of
  * books-api both use it, so they match the PDF.
  */
-import type { FontFace } from './fonts';
+import { FONT_FACE_KEYS, FONT_METRICS, fontFamilyOf, type FontFace, type FontFaceKey, type FontFamilyKey } from './fonts';
 import type { InvoiceLayout, Primitive } from './layout';
 import { safeImageSrc } from './layout';
 import type { TemplateFont } from './schema';
 
-const FONT_STACKS: Record<TemplateFont, string> = {
-  helvetica: "Helvetica, Arial, 'Liberation Sans', sans-serif",
-  times: "'Times New Roman', Times, 'Liberation Serif', serif",
-  courier: "'Courier New', Courier, 'Liberation Mono', monospace",
+/**
+ * The bundled fonts under their own family names, so a different version of
+ * Noto installed on the reader's machine never stands in with other widths.
+ */
+const FAMILY_NAMES: Record<FontFamilyKey, string> = {
+  sans: 'WeldBooks Noto Sans',
+  serif: 'WeldBooks Noto Serif',
+  mono: 'WeldBooks Noto Sans Mono',
+};
+
+/** Used only while the bundled font loads, or if it cannot. */
+const FALLBACK_STACKS: Record<FontFamilyKey, string> = {
+  sans: "'Noto Sans', Helvetica, Arial, sans-serif",
+  serif: "'Noto Serif', 'Times New Roman', Times, serif",
+  mono: "'Noto Sans Mono', 'Courier New', Courier, monospace",
 };
 
 export function fontStack(font: TemplateFont): string {
-  return FONT_STACKS[font] ?? FONT_STACKS.helvetica;
+  const family = fontFamilyOf(font);
+  return `'${FAMILY_NAMES[family]}', ${FALLBACK_STACKS[family]}`;
+}
+
+/**
+ * Where the browser fetches a bundled font file. `hash` changes with the
+ * file's contents, so the URL can be cached forever.
+ */
+export type FontUrlResolver = (file: string, hash: string) => string;
+
+/**
+ * @font-face rules for the bundled fonts. The SVG pages name these families;
+ * a browser downloads only the faces a page actually uses.
+ */
+export function invoiceFontFaceCss(fontUrl: FontUrlResolver): string {
+  return FONT_FACE_KEYS.map((key: FontFaceKey) => {
+    const { file, hash } = FONT_METRICS[key];
+    const [family, ...style] = key.split('-') as [FontFamilyKey, ...string[]];
+    const bold = style.includes('bold');
+    const italic = style.includes('italic');
+    // A <style> element is raw text: keep the URL from closing the string or the element.
+    const url = fontUrl(file, hash).replace(/["'\\<>\s]/g, encodeURIComponent);
+    return `@font-face{font-family:'${FAMILY_NAMES[family]}';src:url("${url}") format("truetype");font-weight:${bold ? 700 : 400};font-style:${italic ? 'italic' : 'normal'};font-display:block}`;
+  }).join('\n');
 }
 
 function esc(value: string): string {
@@ -75,11 +109,17 @@ export function renderPageSvg(layout: InvoiceLayout, pageIndex: number, opts: { 
   const size = opts.withSize === false ? '' : ` width="${n(width)}pt" height="${n(height)}pt"`;
   const cls = opts.className ? ` class="${esc(opts.className)}"` : '';
   const body = page.primitives.map((p) => primitiveSvg(p, width, height)).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n(width)} ${n(height)}"${size}${cls} xml:space="preserve" style="white-space:pre"><rect width="100%" height="100%" fill="#ffffff"/>${body}</svg>`;
+  // No kerning or ligatures: the layout measured each character at its advance width.
+  const style = 'white-space:pre;font-kerning:none;font-variant-ligatures:none;font-feature-settings:"kern" 0,"liga" 0;text-rendering:geometricPrecision';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n(width)} ${n(height)}"${size}${cls} xml:space="preserve" style='${style}'><rect width="100%" height="100%" fill="#ffffff"/>${body}</svg>`;
 }
 
-/** A printable HTML document: every page an SVG, one per printed sheet. */
-export function renderInvoiceHtmlDocument(layout: InvoiceLayout, opts: { title: string; lang?: string }): string {
+/**
+ * A printable HTML document: every page an SVG, one per printed sheet.
+ * `fontUrl` points the @font-face rules at the bundled fonts; without it the
+ * pages fall back to the system fonts of the same style.
+ */
+export function renderInvoiceHtmlDocument(layout: InvoiceLayout, opts: { title: string; lang?: string; fontUrl?: FontUrlResolver }): string {
   const pages = layout.pages.map((_, i) => `<div class="page">${renderPageSvg(layout, i)}</div>`).join('\n');
   return `<!DOCTYPE html>
 <html lang="${esc((opts.lang ?? 'en').split('-')[0])}">
@@ -88,7 +128,7 @@ export function renderInvoiceHtmlDocument(layout: InvoiceLayout, opts: { title: 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(opts.title)}</title>
 <style>
-  @page { size: ${n(layout.width)}pt ${n(layout.height)}pt; margin: 0; }
+${opts.fontUrl ? `${invoiceFontFaceCss(opts.fontUrl)}\n` : ''}  @page { size: ${n(layout.width)}pt ${n(layout.height)}pt; margin: 0; }
   html, body { margin: 0; padding: 0; background: #e9ebef; }
   .page { width: ${n(layout.width)}pt; max-width: 100%; margin: 16px auto; box-shadow: 0 1px 4px rgba(0,0,0,.15); background: #fff; }
   .page svg { display: block; width: 100%; height: auto; }

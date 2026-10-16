@@ -1,12 +1,17 @@
 /**
- * Text measurement with the metrics of the standard PDF fonts, the same
- * numbers pdf-lib uses when it draws. The layout engine measures with these,
- * so line breaks and right-aligned amounts land on the same spot in the PDF
- * and in the HTML/SVG (where Arial, Times New Roman and Courier New are
- * metric-compatible stand-ins).
+ * Text measurement with the metrics of the bundled invoice fonts (Noto Sans,
+ * Noto Serif, Noto Sans Mono; files in ./fonts, widths in ./font-metrics).
+ * The layout engine measures with these, the PDF embeds the same files and
+ * the HTML/SVG loads them through @font-face, so line breaks and
+ * right-aligned amounts land on the same spot in every output.
+ *
+ * The files have no kerning or ligature tables: a line is exactly the sum of
+ * its characters' advance widths, in a browser as much as in the PDF.
  */
-import { Encodings, Font, FontNames } from '@pdf-lib/standard-fonts';
+import { FONT_METRICS, type FontFaceKey } from './font-metrics';
 import type { TemplateFont } from './schema';
+
+export { FONT_FACE_KEYS, FONT_METRICS, type FontFaceKey } from './font-metrics';
 
 export interface FontFace {
   font: TemplateFont;
@@ -14,69 +19,89 @@ export interface FontFace {
   italic?: boolean;
 }
 
-const FACE_NAMES: Record<TemplateFont, [regular: FontNames, bold: FontNames, italic: FontNames, boldItalic: FontNames]> = {
-  helvetica: [FontNames.Helvetica, FontNames.HelveticaBold, FontNames.HelveticaOblique, FontNames.HelveticaBoldOblique],
-  times: [FontNames.TimesRoman, FontNames.TimesRomanBold, FontNames.TimesRomanItalic, FontNames.TimesRomanBoldItalic],
-  courier: [FontNames.Courier, FontNames.CourierBold, FontNames.CourierOblique, FontNames.CourierBoldOblique],
-};
+export type FontFamilyKey = 'sans' | 'serif' | 'mono';
 
-export function standardFontName(face: FontFace): FontNames {
-  const names = FACE_NAMES[face.font] ?? FACE_NAMES.helvetica;
-  return names[(face.bold ? 1 : 0) + (face.italic ? 2 : 0)];
-}
+/** The template fonts keep their original names; what they are drawn with is Noto. */
+const FAMILY: Record<TemplateFont, FontFamilyKey> = { helvetica: 'sans', times: 'serif', courier: 'mono' };
 
-const loaded = new Map<FontNames, Font>();
-
-function metricsOf(face: FontFace): Font {
-  const name = standardFontName(face);
-  let font = loaded.get(name);
-  if (!font) {
-    font = Font.load(name);
-    loaded.set(name, font);
-  }
-  return font;
-}
-
-/** Narrow / thin / no-break spaces some locales put in amounts and dates. */
-const SPACE_LIKE = new RegExp(`[${String.fromCharCode(0x202f, 0x2009, 0x2007, 0x200a)}]`, 'g');
-
-/** Odd spaces (narrow, thin, tabs, line breaks) as plain ones; the layout works on this. */
-export function normalizeText(text: string): string {
-  return text.replace(SPACE_LIKE, ' ').replace(/[\t\r\n]/g, ' ');
+export function fontFamilyOf(font: TemplateFont): FontFamilyKey {
+  return FAMILY[font] ?? 'sans';
 }
 
 /**
- * The text as the standard (WinAnsi) PDF fonts can draw it: any character the
- * font lacks (ł, ő, ₹, CJK) becomes "?". Only the PDF painter applies this;
- * the HTML keeps the real characters.
+ * Noto Sans Mono has no italic: an italic mono run is drawn with the upright
+ * face, slanted (the browser synthesises the same oblique).
  */
-export function drawableText(text: string): string {
-  const winAnsi = Encodings.WinAnsi;
+export function isSlanted(face: FontFace): boolean {
+  return Boolean(face.italic) && fontFamilyOf(face.font) === 'mono';
+}
+
+/** The bundled face a run is drawn with. */
+export function faceKeyOf(face: FontFace): FontFaceKey {
+  const family = fontFamilyOf(face.font);
+  const italic = face.italic && family !== 'mono';
+  const style = [face.bold && 'bold', italic && 'italic'].filter(Boolean).join('-') || 'regular';
+  return `${family}-${style}` as FontFaceKey;
+}
+
+const widthTables = new Map<FontFaceKey, Map<number, number>>();
+
+function widthsOf(key: FontFaceKey): Map<number, number> {
+  let table = widthTables.get(key);
+  if (!table) {
+    table = new Map();
+    for (const [first, ...widths] of FONT_METRICS[key].runs) {
+      widths.forEach((w, i) => table!.set(first + i, w));
+    }
+    widthTables.set(key, table);
+  }
+  return table;
+}
+
+/** Narrow / thin / figure / hair spaces some locales put in amounts and dates. */
+const SPACE_LIKE = /[\u2007\u2009\u200a\u202f]/g;
+/** Soft hyphen, zero-width and bidi control characters: a browser draws nothing for them. */
+const INVISIBLE = /[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g;
+
+/**
+ * The text as the layout works on it: composed (NFC, so "e" + combining acute
+ * is one "é" glyph), odd spaces and line breaks as plain spaces, invisible
+ * format characters gone.
+ */
+export function normalizeText(text: string): string {
+  return text.normalize('NFC').replace(INVISIBLE, '').replace(SPACE_LIKE, ' ').replace(/[\t\r\n]/g, ' ');
+}
+
+/** Whether the bundled font has a glyph for the character. */
+export function hasGlyph(char: string, face: FontFace): boolean {
+  return widthsOf(faceKeyOf(face)).has(char.codePointAt(0) ?? 0);
+}
+
+/**
+ * The text as the PDF can draw it. The bundled fonts cover Latin (every
+ * European language and Vietnamese), Greek, Cyrillic and the currency signs;
+ * a character outside that (CJK, Indic, Arabic, emoji) becomes "?". The HTML
+ * keeps the real characters and lets the browser fall back for those.
+ */
+export function drawableText(text: string, face: FontFace): string {
+  const widths = widthsOf(faceKeyOf(face));
   let out = '';
-  for (const ch of normalizeText(text)) out += winAnsi.canEncodeUnicodeCodePoint(ch.codePointAt(0) ?? 0) ? ch : '?';
+  for (const ch of normalizeText(text)) out += widths.has(ch.codePointAt(0) ?? 0) ? ch : '?';
   return out;
 }
 
-/** Width in points; characters the font lacks count as "?", the width the PDF gives them. */
+/** Width in points; characters the font lacks count as "?", which the PDF draws in their place. */
 export function textWidth(text: string, size: number, face: FontFace): number {
-  const font = metricsOf(face);
-  const winAnsi = Encodings.WinAnsi;
-  const glyphs = Array.from(text, (ch) => {
-    const cp = ch.codePointAt(0) ?? 63;
-    return winAnsi.canEncodeUnicodeCodePoint(cp) ? winAnsi.encodeUnicodeCodePoint(cp).name : 'question';
-  });
+  const widths = widthsOf(faceKeyOf(face));
+  const fallback = widths.get(0x3f) ?? 500;
   let total = 0;
-  for (let i = 0; i < glyphs.length; i++) {
-    const kern = i + 1 < glyphs.length ? font.getXAxisKerningForPair(glyphs[i], glyphs[i + 1]) || 0 : 0;
-    total += (font.getWidthOfGlyph(glyphs[i]) || 0) + kern;
-  }
+  for (const ch of text) total += widths.get(ch.codePointAt(0) ?? 0) ?? fallback;
   return (total * size) / 1000;
 }
 
-/** Distance from the top of a line box to its baseline, as a fraction of the font size. */
+/** Distance from the top of the glyphs to the baseline, as a fraction of the font size. */
 export function ascentRatio(face: FontFace): number {
-  const font = metricsOf(face);
-  return ((font.Ascender || font.FontBBox[3]) as number) / 1000;
+  return FONT_METRICS[faceKeyOf(face)].ascent;
 }
 
 /**
