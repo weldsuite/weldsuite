@@ -11,14 +11,15 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject, projectNotDeleted } from '../../lib/project-access';
+import { containsPattern } from '../../lib/ilike-pattern';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectWhiteboards;
@@ -48,7 +49,9 @@ async function projectScopeConditions(c: AppContext, projectId: string | undefin
     return conditions;
   }
   const accessible = await accessibleProjectIds(c);
-  if (accessible !== null) conditions.push(inArray(t.projectId, accessible.length ? accessible : ['']));
+  conditions.push(
+    accessible === null ? projectNotDeleted(t.projectId) : inArray(t.projectId, accessible.length ? accessible : ['']),
+  );
   return conditions;
 }
 
@@ -70,7 +73,7 @@ app.get('/', requirePermission('projects:read'), async (c) => {
   const scope = await projectScopeConditions(c, q.projectId);
   if (!scope) return error.forbidden(c, PROJECT_DENIED);
   const conditions: SQL[] = [isNull(t.deletedAt), ...scope];
-  if (q.search) conditions.push(like(t.name, `%${q.search}%`));
+  if (q.search) conditions.push(ilike(t.name, containsPattern(q.search)));
   if (q.cursor) {
     const cursorCond = await cursorCondition(db, q.cursor);
     if (cursorCond) conditions.push(cursorCond);

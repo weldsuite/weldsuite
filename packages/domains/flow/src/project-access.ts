@@ -17,7 +17,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 async function membership(db: Database, projectId: string, userId: string) {
   const [[proj], [member]] = await Promise.all([
     db
-      .select({ managerId: schema.projects.projectManagerId })
+      .select({ managerId: schema.projects.projectManagerId, deletedAt: schema.projects.deletedAt })
       .from(schema.projects)
       .where(eq(schema.projects.id, projectId))
       .limit(1),
@@ -34,7 +34,20 @@ async function membership(db: Database, projectId: string, userId: string) {
       )
       .limit(1),
   ]);
-  return { isManager: !!proj?.managerId && proj.managerId === userId, role: member?.role };
+  return {
+    isManager: !!proj?.managerId && proj.managerId === userId,
+    role: member?.role,
+    deleted: !!proj?.deletedAt,
+  };
+}
+
+async function isProjectDeleted(db: Database, projectId: string): Promise<boolean> {
+  const [proj] = await db
+    .select({ deletedAt: schema.projects.deletedAt })
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId))
+    .limit(1);
+  return !!proj?.deletedAt;
 }
 
 export interface ProjectAccess {
@@ -47,6 +60,12 @@ export interface ProjectAccess {
   canRead: boolean;
   canWrite: boolean;
   isAdmin: boolean;
+  /**
+   * The project is soft-deleted. A deleted project grants nothing to anyone:
+   * `canRead` / `canWrite` / `isAdmin` are all false, and `scopeAll` holders must
+   * not treat it as accessible either (flow-api's `canAccessProject` checks this).
+   */
+  deleted: boolean;
 }
 
 /**
@@ -54,7 +73,7 @@ export interface ProjectAccess {
  *   admin — scope:all, the project manager, or an owner/admin member
  *   write — admin, or a 'member' role (viewers are read-only)
  *   read  — write, or a 'viewer' role
- * Roles are compared case-insensitively.
+ * Roles are compared case-insensitively. A soft-deleted project grants nothing.
  *
  * @param userId - undefined (no authenticated caller, e.g. a schedule run
  *   with no owner) resolves to no access at all.
@@ -68,9 +87,21 @@ export async function resolveProjectAccess(
   projectId: string,
 ): Promise<ProjectAccess> {
   const { scopeAll } = opts;
-  const { isManager, role: memberRole } = userId
+  const { isManager, role: memberRole, deleted } = userId
     ? await membership(db, projectId, userId)
-    : { isManager: false, role: undefined };
+    : { isManager: false, role: undefined, deleted: await isProjectDeleted(db, projectId) };
+  if (deleted) {
+    return {
+      role: null,
+      isManager: false,
+      scopeAll,
+      isMember: false,
+      canRead: false,
+      canWrite: false,
+      isAdmin: false,
+      deleted: true,
+    };
+  }
   const projectRole = (memberRole ?? '').toLowerCase() || null;
   const role = projectRole ?? (isManager ? 'owner' : null);
   const isAdmin = scopeAll || isManager || role === 'owner' || role === 'admin';
@@ -84,6 +115,7 @@ export async function resolveProjectAccess(
     canRead,
     canWrite,
     isAdmin,
+    deleted: false,
   };
 }
 
