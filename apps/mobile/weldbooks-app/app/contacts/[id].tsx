@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Building2, FileText, Receipt, Trash2 } from 'lucide-react-native';
+import { FileText, Receipt, Trash2 } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -23,6 +23,7 @@ import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow, IconTile } from '@/components/detail';
 import { RecordRow } from '@/components/record-row';
+import { ContactKindTile } from '@/components/contact-kind-tile';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge, BillStatusBadge } from '@/components/status-badge';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
@@ -62,10 +63,17 @@ function ContactInfoCard({ contact }: Readonly<{ contact: Contact }>) {
   const billing = addressLines(contact.billingAddress);
   const shipping = addressLines(contact.shippingAddress);
 
+  const person = contact.contactPerson;
+
   // The card only appears when a primary field is present (a city alone doesn't qualify).
-  if (!contact.email && !contact.phone && !contact.vatNumber && billing.length === 0) return null;
+  if (!contact.email && !contact.phone && !contact.vatNumber && !person && billing.length === 0) return null;
 
   const fields: { label: string; value: string | undefined }[] = [
+    // A company's billing contact in WeldCRM; it is set on the web.
+    {
+      label: t.contactDetail.contactPerson,
+      value: person ? [person.name, person.email, person.phone].filter(Boolean).join('\n') : undefined,
+    },
     { label: t.contactDetail.email, value: contact.email },
     { label: t.contactDetail.phone, value: contact.phone },
     { label: labels.taxId, value: contact.vatNumber },
@@ -330,17 +338,17 @@ export default function ContactDetailScreen() {
       >
         <SectionCard>
           <View style={styles.profile}>
-            <IconTile icon={Building2} color={ACCENTS.contacts} size={48} />
+            <ContactKindTile kind={contact.kind} size={48} />
             <View style={styles.profileText}>
               <Text style={[styles.profileName, { color: colors.text }]} numberOfLines={2}>
                 {contact.name}
               </Text>
-              <Badge
-                variant="secondary"
-                size="sm"
-                label={ROLE_LABELS[contact.type] ?? contact.type}
-                style={styles.profileBadge}
-              />
+              <View style={styles.profileBadges}>
+                {contact.kind ? (
+                  <Badge variant="outline" size="sm" label={t.contacts.kinds[contact.kind]} />
+                ) : null}
+                <Badge variant="secondary" size="sm" label={ROLE_LABELS[contact.type] ?? contact.type} />
+              </View>
             </View>
           </View>
         </SectionCard>
@@ -374,7 +382,7 @@ const styles = StyleSheet.create({
   profile: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   profileText: { flex: 1 },
   profileName: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
-  profileBadge: { alignSelf: 'flex-start', marginTop: 6 },
+  profileBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
   taxHint: { fontSize: 12, lineHeight: 17, marginTop: 8 },
   related: { padding: 12, paddingTop: 4, gap: 8 },
 });
