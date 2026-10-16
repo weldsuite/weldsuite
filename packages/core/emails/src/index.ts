@@ -30,6 +30,7 @@ export {
   type EmailStrings,
 } from './i18n';
 export { formatDate, formatTime, formatTimeRange, formatWhen, isValidTimeZone, zoneOr } from './format';
+export { workspaceAppUrl } from './links';
 export { defineTemplate, type EmailTemplate, type TemplateEnv, type TemplatePreview } from './define';
 export {
   templates,

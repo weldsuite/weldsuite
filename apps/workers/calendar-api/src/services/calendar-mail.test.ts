@@ -54,7 +54,7 @@ const reservation = {
 };
 
 const MEETING_URL = 'https://meet.weldsuite.org/acme/wm-dip-zfz-ubv';
-const APP_LINK = 'https://app.weldsuite.org/weldcalendar';
+const APP_LINK = 'https://app.weldsuite.org/w/org_test/weldcalendar';
 
 const START = '2026-10-01T21:00:00.000Z';
 const END = '2026-10-01T22:00:00.000Z';
@@ -181,7 +181,7 @@ describe('sendCalendarEventEmails', () => {
       attendees: [{ email: 'member@acme.com' }],
       memberEmails: new Map([['member@acme.com', {}]]),
     });
-    expect(calls()[0][1].props.eventUrl).toBe('https://calendar.example.com/weldcalendar');
+    expect(calls()[0][1].props.eventUrl).toBe('https://calendar.example.com/w/org_test/weldcalendar');
   });
 
   it('reschedule: REQUEST with a sequence above the floor, and the old time in props', async () => {
