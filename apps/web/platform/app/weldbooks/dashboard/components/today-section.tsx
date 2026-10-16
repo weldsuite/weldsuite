@@ -38,8 +38,13 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
     profit: tc.netProfit,
   };
   const through = ytd.throughMonth;
-  const span = (year: number) =>
-    through ? `${format.monthShort(`${year}-01`)} – ${format.monthYear(`${year}${through.slice(4)}`)}` : '';
+  // "Jan – Oct 2026": January of `year` up to this year's current month.
+  const span = (year: number) => {
+    if (!through) return '';
+    const january = String(year) + '-01';
+    const current = String(year) + through.slice(4);
+    return `${format.monthShort(january)} – ${format.monthYear(current)}`;
+  };
 
   return (
     <section className="min-w-0 space-y-6">
