@@ -284,7 +284,17 @@ export function useUpdateTask() {
       await queryClient.cancelQueries({ queryKey: crmTasksKeys.list() });
       const previousTasks = queryClient.getQueryData<Task[]>(crmTasksKeys.list());
       queryClient.setQueryData<Task[]>(crmTasksKeys.list(), (old) =>
-        old?.map((task) => (task.id === taskId ? ({ ...task, ...data } as Task) : task)),
+        old?.map((task) => {
+          if (task.id !== taskId) return task;
+          // A cleared date / recurrence (`null` on the wire) is "unset" on the cached row.
+          const { dueDate, repeat, ...rest } = data;
+          return {
+            ...task,
+            ...rest,
+            ...(dueDate !== undefined && { dueDate: dueDate ?? undefined }),
+            ...(repeat !== undefined && { repeat: repeat ?? undefined }),
+          } as Task;
+        }),
       );
       return { previousTasks };
     },

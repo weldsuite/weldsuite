@@ -53,7 +53,8 @@ import { TaskChat } from '@/components/task-detail/task-chat';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
-import { normalizeTaskStatus, type UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
+import { buildTaskUpdatePayload } from './task-update-payload';
 import type { TaskCommentRow } from '@weldsuite/core-api-client/domains/task-comments';
 import {
   useAddTaskComment,
@@ -479,33 +480,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   // ─── Mutations ────────────────────────────────────────────────────────
 
   const handleUpdate = useCallback((_taskId: string, data: TaskUpdateData) => {
-    const payload: UpdateTaskInput = {};
-    if (data.title !== undefined) payload.title = data.title;
-    if (data.description !== undefined) payload.description = data.description;
-    if (data.status !== undefined) payload.status = data.status;
-    if (data.priority !== undefined) payload.priority = data.priority;
-    if (data.dueDate !== undefined) payload.dueDate = data.dueDate.toISOString();
-    if (data.startDate !== undefined) payload.startDate = data.startDate.toISOString();
-    if (data.duration !== undefined) payload.duration = data.duration;
-    if (data.labels !== undefined) payload.labels = data.labels;
-    if (data.repeat !== undefined) payload.repeat = data.repeat || null;
-    if (data.customFields !== undefined) payload.customFields = data.customFields;
-    // A task links to a company OR a person: setting one clears the other.
-    if (data.linkedCompany !== undefined) {
-      payload.customerId = data.linkedCompany?.id ?? null;
-      if (data.linkedCompany) payload.personId = null;
-    }
-    if (data.linkedPerson !== undefined) {
-      payload.personId = data.linkedPerson?.id ?? null;
-      if (data.linkedPerson) payload.customerId = null;
-    }
-    if (data.assignees !== undefined) {
-      const ids = (data.assignees ?? []).map((a) => a.id).filter(Boolean);
-      payload.assigneeIds = ids;
-      payload.assigneeId = ids[0] ?? null;
-    } else if (data.assignee !== undefined) {
-      payload.assigneeId = data.assignee?.id ?? null;
-    }
+    const payload = buildTaskUpdatePayload(data);
     updateMutation.mutate(payload, {
       onError: (err) => toast.error(err?.message || t('sweep.entities.updateTaskFailed')),
     });
@@ -580,7 +555,8 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       labels: data.labels ?? [],
     };
     if (data.priority) update.priority = data.priority;
-    if (data.dueDate) update.dueDate = data.dueDate;
+    // `null` = the user cleared the date; it must reach the API, not be skipped.
+    if (data.dueDate !== undefined) update.dueDate = data.dueDate;
     // The dialog echoes the estimate back on every save, and writing it
     // re-plans the task's calendar block, so only send a real change.
     if (data.duration !== undefined && data.duration !== task?.duration) update.duration = data.duration;

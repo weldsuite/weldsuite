@@ -88,11 +88,13 @@ export default function MyTasksPage() {
     isLoading: projectsLoading,
     hasNextPage: hasMoreProjects,
     isFetchingNextPage: isFetchingMoreProjects,
+    isFetchNextPageError: moreProjectsFailed,
     fetchNextPage: fetchMoreProjects,
   } = useInfiniteProjects({ isActive: true }, 100);
   useEffect(() => {
-    if (hasMoreProjects && !isFetchingMoreProjects) void fetchMoreProjects();
-  }, [hasMoreProjects, isFetchingMoreProjects, fetchMoreProjects]);
+    // Stop on a failed page: retrying here would loop on a persistent error.
+    if (hasMoreProjects && !isFetchingMoreProjects && !moreProjectsFailed) void fetchMoreProjects();
+  }, [hasMoreProjects, isFetchingMoreProjects, moreProjectsFailed, fetchMoreProjects]);
 
   const {
     data: tasksData,

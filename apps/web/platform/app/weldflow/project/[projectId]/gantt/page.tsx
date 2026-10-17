@@ -1605,14 +1605,16 @@ const GanttPage = () => {
         onUpdate={(taskId, data) => {
           const updateData: Parameters<typeof tasksApi.update>[2] = {};
           if (data.title) updateData.title = data.title;
-          if (data.description !== undefined) updateData.description = data.description;
+          // Cleared fields go out as an explicit `null` (`undefined` is dropped by JSON).
+          if (data.description !== undefined) updateData.description = data.description || null;
           if (data.status) {
             const statusMap: Record<string, string> = { 'backlog': 'backlog', 'todo': 'todo', 'in_progress': 'in_progress', 'review': 'review', 'testing': 'testing', 'done': 'done', 'cancelled': 'cancelled' };
             updateData.status = statusMap[data.status] || data.status;
           }
           if (data.priority) updateData.priority = data.priority;
-          if (data.dueDate !== undefined) updateData.dueDate = data.dueDate?.toISOString();
+          if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
           if (data.labels !== undefined) updateData.labels = data.labels;
+          if (data.repeat !== undefined) updateData.repeat = data.repeat;
 
           void (async () => {
             const result = await tasksApi.update(projectId, taskId, updateData);
