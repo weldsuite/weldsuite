@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
-import { FileText } from 'lucide-react';
+import { ReceiptText } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
@@ -104,7 +104,7 @@ export default function InvoicesPage() {
         emptyState={{
           icon: (
             <EmptyStateIllustration>
-              <FileText className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+              <ReceiptText className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
             </EmptyStateIllustration>
           ),
           title: tip.noInvoices,

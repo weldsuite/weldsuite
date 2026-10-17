@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { Layers, LayoutTemplate, Pencil } from 'lucide-react';
+import { LayoutTemplate, Pencil, Ungroup } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
@@ -327,7 +327,7 @@ export default function AccountingSettingsPage() {
           </div>
           <Button variant="outline" size="sm" asChild>
             <Link to="/weldbooks/settings/dimensions">
-              <Layers className="h-4 w-4 mr-1" aria-hidden />
+              <Ungroup className="h-4 w-4 mr-1" aria-hidden />
               {tu.dimensions.settingsCardAction}
             </Link>
           </Button>
