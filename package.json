@@ -8,6 +8,7 @@
     "dev": "turbo dev",
     "dev:safe": "cross-env SKIP_PRISMA_GENERATE=true turbo dev",
     "dev:api": "node scripts/dev-api.mjs",
+    "load-test": "node scripts/load-test/run.mjs",
     "lint": "turbo lint",
     "lint:sonar": "eslint -c eslint.sonar.config.mjs",
     "lint:sonar:new": "node scripts/lint-sonar-new.mjs",
