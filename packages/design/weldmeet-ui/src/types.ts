@@ -288,6 +288,16 @@ export interface MeetingRoomViewProps {
    */
   onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
 
+  // ── Connection quality ────────────────────────────────────────────────────
+  /** Rendered next to the title in the header, e.g. a `ConnectionIndicator`. */
+  headerStatusSlot?: ReactNode;
+  /**
+   * People whose audio or video reaches you poorly (peer ids, as
+   * `participant.id`) get a warning icon on their tile; `label` is its tooltip.
+   * See `useConnectionQuality().poorPeerIds`.
+   */
+  poorConnectionPeers?: { peerIds: ReadonlySet<string>; label: string };
+
   // ── Host-app right-edge reservation (fullscreen only) ─────────────────────
   /**
    * Pixels reserved on the right edge of the fullscreen meeting wrapper so a

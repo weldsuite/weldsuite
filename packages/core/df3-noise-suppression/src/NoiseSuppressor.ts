@@ -4,8 +4,9 @@ import type { SuppressorOptions, WorkerEvent } from './types';
 /**
  * One AudioWorklet ↔ Web Worker graph for one input stream.
  *
- * Engine-agnostic: the worklet only buffers 480-sample frames and bridges them
- * to a worker via the main thread; the worker is what actually denoises. Today
+ * Engine-agnostic: the worklet only buffers 480-sample frames and hands them to
+ * a worker over a direct MessageChannel (the main thread relays them only for
+ * an older worklet or worker); the worker is what actually denoises. Today
  * that worker is RNNoise.
  */
 class SuppressionPipeline {
@@ -20,6 +21,8 @@ class SuppressionPipeline {
   private preparing: Promise<void> | null = null;
   /** Rejects the wait for the worker's `ready`, which never comes once it is terminated. */
   private abortBuild: ((err: Error) => void) | null = null;
+  /** The worker said (in `ready`) it accepts a direct port from the worklet. */
+  private workerTakesPort = false;
 
   constructor(
     private readonly options: SuppressorOptions,
@@ -56,6 +59,7 @@ class SuppressionPipeline {
       const onMsg = (ev: MessageEvent<WorkerEvent>) => {
         if (ev.data.type === 'ready') {
           this.worker?.removeEventListener('message', onMsg);
+          this.workerTakesPort = !!ev.data.directPort;
           resolve();
         } else if (ev.data.type === 'error') {
           this.worker?.removeEventListener('message', onMsg);
@@ -64,7 +68,7 @@ class SuppressionPipeline {
       };
       this.worker?.addEventListener('message', onMsg);
     });
-    this.worker.postMessage({ type: 'init' });
+    this.worker.postMessage({ type: 'init', logRtf: this.logRtf });
     try {
       await ready;
     } finally {
@@ -89,6 +93,9 @@ class SuppressionPipeline {
     this.destinationNode = this.audioContext.createMediaStreamDestination();
     this.setBypass(bypass);
 
+    // The main-thread relay. Only used when the worklet or the worker is an
+    // older copy without the direct port (meeting-portal serves both from
+    // un-hashed public/ paths, so a cached old file can meet new code).
     this.workletNode.port.onmessage = (ev) => {
       const m = ev.data as { type: string; pcm: Float32Array; seq: number };
       if (m.type === 'capture-frame') {
@@ -101,11 +108,23 @@ class SuppressionPipeline {
       if (m.type === 'frame') {
         this.workletNode?.port.postMessage({ type: 'processed-frame', pcm: m.pcm }, [m.pcm.buffer]);
         if (this.logRtf) this.recordRtf(m.processingMs);
+      } else if (m.type === 'rtf') {
+        // eslint-disable-next-line no-console
+        console.info(`[noise] RTF over last 1 s — mean ${m.mean.toFixed(3)}, max ${m.max.toFixed(3)}`);
       } else if (m.type === 'error') {
         // eslint-disable-next-line no-console
         console.error('[noise] worker error:', m.message);
       }
     };
+
+    // Direct path: worklet ↔ worker over their own channel, so audio never
+    // waits for a busy main thread (which is heard as the voice lagging). An
+    // older worklet ignores `connect` and keeps using the relay above.
+    if (this.workerTakesPort) {
+      const channel = new MessageChannel();
+      this.worker.postMessage({ type: 'connect', port: channel.port1 }, [channel.port1]);
+      this.workletNode.port.postMessage({ type: 'connect', port: channel.port2 }, [channel.port2]);
+    }
 
     this.sourceNode.connect(this.workletNode).connect(this.destinationNode);
     // Only take ownership of the raw mic once the graph is live: if start()

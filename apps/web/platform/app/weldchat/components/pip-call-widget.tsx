@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
-import { useSpeakerOutput } from '@weldsuite/weldmeet-ui';
+import { ConnectionIndicator, useConnectionQuality, useSpeakerOutput } from '@weldsuite/weldmeet-ui';
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -107,6 +107,7 @@ function PiPCallWidgetInner() {
     expandFromPiP,
     toggleFullscreen,
   } = useWeldChatCall();
+  const connection = useConnectionQuality(meeting);
   const { user } = useUser();
   const pathname = usePathname();
   const { data: channelData } = useChannel(channelId ?? '');
@@ -366,7 +367,10 @@ function PiPCallWidgetInner() {
 
       {/* Controls bar */}
       <div className="flex items-center justify-between px-3 py-2.5 bg-background">
-        <span className="text-xs text-muted-foreground font-mono">{formatDuration(duration)}</span>
+        <span className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground font-mono">{formatDuration(duration)}</span>
+          <ConnectionIndicator quality={connection} labels={t.weldchat.calling.connection} />
+        </span>
         <div className="flex items-center gap-2">
           {document.pictureInPictureEnabled && (
             <Button

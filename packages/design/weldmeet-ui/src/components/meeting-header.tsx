@@ -36,6 +36,8 @@ export interface MeetingHeaderProps {
    * then keeps only People and Chat, leaving the title room to breathe.
    */
   mobileOverflowActions?: boolean;
+  /** Shown right after the title, e.g. the connection indicator. */
+  statusSlot?: ReactNode;
 }
 
 type HeaderButtonVariant = 'secondary' | 'ghost' | 'outline';
@@ -292,6 +294,7 @@ export function MeetingHeader({
   showChatButton = true,
   showToolsButton = true,
   mobileOverflowActions = false,
+  statusSlot,
 }: Readonly<MeetingHeaderProps>) {
   const isMobile = useIsMobile();
   const overflowed = isMobile && mobileOverflowActions;
@@ -314,13 +317,17 @@ export function MeetingHeader({
         // second, quieter line beneath it while there is one. (The call timer
         // is in the Meeting details panel.)
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-          <div className="flex min-w-0 items-center">{title}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            {title}
+            {statusSlot}
+          </div>
           {hasRecordingCue && <div className="flex items-center gap-2">{recordingCue}</div>}
         </div>
       ) : (
         <div className="flex items-center gap-2">
           {recordingCue}
           {title}
+          {statusSlot}
         </div>
       )}
       <div className={cn('flex items-center', isMobile ? 'gap-1 flex-shrink-0' : 'gap-1.5')}>

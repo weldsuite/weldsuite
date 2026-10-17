@@ -1,20 +1,33 @@
 /*
  * AudioWorkletProcessor for the noise suppressor (engine-agnostic).
  *
- * Buffers input into 480-sample frames (10 ms @ 48 kHz), forwards them to
- * the main thread via the worklet port, and emits processed frames back
- * onto the output. Denoising runs in a Web Worker, not here — the worklet
- * render thread stays free of the wasm module and its heap.
+ * Buffers input into 480-sample frames (10 ms @ 48 kHz), hands them to the
+ * denoising Web Worker and emits the processed frames back onto the output.
+ * Denoising runs in the worker, not here — the worklet render thread stays
+ * free of the wasm module and its heap.
+ *
+ * DIRECT PORT: the main thread connects this worklet to the worker with a
+ * MessageChannel (`connect`), so frames go worklet ↔ worker without touching
+ * the main thread. Relaying every frame through the main thread made the
+ * audio wait whenever the page was busy (a long render, GC, a background
+ * tab), which is heard as the voice lagging. Without a `connect` (an older
+ * main bundle, or a worker that cannot take a port) frames still go through
+ * `this.port`, as before.
  *
  * JITTER BUFFER: The worker returns frames asynchronously. Without a pre-buffer
  * the queue runs dry every 10 ms (creating 100 Hz "bubbling"). We hold output
  * until JITTER_FRAMES * 480 samples are queued, giving the worker headroom.
- * One frame (10 ms) of extra latency is imperceptible in a call.
+ *
+ * LATENCY CAP: output plays at exactly the rate input arrives, so anything
+ * that piles up in the queue (frames delivered in a burst after a stall) would
+ * stay as extra delay for the rest of the call. Beyond MAX_QUEUED_FRAMES the
+ * oldest frames are dropped: a 10 ms skip once, instead of a voice that lags
+ * further behind with every hiccup.
  */
 
 const FRAME_SIZE = 480;
-const BLOCK_SIZE = 128;
 const JITTER_FRAMES = 1; // pre-buffer this many frames before starting output
+const MAX_QUEUED_FRAMES = 3; // past this (30 ms), drop the oldest frames
 
 class DF3Processor extends AudioWorkletProcessor {
   constructor() {
@@ -29,13 +42,19 @@ class DF3Processor extends AudioWorkletProcessor {
     // Jitter buffer: track total queued samples and whether playback has started.
     this._queuedSamples = 0;
     this._started = false;
+    /** The worker's end of the direct channel, once connected. */
+    this._workerPort = null;
     this.port.onmessage = (ev) => {
       const m = ev.data;
       if (m.type === 'processed-frame') {
-        this._outQueue.push(m.pcm);
-        this._queuedSamples += m.pcm.length;
+        this._enqueue(m.pcm);
       } else if (m.type === 'set-bypass') {
         this._bypass = !!m.bypass;
+      } else if (m.type === 'connect' && m.port) {
+        this._workerPort = m.port;
+        this._workerPort.onmessage = (portEv) => {
+          if (portEv.data.type === 'processed-frame') this._enqueue(portEv.data.pcm);
+        };
       }
     };
   }
@@ -43,7 +62,7 @@ class DF3Processor extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const input = inputs[0];
     const output = outputs[0];
-    if (!input || !input[0] || !output || !output[0]) return true;
+    if (!input?.[0] || !output?.[0]) return true;
 
     const inCh = input[0];
     const outCh = output[0];
@@ -69,13 +88,27 @@ class DF3Processor extends AudioWorkletProcessor {
     return true;
   }
 
+  _enqueue(pcm) {
+    this._outQueue.push(pcm);
+    this._queuedSamples += pcm.length;
+    // Latency cap: past MAX_QUEUED_FRAMES, trim back to the jitter target plus
+    // one frame of headroom. Trimming only down to the cap would leave the
+    // extra frames as permanent delay, since output drains at the input rate.
+    if (this._outQueue.length > MAX_QUEUED_FRAMES) {
+      while (this._outQueue.length > JITTER_FRAMES + 1) {
+        this._queuedSamples -= this._outQueue.shift().length;
+      }
+    }
+  }
+
   // Accumulate input into 480-sample frames and send to worker.
   _captureInput(inCh) {
     for (let i = 0; i < inCh.length; i++) {
       this._inBuf[this._inIdx++] = inCh[i];
       if (this._inIdx === FRAME_SIZE) {
         const frame = new Float32Array(this._inBuf);
-        this.port.postMessage({ type: 'capture-frame', pcm: frame, seq: this._seq++ }, [frame.buffer]);
+        const target = this._workerPort ?? this.port;
+        target.postMessage({ type: 'capture-frame', pcm: frame, seq: this._seq++ }, [frame.buffer]);
         this._inIdx = 0;
       }
     }
