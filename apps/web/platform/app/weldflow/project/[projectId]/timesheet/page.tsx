@@ -143,6 +143,57 @@ const MAX_DAY_MINUTES = 24 * 60;
 /** Soft threshold: past this a day total is probably a typo (30 instead of 3). */
 const LONG_DAY_MINUTES = 12 * 60;
 
+/**
+ * One time entry as the grid holds it. The list payload nests `task` / `user`,
+ * but it resolves against the project's task and member lists too, so a row is
+ * never labelled with an entry description or "Unknown" when the lookup is
+ * simply absent.
+ */
+function toTimeEntry(
+  entry: RawTimeEntry,
+  taskTitleById: ReadonlyMap<string, string>,
+  memberNameById: ReadonlyMap<string, string>,
+  untitledLabel: string,
+): TimeEntry {
+  const taskTitle = entry.task?.title || (entry.taskId ? taskTitleById.get(entry.taskId) : undefined);
+  return {
+    id: entry.id,
+    taskId: entry.taskId,
+    // An entry linked to a task is labelled by that task, never by its own
+    // description (which differs per entry and would rename the row).
+    taskName: taskTitle || (entry.taskId ? undefined : entry.description) || untitledLabel,
+    description: entry.description,
+    date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
+    duration: Number(entry.duration) || entry.durationMinutes || 0,
+    startTime: entry.startTime ?? null,
+    endTime: entry.endTime ?? null,
+    userId: entry.userId,
+    // Left undefined when unresolvable: the popover then omits the "by …"
+    // line instead of printing a misleading "by Unknown".
+    userName: entry.user?.name || memberNameById.get(entry.userId),
+    billable: entry.billable ?? entry.isBillable ?? true,
+    status: entry.status || 'draft',
+    task: entry.task ?? (entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined),
+    user: entry.user,
+  };
+}
+
+/** The time entries of a list response (a bare array or a `{ items }` page), resolved for the grid. */
+function toTimeEntries(
+  data: unknown,
+  tasks: RawProjectTask[],
+  members: ProjectMember[],
+  untitledLabel: string,
+): TimeEntry[] {
+  const list = data as RawTimeEntry[] | { items?: RawTimeEntry[] } | undefined;
+  const rawEntries = Array.isArray(list) ? list : list?.items || [];
+  const taskTitleById = new Map(tasks.map((tk) => [tk.id, tk.title]));
+  const memberNameById = new Map(
+    members.filter((m) => m.user?.name).map((m) => [m.userId, m.user!.name]),
+  );
+  return rawEntries.map((entry) => toTimeEntry(entry, taskTitleById, memberNameById, untitledLabel));
+}
+
 /** Minutes already logged on `date` by the entries in view, `excludeId` aside. */
 function minutesLoggedOnDay(entries: TimeEntry[], date: Date, excludeId?: string | null): number {
   const key = format(date, 'yyyy-MM-dd');
@@ -1809,51 +1860,17 @@ export default function TimesheetPage() {
       ]);
       if (seq !== loadSeqRef.current) return;
 
+      const taskRows = (tasksResult.success ? tasksResult.data || [] : []) as RawProjectTask[];
+      const memberRows = (membersResult.success ? membersResult.data || [] : []) as ProjectMember[];
+
       if (entriesResult.success) {
-        const rawEntries = (Array.isArray(entriesResult.data)
-          ? entriesResult.data
-          : entriesResult.data?.items || []) as unknown as RawTimeEntry[];
-        // The list payload nests `task` / `user`, but resolve against the
-        // project's task and member lists too so a row is never labelled with an
-        // entry description or "Unknown" when the lookup is simply absent.
-        const taskTitleById = new Map(
-          (tasksResult.success ? ((tasksResult.data || []) as RawProjectTask[]) : []).map((tk) => [tk.id, tk.title]),
-        );
-        const memberNameById = new Map(
-          (membersResult.success ? ((membersResult.data || []) as ProjectMember[]) : [])
-            .filter((m) => m.user?.name)
-            .map((m) => [m.userId, m.user!.name]),
-        );
-        const transformedEntries = rawEntries.map((entry) => {
-          const taskTitle = entry.task?.title || (entry.taskId ? taskTitleById.get(entry.taskId) : undefined);
-          return {
-            id: entry.id,
-            taskId: entry.taskId,
-            // An entry linked to a task is labelled by that task, never by its own
-            // description (which differs per entry and would rename the row).
-            taskName: taskTitle || (entry.taskId ? undefined : entry.description) || tt.untitled,
-            description: entry.description,
-            date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
-            duration: Number(entry.duration) || entry.durationMinutes || 0,
-            startTime: entry.startTime ?? null,
-            endTime: entry.endTime ?? null,
-            userId: entry.userId,
-            // Left undefined when unresolvable: the popover then omits the "by …"
-            // line instead of printing a misleading "by Unknown".
-            userName: entry.user?.name || memberNameById.get(entry.userId),
-            billable: entry.billable ?? entry.isBillable ?? true,
-            status: entry.status || 'draft',
-            task: entry.task ?? (entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined),
-            user: entry.user,
-          };
-        });
-        setEntries(transformedEntries);
+        setEntries(toTimeEntries(entriesResult.data, taskRows, memberRows, tt.untitled));
       } else {
         setError(entriesResult.error || tt.failedToLoadEntries);
       }
 
       if (tasksResult.success) {
-        setTasks(((tasksResult.data || []) as RawProjectTask[]).map((task) => ({
+        setTasks(taskRows.map((task) => ({
           id: task.id,
           title: task.title,
           number: task.number ?? null,

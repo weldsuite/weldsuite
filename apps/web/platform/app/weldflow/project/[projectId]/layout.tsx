@@ -118,50 +118,80 @@ function SortableTab({ id, children }: Readonly<{ id: string; children: React.Re
   );
 }
 
-export default function ProjectLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+/** The tab ids after dragging `activeId` onto `overId`, or null when the drop changes nothing. */
+function reorderedTabIds(ids: string[], activeId: string | number, overId: string | number | undefined): string[] | null {
+  if (overId === undefined || activeId === overId) return null;
+  const oldIndex = ids.indexOf(String(activeId));
+  const newIndex = ids.indexOf(String(overId));
+  if (oldIndex === -1 || newIndex === -1) return null;
+  return arrayMove(ids, oldIndex, newIndex);
+}
+
+/** The tab a pathname belongs to (the project root is the tasks tab). */
+function activeTabFor(pathname: string, projectId: string): string {
+  const basePath = `/weldflow/project/${projectId}`;
+  if (pathname === basePath) return 'tasks';
+  const segment = pathname.replace(basePath, '').split('/')[1];
+  return segment || 'tasks';
+}
+
+/** The chip that follows the pointer while a tab is dragged. */
+function DraggedTabPreview({ tab }: Readonly<{ tab: ProjectTab | undefined }>) {
+  if (!tab) return null;
+  const Icon = tab.icon;
+  return (
+    <div className="relative pb-2 flex items-center flex-shrink-0 cursor-grabbing">
+      <span className="flex items-center gap-2 text-sm font-medium px-2 py-1 rounded-md bg-background shadow-md border text-foreground">
+        <Icon className="h-4 w-4" />
+        {tab.name}
+      </span>
+    </div>
+  );
+}
+
+/** Why a project could not be loaded (not found, no access, or a failure that can be retried). */
+function ProjectLoadError({ error, onRetry }: Readonly<{ error: unknown; onRetry: () => void }>) {
   const { t } = useI18n();
-  const params = useParams();
-  const pathname = usePathname();
-  const router = useRouter();
-  const projectId = params.projectId as string;
+  const status = isApiError(error) ? error.status : null;
+  const copy = t.projects.projectLayout;
+  let state = {
+    Icon: AlertCircle,
+    title: copy.loadFailedTitle,
+    description: copy.loadFailedDescription,
+  };
+  if (status === 404) {
+    state = { Icon: FolderX, title: copy.notFoundTitle, description: copy.notFoundDescription };
+  } else if (status === 403) {
+    state = { Icon: Lock, title: copy.forbiddenTitle, description: copy.forbiddenDescription };
+  }
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center" role="alert">
+      <div className="rounded-full bg-muted p-4">
+        <state.Icon className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <h1 className="text-lg font-semibold">{state.title}</h1>
+      <p className="max-w-sm text-sm text-muted-foreground">{state.description}</p>
+      <div className="mt-2 flex items-center gap-2">
+        {status !== 404 && status !== 403 && (
+          <Button variant="outline" onClick={onRetry}>
+            {copy.retry}
+          </Button>
+        )}
+        <Button asChild>
+          <Link href="/weldflow/projects">{copy.backToProjects}</Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
 
-  // Translated tab names (derived at render time so they respond to locale changes)
-  const translatedTabs: ProjectTab[] = [
-    { id: 'tasks', name: t.projects.projectLayout.tabs.tasks, href: '/tasks', icon: SquareCheck },
-    { id: 'gantt', name: t.projects.projectLayout.tabs.gantt, href: '/gantt', icon: GanttChart },
-    { id: 'table', name: t.projects.projectLayout.tabs.sheets, href: '/table', icon: Table2 },
-    { id: 'whiteboard', name: t.projects.projectLayout.tabs.whiteboard, href: '/whiteboard', icon: SquareDashedMousePointer },
-    { id: 'workload', name: t.projects.projectLayout.tabs.workload, href: '/workload', icon: Users },
-    { id: 'files', name: t.projects.projectLayout.tabs.files, href: '/files', icon: Folder },
-    { id: 'timesheet', name: t.projects.projectLayout.tabs.timesheet, href: '/timesheet', icon: Timer },
-    { id: 'pipeline', name: t.projects.projectLayout.tabs.pipeline, href: '/pipeline', icon: SquareKanban },
-    { id: 'documents', name: t.projects.projectLayout.tabs.documents, href: '/documents', icon: File },
-    { id: 'goals', name: t.projects.projectLayout.tabs.goals, href: '/goals', icon: Target },
-    { id: 'analytics', name: t.projects.projectLayout.tabs.analytics, href: '/analytics', icon: BarChart3 },
-    { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
-  ];
-
-  // Project header data. A failed load surfaces as a not-found / forbidden state
-  // instead of a skeleton that never resolves.
-  const projectQuery = useProject(projectId);
-  const [renamed, setRenamed] = React.useState<{ id: string; name: string } | null>(null);
-  const projectName =
-    (renamed?.id === projectId ? renamed.name : undefined) ?? projectQuery.data?.data?.name ?? '';
-
-  // Which tabs are shown, and in what order, is a per-user preference (saved
-  // server-side), not local state: it survives reloads and is the same in every
-  // project. The tab objects (labels included) are derived from the ids at render
-  // time, so they follow the locale.
-  const { tabIds: savedTabIds, setTabIds } = useProjectTabPreference();
-  const savedTabs = (savedTabIds ?? []).flatMap((id) => {
-    const tab = translatedTabs.find((candidate) => candidate.id === id);
-    return tab ? [tab] : [];
-  });
-  // No preference yet (or one that matches no known tab) shows every tab.
-  const tabs: ProjectTab[] = savedTabs.length > 0 ? savedTabs : translatedTabs;
-  const tabIdList = tabs.map((tab) => tab.id);
-  const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
-
+/**
+ * State of the project's right-side chat panel: open / width preferences
+ * (persisted), the docked-vs-floating layout, drag-to-resize and the
+ * first-toggle animation gate. `taskPanelOpen` hides the chat while an object
+ * panel (task, customer, …) is on screen.
+ */
+function useProjectChatPanel(taskPanelOpen: boolean) {
   // Expandable right-side chat panel — pixel width preference persists across
   // tab switches, page reloads, and projects.
   const CHAT_OPEN_KEY = 'project-chat-panel-open';
@@ -199,13 +229,6 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
       ? parsed
       : DEFAULT_CHAT_WIDTH;
   });
-  // When any object panel (task, customer, contact, …) is open the project
-  // chat hides so they don't fight for screen space. We read the stack
-  // directly rather than subscribing to a window event — same source of
-  // truth the host renders from.
-  const objectPanelStack = useObjectPanelStack();
-  const taskPanelOpen = objectPanelStack.length > 0;
-
   const chatVisible = chatOpen && !taskPanelOpen;
   // Rendered width: the saved preference, capped so the page keeps most of the
   // row when docked, or so it fits on screen when it floats.
@@ -265,6 +288,127 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     setShouldAnimateChat(true);
     setChatOpen((v) => !v);
   }, []);
+
+  return {
+    chatOpen,
+    chatVisible,
+    contentWidth: chatVisible && !chatOverlay ? `calc(100% - ${effectiveChatWidth}px)` : '100%',
+    effectiveChatWidth,
+    shouldAnimateChat,
+    toggleChat,
+    handleResizePointerDown,
+  };
+}
+
+type ProjectChatPanelState = ReturnType<typeof useProjectChatPanel>;
+
+/*
+ * Mount gate: render the panel when the user *wants* it open
+ * (`chatOpen`) OR they've toggled it at least once this session
+ * (`shouldAnimateChat`). We deliberately don't gate on
+ * `chatVisible` because task-detail clicks flip it without a user
+ * intent to close the chat — gating on chatVisible would unmount
+ * the message list and blow away the channel query on every task
+ * click.
+ *
+ *   - Fresh load, chatOpen=false → not rendered. The previous
+ *     implementation left the panel mounted with `translate-x-full
+ *     opacity-50 pointer-events-none`; under the right stacking
+ *     conditions the off-screen element still left the page in a
+ *     faded / unclickable state after a close → refresh cycle.
+ *   - Fresh load, chatOpen=true → rendered immediately, no
+ *     animation (shouldAnimateChat=false).
+ *   - User close → chatOpen=false but shouldAnimateChat=true, so
+ *     the panel stays mounted and its React subtree survives.
+ */
+function ProjectChatAside({
+  chat,
+  projectId,
+  projectName,
+}: Readonly<{ chat: ProjectChatPanelState; projectId: string; projectName: string }>) {
+  const { chatOpen, chatVisible, effectiveChatWidth, shouldAnimateChat, handleResizePointerDown } = chat;
+  if (!chatOpen && !shouldAnimateChat) return null;
+  return (
+    <div
+      data-state={chatVisible ? 'open' : 'closed'}
+      aria-hidden={!chatVisible}
+      className={cn(
+        'absolute right-0 top-0 bottom-0 z-10 bg-background border-l flex',
+        'data-[state=closed]:translate-x-full data-[state=closed]:opacity-50 data-[state=closed]:pointer-events-none',
+        shouldAnimateChat &&
+          'data-[state=open]:animate-in data-[state=open]:slide-in-from-right data-[state=open]:fade-in-50 data-[state=open]:duration-[197ms]',
+      )}
+      style={{ width: effectiveChatWidth }}
+    >
+      {/* Resize handle on the left edge — drag to resize */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize touch-none z-10 group"
+        onPointerDown={handleResizePointerDown}
+      >
+        <div className="absolute inset-y-0 -left-1 -right-1 flex items-center justify-center">
+          <div className="h-6 w-1 rounded-full bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-accent transition-colors" />
+        </div>
+      </div>
+      <div className="flex-1 min-w-0 h-full">
+        <ProjectChatPanel projectId={projectId} projectName={projectName} />
+      </div>
+    </div>
+  );
+}
+
+export default function ProjectLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const { t } = useI18n();
+  const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const projectId = params.projectId as string;
+
+  // Translated tab names (derived at render time so they respond to locale changes)
+  const translatedTabs: ProjectTab[] = [
+    { id: 'tasks', name: t.projects.projectLayout.tabs.tasks, href: '/tasks', icon: SquareCheck },
+    { id: 'gantt', name: t.projects.projectLayout.tabs.gantt, href: '/gantt', icon: GanttChart },
+    { id: 'table', name: t.projects.projectLayout.tabs.sheets, href: '/table', icon: Table2 },
+    { id: 'whiteboard', name: t.projects.projectLayout.tabs.whiteboard, href: '/whiteboard', icon: SquareDashedMousePointer },
+    { id: 'workload', name: t.projects.projectLayout.tabs.workload, href: '/workload', icon: Users },
+    { id: 'files', name: t.projects.projectLayout.tabs.files, href: '/files', icon: Folder },
+    { id: 'timesheet', name: t.projects.projectLayout.tabs.timesheet, href: '/timesheet', icon: Timer },
+    { id: 'pipeline', name: t.projects.projectLayout.tabs.pipeline, href: '/pipeline', icon: SquareKanban },
+    { id: 'documents', name: t.projects.projectLayout.tabs.documents, href: '/documents', icon: File },
+    { id: 'goals', name: t.projects.projectLayout.tabs.goals, href: '/goals', icon: Target },
+    { id: 'analytics', name: t.projects.projectLayout.tabs.analytics, href: '/analytics', icon: BarChart3 },
+    { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
+  ];
+
+  // Project header data. A failed load surfaces as a not-found / forbidden state
+  // instead of a skeleton that never resolves.
+  const projectQuery = useProject(projectId);
+  const [renamed, setRenamed] = React.useState<{ id: string; name: string } | null>(null);
+  const projectName =
+    (renamed?.id === projectId ? renamed.name : undefined) ?? projectQuery.data?.data?.name ?? '';
+
+  // Which tabs are shown, and in what order, is a per-user preference (saved
+  // server-side), not local state: it survives reloads and is the same in every
+  // project. The tab objects (labels included) are derived from the ids at render
+  // time, so they follow the locale.
+  const { tabIds: savedTabIds, setTabIds } = useProjectTabPreference();
+  const savedTabs = (savedTabIds ?? []).flatMap((id) => {
+    const tab = translatedTabs.find((candidate) => candidate.id === id);
+    return tab ? [tab] : [];
+  });
+  // No preference yet (or one that matches no known tab) shows every tab.
+  const tabs: ProjectTab[] = savedTabs.length > 0 ? savedTabs : translatedTabs;
+  const tabIdList = tabs.map((tab) => tab.id);
+  const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
+
+  // When any object panel (task, customer, contact, …) is open the project
+  // chat hides so they don't fight for screen space. We read the stack
+  // directly rather than subscribing to a window event — same source of
+  // truth the host renders from.
+  const objectPanelStack = useObjectPanelStack();
+  const taskPanelOpen = objectPanelStack.length > 0;
+
+  const chat = useProjectChatPanel(taskPanelOpen);
+  const { chatVisible, shouldAnimateChat, toggleChat } = chat;
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
   const [tabToDelete, setTabToDelete] = React.useState<{ index: number; name: string } | null>(null);
   const [activeId, setActiveId] = React.useState<string | null>(null);
@@ -279,13 +423,8 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
 
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveId(null);
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldIndex = tabIdList.indexOf(String(active.id));
-      const newIndex = tabIdList.indexOf(String(over.id));
-      if (oldIndex === -1 || newIndex === -1) return;
-      setTabIds(arrayMove(tabIdList, oldIndex, newIndex));
-    }
+    const reordered = reorderedTabIds(tabIdList, event.active.id, event.over?.id);
+    if (reordered) setTabIds(reordered);
   };
 
   // Get tabs that are not currently visible
@@ -363,16 +502,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     return () => window.removeEventListener('project:renamed', handler);
   }, [projectId]);
 
-  // Determine active tab based on pathname
-  const getActiveTab = () => {
-    const basePath = `/weldflow/project/${projectId}`;
-    if (pathname === basePath) return 'tasks';
-
-    const segment = pathname.replace(basePath, '').split('/')[1];
-    return segment || 'tasks';
-  };
-
-  const activeTab = getActiveTab();
+  const activeTab = activeTabFor(pathname, projectId);
 
   // Build PageTab array with hrefs
   const pageTabs: PageTab[] = tabs.map((tab) => ({
@@ -385,37 +515,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
   // The project could not be loaded: say why instead of showing a skeleton forever
   // (and never mount tabs whose pages would just fail against the same project).
   if (projectQuery.isError && !projectQuery.data) {
-    const status = isApiError(projectQuery.error) ? projectQuery.error.status : null;
-    const copy = t.projects.projectLayout;
-    let state = {
-      Icon: AlertCircle,
-      title: copy.loadFailedTitle,
-      description: copy.loadFailedDescription,
-    };
-    if (status === 404) {
-      state = { Icon: FolderX, title: copy.notFoundTitle, description: copy.notFoundDescription };
-    } else if (status === 403) {
-      state = { Icon: Lock, title: copy.forbiddenTitle, description: copy.forbiddenDescription };
-    }
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center" role="alert">
-        <div className="rounded-full bg-muted p-4">
-          <state.Icon className="h-8 w-8 text-muted-foreground" />
-        </div>
-        <h1 className="text-lg font-semibold">{state.title}</h1>
-        <p className="max-w-sm text-sm text-muted-foreground">{state.description}</p>
-        <div className="mt-2 flex items-center gap-2">
-          {status !== 404 && status !== 403 && (
-            <Button variant="outline" onClick={() => void projectQuery.refetch()}>
-              {copy.retry}
-            </Button>
-          )}
-          <Button asChild>
-            <Link href="/weldflow/projects">{copy.backToProjects}</Link>
-          </Button>
-        </div>
-      </div>
-    );
+    return <ProjectLoadError error={projectQuery.error} onRetry={() => void projectQuery.refetch()} />;
   }
 
   return (
@@ -539,19 +639,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
               </PageTabs>
             </SortableContext>
             <DragOverlay>
-              {activeId ? (() => {
-                const draggedTab = tabs.find((t) => t.id === activeId);
-                if (!draggedTab) return null;
-                const Icon = draggedTab.icon;
-                return (
-                  <div className="relative pb-2 flex items-center flex-shrink-0 cursor-grabbing">
-                    <span className="flex items-center gap-2 text-sm font-medium px-2 py-1 rounded-md bg-background shadow-md border text-foreground">
-                      <Icon className="h-4 w-4" />
-                      {draggedTab.name}
-                    </span>
-                  </div>
-                );
-              })() : null}
+              <DraggedTabPreview tab={tabs.find((t) => t.id === activeId)} />
             </DragOverlay>
           </DndContext>
         </div>
@@ -593,7 +681,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
             'h-full overflow-hidden',
             shouldAnimateChat && 'transition-[width] duration-[197ms]',
           )}
-          style={{ width: chatVisible && !chatOverlay ? `calc(100% - ${effectiveChatWidth}px)` : '100%' }}
+          style={{ width: chat.contentWidth }}
         >
           <div
             className={cn(
@@ -604,51 +692,11 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
             {children}
           </div>
         </div>
-        {/*
-         * Mount gate: render the panel when the user *wants* it open
-         * (`chatOpen`) OR they've toggled it at least once this session
-         * (`shouldAnimateChat`). We deliberately don't gate on
-         * `chatVisible` because task-detail clicks flip it without a user
-         * intent to close the chat — gating on chatVisible would unmount
-         * the message list and blow away the channel query on every task
-         * click.
-         *
-         *   - Fresh load, chatOpen=false → not rendered. The previous
-         *     implementation left the panel mounted with `translate-x-full
-         *     opacity-50 pointer-events-none`; under the right stacking
-         *     conditions the off-screen element still left the page in a
-         *     faded / unclickable state after a close → refresh cycle.
-         *   - Fresh load, chatOpen=true → rendered immediately, no
-         *     animation (shouldAnimateChat=false).
-         *   - User close → chatOpen=false but shouldAnimateChat=true, so
-         *     the panel stays mounted and its React subtree survives.
-         */}
-        {(chatOpen || shouldAnimateChat) && (
-          <div
-            data-state={chatVisible ? 'open' : 'closed'}
-            aria-hidden={!chatVisible}
-            className={cn(
-              'absolute right-0 top-0 bottom-0 z-10 bg-background border-l flex',
-              'data-[state=closed]:translate-x-full data-[state=closed]:opacity-50 data-[state=closed]:pointer-events-none',
-              shouldAnimateChat &&
-                'data-[state=open]:animate-in data-[state=open]:slide-in-from-right data-[state=open]:fade-in-50 data-[state=open]:duration-[197ms]',
-            )}
-            style={{ width: effectiveChatWidth }}
-          >
-            {/* Resize handle on the left edge — drag to resize */}
-            <div
-              className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize touch-none z-10 group"
-              onPointerDown={handleResizePointerDown}
-            >
-              <div className="absolute inset-y-0 -left-1 -right-1 flex items-center justify-center">
-                <div className="h-6 w-1 rounded-full bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-accent transition-colors" />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0 h-full">
-              <ProjectChatPanel projectId={projectId} projectName={projectName} />
-            </div>
-          </div>
-        )}
+        <ProjectChatAside
+          chat={chat}
+          projectId={projectId}
+          projectName={projectName}
+        />
       </div>
 
       {/* Hide Page Confirmation Dialog */}

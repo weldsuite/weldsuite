@@ -633,6 +633,26 @@ function resolveTaskDropStageId(overId: string, features: TaskFeature[]): string
 }
 
 /** Move stage `fromId` to the position of `toId`; null when either is missing. */
+/**
+ * The card list after a drop: the moved card is in its new column and, when it
+ * was dropped on another card, sits next to it. Dropped on an empty part of a
+ * column, it keeps its place in the list order.
+ */
+function placeMovedFeature(
+  features: TaskFeature[],
+  movedId: string,
+  targetStageId: string,
+  overId: string | undefined,
+): TaskFeature[] {
+  const moved = features.map(f => f.id === movedId ? { ...f, column: targetStageId } : f);
+  if (!overId) return moved;
+  return arrayMove(
+    moved,
+    features.findIndex(f => f.id === movedId),
+    features.findIndex(f => f.id === overId),
+  );
+}
+
 function reorderStages(stages: StageColumn[], fromId: string, toId: string): StageColumn[] | null {
   const oldIdx = stages.findIndex(s => s.id === fromId);
   const newIdx = stages.findIndex(s => s.id === toId);
@@ -830,6 +850,27 @@ const PipelinePage = () => {
     }
   };
 
+  // The reorder is computed and persisted here, not inside a state updater:
+  // React may call an updater twice (StrictMode), which sent the request twice.
+  const handleStageDrop = (activeId: string, overId: string) => {
+    const fromId = activeId.replace(STAGE_SORTABLE_PREFIX, '');
+    const toId = resolveStageDropId(overId);
+    if (fromId === toId) return;
+    const next = reorderStages(columns, fromId, toId);
+    if (!next) return;
+    setColumns(next);
+    void persistStageOrder(next, columns);
+  };
+
+  // Completing a recurring task creates its next occurrence: show it.
+  const showNextRecurringTask = async (nextTaskId: string) => {
+    const next = await tasksApi.get(projectId, nextTaskId);
+    if (next.success && next.data) {
+      setFeatures(prev => [...prev, mapTaskToFeature(next.data as RawPipelineTask, statusToStageId, featureFallbacks)]);
+      toast.success(t.projects.pipeline.nextRecurringCreated);
+    }
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveDealId(null);
@@ -841,18 +882,7 @@ const PipelinePage = () => {
 
     // Stage reordering
     if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
-      const fromId = activeId.replace(STAGE_SORTABLE_PREFIX, '');
-      const toId = resolveStageDropId(overId);
-
-      // The reorder is computed and persisted here, not inside a state updater:
-      // React may call an updater twice (StrictMode), which sent the request twice.
-      if (fromId !== toId) {
-        const next = reorderStages(columns, fromId, toId);
-        if (next) {
-          setColumns(next);
-          void persistStageOrder(next, columns);
-        }
-      }
+      handleStageDrop(activeId, overId);
       setDraggedFeatureOriginalColumn(null);
       return;
     }
@@ -870,13 +900,9 @@ const PipelinePage = () => {
 
     // Where the card lands: next to the card it was dropped on. Dropped on an
     // empty part of a column, it keeps its place in the list order.
-    const reordered = overFeature
-      ? arrayMove(
-          features.map(f => f.id === movedFeature.id ? { ...f, column: targetStageId } : f),
-          features.findIndex(f => f.id === movedFeature.id),
-          features.findIndex(f => f.id === overFeature.id),
-        )
-      : features.map(f => f.id === movedFeature.id ? { ...f, column: targetStageId } : f);
+    const reordered = placeMovedFeature(features, movedFeature.id, targetStageId, overFeature?.id);
+    // The pre-drop list, kept to roll the optimistic update back on a failure.
+    const beforeDrop = features;
 
     if (targetStageId === originalColumn) {
       // Ordering within a column: only the position changes.
@@ -884,7 +910,7 @@ const PipelinePage = () => {
       setFeatures(reordered);
       const result = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
       if (!result.success) {
-        setFeatures(features);
+        setFeatures(beforeDrop);
         toast.error(t.projects.pipeline.taskReorderFailed);
       }
       return;
@@ -912,14 +938,7 @@ const PipelinePage = () => {
       const reorderResult = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
       if (!reorderResult.success) toast.error(t.projects.pipeline.taskReorderFailed);
     }
-    // Completing a recurring task creates its next occurrence: show it.
-    if (result.data?.nextTaskId) {
-      const next = await tasksApi.get(projectId, result.data.nextTaskId);
-      if (next.success && next.data) {
-        setFeatures(prev => [...prev, mapTaskToFeature(next.data as RawPipelineTask, statusToStageId, featureFallbacks)]);
-        toast.success(t.projects.pipeline.nextRecurringCreated);
-      }
-    }
+    if (result.data?.nextTaskId) await showNextRecurringTask(result.data.nextTaskId);
   };
 
   const activeDeal = activeDealId ? features.find(f => f.id === activeDealId) : null;

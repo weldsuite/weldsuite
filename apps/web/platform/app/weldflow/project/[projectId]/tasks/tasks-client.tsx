@@ -76,6 +76,9 @@ import { EntityList, type HeaderColumn, type FilterConfig, type GroupConfig, typ
 import { TabEmptyIllustration, TAB_EMPTY_STATE_TABLE_CLASS } from '@/components/objects/_shared/tab-empty-state';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 
+/** The priorities a task row can hold. */
+type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+
 interface Task {
   id: string;
   /** Workspace-wide sequential number, rendered as the bare number. */
@@ -84,7 +87,7 @@ interface Task {
   description?: string;
   stageId?: string | null;
   status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
+  priority: TaskPriority;
   assignee?: string;
   assigneeId?: string | null;
   assigneeIds?: string[];
@@ -745,7 +748,7 @@ export function TasksClient({
     title: string;
     description?: string;
     status: CrmTask['status'];
-    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    priority?: TaskPriority;
     assigneeId?: string;
     assigneeIds?: string[];
     dueDate?: Date;
@@ -926,7 +929,7 @@ export function TasksClient({
     title: string;
     description?: string;
     status: string;
-    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    priority?: TaskPriority;
     assigneeId?: string;
     assigneeIds?: string[];
     dueDate?: Date;

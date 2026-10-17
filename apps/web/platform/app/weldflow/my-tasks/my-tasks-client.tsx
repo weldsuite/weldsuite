@@ -72,6 +72,9 @@ import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { MyTasksPipeline } from './my-tasks-pipeline';
 
+/** The priorities a task row can hold. */
+type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+
 interface Task {
   id: string;
   /** Workspace-wide sequential number, rendered as the bare number. */
@@ -79,7 +82,7 @@ interface Task {
   title: string;
   description?: string;
   status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
+  priority: TaskPriority;
   assignee?: string;
   assigneeId?: string;
   assigneeIds?: string[];
@@ -308,7 +311,7 @@ interface SaveTaskFormData {
   title: string;
   description?: string;
   status: Task['status'];
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  priority?: TaskPriority;
   assigneeId?: string;
   assigneeIds?: string[];
   dueDate?: Date;
@@ -633,7 +636,7 @@ export function MyTasksClient({
     title: string;
     description?: string;
     status: Task['status'];
-    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    priority?: TaskPriority;
     assigneeId?: string;
     dueDate?: Date;
     labels?: string[];
