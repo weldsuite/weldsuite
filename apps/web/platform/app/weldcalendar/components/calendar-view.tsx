@@ -5248,6 +5248,24 @@ function DatePickerField({
 // ============================================================================
 
 /**
+ * The inline-row dropdowns' backdrop is pointer-only: Escape is the keyboard way to
+ * dismiss. Captured on window so it closes just the dropdown, not the card it sits in.
+ */
+function useCloseOnEscape(open: boolean, setOpen: (open: boolean) => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [open, setOpen]);
+}
+
+/**
  * Shared state for the inline-row dropdowns: open flag, the row element ref and the
  * fixed position just below the row. `toggle` re-measures the row on every open/close.
  */
@@ -5264,19 +5282,7 @@ function useRowDropdown() {
     setOpen(!open);
   };
 
-  // The backdrop is pointer-only: Escape is the keyboard way to dismiss. Captured
-  // on window so it closes just the dropdown, not the card it sits in.
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      e.stopPropagation();
-      setOpen(false);
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [open]);
+  useCloseOnEscape(open, setOpen);
 
   return { open, setOpen, rowRef, pos, toggle };
 }
@@ -5377,18 +5383,7 @@ function InlineDateTimeRow({
     if (date) setMonth(date);
   }, [date]);
 
-  // The backdrop is pointer-only: Escape is the keyboard way to dismiss.
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      e.stopPropagation();
-      setOpen(false);
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [open]);
+  useCloseOnEscape(open, setOpen);
 
   const handleClick = () => {
     if (rowRef.current) {
