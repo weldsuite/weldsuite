@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useAccountingJournalEntries } from '@/hooks/queries/use-accounting-queries';
 import { TextAlignStart } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAmount, RowDate, RowNumberChip, RowText, RowTitle } from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
@@ -59,6 +60,10 @@ function buildMonthGroups(
 export default function JournalEntriesPage() {
   const { data, isLoading } = useAccountingJournalEntries();
   const navigate = useNavigate();
+  // Each entry opens in the shared object panel (type 'journal_entry'), the
+  // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/journal');
   const { t } = useI18n();
   const tjp = t.accounting.journalPage;
   const { formatMoney: fmt, formatDate, formatMonth } = useWeldbooksFormat();
@@ -109,7 +114,8 @@ export default function JournalEntriesPage() {
       isLoading={isLoading}
       columns={columns}
       groups={buildMonthGroups(entries, tjp.ungrouped, formatMonth)}
-      onRowClick={(e) => navigate({ to: '/weldbooks/journal/$id', params: { id: e.id } })}
+      onRowClick={(e) => openPanel({ type: 'journal_entry', id: e.id })}
+      getRowLabel={(e) => e.reference || e.entryNumber || e.id}
       filters={[]}
       searchFields={['reference', 'description']}
       createButton={{

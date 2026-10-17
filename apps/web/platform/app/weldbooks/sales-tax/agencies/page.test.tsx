@@ -11,6 +11,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => navigate,
 }));
 const permissions = vi.hoisted(() => ({ allowed: new Set<string>() }));
+vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.allowed.has(permission) }),
 }));
@@ -31,6 +32,7 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 }));
 
 import SalesTaxAgenciesPage from './page';
+import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { installPointerPolyfills, makeAgency, renderWithProviders } from '../setup/test-support';
 
 const ta = en.weldbooksUs.salesTax.setup.agencies;
@@ -77,6 +79,7 @@ beforeAll(installPointerPolyfills);
 beforeEach(() => {
   api.get.mockReset();
   navigate.mockReset();
+  panelOpen.mockReset();
   jurisdiction.salesTax = true;
   jurisdiction.resolved = true;
   permissions.allowed = new Set(['taxes:read', 'taxes:create']);
@@ -110,13 +113,14 @@ describe('SalesTaxAgenciesPage', () => {
     expect(ca.getByText('Last day of the next month')).toBeInTheDocument();
   });
 
-  it('opens an agency from its row', async () => {
+  it('opens an agency in its record panel from its row', async () => {
     const user = userEvent.setup();
     serve([texas]);
     renderWithProviders(<SalesTaxAgenciesPage />);
 
     await user.click(await screen.findByRole('button', { name: 'Texas Comptroller of Public Accounts' }));
-    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/agencies/$id', params: { id: 'sta_tx' } });
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'sales_tax_agency', id: 'sta_tx' });
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('filters by the chosen status', async () => {

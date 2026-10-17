@@ -317,6 +317,7 @@ const fixedAssets = {
     },
     locked: 'Er is afschrijving geboekt voor dit activum, dus de aanschafwaarde, data en boeken kunnen niet meer wijzigen.',
     booksTitle: 'Afschrijving per boek',
+    depreciationTab: 'Afschrijving',
     book: {
       method: 'Methode',
       convention: 'Conventie',
@@ -594,6 +595,13 @@ const payroll = {
     lines: 'Journaalpost',
     noLines: 'Dit salaris heeft geen journaalregels.',
     columns: { account: 'Rekening', memo: 'Memo', debit: 'Debet', credit: 'Credit' },
+  },
+
+  /** Het paneel van een salarisrun (`components/objects/payroll-run`). */
+  panel: {
+    sourceFile: 'Bronbestand',
+    importedOn: 'Geïmporteerd op',
+    noLinesTitle: 'Geen journaalregels',
   },
 
   reverse: {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { ClipboardCheck, Download, Landmark, Wallet } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -11,6 +11,7 @@ import {
   RowTitle,
 } from '@/components/accounting/weldbooks-row-cells';
 import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useBankAccounts } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { isLiabilityAccountType, type UsBankAccount } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
@@ -26,7 +27,10 @@ import { UndepositedFundsCallout } from './components/undeposited-funds-callout'
 export default function BankAccountsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const { data, isLoading } = useBankAccounts();
-  const navigate = useNavigate();
+  // Each account opens in the shared object panel (type 'bank_account'), the
+  // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/banking');
   const { t } = useI18n();
   const tbp = t.accounting.bankingPages;
   const tb = t.weldbooksUs.banking;
@@ -129,7 +133,8 @@ export default function BankAccountsPage() {
         items={accounts}
         isLoading={isLoading || awaitingProviders}
         columns={columns}
-        onRowClick={(a) => navigate({ to: '/weldbooks/banking/$id', params: { id: a.id } })}
+        onRowClick={(a) => openPanel({ type: 'bank_account', id: a.id })}
+        getRowLabel={(a) => a.name}
         searchFields={['name', 'iban', 'bankName']}
         searchPlaceholder={tbp.columns.name}
         createButton={{ label: tbp.addBankAccount, onClick: () => setCreateOpen(true) }}

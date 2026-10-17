@@ -317,6 +317,7 @@ const fixedAssets = {
     },
     locked: 'Depreciation has been posted for this asset, so its cost, dates and books can no longer change.',
     booksTitle: 'Depreciation by book',
+    depreciationTab: 'Depreciation',
     book: {
       method: 'Method',
       convention: 'Convention',
@@ -594,6 +595,13 @@ const payroll = {
     lines: 'Journal entry',
     noLines: 'This payroll has no journal lines.',
     columns: { account: 'Account', memo: 'Memo', debit: 'Debit', credit: 'Credit' },
+  },
+
+  /** The payroll run record panel (`components/objects/payroll-run`). */
+  panel: {
+    sourceFile: 'Source file',
+    importedOn: 'Imported on',
+    noLinesTitle: 'No journal lines',
   },
 
   reverse: {

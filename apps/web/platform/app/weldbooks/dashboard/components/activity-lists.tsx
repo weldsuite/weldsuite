@@ -5,8 +5,9 @@
  * full invoice list.
  */
 
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import type { ColumnDef } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksListHeader, WeldbooksListRow } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowDate, RowTitle } from '@/components/accounting/weldbooks-row-cells';
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
@@ -19,7 +20,9 @@ export function ActivityLists({ dashboard }: Readonly<{ dashboard: Dashboard }>)
   const { t } = useI18n();
   const td = t.accounting.dashboard;
   const tip = t.accounting.invoicesPage;
-  const navigate = useNavigate();
+  // An invoice opens in the shared object panel over the dashboard.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/dashboard');
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const invoices = dashboard.upcomingDue ?? [];
 
@@ -69,7 +72,7 @@ export function ActivityLists({ dashboard }: Readonly<{ dashboard: Dashboard }>)
               item={inv}
               columns={columns}
               getRowLabel={(i) => i.invoiceNumber ?? tip.colNumber}
-              onRowClick={(i) => navigate({ to: '/weldbooks/invoices/$id', params: { id: i.id } })}
+              onRowClick={(i) => openPanel({ type: 'invoice', id: i.id })}
             />
           ))}
         </div>

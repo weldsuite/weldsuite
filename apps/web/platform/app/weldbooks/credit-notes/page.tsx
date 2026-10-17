@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
 import { useAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
 import { FileMinus } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
@@ -15,6 +14,7 @@ import {
   EmptyStateIllustration,
   type ColumnDef,
 } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
@@ -37,7 +37,10 @@ interface CreditNoteRow {
 export default function CreditNotesPage() {
   const [search, setSearch] = useState('');
   const { data, isLoading } = useAccountingInvoices({ type: 'credit_note', search });
-  const navigate = useNavigate();
+  // A credit note is an invoice of type 'credit_note': it opens in the invoice
+  // panel, synced to `?stack=` on this page.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/credit-notes');
   const { t } = useI18n();
   const tcn = t.accounting.creditNotesPage;
   const tsl = t.accounting.statusLabels.invoice;
@@ -68,19 +71,22 @@ export default function CreditNotesPage() {
       id: 'source',
       header: tcn.colForInvoice,
       width: 'w-[130px]',
-      render: (cn) =>
-        cn.creditNoteForInvoiceId ? (
-          <Link
-            to="/weldbooks/invoices/$id"
-            params={{ id: cn.creditNoteForInvoiceId }}
-            onClick={(e) => e.stopPropagation()}
+      render: (cn) => {
+        const sourceId = cn.creditNoteForInvoiceId;
+        if (!sourceId) return <EmptyCell />;
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openPanel({ type: 'invoice', id: sourceId });
+            }}
             className="text-primary hover:underline text-sm"
           >
             {tcn.viewSource}
-          </Link>
-        ) : (
-          <EmptyCell />
-        ),
+          </button>
+        );
+      },
     },
     {
       id: 'total',
@@ -103,7 +109,8 @@ export default function CreditNotesPage() {
       items={creditNotes}
       isLoading={isLoading}
       columns={columns}
-      onRowClick={(cn) => navigate({ to: '/weldbooks/invoices/$id', params: { id: cn.id } })}
+      onRowClick={(cn) => openPanel({ type: 'invoice', id: cn.id })}
+      getRowLabel={(cn) => cn.invoiceNumber ?? tcn.colNumber}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tcn.searchPlaceholder}

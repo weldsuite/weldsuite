@@ -20,6 +20,11 @@ vi.mock('@tanstack/react-router', () => ({
     </a>
   ),
 }));
+const panel = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('@/components/object-panel', () => ({
+  useObjectPanel: () => ({ open: panel.open }),
+  useObjectPanelUrlSync: vi.fn(),
+}));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: router.code, isError: false }) }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', async () => {
   const { testFormat } = await import('./test-utils');
@@ -70,6 +75,7 @@ beforeAll(installPointerPolyfills);
 beforeEach(() => {
   for (const fn of Object.values(api)) fn.mockReset();
   router.navigate.mockReset();
+  panel.open.mockReset();
   router.code = 'US';
   permissions.allowed = new Set(['banking:read', 'banking:create', 'bills:read']);
 });
@@ -91,14 +97,15 @@ describe('PaymentRunsPage', () => {
     expect(second.queryByText(/on hold/)).not.toBeInTheDocument();
   });
 
-  it('opens a run when its row is clicked', async () => {
+  it('opens a run in the payment run record panel when its row is clicked', async () => {
     routes([run()]);
     const user = userEvent.setup();
     renderWithProviders(<PaymentRunsPage />);
 
     await screen.findByText('$350.50');
-    await user.click(within(rowWith('$350.50')).getByRole('button', { name: 'View' }));
-    expect(router.navigate).toHaveBeenCalledWith({ to: '/weldbooks/payment-runs/$id', params: { id: 'prn_1' } });
+    await user.click(within(rowWith('$350.50')).getByRole('button', { name: 'date:2026-10-09' }));
+    expect(panel.open).toHaveBeenCalledWith({ type: 'payment_run', id: 'prn_1' });
+    expect(router.navigate).not.toHaveBeenCalled();
   });
 
   it('offers the first run when there is none, to people who can create one', async () => {

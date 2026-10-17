@@ -11,6 +11,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => navigate,
 }));
 const permissions = vi.hoisted(() => ({ allowed: new Set<string>() }));
+vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.allowed.has(permission) }),
 }));
@@ -26,6 +27,7 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 }));
 
 import ExemptionCertificatesPage from './page';
+import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { installPointerPolyfills, makeCertificate, renderWithProviders } from '../setup/test-support';
 
 const tc = en.weldbooksUs.salesTax.setup.certificates;
@@ -49,6 +51,7 @@ beforeAll(installPointerPolyfills);
 beforeEach(() => {
   api.get.mockReset();
   navigate.mockReset();
+  panelOpen.mockReset();
   permissions.allowed = new Set(['taxes:read', 'taxes:create']);
 });
 
@@ -68,13 +71,14 @@ describe('ExemptionCertificatesPage', () => {
     expect(document.querySelectorAll('div.group')).toHaveLength(2);
   });
 
-  it('opens a certificate from its row', async () => {
+  it('opens a certificate in its record panel from its row', async () => {
     const user = userEvent.setup();
     serve([makeCertificate({ id: 'exc_5' })]);
     renderWithProviders(<ExemptionCertificatesPage />);
 
-    await user.click(await screen.findByRole('button', { name: 'View' }));
-    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/certificates/$id', params: { id: 'exc_5' } });
+    await user.click(await screen.findByRole('button', { name: 'Resale · 32-123' }));
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'tax_exemption_certificate', id: 'exc_5' });
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('asks the server for the chosen status', async () => {

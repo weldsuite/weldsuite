@@ -18,8 +18,9 @@ import {
   RowText,
   RowTitle,
   StatusChip,
-  type ChipTone,
 } from '@/components/accounting/weldbooks-row-cells';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { CERTIFICATE_STATUS_TONE } from '@/components/objects/tax-exemption-certificate/tax-exemption-certificate-model';
 import { useExemptionCertificates } from '@/hooks/queries/use-weldbooks-sales-tax-setup-queries';
 import type {
   CertificateFilter,
@@ -39,17 +40,15 @@ type WindowFilter = 'any' | `${(typeof EXPIRING_WINDOWS)[number]}`;
 /** How many state chips fit in a row before the rest collapse into "+N". */
 const MAX_STATE_CHIPS = 3;
 
-const STATUS_TONE: Record<CertificateStatus, ChipTone> = {
-  valid: 'green',
-  pending: 'amber',
-  expired: 'red',
-  revoked: 'gray',
-};
-
 function CertificatesList() {
   const { t, plural } = useSetupTexts();
   const tc = t.certificates;
   const navigate = useNavigate();
+  // Each certificate opens in the shared object panel (type
+  // 'tax_exemption_certificate'), the same panel/fullscreen shell as WeldCRM
+  // companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/sales-tax/certificates');
   const { canCreate } = useSalesTaxSetupAccess();
   const { formatDate } = useWeldbooksFormat();
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -138,7 +137,7 @@ function CertificatesList() {
       header: tc.columns.status,
       width: 'w-[100px]',
       render: (certificate) => (
-        <StatusChip tone={STATUS_TONE[certificate.status] ?? 'gray'}>
+        <StatusChip tone={CERTIFICATE_STATUS_TONE[certificate.status] ?? 'gray'}>
           {tc.statuses[certificate.status] ?? certificate.status}
         </StatusChip>
       ),
@@ -177,8 +176,9 @@ function CertificatesList() {
         items={rows}
         isLoading={loading}
         columns={columns}
-        onRowClick={(certificate) =>
-          void navigate({ to: '/weldbooks/sales-tax/certificates/$id', params: { id: certificate.id } })
+        onRowClick={(certificate) => openPanel({ type: 'tax_exemption_certificate', id: certificate.id })}
+        getRowLabel={(certificate) =>
+          [tc.reasons[certificate.reason] ?? certificate.reason, certificate.certificateNumber].filter(Boolean).join(' · ')
         }
         filters={[]}
         leftActionButtons={

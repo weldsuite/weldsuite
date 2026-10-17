@@ -57,7 +57,7 @@ These are the rules WeldBooks applies. What a state accepts, and for how long, c
 
 ### Revoke or remove a certificate
 
-On the certificate, click **Revoke** to stop using it: sales to the customer are taxed again in every state it covers, until you click **Mark valid again** or add a new certificate. **Delete** removes it; sales already made on it keep pointing at it.
+Open the certificate and use its **⋮** menu. **Revoke** stops using it: sales to the customer are taxed again in every state it covers, until you choose **Mark valid again** or add a new certificate. **Delete** removes it; sales already made on it keep pointing at it.
 
 ---
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from '@/lib/router';
 import { toast } from 'sonner';
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -20,7 +20,6 @@ import {
   FileText,
   Plus,
   Trash2,
-  Receipt,
   StickyNote,
   ListOrdered,
   MapPin,
@@ -28,6 +27,7 @@ import {
 } from 'lucide-react';
 import {
   useCreateInvoice,
+  useSendInvoice,
   useUpdateInvoice,
   useAccountingCustomer,
   useAccountingCustomers,
@@ -36,11 +36,7 @@ import {
 import { useInvoiceTemplates } from '@/hooks/queries/use-invoice-template-queries';
 import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
 import type { InvoiceWithTax, TaxDocumentKind, TaxUse } from '@/lib/api/domains/weldbooks-sales-tax-preview';
-import {
-  EntityFormLayout,
-  type FormSection,
-  type SummaryField,
-} from '@/components/entity-overview';
+import { type FormSection, type SummaryField } from '@/components/entity-overview';
 import { toPostalAddressFormValue, type PostalAddress } from '@/components/address/postal-address';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
@@ -79,6 +75,8 @@ import {
 import { productTaxCode } from '@/lib/weldbooks/tax-codes';
 import type { ProductOption } from '@/hooks/queries/use-weldbooks-tax-preview';
 import { InvoiceAddressSection } from './invoice-address-section';
+import { InvoiceEditorLayout } from './invoice-editor-layout';
+import { InvoicePreview } from './invoice-preview';
 import { AddressNeededNotice, DocumentTaxPanel } from './document-tax-panel';
 import { InvoiceLineExtras } from './invoice-line-extras';
 import { BrDocumentSection, BrLineFields, BrTaxSummary } from './br-fields';
@@ -256,6 +254,8 @@ interface InvoiceFormProps {
 export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  /** "Create and send" is running (as opposed to a plain save). */
+  const [sending, setSending] = useState(false);
   const { t } = useI18n();
   const st = useTranslations();
   const tf = t.accounting.invoiceForm;
@@ -277,7 +277,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       }, brMessages),
     [st, td.line.overrideReasonRequired, td.line.overrideAmountInvalid, t.weldbooksIn.gst.hsnSacInvalid, brMessages],
   );
-  const { currency, entityCurrency, formatMoney, formatDate, today, entity } = useWeldbooksFormat();
+  const { currency, entityCurrency, formatMoney, today, entity } = useWeldbooksFormat();
   const { labels, features } = useJurisdictionLabels();
   const gst = features.gstReturn;
   // Brazil: NCM / CFOP and fiscal details per line, withholdings per invoice, taxes grouped by treatment.
@@ -286,6 +286,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
 
   const createMutation = useCreateInvoice();
   const updateMutation = useUpdateInvoice();
+  const sendMutation = useSendInvoice();
 
   // Invoices only go to customers — exclude suppliers. Backend expands
   // role=customer to include "both"-role contacts, so dual-role parties qualify.
@@ -477,7 +478,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   // Submit
   // ---------------------------------------------------------------------------
 
-  const onSubmit = (values: InvoiceFormValues) => {
+  const onSubmit = (values: InvoiceFormValues, intent: 'save' | 'send' = 'save') => {
+    setSending(intent === 'send');
     startTransition(async () => {
       try {
         const payload = buildInvoicePayload(values, {
@@ -497,8 +499,22 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           await updateMutation.mutateAsync({ id: invoice.id, data: payload });
           toast.success(isCreditMemo ? td.form.creditMemoUpdated : tf.invoiceUpdated);
         } else {
-          await createMutation.mutateAsync(payload);
-          toast.success(tf.invoiceCreated);
+          const created = await createMutation.mutateAsync(payload);
+          const createdId = created?.data?.id;
+          if (intent === 'send' && createdId) {
+            // Sending a draft finalizes it on the server first. A refusal leaves the draft saved.
+            try {
+              await sendMutation.mutateAsync(createdId);
+              toast.success(t.accounting.sendInvoice.sent);
+            } catch (sendError) {
+              toast.error(tf.createdNotSent, { description: describeError(sendError) });
+            }
+          } else {
+            toast.success(tf.invoiceCreated);
+          }
+          // Land on the list with the new invoice open, the way a row click shows it.
+          router.push(createdId ? `/weldbooks/invoices?stack=invoice:${createdId}` : '/weldbooks/invoices');
+          return;
         }
 
         setTimeout(() => {
@@ -911,19 +927,9 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   // Summary
   // ---------------------------------------------------------------------------
 
-  const itemCount = fields.length;
+  // The fields are next to the summary now: it only adds up the money.
   const summaryFields: SummaryField[] = [
-    { label: tf.customer, value: contactLabel || undefined },
-    { label: tf.issueDate, value: form.watch('issueDate') ? formatDate(form.watch('issueDate')) : undefined },
-    { label: tf.dueDate, value: form.watch('dueDate') ? formatDate(form.watch('dueDate')) : undefined },
-    { label: tf.reference, value: form.watch('reference') || undefined, hideIfEmpty: true },
-    {
-      label: tf.lineItems,
-      value: itemCount === 1
-        ? tf.items.replace('{count}', String(itemCount))
-        : tf.itemsPlural.replace('{count}', String(itemCount)),
-    },
-    { label: tf.subtotal, value: formatMoney(totals.subtotal, displayCurrency), bordered: true },
+    { label: tf.subtotal, value: formatMoney(totals.subtotal, displayCurrency) },
     { label: labels.tax, value: formatMoney(totals.taxTotal, displayCurrency) },
     { label: tf.total, value: <span className="font-semibold">{formatMoney(totals.total, displayCurrency)}</span> },
   ];
@@ -935,13 +941,29 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     creditNoteName: labels.creditNote,
   });
 
+  const customerData = selectedContactData?.data as { name?: string | null; email?: string | null } | undefined;
+  const previewCustomer = watchedContactId
+    ? { name: customerData?.name || contactLabel, email: customerData?.email || selectedContact?.email || '' }
+    : null;
+
+  // A new invoice is saved as a draft, or saved and sent in one go.
+  const canCreateAndSend = mode === 'add' && !isCreditMemo;
+
   return (
-    <EntityFormLayout
+    <InvoiceEditorLayout
       title={title}
       sections={sections}
-      summaryTitle={tf.invoiceSummary}
-      summaryIcon={Receipt}
       summaryFields={summaryFields}
+      preview={
+        <InvoicePreview
+          values={watched}
+          invoice={stored}
+          customer={previewCustomer}
+          calculation={preview.result ?? null}
+          numberPlaceholder={tf.numberOnSave}
+        />
+      }
+      previewLabel={tf.preview}
       summaryContent={
         <div className="space-y-3">
           <DocumentTaxPanel
@@ -963,13 +985,23 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           {!salesTax && !br && <p className="text-xs text-muted-foreground">{tf.totalsPreview}</p>}
         </div>
       }
-      onSubmit={form.handleSubmit(onSubmit)}
+      onSubmit={form.handleSubmit((values) => onSubmit(values, 'save'))}
       isPending={isPending}
-      submitText={submitText}
-      cancelLink="/weldbooks/invoices"
-      showBackButton
+      submitText={canCreateAndSend ? tf.createDraft : submitText}
+      primaryAction={
+        canCreateAndSend
+          ? {
+              label: tf.createAndSend,
+              pendingText: t.accounting.sendInvoice.sending,
+              pending: isPending && sending,
+              disabled: Boolean(previewCustomer) && !previewCustomer?.email,
+              title: previewCustomer && !previewCustomer.email ? tf.customerHasNoEmail : undefined,
+              onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),
+            }
+          : undefined
+      }
       backLink="/weldbooks/invoices"
-      backButtonText={tf.backToInvoices}
+      backText={tf.backToInvoices}
     />
   );
 }

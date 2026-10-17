@@ -20,26 +20,42 @@ export function useSalesTaxSetupAccess() {
   };
 }
 
+export type SalesTaxSetupGateStatus = 'loading' | 'load-error' | 'us-only' | 'no-access' | 'ready';
+
+/**
+ * Where a setup screen stands: waiting for the entity's jurisdiction, or ready
+ * only for a US entity and a member who can read taxes. `SalesTaxSetupGate`
+ * wraps pages in it; the sales tax record panels read it themselves.
+ */
+export function useSalesTaxSetupGate(): SalesTaxSetupGateStatus {
+  const access = useSalesTaxSetupAccess();
+  if (!access.isResolved && !access.isError) return 'loading';
+  if (access.isError && !access.isResolved) return 'load-error';
+  if (!access.isUs) return 'us-only';
+  if (!access.canRead) return 'no-access';
+  return 'ready';
+}
+
 /**
  * Wraps a setup screen: waits for the entity's jurisdiction, then shows the
  * screen only for a US entity and a member who can read taxes.
  */
 export function SalesTaxSetupGate({ children }: Readonly<{ children: ReactNode }>) {
   const { t } = useSetupTexts();
-  const access = useSalesTaxSetupAccess();
+  const status = useSalesTaxSetupGate();
 
-  if (!access.isResolved && !access.isError) return <PageLoader fullScreen={false} />;
-  if (access.isError && !access.isResolved) {
+  if (status === 'loading') return <PageLoader fullScreen={false} />;
+  if (status === 'load-error') {
     return (
       <Alert variant="destructive" className="m-4 sm:m-6 w-auto">
         <AlertDescription>{t.common.loadError}</AlertDescription>
       </Alert>
     );
   }
-  if (!access.isUs) {
+  if (status === 'us-only') {
     return <p className="p-6 text-sm text-muted-foreground">{t.common.usOnly}</p>;
   }
-  if (!access.canRead) {
+  if (status === 'no-access') {
     return <p className="p-6 text-sm text-muted-foreground">{t.common.noAccess}</p>;
   }
   return <>{children}</>;

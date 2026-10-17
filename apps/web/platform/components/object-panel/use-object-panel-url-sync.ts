@@ -30,6 +30,11 @@ export function useObjectPanelUrlSync(basePath: string) {
   // ping-pong between the URL and the atom when one of them triggers the
   // other.
   const lastSerialized = useRef<string>('');
+  // The stack as the atom → URL effect last saw it. That effect only writes
+  // the URL when the stack itself changed: a re-run for any other reason
+  // (StrictMode's effect replay on mount) must not write a stack that hasn't
+  // caught up with `?stack=` yet, or a deep link loses its param.
+  const lastSeenStack = useRef<string>('');
 
   const raw = searchParams.get('stack') ?? '';
 
@@ -55,6 +60,8 @@ export function useObjectPanelUrlSync(basePath: string) {
     if (pathname !== basePath) return;
 
     const serialized = serializeStack(stack);
+    if (serialized === lastSeenStack.current) return;
+    lastSeenStack.current = serialized;
     if (serialized === raw) return;
     lastSerialized.current = serialized;
     const params = new URLSearchParams(searchParams.toString());
