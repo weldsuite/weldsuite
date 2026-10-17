@@ -11,9 +11,10 @@ const mocks = vi.hoisted(() => ({
   entities: [] as Array<{ id: string }>,
 }));
 
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
-}));
+vi.mock('@tanstack/react-router', async () => {
+  const { RouteLink } = await import('@/app/weldbooks/invoices/components/test-utils');
+  return { Link: RouteLink };
+});
 vi.mock('@/hooks/use-current-accounting-entity', () => ({
   useCurrentAccountingEntity: () => ({ entityId: mocks.selected, setEntityId: mocks.setEntityId }),
 }));
@@ -75,7 +76,7 @@ describe('WeldbooksEntitySettings', () => {
     expect(screen.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/weldbooks/settings/dimensions');
     expect(screen.getByRole('link', { name: 'Manage templates' })).toHaveAttribute(
       'href',
-      '/weldbooks/settings/invoice-templates',
+      '/settings/entities/ent_b/invoice-templates',
     );
     expect(screen.getByTestId('ledger-catch-up')).toBeInTheDocument();
     expect(screen.getByText('Email Inbox')).toBeInTheDocument();

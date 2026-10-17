@@ -10,12 +10,14 @@ const PAGE_PADDING_CLASS = 'px-4 md:px-6 pt-4 md:pt-[72px] pb-8';
 
 // Pick the content wrapper classes for the current settings page.
 function getContentWrapperClassName(pathname: string): string {
-  // Member detail, integrations listing + detail, new number page: full width
+  // Member detail, integrations listing + detail, new number page, an entity's
+  // invoice templates + their designer: full width
   if (
     /^\/settings\/team\/[^/]+$/.test(pathname) ||
     pathname === '/settings/integrations' ||
     /^\/settings\/integrations\/[^/]+$/.test(pathname) ||
-    pathname === '/settings/apps/phone-numbers/new-number'
+    pathname === '/settings/apps/phone-numbers/new-number' ||
+    /^\/settings\/entities\/[^/]+\/invoice-templates(\/[^/]+)?$/.test(pathname)
   ) {
     return FULL_WIDTH_CLASS;
   }

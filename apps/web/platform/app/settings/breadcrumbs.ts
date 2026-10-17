@@ -47,6 +47,8 @@ export interface BreadcrumbMenuLabels {
   entities: string;
   newEntity: string;
   editEntity: string;
+  invoiceTemplates: string;
+  editInvoiceTemplate: string;
   activityLog: string;
   dataExport: string;
   advanced: string;
@@ -82,6 +84,24 @@ function getSegmentLabels(menu: BreadcrumbMenuLabels): Record<string, string> {
   };
 }
 
+// An entity's invoice templates: Entities > Edit entity > Invoice templates
+// (> Edit template). The entity and template ids add nothing to the trail.
+function invoiceTemplateSegments(pathParts: string[], menu: BreadcrumbMenuLabels): BreadcrumbSegment[] | null {
+  const [, area, entityId, section, templateId] = pathParts;
+  if (area !== 'entities' || section !== 'invoice-templates') return null;
+  const entityPath = `/settings/entities/${entityId}`;
+  const trail: BreadcrumbSegment[] = [
+    { label: menu.entities, href: '/settings/entities' },
+    { label: menu.editEntity, href: `${entityPath}/edit` },
+  ];
+  if (!templateId) return [...trail, { label: menu.invoiceTemplates }];
+  return [
+    ...trail,
+    { label: menu.invoiceTemplates, href: `${entityPath}/invoice-templates` },
+    { label: menu.editInvoiceTemplate },
+  ];
+}
+
 // Build breadcrumb segments from the current path. The last segment is a leaf
 // (no href); the /settings index page is the profile editor, shown as a leaf.
 export function buildBreadcrumbSegments(
@@ -98,6 +118,9 @@ export function buildBreadcrumbSegments(
   }
 
   const segmentLabels = getSegmentLabels(menu);
+
+  const templateTrail = invoiceTemplateSegments(pathParts, menu);
+  if (templateTrail) return [...segments, ...templateTrail];
 
   const underEntities = pathParts[1] === 'entities';
 

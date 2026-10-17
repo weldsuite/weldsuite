@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router';
+import { Link, Navigate } from '@tanstack/react-router';
 import { AlertCircle, ArrowLeft, FileQuestion } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
@@ -6,6 +6,7 @@ import { useAccountingEntity } from '@/hooks/queries/use-accounting-queries';
 import { useInvoiceTemplate } from '@/hooks/queries/use-invoice-template-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
+import { WeldbooksEntityScope } from '../../entity-scope';
 import { InvoiceTemplateDesigner } from '../designer/designer';
 
 /** 404 from the API: the template was deleted or never existed. */
@@ -13,12 +14,20 @@ function isNotFound(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { status?: number }).status === 404;
 }
 
-/** `/weldbooks/settings/invoice-templates/:id`: the invoice designer for one template. */
+/** `/settings/entities/:id/invoice-templates/:templateId`: the invoice designer for one template. */
 export default function InvoiceTemplateDesignerPage() {
+  const { id: entityId, templateId } = useParams<{ id: string; templateId: string }>();
+  return (
+    <WeldbooksEntityScope entityId={entityId}>
+      <TemplateDesigner entityId={entityId} templateId={templateId} />
+    </WeldbooksEntityScope>
+  );
+}
+
+function TemplateDesigner({ entityId, templateId }: Readonly<{ entityId: string; templateId: string }>) {
   const { t } = useI18n();
   const td = t.accounting.invoiceTemplates.designer;
-  const { id } = useParams<{ id: string }>();
-  const template = useInvoiceTemplate(id);
+  const template = useInvoiceTemplate(templateId);
   const entity = useAccountingEntity(template.data?.entityId);
 
   if (template.isLoading || (template.data && entity.isLoading)) return <PageLoader fullScreen={false} />;
@@ -41,13 +50,24 @@ export default function InvoiceTemplateDesignerPage() {
             </Button>
           )}
           <Button variant="outline" size="sm" asChild>
-            <Link to="/weldbooks/settings/invoice-templates">
+            <Link to="/settings/entities/$id/invoice-templates" params={{ id: entityId }}>
               <ArrowLeft aria-hidden />
               {td.back}
             </Link>
           </Button>
         </div>
       </div>
+    );
+  }
+
+  // A template is designed under its own entity: its branding, currency and back link.
+  if (template.data.entityId !== entityId) {
+    return (
+      <Navigate
+        to="/settings/entities/$id/invoice-templates/$templateId"
+        params={{ id: template.data.entityId, templateId }}
+        replace
+      />
     );
   }
 

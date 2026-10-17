@@ -16,6 +16,8 @@ export type DesignerView = 'desktop' | 'mobile';
 export const MOD_KEY = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
 interface TopBarProps {
+  /** The template's entity: the back button returns to its templates. */
+  entityId: string;
   name: string;
   onNameChange: (name: string) => void;
   /** Settles an emptied name back to the last saved one. */
@@ -53,7 +55,7 @@ export function DesignerTopBar(props: Readonly<TopBarProps>) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon-sm" className="size-7" asChild>
-                  <Link to="/weldbooks/settings/invoice-templates" aria-label={td.back}>
+                  <Link to="/settings/entities/$id/invoice-templates" params={{ id: props.entityId }} aria-label={td.back}>
                     <ChevronLeft />
                   </Link>
                 </Button>
