@@ -110,6 +110,77 @@ export function yearToDateSeries(months: TrendMonth[], metric: Metric): RangeSer
   };
 }
 
+/** True when nothing is booked yet: every month is zero or unknown (or there are no months). */
+export function isEmptyTrend(months: TrendMonth[]): boolean {
+  return months.every((m) => !m.revenue && !m.expenses && !m.profit);
+}
+
+const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+/** Busy spring and autumn, a quiet summer and December, by calendar month (January first). */
+const SEASON = [0.92, 0.96, 1.05, 1.08, 1.04, 0.97, 0.82, 0.86, 1.06, 1.1, 1.08, 0.9];
+const cents = (value: number) => Math.round(value * 100) / 100;
+
+/**
+ * Illustrative figures for books with nothing booked yet, so a new workspace
+ * sees what its dashboard will look like: 24 months ending at `lastMonth`
+ * (`YYYY-MM`), revenue growing about 2.5% a month with a seasonal swing,
+ * expenses a fixed base plus about half of revenue, and a fixed wobble so the
+ * lines read as booked rather than drawn. The same months always get the
+ * same figures.
+ */
+export function sampleTrend(lastMonth: string): TrendMonth[] {
+  const year = Number(lastMonth.slice(0, 4));
+  const month = Number(lastMonth.slice(5, 7));
+  return Array.from({ length: 24 }, (_, i) => {
+    const date = new Date(year, month - 24 + i, 1);
+    const revenue = cents(14_000 * 1.025 ** i * SEASON[date.getMonth()] * (1 + 0.06 * Math.sin(i * 2.7)));
+    const expenses = cents(3_200 + revenue * 0.52 * (1 + 0.08 * Math.sin(i * 1.3)));
+    return { month: monthKey(date), revenue, expenses, profit: cents(revenue - expenses) };
+  });
+}
+
+/**
+ * The months the charts draw: the ledger trend, or the sample trend (`sample`)
+ * while nothing is booked, ending at the trend's last month or else this one.
+ */
+export function dashboardTrend(
+  dashboard: Pick<Dashboard, 'monthlyTrend' | 'monthlyRevenue'>,
+  now = new Date(),
+): { months: TrendMonth[]; sample: boolean } {
+  const months = trendMonths(dashboard);
+  if (!isEmptyTrend(months)) return { months, sample: false };
+  return { months: sampleTrend(months[months.length - 1]?.month ?? monthKey(now)), sample: true };
+}
+
+/** The smallest of 1, 2, 2.5 and 5 times a power of ten that is at least `value`. */
+function niceStep(value: number): number {
+  const power = 10 ** Math.floor(Math.log10(value));
+  const step = [1, 2, 2.5, 5, 10].find((f) => f * power >= value - 1e-9) ?? 10;
+  return step * power;
+}
+
+/**
+ * Round y-axis values (0, 10K, 20K, 30K) that take in `min` to `max` and zero:
+ * 3 or 4 even steps (at most five labels in a card), whichever wastes the
+ * least room above and below the data, 3 on a tie.
+ * Nothing but zero gives just the zero line.
+ */
+export function niceTicks(min: number, max: number): number[] {
+  const low = Math.min(0, min);
+  const high = Math.max(0, max);
+  if (high - low <= 0) return [0];
+  const [best] = [3, 4]
+    .map((intervals) => {
+      const step = niceStep((high - low) / intervals);
+      return { from: Math.floor(low / step) * step, to: Math.ceil(high / step) * step, step };
+    })
+    .sort((a, b) => a.to - a.from - (b.to - b.from));
+  const count = Math.round((best.to - best.from) / best.step) + 1;
+  // toPrecision drops float noise such as 0.30000000000000004.
+  return Array.from({ length: count }, (_, i) => Number((best.from + i * best.step).toPrecision(12)));
+}
+
 /** Change from `previous` to `current` in percent; `null` when there is nothing to compare with. */
 export function percentChange(current: number | null, previous: number | null): number | null {
   if (current === null || previous === null) return null;

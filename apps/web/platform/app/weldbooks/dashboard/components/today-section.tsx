@@ -19,7 +19,7 @@ import {
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { ComparisonLineChart } from './comparison-line-chart';
-import { trendMonths, yearToDateSeries, type Metric } from './dashboard-series';
+import { dashboardTrend, yearToDateSeries, type Metric } from './dashboard-series';
 import { useChartFormat } from './use-chart-format';
 
 export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
@@ -28,10 +28,14 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
   const format = useChartFormat();
   const [metric, setMetric] = useState<Metric>('revenue');
 
-  const months = useMemo(() => trendMonths(dashboard), [dashboard]);
-  const hasTrend = Boolean(dashboard.monthlyTrend?.length);
+  const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
+  // The sample trend has all three metrics; an older API only returns revenue.
+  const hasTrend = sample || Boolean(dashboard.monthlyTrend?.length);
   const activeMetric: Metric = hasTrend ? metric : 'revenue';
   const ytd = useMemo(() => yearToDateSeries(months, activeMetric), [months, activeMetric]);
+  // The sample trend only draws the chart: the figures stay the workspace's own, "—" while nothing is booked.
+  const total = sample ? null : ytd.total;
+  const lastYearTotal = sample ? null : ytd.compareTotal;
 
   const metricLabels: Record<Metric, string> = {
     revenue: tc.revenue,
@@ -71,17 +75,17 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
-            <p className={`text-xl tabular-nums ${(ytd.total ?? 0) < 0 ? 'text-destructive' : ''}`}>
-              {ytd.total === null ? '—' : format.formatMoney(ytd.total)}
+            <p className={`text-xl tabular-nums ${(total ?? 0) < 0 ? 'text-destructive' : ''}`}>
+              {total === null ? '—' : format.formatMoney(total)}
             </p>
             <p className="text-xs text-muted-foreground">{span(ytd.year)}</p>
           </div>
           <div className="space-y-1">
             <p className="text-sm font-medium">{tc.lastYear}</p>
             <p className="text-xl tabular-nums text-muted-foreground">
-              {ytd.compareTotal === null ? '—' : format.formatMoney(ytd.compareTotal)}
+              {lastYearTotal === null ? '—' : format.formatMoney(lastYearTotal)}
             </p>
-            <p className="text-xs text-muted-foreground">{ytd.compareTotal === null ? tc.noComparison : span(ytd.year - 1)}</p>
+            <p className="text-xs text-muted-foreground">{lastYearTotal === null ? tc.noComparison : span(ytd.year - 1)}</p>
           </div>
         </div>
 
