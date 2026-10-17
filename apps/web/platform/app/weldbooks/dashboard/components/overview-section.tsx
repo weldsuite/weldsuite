@@ -39,7 +39,7 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
   const [range, setRange] = useState<Range>('12');
   const [compareChoice, setCompareChoice] = useState<Compare | 'off'>('previousPeriod');
   const compare = compareChoice === 'off' ? null : compareChoice;
-  const { months } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
+  const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
 
   const rangeOptions = [
     { value: '3' as const, label: tc.last3Months },
@@ -78,6 +78,7 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
             key={metric}
             metric={metric}
             months={months}
+            sample={sample}
             size={Number(range)}
             compare={compare}
           />
@@ -93,34 +94,39 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
 function MetricCard({
   metric,
   months,
+  sample,
   size,
   compare,
-}: Readonly<{ metric: Metric; months: TrendMonth[]; size: number; compare: Compare | null }>) {
+}: Readonly<{ metric: Metric; months: TrendMonth[]; sample: boolean; size: number; compare: Compare | null }>) {
   const { t } = useI18n();
   const tc = t.accounting.dashboard.charts;
   const format = useChartFormat();
   const series = useMemo(() => rangeSeries(months, metric, size, compare), [months, metric, size, compare]);
   // A month the API has no figure for draws as zero, like a month with nothing booked: the card
-  // always shows a total and a line, never an empty state.
-  const total = series.total ?? 0;
+  // always shows a line, never an empty state. The sample trend only draws the lines: the figures
+  // stay the workspace's own, "—" while nothing is booked.
+  const total = sample ? null : (series.total ?? 0);
+  const compareTotal = sample ? null : series.compareTotal;
   const points = useMemo(() => series.points.map((p) => ({ ...p, value: p.value ?? 0 })), [series.points]);
 
   const titles: Record<Metric, string> = { revenue: tc.revenue, expenses: tc.expenses, profit: tc.netProfit };
   const infos: Record<Metric, string> = { revenue: tc.info.revenue, expenses: tc.info.expenses, profit: tc.info.profit };
-  const change = percentChange(series.total, series.compareTotal);
+  const change = percentChange(sample ? null : series.total, compareTotal);
   const compareText = compare === 'previousYear' ? tc.previousYearValue : tc.previousPeriodValue;
 
   return (
     <OverviewCard title={titles[metric]} info={infos[metric]} to="/weldbooks/reports/profit-loss">
       <div className="flex items-baseline gap-2">
-        <span className={`text-xl tabular-nums ${total < 0 ? 'text-destructive' : ''}`}>{format.formatMoney(total)}</span>
+        <span className={`text-xl tabular-nums ${(total ?? 0) < 0 ? 'text-destructive' : ''}`}>
+          {total === null ? '—' : format.formatMoney(total)}
+        </span>
         {change !== null && (
           <span className={`text-sm tabular-nums ${changeTone(metric, change)}`}>{format.percent(change)}</span>
         )}
       </div>
       {compare && (
         <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
-          {series.compareTotal === null ? tc.noComparison : compareText.replace('{amount}', format.formatMoney(series.compareTotal))}
+          {compareTotal === null ? tc.noComparison : compareText.replace('{amount}', format.formatMoney(compareTotal))}
         </p>
       )}
       <ComparisonLineChart

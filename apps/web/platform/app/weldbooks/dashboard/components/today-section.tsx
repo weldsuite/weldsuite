@@ -33,6 +33,9 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
   const hasTrend = sample || Boolean(dashboard.monthlyTrend?.length);
   const activeMetric: Metric = hasTrend ? metric : 'revenue';
   const ytd = useMemo(() => yearToDateSeries(months, activeMetric), [months, activeMetric]);
+  // The sample trend only draws the chart: the figures stay the workspace's own, "—" while nothing is booked.
+  const total = sample ? null : ytd.total;
+  const lastYearTotal = sample ? null : ytd.compareTotal;
 
   const metricLabels: Record<Metric, string> = {
     revenue: tc.revenue,
@@ -72,17 +75,17 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
-            <p className={`text-xl tabular-nums ${(ytd.total ?? 0) < 0 ? 'text-destructive' : ''}`}>
-              {ytd.total === null ? '—' : format.formatMoney(ytd.total)}
+            <p className={`text-xl tabular-nums ${(total ?? 0) < 0 ? 'text-destructive' : ''}`}>
+              {total === null ? '—' : format.formatMoney(total)}
             </p>
             <p className="text-xs text-muted-foreground">{span(ytd.year)}</p>
           </div>
           <div className="space-y-1">
             <p className="text-sm font-medium">{tc.lastYear}</p>
             <p className="text-xl tabular-nums text-muted-foreground">
-              {ytd.compareTotal === null ? '—' : format.formatMoney(ytd.compareTotal)}
+              {lastYearTotal === null ? '—' : format.formatMoney(lastYearTotal)}
             </p>
-            <p className="text-xs text-muted-foreground">{ytd.compareTotal === null ? tc.noComparison : span(ytd.year - 1)}</p>
+            <p className="text-xs text-muted-foreground">{lastYearTotal === null ? tc.noComparison : span(ytd.year - 1)}</p>
           </div>
         </div>
 
