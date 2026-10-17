@@ -177,6 +177,39 @@ describe('PATCH /:id', () => {
     expect((await taskRow('task_st_elsewhere'))?.status).toBe('backlog');
   });
 
+  it('gives legacy tasks (no stageId, status = the stage id) the stage id, so they stay in it', async () => {
+    await seedProject('prj_st_legacy');
+    const created = await send('POST', '', { projectId: 'prj_st_legacy', name: 'Blocked', systemStatus: 'blocked' });
+    const stage = ((await created.json()) as { data: StageDto }).data;
+    await seedTask('task_st_legacy', 'prj_st_legacy', null, stage.id);
+
+    const res = await send('PATCH', `/${stage.id}`, { systemStatus: 'in_progress' });
+
+    expect(res.status).toBe(200);
+    const task = await taskRow('task_st_legacy');
+    expect(task?.status).toBe('in_progress');
+    expect(task?.stageId).toBe(stage.id);
+  });
+
+  it('keeps the completion date of a task that was already done', async () => {
+    await seedProject('prj_st_done');
+    const stages = await stagesOf('prj_st_done');
+    const review = stages.find((s) => s.systemStatus === 'review')!;
+    const finishedOn = new Date('2026-01-15T09:00:00.000Z');
+    await seedTask('task_st_was_done', 'prj_st_done', review.id, 'done');
+    await db.update(schema.tasks).set({ completedDate: finishedOn }).where(eq(schema.tasks.id, 'task_st_was_done'));
+    await seedTask('task_st_now_done', 'prj_st_done', review.id, 'review');
+
+    const res = await send('PATCH', `/${review.id}`, { systemStatus: 'done' });
+
+    expect(res.status).toBe(200);
+    expect((await taskRow('task_st_was_done'))?.completedDate).toEqual(finishedOn);
+    const nowDone = await taskRow('task_st_now_done');
+    expect(nowDone?.status).toBe('done');
+    expect(nowDone?.completedDate).toBeInstanceOf(Date);
+    expect(nowDone?.completedDate?.getTime()).toBeGreaterThan(finishedOn.getTime());
+  });
+
   it('leaves tasks alone when only the name changes', async () => {
     await seedProject('prj_st_rename');
     const stages = await stagesOf('prj_st_rename');

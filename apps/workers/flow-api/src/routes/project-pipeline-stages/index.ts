@@ -71,16 +71,28 @@ function tasksInStage(projectId: string, stageId: string): SQL | undefined {
   );
 }
 
-/** Tasks carry their stage's system status; closing one stamps its completion date, leaving `done` clears it. */
+/**
+ * Tasks carry their stage's system status; closing one stamps its completion date
+ * (a task that is already done keeps the date it finished on), leaving `done` clears it.
+ */
 function statusUpdate(status: string, now: Date) {
-  return { status, completedDate: status === 'done' ? now : null, updatedAt: now };
+  return {
+    status,
+    completedDate:
+      status === 'done' ? sql`coalesce(${schema.tasks.completedDate}, ${now.toISOString()}::timestamp)` : null,
+    updatedAt: now,
+  };
 }
 
-/** Re-labels the tasks already in a stage with its new system status. */
+/**
+ * Re-labels the tasks already in a stage with its new system status. Legacy
+ * tasks matched through `status = stageId` have no `stageId` yet; they get this
+ * stage's, so they keep pointing at it once their status is a system status.
+ */
 async function setStageTasksStatus(db: Database, projectId: string, stageId: string, status: string): Promise<void> {
   await db
     .update(schema.tasks)
-    .set(statusUpdate(normalizeTaskStatus(status), new Date()))
+    .set({ stageId, ...statusUpdate(normalizeTaskStatus(status), new Date()) })
     .where(tasksInStage(projectId, stageId));
 }
 
@@ -126,19 +138,24 @@ async function moveStageTasks(
 const STAGE_ID_MAX = 30;
 const STAGE_SUFFIX_LENGTH = 4;
 
+/** Strips leading and trailing underscores (a loop rather than a backtracking regex). */
+function trimUnderscores(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '_') start++;
+  while (end > start && value[end - 1] === '_') end--;
+  return value.slice(start, end);
+}
+
 /**
  * Id for a custom stage: a readable slug of the name plus a random suffix. The
  * id doubles as the task status for custom stages, so it stays human-readable,
  * but is cut so that `<slug>_<suffix>` always fits the column.
  */
 export function slugifyStage(name: string): string {
-  const base = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, STAGE_ID_MAX - STAGE_SUFFIX_LENGTH - 1)
-    .replace(/_+$/g, '');
+  const base = trimUnderscores(
+    trimUnderscores(name.toLowerCase().replace(/[^a-z0-9]+/g, '_')).slice(0, STAGE_ID_MAX - STAGE_SUFFIX_LENGTH - 1),
+  );
   const suffix = randomString(STAGE_SUFFIX_LENGTH);
   return base ? `${base}_${suffix}` : `stage_${suffix}`;
 }
