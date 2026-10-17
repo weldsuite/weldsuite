@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Entity } from '@weldsuite/db/schema';
-import { generateInvoiceHtml, type InvoiceRenderData } from './accounting-invoice-html';
+import { generateInvoiceHtml, invoiceTemplateData, type InvoiceRenderData } from './accounting-invoice-html';
 
 function entity(overrides: Partial<Entity> = {}): Entity {
   return {
@@ -273,5 +273,18 @@ describe('generateInvoiceHtml · numbers', () => {
     );
     expect(html).toContain('>7,5<');
     expect(html).toContain('>9%<');
+  });
+});
+
+describe('invoiceTemplateData · captions', () => {
+  it('captions the reference, notes and terms in the invoice language', () => {
+    const dutch = invoiceTemplateData(invoice(), entity({ locale: 'nl-NL' }));
+    expect(dutch.fieldLabels.reference).toBe('Referentie');
+    expect(dutch.labels.notes).toBe('Opmerkingen');
+    expect(dutch.labels.terms).toBe('Voorwaarden');
+    const english = invoiceTemplateData(invoice(), entity({ locale: 'en-GB' }));
+    expect(english.fieldLabels.reference).toBe('Reference');
+    expect(english.labels.notes).toBe('Notes');
+    expect(english.labels.terms).toBe('Terms');
   });
 });

@@ -1,8 +1,15 @@
 /** The right-hand panel when blocks are selected: position, per-type settings, box and arrangement. */
 import type { Dispatch } from 'react';
-import { ArrowDown, ArrowUp, BringToFront, Copy, SendToBack, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, BringToFront, ChevronLeft, Copy, MoreVertical, SendToBack, Trash2 } from 'lucide-react';
 import type { BoxStyle, TemplateBlock, TemplateBlockType } from '@weldsuite/books-domain/invoice-template/schema';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDesigner } from '../context';
@@ -31,6 +38,18 @@ import { LineItemsPanel } from './line-items-panel';
 interface BlockInspectorProps {
   blocks: TemplateBlock[];
   dispatch: Dispatch<EditorAction>;
+  /** Leaves the block (clears the selection) and returns to the sidebar's tabs. */
+  onBack: () => void;
+}
+
+/** The back arrow of a drilled-in block: the selection is the page, this is how you leave it. */
+function BackButton({ onBack }: Readonly<{ onBack: () => void }>) {
+  const { t } = useI18n();
+  return (
+    <Button variant="ghost" size="icon-sm" className="-ml-1.5 size-7 shrink-0" onClick={onBack} aria-label={t.common.actions.back}>
+      <ChevronLeft />
+    </Button>
+  );
 }
 
 function PositionSection({ block, update }: Readonly<{ block: TemplateBlock; update: (patch: Patch) => void }>) {
@@ -196,6 +215,7 @@ function TypePanel({ block, update }: Readonly<{ block: TemplateBlock; update: (
 }
 
 /** Duplicate and delete: the table can do neither (a template has exactly one). */
+/** Duplicate and delete, behind the "⋮" button at the end of the block's header. */
 function BlockActions({ ids, hasTable, dispatch }: Readonly<{ ids: string[]; hasTable: boolean; dispatch: Dispatch<EditorAction> }>) {
   const { t } = useI18n();
   const ti = t.accounting.invoiceTemplates;
@@ -203,48 +223,33 @@ function BlockActions({ ids, hasTable, dispatch }: Readonly<{ ids: string[]; has
   const single = ids.length === 1;
   const onlyTable = single && hasTable;
   return (
-    <div className="flex items-center gap-1.5">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shadow-none"
-        disabled={readOnly || onlyTable}
-        onClick={() => dispatch({ type: 'duplicateBlocks', ids })}
-      >
-        <Copy aria-hidden />
-        {ti.inspector.duplicate}
-      </Button>
-      {onlyTable ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span tabIndex={0}>
-              <Button type="button" variant="outline" size="sm" className="shadow-none" disabled>
-                <Trash2 aria-hidden />
-                {ti.inspector.delete}
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-60">{ti.canvas.cantDeleteTable}</TooltipContent>
-        </Tooltip>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="text-destructive shadow-none hover:text-destructive"
-          disabled={readOnly}
-          onClick={() => dispatch({ type: 'deleteBlocks', ids })}
-        >
-          <Trash2 aria-hidden />
-          {single ? ti.inspector.delete : ti.inspector.multiDelete}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="icon-sm" className="-mr-1.5 ml-auto size-7 shrink-0" aria-label={ti.inspector.actions} disabled={readOnly}>
+          <MoreVertical className="h-4 w-4" aria-hidden />
         </Button>
-      )}
-    </div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem disabled={onlyTable} onSelect={() => dispatch({ type: 'duplicateBlocks', ids })}>
+          <Copy className="mr-2 h-4 w-4" aria-hidden />
+          {ti.inspector.duplicate}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={onlyTable}
+          className="text-destructive focus:text-destructive"
+          onSelect={() => dispatch({ type: 'deleteBlocks', ids })}
+        >
+          <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+          {single ? ti.inspector.delete : ti.inspector.multiDelete}
+        </DropdownMenuItem>
+        {onlyTable ? <p className="px-2 pb-1.5 pt-1 text-xs text-muted-foreground">{ti.canvas.cantDeleteTable}</p> : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-export function BlockInspector({ blocks, dispatch }: Readonly<BlockInspectorProps>) {
+export function BlockInspector({ blocks, dispatch, onBack }: Readonly<BlockInspectorProps>) {
   const { t } = useI18n();
   const ti = t.accounting.invoiceTemplates;
   const { fieldNames } = useDesigner();
@@ -258,9 +263,12 @@ export function BlockInspector({ blocks, dispatch }: Readonly<BlockInspectorProp
     return (
       <div>
         <div className="space-y-3 border-b border-border px-4 py-4">
-          <h2 className="text-sm font-semibold">{ti.inspector.selectedCount.replace('{count}', String(blocks.length))}</h2>
+          <div className="flex items-center gap-1">
+            <BackButton onBack={onBack} />
+            <h2 className="text-sm font-semibold">{ti.inspector.selectedCount.replace('{count}', String(blocks.length))}</h2>
+            <BlockActions ids={ids} hasTable={hasTable} dispatch={dispatch} />
+          </div>
           <p className="text-xs text-muted-foreground">{ti.inspector.multiHint}</p>
-          <BlockActions ids={ids} hasTable={hasTable} dispatch={dispatch} />
         </div>
         <ArrangeSection ids={ids} dispatch={dispatch} />
       </div>
@@ -279,17 +287,17 @@ export function BlockInspector({ blocks, dispatch }: Readonly<BlockInspectorProp
 
   return (
     <div>
-      <div className="space-y-3 border-b border-border px-4 py-4">
-        <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <Icon className="h-4 w-4" aria-hidden />
+      {/* 53px, the height of the designer's toolbar row. */}
+      <div className="flex h-[53px] items-center border-b border-border px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <BackButton onBack={onBack} />
+          {/* The same icon tile and name as the block's row in Layers, sized up for a header. */}
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
+            <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
           </span>
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold">{blockLabel(block, names, fieldNames)}</h2>
-            <p className="text-xs text-muted-foreground">{names[block.type]}</p>
-          </div>
+          <h2 className="min-w-0 flex-1 truncate text-sm text-foreground">{blockLabel(block, names, fieldNames)}</h2>
+          <BlockActions ids={ids} hasTable={hasTable} dispatch={dispatch} />
         </div>
-        <BlockActions ids={ids} hasTable={hasTable} dispatch={dispatch} />
       </div>
       <PositionSection block={block} update={update} />
       <TypePanel block={block} update={update} />

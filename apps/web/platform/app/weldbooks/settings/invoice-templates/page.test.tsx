@@ -99,10 +99,20 @@ describe('InvoiceTemplatesPage', { timeout: 30_000 }, () => {
     expect(screen.getByRole('button', { name: 'Create your first template' })).toBeInTheDocument();
   });
 
-  it('shows a skeleton while loading', () => {
+  it('shows the standard list loading state while loading', () => {
     env.loading = true;
-    const { container } = renderWithProviders(<InvoiceTemplatesPage />);
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    renderWithProviders(<InvoiceTemplatesPage />);
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Standard' })).not.toBeInTheDocument();
+  });
+
+  it('finds templates with the list search', async () => {
+    const user = userEvent.setup();
+    env.templates = [template('itpl_1', 'Standard', true), template('itpl_2', 'Letterhead', false)];
+    renderWithProviders(<InvoiceTemplatesPage />);
+    await user.type(screen.getAllByPlaceholderText('Search templates')[0], 'letter');
+    expect(screen.getByRole('heading', { name: 'Letterhead' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Standard' })).not.toBeInTheDocument();
   });
 
   it('lists the templates with a thumbnail, the default badge, the paper size and a link to the designer', () => {
@@ -111,7 +121,9 @@ describe('InvoiceTemplatesPage', { timeout: 30_000 }, () => {
 
     expect(screen.getByRole('heading', { name: 'Standard' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Letterhead' })).toBeInTheDocument();
-    expect(screen.getAllByText('Default')).toHaveLength(1);
+    // Only the default template carries the star.
+    expect(screen.getAllByLabelText('Default')).toHaveLength(1);
+    expect(screen.queryByText('Default')).toBeNull();
     expect(screen.getAllByText(/A4 · Updated on 2026-03-02/)).toHaveLength(2);
     expect(screen.getByRole('img', { name: 'Preview of Standard' }).querySelector('svg')).not.toBeNull();
     expect(screen.getByRole('link', { name: 'Edit: Letterhead' })).toHaveAttribute('href', '/weldbooks/settings/invoice-templates/itpl_2');

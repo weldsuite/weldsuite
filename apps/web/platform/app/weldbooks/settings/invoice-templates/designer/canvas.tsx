@@ -43,6 +43,10 @@ export const BLOCK_DRAG_TYPE = 'application/x-weldsuite-invoice-block';
 export interface CanvasApi {
   /** Top-left of the visible part of page one, in points: where a clicked palette block lands. */
   visibleOrigin: () => { x: number; y: number };
+  /** The scrolling view around the pages. */
+  scroller: () => HTMLElement | null;
+  /** The first page. */
+  page: () => HTMLElement | null;
 }
 
 interface CanvasProps {
@@ -55,8 +59,8 @@ interface CanvasProps {
   dispatch: Dispatch<EditorAction>;
   apiRef: RefObject<CanvasApi | null>;
   onDropBlock: (type: TemplateBlockType, point: { x: number; y: number }) => void;
-  /** Ctrl/Cmd + wheel: +1 zoom in, -1 zoom out. */
-  onWheelZoom: (direction: 1 | -1) => void;
+  /** Ctrl/Cmd + wheel or a trackpad pinch: zoom around the pointer. */
+  onWheelZoom: (deltaY: number, deltaMode: number, clientX: number, clientY: number) => void;
   className?: string;
 }
 
@@ -64,6 +68,10 @@ type Gesture =
   | { kind: 'move'; id: number; start: { x: number; y: number }; startRects: Record<string, Rect>; union: Rect; others: Rect[]; moved: boolean; clickedId: string }
   | { kind: 'resize'; id: number; blockId: string; handle: ResizeHandle; start: { x: number; y: number }; startRect: Rect; others: Rect[]; min: { minW: number; minH: number } }
   | { kind: 'marquee'; start: { x: number; y: number }; base: string[]; additive: boolean; moved: boolean; last: string };
+
+/** Keys typed here belong to the control, so Space does not start panning. */
+const TYPING_TARGETS =
+  'input, textarea, select, button, a[href], [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"], [role="combobox"], [role="tab"], [role="switch"], [role="slider"]';
 
 /** One page of the rendered invoice; only repaints when its markup changes. */
 const PageSvg = memo(function PageSvg({ html }: Readonly<{ html: string }>) {
@@ -102,6 +110,10 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
   const gestureRef = useRef<Gesture | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const gestureCounter = useRef(0);
+  // Panning: hold Space (or use the middle button) to drag the view; the grey area around the page drags it too.
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceRef = useRef(false);
+  const [panning, setPanning] = useState(false);
 
   const paper = PAPER_SIZES[doc.paperSize];
   const pages = useMemo(() => (layout ? layout.pages.map((_, i) => renderPageSvg(layout, i, { withSize: false })) : []), [layout]);
@@ -127,6 +139,8 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
           y: Math.max(0, (scroller.top - page.top) / s) + 16,
         };
       },
+      scroller: () => scrollRef.current,
+      page: () => pageRef.current,
     }),
     [],
   );
@@ -140,7 +154,7 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      onWheelZoom(e.deltaY < 0 ? 1 : -1);
+      onWheelZoom(e.deltaY, e.deltaMode, e.clientX, e.clientY);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -305,6 +319,72 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
     [endGesture, snapContext, toPt, track],
   );
 
+  useEffect(() => {
+    const setHeld = (held: boolean) => {
+      spaceRef.current = held;
+      setSpaceHeld(held);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target instanceof Element && e.target.closest(TYPING_TARGETS)) return;
+      // Space would otherwise scroll the canvas down a screen.
+      e.preventDefault();
+      if (!spaceRef.current) setHeld(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && spaceRef.current) setHeld(false);
+    };
+    const release = () => {
+      if (spaceRef.current) setHeld(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', release);
+    };
+  }, []);
+
+  /** Drag the view with the pointer. A press that does not move counts as a click: it clears the selection when asked. */
+  const startPan = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>, clearOnClick: boolean) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const start = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop };
+      let moved = false;
+      setPanning(true);
+      track(
+        (ev) => {
+          const dx = ev.clientX - start.x;
+          const dy = ev.clientY - start.y;
+          if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+          moved = true;
+          el.scrollLeft = start.left - dx;
+          el.scrollTop = start.top - dy;
+        },
+        () => {
+          setPanning(false);
+          if (!moved && clearOnClick) live.current.dispatch({ type: 'select', ids: [] });
+        },
+      );
+    },
+    [track],
+  );
+
+  /** Space + drag and middle-button drag pan from anywhere, blocks included, before a block can start a move. */
+  const onPointerDownCapture = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const middle = e.button === 1;
+      if (!middle && !(e.button === 0 && spaceRef.current)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startPan(e, false);
+    },
+    [startPan],
+  );
+
   const onBackdropPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
@@ -313,6 +393,11 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
       if (target.closest('[data-block-id], [data-handle]')) return;
       const bounds = e.currentTarget.getBoundingClientRect();
       if (e.clientX >= bounds.left + e.currentTarget.clientWidth || e.clientY >= bounds.top + e.currentTarget.clientHeight) return;
+      // The grey area around the pages drags the view; a plain click there still clears the selection.
+      if (!target.closest('[data-canvas-page]')) {
+        startPan(e, true);
+        return;
+      }
 
       const { doc: d, selection: sel, dispatch: send } = live.current;
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
@@ -343,7 +428,7 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
         endGesture,
       );
     },
-    [endGesture, toPt, track],
+    [endGesture, startPan, toPt, track],
   );
 
   const onDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
@@ -371,20 +456,33 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
   return (
     <div
       ref={scrollRef}
-      className={cn('relative min-h-0 flex-1 overflow-auto bg-muted/70 dark:bg-muted/30', className)}
+      className={cn(
+        // A gutter on both sides, not just the scrollbar's: the page centres on the whole area, under the toolbar's centre.
+        'relative min-h-0 flex-1 overflow-auto bg-muted/70 [scrollbar-gutter:stable_both-edges] dark:bg-muted/30',
+        panning ? 'cursor-grabbing' : 'cursor-grab',
+        // While panning or holding Space, the hand shows over the page and its blocks too.
+        (panning || spaceHeld) && '[&_*]:cursor-[inherit]!',
+        className,
+      )}
+      onPointerDownCapture={onPointerDownCapture}
+      onMouseDownCapture={(e) => {
+        // Stops the browser's middle-click autoscroll.
+        if (e.button === 1) e.preventDefault();
+      }}
       onPointerDown={onBackdropPointerDown}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
       <div className="mx-auto flex w-max min-w-full flex-col items-center gap-6 px-10 py-10">
         {pages.length === 0 ? (
-          <div ref={pageRef} className="rounded-md bg-background p-8 text-sm text-muted-foreground" style={{ width: pageWidth }} />
+          <div ref={pageRef} data-canvas-page className="cursor-default rounded-md bg-background p-8 text-sm text-muted-foreground" style={{ width: pageWidth }} />
         ) : null}
         {pages.map((html, index) => (
           <div key={index} className="flex flex-col items-center gap-2">
             <div
               ref={index === 0 ? pageRef : undefined}
-              className="relative shrink-0 bg-white shadow-lg ring-1 ring-black/10"
+              data-canvas-page
+              className="relative shrink-0 cursor-default bg-white shadow-lg ring-1 ring-black/10"
               style={{ width: pageWidth, height: pageHeight }}
             >
               <PageSvg html={html} />

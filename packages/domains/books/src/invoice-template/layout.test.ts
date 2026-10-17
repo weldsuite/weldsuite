@@ -1,11 +1,12 @@
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
+import { contrast } from './colors';
 import type { InvoiceDocumentData } from './data';
 import { drawableText, textWidth, wrapText } from './fonts';
-import { layoutInvoice, type InvoiceLayout } from './layout';
+import { fillPlaceholders, layoutInvoice, type InvoiceLayout } from './layout';
 import { renderInvoicePdf } from './pdf';
 import { TEMPLATE_PRESETS, presetTemplate } from './presets';
-import { invoiceTemplateDocumentSchema, type InvoiceTemplateDocument } from './schema';
+import { PAPER_SIZES, invoiceTemplateDocumentSchema, type InvoiceTemplateDocument } from './schema';
 import { renderInvoiceHtmlDocument, renderPageSvg } from './svg';
 
 function data(rows = 3, overrides: Partial<InvoiceDocumentData> = {}): InvoiceDocumentData {
@@ -108,6 +109,52 @@ describe('layoutInvoice', () => {
         if (p.kind === 'text' && p.text.startsWith('Consulting')) expect(p.y).toBeLessThan(footerTop);
       }
     }
+  });
+
+  it('keeps the full body beside a repeating side panel', () => {
+    const template = presetTemplate('classic', 'a4');
+    const { height } = PAPER_SIZES.a4;
+    template.blocks.push(
+      { id: 'panel', type: 'rect', x: 0, y: 0, w: 30, h: height, everyPage: true, box: { background: '#eeeeee' } },
+      { id: 'side', type: 'text', text: '{{invoiceNumber}}', x: 2, y: 100, w: 26, h: 200, everyPage: true },
+    );
+    const layout = layoutInvoice(template, data(80));
+    const footerTop = template.blocks.find((b) => b.id === 'footer')!.y;
+    const rows = (page: number) =>
+      layout.pages[page].primitives.filter((p): p is Extract<typeof p, { kind: 'text' }> => p.kind === 'text' && p.text.startsWith('Consulting')).map((p) => p.y);
+    // Neither the panel's height nor the text on it shortens the body: rows run from the top margin to the footer band.
+    expect(Math.min(...rows(1))).toBeLessThan(template.margins.top + 40);
+    expect(Math.max(...rows(1))).toBeGreaterThan(footerTop - 60);
+    expect(Math.max(...rows(1))).toBeLessThan(footerTop);
+  });
+
+  it('keeps the balance row readable with a pale accent', () => {
+    const template = presetTemplate('classic', 'a4');
+    template.theme.accent = '#f2c94c';
+    const totals = [...data().totals, { label: 'Paid', value: '€500,00' }, { label: 'Balance due', value: '€710,00', kind: 'balance' as const }];
+    const layout = layoutInvoice(template, data(3, { totals }));
+    const balance = layout.pages[0].primitives.find((p) => p.kind === 'text' && p.text === 'Balance due');
+    expect(balance?.kind === 'text' && contrast(balance.color, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('does not grow an empty block by its padding', () => {
+    const template = presetTemplate('classic', 'a4');
+    template.blocks = template.blocks.map((b) => (b.id === 'shipTo' ? { ...b, h: 4, box: { padding: 12, background: '#f3f4f6' } } : b));
+    const layout = layoutInvoice(template, data(3));
+    const shipTo = layout.placements.find((p) => p.id === 'shipTo')!;
+    expect(shipTo.grew).toBe(false);
+    expect(layout.placements.find((p) => p.id === 'items')!.moved).toBe(false);
+  });
+
+  it('leaves out a line whose placeholders print nothing, and the separator next to an empty value', () => {
+    const fields = { ...data().fields, sellerEmail: 'hello@weld.example', sellerPhone: '', sellerWebsite: 'weld.example' };
+    const fill = (text: string) => fillPlaceholders(text, data(1, { fields }));
+    expect(fill('{{sellerEmail}}\n{{sellerPhone}}\n{{sellerWebsite}}')).toBe('hello@weld.example\nweld.example');
+    expect(fill('Tel. {{sellerPhone}}\nE-mail {{sellerEmail}}')).toBe('E-mail hello@weld.example');
+    expect(fill('{{sellerEmail}} · {{sellerPhone}} · {{sellerWebsite}}')).toBe('hello@weld.example · weld.example');
+    expect(fill('{{sellerPhone}} · {{sellerWebsite}}')).toBe('weld.example');
+    // Typed text, blank lines and unknown placeholders stay as written.
+    expect(fill('Thanks!\n\n{{unknown}} {{sellerEmail}}')).toBe('Thanks!\n\n{{unknown}} hello@weld.example');
   });
 
   it('pushes blocks down when the one above them grows', () => {

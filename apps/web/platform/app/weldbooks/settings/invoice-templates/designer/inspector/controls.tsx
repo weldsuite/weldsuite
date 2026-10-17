@@ -37,8 +37,8 @@ export function InspectorSection({
           aria-controls={bodyId}
           onClick={() => setOpen((o) => !o)}
         >
-          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !open && '-rotate-90')} aria-hidden />
           {title}
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !open && '-rotate-90')} aria-hidden />
         </button>
         {action}
       </div>
@@ -355,7 +355,7 @@ export function AlignControl({ value, onChange, 'aria-label': ariaLabel }: Reado
       {items.map((item) => (
         <Tooltip key={item.value}>
           <TooltipTrigger asChild>
-            <ToggleGroupItem value={item.value} aria-label={item.label} className="flex-1">
+            <ToggleGroupItem value={item.value} aria-label={item.label} className={cn('flex-1', SELECTED_TOGGLE)}>
               {item.icon}
             </ToggleGroupItem>
           </TooltipTrigger>
@@ -365,6 +365,12 @@ export function AlignControl({ value, onChange, 'aria-label': ariaLabel }: Reado
     </ToggleGroup>
   );
 }
+
+/**
+ * Selected look for toggles inside a tooltip. The tooltip trigger overwrites `data-state` (to "closed" or
+ * "delayed-open"), so the toggle's own `data-[state=on]` style never applies; the aria state survives.
+ */
+const SELECTED_TOGGLE = 'aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-checked:bg-accent aria-checked:text-accent-foreground';
 
 function StyleToggle({ pressed, onPressedChange, label, children }: Readonly<{ pressed: boolean; onPressedChange: (next: boolean) => void; label: string; children: ReactNode }>) {
   const { readOnly } = useDesigner();
@@ -378,7 +384,7 @@ function StyleToggle({ pressed, onPressedChange, label, children }: Readonly<{ p
           disabled={readOnly}
           variant="outline"
           size="sm"
-          className="h-8 w-8 min-w-8 px-0"
+          className={cn('h-8 w-8 min-w-8 px-0', SELECTED_TOGGLE)}
         >
           {children}
         </Toggle>

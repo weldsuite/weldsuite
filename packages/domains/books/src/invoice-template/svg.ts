@@ -78,9 +78,14 @@ export function renderPageSvg(layout: InvoiceLayout, pageIndex: number, opts: { 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n(width)} ${n(height)}"${size}${cls} xml:space="preserve" style="white-space:pre"><rect width="100%" height="100%" fill="#ffffff"/>${body}</svg>`;
 }
 
-/** A printable HTML document: every page an SVG, one per printed sheet. */
-export function renderInvoiceHtmlDocument(layout: InvoiceLayout, opts: { title: string; lang?: string }): string {
+/**
+ * A printable HTML document: every page an SVG, one per printed sheet. With
+ * `mobile` (the `./mobile` layout), phones get that single column instead of
+ * a shrunken page; printing always uses the pages.
+ */
+export function renderInvoiceHtmlDocument(layout: InvoiceLayout, opts: { title: string; lang?: string; mobile?: string }): string {
   const pages = layout.pages.map((_, i) => `<div class="page">${renderPageSvg(layout, i)}</div>`).join('\n');
+  const mobile = opts.mobile ? `\n<div class="mobile">${opts.mobile}</div>` : '';
   return `<!DOCTYPE html>
 <html lang="${esc((opts.lang ?? 'en').split('-')[0])}">
 <head>
@@ -92,15 +97,23 @@ export function renderInvoiceHtmlDocument(layout: InvoiceLayout, opts: { title: 
   html, body { margin: 0; padding: 0; background: #e9ebef; }
   .page { width: ${n(layout.width)}pt; max-width: 100%; margin: 16px auto; box-shadow: 0 1px 4px rgba(0,0,0,.15); background: #fff; }
   .page svg { display: block; width: 100%; height: auto; }
+  .mobile { display: none; }
+  @media screen and (max-width: 640px) {
+    html, body { background: #fff; }
+    body.has-mobile .page { display: none; }
+    body.has-mobile .mobile { display: block; }
+  }
   @media print {
     html, body { background: #fff; }
+    .mobile { display: none !important; }
+    .page { display: block !important; }
     .page { margin: 0; box-shadow: none; max-width: none; break-after: page; }
     .page:last-child { break-after: auto; }
   }
 </style>
 </head>
-<body>
-${pages}
+<body${opts.mobile ? ' class="has-mobile"' : ''}>
+${pages}${mobile}
 </body>
 </html>`;
 }
