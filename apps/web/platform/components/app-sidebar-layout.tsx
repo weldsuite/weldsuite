@@ -1297,15 +1297,17 @@ export function AppSidebarLayout({
     <Sidebar
       collapsible={isMobile ? "none" : "offcanvas"}
       className={cn(
-        isMobile ? "hidden" : "left-16",
+        isMobile ? "hidden" : "left-15",
         // Turn the module sidebar into a "panel" that matches the shell
         // chrome: inset it from the top/bottom, sit flush against the rail on
         // its left, and keep its right edge flush so the content card attaches
         // directly to it. The inner surface gets the panel tone and a
         // left-rounded card edge (the rail's chrome shows in the rounded
-        // notch); no border — the panel/content color change is the seam.
+        // notch) and a border on its top, left and bottom, so it and the
+        // content card read as one outlined area; the card's left border is
+        // the divider between them.
         !isMobile &&
-          "group-data-[side=left]:!border-r-0 md:py-2 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:rounded-l-xl",
+          "group-data-[side=left]:!border-r-0 md:py-1 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:rounded-l-xl [&_[data-slot=sidebar-inner]]:border [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:border-border",
       )}
       {...props}
     >
