@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
@@ -113,23 +113,42 @@ function renderTable(onOpenDetails = vi.fn(), initialFilter?: 'all' | 'to_file')
 
 afterEach(cleanup);
 
-const row = (id: string) => within(screen.getByTestId(`review-row-${id}`));
+const names: Record<string, string> = {
+  inc: 'Included Inc',
+  tin: 'No Tin Co',
+  addr: 'No Address Co',
+  low: 'Small Fry',
+  corp: 'Big Corp',
+  not: 'Unflagged',
+  mismatch: 'Mismatch LLC',
+  unmapped: 'Unmapped Ltd',
+};
+
+/** The click target of a vendor's row; the list shows no such button for a vendor the filter leaves out. */
+const rowButton = (id: string) => screen.queryByRole('button', { name: `Payments: ${names[id]}` });
+
+/** The list row (a `group` div of the standard list) of a vendor. */
+function row(id: string) {
+  const button = rowButton(id);
+  const element = button?.closest<HTMLElement>('div.group');
+  if (!element) throw new Error(`No list row for ${id}`);
+  return within(element);
+}
+
+/** The tooltip of the cell that shows `text` in a vendor's row. */
+const titleOf = (id: string, text: string) => row(id).getByText(text).closest('[title]')?.getAttribute('title');
 
 describe('VendorReviewTable', () => {
-  it('opens on the vendors that go on a form, with a count on every filter', () => {
+  it('opens on the vendors that go on a form, with a count on every filter', async () => {
+    const user = userEvent.setup();
     renderTable();
-    expect(screen.queryByTestId('review-row-low')).toBeNull();
-    expect(screen.queryByTestId('review-row-corp')).toBeNull();
-    expect(screen.queryByTestId('review-row-not')).toBeNull();
-    for (const id of ['inc', 'tin', 'addr', 'mismatch', 'unmapped']) expect(screen.getByTestId(`review-row-${id}`)).toBeTruthy();
+    for (const id of ['low', 'corp', 'not']) expect(rowButton(id)).toBeNull();
+    for (const id of ['inc', 'tin', 'addr', 'mismatch', 'unmapped']) expect(rowButton(id)).not.toBeNull();
 
-    const filter = (name: RegExp) => screen.getByRole('button', { name });
-    expect(filter(/^All\s*8$/).getAttribute('aria-pressed')).toBe('false');
-    expect(filter(/^To file\s*5$/).getAttribute('aria-pressed')).toBe('true');
-    expect(filter(/^Need attention\s*5$/)).toBeTruthy();
-    expect(filter(/^Below threshold\s*1$/)).toBeTruthy();
-    expect(filter(/^Corporations\s*1$/)).toBeTruthy();
-    expect(filter(/^Not 1099 vendors\s*1$/)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'To file (5)' }));
+    for (const name of ['All (8)', 'Need attention (5)', 'Below threshold (1)', 'Corporations (1)', 'Not 1099 vendors (1)']) {
+      expect(await screen.findByRole('button', { name })).toBeTruthy();
+    }
   });
 
   it('shows each status with its own label', () => {
@@ -142,24 +161,23 @@ describe('VendorReviewTable', () => {
     expect(row('not').getByText('Not a 1099 vendor')).toBeTruthy();
   });
 
-  it('shows the reasons the computation gave', () => {
+  it('gives the reasons the computation gave next to the status', () => {
     renderTable(vi.fn(), 'all');
-    expect(row('tin').getByText('Collect a W-9 before filing.')).toBeTruthy();
-    expect(row('low').getByText('Paid $150.00, below the $2,000.00 threshold.')).toBeTruthy();
+    expect(row('tin').getByTitle('Collect a W-9 before filing.')).toBeTruthy();
+    expect(row('low').getByTitle('Paid $150.00, below the $2,000.00 threshold.')).toBeTruthy();
   });
 
-  it('shows the boxes the vendor goes on, in order, with their amounts', () => {
+  it('shows what the boxes add up to, with each box and its amount on hover', () => {
     renderTable(vi.fn(), 'all');
-    const items = row('unmapped').getAllByRole('listitem').map((li) => li.textContent);
-    expect(items).toEqual(['NEC 1$800.00', 'MISC 1$1200.00']);
+    expect(row('unmapped').getByText('$2000.00')).toBeTruthy();
+    expect(titleOf('unmapped', '$2000.00')).toBe('NEC 1: $800.00\nMISC 1: $1200.00');
   });
 
   it('shows what a vendor under the threshold was paid, marked as not reported', () => {
     renderTable(vi.fn(), 'all');
-    expect(row('low').getByText('NEC 1')).toBeTruthy();
     expect(row('low').getByText('$150.00')).toBeTruthy();
-    expect(row('low').getByText('Not reported')).toBeTruthy();
-    expect(row('inc').queryByText('Not reported')).toBeNull();
+    expect(titleOf('low', '$150.00')).toBe('NEC 1: $150.00\nNot reported');
+    expect(titleOf('inc', '$2500.00')).not.toMatch(/Not reported/);
   });
 
   it('shows the TIN masked, a missing TIN, and the IRS match result', () => {
@@ -184,7 +202,7 @@ describe('VendorReviewTable', () => {
     expect(row('addr').getByRole('link', { name: 'Add address' }).getAttribute('href')).toBe('/weldbooks/customers/addr/edit');
     expect(row('not').getByRole('link', { name: 'Mark as 1099 vendor' }).getAttribute('href')).toBe('/weldbooks/customers/not/edit');
     expect(row('unmapped').getByRole('link', { name: 'Set a box' })).toBeTruthy();
-    expect(row('unmapped').getByText('$300.00 has no box yet')).toBeTruthy();
+    expect(row('unmapped').getByTitle('$300.00 has no box yet')).toBeTruthy();
     expect(row('mismatch').getByRole('button', { name: 'Turn on backup withholding' })).toBeTruthy();
     expect(row('inc').queryByRole('link', { name: /Add|Mark|Set/ })).toBeNull();
   });
@@ -192,26 +210,28 @@ describe('VendorReviewTable', () => {
   it('narrows to the vendors that need attention', async () => {
     const user = userEvent.setup();
     renderTable();
-    await user.click(screen.getByRole('button', { name: /^Need attention/ }));
-    for (const id of ['tin', 'addr', 'mismatch', 'unmapped', 'not']) expect(screen.getByTestId(`review-row-${id}`)).toBeTruthy();
-    expect(screen.queryByTestId('review-row-inc')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'To file (5)' }));
+    await user.click(await screen.findByRole('button', { name: 'Need attention (5)' }));
+    await waitFor(() => expect(rowButton('inc')).toBeNull());
+    for (const id of ['tin', 'addr', 'mismatch', 'unmapped', 'not']) expect(rowButton(id)).not.toBeNull();
   });
 
   it('searches by name', async () => {
     const user = userEvent.setup();
     renderTable(vi.fn(), 'all');
-    await user.type(screen.getByRole('searchbox', { name: 'Search vendors' }), 'small');
-    expect(screen.getByTestId('review-row-low')).toBeTruthy();
-    expect(screen.queryByTestId('review-row-inc')).toBeNull();
-    await user.clear(screen.getByRole('searchbox', { name: 'Search vendors' }));
-    await user.type(screen.getByRole('searchbox', { name: 'Search vendors' }), 'zzz');
-    expect(screen.getByTestId('review-empty').textContent).toMatch(/No vendors match this filter/);
+    const search = () => screen.getAllByPlaceholderText('Search vendors')[0];
+    await user.type(search(), 'small');
+    expect(rowButton('low')).not.toBeNull();
+    expect(rowButton('inc')).toBeNull();
+    await user.clear(search());
+    await user.type(search(), 'zzz');
+    expect(screen.getByText('No vendors match this filter.')).toBeTruthy();
   });
 
   it('opens the payments behind a vendor', async () => {
     const user = userEvent.setup();
     const { onOpenDetails } = renderTable(vi.fn(), 'all');
-    await user.click(row('inc').getByRole('button', { name: 'Payments' }));
+    await user.click(rowButton('inc')!);
     expect(onOpenDetails).toHaveBeenCalledWith('inc');
   });
 });

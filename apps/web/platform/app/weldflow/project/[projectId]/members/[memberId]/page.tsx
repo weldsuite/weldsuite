@@ -98,7 +98,7 @@ function getStatusBgColor(status: string) {
 }
 
 function ActivityLog({ recentTasks }: Readonly<{ recentTasks: MemberStats['recentTasks'] }>) {
-  const { t } = useI18n();
+  const { t, format: fmt } = useI18n();
   const getActionLabel = (status: string) => {
     if (status === 'done') return t.projects.members.completedTask;
     if (status === 'in_progress') return t.projects.members.workingOnTask;
@@ -119,7 +119,7 @@ function ActivityLog({ recentTasks }: Readonly<{ recentTasks: MemberStats['recen
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-foreground">
-                {getActionLabel(task.status)} task &quot;{task.title}&quot;
+                {fmt(t.projects.members.activityTaskLine, { action: getActionLabel(task.status), title: task.title })}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {task.updatedAt ? formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true }) : t.projects.members.recently}

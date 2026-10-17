@@ -17,7 +17,7 @@ import type { Account, TaxLineCatalog } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { groupTaxLines, taxLineName } from '@/lib/weldbooks/tax-lines';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
-import { RemapTaxLinesDialog } from '@/app/weldbooks/entities/components/remap-tax-lines-dialog';
+import { RemapTaxLinesDialog } from '@/app/settings/entities/components/remap-tax-lines-dialog';
 import { TaxLineSelect, useTaxSectionLabel } from '../components/tax-line-select';
 
 function isIncomeOrExpense(account: Pick<Account, 'type'>): boolean {

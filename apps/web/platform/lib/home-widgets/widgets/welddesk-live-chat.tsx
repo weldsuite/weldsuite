@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useDeskConversations } from '@/hooks/queries/use-desk-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { DeskLiveChatCard, type DeskLiveChatRow } from '@/components/home/app-cards';
+import { useHomeTime, type HomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const welddeskLiveChatSchema = z.object({
@@ -12,30 +13,31 @@ const welddeskLiveChatSchema = z.object({
 });
 export type WelddeskLiveChatSettings = z.infer<typeof welddeskLiveChatSchema>;
 
-function relativeWhen(iso: string | undefined): string {
+function relativeWhen(iso: string | undefined, tm: HomeTime): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const diffMin = Math.floor((Date.now() - d.getTime()) / 60_000);
-  if (diffMin < 1) return 'now';
-  if (diffMin < 60) return `${diffMin}m`;
-  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h`;
+  if (diffMin < 1) return tm.now;
+  if (diffMin < 60) return tm.minutes(diffMin);
+  if (diffMin < 1440) return tm.hours(Math.floor(diffMin / 60));
   const diffDays = Math.floor(diffMin / 1440);
-  if (diffDays === 1) return 'Yest';
+  if (diffDays === 1) return tm.yesterday;
   return d.toLocaleDateString(undefined, { weekday: 'short' });
 }
 
 function Render({ settings }: Readonly<{ settings: WelddeskLiveChatSettings }>) {
+  const tm = useHomeTime();
   const { data, isLoading } = useDeskConversations({ state: 'open' }, 'newest');
   const conversations = data?.pages.flatMap((page) => page.data) ?? [];
   const rows: DeskLiveChatRow[] = conversations.slice(0, settings.maxCount).map((conversation) => {
-    const visitor = conversation.name ?? conversation.email ?? 'Anonymous visitor';
+    const visitor = conversation.name ?? conversation.email ?? tm.anonymousVisitor;
     return {
       visitor,
       initials: visitor.charAt(0).toUpperCase(),
       url: '',
       preview: conversation.lastMessagePreview ?? conversation.title ?? '',
-      when: relativeWhen(conversation.lastMessageAt ?? conversation.updatedAt),
+      when: relativeWhen(conversation.lastMessageAt ?? conversation.updatedAt, tm),
       online: conversation.state === 'open',
       unread: conversation.state === 'open' ? 1 : 0,
       href: `/welddesk/inbox/${conversation.id}`,

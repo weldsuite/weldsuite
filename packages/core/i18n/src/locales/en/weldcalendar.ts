@@ -546,6 +546,7 @@ export const weldcalendar = {
       locationMeetingLinkCustomHint: 'Guests get this link instead of a WeldMeet link. Clear it to create a WeldMeet link for every booking again.',
       locationPhoneHint: 'The person making the appointment will provide the phone number',
       locationAddressLabel: 'Address *',
+      locationAddressPlaceholder: '123 Main St, City',
       locationAddressHint: 'Address is required for in-person appointments',
       descriptionTitle: 'Description',
       descriptionHint: 'Add a note that explains your service. This will appear on your booking page and in confirmation emails.',

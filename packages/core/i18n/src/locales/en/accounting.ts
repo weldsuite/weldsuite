@@ -60,6 +60,53 @@ export const accounting = {
         method: 'Method',
         reference: 'Reference',
       },
+      charts: {
+        overview: 'Your overview',
+        dateRange: 'Date range',
+        compare: 'Compare',
+        compareOff: 'Off',
+        last3Months: 'Last 3 months',
+        last6Months: 'Last 6 months',
+        last12Months: 'Last 12 months',
+        previousPeriod: 'Previous period',
+        previousYear: 'Previous year',
+        previousPeriodValue: '{amount} previous period',
+        previousYearValue: '{amount} previous year',
+        lastYear: 'Last year',
+        noComparison: 'No data for this period',
+        revenue: 'Revenue',
+        expenses: 'Expenses',
+        netProfit: 'Net profit',
+        receivablesByAge: 'Receivables by age',
+        payablesByAge: 'Payables by age',
+        cash: 'Cash',
+        cashBalance: 'Cash balance',
+        accounts: { one: '1 bank account', other: '{count} bank accounts' },
+        toReceive: 'To receive',
+        toPay: 'To pay',
+        overdueAmount: '{amount} overdue',
+        invoiceCount: { one: '1 open invoice', other: '{count} open invoices' },
+        billCount: { one: '1 open bill', other: '{count} open bills' },
+        documents: 'Documents to process',
+        documentsWaiting: 'Waiting to be booked',
+        dueSoon: 'Due in the next 30 days',
+        received: 'Received',
+        paid: 'Paid',
+        newInvoice: 'New invoice',
+        info: {
+          revenue: 'Revenue booked in the ledger, net of VAT',
+          expenses: 'Expenses booked in the ledger, net of VAT',
+          profit: 'Revenue minus expenses',
+          receivables: 'Open invoices by days past their due date, as of today',
+          payables: 'Open bills by days past their due date, as of today',
+          cash: 'Balances of your active bank accounts',
+        },
+        aging: {
+          current: 'Not due',
+          overdue: 'Overdue',
+          days: '{range} days',
+        },
+      },
     },
     accounts: {
       title: 'Chart of Accounts',
@@ -1785,6 +1832,9 @@ export const accounting = {
 
     // Banking pages
     bankingPages: {
+      transactionsEmptyTitle: 'No transactions yet',
+      transactionsEmptyDescription: 'Add or import your first transaction to get started',
+      noRulesDescription: 'Create your first rule to get started',
       pageTitle: 'Bank Accounts',
       addBankAccount: 'Add Bank Account',
       comingSoon: 'Coming soon',
@@ -1872,7 +1922,7 @@ export const accounting = {
 
       // Rules page
       newRule: 'New Rule',
-      noRulesTitle: 'No reconciliation rules yet. Create one to auto-categorize recurring transactions like rent, subscriptions, or bank fees.',
+      noRulesTitle: 'No reconciliation rules yet',
       createFirstRule: 'Create your first rule',
       deleteRuleTitle: 'Delete this rule?',
       deleteRuleDesc: 'Existing reconciled transactions are unaffected. New imports will no longer apply this rule.',
@@ -2016,10 +2066,51 @@ export const accounting = {
       bic: 'BIC',
       paymentTermsDays: 'Payment Terms (days)',
       nameOnInvoice: 'Name on invoices',
-      nameOnInvoiceHelp: 'Printed on invoices and shown in lists. For a business, use the company name.',
-      companyNameHelp: 'The registered name of the business, if this contact is a company.',
+      nameOnInvoiceHelp: 'Leave empty to use the company name. Fill it in for a trading name.',
+      companyNameHelp: 'The registered name of the business.',
+      companyNameRequired: 'Company name is required',
+      personNameRequired: 'Enter a first or last name',
       contactPerson: 'Contact person',
-      contactPersonHelp: 'The person you deal with. Not printed on invoices.',
+      contactPersonHelp:
+        'The person you deal with at this company. Saved in WeldCRM as its billing contact. Invoices go to their email when the company has none.',
+      kind: 'Type',
+      kinds: {
+        company: 'Company',
+        person: 'Person',
+      },
+      kindHelp: 'A company is any business, sole traders included. A person is a private individual.',
+      findInCrm: {
+        company: 'Find a company in WeldCRM',
+        person: 'Find a person in WeldCRM',
+      },
+      searchCrm: {
+        company: 'Search companies...',
+        person: 'Search people...',
+      },
+      createInCrm: {
+        company: 'New company "{name}"',
+        person: 'New person "{name}"',
+      },
+      createInCrmBlank: {
+        company: 'New company',
+        person: 'New person',
+      },
+      newInCrm: {
+        company: 'Not in WeldCRM yet? Fill in the details and a new company is added there.',
+        person: 'Not in WeldCRM yet? Fill in the details and a new person is added there.',
+      },
+      linkedToCrm: 'Linked to WeldCRM',
+      linkedToCrmHelp: 'Name, email, phone and tax details are saved on this WeldCRM record.',
+      unlink: 'Unlink',
+      openInCrm: 'Open in WeldCRM',
+      loadingCrm: 'Loading...',
+      chooseContactPerson: 'Choose from WeldCRM',
+      removeContactPerson: 'Remove',
+      contactPersonLinked: '{name} in WeldCRM',
+      noContactPerson: 'No contact person',
+      alreadyInBooks: 'Already a customer or supplier',
+      openExisting: 'Open',
+      emailFromContactPerson: 'From the contact person',
       taxIdPlaceholder: 'As registered with the tax authority',
       vatNumberInvalid: 'Not a valid VAT number for {country}. Example: {example}',
       ibanInvalid: 'Not a valid IBAN. Check the country code, the length and the check digits.',
@@ -2344,6 +2435,7 @@ export const accounting = {
 
     // Journal entries list page
     journalPage: {
+      emptyDescription: 'Create your first journal entry to get started',
       newEntry: 'New Entry',
       ungrouped: 'Undated',
       colDate: 'Date',
@@ -2521,6 +2613,9 @@ export const accounting = {
 
     // VAT pages
     vat: {
+      emptyTitle: 'No VAT returns yet',
+      emptyDescription: 'Calculate your first VAT return to get started',
+      icpEmptyDescription: 'Calculate your first ICP declaration to get started',
       title: 'VAT return',
       newReturn: 'New VAT Return',
       period: 'Period',
@@ -2670,6 +2765,7 @@ export const accounting = {
       dropHint: 'Drop invoice images here — WeldAgent will extract supplier, amounts, line items, and totals.',
       uploadInvoice: 'Upload invoice',
       noDocumentsInbox: 'No documents in inbox',
+      emptyDescription: 'Upload your first invoice to get started',
       phaseUploading: 'Uploading…',
       phaseProcessing: 'Scanning with WeldAgent…',
       phaseDone: 'Done',
@@ -2734,6 +2830,7 @@ export const accounting = {
 
     // Entities page
     entities: {
+      emptyDescription: 'Create your first entity to get started',
       title: 'Administrations',
       newEntity: 'New Administration',
       entityName: 'Name',
@@ -2770,7 +2867,7 @@ export const accounting = {
       editEntity: 'Edit',
       badgeInactive: 'Inactive',
       newEntity2: 'New Entity',
-      noEntities2: 'No entities yet. Create one to start using WeldBooks.',
+      noEntities2: 'No entities yet',
       // Add entity page
       newLegalEntity: 'New Legal Entity',
       newLegalEntityDesc: 'Creating an entity seeds its chart of accounts and tax rates from the jurisdiction adapter.',
@@ -2786,6 +2883,7 @@ export const accounting = {
       vatNumber: 'VAT number',
       registrationNumber: 'Company registration number',
       ibanLabel: 'IBAN',
+      accountNumberIfscPlaceholder: 'Account number / IFSC',
       makeDefault: 'Make this the workspace default entity',
       seedDefaults: 'Seed standard chart of accounts + tax rates for this jurisdiction',
       createEntity2: 'Create entity',
@@ -2795,6 +2893,7 @@ export const accounting = {
 
     // Recurring invoices list + detail pages
     recurringPage: {
+      colName: 'Name',
       colContact: 'Contact',
       colFrequency: 'Frequency',
       colNextDate: 'Next Date',
@@ -2802,8 +2901,10 @@ export const accounting = {
       colStatus: 'Status',
       statusActive: 'Active',
       statusPaused: 'Paused',
+      statusCompleted: 'Completed',
       newRecurring: 'New Recurring Invoice',
       noRecurring: 'No recurring invoices found',
+      emptyDescription: 'Create your first recurring invoice to get started',
       // Detail page
       notFound: 'Recurring invoice not found.',
       defaultName: 'Recurring Invoice',
@@ -2833,6 +2934,7 @@ export const accounting = {
 
     // Bills list page
     billsPage: {
+      emptyDescription: 'Create your first bill to get started',
       searchPlaceholder: 'Search bills...',
       newBill: 'New Bill',
       groupOverdue: 'Overdue',
@@ -2851,6 +2953,7 @@ export const accounting = {
 
     // Accounts (Chart of Accounts) page
     accountsPage: {
+      emptyDescription: 'Create your first account to get started',
       filterTypeLabel: 'Type',
       filterAsset: 'Asset',
       filterLiability: 'Liability',
@@ -2872,6 +2975,7 @@ export const accounting = {
 
     // Customers list page
     customersPage: {
+      emptyDescription: 'Create your first customer to get started',
       searchPlaceholder: 'Search customers...',
       newCustomer: 'New Customer',
       filterRoleLabel: 'Role',
@@ -2879,6 +2983,7 @@ export const accounting = {
       filterArchivedLabel: 'Archived',
       filterArchivedInclude: 'Include archived',
       filterArchivedOnly: 'Archived only',
+      filterKindLabel: 'Type',
       colName: 'Name',
       colEmail: 'Email',
       colRole: 'Role',
@@ -2889,6 +2994,7 @@ export const accounting = {
 
     // Suppliers list page
     suppliersPage: {
+      emptyDescription: 'Create your first supplier to get started',
       searchPlaceholder: 'Search suppliers...',
       newSupplier: 'New Supplier',
       filterRoleLabel: 'Role',
@@ -2896,6 +3002,7 @@ export const accounting = {
       filterArchivedLabel: 'Archived',
       filterArchivedInclude: 'Include archived',
       filterArchivedOnly: 'Archived only',
+      filterKindLabel: 'Type',
       colName: 'Name',
       colEmail: 'Email',
       colRole: 'Role',
@@ -2906,6 +3013,7 @@ export const accounting = {
 
     // Credit notes page
     creditNotesPage: {
+      emptyDescription: 'Create a credit note from a finalized invoice',
       searchPlaceholder: 'Search credit notes...',
       colNumber: 'Number',
       colContact: 'Contact',
@@ -2914,7 +3022,7 @@ export const accounting = {
       colTotal: 'Total',
       colStatus: 'Status',
       viewSource: 'View source',
-      noCreditNotes: 'No credit notes yet. Open a finalized invoice and use "Create credit note".',
+      noCreditNotes: 'No credit notes yet',
     },
 
     // KPI cards
@@ -3261,6 +3369,9 @@ export const accounting = {
       bic: 'BIC',
       accountNumber: 'Account',
       routingNumber: 'Routing',
+    },
+    reconciliationRuleForm: {
+      namePlaceholder: 'Office rent',
     },
     // Invoice templates: what a designed invoice prints (natural case; a template can uppercase it)
     invoiceTemplateDocument: {

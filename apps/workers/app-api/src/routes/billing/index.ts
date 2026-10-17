@@ -76,6 +76,7 @@ import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { success, error } from '@weldsuite/worker-kit/response';
+import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
 import { sendSystemEmail } from '@weldsuite/emails';
 import { workerTransport } from '@weldsuite/emails/transports/binding';
 import {
@@ -903,8 +904,8 @@ app.post('/checkout', canManageBilling, blockPartnerManaged(), zValidator('json'
     customerId,
     price: checkoutPrice,
     quantity: Math.max(1, body.seats),
-    successUrl: body.successUrl || 'https://app.weldsuite.org/settings/billing?success=true',
-    cancelUrl: body.cancelUrl || 'https://app.weldsuite.org/settings/billing?canceled=true',
+    successUrl: body.successUrl || workspaceAppUrl('https://app.weldsuite.org', orgId, '/settings/billing?success=true'),
+    cancelUrl: body.cancelUrl || workspaceAppUrl('https://app.weldsuite.org', orgId, '/settings/billing?canceled=true'),
     metadata: {
       workspaceId: workspace.id,
       planId: plan.id,

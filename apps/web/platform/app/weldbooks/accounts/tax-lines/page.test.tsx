@@ -39,7 +39,7 @@ vi.mock('@/lib/i18n/provider', async () => {
   const { en } = await import('@weldsuite/i18n/locales/en');
   return { useI18n: () => ({ t: en, language: 'en' }) };
 });
-vi.mock('@/app/weldbooks/entities/components/remap-tax-lines-dialog', () => ({
+vi.mock('@/app/settings/entities/components/remap-tax-lines-dialog', () => ({
   RemapTaxLinesDialog: ({ open, formLabel }: { open: boolean; formLabel?: string | null }) =>
     open ? <div data-testid="remap-dialog">{formLabel}</div> : null,
 }));

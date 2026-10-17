@@ -79,6 +79,8 @@ import { OnboardingChecklist } from "@/components/layout/onboarding-checklist-gr
 import { CalendarLogoIcon } from "@/components/calendar-logo-icon"
 import { BetaBadge } from "@/components/layout/beta-badge"
 import type { MenuPermission } from "@/components/layout/menu-permission"
+import { useI18n } from "@/lib/i18n/provider"
+import type { TranslationsType } from "@/lib/i18n/types"
 
 export { type UserInfo, type Workspace }
 
@@ -86,6 +88,10 @@ interface ItemAction {
   label: string;
   icon?: LucideIcon;
   onClick: () => void;
+  /** Renders the item in red (delete-style actions). */
+  destructive?: boolean;
+  /** Draws a separator below this item. */
+  separatorAfter?: boolean;
 }
 
 export interface MenuItemProps {
@@ -196,7 +202,8 @@ export interface AppLogo {
   iconClassName?: string;
 }
 
-// Available colors for colored-square icons
+// Available colors for colored-square icons. `label` is a stable identifier (stored with the item);
+// use `coloredSquareColorLabel` to show it to the user.
 export const coloredSquareColors = [
   { value: 'bg-red-500', label: 'Red' },
   { value: 'bg-pink-500', label: 'Pink' },
@@ -244,6 +251,18 @@ export const coloredSquareIcons: { value: LucideIcon; label: string }[] = [
   { value: Hash, label: 'Hash' },
   { value: Rocket, label: 'Rocket' },
 ];
+
+type ColoredSquareLabels = TranslationsType['common']['coloredSquare'];
+
+/** Translated display name of a `coloredSquareColors` entry (its `label` stays the stable English identifier). */
+export function coloredSquareColorLabel(labels: ColoredSquareLabels, label: string): string {
+  return labels.colors[label.toLowerCase() as keyof ColoredSquareLabels['colors']] ?? label;
+}
+
+/** Translated display name of a `coloredSquareIcons` entry (its `label` stays the stable English identifier). */
+export function coloredSquareIconLabel(labels: ColoredSquareLabels, label: string): string {
+  return labels.icons[label.toLowerCase() as keyof ColoredSquareLabels['icons']] ?? label;
+}
 
 /** Resolve a stored icon label to a Lucide component (case-insensitive). */
 export function findColoredSquareIconByLabel(label: string): LucideIcon | undefined {
@@ -318,7 +337,7 @@ function ActionDropdownItems({ actions }: Readonly<{ actions: ItemAction[] }>) {
     <>
       {actions.map((action, idx) => {
         const ActionIcon = action.icon;
-        const isDelete = action.label.toLowerCase() === 'delete';
+        const isDelete = action.destructive ?? action.label.toLowerCase() === 'delete';
         return (
           <React.Fragment key={action.label}>
             <DropdownMenuItem
@@ -328,7 +347,7 @@ function ActionDropdownItems({ actions }: Readonly<{ actions: ItemAction[] }>) {
               {ActionIcon && <ActionIcon className={cn("mr-0.5 h-4 w-4", isDelete && "text-red-600")} />}
               {action.label}
             </DropdownMenuItem>
-            {idx < actions.length - 1 && action.label === 'Rename' && (
+            {idx < actions.length - 1 && (action.separatorAfter ?? action.label === 'Rename') && (
               <DropdownMenuSeparator />
             )}
           </React.Fragment>
@@ -420,6 +439,7 @@ function menuEntryKeys(menu: readonly { label: string }[]): string[] {
 }
 
 function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
+  const { t } = useI18n();
   const menu = group.groupContextMenu ?? [];
   const menuKeys = menuEntryKeys(menu);
   return (
@@ -434,7 +454,7 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
             {group.onToggleCollapse && (
               <span
                 className="inline-flex items-center justify-center w-4 h-4 rounded text-muted-foreground"
-                aria-label={group.collapsed ? 'Expand group' : 'Collapse group'}
+                aria-label={group.collapsed ? t.common.sidebarItemMenu.expandGroup : t.common.sidebarItemMenu.collapseGroup}
               >
                 {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               </span>
@@ -492,6 +512,7 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
 }
 
 function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
+  const { t, format } = useI18n();
   let addButton: React.ReactNode = null;
   if (group.customAddButton) {
     addButton = group.customAddButton;
@@ -505,7 +526,7 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
         style={{ marginLeft: '-12px' }}
       >
         <Plus className="w-4 h-4" />
-        <span className="sr-only">Add {group.group}</span>
+        <span className="sr-only">{format(t.common.sidebarItemMenu.addToGroup, { group: group.group })}</span>
       </Button>
     );
   }
@@ -518,7 +539,7 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
           size="icon"
           onClick={group.onToggleCollapse}
           className="flex items-center justify-center w-4 h-4 rounded text-muted-foreground hover:text-foreground"
-          aria-label={group.collapsed ? 'Expand group' : 'Collapse group'}
+          aria-label={group.collapsed ? t.common.sidebarItemMenu.expandGroup : t.common.sidebarItemMenu.collapseGroup}
         >
           {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         </Button>
@@ -648,6 +669,8 @@ function SidebarItemWithSubItems({ item, pathname }: Readonly<{ item: MenuItemPr
 }
 
 function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
+  const { t } = useI18n();
+  const tm = t.common.sidebarItemMenu;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -670,7 +693,7 @@ function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
         {item.onRename && (
           <DropdownMenuItem onClick={item.onRename} className="gap-2">
             <SquarePen className="h-4 w-4" />
-            Rename
+            {tm.rename}
           </DropdownMenuItem>
         )}
         {(item.onMoveUp || item.onMoveDown) && (
@@ -679,13 +702,13 @@ function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
             {item.onMoveUp && (
               <DropdownMenuItem onClick={item.onMoveUp} className="gap-2">
                 <ArrowUp className="h-4 w-4" />
-                Move Up
+                {tm.moveUp}
               </DropdownMenuItem>
             )}
             {item.onMoveDown && (
               <DropdownMenuItem onClick={item.onMoveDown} className="gap-2">
                 <ArrowDown className="h-4 w-4" />
-                Move Down
+                {tm.moveDown}
               </DropdownMenuItem>
             )}
           </>
@@ -696,19 +719,19 @@ function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
         {item.onDuplicate && (
           <DropdownMenuItem onClick={item.onDuplicate} className="gap-2">
             <Copy className="h-4 w-4" />
-            Duplicate
+            {tm.duplicate}
           </DropdownMenuItem>
         )}
         {item.onExport && (
           <DropdownMenuItem onClick={item.onExport} className="gap-2">
             <Download className="h-4 w-4" />
-            Export
+            {tm.export}
           </DropdownMenuItem>
         )}
         {item.onImport && (
           <DropdownMenuItem onClick={item.onImport} className="gap-2">
             <Upload className="h-4 w-4" />
-            Import
+            {tm.import}
           </DropdownMenuItem>
         )}
         {(item.onDuplicate || item.onExport || item.onImport || item.onRename) && item.onDelete && (
@@ -717,7 +740,7 @@ function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
         {item.onDelete && (
           <DropdownMenuItem variant="destructive" onClick={item.onDelete} className="gap-2">
             <Trash2 className="h-4 w-4" />
-            Delete
+            {tm.delete}
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
@@ -726,6 +749,7 @@ function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
 }
 
 function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readonly<{ item: MenuItemProps; isActive: boolean; pathname: string; hasContextMenu: boolean }>) {
+  const { t } = useI18n();
   const Icon = item.icon;
   return (
     <div
@@ -775,7 +799,7 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
                   {item.activeCallType === 'video' ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" fill="currentColor" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={4}>Join call</TooltipContent>
+              <TooltipContent side="top" sideOffset={4}>{t.common.sidebarItemMenu.joinCall}</TooltipContent>
             </Tooltip>
           )}
           {item.badge && <span className={cn("text-[11px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[18px] min-w-[18px] flex items-center justify-center rounded-[6px]", !item.activeCall && "ml-auto", /^[1-9]$/.test(String(item.badge)) ? "indent-[0.5px]" : "indent-[1.5px]")}>{item.badge}</span>}
@@ -806,13 +830,15 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
 }
 
 function ChangeColorEntries({ item }: Readonly<{ item: MenuItemProps }>) {
+  const { t } = useI18n();
+  const tm = t.common.sidebarItemMenu;
   return (
     <>
       <ContextMenuSeparator />
       <ContextMenuSub>
         <ContextMenuSubTrigger className="gap-2">
           <Palette className="h-4 w-4" />
-          Change color
+          {tm.changeColor}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="w-48">
           <div className="grid grid-cols-4 gap-1 p-2">
@@ -826,7 +852,7 @@ function ChangeColorEntries({ item }: Readonly<{ item: MenuItemProps }>) {
                   item.iconColor === color.value && "ring-2 ring-offset-2 ring-primary"
                 )}
                 onClick={() => item.onChangeColor?.(color.value)}
-                title={color.label}
+                title={coloredSquareColorLabel(t.common.coloredSquare, color.label)}
               />
             ))}
           </div>
@@ -837,12 +863,14 @@ function ChangeColorEntries({ item }: Readonly<{ item: MenuItemProps }>) {
 }
 
 function ChangeIconEntries({ item }: Readonly<{ item: MenuItemProps }>) {
+  const { t } = useI18n();
+  const tm = t.common.sidebarItemMenu;
   const Icon = item.icon;
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger className="gap-2">
         <ImageIcon className="h-4 w-4" />
-        Change icon
+        {tm.changeIcon}
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-56">
         <div className="grid grid-cols-5 gap-1 p-2">
@@ -858,7 +886,7 @@ function ChangeIconEntries({ item }: Readonly<{ item: MenuItemProps }>) {
                   Icon === iconOption.value && "bg-accent ring-2 ring-primary"
                 )}
                 onClick={() => item.onChangeIcon?.(iconOption.value)}
-                title={iconOption.label}
+                title={coloredSquareIconLabel(t.common.coloredSquare, iconOption.label)}
               >
                 <IconComponent className="h-4 w-4" />
               </Button>
@@ -871,12 +899,14 @@ function ChangeIconEntries({ item }: Readonly<{ item: MenuItemProps }>) {
 }
 
 function ColoredItemContextContent({ item }: Readonly<{ item: MenuItemProps }>) {
+  const { t } = useI18n();
+  const tm = t.common.sidebarItemMenu;
   return (
     <ContextMenuContent className="w-56">
       {item.onRename && (
         <ContextMenuItem onClick={item.onRename} className="gap-2">
           <SquarePen className="h-4 w-4" />
-          Rename
+          {tm.rename}
         </ContextMenuItem>
       )}
       {(item.onMoveUp || item.onMoveDown) && (
@@ -885,13 +915,13 @@ function ColoredItemContextContent({ item }: Readonly<{ item: MenuItemProps }>) 
           {item.onMoveUp && (
             <ContextMenuItem onClick={item.onMoveUp} className="gap-2">
               <ArrowUp className="h-4 w-4" />
-              Move Up
+              {tm.moveUp}
             </ContextMenuItem>
           )}
           {item.onMoveDown && (
             <ContextMenuItem onClick={item.onMoveDown} className="gap-2">
               <ArrowDown className="h-4 w-4" />
-              Move Down
+              {tm.moveDown}
             </ContextMenuItem>
           )}
         </>
@@ -902,7 +932,7 @@ function ColoredItemContextContent({ item }: Readonly<{ item: MenuItemProps }>) 
       {item.onDuplicate && (
         <ContextMenuItem onClick={item.onDuplicate} className="gap-2">
           <Copy className="h-4 w-4" />
-          Duplicate
+          {tm.duplicate}
         </ContextMenuItem>
       )}
       {(item.onImport || item.onExport) && (
@@ -911,13 +941,13 @@ function ColoredItemContextContent({ item }: Readonly<{ item: MenuItemProps }>) 
           {item.onImport && (
             <ContextMenuItem onClick={item.onImport} className="gap-2">
               <Upload className="h-4 w-4" />
-              Import
+              {tm.import}
             </ContextMenuItem>
           )}
           {item.onExport && (
             <ContextMenuItem onClick={item.onExport} className="gap-2">
               <Download className="h-4 w-4" />
-              Export
+              {tm.export}
             </ContextMenuItem>
           )}
         </>
@@ -932,7 +962,7 @@ function ColoredItemContextContent({ item }: Readonly<{ item: MenuItemProps }>) 
             className="gap-2 text-red-600 focus:text-red-600"
           >
             <Trash2 className="h-4 w-4 text-red-600" />
-            Delete
+            {tm.delete}
           </ContextMenuItem>
         </>
       )}

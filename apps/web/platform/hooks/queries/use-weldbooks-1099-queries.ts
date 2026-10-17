@@ -154,13 +154,20 @@ export function useForm945(year: number, options: { enabled?: boolean } = {}) {
  * server for the vendors flagged for 1099 reporting.
  */
 export function useSupplierContacts(
-  options: { search?: string; role?: 'supplier' | 'both'; only1099?: boolean; archived?: 'only' | 'include' } = {},
+  options: {
+    search?: string;
+    role?: 'supplier' | 'both';
+    kind?: 'company' | 'person';
+    only1099?: boolean;
+    archived?: 'only' | 'include';
+  } = {},
 ) {
   return useQuery({
     queryKey: [...accountingKeys.customers.lists(), 'suppliers', options] as const,
     queryFn: () =>
       vendorTaxApi.listContacts({
         role: options.role ?? 'supplier',
+        kind: options.kind,
         search: options.search || undefined,
         is1099Vendor: options.only1099 ? true : undefined,
         archived: options.archived,

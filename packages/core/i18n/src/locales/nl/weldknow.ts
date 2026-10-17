@@ -149,6 +149,8 @@ export const weldknow = {
     home: 'WeldKnow',
   },
   common: {
+    expand: 'Uitklappen',
+    collapse: 'Inklappen',
     cancel: 'Annuleren',
     save: 'Opslaan',
     create: 'Aanmaken',

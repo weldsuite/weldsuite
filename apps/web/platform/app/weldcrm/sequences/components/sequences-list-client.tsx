@@ -226,7 +226,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
     { value: 'status' as const, label: t('crm.sequences.groupByStatus') },
     { value: 'none' as const, label: t('crm.sequences.groupByNone') },
   ];
-  const groupByLabel = groupByOptions.find((o) => o.value === groupBy)?.label ?? 'Status';
+  const groupByLabel = groupByOptions.find((o) => o.value === groupBy)?.label ?? t('crm.sequences.groupByStatus');
 
   const groupByMenu = (
     <Popover>
@@ -355,7 +355,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
           </span>
           {sequence.activeEnrolledCount > 0 && (
             <span className="text-xs font-mono text-green-600 dark:text-green-400">
-              ({sequence.activeEnrolledCount} active)
+              {t('crm.sequences.activeEnrolled', { count: sequence.activeEnrolledCount })}
             </span>
           )}
         </div>

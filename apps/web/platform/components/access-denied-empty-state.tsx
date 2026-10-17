@@ -4,6 +4,7 @@ import { EmptyStateIllustration } from '@/components/entity-list';
 import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
 import { usePathname } from '@/lib/router/use-pathname';
+import { useI18n } from '@/lib/i18n/provider';
 import type { AccessRequest } from '@weldsuite/core-api-client/schemas/access-requests';
 import {
   useCreateAccessRequest,
@@ -24,6 +25,8 @@ export function AccessDeniedEmptyState({
   permission,
   pageLabel,
 }: Readonly<AccessDeniedEmptyStateProps>) {
+  const { t } = useI18n();
+  const ta = t.common.accessDenied;
   const pathname = usePathname();
   const { mutate: requestAccess, isPending } = useCreateAccessRequest();
   const { data: pending } = useMyPendingAccessRequests();
@@ -44,18 +47,18 @@ export function AccessDeniedEmptyState({
         onSuccess: () => {
           toast.success(
             alreadyRequested
-              ? 'Your request is already pending — admins have been reminded.'
-              : 'Request sent to your workspace admin.',
+              ? ta.requestAlreadyPending
+              : ta.requestSent,
           );
         },
         onError: () => {
-          toast.error('Could not send your request. Please try again.');
+          toast.error(ta.requestFailed);
         },
       },
     );
   };
 
-  const buttonLabel = alreadyRequested ? 'Request pending' : 'Request access';
+  const buttonLabel = alreadyRequested ? ta.requestPending : ta.requestAccess;
   const disabled = isPending || alreadyRequested;
 
   return (
@@ -75,7 +78,7 @@ export function AccessDeniedEmptyState({
           <rect x="58" y="78" width="4" height="12" rx="2" className="fill-gray-200 dark:fill-white/20" />
         </svg>
       </EmptyStateIllustration>
-      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">Access Denied</h3>
+      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{ta.title}</h3>
       <p className="text-sm text-muted-foreground leading-relaxed whitespace-nowrap">{description}</p>
       <Button onClick={handleRequestAccess} variant="outline" className="mt-4" disabled={disabled}>
         {buttonLabel}

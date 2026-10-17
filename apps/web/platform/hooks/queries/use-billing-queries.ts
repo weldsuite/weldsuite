@@ -1,6 +1,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import type {
   BillingPaymentMethodResponse,
   BillingSubscriptionResponse,
@@ -360,13 +361,14 @@ export function useRemovePaymentMethod() {
  */
 export function useBuyCredits() {
   const { getClient } = useAppApiClient();
+  const workspaceUrl = useWorkspaceUrl();
   return useMutation({
     mutationFn: async (packageId: string) => {
       const client = await getClient();
       const res = await client.post<{ data: { url: string } }>('/credits/checkout', {
         packageId,
-        successUrl: `${window.location.origin}/settings/billing?credits=success`,
-        cancelUrl: `${window.location.origin}/settings/billing?credits=cancelled`,
+        successUrl: workspaceUrl('/settings/billing?credits=success'),
+        cancelUrl: workspaceUrl('/settings/billing?credits=cancelled'),
       });
       return res.data;
     },

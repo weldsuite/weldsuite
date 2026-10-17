@@ -24,6 +24,17 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 vi.mock('@/hooks/queries/use-settings-queries', () => ({ useWorkspaceMembers: () => ({ data: { data: [] } }) }));
 vi.mock('@/hooks/use-file-upload', () => ({ useFileUpload: () => ({ uploadFile: vi.fn() }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
+// The "Find in WeldCRM" pickers list nothing here.
+vi.mock('@/components/objects/company/use-company-data', () => ({
+  useCompanies: () => ({ data: { data: [] }, isLoading: false }),
+}));
+vi.mock('@/components/objects/person/use-person-data', () => ({
+  usePeople: () => ({ data: { data: [] }, isLoading: false }),
+}));
+vi.mock('@/lib/crm/company-logo', () => ({
+  logoDomainForCompany: () => undefined,
+  useRowsWithCompanyLogos: <T,>(rows: T[]) => rows,
+}));
 
 import { ContactForm, type ContactFormContact, type ContactPayload } from './contact-form';
 

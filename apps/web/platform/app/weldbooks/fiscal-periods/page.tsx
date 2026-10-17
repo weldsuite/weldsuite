@@ -12,7 +12,8 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { errorMessage, fill } from '../fixed-assets/text';
 import {
   FiscalCalendarBody,
-  FiscalControls,
+  FiscalGenerateButton,
+  FiscalYearControls,
   StatusConfirmDialog,
   type PendingStatusChange,
 } from './fiscal-period-parts';
@@ -75,31 +76,9 @@ export default function FiscalPeriodsPage() {
   };
 
   return (
-    <div className="max-w-5xl space-y-6 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-semibold">{tf.title}</h1>
-        <p className="text-sm text-muted-foreground">{tf.subtitle}</p>
-      </div>
-
-      <FiscalControls
-        fiscalYear={fiscalYear}
-        yearOptions={yearOptions}
-        includeQuarters={includeQuarters}
-        includeYear={includeYear}
-        canGenerate={can('reports:create')}
-        generating={generate.isPending}
-        missing={missing}
-        hasData={Boolean(data)}
-        onYearChange={(year) => {
-          setFiscalYear(year);
-          setGenerated(null);
-        }}
-        onIncludeQuartersChange={setIncludeQuarters}
-        onIncludeYearChange={setIncludeYear}
-        onGenerate={() => void submit()}
-      />
+    <>
       {error ? (
-        <p className="text-sm text-destructive" role="alert" data-testid="fiscal-error">
+        <p className="px-4 pt-4 text-sm text-destructive sm:px-6" role="alert" data-testid="fiscal-error">
           {error}
         </p>
       ) : null}
@@ -109,6 +88,30 @@ export default function FiscalPeriodsPage() {
         generated={generated}
         canChangeStatus={canChangeStatus}
         onChangeStatus={setConfirm}
+        leftActionButtons={
+          <FiscalYearControls
+            fiscalYear={fiscalYear}
+            yearOptions={yearOptions}
+            includeQuarters={includeQuarters}
+            includeYear={includeYear}
+            onYearChange={(year) => {
+              setFiscalYear(year);
+              setGenerated(null);
+            }}
+            onIncludeQuartersChange={setIncludeQuarters}
+            onIncludeYearChange={setIncludeYear}
+          />
+        }
+        actionButtons={
+          can('reports:create') ? (
+            <FiscalGenerateButton
+              generating={generate.isPending}
+              missing={missing}
+              hasData={Boolean(data)}
+              onGenerate={() => void submit()}
+            />
+          ) : null
+        }
       />
 
       <StatusConfirmDialog
@@ -117,6 +120,6 @@ export default function FiscalPeriodsPage() {
         onCancel={() => setConfirm(null)}
         onConfirm={() => void changeStatus()}
       />
-    </div>
+    </>
   );
 }

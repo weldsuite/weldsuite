@@ -270,6 +270,53 @@ export const accounting = {
         method: 'Methode',
         reference: 'Referentie',
       },
+      charts: {
+        overview: 'Jouw overzicht',
+        dateRange: 'Periode',
+        compare: 'Vergelijken',
+        compareOff: 'Uit',
+        last3Months: 'Laatste 3 maanden',
+        last6Months: 'Laatste 6 maanden',
+        last12Months: 'Laatste 12 maanden',
+        previousPeriod: 'Vorige periode',
+        previousYear: 'Vorig jaar',
+        previousPeriodValue: '{amount} vorige periode',
+        previousYearValue: '{amount} vorig jaar',
+        lastYear: 'Vorig jaar',
+        noComparison: 'Geen gegevens voor deze periode',
+        revenue: 'Omzet',
+        expenses: 'Kosten',
+        netProfit: 'Nettowinst',
+        receivablesByAge: 'Debiteuren naar ouderdom',
+        payablesByAge: 'Crediteuren naar ouderdom',
+        cash: 'Liquide middelen',
+        cashBalance: 'Banksaldo',
+        accounts: { one: '1 bankrekening', other: '{count} bankrekeningen' },
+        toReceive: 'Te ontvangen',
+        toPay: 'Te betalen',
+        overdueAmount: '{amount} vervallen',
+        invoiceCount: { one: '1 openstaande factuur', other: '{count} openstaande facturen' },
+        billCount: { one: '1 openstaande inkoopfactuur', other: '{count} openstaande inkoopfacturen' },
+        documents: 'Te verwerken documenten',
+        documentsWaiting: 'Wachten op boeking',
+        dueSoon: 'Vervalt binnen 30 dagen',
+        received: 'Ontvangen',
+        paid: 'Betaald',
+        newInvoice: 'Nieuwe factuur',
+        info: {
+          revenue: 'Omzet geboekt in de boekhouding, exclusief btw',
+          expenses: 'Kosten geboekt in de boekhouding, exclusief btw',
+          profit: 'Omzet min kosten',
+          receivables: 'Openstaande facturen naar dagen over de vervaldatum, per vandaag',
+          payables: 'Openstaande inkoopfacturen naar dagen over de vervaldatum, per vandaag',
+          cash: 'Saldo van je actieve bankrekeningen',
+        },
+        aging: {
+          current: 'Niet vervallen',
+          overdue: 'Vervallen',
+          days: '{range} dagen',
+        },
+      },
     },
 
     journal: {
@@ -1819,6 +1866,9 @@ export const accounting = {
 
     // Banking pages
     bankingPages: {
+      transactionsEmptyTitle: 'Nog geen transacties',
+      transactionsEmptyDescription: 'Voeg je eerste transactie toe of importeer er een om te beginnen',
+      noRulesDescription: 'Maak je eerste regel aan om te beginnen',
       pageTitle: 'Bankrekeningen',
       addBankAccount: 'Bankrekening Toevoegen',
       comingSoon: 'Binnenkort beschikbaar',
@@ -1906,7 +1956,7 @@ export const accounting = {
 
       // Rules page
       newRule: 'Nieuwe Regel',
-      noRulesTitle: 'Nog geen afstemmingsregels. Maak er een aan om terugkerende transacties zoals huur, abonnementen of bankkosten automatisch te categoriseren.',
+      noRulesTitle: 'Nog geen afstemmingsregels',
       createFirstRule: 'Maak uw eerste regel aan',
       deleteRuleTitle: 'Deze regel verwijderen?',
       deleteRuleDesc: 'Bestaande afgestemde transacties worden niet beïnvloed. Nieuwe imports passen deze regel niet meer toe.',
@@ -2050,10 +2100,51 @@ export const accounting = {
       bic: 'BIC',
       paymentTermsDays: 'Betalingstermijn (dagen)',
       nameOnInvoice: 'Naam op facturen',
-      nameOnInvoiceHelp: 'Staat op facturen en in overzichten. Gebruik voor een bedrijf de bedrijfsnaam.',
-      companyNameHelp: 'De statutaire naam van het bedrijf, als dit contact een bedrijf is.',
+      nameOnInvoiceHelp: 'Laat leeg om de bedrijfsnaam te gebruiken. Vul in voor een handelsnaam.',
+      companyNameHelp: 'De statutaire naam van het bedrijf.',
+      companyNameRequired: 'Bedrijfsnaam is verplicht',
+      personNameRequired: 'Vul een voor- of achternaam in',
       contactPerson: 'Contactpersoon',
-      contactPersonHelp: 'De persoon met wie u contact hebt. Staat niet op facturen.',
+      contactPersonHelp:
+        'De persoon met wie u bij dit bedrijf contact hebt. Wordt in WeldCRM opgeslagen als factuurcontact. Facturen gaan naar diens e-mail als het bedrijf er geen heeft.',
+      kind: 'Soort',
+      kinds: {
+        company: 'Bedrijf',
+        person: 'Particulier',
+      },
+      kindHelp: 'Een bedrijf is elke onderneming, ook een eenmanszaak. Een particulier is een privépersoon.',
+      findInCrm: {
+        company: 'Bedrijf zoeken in WeldCRM',
+        person: 'Persoon zoeken in WeldCRM',
+      },
+      searchCrm: {
+        company: 'Bedrijven zoeken...',
+        person: 'Personen zoeken...',
+      },
+      createInCrm: {
+        company: 'Nieuw bedrijf "{name}"',
+        person: 'Nieuwe persoon "{name}"',
+      },
+      createInCrmBlank: {
+        company: 'Nieuw bedrijf',
+        person: 'Nieuwe persoon',
+      },
+      newInCrm: {
+        company: 'Nog niet in WeldCRM? Vul de gegevens in en er wordt daar een nieuw bedrijf toegevoegd.',
+        person: 'Nog niet in WeldCRM? Vul de gegevens in en er wordt daar een nieuwe persoon toegevoegd.',
+      },
+      linkedToCrm: 'Gekoppeld aan WeldCRM',
+      linkedToCrmHelp: 'Naam, e-mail, telefoon en belastinggegevens worden op dit WeldCRM-record opgeslagen.',
+      unlink: 'Ontkoppelen',
+      openInCrm: 'Openen in WeldCRM',
+      loadingCrm: 'Laden...',
+      chooseContactPerson: 'Kiezen uit WeldCRM',
+      removeContactPerson: 'Verwijderen',
+      contactPersonLinked: '{name} in WeldCRM',
+      noContactPerson: 'Geen contactpersoon',
+      alreadyInBooks: 'Al een klant of leverancier',
+      openExisting: 'Openen',
+      emailFromContactPerson: 'Van de contactpersoon',
       taxIdPlaceholder: 'Zoals geregistreerd bij de belastingdienst',
       vatNumberInvalid: 'Geen geldig btw-nummer voor {country}. Voorbeeld: {example}',
       ibanInvalid: 'Geen geldig IBAN. Controleer de landcode, de lengte en de controlecijfers.',
@@ -2378,6 +2469,7 @@ export const accounting = {
 
     // Journal entries list page
     journalPage: {
+      emptyDescription: 'Maak je eerste journaalpost aan om te beginnen',
       newEntry: 'Nieuwe Post',
       ungrouped: 'Geen datum',
       colDate: 'Datum',
@@ -2555,6 +2647,9 @@ export const accounting = {
 
     // VAT pages
     vat: {
+      emptyTitle: 'Nog geen btw-aangiftes',
+      emptyDescription: 'Bereken je eerste btw-aangifte om te beginnen',
+      icpEmptyDescription: 'Bereken je eerste ICP-opgaaf om te beginnen',
       title: 'BTW-aangifte',
       newReturn: 'Nieuwe BTW-aangifte',
       period: 'Periode',
@@ -2704,6 +2799,7 @@ export const accounting = {
       dropHint: 'Sleep factuurafbeeldingen hier naartoe — WeldAgent extraheert leverancier, bedragen, regelitems en totalen.',
       uploadInvoice: 'Factuur uploaden',
       noDocumentsInbox: 'Geen documenten in inbox',
+      emptyDescription: 'Upload je eerste factuur om te beginnen',
       phaseUploading: 'Uploaden…',
       phaseProcessing: 'Scannen met WeldAgent…',
       phaseDone: 'Klaar',
@@ -2768,6 +2864,7 @@ export const accounting = {
 
     // Entities page
     entities: {
+      emptyDescription: 'Maak je eerste entiteit aan om te beginnen',
       title: 'Administraties',
       newEntity: 'Nieuwe Administratie',
       entityName: 'Naam',
@@ -2804,7 +2901,7 @@ export const accounting = {
       editEntity: 'Bewerken',
       badgeInactive: 'Inactief',
       newEntity2: 'Nieuwe Entiteit',
-      noEntities2: 'Nog geen entiteiten. Maak er een aan om WeldBooks te gaan gebruiken.',
+      noEntities2: 'Nog geen entiteiten',
       // Add entity page
       newLegalEntity: 'Nieuwe Rechtspersoon',
       newLegalEntityDesc: 'Bij het aanmaken van een entiteit worden het rekeningschema en de belastingtarieven van de jurisdictie-adapter ingevoerd.',
@@ -2819,6 +2916,7 @@ export const accounting = {
       vatNumber: 'BTW-nummer',
       registrationNumber: 'Inschrijvingsnummer (KVK / CoC / HRB)',
       ibanLabel: 'IBAN',
+      accountNumberIfscPlaceholder: 'Rekeningnummer / IFSC',
       makeDefault: 'Dit als standaardentiteit van de werkruimte instellen',
       seedDefaults: 'Standaard rekeningschema en belastingtarieven voor deze jurisdictie invoeren',
       createEntity2: 'Entiteit aanmaken',
@@ -2828,6 +2926,7 @@ export const accounting = {
 
     // Recurring invoices list + detail pages
     recurringPage: {
+      colName: 'Naam',
       colContact: 'Contactpersoon',
       colFrequency: 'Frequentie',
       colNextDate: 'Volgende Datum',
@@ -2835,8 +2934,10 @@ export const accounting = {
       colStatus: 'Status',
       statusActive: 'Actief',
       statusPaused: 'Gepauzeerd',
+      statusCompleted: 'Voltooid',
       newRecurring: 'Nieuwe Terugkerende Factuur',
       noRecurring: 'Geen terugkerende facturen gevonden',
+      emptyDescription: 'Maak je eerste terugkerende factuur aan om te beginnen',
       // Detail page
       notFound: 'Terugkerende factuur niet gevonden.',
       defaultName: 'Terugkerende Factuur',
@@ -2866,6 +2967,7 @@ export const accounting = {
 
     // Bills list page
     billsPage: {
+      emptyDescription: 'Maak je eerste inkoopfactuur aan om te beginnen',
       searchPlaceholder: 'Inkoopfacturen zoeken...',
       newBill: 'Nieuwe Inkoopfactuur',
       groupOverdue: 'Achterstallig',
@@ -2884,6 +2986,7 @@ export const accounting = {
 
     // Accounts (Chart of Accounts) page
     accountsPage: {
+      emptyDescription: 'Maak je eerste rekening aan om te beginnen',
       filterTypeLabel: 'Type',
       filterAsset: 'Activa',
       filterLiability: 'Passiva',
@@ -2905,6 +3008,7 @@ export const accounting = {
 
     // Customers list page
     customersPage: {
+      emptyDescription: 'Maak je eerste klant aan om te beginnen',
       searchPlaceholder: 'Klanten zoeken...',
       newCustomer: 'Nieuwe Klant',
       filterRoleLabel: 'Rol',
@@ -2912,6 +3016,7 @@ export const accounting = {
       filterArchivedLabel: 'Gearchiveerd',
       filterArchivedInclude: 'Inclusief gearchiveerd',
       filterArchivedOnly: 'Alleen gearchiveerd',
+      filterKindLabel: 'Soort',
       colName: 'Naam',
       colEmail: 'E-mail',
       colRole: 'Rol',
@@ -2922,6 +3027,7 @@ export const accounting = {
 
     // Suppliers list page
     suppliersPage: {
+      emptyDescription: 'Maak je eerste leverancier aan om te beginnen',
       searchPlaceholder: 'Leveranciers zoeken...',
       newSupplier: 'Nieuwe Leverancier',
       filterRoleLabel: 'Rol',
@@ -2929,6 +3035,7 @@ export const accounting = {
       filterArchivedLabel: 'Gearchiveerd',
       filterArchivedInclude: 'Inclusief gearchiveerd',
       filterArchivedOnly: 'Alleen gearchiveerd',
+      filterKindLabel: 'Soort',
       colName: 'Naam',
       colEmail: 'E-mail',
       colRole: 'Rol',
@@ -2939,6 +3046,7 @@ export const accounting = {
 
     // Credit notes page
     creditNotesPage: {
+      emptyDescription: 'Maak een creditnota aan vanuit een gefinaliseerde factuur',
       searchPlaceholder: 'Creditnota\'s zoeken...',
       colNumber: 'Nummer',
       colContact: 'Contactpersoon',
@@ -2947,7 +3055,7 @@ export const accounting = {
       colTotal: 'Totaal',
       colStatus: 'Status',
       viewSource: 'Bronsfactuur bekijken',
-      noCreditNotes: 'Nog geen creditnota\'s. Open een gefinaliseerde factuur en gebruik "Creditnota aanmaken".',
+      noCreditNotes: 'Nog geen creditnota\'s',
     },
 
     // KPI cards
@@ -3294,6 +3402,9 @@ export const accounting = {
       bic: 'BIC',
       accountNumber: 'Rekening',
       routingNumber: 'Routing',
+    },
+    reconciliationRuleForm: {
+      namePlaceholder: 'Kantoorhuur',
     },
     // Factuursjablonen: wat een ontworpen factuur afdrukt (gewone hoofdletters; een sjabloon kan alles in hoofdletters zetten)
     invoiceTemplateDocument: {

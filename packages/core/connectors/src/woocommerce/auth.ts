@@ -199,7 +199,9 @@ export function isAllowedConnectorReturnUrl(url: string): boolean {
     host === 'app-test.weldsuite.org' ||
     host.endsWith('.weldsuite.pages.dev');
   if (!allowedHost) return false;
-  const path = parsed.pathname;
+  // A `/w/{workspace}/…` link names its workspace (FE-013); the page is the rest.
+  const workspacePage = /^\/w\/[^/]+(\/.*)$/.exec(parsed.pathname);
+  const path = workspacePage?.[1] ?? parsed.pathname;
   return (
     path === '/weldconnect/connectors' ||
     path === '/weldconnect/connectors/' ||

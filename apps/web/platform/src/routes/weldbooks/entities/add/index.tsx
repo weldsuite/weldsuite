@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/weldbooks/entities/add-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+// Entities moved to Settings → Workspace → Entities.
 export const Route = createFileRoute('/weldbooks/entities/add/')({
-  component: PageComponent,
+  beforeLoad: () => {
+    throw redirect({ to: '/settings/entities/add', replace: true });
+  },
 });

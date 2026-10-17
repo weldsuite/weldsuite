@@ -14,7 +14,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { Input } from '@weldsuite/ui/components/input';
 import { cn } from '@/lib/utils';
-import { HELPDESK_ROUTING_TRIGGERS, WORKFLOW_CHANNELS } from '../helpdesk-workflow-constants';
+import { getHelpdeskRoutingTriggers, getWorkflowChannels } from '../helpdesk-workflow-constants';
 import { useI18n } from '@/lib/i18n/provider';
 import type { HelpdeskWorkflow } from '../types';
 
@@ -71,6 +71,8 @@ export function TriggerFilterPanel({
 }: Readonly<TriggerFilterPanelProps>) {
   const { t } = useI18n();
   const tp = t.helpdesk.triggerPanel;
+  const routingTriggers = getHelpdeskRoutingTriggers(t.helpdesk.workflowConstants);
+  const workflowChannels = getWorkflowChannels(t.helpdesk.workflowConstants);
 
   const CONVERSATION_FILTER_FIELDS: FilterFieldDef[] = [
     {
@@ -181,7 +183,7 @@ export function TriggerFilterPanel({
   const trigger = workflow.triggers?.[0];
   const entityType = trigger?.entityType || '';
   const eventType = trigger?.eventType || '';
-  const triggerMeta = HELPDESK_ROUTING_TRIGGERS.find(
+  const triggerMeta = routingTriggers.find(
     (tr) => tr.entityType === entityType && tr.eventType === eventType,
   );
 
@@ -314,7 +316,7 @@ export function TriggerFilterPanel({
               {channels.length === 0 ? tp.allChannels : tp.channelsSelected.replace('{count}', String(channels.length))}
             </p>
             <div className="grid grid-cols-2 gap-1.5">
-              {WORKFLOW_CHANNELS.map((ch) => {
+              {workflowChannels.map((ch) => {
                 const Icon = CHANNEL_ICONS[ch.icon] || Globe;
                 const active = channels.includes(ch.value);
                 return (

@@ -23,8 +23,6 @@ const routes = [
   '/weldbooks/customers',
   '/weldbooks/customers/add',
   '/weldbooks/documents',
-  '/weldbooks/entities',
-  '/weldbooks/entities/add',
   '/weldbooks/invoices',
   '/weldbooks/invoices/add',
   '/weldbooks/journal',

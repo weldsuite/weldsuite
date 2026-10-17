@@ -44,6 +44,7 @@ import {
   DialogDescription,
 } from '@weldsuite/ui/components/dialog';
 import { PageLoader } from '@/components/page-loader';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 function formatRelativeTime(dateStr: string | null): string {
   if (!dateStr) return 'Never';
@@ -411,6 +412,7 @@ export default function GithubSettingsPage() {
   const github = t.integrations.github;
 
   const searchParams = useSearchParams();
+  const workspaceUrl = useWorkspaceUrl();
   const { canAny } = usePermissions();
   const canManage = canAny('integrations:github:manage', 'weldconnect:integrations:github:manage');
 
@@ -439,7 +441,7 @@ export default function GithubSettingsPage() {
   const handleConnect = async () => {
     try {
       const result = await installUrlMutation.mutateAsync({
-        returnTo: `${window.location.origin}/settings/integrations/github?installed=1`,
+        returnTo: workspaceUrl('/settings/integrations/github?installed=1'),
       });
       const url = result?.data?.url;
       if (url) {
@@ -486,8 +488,8 @@ export default function GithubSettingsPage() {
         canManage={canManage}
         provider="GitHub"
         resources={[
-          { label: 'Website', href: 'https://github.com', icon: Globe },
-          { label: 'Documentation', href: 'https://docs.github.com', icon: FileText },
+          { label: t.integrations.website, href: 'https://github.com', icon: Globe },
+          { label: t.integrations.documentation, href: 'https://docs.github.com', icon: FileText },
         ]}
         overview={github.connectDescription}
       >

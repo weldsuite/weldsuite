@@ -140,14 +140,14 @@ export function UsEntityCreateForm({ jurisdictionPicker, entityTypes }: Readonly
       const res = await createEntity.mutateAsync(payload);
       if (res.data?.id) setEntityId(res.data.id);
       toast.success(tu.created);
-      navigate({ to: '/weldbooks/entities' });
+      navigate({ to: '/settings/entities' });
     } catch (err) {
       toast.error(tu.createFailed, { description: err instanceof Error ? err.message : undefined });
     }
   };
 
   return (
-    <div className="p-4 sm:p-6 max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">{tu.addTitle}</h1>
         <p className="text-sm text-muted-foreground">{tu.addDescription}</p>
@@ -265,7 +265,7 @@ export function UsEntityCreateForm({ jurisdictionPicker, entityTypes }: Readonly
           <Button type="submit" disabled={createEntity.isPending || !canCreate}>
             {createEntity.isPending ? tu.creating : tu.create}
           </Button>
-          <Button type="button" variant="outline" onClick={() => navigate({ to: '/weldbooks/entities' })}>
+          <Button type="button" variant="outline" onClick={() => navigate({ to: '/settings/entities' })}>
             {te.cancel}
           </Button>
         </div>

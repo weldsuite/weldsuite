@@ -1,8 +1,15 @@
 import { useState } from 'react';
-import { Edit, Trash2, Wand2 } from 'lucide-react';
+import { EllipsisVertical, Pencil, Trash2, Wand2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
   type ColumnDef,
@@ -48,7 +55,7 @@ function summarizeActions(
   if (rule.actions?.taxRateId) parts.push('tax');
   if (rule.actions?.contactId) parts.push('contact');
   if (rule.actions?.description) parts.push('description');
-  return parts.length ? parts.join(' · ') : '—';
+  return parts.length ? parts.join(' · ') : '';
 }
 
 export default function ReconciliationRulesPage() {
@@ -74,96 +81,80 @@ export default function ReconciliationRulesPage() {
     {
       id: 'name',
       header: tbp.columns_rules.name,
-      width: 'flex-1',
-      render: (r) => <span className="font-medium">{r.name}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (r) => <RowTitle>{r.name}</RowTitle>,
     },
     {
       id: 'priority',
       header: tbp.columns_rules.priority,
       width: 'w-[90px]',
-      render: (r) => <span className="tabular-nums">{r.priority}</span>,
+      render: (r) => <RowText className="tabular-nums">{r.priority}</RowText>,
     },
     {
       id: 'conditions',
       header: tbp.columns_rules.conditions,
       width: 'w-[200px]',
       render: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {summarizeConditions(r, tbp.conditionsSummary, tbp.conditionsSummaryPlural)}
-        </span>
+        <RowText>{summarizeConditions(r, tbp.conditionsSummary, tbp.conditionsSummaryPlural)}</RowText>
       ),
     },
     {
       id: 'actions',
       header: tbp.columns_rules.actions,
       width: 'w-[200px]',
-      render: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {summarizeActions(r, accountLookup)}
-        </span>
-      ),
+      render: (r) => <RowText>{summarizeActions(r, accountLookup)}</RowText>,
     },
     {
       id: 'matches',
       header: tbp.columns_rules.matches,
       width: 'w-[90px]',
-      render: (r) => <span className="tabular-nums">{r.matchCount ?? 0}</span>,
+      render: (r) => <RowText className="tabular-nums">{r.matchCount ?? 0}</RowText>,
     },
     {
       id: 'lastMatched',
       header: tbp.columns_rules.lastMatched,
       width: 'w-[130px]',
-      render: (r) => (
-        <span className="text-sm text-muted-foreground">
-          {formatDateTime(r.lastMatchedAt, tbp.ruleNever)}
-        </span>
-      ),
+      render: (r) => <RowText>{formatDateTime(r.lastMatchedAt, tbp.ruleNever)}</RowText>,
     },
     {
       id: 'status',
       header: tbp.columns_rules.status,
-      width: 'w-[100px]',
-      render: (r) =>
-        r.isActive ? (
-          <Badge variant="default">{tbp.ruleStatusActive}</Badge>
-        ) : (
-          <Badge variant="outline">{tbp.ruleStatusInactive}</Badge>
-        ),
-    },
-    {
-      id: 'rowActions',
-      header: '',
-      width: 'w-[80px]',
+      width: 'w-[110px]',
       render: (r) => (
-        <div className="flex items-center justify-end gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              setEditRule(r);
-            }}
-            aria-label={tbp.ruleActionEdit}
-          >
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-red-600 hover:text-red-600 dark:text-red-400"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteId(r.id);
-            }}
-            aria-label={tbp.ruleActionDelete}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
+        <StatusChip status={r.isActive ? 'active' : 'inactive'}>
+          {r.isActive ? tbp.ruleStatusActive : tbp.ruleStatusInactive}
+        </StatusChip>
       ),
     },
   ];
+
+  const renderRowMenu = (r: ReconciliationRule) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent"
+        >
+          <EllipsisVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setEditRule(r)}>
+          <Pencil className="h-3.5 w-3.5 mr-0.5" />
+          {tbp.ruleActionEdit}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
+          onClick={() => setDeleteId(r.id)}
+        >
+          <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
+          {tbp.ruleActionDelete}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <>
@@ -171,6 +162,7 @@ export default function ReconciliationRulesPage() {
         items={rules}
         isLoading={isLoading}
         columns={columns}
+        renderRowMenu={renderRowMenu}
         filters={filterConfigs}
         searchFields={['name']}
         createButton={{ label: tbp.newRule, onClick: () => setCreateOpen(true) }}
@@ -181,7 +173,7 @@ export default function ReconciliationRulesPage() {
             </EmptyStateIllustration>
           ),
           title: tbp.noRulesTitle,
-          description: tbp.noRulesTitle,
+          description: tbp.noRulesDescription,
           action: {
             label: tbp.createFirstRule,
             onClick: () => setCreateOpen(true),

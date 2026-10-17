@@ -3,7 +3,7 @@ import LayoutComponent from '@/app/weldhr/me/layout';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldhr/me')({
-  staticData: { breadcrumb: { label: 'My HR' } },
+  staticData: { breadcrumb: { labelKey: 'myHr' } },
   component: () => (
     <LayoutComponent>
       <Outlet />

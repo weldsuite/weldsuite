@@ -162,6 +162,7 @@ export const vendorTaxApi = {
   listContacts: (
     params: {
       role?: 'customer' | 'supplier' | 'both' | 'none';
+      kind?: 'company' | 'person';
       search?: string;
       is1099Vendor?: boolean;
       /** Archived contacts are left out unless asked for: `only` lists just them, `include` lists everyone. */
@@ -189,7 +190,9 @@ export interface VendorTaxContact extends VendorTaxView {
   id: string;
   name: string;
   role?: string | null;
+  kind?: 'company' | 'person' | null;
   email?: string | null;
+  contactPerson?: { email: string | null } | null;
   billingAddress?: PostalAddressView | null;
 }
 

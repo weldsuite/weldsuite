@@ -2,9 +2,15 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useAccountingAccounts, useTaxLineCatalog } from '@/hooks/queries/use-accounting-queries';
 import { Landmark, ListTree } from 'lucide-react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import {
+  RowAmount,
+  RowNumberChip,
+  RowText,
+  RowTitle,
+  StatusChip,
+} from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
   type ColumnDef,
@@ -86,24 +92,31 @@ export default function ChartOfAccountsPage() {
       ]
     : undefined;
 
+  const typeLabels: Record<string, string> = {
+    asset: tap.filterAsset,
+    liability: tap.filterLiability,
+    equity: tap.filterEquity,
+    revenue: tap.filterRevenue,
+    expense: tap.filterExpense,
+  };
+
   const columns: ColumnDef<AccountRow>[] = [
-    {
-      id: 'code',
-      header: tap.colCode,
-      width: 'w-[120px]',
-      render: (acc) => <span className="font-mono">{acc.code}</span>,
-    },
     {
       id: 'name',
       header: tap.colName,
-      width: 'flex-1',
-      render: (acc) => <span className="font-medium">{acc.name}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (acc) => (
+        <>
+          <RowNumberChip>{acc.code}</RowNumberChip>
+          <RowTitle>{acc.name}</RowTitle>
+        </>
+      ),
     },
     {
       id: 'type',
       header: tap.colType,
       width: 'w-[140px]',
-      render: (acc) => <span className="capitalize">{acc.type}</span>,
+      render: (acc) => <RowText>{typeLabels[acc.type] ?? acc.type}</RowText>,
     },
     ...(isUs
       ? [
@@ -113,15 +126,13 @@ export default function ChartOfAccountsPage() {
             width: 'w-[240px]',
             render: (acc: AccountRow) => {
               if (acc.taxLine) {
-                return <span className="truncate">{taxLineLabel(taxLineCatalog.data, acc.taxLine)}</span>;
+                return <RowText>{taxLineLabel(taxLineCatalog.data, acc.taxLine)}</RowText>;
               }
               // Only income and expense accounts report on a line by default.
               return acc.type === 'revenue' || acc.type === 'expense' ? (
-                <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">
-                  {tus.unmappedBadge}
-                </Badge>
+                <StatusChip tone="amber">{tus.unmappedBadge}</StatusChip>
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <RowText />
               );
             },
           },
@@ -131,11 +142,7 @@ export default function ChartOfAccountsPage() {
       id: 'balance',
       header: tap.colBalance,
       width: 'w-[160px]',
-      render: (acc) => (
-        <span>
-          {formatMoney(acc.currentBalance, acc.currency)}
-        </span>
-      ),
+      render: (acc) => <RowAmount>{formatMoney(acc.currentBalance, acc.currency)}</RowAmount>,
     },
   ];
 
@@ -170,7 +177,7 @@ export default function ChartOfAccountsPage() {
           </EmptyStateIllustration>
         ),
         title: tap.noAccounts,
-        description: t.accounting.description,
+        description: tap.emptyDescription,
         action: {
           label: tap.newAccount,
           onClick: () => navigate({ to: '/weldbooks/accounts/add' }),

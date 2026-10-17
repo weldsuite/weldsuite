@@ -330,6 +330,136 @@ describe('getContacts', () => {
 
     expect(contact).toMatchObject({ id: 'con_1', name: 'Acme B.V.', type: 'supplier' });
   });
+
+  it('reads whether a contact is a company or a person, and nothing else as a kind', async () => {
+    routeGet({
+      '/accounting-contacts': {
+        data: [
+          { id: 'con_1', displayName: 'Acme B.V.', kind: 'company' },
+          { id: 'con_2', displayName: 'Jan Jansen', kind: 'person' },
+          { id: 'con_3', displayName: 'Old record', kind: null },
+          { id: 'con_4', displayName: 'Odd', kind: 'robot' },
+        ],
+        pagination: { totalCount: 4, hasMore: false, cursor: null },
+      },
+    });
+
+    const contacts = await api.getContacts();
+
+    expect(contacts.map((c) => c.kind)).toEqual(['company', 'person', undefined, undefined]);
+  });
+});
+
+describe('getContact', () => {
+  it("reads a company's contact person, leaving out empty parts", async () => {
+    routeGet({
+      '/accounting-contacts/con_1': {
+        data: {
+          id: 'con_1',
+          displayName: 'Acme B.V.',
+          kind: 'company',
+          contactPerson: {
+            personId: 'per_1',
+            name: 'Jan Jansen',
+            firstName: 'Jan',
+            lastName: 'Jansen',
+            email: 'jan@acme.nl',
+            phone: null,
+          },
+        },
+      },
+    });
+
+    const contact = await api.getContact('con_1');
+
+    expect(contact.contactPerson).toEqual({
+      personId: 'per_1',
+      name: 'Jan Jansen',
+      firstName: 'Jan',
+      lastName: 'Jansen',
+      email: 'jan@acme.nl',
+      phone: undefined,
+    });
+  });
+
+  it('has no contact person when there is none, or when the contact is a person', async () => {
+    routeGet({
+      '/accounting-contacts/con_2': { data: { id: 'con_2', kind: 'company', contactPerson: null } },
+      '/accounting-contacts/con_3': {
+        data: { id: 'con_3', kind: 'person', contactPerson: { personId: 'per_9', name: 'Stray' } },
+      },
+    });
+
+    expect((await api.getContact('con_2')).contactPerson).toBeUndefined();
+    expect((await api.getContact('con_3')).contactPerson).toBeUndefined();
+  });
+});
+
+describe('createContact', () => {
+  it('sends a company with its kind, company name and name on invoices', async () => {
+    client.post.mockResolvedValue({ data: { id: 'con_1', displayName: 'Acme', kind: 'company' } });
+
+    const contact = await api.createContact({
+      kind: 'company',
+      fullName: 'Acme',
+      companyName: 'Acme Holding B.V.',
+      vatNumber: 'NL123456789B01',
+      role: 'customer',
+    });
+
+    const [path, body] = client.post.mock.calls[0];
+    expect(path).toBe('/accounting-contacts');
+    expect(body).toEqual({
+      kind: 'company',
+      fullName: 'Acme',
+      companyName: 'Acme Holding B.V.',
+      vatNumber: 'NL123456789B01',
+      role: 'customer',
+    });
+    expect(contact.kind).toBe('company');
+  });
+
+  it('sends a person with first and last name and no company fields', async () => {
+    client.post.mockResolvedValue({ data: { id: 'con_2', displayName: 'Jan Jansen', kind: 'person' } });
+
+    const contact = await api.createContact({
+      kind: 'person',
+      fullName: 'Jan Jansen',
+      firstName: 'Jan',
+      lastName: 'Jansen',
+      email: 'jan@example.nl',
+      role: 'supplier',
+    });
+
+    const [, body] = client.post.mock.calls[0];
+    expect(body).toEqual({
+      kind: 'person',
+      fullName: 'Jan Jansen',
+      firstName: 'Jan',
+      lastName: 'Jansen',
+      email: 'jan@example.nl',
+      role: 'supplier',
+    });
+    expect(contact.kind).toBe('person');
+  });
+
+  it('leaves the kind to the server for a contact typed on an invoice', async () => {
+    routeGet({
+      '/accounting-contacts': { data: [], pagination: { totalCount: 0, hasMore: false, cursor: null } },
+    });
+    client.post
+      .mockResolvedValueOnce({ data: { id: 'con_new', displayName: 'New Co' } })
+      .mockResolvedValueOnce({ data: { id: 'inv_1' } });
+
+    await api.createInvoice({
+      contactName: 'New Co',
+      issueDate: '2026-08-01',
+      dueDate: '2026-08-31',
+      items: [{ description: 'Work', unitPrice: 50 }],
+    });
+
+    expect(client.post.mock.calls[0][1]).toEqual({ fullName: 'New Co' });
+  });
 });
 
 describe('getEntities', () => {

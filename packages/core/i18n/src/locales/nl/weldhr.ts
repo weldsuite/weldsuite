@@ -42,6 +42,7 @@ export const weldhr = {
     deleteFailed: 'Dit item kon niet worden verwijderd.',
     internalOnly: 'Alleen intern',
     noPermission: 'Je hebt geen toegang tot deze gegevens.',
+    dismiss: 'Sluiten',
   },
 
   status: {

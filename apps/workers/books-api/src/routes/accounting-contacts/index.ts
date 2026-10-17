@@ -14,11 +14,16 @@
  * row keeps the accounting fields (role, addresses, payment terms, currency,
  * bank details, default ledger accounts, SEPA mandate). Reads merge both.
  *
- * Which identity a new contact gets: a company when the payload has a
- * company name, a VAT or registration number (a person row has no tax ids),
- * or no first/last name; otherwise a person. Parties created by the old
- * route wrap nothing (`kind` null); their first update creates the identity
- * and links it.
+ * Which identity a new contact gets: the `kind` the client chose ('company'
+ * or 'person'), linking the existing CRM record given as `companyId` /
+ * `personId` instead of creating one. Without a `kind`, a company when the
+ * payload has a company name, a VAT or registration number (a person row has
+ * no tax ids), or no first/last name; otherwise a person. A contact's kind
+ * never changes. Parties created by the old route wrap nothing (`kind` null);
+ * their first update creates the identity and links it.
+ *
+ * A company contact can have a contact person (`contactPerson`): a CRM person
+ * stored as the company's billing contact (services/billing-contact.ts).
  *
  * Also exposes POST /:id/promote-role which updates the CRM-level `parties.role`
  * field when a counterparty gains its first invoice (→ customer) or first bill
@@ -92,6 +97,11 @@ import {
   updatePerson,
 } from '@weldsuite/crm-domain/people';
 import { describeUsage, getContactUsage, usedReferences } from '../../services/contact-usage';
+import {
+  clearBillingContact,
+  loadBillingContacts,
+  setBillingContact,
+} from '../../services/billing-contact';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.parties;
@@ -128,8 +138,28 @@ const addressSchema = z.object({
   province: z.string().max(100),
 }).partial().nullable().optional();
 
+/**
+ * The contact person of a company contact. With `personId` it is that CRM
+ * person (and the other fields update them); without, a new person is created
+ * (or the CRM person with that email reused). `null` removes the contact person.
+ */
+const contactPersonSchema = z.object({
+  personId: z.string().max(30).optional(),
+  firstName: z.string().max(100).nullable().optional(),
+  lastName: z.string().max(100).nullable().optional(),
+  email: z.string().email().max(255).nullable().optional(),
+  phone: z.string().max(50).nullable().optional(),
+}).nullable().optional();
+
 const createContactSchema = z.object({
   role: z.enum(['customer', 'supplier', 'both', 'none']).optional(),
+  /** Which identity the contact wraps. Fixed once the contact has one. */
+  kind: z.enum(['company', 'person']).optional(),
+  /** Link this existing CRM company instead of creating one. */
+  companyId: z.string().max(30).optional(),
+  /** Link this existing CRM person instead of creating one. */
+  personId: z.string().max(30).optional(),
+  contactPerson: contactPersonSchema,
   fullName: z.string().min(1).max(255),
   companyName: z.string().max(255).optional(),
   firstName: z.string().max(100).optional(),
@@ -214,25 +244,53 @@ const CLEARABLE_FIELDS = new Set([
  * On update a blank clearable field becomes null, so emptying an input in
  * the edit form clears the stored value.
  */
-function normalizeContactPayload(input: unknown, mode: 'create' | 'update'): unknown {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * A contact person's blank inputs are cleared values (null), so `.email()`
+ * never sees ""; a blank `personId` means a new person and is dropped.
+ */
+function blanksToNull(input: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
+    const blank = typeof value === 'string' && value.trim() === '';
+    if (blank && key === 'personId') continue;
+    body[key] = blank ? null : value;
+  }
+  return body;
+}
+
+const FIELD_ALIASES: ReadonlyArray<[alias: string, field: string]> = [
+  ['name', 'fullName'],
+  ['taxNumber', 'vatNumber'],
+  ['kvkNumber', 'registrationNumber'],
+];
+
+/** The platform's field names onto the schema's; the schema's own name wins when both are sent. */
+function applyFieldAliases(body: Record<string, unknown>): void {
+  for (const [alias, field] of FIELD_ALIASES) {
+    if (body[field] === undefined && body[alias] !== undefined) body[field] = body[alias];
+    delete body[alias];
+  }
+}
+
+function normalizeContactPayload(input: unknown, mode: 'create' | 'update'): unknown {
+  if (!isPlainObject(input)) return input;
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (key === 'contactPerson' && isPlainObject(value)) {
+      body[key] = blanksToNull(value);
+      continue;
+    }
     if (typeof value === 'string' && value.trim() === '') {
       if (mode === 'update' && CLEARABLE_FIELDS.has(key)) body[key] = null;
       continue;
     }
     body[key] = value;
   }
-  const aliases: Array<[alias: string, field: string]> = [
-    ['name', 'fullName'],
-    ['taxNumber', 'vatNumber'],
-    ['kvkNumber', 'registrationNumber'],
-  ];
-  for (const [alias, field] of aliases) {
-    if (body[field] === undefined && body[alias] !== undefined) body[field] = body[alias];
-    delete body[alias];
-  }
+  applyFieldAliases(body);
   return body;
 }
 
@@ -271,8 +329,29 @@ function parsePaymentTermsDays(value: string | null | undefined): number | null 
   return match ? Number.parseInt(match[1]!, 10) : null;
 }
 
+function personPhone(person: PersonRow): string | null {
+  return person.directPhone || person.mobilePhone || null;
+}
+
+/** A company contact's contact person, as clients read it. */
+function toContactPersonView(person: PersonRow) {
+  return {
+    personId: person.id,
+    name: person.displayName,
+    firstName: person.firstName || null,
+    lastName: person.lastName || null,
+    email: person.email || null,
+    phone: personPhone(person),
+  };
+}
+
 /** The contact as clients read it. Empty identity values come back as null. */
-function toContactView(party: PartyRow, company?: CompanyRow | null, person?: PersonRow | null) {
+function toContactView(
+  party: PartyRow,
+  company?: CompanyRow | null,
+  person?: PersonRow | null,
+  billingContact?: PersonRow | null,
+) {
   const { billingAddress, shippingAddress, ...partyColumns } = omitSensitive('parties', party);
   const vatNumber = company?.vatNumber || null;
   const registrationNumber = company?.registrationNumber || null;
@@ -284,7 +363,8 @@ function toContactView(party: PartyRow, company?: CompanyRow | null, person?: Pe
     firstName: person?.firstName ?? null,
     lastName: person?.lastName ?? null,
     email: (company ? company.email : person?.email) || null,
-    phone: (company ? company.phone : person?.directPhone || person?.mobilePhone) || null,
+    phone: (company ? company.phone : person && personPhone(person)) || null,
+    contactPerson: company && billingContact ? toContactPersonView(billingContact) : null,
     vatNumber,
     registrationNumber,
     notes: (company ? company.notes : person?.notes) || null,
@@ -299,33 +379,39 @@ function toContactView(party: PartyRow, company?: CompanyRow | null, person?: Pe
 
 type ContactView = ReturnType<typeof toContactView>;
 
-/** Load the companies and people a page of parties wraps, two queries total. */
+/** Load the companies, people and billing contacts a page of parties wraps, a few queries total. */
 async function loadIdentities(db: Database, rows: PartyRow[]) {
   const companyIds = [...new Set(rows.map((r) => r.companyId).filter((id): id is string => !!id))];
   const personIds = [...new Set(rows.map((r) => r.personId).filter((id): id is string => !!id))];
-  const [companies, people] = await Promise.all([
+  const [companies, people, billingContacts] = await Promise.all([
     companyIds.length > 0
       ? db.select().from(schema.companies).where(inArray(schema.companies.id, companyIds))
       : Promise.resolve([] as CompanyRow[]),
     personIds.length > 0
       ? db.select().from(schema.people).where(inArray(schema.people.id, personIds))
       : Promise.resolve([] as PersonRow[]),
+    loadBillingContacts(db, companyIds),
   ]);
   return {
     companies: new Map(companies.map((row) => [row.id, row])),
     people: new Map(people.map((row) => [row.id, row])),
+    billingContacts,
   };
+}
+
+function viewWithIdentities(party: PartyRow, identities: Awaited<ReturnType<typeof loadIdentities>>) {
+  return toContactView(
+    party,
+    party.companyId ? identities.companies.get(party.companyId) : null,
+    party.personId ? identities.people.get(party.personId) : null,
+    party.companyId ? identities.billingContacts.get(party.companyId) : null,
+  );
 }
 
 async function loadContactView(db: Database, id: string): Promise<ContactView | null> {
   const [party] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
   if (!party) return null;
-  const { companies, people } = await loadIdentities(db, [party]);
-  return toContactView(
-    party,
-    party.companyId ? companies.get(party.companyId) : null,
-    party.personId ? people.get(party.personId) : null,
-  );
+  return viewWithIdentities(party, await loadIdentities(db, [party]));
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +445,34 @@ function chooseIdentityKind(data: ContactPayload): IdentityKind {
   if (data.companyName || data.vatNumber || data.registrationNumber) return 'company';
   if (data.firstName || data.lastName) return 'person';
   return 'company';
+}
+
+/** The kind the client chose (or implied by the record it links), else the one the fields suggest. */
+function resolveIdentityKind(data: ContactPayload): IdentityKind {
+  if (data.kind) return data.kind;
+  if (data.companyId) return 'company';
+  if (data.personId) return 'person';
+  return chooseIdentityKind(data);
+}
+
+const PERSON_TAX_ID_MESSAGE =
+  'This contact is a person, and VAT and registration numbers are stored on a company. Create the contact as a company to record them.';
+
+/** Refuse the fields that don't fit a contact of this kind. */
+function assertFitsKind(kind: IdentityKind, data: ContactPayload): void {
+  if (kind === 'company') {
+    if (data.personId) {
+      throw new ContactIdentityError('badRequest', 'personId: a company contact links a CRM company (companyId), not a person.');
+    }
+    return;
+  }
+  if (data.companyId) {
+    throw new ContactIdentityError('badRequest', 'companyId: a person contact links a CRM person (personId), not a company.');
+  }
+  if (data.vatNumber || data.registrationNumber) throw new ContactIdentityError('badRequest', PERSON_TAX_ID_MESSAGE);
+  if (data.contactPerson) {
+    throw new ContactIdentityError('badRequest', 'contactPerson: only a company contact has a contact person.');
+  }
 }
 
 function splitFullName(fullName: string | undefined): { firstName?: string; lastName?: string } {
@@ -533,36 +647,127 @@ function publishIdentityEvent(
   });
 }
 
+/** A CRM company or person is the identity of one contact at most. */
+async function assertNotWrapped(db: Database, kind: IdentityKind, identityId: string): Promise<void> {
+  const column = kind === 'company' ? t.companyId : t.personId;
+  const [wrapped] = await db
+    .select({ id: t.id })
+    .from(t)
+    .where(and(eq(column, identityId), isNull(t.deletedAt)))
+    .limit(1);
+  if (wrapped) {
+    const message = kind === 'company'
+      ? 'This company is already a customer or supplier.'
+      : 'This person is already a customer or supplier.';
+    throw new ContactIdentityError('conflict', message, { contactId: wrapped.id });
+  }
+}
+
+/** Wrap an existing CRM company, writing the payload's identity fields to it. */
+async function linkCompany(
+  c: AppContext,
+  db: Database,
+  companyId: string,
+  data: ContactPayload,
+): Promise<IdentityLink> {
+  const [existing] = await db
+    .select()
+    .from(schema.companies)
+    .where(and(eq(schema.companies.id, companyId), isNull(schema.companies.deletedAt)))
+    .limit(1);
+  if (!existing) throw new ContactIdentityError('badRequest', `companyId: company ${companyId} not found`);
+  await assertNotWrapped(db, 'company', companyId);
+
+  let company = existing;
+  if (touchesIdentity(data)) {
+    const result = await updateCompany(db, companyId, definedOnly(companyIdentityInput(data, existing)));
+    if (result) {
+      company = result.row;
+      if (result.changes) publishIdentityEvent(c, 'company', 'updated', company);
+    }
+  }
+  return { kind: 'company', companyId, personId: null, displayName: company.displayName };
+}
+
+/** Wrap an existing CRM person (bringing a mail-only one into the CRM), writing the payload's identity fields to it. */
+async function linkPerson(
+  c: AppContext,
+  db: Database,
+  personId: string,
+  data: ContactPayload,
+): Promise<IdentityLink> {
+  const [existing] = await db
+    .select()
+    .from(schema.people)
+    .where(and(eq(schema.people.id, personId), isNull(schema.people.deletedAt)))
+    .limit(1);
+  if (!existing) throw new ContactIdentityError('badRequest', `personId: person ${personId} not found`);
+  await assertNotWrapped(db, 'person', personId);
+
+  const input = { ...definedOnly(personIdentityInput(data)), ...(existing.inCrm ? {} : { inCrm: true }) };
+  const result = await updatePerson(db, personId, input as Parameters<typeof updatePerson>[2]);
+  const person = result?.row ?? existing;
+  if (result?.changes) publishIdentityEvent(c, 'person', 'updated', person);
+  return { kind: 'person', companyId: null, personId, displayName: person.displayName };
+}
+
 /**
- * Create the CRM identity a contact wraps. A person whose email already
- * exists (often a mail-only identity) is reused: its empty fields are filled
- * in, unless another contact already wraps it.
+ * Create the CRM identity a contact wraps, or link the existing one the
+ * payload names. A new person whose email already exists (often a mail-only
+ * identity) is reused: its empty fields are filled in, unless another contact
+ * already wraps it.
  */
 async function createIdentity(
   c: AppContext,
   db: Database,
   data: ContactPayload & { fullName: string },
 ): Promise<IdentityLink> {
-  const kind = chooseIdentityKind(data);
+  const kind = resolveIdentityKind(data);
+  assertFitsKind(kind, data);
+  if (kind === 'company' && data.companyId) return linkCompany(c, db, data.companyId, data);
+  if (kind === 'person' && data.personId) return linkPerson(c, db, data.personId, data);
+
   const ownerId = await ownerIdFor(c, db);
   // Seeds the CRM primary address; a fresh copy, since the identity schemas
   // type addresses as open records.
   const billing = normalizePostalAddress(data.billingAddress);
   const primaryAddress = billing ? { ...billing } : undefined;
 
-  if (kind === 'company') {
-    const input = presentOnly(companyIdentityInput(data, null));
-    const company = await createCompany(db, {
-      ...input,
-      name: input.name ?? data.fullName,
-      status: 'active',
-      primaryAddress,
-      ownerId,
-    });
-    publishIdentityEvent(c, 'company', 'created', company);
-    return { kind, companyId: company.id, personId: null, displayName: company.displayName };
-  }
+  return kind === 'company'
+    ? createCompanyIdentity(c, db, data, { primaryAddress, ownerId })
+    : createPersonIdentity(c, db, data, { primaryAddress, ownerId });
+}
 
+interface NewIdentityDefaults {
+  primaryAddress: Record<string, string | undefined> | undefined;
+  ownerId: string | undefined;
+}
+
+async function createCompanyIdentity(
+  c: AppContext,
+  db: Database,
+  data: ContactPayload & { fullName: string },
+  { primaryAddress, ownerId }: NewIdentityDefaults,
+): Promise<IdentityLink> {
+  const input = presentOnly(companyIdentityInput(data, null));
+  const company = await createCompany(db, {
+    ...input,
+    name: input.name ?? data.fullName,
+    status: 'active',
+    primaryAddress,
+    ownerId,
+  });
+  publishIdentityEvent(c, 'company', 'created', company);
+  return { kind: 'company', companyId: company.id, personId: null, displayName: company.displayName };
+}
+
+async function createPersonIdentity(
+  c: AppContext,
+  db: Database,
+  data: ContactPayload & { fullName: string },
+  { primaryAddress, ownerId }: NewIdentityDefaults,
+): Promise<IdentityLink> {
+  const kind = 'person';
   const input = presentOnly(personIdentityInput(data));
 
   // The user picked the person to link to.
@@ -649,13 +854,27 @@ async function linkExistingPerson(
   primaryAddress: Record<string, string | undefined> | undefined,
 ): Promise<IdentityLink> {
   await assertPersonNotWrapped(db, personId);
+  const person = await fillPersonGaps(c, db, personId, { ...input, primaryAddress });
+  return { kind: 'person', companyId: null, personId, displayName: person.displayName };
+}
+
+/**
+ * Bring an existing person (found by email) into the CRM and fill in the
+ * fields they don't have yet; what they already have is kept, and so is the
+ * email the match was made on.
+ */
+async function fillPersonGaps(
+  c: AppContext,
+  db: Database,
+  personId: string,
+  candidates: Record<string, unknown>,
+): Promise<PersonRow> {
   const [existing] = await db.select().from(schema.people).where(eq(schema.people.id, personId)).limit(1);
   if (!existing || existing.deletedAt) {
     throw new ContactIdentityError('badRequest', 'The person to link to no longer exists.', { code: 'PERSON_NOT_FOUND' });
   }
 
   const fill: Record<string, unknown> = { inCrm: true };
-  const candidates: Record<string, unknown> = { ...input, primaryAddress };
   for (const [key, value] of Object.entries(candidates)) {
     if (value === undefined || value === '' || key === 'email') continue;
     const current = (existing as Record<string, unknown>)[key];
@@ -666,7 +885,140 @@ async function linkExistingPerson(
   const result = await updatePerson(db, personId, fill as Parameters<typeof updatePerson>[2]);
   const person = result?.row ?? existing;
   publishIdentityEvent(c, 'person', 'updated', person);
-  return { kind: 'person', companyId: null, personId, displayName: person.displayName };
+  return person;
+}
+
+// ---------------------------------------------------------------------------
+// Contact person of a company contact (its CRM billing contact)
+// ---------------------------------------------------------------------------
+
+type ContactPersonInput = NonNullable<ContactPayload['contactPerson']>;
+
+function contactPersonIdentityInput(input: ContactPersonInput) {
+  return {
+    firstName: clearable(input.firstName),
+    lastName: clearable(input.lastName),
+    email: clearable(input.email),
+    directPhone: clearable(input.phone),
+  };
+}
+
+/** Same events the CRM's own link route publishes. */
+function publishLinkEvents(
+  c: AppContext,
+  companyId: string,
+  personIds: readonly string[],
+  created?: { linkId: string; personId: string },
+): void {
+  if (created) {
+    publishEntityEvent({
+      c,
+      entityType: 'contact_link',
+      entityId: created.linkId,
+      action: 'created',
+      data: { id: created.linkId, personId: created.personId, companyId },
+    });
+  }
+  for (const personId of new Set(personIds)) {
+    publishEntityEvent({ c, entityType: 'person', entityId: personId, action: 'updated', data: { id: personId } });
+  }
+  if (created || personIds.length > 0) {
+    publishEntityEvent({ c, entityType: 'company', entityId: companyId, action: 'updated', data: { id: companyId } });
+  }
+}
+
+type ContactPersonFields = ReturnType<typeof contactPersonIdentityInput>;
+
+/** The CRM person the input names (updated with its fields), or a new one built from them. */
+async function resolveContactPerson(
+  c: AppContext,
+  db: Database,
+  input: ContactPersonInput,
+): Promise<PersonRow | null> {
+  const fields = contactPersonIdentityInput(input);
+  return input.personId
+    ? updateChosenContactPerson(c, db, input.personId, fields)
+    : createContactPerson(c, db, fields);
+}
+
+/** What differs from the stored person, so saving the form unchanged leaves them alone. */
+function contactPersonChanges(existing: PersonRow, fields: ContactPersonFields): Record<string, unknown> {
+  const current: Record<string, string> = {
+    firstName: existing.firstName ?? '',
+    lastName: existing.lastName ?? '',
+    email: existing.email ?? '',
+    directPhone: personPhone(existing) ?? '',
+  };
+  const changes: Record<string, unknown> = existing.inCrm ? {} : { inCrm: true };
+  for (const [key, value] of Object.entries(definedOnly(fields))) {
+    if (value !== current[key]) changes[key] = value;
+  }
+  return changes;
+}
+
+async function updateChosenContactPerson(
+  c: AppContext,
+  db: Database,
+  personId: string,
+  fields: ContactPersonFields,
+): Promise<PersonRow> {
+  const [existing] = await db
+    .select()
+    .from(schema.people)
+    .where(and(eq(schema.people.id, personId), isNull(schema.people.deletedAt)))
+    .limit(1);
+  if (!existing) {
+    throw new ContactIdentityError('badRequest', `contactPerson.personId: person ${personId} not found`);
+  }
+  const changes = contactPersonChanges(existing, fields);
+  if (Object.keys(changes).length === 0) return existing;
+  const result = await updatePerson(db, existing.id, changes as Parameters<typeof updatePerson>[2]);
+  const person = result?.row ?? existing;
+  if (result?.changes) publishIdentityEvent(c, 'person', 'updated', person);
+  return person;
+}
+
+/** A new contact person; one whose email the CRM already knows is that person. Null when nothing was filled in. */
+async function createContactPerson(
+  c: AppContext,
+  db: Database,
+  fields: ContactPersonFields,
+): Promise<PersonRow | null> {
+  const present = presentOnly(fields);
+  if (!present.firstName && !present.lastName && !present.email) return null;
+  try {
+    const person = await createPerson(db, { ...present, ownerId: await ownerIdFor(c, db) });
+    publishIdentityEvent(c, 'person', 'created', person);
+    return person;
+  } catch (err) {
+    if (!(err instanceof PersonDuplicateEmailError)) throw err;
+    // The CRM already knows this person: they become the contact person.
+    return fillPersonGaps(c, db, err.existingPersonId, present);
+  }
+}
+
+/** Apply the payload's `contactPerson` to a company contact: set, change or remove it. */
+async function syncContactPerson(
+  c: AppContext,
+  db: Database,
+  companyId: string,
+  input: ContactPayload['contactPerson'],
+): Promise<void> {
+  if (input === undefined) return;
+  if (input === null) {
+    publishLinkEvents(c, companyId, await clearBillingContact(db, companyId));
+    return;
+  }
+  const person = await resolveContactPerson(c, db, input);
+  if (!person) return;
+  const link = await setBillingContact(db, companyId, person.id);
+  if (!link.changed) return;
+  publishLinkEvents(
+    c,
+    companyId,
+    [person.id, ...link.demotedPersonIds],
+    link.created ? { linkId: link.linkId, personId: person.id } : undefined,
+  );
 }
 
 /** Update the company a contact wraps. Null when it is gone, so the caller builds a fresh identity. */
@@ -716,6 +1068,19 @@ async function updateWrappedPerson(
   return { kind: 'person', companyId: null, personId: result.row.id, displayName: result.row.displayName };
 }
 
+/** A contact keeps its kind and its CRM record; the update's fields have to fit that kind. */
+function assertKindUnchanged(currentKind: IdentityKind, contact: PartyRow, data: ContactPayload): void {
+  if (data.kind && data.kind !== currentKind) {
+    throw new ContactIdentityError('badRequest', `kind: this contact is a ${currentKind}, and a contact's type can't be changed.`);
+  }
+  const linked = currentKind === 'company' ? contact.companyId : contact.personId;
+  const asked = currentKind === 'company' ? data.companyId : data.personId;
+  if (asked && asked !== linked) {
+    throw new ContactIdentityError('badRequest', `${currentKind}Id: this contact already wraps another CRM ${currentKind}.`);
+  }
+  assertFitsKind(currentKind, data);
+}
+
 /**
  * Apply identity changes to the contact's company or person, creating the
  * identity first when the party wraps none (rows from the old route) or the
@@ -727,6 +1092,9 @@ async function syncIdentity(
   contact: PartyRow,
   data: ContactPayload,
 ): Promise<IdentityLink | null> {
+  const currentKind = contact.kind === 'company' || contact.kind === 'person' ? contact.kind : null;
+  if (currentKind) assertKindUnchanged(currentKind, contact, data);
+
   const wrappedCompanyId = contact.kind === 'company' ? contact.companyId : null;
   const wrappedPersonId = contact.kind === 'person' ? contact.personId : null;
 
@@ -738,9 +1106,11 @@ async function syncIdentity(
     if (updated) return updated;
   }
 
-  // No (live) identity yet: build one from the payload and the party's name.
+  // No (live) identity yet: build one from the payload and the party's name. A
+  // contact whose identity was deleted in the CRM gets a new one of its kind.
   return createIdentity(c, db, {
     ...data,
+    ...(currentKind ? { kind: currentKind, companyId: undefined, personId: undefined } : {}),
     fullName: data.fullName ?? contact.displayName ?? 'Unnamed contact',
     billingAddress: data.billingAddress !== undefined ? data.billingAddress : contact.billingAddress,
   });
@@ -855,10 +1225,24 @@ async function checkBrazilianTaxNumber(c: AppContext, db: Database, data: Contac
   }
 }
 
+/** The CRM company a contact wraps, once its identity is settled. */
+function contactCompanyId(contact: PartyRow | null, link: IdentityLink | null): string | null {
+  if (link) return link.kind === 'company' ? link.companyId : null;
+  return contact?.kind === 'company' ? contact.companyId : null;
+}
+
 function identityErrorResponse(c: AppContext, err: ContactIdentityError) {
   return err.status === 'conflict'
     ? error.conflict(c, err.message, err.details)
     : error.badRequest(c, err.message, err.details);
+}
+
+/** Saving an email that another CRM person already has. */
+function duplicateEmailResponse(c: AppContext, err: PersonDuplicateEmailError) {
+  return error.conflict(c, 'Another person in the CRM already has this email address.', {
+    code: 'PERSON_EMAIL_EXISTS',
+    existingPersonId: err.existingPersonId,
+  });
 }
 
 /** The scanned W-9 has to be an accounting document of this workspace. */
@@ -927,6 +1311,9 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
     if (search) {
       conditions.push(ilike(t.displayName, `%${search}%`));
     }
+    // ?kind=company|person: the contacts that are a company, or a person.
+    const kindFilter = c.req.query('kind');
+    if (kindFilter === 'company' || kindFilter === 'person') conditions.push(eq(t.kind, kindFilter));
     // ?is1099Vendor=true lists the vendors flagged for 1099 reporting.
     if (c.req.query('is1099Vendor') === 'true') conditions.push(eq(t.is1099Vendor, true));
 
@@ -936,14 +1323,8 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
         .limit(pageSize).offset((page - 1) * pageSize),
       db.select({ count: sql<number>`count(*)::int` }).from(t).where(where),
     ]);
-    const { companies, people } = await loadIdentities(db, rows);
-    const data = rows.map((row) =>
-      toContactView(
-        row,
-        row.companyId ? companies.get(row.companyId) : null,
-        row.personId ? people.get(row.personId) : null,
-      ),
-    );
+    const identities = await loadIdentities(db, rows);
+    const data = rows.map((row) => viewWithIdentities(row, identities));
     const totalCount = Number(countRes[0]?.count ?? 0);
     return list(c, data, cursorPagination(totalCount, page * pageSize < totalCount, null));
   } catch (err) {
@@ -1053,6 +1434,8 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
     await checkBrazilianTaxNumber(c, db, data);
     const taxChange = await buildVendorTaxChange(null, data, c.env);
     const identity = await createIdentity(c, db, data);
+    const companyId = contactCompanyId(null, identity);
+    if (companyId) await syncContactPerson(c, db, companyId, data.contactPerson);
 
     const id = generateId('acn');
     const now = new Date();
@@ -1083,6 +1466,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
     return success(c, contact, 201);
   } catch (err) {
     if (err instanceof ContactIdentityError) return identityErrorResponse(c, err);
+    if (err instanceof PersonDuplicateEmailError) return duplicateEmailResponse(c, err);
     if (err instanceof VendorTaxError) return error.badRequest(c, err.message, err.details);
     if (err instanceof VendorTaxKeyError) return error.unavailable(c, err.message);
     console.error('[books-api/accounting-contacts] create failed:', err);
@@ -1107,6 +1491,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     await checkBrazilianTaxNumber(c, db, data);
     const taxChange = await buildVendorTaxChange(contact, data, c.env);
     const link = await syncIdentity(c, db, contact, data);
+    const companyId = contactCompanyId(contact, link);
+    if (companyId) await syncContactPerson(c, db, companyId, data.contactPerson);
 
     await db
       .update(t)
@@ -1132,6 +1518,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     return success(c, updated);
   } catch (err) {
     if (err instanceof ContactIdentityError) return identityErrorResponse(c, err);
+    if (err instanceof PersonDuplicateEmailError) return duplicateEmailResponse(c, err);
     if (err instanceof VendorTaxError) return error.badRequest(c, err.message, err.details);
     if (err instanceof VendorTaxKeyError) return error.unavailable(c, err.message);
     console.error('[books-api/accounting-contacts] update failed:', err);

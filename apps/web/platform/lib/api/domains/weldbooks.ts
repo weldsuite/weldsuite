@@ -315,14 +315,20 @@ export interface Dashboard {
   expenses: { month: string; year: string };
   profit: { month: string; year: string };
   /** Posted documents in base currency, credit notes subtracted; overdue leaves credit notes out. */
-  receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number };
-  payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number };
+  receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number; aging?: DashboardAging };
+  payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number; aging?: DashboardAging };
   bankAccounts: Array<{ id: string; name: string; iban: string | null; currentBalance: string | null; currency: string | null }>;
   recentPayments: Payment[];
   upcomingDue: Array<{ id: string; invoiceNumber: string | null; contactName: string | null; dueDate: string; balanceDue: string | null }>;
   pendingDocuments: number;
   monthlyRevenue: Array<{ month: string; total: string }>;
+  /** Ledger revenue, expenses and net profit for the last 24 months, oldest first (absent on older API versions). */
+  monthlyTrend?: Array<{ month: string; revenue: string; expenses: string; profit: string }>;
 }
+
+export type DashboardAgingBucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
+/** Open balance per days-past-due bucket, as in the aged receivables / payables report. */
+export type DashboardAging = Record<DashboardAgingBucket, { total: string; count: number }>;
 
 export interface Settings {
   id: string;
@@ -383,10 +389,30 @@ export interface TaxRate {
   ledgerAccountId: string | null;
 }
 
+/** Whether an accounting contact is a business or an individual: the CRM company or person it wraps. */
+export type ContactKind = 'company' | 'person';
+
+/** The contact person of a company contact: a CRM person, the company's billing contact. */
+export interface ContactPerson {
+  personId: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
 export interface Customer {
   id: string;
   type?: string | null;
   role: string;
+  /** null for contacts from before contacts wrapped a CRM identity; their first save sets it. */
+  kind?: ContactKind | null;
+  /** The CRM company this contact is (kind 'company'). */
+  companyId?: string | null;
+  /** The CRM person this contact is (kind 'person'). */
+  personId?: string | null;
+  contactPerson?: ContactPerson | null;
   name: string;
   companyName?: string | null;
   firstName?: string | null;
@@ -860,6 +886,7 @@ export const accountingApi = {
   // Contacts
   listCustomers: (params?: {
     role?: 'customer' | 'supplier' | 'both' | 'none';
+    kind?: ContactKind;
     search?: string;
     page?: number;
     pageSize?: number;

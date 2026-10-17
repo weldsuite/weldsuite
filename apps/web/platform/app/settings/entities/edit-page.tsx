@@ -305,9 +305,9 @@ export default function EditEntityPage() {
 
   if (!entity) {
     return (
-      <div className="p-6 space-y-2">
+      <div className="space-y-2">
         <p className="text-muted-foreground">{te.notFound}</p>
-        <Link to="/weldbooks/entities">
+        <Link to="/settings/entities">
           <Button variant="link" className="px-0">{te.back}</Button>
         </Link>
       </div>
@@ -315,9 +315,9 @@ export default function EditEntityPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-start gap-3">
-        <Link to="/weldbooks/entities">
+        <Link to="/settings/entities">
           <Button variant="ghost" size="icon" aria-label={te.back}>
             <ArrowLeft className="h-4 w-4" />
           </Button>

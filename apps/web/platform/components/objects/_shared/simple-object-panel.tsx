@@ -56,6 +56,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { ComingSoonTab } from './coming-soon-tab';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 const PANEL_WIDTH = 400;
 
@@ -149,11 +150,11 @@ function PanelTitle({ title, subtitle }: Readonly<{ title?: string; subtitle?: s
 
 function PanelActions({ openHref }: Readonly<{ openHref?: string }>) {
   const t = useTranslations();
+  const workspaceUrl = useWorkspaceUrl();
   if (!openHref) return null;
   const handleCopyLink = async () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
     try {
-      await navigator.clipboard.writeText(`${origin}${openHref}`);
+      await navigator.clipboard.writeText(workspaceUrl(openHref));
       toast.success(t('sweep.entities.linkCopied'));
     } catch {
       toast.error(t('sweep.entities.copyLinkFailed'));

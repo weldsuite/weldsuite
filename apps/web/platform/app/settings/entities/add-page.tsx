@@ -103,7 +103,7 @@ export default function AddEntityPage() {
       const created = 'data' in res ? res.data : res;
       if (created?.id) setEntityId(created.id);
       queryClient.invalidateQueries({ queryKey: ['accounting', 'entities'] });
-      navigate({ to: '/weldbooks/entities' });
+      navigate({ to: '/settings/entities' });
     },
   });
 
@@ -138,7 +138,7 @@ export default function AddEntityPage() {
   if (isBr) return <BrEntityCreateForm jurisdictionPicker={jurisdictionPicker} />;
 
   return (
-    <div className="p-6 max-w-2xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">{te.newLegalEntity}</h1>
         <p className="text-sm text-muted-foreground">
@@ -226,7 +226,7 @@ export default function AddEntityPage() {
             value={iban}
             onChange={(e) => setIban(e.target.value)}
             aria-invalid={ibanInvalid}
-            placeholder={isIndia ? 'Account number / IFSC' : 'NL91 ABNA 0417 1643 00'}
+            placeholder={isIndia ? te.accountNumberIfscPlaceholder : 'NL91 ABNA 0417 1643 00'}
           />
           {ibanInvalid && <p className="mt-1 text-sm text-destructive">{t.accounting.contacts.ibanInvalid}</p>}
         </div>
@@ -249,7 +249,7 @@ export default function AddEntityPage() {
         >
           {createMutation.isPending ? te.creatingEntity : te.createEntity2}
         </Button>
-        <Button variant="outline" onClick={() => navigate({ to: '/weldbooks/entities' })}>
+        <Button variant="outline" onClick={() => navigate({ to: '/settings/entities' })}>
           {te.cancel}
         </Button>
       </div>

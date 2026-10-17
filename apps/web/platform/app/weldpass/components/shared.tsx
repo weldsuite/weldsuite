@@ -15,13 +15,14 @@ export function ErrorBanner({
   error: string | null;
   onDismiss?: () => void;
 }>) {
+  const t = useTranslations();
   if (!error) return null;
   return (
     <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <span className="flex-1 break-words">{error}</span>
       {onDismiss && (
-        <button onClick={onDismiss} aria-label="Dismiss" className="shrink-0">
+        <button onClick={onDismiss} aria-label={t('weldpass.dismiss')} className="shrink-0">
           <X className="h-4 w-4" />
         </button>
       )}

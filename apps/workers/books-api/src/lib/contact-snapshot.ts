@@ -10,6 +10,7 @@
 
 import { eq, inArray } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { loadBillingContacts } from '../services/billing-contact';
 
 export interface ContactSnapshot {
   name: string | null;
@@ -42,6 +43,11 @@ export async function loadContactSnapshot(
       .from(schema.companies)
       .where(eq(schema.companies.id, party.companyId))
       .limit(1);
+    // A company without an email address of its own is reached through its contact person.
+    if (identity && !identity.email) {
+      const contactPerson = (await loadBillingContacts(db, [party.companyId])).get(party.companyId);
+      if (contactPerson?.email) identity = { ...identity, email: contactPerson.email };
+    }
   } else if (party.personId) {
     [identity] = await db
       .select({ displayName: schema.people.displayName, email: schema.people.email })

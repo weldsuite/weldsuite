@@ -21,6 +21,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient, useAppApi } from '@/lib/api/use-app-api';
 import type { Role } from '@/lib/api/types/rbac.types';
 import { useRouter } from '@/lib/router';
@@ -52,8 +53,6 @@ interface MemberLimitsInfo {
   planName: string;
 }
 
-const plural = (n: number) => (n !== 1 ? 's' : '');
-
 /**
  * Pseudo role value for an EMPLOYEE member (WeldHR): no role, a fixed My HR +
  * WeldChat permission set, and still a paid seat. Sent as memberType, never
@@ -81,13 +80,13 @@ function applyDefaultRole(invites: InviteEntry[], availableRoles: Role[], defaul
   return invites.map((inv) => (roleIsAvailable(inv.roleId) ? inv : { ...inv, roleId: defaultRole.id }));
 }
 
-const getRoleLabel = (roleName: string) => {
+const getRoleLabel = (roleName: string, labels: { owner: string; admin: string; member: string; viewer: string }) => {
   const upper = roleName.toUpperCase();
   switch (upper) {
-    case 'OWNER': return 'Owner';
-    case 'ADMIN': return 'Admin';
-    case 'MEMBER': return 'Member';
-    case 'VIEWER': return 'Viewer';
+    case 'OWNER': return labels.owner;
+    case 'ADMIN': return labels.admin;
+    case 'MEMBER': return labels.member;
+    case 'VIEWER': return labels.viewer;
     default:
       return roleName
         .split(/[\s_-]+/)
@@ -103,17 +102,21 @@ interface MemberLimitNoticesProps {
 }
 
 function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly<MemberLimitNoticesProps>) {
+  const { t, plural, format } = useI18n();
+  const ti = t.common.inviteMember;
+  const memberCount = (n: number) => plural(n, ti.memberCount);
+  const seatCount = (n: number) => plural(n, ti.seatCount);
   return (
     <>
       {/* Show member limit warning when at limit */}
       {memberLimits?.atLimit && (
         <Alert variant="destructive" className="mb-4">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Member limit reached</AlertTitle>
+          <AlertTitle>{ti.memberLimitReached}</AlertTitle>
           <AlertDescription>
-            Your {memberLimits.planName} plan allows up to {memberLimits.limit} member{memberLimits.limit !== 1 ? 's' : ''}.
-            You currently have {memberLimits.current} member{plural(memberLimits.current)}.
-            Upgrade your plan to add more team members.
+            {format(ti.planAllowsUpTo, { plan: memberLimits.planName, limit: memberCount(memberLimits.limit ?? 0) })}{' '}
+            {format(ti.currentlyHave, { current: memberCount(memberLimits.current) })}{' '}
+            {ti.upgradeToAddMore}
           </AlertDescription>
         </Alert>
       )}
@@ -121,7 +124,7 @@ function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly
       {/* Show current member count info when not at limit but has a limit (free plan) */}
       {memberLimits && !memberLimits.atLimit && memberLimits.limit !== null && (
         <p className="text-sm text-muted-foreground mb-4">
-          {memberLimits.current} of {memberLimits.limit} members used on your {memberLimits.planName} plan.
+          {format(ti.membersUsed, { current: memberLimits.current, limit: memberLimits.limit, plan: memberLimits.planName })}
         </p>
       )}
 
@@ -132,17 +135,17 @@ function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Users className="h-4 w-4" />
               <span>
-                {prepaidSeats.availableSeats} seat{plural(prepaidSeats.availableSeats)} available
-                <span className="text-muted-foreground/70"> ({prepaidSeats.usedSeats}/{prepaidSeats.prepaidSeats} used)</span>
+                {format(ti.seatsAvailable, { seats: seatCount(prepaidSeats.availableSeats) })}
+                <span className="text-muted-foreground/70"> {format(ti.seatsUsed, { used: prepaidSeats.usedSeats, total: prepaidSeats.prepaidSeats })}</span>
               </span>
             </div>
           ) : (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>No seats available</AlertTitle>
+              <AlertTitle>{ti.noSeatsAvailable}</AlertTitle>
               <AlertDescription>
-                All {prepaidSeats.prepaidSeats} seat{plural(prepaidSeats.prepaidSeats)} are in use.
-                Purchase more seats to invite members.
+                {format(ti.allSeatsInUse, { seats: seatCount(prepaidSeats.prepaidSeats) })}{' '}
+                {ti.purchaseMoreSeats}
               </AlertDescription>
             </Alert>
           )}
@@ -164,12 +167,14 @@ interface InviteRowProps {
 }
 
 function InviteRow({ invite, roles, employeeLabel, isLoading, canRemove, onUpdate, onRemove }: Readonly<InviteRowProps>) {
+  const { t } = useI18n();
+  const ti = t.common.inviteMember;
   return (
     <div className="flex gap-2 items-start">
       <div className="flex-1 grid grid-cols-[1fr_1fr_120px] gap-2">
         <Input
           type="email"
-          placeholder="Email"
+          placeholder={t.common.labels.email}
           value={invite.email}
           onChange={(e) => onUpdate(invite.id, 'email', e.target.value)}
           disabled={isLoading}
@@ -177,7 +182,7 @@ function InviteRow({ invite, roles, employeeLabel, isLoading, canRemove, onUpdat
         />
         <Input
           type="text"
-          placeholder="Name"
+          placeholder={t.common.labels.name}
           value={invite.name}
           onChange={(e) => onUpdate(invite.id, 'name', e.target.value)}
           disabled={isLoading}
@@ -189,15 +194,15 @@ function InviteRow({ invite, roles, employeeLabel, isLoading, canRemove, onUpdat
           disabled={isLoading || roles.length === 0}
         >
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="Role" />
+            <SelectValue placeholder={ti.rolePlaceholder} />
           </SelectTrigger>
           <SelectContent>
             {roles.map((role) => (
               <SelectItem key={role.id} value={role.id}>
-                {getRoleLabel(role.name)}
+                {getRoleLabel(role.name, ti.roles)}
                 {!role.isSystemRole && (
                   <span className="ml-1 text-xs text-muted-foreground">
-                    (Custom)
+                    {ti.customRole}
                   </span>
                 )}
               </SelectItem>
@@ -224,9 +229,13 @@ function InviteRow({ invite, roles, employeeLabel, isLoading, canRemove, onUpdat
   );
 }
 
-function sendInvitesLabel(invites: InviteEntry[]): string {
+function sendInvitesLabel(
+  invites: InviteEntry[],
+  ti: { sendInvitesNone: string; sendInvites: { one: string; other: string } },
+  pluralize: (count: number, forms: { one: string; other: string }) => string,
+): string {
   const filled = invites.filter((i) => i.email && i.name).length;
-  return `Send ${filled || ''} Invite${plural(filled)}`;
+  return filled === 0 ? ti.sendInvitesNone : pluralize(filled, ti.sendInvites);
 }
 
 export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMemberDialogProps>) {
@@ -237,6 +246,9 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
   const [prepaidSeats, setPrepaidSeats] = useState<PrepaidSeatsInfo | null>(null);
   const router = useRouter();
   const t = useTranslations();
+  const { t: tr, plural, format } = useI18n();
+  const ti = tr.common.inviteMember;
+  const tCancel = tr.common.actions.cancel;
   const { getClient } = useAppApiClient();
   const { teamMembers } = useAppApi();
   const { data: installedApps } = useInstalledApps();
@@ -321,8 +333,8 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
       .filter(({ result }) => result.status === 'rejected');
 
     if (succeeded > 0) {
-      toast.success(`${succeeded} invitation${succeeded > 1 ? 's' : ''} sent`, {
-        description: failures.length > 0 ? `${failures.length} could not be sent` : undefined,
+      toast.success(plural(succeeded, ti.invitationsSent), {
+        description: failures.length > 0 ? format(ti.couldNotBeSent, { count: failures.length }) : undefined,
       });
       resetAndClose();
     }
@@ -330,8 +342,8 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
     // Show a specific toast for each failed invite
     for (const { result, invite } of failures) {
       const message = (result as PromiseRejectedResult).reason?.message;
-      toast.error(`Could not invite ${invite.email}`, {
-        description: message || 'Please try again later',
+      toast.error(format(ti.couldNotInvite, { email: invite.email }), {
+        description: message || ti.tryAgainLater,
       });
     }
   };
@@ -342,14 +354,17 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
     const validInvites = getValidInvites();
 
     if (validInvites.length === 0) {
-      toast.error('Please fill in at least one invitation');
+      toast.error(ti.fillAtLeastOne);
       return;
     }
 
     // Check if we have enough prepaid seats for paid plans
     if (isPaidPlan && prepaidSeats && validInvites.length > prepaidSeats.availableSeats) {
-      toast.error(`Not enough seats available`, {
-        description: `You have ${prepaidSeats.availableSeats} seat${plural(prepaidSeats.availableSeats)} available but are trying to invite ${validInvites.length} member${plural(validInvites.length)}.`,
+      toast.error(ti.notEnoughSeats, {
+        description: format(ti.notEnoughSeatsDescription, {
+          available: plural(prepaidSeats.availableSeats, ti.seatCount),
+          requested: plural(validInvites.length, ti.memberCount),
+        }),
       });
       return;
     }
@@ -369,8 +384,8 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
       reportInviteResults(results, validInvites);
     } catch (error) {
       console.error('Error inviting users:', error);
-      toast.error('Failed to send invitations', {
-        description: error instanceof Error ? error.message : 'An unexpected error occurred',
+      toast.error(ti.sendFailed, {
+        description: error instanceof Error ? error.message : ti.unexpectedError,
       });
     } finally {
       setIsLoading(false);
@@ -417,10 +432,10 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
             variant="outline"
             onClick={() => handleOpenChange(false)}
           >
-            Cancel
+            {tCancel}
           </Button>
           <Button onClick={handleUpgrade}>
-            Upgrade Plan
+            {ti.upgradePlan}
           </Button>
         </DialogFooter>
       );
@@ -433,10 +448,10 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
             variant="outline"
             onClick={() => handleOpenChange(false)}
           >
-            Cancel
+            {tCancel}
           </Button>
           <Button onClick={handleBuyMoreSeats}>
-            Buy More Seats
+            {ti.buyMoreSeats}
           </Button>
         </DialogFooter>
       );
@@ -468,7 +483,7 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
             disabled={isLoading}
           >
             <Plus className="h-4 w-4 mr-1" />
-            Add another
+            {ti.addAnother}
           </Button>
 
         </div>
@@ -480,16 +495,16 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
             onClick={() => handleOpenChange(false)}
             disabled={isLoading}
           >
-            Cancel
+            {tCancel}
           </Button>
           <Button type="submit" disabled={isLoading}>
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sending...
+                {ti.sending}
               </>
             ) : (
-              sendInvitesLabel(invites)
+              sendInvitesLabel(invites, ti, plural)
             )}
           </Button>
         </DialogFooter>
@@ -502,7 +517,7 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
     <>
       <DialogHeader>
         <DialogTitle>
-          Invite Team Members
+          {ti.title}
         </DialogTitle>
       </DialogHeader>
 

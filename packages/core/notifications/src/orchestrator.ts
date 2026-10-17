@@ -10,7 +10,7 @@
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
-import { type EmailBrand, type EmailLocale, type EmailModule, resolveEmailLocale } from '@weldsuite/emails';
+import { type EmailBrand, type EmailLocale, type EmailModule, resolveEmailLocale, workspaceAppUrl } from '@weldsuite/emails';
 import { workerTransport } from '@weldsuite/emails/transports/binding';
 import { getChannelPreferences } from './preferences';
 import { resolveEmailPresence } from './presence';
@@ -121,19 +121,23 @@ function emailBrandForCategory(category: string): EmailBrand {
 }
 
 /** The `notification` template spec built from the notification's own title/
- *  body/actionUrl, used when a helper does not supply a richer `email` override. */
+ *  body/actionUrl, used when a helper does not supply a richer `email` override.
+ *  Links open in the notification's workspace (`/w/{orgId}/…`); the stored
+ *  `actionUrl` stays workspace-free because the mobile apps map it to screens. */
 function defaultEmailSpec<Env extends NotificationEnv>(
   params: CreateNotificationParams<Env>,
 ): NotificationEmailOverride {
   const baseUrl = params.env.PUBLIC_APP_URL?.trim();
-  const actionUrl = params.actionUrl ? (baseUrl ? `${baseUrl}${params.actionUrl}` : params.actionUrl) : undefined;
+  const orgId = params.clerkOrgId ?? params.workspaceId;
+  const actionUrl =
+    params.actionUrl && baseUrl ? workspaceAppUrl(baseUrl, orgId, params.actionUrl) : params.actionUrl || undefined;
   return {
     template: 'notification',
     props: {
       title: params.title,
       body: params.body,
       actionUrl,
-      settingsUrl: baseUrl ? `${baseUrl}/settings/notifications` : undefined,
+      settingsUrl: baseUrl ? workspaceAppUrl(baseUrl, orgId, '/settings/notifications') : undefined,
     },
   };
 }

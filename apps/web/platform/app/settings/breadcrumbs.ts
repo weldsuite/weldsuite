@@ -44,6 +44,9 @@ export interface BreadcrumbMenuLabels {
   objectTemplates: string;
   integrations: string;
   phoneNumbers: string;
+  entities: string;
+  newEntity: string;
+  editEntity: string;
   activityLog: string;
   dataExport: string;
   advanced: string;
@@ -71,6 +74,7 @@ function getSegmentLabels(menu: BreadcrumbMenuLabels): Record<string, string> {
     'object-templates': menu.objectTemplates,
     integrations: menu.integrations,
     'phone-numbers': menu.phoneNumbers,
+    entities: menu.entities,
     activity: menu.activityLog,
     export: menu.dataExport,
     advanced: menu.advanced,
@@ -95,12 +99,18 @@ export function buildBreadcrumbSegments(
 
   const segmentLabels = getSegmentLabels(menu);
 
+  const underEntities = pathParts[1] === 'entities';
+
   for (let i = 1; i < pathParts.length; i++) {
+    // An entity's id adds nothing to the trail: Settings > Entities > Edit entity.
+    if (underEntities && i === 2 && pathParts[3] === 'edit') continue;
     const part = pathParts[i];
     const key = part.toLowerCase();
     // Translated menu title, else a known module slug with its own internal
     // capitalization, else capitalize and space out the raw segment.
     const label =
+      (underEntities && key === 'add' ? menu.newEntity : undefined) ??
+      (underEntities && key === 'edit' ? menu.editEntity : undefined) ??
       segmentLabels[key] ??
       BREADCRUMB_LABEL_OVERRIDES[key] ??
       part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');

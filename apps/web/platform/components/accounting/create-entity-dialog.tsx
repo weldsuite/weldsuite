@@ -141,7 +141,9 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const needsFullSetup = isUs || isBrazil;
   const startUsSetup = () => {
     onOpenChange(false);
-    router.push('/weldbooks/entities/add');
+    // The full form lives in settings; its back button returns to WeldBooks.
+    sessionStorage.setItem('settings-return-url', globalThis.location.pathname);
+    router.push('/settings/entities/add');
   };
   const jurisdictionOptions = jurisdictions.length > 0 ? jurisdictions : FALLBACK_JURISDICTIONS;
   const jurisdictionLabel = (j: { code: string; name: string }): string => {

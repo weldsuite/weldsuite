@@ -49,6 +49,7 @@ import {
   useSetDefaultPaymentMethod,
 } from '@/hooks/queries/use-billing-queries';
 import { useTheme } from '@/hooks/use-theme';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import { useI18n } from '@/lib/i18n/provider';
 
 /**
@@ -112,6 +113,7 @@ function AddPaymentMethodForm({
   const ts = t.settings.billing.paymentMethods;
   const stripe = useStripe();
   const elements = useElements();
+  const workspaceUrl = useWorkspaceUrl();
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -134,7 +136,7 @@ function AddPaymentMethodForm({
     const { error: confirmError, setupIntent } = await stripe.confirmSetup({
       elements,
       confirmParams: {
-        return_url: `${window.location.origin}/settings/billing?payment_method=added`,
+        return_url: workspaceUrl('/settings/billing?payment_method=added'),
       },
       redirect: 'if_required',
     });

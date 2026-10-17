@@ -321,7 +321,7 @@ describe('attendees', () => {
     });
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
-    expect(sent[0].html).toContain('https://app.weldsuite.org/weldcalendar');
+    expect(sent[0].html).toContain('https://app.weldsuite.org/w/org_test_default/weldcalendar');
   });
 
   it('rejects an invalid attendee email and ignores unknown keys', async () => {

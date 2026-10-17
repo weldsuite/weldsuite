@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useMeetings } from '@/hooks/queries/use-weldmeet-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { MeetHistoryCard, type MeetingHistoryRow } from '@/components/home/app-cards';
+import { useHomeTime, type HomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const weldmeetHistorySchema = z.object({
@@ -25,14 +26,14 @@ interface ApiMeeting {
   recordingUrl?: string | null;
 }
 
-function formatDate(iso: string | undefined): string {
+function formatDate(iso: string | undefined, tm: HomeTime): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) return `Today, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  if (d.toDateString() === now.toDateString()) return tm.todayAt(d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
   const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
-  if (diffDays === 1) return 'Yest';
+  if (diffDays === 1) return tm.yesterday;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
@@ -41,12 +42,12 @@ function formatDuration(min: number | undefined): string {
   return min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`;
 }
 
-function mapMeeting(api: ApiMeeting): MeetingHistoryRow {
+function mapMeeting(api: ApiMeeting, tm: HomeTime): MeetingHistoryRow {
   const participants = (api.participants ?? []).slice(0, 3).map((p) => (p.initials ?? p.name?.charAt(0) ?? '?').toUpperCase());
   return {
     title: api.title ?? '—',
     type: api.type === 'audio' ? 'audio' : 'video',
-    date: formatDate(api.actualStart ?? api.scheduledStart),
+    date: formatDate(api.actualStart ?? api.scheduledStart, tm),
     participants,
     totalParticipants: api.attendeeCount ?? participants.length,
     duration: formatDuration(api.durationMinutes),
@@ -55,9 +56,10 @@ function mapMeeting(api: ApiMeeting): MeetingHistoryRow {
 }
 
 function Render({ settings }: Readonly<{ settings: WeldmeetHistorySettings }>) {
+  const tm = useHomeTime();
   const res = useMeetings({ status: 'completed', pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: ApiMeeting[] } | undefined)?.data ?? []) as ApiMeeting[];
-  const rows = apiRows.map(mapMeeting).slice(0, settings.maxCount);
+  const rows = apiRows.map((row) => mapMeeting(row, tm)).slice(0, settings.maxCount);
   return <MeetHistoryCard rows={rows} isLoading={res.isLoading} />;
 }
 

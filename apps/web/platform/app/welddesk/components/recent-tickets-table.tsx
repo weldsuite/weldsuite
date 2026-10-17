@@ -267,7 +267,7 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  No activity found.
+                  {td.noActivityFound}
                 </TableCell>
               </TableRow>
             )}
@@ -282,7 +282,7 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
-            Previous
+            {t.common.actions.previous}
           </Button>
           <Button
             variant="outline"
@@ -290,7 +290,7 @@ export function RecentActivityTable({ activities }: Readonly<ActivityTableProps>
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
-            Next
+            {t.common.actions.next}
           </Button>
         </div>
       </div>

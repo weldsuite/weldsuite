@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { ChatChannelsCard, type ChannelRow } from '@/components/home/app-cards';
+import { useHomeTime, type HomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const weldchatChannelsSchema = z.object({
@@ -22,35 +23,36 @@ interface ApiChannel {
   memberCount?: number;
 }
 
-function relativeWhen(iso: string | null | undefined): string {
+function relativeWhen(iso: string | null | undefined, tm: HomeTime): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   const diffMin = Math.floor((Date.now() - d.getTime()) / 60_000);
-  if (diffMin < 1) return 'now';
-  if (diffMin < 60) return `${diffMin}m`;
-  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h`;
+  if (diffMin < 1) return tm.now;
+  if (diffMin < 60) return tm.minutes(diffMin);
+  if (diffMin < 1440) return tm.hours(Math.floor(diffMin / 60));
   const diffDays = Math.floor(diffMin / 1440);
-  if (diffDays === 1) return 'Yest';
+  if (diffDays === 1) return tm.yesterday;
   if (diffDays < 7) return d.toLocaleDateString(undefined, { weekday: 'short' });
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function mapChannel(api: ApiChannel): ChannelRow {
+function mapChannel(api: ApiChannel, tm: HomeTime): ChannelRow {
   return {
     name: api.name ?? '—',
     sender: api.lastMessageSender ?? '',
     message: api.lastMessagePreview ?? '',
-    when: relativeWhen(api.lastMessageAt),
+    when: relativeWhen(api.lastMessageAt, tm),
     unread: api.unreadCount ?? 0,
     members: api.memberCount ?? 0,
   };
 }
 
 function Render({ settings }: Readonly<{ settings: WeldchatChannelsSettings }>) {
+  const tm = useHomeTime();
   const res = useChannels();
   const apiRows = ((res.data as { data?: ApiChannel[] } | undefined)?.data ?? []) as ApiChannel[];
-  const rows = apiRows.map(mapChannel).slice(0, settings.maxCount);
+  const rows = apiRows.map((row) => mapChannel(row, tm)).slice(0, settings.maxCount);
   return <ChatChannelsCard rows={rows} isLoading={res.isLoading} />;
 }
 

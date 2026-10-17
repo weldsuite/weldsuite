@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 import { Button } from '@weldsuite/ui/components/button';
 import { secureRandom } from '@/lib/random';
+import { useI18n } from '@/lib/i18n/provider';
 
 type DailyStatus = 'operational' | 'minor' | 'moderate' | 'major';
 
@@ -35,8 +36,10 @@ interface StatusViewProps {
   enabledPages?: string[];
 }
 
+type ServiceId = 'cloud' | 'webClient' | 'backgroundTasks' | 'cloudStorage' | 'helpdesk';
+
 interface ServiceData {
-  name: string;
+  id: ServiceId;
   uptimePercentage: string;
   dailyStatus: (DailyStatus)[];
 }
@@ -54,6 +57,7 @@ export function StatusView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
 }: Readonly<StatusViewProps>) {
+  const { t, format, language } = useI18n();
   const activeTab = 'status';
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [hoveredSegment, setHoveredSegment] = useState<{ service: number; day: number } | null>(null);
@@ -80,11 +84,11 @@ export function StatusView({
 
   // Use useMemo to generate data only once, preventing color changes on hover
   const services: ServiceData[] = useMemo(() => [
-    { name: 'Attio Cloud', uptimePercentage: '99.98%', dailyStatus: generateUptimeData() },
-    { name: 'Attio Web Client', uptimePercentage: '100%', dailyStatus: generateUptimeData() },
-    { name: 'Background Tasks', uptimePercentage: '99.95%', dailyStatus: generateUptimeData() },
-    { name: 'Attio Cloud Storage', uptimePercentage: '99.99%', dailyStatus: generateUptimeData() },
-    { name: 'Customer Helpdesk', uptimePercentage: '100%', dailyStatus: generateUptimeData() },
+    { id: 'cloud', uptimePercentage: '99.98%', dailyStatus: generateUptimeData() },
+    { id: 'webClient', uptimePercentage: '100%', dailyStatus: generateUptimeData() },
+    { id: 'backgroundTasks', uptimePercentage: '99.95%', dailyStatus: generateUptimeData() },
+    { id: 'cloudStorage', uptimePercentage: '99.99%', dailyStatus: generateUptimeData() },
+    { id: 'helpdesk', uptimePercentage: '100%', dailyStatus: generateUptimeData() },
   ], []);
 
   const getSegmentColor = (status: DailyStatus) => {
@@ -98,10 +102,10 @@ export function StatusView({
 
   const getStatusText = (status: DailyStatus) => {
     switch (status) {
-      case 'operational': return 'Operational';
-      case 'minor': return 'Minor degradation';
-      case 'moderate': return 'Partial degradation';
-      case 'major': return 'Major outage';
+      case 'operational': return t.helpdeskWidget.status.levels.operational;
+      case 'minor': return t.helpdeskWidget.status.levels.minor;
+      case 'moderate': return t.helpdeskWidget.status.levels.moderate;
+      case 'major': return t.helpdeskWidget.status.levels.major;
     }
   };
 
@@ -110,8 +114,8 @@ export function StatusView({
     start.setMonth(start.getMonth() - 3);
     const end = currentMonth;
     
-    const startMonth = start.toLocaleDateString('en-US', { month: 'short' }).toLowerCase();
-    const endMonth = end.toLocaleDateString('en-US', { month: 'short' }).toLowerCase();
+    const startMonth = start.toLocaleDateString(language, { month: 'short' }).toLowerCase();
+    const endMonth = end.toLocaleDateString(language, { month: 'short' }).toLowerCase();
     const year = end.getFullYear();
     
     return `${startMonth} ${year} – ${endMonth} ${year}`;
@@ -126,7 +130,7 @@ export function StatusView({
   const getDayLabel = (dayIndex: number) => {
     const date = new Date();
     date.setDate(date.getDate() - (89 - dayIndex));
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(language, { month: 'short', day: 'numeric' });
   };
 
   return (
@@ -157,13 +161,13 @@ export function StatusView({
             fontWeight: 500
           }}
         >
-          System Status
+          {t.helpdeskWidget.status.title}
         </h2>
         <Button
           variant="ghost"
           onClick={onClose}
           className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150"
-          aria-label="Close"
+          aria-label={t.helpdeskWidget.common.close}
         >
           <X
             size={18}
@@ -201,7 +205,7 @@ export function StatusView({
                 fontWeight: 500,
                 lineHeight: '1.4'
               }}>
-                All systems operational
+                {t.helpdeskWidget.status.allOperational}
               </p>
             </div>
           </div>
@@ -214,7 +218,7 @@ export function StatusView({
             borderRadius: '10px',
             padding: '14px'
           }}
-          aria-label="System status"
+          aria-label={t.helpdeskWidget.status.systemStatusLabel}
         >
           {/* Header Row */}
           <div style={{ marginBottom: '10px' }}>
@@ -223,7 +227,7 @@ export function StatusView({
                 fontSize: '15px',
                 fontWeight: 600
               }}>
-                System status
+                {t.helpdeskWidget.status.systemStatus}
               </h3>
               
               {/* Date Range Selector */}
@@ -231,7 +235,7 @@ export function StatusView({
                 <Button
                   variant="ghost"
                   onClick={() => navigateMonth('prev')}
-                  aria-label="Previous period"
+                  aria-label={t.helpdeskWidget.status.previousPeriod}
                   className="transition-colors flex-shrink-0 hover:bg-gray-100 dark:hover:bg-accent active:bg-gray-200 dark:active:bg-gray-600"
                   style={{
                     width: '24px',
@@ -257,7 +261,7 @@ export function StatusView({
                 <Button
                   variant="ghost"
                   onClick={() => navigateMonth('next')}
-                  aria-label="Next period"
+                  aria-label={t.helpdeskWidget.status.nextPeriod}
                   className="transition-colors flex-shrink-0 hover:bg-gray-100 dark:hover:bg-accent active:bg-gray-200 dark:active:bg-gray-600"
                   style={{
                     width: '24px',
@@ -285,7 +289,7 @@ export function StatusView({
           {/* Service Rows */}
           <ul>
             {services.map((service, serviceIndex) => (
-              <React.Fragment key={service.name}>
+              <React.Fragment key={service.id}>
                 <li
                   className="group hover:bg-gray-50 dark:hover:bg-gray-750"
                   style={{
@@ -309,7 +313,7 @@ export function StatusView({
                           backgroundColor: '#10B981',
                           borderRadius: '50%'
                         }}
-                        aria-label={`${service.name} operational`}
+                        aria-label={format(t.helpdeskWidget.status.serviceOperational, { name: t.helpdeskWidget.status.services[service.id] })}
                       />
                       <span className="text-gray-900 dark:text-foreground" style={{
                         fontSize: '14px',
@@ -319,7 +323,7 @@ export function StatusView({
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap'
                       }}>
-                        {service.name}
+                        {t.helpdeskWidget.status.services[service.id]}
                       </span>
                       <div className="relative inline-block ml-1 flex-shrink-0">
                         <Info
@@ -338,7 +342,7 @@ export function StatusView({
                       marginLeft: '8px',
                       flexShrink: 0
                     }}>
-                      {service.uptimePercentage} uptime
+                      {format(t.helpdeskWidget.status.uptime, { percentage: service.uptimePercentage })}
                     </span>
                   </div>
 
@@ -450,16 +454,16 @@ export function StatusView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: () => {} },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: () => {} },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

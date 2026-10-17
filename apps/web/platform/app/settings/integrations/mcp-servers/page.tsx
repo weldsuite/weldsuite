@@ -304,8 +304,8 @@ export default function McpServersPage() {
         canManage={!connected}
         provider="WeldSuite"
         resources={[
-          { label: 'Website', href: 'https://modelcontextprotocol.io', icon: Globe },
-          { label: 'Documentation', href: 'https://modelcontextprotocol.io/docs', icon: FileText },
+          { label: ts.integrations.website, href: 'https://modelcontextprotocol.io', icon: Globe },
+          { label: ts.integrations.documentation, href: 'https://modelcontextprotocol.io/docs', icon: FileText },
         ]}
         overview={tm.description}
       >
@@ -403,7 +403,7 @@ export default function McpServersPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       {conn.settings?.authType && conn.settings.authType !== 'none' && (
                         <Badge variant="outline" className="text-xs">
-                          Auth: {conn.settings.authType}
+                          {tm.authBadge.replace('{type}', conn.settings.authType)}
                         </Badge>
                       )}
                       <Badge variant="secondary" className="text-xs">

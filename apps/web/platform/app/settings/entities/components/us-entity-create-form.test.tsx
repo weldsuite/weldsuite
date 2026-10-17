@@ -126,7 +126,7 @@ describe('UsEntityCreateForm', () => {
     expect(payload).not.toHaveProperty('timezone');
     expect(payload).not.toHaveProperty('fiscalYearConfig');
     expect(mocks.setEntityId).toHaveBeenCalledWith('ent_new');
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/weldbooks/entities' });
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/settings/entities' });
   });
 
   it('sends a 52–53-week fiscal year as a config with the month it starts in', async () => {

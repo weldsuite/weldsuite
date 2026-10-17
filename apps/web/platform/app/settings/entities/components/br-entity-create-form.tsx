@@ -155,7 +155,7 @@ export function BrEntityCreateForm({ jurisdictionPicker }: Readonly<BrEntityCrea
       const res = await createEntity.mutateAsync(payload);
       if (res.data?.id) setEntityId(res.data.id);
       toast.success(tb.created);
-      navigate({ to: '/weldbooks/entities' });
+      navigate({ to: '/settings/entities' });
     } catch (err) {
       toast.error(tb.createFailed, { description: err instanceof Error ? err.message : undefined });
     }
@@ -164,7 +164,7 @@ export function BrEntityCreateForm({ jurisdictionPicker }: Readonly<BrEntityCrea
   const typeLabels = t.accounting.entityTypes as Record<string, string>;
 
   return (
-    <div className="p-4 sm:p-6 max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">{tb.addTitle}</h1>
         <p className="text-sm text-muted-foreground">{tb.addDescription}</p>
@@ -339,7 +339,7 @@ export function BrEntityCreateForm({ jurisdictionPicker }: Readonly<BrEntityCrea
           <Button type="submit" disabled={!canCreate || createEntity.isPending}>
             {createEntity.isPending ? te.creatingEntity : te.createEntity2}
           </Button>
-          <Button type="button" variant="outline" onClick={() => navigate({ to: '/weldbooks/entities' })}>
+          <Button type="button" variant="outline" onClick={() => navigate({ to: '/settings/entities' })}>
             {te.cancel}
           </Button>
         </div>

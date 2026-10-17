@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useDriveFiles } from '@/hooks/queries/use-drive-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { DriveCard, type FileRow } from '@/components/home/app-cards';
+import { useHomeTime, type HomeTime } from '../common';
 import type { HomeWidgetDefinition } from '../types';
 
 const welddriveRecentSchema = z.object({
@@ -37,34 +38,35 @@ function extFromName(name: string | undefined): { stem: string; ext: string } {
   return { stem: name.slice(0, dot), ext: name.slice(dot + 1) };
 }
 
-function relativeWhen(iso: string | undefined): string {
+function relativeWhen(iso: string | undefined, tm: HomeTime): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const diffMin = Math.floor((Date.now() - d.getTime()) / 60_000);
-  if (diffMin < 60) return `${Math.max(1, diffMin)}m ago`;
-  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h ago`;
+  if (diffMin < 60) return tm.minutesAgo(Math.max(1, diffMin));
+  if (diffMin < 1440) return tm.hoursAgo(Math.floor(diffMin / 60));
   const diffDays = Math.floor(diffMin / 1440);
-  if (diffDays === 1) return 'Yest';
-  if (diffDays < 7) return `${diffDays}d`;
+  if (diffDays === 1) return tm.yesterday;
+  if (diffDays < 7) return tm.days(diffDays);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function mapFile(api: ApiFile): FileRow {
+function mapFile(api: ApiFile, tm: HomeTime): FileRow {
   const { stem, ext } = extFromName(api.name);
   return {
     name: stem,
     ext: ext.toLowerCase(),
     size: formatSize(api.size),
     author: api.modifiedBy?.name ?? api.updatedBy?.name ?? api.ownerName ?? '—',
-    when: relativeWhen(api.updatedAt),
+    when: relativeWhen(api.updatedAt, tm),
   };
 }
 
 function Render({ settings }: Readonly<{ settings: WelddriveRecentSettings }>) {
+  const tm = useHomeTime();
   const res = useDriveFiles({ pageSize: settings.maxCount, sort: 'modified_desc' } as never);
   const apiRows = ((res.data as { data?: ApiFile[] } | undefined)?.data ?? []) as ApiFile[];
-  const rows = apiRows.map(mapFile).slice(0, settings.maxCount);
+  const rows = apiRows.map((row) => mapFile(row, tm)).slice(0, settings.maxCount);
   return <DriveCard rows={rows} isLoading={res.isLoading} />;
 }
 

@@ -146,6 +146,9 @@ Review the diff yourself for:
 - every new user-visible string in both `en/` and `nl/` under
   `packages/core/i18n/src/locales/`
 - no `console.log`, `any`, or `@ts-ignore`; no edits to `routeTree.gen.ts`
+- an architectural decision made, reversed or replaced: ADR and design doc
+  updated in `weldsuite-documentation` (skill `weldsuite-docs`), with the docs
+  PR linked from the code PR
 
 Errors that already exist on `develop` in files you didn't touch: mention them,
 don't fix them.

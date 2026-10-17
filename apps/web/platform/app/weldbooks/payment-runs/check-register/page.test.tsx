@@ -23,7 +23,7 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(
 vi.mock('sonner', () => ({ toast }));
 
 import CheckRegisterPage from './page';
-import { installPointerPolyfills, renderWithProviders } from '../test-utils';
+import { addIsFilter, installPointerPolyfills, renderWithProviders, rowWith } from '../test-utils';
 
 function row(number: string, status: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -76,28 +76,28 @@ describe('CheckRegisterPage', () => {
     ]);
     renderWithProviders(<CheckRegisterPage />);
 
-    const rows = await screen.findAllByRole('row');
-    expect(within(rows[1]!).getByText('001001')).toBeInTheDocument();
-    expect(within(rows[2]!).getByText('Voided')).toBeInTheDocument();
-    expect(within(rows[2]!).getByText(/Voided at:/)).toBeInTheDocument();
-    expect(within(rows[2]!).getByText('Voided 2026-10-10: Lost in the mail')).toBeInTheDocument();
-    expect(within(rows[3]!).getAllByText('—').length).toBeGreaterThan(0);
+    await screen.findByText('001001');
+    expect(within(rowWith('001001')).getByText('Payee 001001')).toBeInTheDocument();
+    const voided = within(rowWith('001002'));
+    expect(voided.getByText('Voided')).toBeInTheDocument();
+    expect(voided.getByText(/Voided at:/)).toBeInTheDocument();
+    expect(voided.getByTitle('Voided 2026-10-10: Lost in the mail')).toBeInTheDocument();
+    expect(within(rowWith('001003')).getAllByText('—').length).toBeGreaterThan(0);
     expect(screen.getByText('Printed:')).toBeInTheDocument();
     expect(screen.getByText(/200\.00/)).toBeInTheDocument();
-    expect(screen.getByText('Checks: 3')).toBeInTheDocument();
   });
 
-  it('shows the net a check is written for, with the gross and the withholding under it', async () => {
+  it('shows the net a check is written for, with the gross and the withholding next to it', async () => {
     routes([
       row('001001', 'printed', { amount: '2280.00', grossAmount: '3000.00', backupWithholdingAmount: '720.00' }),
       row('001002', 'printed', { grossAmount: '100.00' }),
     ]);
     renderWithProviders(<CheckRegisterPage />);
 
-    const rows = await screen.findAllByRole('row');
-    expect(within(rows[1]!).getByText('$2280.00')).toBeInTheDocument();
-    expect(within(rows[1]!).getByText('Gross $3000.00, withheld $720.00')).toBeInTheDocument();
-    expect(within(rows[2]!).queryByText(/withheld/)).not.toBeInTheDocument();
+    await screen.findByText('001001');
+    expect(within(rowWith('001001')).getByText('$2280.00')).toBeInTheDocument();
+    expect(within(rowWith('001001')).getByText('Gross $3000.00, withheld $720.00')).toBeInTheDocument();
+    expect(within(rowWith('001002')).queryByText(/withheld/)).not.toBeInTheDocument();
   });
 
   it('offers to void a check that is not voided or cleared yet, to people who manage banking', async () => {
@@ -105,30 +105,30 @@ describe('CheckRegisterPage', () => {
     const user = userEvent.setup();
     renderWithProviders(<CheckRegisterPage />);
 
-    await screen.findAllByRole('row');
-    const voidButtons = screen.getAllByRole('button', { name: 'Void' });
-    expect(voidButtons).toHaveLength(1);
-    await user.click(voidButtons[0]!);
+    await screen.findByText('001001');
+    const menus = screen.getAllByRole('button', { name: 'Open menu' });
+    expect(menus).toHaveLength(1);
+    await user.click(menus[0]!);
+    await user.click(await screen.findByRole('menuitem', { name: 'Void' }));
     expect(await screen.findByText('Void check 001001')).toBeInTheDocument();
   });
 
-  it('has no void buttons without permission to manage banking', async () => {
+  it('has no void menu without permission to manage banking', async () => {
     permissions.allowed = new Set(['banking:read']);
     routes([row('001001', 'printed')]);
     renderWithProviders(<CheckRegisterPage />);
 
-    await screen.findAllByRole('row');
-    expect(screen.queryByRole('button', { name: 'Void' })).not.toBeInTheDocument();
+    await screen.findByText('001001');
+    expect(screen.queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument();
   });
 
   it('filters by status through the server', async () => {
     routes([row('001001', 'printed')]);
     const user = userEvent.setup();
     renderWithProviders(<CheckRegisterPage />);
-    await screen.findAllByRole('row');
+    await screen.findByText('001001');
 
-    await user.click(screen.getByRole('combobox', { name: 'Status' }));
-    await user.click(await screen.findByRole('option', { name: 'Voided' }));
+    await addIsFilter(user, 'Status', 'Voided');
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=voided')));
   });
 

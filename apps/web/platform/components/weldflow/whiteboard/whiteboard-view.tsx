@@ -194,7 +194,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     projectId,
     whiteboardId,
     userId: user?.id || '',
-    userName: user?.fullName || user?.firstName || 'Anonymous',
+    userName: user?.fullName || user?.firstName || st('projects.whiteboardView.anonymousUser'),
     userAvatar: user?.imageUrl,
     enabled: !!user?.id,
   });
@@ -3972,7 +3972,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                       ));
                       setTimeout(addToHistory, 100);
                     }}>
-                      <Minus className="h-4 w-4 mr-2" /> Line
+                      <Minus className="h-4 w-4 mr-2" /> {st('projects.whiteboardView.line')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => {
                       setElements(elements.map(el =>
@@ -3980,7 +3980,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                       ));
                       setTimeout(addToHistory, 100);
                     }}>
-                      <ArrowRight className="h-4 w-4 mr-2" /> Arrow
+                      <ArrowRight className="h-4 w-4 mr-2" /> {st('projects.whiteboardView.arrow')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => {
                       setElements(elements.map(el =>
@@ -3988,7 +3988,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                       ));
                       setTimeout(addToHistory, 100);
                     }}>
-                      <CornerDownRight className="h-4 w-4 mr-2" /> Elbow
+                      <CornerDownRight className="h-4 w-4 mr-2" /> {st('projects.whiteboardView.elbow')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
