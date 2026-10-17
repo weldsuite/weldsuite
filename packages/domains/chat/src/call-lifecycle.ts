@@ -22,6 +22,8 @@ import {
   endMeeting as endRtkMeeting,
   getLiveParticipantCount,
   kickAllParticipants as kickAllRtkParticipants,
+  listParticipants as listRtkParticipants,
+  removeParticipant as removeRtkParticipant,
 } from '@weldsuite/cloudflare-realtime';
 import { sendMissedCallNotification } from '@weldsuite/notifications';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
@@ -76,17 +78,18 @@ export function wasAnswered(call: {
  * cleanup. Failures are logged with the call id and RTK meeting id. A kick on
  * an empty or already-inactive room may be rejected, which is expected.
  *
- * A DM's persistent room (see `dm-call-room.ts`) is only emptied: the meeting
- * stays active for the next call and the mapping is left for that call to
- * overwrite, so a teardown that lands late cannot unmap a call already live
- * in the same room. Pass `orgId` and `channelId` so it can tell.
+ * A DM's persistent room (see `dm-call-room.ts`) is emptied and its tokens
+ * revoked, but the meeting stays active for the next call and the mapping is
+ * left for that call to overwrite, so a teardown that lands late cannot unmap
+ * a call already live in the same room. Pass `orgId` and `channelId` so it can
+ * tell, and `endedAt` (when the call was marked over) to bound the revoke.
  */
 export async function teardownRtkMeeting(
   env: Omit<CloudflareRealtimeEnv, 'WORKSPACE_CACHE'> & {
     WORKSPACE_CACHE?: RealtimeKvNamespace & { delete(key: string): Promise<unknown> };
   },
   cfAppId: string,
-  logCtx: { callId: string; orgId?: string; channelId?: string },
+  logCtx: { callId: string; orgId?: string; channelId?: string; endedAt?: Date },
 ): Promise<void> {
   try {
     await kickAllRtkParticipants(env, cfAppId);
@@ -98,6 +101,7 @@ export async function teardownRtkMeeting(
     logCtx.channelId &&
     (await isDmCallRoom(env.WORKSPACE_CACHE, logCtx.orgId, logCtx.channelId, cfAppId))
   ) {
+    await revokeRoomParticipants(env, cfAppId, logCtx.endedAt ?? new Date(), logCtx.callId);
     return;
   }
   try {
@@ -109,6 +113,40 @@ export async function teardownRtkMeeting(
     await env.WORKSPACE_CACHE?.delete(`rtk-meeting:${cfAppId}`);
   } catch (err) {
     console.error('[CallLifecycle] KV mapping cleanup failed', { callId: logCtx.callId, cfAppId, err });
+  }
+}
+
+/**
+ * Delete the participants of a DM's room that were created up to `endedAt`.
+ * A per-call meeting is deactivated when the call ends, which kills every
+ * token for it. The DM's room is not, so without this every token it ever
+ * handed out (callers, callees, ones `/prepare` minted for a declined call)
+ * would let its holder into the DM's later calls, including someone who has
+ * since left the group DM or the workspace: RealtimeKit checks only the token.
+ *
+ * Participants created after `endedAt` belong to the next call, which can
+ * start as soon as this one is marked over, and are left alone. Best effort,
+ * like the rest of the teardown; a failure is logged.
+ */
+async function revokeRoomParticipants(
+  env: CloudflareRealtimeEnv,
+  cfAppId: string,
+  endedAt: Date,
+  callId: string,
+): Promise<void> {
+  try {
+    const cutoff = endedAt.getTime();
+    const stale = (await listRtkParticipants(env, cfAppId)).filter((p) => {
+      const createdAt = Date.parse(p.createdAt);
+      return !Number.isNaN(createdAt) && createdAt <= cutoff;
+    });
+    const results = await Promise.allSettled(stale.map((p) => removeRtkParticipant(env, cfAppId, p.id)));
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed > 0) {
+      console.error('[CallLifecycle] RTK participant revoke incomplete', { callId, cfAppId, failed, of: stale.length });
+    }
+  } catch (err) {
+    console.error('[CallLifecycle] RTK participant revoke failed', { callId, cfAppId, err });
   }
 }
 
@@ -149,7 +187,7 @@ export async function endChatCall(
 
   // Kick everyone, end the RTK meeting, clean up the KV mapping (all best effort)
   if (call.cfAppId) {
-    await teardownRtkMeeting(env, call.cfAppId, { callId, orgId, channelId: call.channelId });
+    await teardownRtkMeeting(env, call.cfAppId, { callId, orgId, channelId: call.channelId, endedAt: now });
   }
 
   // Post system message

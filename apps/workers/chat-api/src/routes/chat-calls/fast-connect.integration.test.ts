@@ -12,7 +12,7 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { addParticipant, createMeeting, endMeeting, kickAllParticipants, removeParticipant } from '@weldsuite/cloudflare-realtime';
+import { addParticipant, createMeeting, endMeeting, kickAllParticipants, listParticipants, removeParticipant } from '@weldsuite/cloudflare-realtime';
 import { dmCallRoomKey } from '@weldsuite/chat-domain/dm-call-room';
 import { publishChatCallIncoming } from '@weldsuite/chat-domain/realtime/weldchat-call-publisher';
 import type { Env } from '../../types';
@@ -27,6 +27,7 @@ vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   kickAllParticipants: vi.fn(),
   endMeeting: vi.fn(),
   getLiveParticipantCount: vi.fn(async () => 0),
+  listParticipants: vi.fn(),
 }));
 
 vi.mock('@weldsuite/chat-domain/realtime/weldchat-call-publisher', async (importOriginal) => {
@@ -82,6 +83,7 @@ beforeEach(() => {
   vi.mocked(removeParticipant).mockReset().mockResolvedValue(undefined as never);
   vi.mocked(kickAllParticipants).mockReset().mockResolvedValue(0);
   vi.mocked(endMeeting).mockReset().mockResolvedValue(undefined);
+  vi.mocked(listParticipants).mockReset().mockResolvedValue([]);
   vi.mocked(publishChatCallIncoming).mockClear();
 });
 
@@ -194,10 +196,14 @@ describe('POST /start-and-join · the persistent DM room', () => {
     expect((await pending).status).toBe(201);
   });
 
-  it("an ended call only empties the DM's room: it stays active for the next call", async () => {
+  it("an ended call empties the DM's room and revokes its tokens: the room stays active for the next call", async () => {
     const channelId = await seedChannel();
     store.set(dmCallRoomKey(ORG, channelId), 'rtk_room_kept');
     const { callId } = await startCall(CAROL, channelId);
+    vi.mocked(listParticipants).mockResolvedValue([
+      { id: 'cf_old_token', customParticipantId: DAVE, createdAt: new Date(Date.now() - 60_000).toISOString() },
+      { id: 'cf_next_call', customParticipantId: CAROL, createdAt: new Date(Date.now() + 60_000).toISOString() },
+    ]);
 
     const res = await post(CAROL, `/${callId}/end`);
 
@@ -207,6 +213,9 @@ describe('POST /start-and-join · the persistent DM room', () => {
     expect(endMeeting).not.toHaveBeenCalledWith(expect.anything(), 'rtk_room_kept');
     expect(store.get('rtk-meeting:rtk_room_kept')).toBeDefined();
     expect(store.get(dmCallRoomKey(ORG, channelId))).toBe('rtk_room_kept');
+    // Its tokens are revoked: a later call in the room needs a new one.
+    expect(removeParticipant).toHaveBeenCalledWith(expect.anything(), 'rtk_room_kept', 'cf_old_token');
+    expect(removeParticipant).not.toHaveBeenCalledWith(expect.anything(), 'rtk_room_kept', 'cf_next_call');
   });
 });
 
