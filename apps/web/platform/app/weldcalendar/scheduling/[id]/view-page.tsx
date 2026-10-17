@@ -39,7 +39,7 @@ import { formatEventTimeRange } from '@/app/weldcalendar/lib/schedule';
 import { EventDialog } from '@/app/weldcalendar/components/event-dialog';
 import { EventDetailPanel, EVENT_PANEL_WIDTH } from '@/app/weldcalendar/components/calendar-view';
 import { isEditableTarget, isEscapeHandledElsewhere } from '@/app/weldcalendar/lib/escape-guard';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { buildBookingPageUrl } from '@/lib/weldcalendar/booking-portal-url';
 
 export default function BookingPageViewPage() {
@@ -182,6 +182,16 @@ export default function BookingPageViewPage() {
     Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i)),
     [currentWeekStart],
   );
+
+  // Previous / next in the task panel step through the task events drawn in the week, by start time.
+  const panelTaskIds = useMemo(() => {
+    const drawn = weekDays.flatMap((day) => timedEventsForDay(events, day).map(({ event }) => event));
+    const taskEvents = drawn
+      .filter((event) => event.sourceType === 'task')
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    return Array.from(new Set(taskEvents.flatMap((event) => (event.sourceId ? [event.sourceId] : []))));
+  }, [events, weekDays]);
+  useObjectPanelNavigationSource({ type: 'task', ids: panelTaskIds });
 
   const getAvailabilityBlocks = (dayDate: Date): TimeRange[] => {
     if (!bookingPage?.availability) return [];

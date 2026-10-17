@@ -20,7 +20,7 @@ import {
 import { DealCard } from './deal-card';
 import { DealDetailsModal } from './deal-details-modal';
 import { EditDealModal } from './edit-deal-modal';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 // Lazy: the panel's own tree reaches back into CRM components (deals ->
 // pipeline), so a static import here closes an import cycle. Lazy keeps the
 // recursion at runtime only.
@@ -748,6 +748,12 @@ export function PipelineKanban({
       };
     });
   }, [stages, searchQuery, activeFilters, hiddenStageIds]);
+
+  // Previous / next in the opportunity panel step through the cards as shown, column by column.
+  useObjectPanelNavigationSource({
+    type: 'opportunity',
+    ids: filteredStages.flatMap(stage => stage.deals.map(deal => deal.id)),
+  });
 
   const _weightedValue = stages.reduce((sum, stage) => {
     if (stage.id === 'CLOSED_LOST') return sum;

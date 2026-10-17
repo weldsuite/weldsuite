@@ -57,6 +57,7 @@ export function ProductsList({
         isLoading={isLoading}
         columns={columns}
         onRowClick={(p) => openObjectPanel({ type: 'product', id: p.id })}
+        objectPanel={{ type: 'product' }}
         onEdit={setEditing}
         onDelete={handleDelete}
         searchQuery={search}

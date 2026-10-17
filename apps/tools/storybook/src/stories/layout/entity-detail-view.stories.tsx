@@ -343,6 +343,55 @@ export const PanelModeLoading: Story = {
   ),
 };
 
+/* ---------------------------- previous / next ---------------------------- */
+
+const RECORDS = [
+  { initials: "AC", name: "Acme Corp" },
+  { initials: "GL", name: "Globex" },
+  { initials: "IN", name: "Initech" },
+];
+
+/**
+ * Opened from a list: the up / down arrows step to the previous / next
+ * record. A missing handler disables its arrow (first / last record). The
+ * arrows stay in fullscreen.
+ */
+export const WithPreviousNext: Story = {
+  render: () => {
+    const [index, setIndex] = React.useState(0);
+    const [mode, setMode] = React.useState<"panel" | "fullscreen">("panel");
+    const record = RECORDS[index];
+    return (
+      <div className="relative h-screen w-screen flex justify-end">
+        <StageBackground />
+        <EntityDetailView
+          mode={mode}
+          fullscreenOverlay
+          onToggleExpand={() =>
+            setMode((m) => (m === "panel" ? "fullscreen" : "panel"))
+          }
+          onClose={() => {}}
+          topOffset={0}
+          leftOffset={0}
+          width={500}
+          avatar={<MockAvatar label={record.initials} />}
+          title={record.name}
+          tabs={<MockTabs />}
+          navigation={{
+            onPrevious: index > 0 ? () => setIndex(index - 1) : undefined,
+            onNext:
+              index < RECORDS.length - 1 ? () => setIndex(index + 1) : undefined,
+            previousShortcut: "K",
+            nextShortcut: "J",
+          }}
+        >
+          <MockContent />
+        </EntityDetailView>
+      </div>
+    );
+  },
+};
+
 /* --------------------------- fullscreen mode --------------------------- */
 
 export const FullscreenMode: Story = {

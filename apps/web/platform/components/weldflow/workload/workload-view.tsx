@@ -20,7 +20,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { formatTaskNumber } from '@/lib/task-number';
@@ -973,6 +973,19 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     setSelectedTaskId(task.id);
     openObjectPanel({ type: 'task', id: task.id });
   };
+
+  // Previous / next in the task panel step through the listed tasks: members top to bottom,
+  // each one's dated tasks before its undated ones, the unassigned section last.
+  const sidebarMemberIds = showUnassigned ? [...visibleMembers.map((m) => m.id), UNASSIGNED_ID] : visibleMembers.map((m) => m.id);
+  useObjectPanelNavigationSource({
+    type: 'task',
+    ids: Array.from(new Set(
+      sidebarMemberIds
+        .filter((memberId) => expandedMembers.has(memberId))
+        .flatMap((memberId) => [...getScheduledTasks(memberId), ...getUnscheduledTasks(memberId)])
+        .map((task) => task.id),
+    )),
+  });
 
   // Show error state
   if (error) {

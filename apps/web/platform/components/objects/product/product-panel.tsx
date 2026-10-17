@@ -12,7 +12,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import {
   useCommerceProduct,
   useCommerceProductCategories,
@@ -47,6 +47,8 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   const stockRows = stock?.data ?? [];
   const movementRows = movements?.data ?? [];
   const categoryRows = categories?.data ?? [];
+  // Previous / next in the category panel step through these categories.
+  useObjectPanelNavigationSource({ type: 'category', ids: categoryRows.map((c) => c.id) });
   const salesChannels = product?.salesChannels ?? [];
   const images = product?.images ?? [];
 

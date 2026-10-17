@@ -51,7 +51,7 @@ import {
 } from '@/hooks/use-crm-tasks';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from './task-dialog';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { CrmTasksPipeline } from './crm-tasks-pipeline';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { labelsApi } from '@/app/weldflow/lib/api-client';
@@ -326,6 +326,12 @@ export default function CrmTasksClient() {
   }, [searchParams, router]);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
   const [groupBy, setGroupBy] = useState<'dueDate' | 'status' | 'priority' | 'assignee' | 'company' | 'none'>('dueDate');
+  // Previous / next in the open panel step through the list rows as shown.
+  // The board registers its own order.
+  const reportDisplayedTasks = useObjectPanelNavigationReporter<Task>({
+    type: 'task',
+    enabled: viewMode === 'list',
+  });
   const [availableLabels, setAvailableLabels] = useState<{ id: string; name: string; color: string }[]>([]);
   const [sortState, setSortState] = useState<{ columnId: string; direction: 'asc' | 'desc' } | null>(null);
 
@@ -1131,6 +1137,7 @@ export default function CrmTasksClient() {
       {viewMode === 'list' ? (
         <EntityList<Task>
           items={sortedTasks}
+          onDisplayedItemsChange={reportDisplayedTasks}
           isLoading={isLoading}
           error={error}
           headerColumns={headerColumns}

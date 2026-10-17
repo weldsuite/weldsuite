@@ -37,7 +37,7 @@ import {
 } from '@/hooks/use-crm-tasks';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import type { TasksSectionProps } from '../types';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
@@ -107,6 +107,8 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [groupBy, setGroupBy] = useState<'status' | 'priority' | 'dueDate' | 'assignee' | 'none'>('dueDate');
   const { open: openObjectPanel } = useObjectPanel();
+  // Previous / next in the task panel step through these tasks, in group order.
+  const reportDisplayedTasks = useObjectPanelNavigationReporter<Task>({ type: 'task' });
 
   // Memoize available assignees for filters and dialog
   const availableAssignees = useMemo(() =>
@@ -689,6 +691,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   return (
     <EntityList<Task>
       items={tasks}
+      onDisplayedItemsChange={reportDisplayedTasks}
       isLoading={isLoading}
       error={error}
       headerColumns={isPanel ? undefined : headerColumns}

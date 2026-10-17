@@ -69,7 +69,7 @@ import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { taskNumberMatches } from '@/lib/task-number';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
@@ -835,6 +835,13 @@ const PipelinePage = () => {
 
     return result;
   }, [features, searchQuery, activeFilters]);
+
+  // Previous / next in the task panel step through the cards as shown, column by column.
+  const boardTaskIds = useMemo(
+    () => columns.flatMap(column => filteredFeatures.filter(f => f.column === column.id).map(f => f.id)),
+    [columns, filteredFeatures],
+  );
+  useObjectPanelNavigationSource({ type: 'task', ids: boardTaskIds });
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent) => {

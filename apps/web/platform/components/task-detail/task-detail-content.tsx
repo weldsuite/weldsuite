@@ -95,6 +95,7 @@ import { TaskDurationField } from './task-duration-field';
 import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
+import { useObjectPanelNavigationSource } from '@/components/object-panel/use-object-panel-navigation';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // Status configuration (color only — labels are translated at render time via
@@ -2009,6 +2010,8 @@ export function SubtasksSection({
   const directSubtasks = subtasks.filter(s => (s.depth ?? 0) === 0);
   const completedCount = directSubtasks.filter(s => s.status === 'done').length;
   const totalCount = directSubtasks.length;
+  // Previous / next in the task panel step through these subtasks, in the order shown.
+  useObjectPanelNavigationSource({ type: 'task', ids: subtasks.map((s) => s.id) });
 
   // When the selected task is a subtask, the chain it hangs from is shown
   // above it: the top-most ancestor is the tree root, every further ancestor

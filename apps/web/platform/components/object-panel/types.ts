@@ -29,6 +29,19 @@ export interface ObjectPanelComponentProps {
    */
   mode?: 'panel' | 'fullscreen';
   onModeChange?: (next: 'panel' | 'fullscreen') => void;
+  /**
+   * Previous / next object in the list the panel was opened from. Set by the
+   * host when that list is known; `useObjectPanelShell` turns it into the
+   * header arrows.
+   */
+  navigation?: ObjectPanelNavigation;
+}
+
+export interface ObjectPanelNavigation {
+  /** Undefined at the start of the list. */
+  onPrevious?: () => void;
+  /** Undefined at the end of the list (nothing more to load). */
+  onNext?: () => void;
 }
 
 export interface ObjectPanelDefinition {
@@ -47,6 +60,23 @@ export interface ObjectPanelHandle {
   mode: 'panel' | 'fullscreen';
   /** Stack position — opening a child panel pushes a new handle. */
   depth: number;
+  /**
+   * The list the panel was opened from (see `use-object-panel-navigation`),
+   * captured at open so previous / next keep working once that list is gone,
+   * e.g. a related list in the panel underneath. Not part of the URL.
+   */
+  openedFrom?: ObjectPanelListSnapshot;
+}
+
+export interface ObjectPanelRef {
+  type: ObjectType;
+  id: string;
+}
+
+export interface ObjectPanelListSnapshot {
+  /** The registration it was taken from, to follow it while it's mounted. */
+  sourceKey: string;
+  objects: readonly ObjectPanelRef[];
 }
 
 export interface ObjectPanelTabDescriptor {

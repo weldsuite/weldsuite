@@ -49,6 +49,7 @@ import { useComposeSafe } from '@/contexts/compose-context';
 import {
   ObjectPanelTabs,
   useObjectPanel,
+  useObjectPanelNavigationReporter,
   useObjectPanelShell,
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
@@ -490,6 +491,11 @@ function CompanyPeopleTab({
   const portalT = getTranslations('commerce').module.portal;
   const unlinkMut = useUnlinkPersonFromCompany();
   const [linkOpen, setLinkOpen] = useState(false);
+  // Previous / next in the person panel step through this company's people.
+  const reportDisplayedPeople = useObjectPanelNavigationReporter<CompanyPersonListItem>({
+    type: 'person',
+    getId: (pc) => pc.personId,
+  });
   const accessQuery = useCommercePortalAccess(companyId);
   const inviteMut = useInviteCommercePortalAccess();
   const revokeMut = useRevokeCommercePortalAccess(companyId);
@@ -672,6 +678,7 @@ function CompanyPeopleTab({
     <TabListScope>
       <EntityList<CompanyPersonListItem>
         items={items}
+        onDisplayedItemsChange={reportDisplayedPeople}
         isLoading={false}
         error={null}
         filters={filterConfigs}

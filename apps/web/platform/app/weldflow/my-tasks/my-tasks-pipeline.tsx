@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '../lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { FilterPills } from '@/components/entity-list';
+import { useObjectPanelNavigationSource } from '@/components/object-panel';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 
 // ---------- Types ----------
@@ -424,6 +425,13 @@ export function MyTasksPipeline({
     () => applyActiveFilters(searchTasks(tasks, searchQuery), activeFilters),
     [tasks, searchQuery, activeFilters],
   );
+
+  // Previous / next in the task panel step through the cards as shown, column by column.
+  const boardTaskIds = useMemo(
+    () => columns.flatMap(column => filteredTasks.filter(t => t.status === column.id).map(t => t.id)),
+    [columns, filteredTasks],
+  );
+  useObjectPanelNavigationSource({ type: 'task', ids: boardTaskIds });
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent) => {

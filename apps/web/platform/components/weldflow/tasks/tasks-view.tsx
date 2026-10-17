@@ -5,7 +5,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { NewTaskModal } from './new-task-modal';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -398,6 +398,16 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
     !t.completed && !t.dueDate
   );
   const completedTasks = filteredTasks.filter(t => t.completed);
+
+  // Previous / next in the task panel step through the sections as shown; a task can sit in two of them.
+  useObjectPanelNavigationSource({
+    type: 'task',
+    ids: Array.from(new Set(
+      [todayTasks, overdueTasks, tomorrowTasks, thisWeekTasks, laterTasks, noDateTasks, completedTasks]
+        .flat()
+        .map(t => t.id),
+    )),
+  });
 
   const toggleTask = async (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);

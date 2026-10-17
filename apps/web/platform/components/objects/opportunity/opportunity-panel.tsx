@@ -41,6 +41,7 @@ import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   ObjectPanelTabs,
   useObjectPanel,
+  useObjectPanelNavigationSource,
   useObjectPanelShell,
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
@@ -631,6 +632,8 @@ function OpportunityContactsTab({
     if (opportunity.primaryContactId) set.add(opportunity.primaryContactId);
     return Array.from(set);
   }, [opportunity.primaryContactId]);
+  // Previous / next in the person panel step through these contacts.
+  useObjectPanelNavigationSource({ type: 'person', ids });
 
   if (ids.length === 0) {
     return (

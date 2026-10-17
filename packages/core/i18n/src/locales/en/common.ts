@@ -167,6 +167,10 @@ export const common = {
       none: 'none',
       todo: 'To Do',
     },
+    objectPanel: {
+      previous: 'Previous',
+      next: 'Next',
+    },
     calendarDrawer: {
       allDay: 'All day',
       todayLabel: 'Today - {date}',

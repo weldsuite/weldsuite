@@ -43,6 +43,7 @@ export function StockList({
         columns={columns}
         // A stock row's subject is its product, so that's what opens.
         onRowClick={(row) => openObjectPanel({ type: 'product', id: row.productId })}
+        objectPanel={{ type: 'product', getId: (row) => row.productId }}
         // No onEdit / onDelete: stock is a ledger projection. It moves through
         // /inventory/adjust, which also writes the movement row — an edit here
         // would change the level without its history.
