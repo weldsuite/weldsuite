@@ -5,11 +5,17 @@ import { and, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } from 'dri
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
 import { applyStatusChange } from '@weldsuite/flow-domain/task-stage';
+import { createTask } from '@weldsuite/flow-domain/tasks';
+import {
+  checkNewTaskLinks,
+  commitDependencyUpdate,
+  linkCreatedTask,
+  planDependencyUpdate,
+  validateTaskRelations,
+} from '@weldsuite/flow-domain/task-dependencies';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId } from '../../../lib/id';
-import { allocateTaskNumber } from '../../../lib/task-numbering';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -108,48 +114,158 @@ app.get('/:id', requireScope('tasks:read'), async (c) => {
   return success(c, row);
 });
 
-app.post('/', requireScope('tasks:write'), zValidator('json', createTaskSchema), async (c) => {
+// Create goes through flow-domain's `createTask`, the insert flow-api uses: it
+// writes named columns only (a client cannot set `deletedAt`, `key`, `watchers`,
+// `position`, `progress`, ... even if it sends them), allocates the number and
+// position, and derives the status from the stage. `.strip()` drops unknown
+// keys up front (the shared create schema is `.passthrough()`).
+const createBodySchema = createTaskSchema.strip();
+
+app.post('/', requireScope('tasks:write'), zValidator('json', createBodySchema), async (c) => {
   const db = c.get('tenantDb');
-  const body = c.req.valid('json');
-  const now = new Date();
-  const id = generateId('task');
-  // Server-assigned; a client-supplied `number` must never win.
-  const number = await allocateTaskNumber(db);
-  const values = { ...coerceDates(body as Record<string, unknown>), id, number, createdAt: now, updatedAt: now };
-  const [row] = await db.insert(table).values(values as typeof table.$inferInsert).returning();
-  if (!row) return error.internal(c, 'Failed to create task');
+  const userId = c.get('userId');
+  // dependsOn / blocks are links, not plain columns: written below with their
+  // reciprocal side once the task exists.
+  const { dependsOn, blocks, ...data } = c.req.valid('json') as Record<string, unknown> & {
+    dependsOn?: string[];
+    blocks?: string[];
+  };
+  const projectId = (data.projectId as string | null | undefined) ?? null;
+  if (projectId) {
+    const [project] = await db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(and(eq(schema.projects.id, projectId), isNull(schema.projects.deletedAt)))
+      .limit(1);
+    if (!project) return error.notFound(c, 'Project', projectId);
+  }
+  const relationError = await validateTaskRelations(db, null, null, {
+    projectId,
+    parentTaskId: data.parentTaskId as string | null | undefined,
+  });
+  if (relationError) return error.badRequest(c, relationError);
+  const hasLinks = dependsOn !== undefined || blocks !== undefined;
+  if (hasLinks) {
+    const linkFailure = await checkNewTaskLinks(db, { dependsOn, blocks });
+    if (linkFailure) return error.badRequest(c, linkFailure.message);
+  }
+
+  const { row: created } = await createTask(db, coerceDates(data), { projectId, userId });
+  let row = created;
+  if (hasLinks) {
+    // A task whose links cannot be written is taken back out, not left behind.
+    const linkFailure = await linkCreatedTask(db, created.id, { dependsOn, blocks });
+    if (linkFailure) return error.badRequest(c, linkFailure.message);
+    const [linked] = await db.select().from(table).where(eq(table.id, created.id)).limit(1);
+    if (linked) row = linked;
+  }
   publishEntityEvent({
     c,
     entityType: 'project_task',
-    entityId: id,
+    entityId: row.id,
     action: 'created',
-    data: { id, projectId: row.projectId, title: row.title },
+    data: { id: row.id, projectId: row.projectId, title: row.title },
   });
   return success(c, row, 201);
 });
+
+/**
+ * The only `tasks` columns a PATCH writes (mirrors flow-api's list). Listed here
+ * as well as in `updateTaskSchema` so a future schema addition cannot silently
+ * become a column write. `assigneeIds` goes through `syncAssigneeFields`;
+ * `projectId`, `dependsOn` and `blocks` have their own handling in the handler.
+ */
+const PATCHABLE_TASK_COLUMNS = [
+  'title',
+  'description',
+  'status',
+  'priority',
+  'type',
+  'stageId',
+  'sprintId',
+  'milestoneId',
+  'parentTaskId',
+  'assigneeId',
+  'customerId',
+  'contactId',
+  'personId',
+  'startDate',
+  'dueDate',
+  'estimatedHours',
+  'duration',
+  'storyPoints',
+  'labels',
+  'tags',
+  'isBillable',
+  'repeat',
+  'customFields',
+] as const;
+
+/** Keep `assigneeId` and `assigneeIds` consistent with whichever one the caller sent. */
+function syncAssigneeFields(update: Record<string, unknown>, data: Record<string, unknown>): void {
+  if (data.assigneeIds !== undefined) {
+    const ids = (data.assigneeIds as string[] | null) ?? [];
+    update.assigneeIds = ids.length > 0 ? ids : null;
+    update.assigneeId = ids[0] ?? null;
+  } else if (data.assigneeId !== undefined) {
+    update.assigneeIds = data.assigneeId ? [data.assigneeId] : null;
+  }
+}
 
 app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const body = c.req.valid('json');
+  // dependsOn / blocks are not plain column writes, see below. `projectId` stays in
+  // `data` but never reaches the row: only PATCHABLE_TASK_COLUMNS are copied.
+  const { dependsOn, blocks, ...data } = body;
   const [existing] = await db
-    .select({ projectId: table.projectId, stageId: table.stageId, status: table.status })
+    .select({
+      projectId: table.projectId,
+      parentTaskId: table.parentTaskId,
+      stageId: table.stageId,
+      status: table.status,
+    })
     .from(table)
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
   if (!existing) return error.notFound(c, 'Task', id);
-  const update: Record<string, unknown> = {
-    ...stripServerOwned(coerceDates(body as Record<string, unknown>)),
-    updatedAt: new Date(),
-  };
+
+  // A project change is a move (sprint / milestone / stage / key / position all
+  // reset), not a column write, so PATCH may only repeat the current project.
+  // A changed parent must be a live task of the same project.
+  const relationError = await validateTaskRelations(db, existing, id, body);
+  if (relationError) return error.badRequest(c, relationError);
+
+  // Dependencies get the same existence + cycle checks and reciprocal sync as
+  // flow-api. Validated here, written below together with the columns.
+  let dependencyPlan: Awaited<ReturnType<typeof planDependencyUpdate>> | null = null;
+  if (dependsOn !== undefined || blocks !== undefined) {
+    const plan = await planDependencyUpdate(db, id, { dependsOn, blocks });
+    if (!plan.ok) {
+      return plan.kind === 'not-found' ? error.notFound(c, 'Task', id) : error.badRequest(c, plan.message);
+    }
+    dependencyPlan = plan;
+  }
+
+  const coerced = stripServerOwned(coerceDates(data as Record<string, unknown>));
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+  for (const k of PATCHABLE_TASK_COLUMNS) {
+    if (coerced[k] !== undefined) update[k] = coerced[k];
+  }
+  syncAssigneeFields(update, coerced);
   // Keep status and board column in step, as flow-api does: boards place a task
   // by stageId first, so a status change alone would leave it in its old column.
   await applyStatusChange(db, existing, body, update);
-  const [row] = await db
-    .update(table)
-    .set(update)
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
+  if (dependencyPlan) {
+    await commitDependencyUpdate(db, id, dependencyPlan, update);
+  } else {
+    await db
+      .update(table)
+      .set(update)
+      .where(and(eq(table.id, id), isNull(table.deletedAt)));
+  }
+  const [row] = await db.select().from(table).where(eq(table.id, id)).limit(1);
   if (!row) return error.notFound(c, 'Task', id);
   publishEntityEvent({
     c,

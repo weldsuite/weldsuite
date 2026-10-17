@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link } from '@/lib/router';
 import { ChevronLeft, Plus } from 'lucide-react';
@@ -7,7 +7,6 @@ import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { PageLoader } from '@/components/page-loader';
-import { analyticsApi } from '@/app/weldflow/lib/api-client';
 
 // Type definitions (previously imported from actions)
 export interface AnalyticsReport {
@@ -38,31 +37,14 @@ export interface AnalyticsChart {
   showDataLabels?: boolean;
   showLegend?: boolean;
 }
-import type { ChartDataPoint } from '../../lib/analytics-data';
-
-// Chart components
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
+import type { ChartDataPoint } from '@/app/weldflow/lib/api-client';
+import { useProjectAnalyticsChartsData } from '@/hooks/queries/use-projects-queries';
+import { AnalyticsChartView } from '../../_components/analytics-chart';
 
 interface ReportViewClientProps {
   report: AnalyticsReport;
   charts: AnalyticsChart[];
 }
-
-const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export function ReportViewClient({ report, charts }: Readonly<ReportViewClientProps>) {
   const { t } = useI18n();
@@ -72,127 +54,40 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
     { label: report.title },
   ]);
 
-  const [chartData, setChartData] = useState<Record<string, ChartDataPoint[]>>({});
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    async function loadData() {
-      if (charts.length === 0) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const result = await analyticsApi.getChartsData(
-          report.id,
-          charts.map((chart) => ({
-            chartId: chart.id,
-            entity: chart.entity,
-            metric: chart.metric,
-            timeRange: chart.timeRange || 'last_30_days',
-            groupBy: chart.groupBy || 'day',
-            aggregation: chart.aggregation || 'sum',
-            sortOrder: chart.sortOrder || 'asc',
-            limit: chart.limit || undefined,
-          })),
-        );
-
-        if (result?.success && result.data) {
-          setChartData(result.data as Record<string, ChartDataPoint[]>);
-        }
-      } catch (error) {
-        console.error('Failed to load chart data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    void loadData();
-  }, [charts, report.id]);
+  const configs = useMemo(
+    () =>
+      charts.map((chart) => ({
+        chartId: chart.id,
+        entity: chart.entity,
+        metric: chart.metric,
+        timeRange: chart.timeRange || 'last_30_days',
+        groupBy: chart.groupBy || 'day',
+        aggregation: chart.aggregation || 'sum',
+        sortOrder: chart.sortOrder || 'asc',
+        limit: chart.limit || undefined,
+      })),
+    [charts],
+  );
+  const { data: chartData = {}, isLoading, isError, refetch } = useProjectAnalyticsChartsData(report.id, configs);
 
   const renderChart = (chart: AnalyticsChart, data: ChartDataPoint[]) => {
-    if (!data || data.length === 0) {
+    if (data.length === 0) {
       return (
-        <div className="flex items-center justify-center h-full text-muted-foreground">{t.projects.analyticsReports.noDataAvailable}</div>
+        <div className="flex h-[300px] items-center justify-center text-muted-foreground">{t.projects.analyticsReports.noDataAvailable}</div>
       );
     }
-
-    const chartType = chart.chartType;
-
-    if (chartType.startsWith('area')) {
-      return (
-        <ResponsiveContainer width="100%" height={300}>
-          <AreaChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip />
-            {chart.showLegend && <Legend />}
-            <Area
-              type={chart.smoothCurve ? 'monotone' : 'linear'}
-              dataKey="value"
-              fill={chart.color}
-              stroke={chart.color}
-              fillOpacity={chart.fillArea ? 0.3 : 0}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      );
-    }
-
-    if (chartType.startsWith('bar')) {
-      return (
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip />
-            {chart.showLegend && <Legend />}
-            <Bar dataKey="value" fill={chart.color} />
-          </BarChart>
-        </ResponsiveContainer>
-      );
-    }
-
-    if (chartType.startsWith('pie') || chartType.startsWith('radial')) {
-      return (
-        <ResponsiveContainer width="100%" height={300}>
-          <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              labelLine={chart.showDataLabels}
-              label={chart.showDataLabels ? ({ name, percent }: { name?: string | number; percent?: number }) => `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%` : undefined}
-              outerRadius={100}
-              innerRadius={chartType.includes('donut') ? 60 : 0}
-              fill="#8884d8"
-              dataKey="value"
-              nameKey="label"
-            >
-              {data.map((entry, index) => (
-                <Cell key={entry.label} fill={entry.fill || CHART_COLORS[index % CHART_COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip />
-            {chart.showLegend && <Legend />}
-          </PieChart>
-        </ResponsiveContainer>
-      );
-    }
-
-    // Default to bar chart
     return (
-      <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-          <YAxis tick={{ fontSize: 12 }} />
-          <Tooltip />
-          <Bar dataKey="value" fill={chart.color} />
-        </BarChart>
-      </ResponsiveContainer>
+      <AnalyticsChartView
+        points={data}
+        chartType={chart.chartType}
+        metric={chart.metric}
+        color={chart.color}
+        showLegend={chart.showLegend}
+        smoothCurve={chart.smoothCurve}
+        fillArea={chart.fillArea}
+        showDataLabels={chart.showDataLabels}
+        className="h-[300px] w-full"
+      />
     );
   };
 
@@ -250,11 +145,18 @@ export function ReportViewClient({ report, charts }: Readonly<ReportViewClientPr
                   {chart.description && <CardDescription>{chart.description}</CardDescription>}
                 </CardHeader>
                 <CardContent>
-                  {isLoading ? (
+                  {isLoading && (
                     <div className="h-[300px]"><PageLoader fullScreen={false} /></div>
-                  ) : (
-                    renderChart(chart, chartData[chart.id] || [])
                   )}
+                  {isError && (
+                    <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center" role="alert">
+                      <p className="text-sm text-muted-foreground">{t.projects.analyticsReports.chartsLoadFailed}</p>
+                      <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                        {t.projects.analyticsReports.retry}
+                      </Button>
+                    </div>
+                  )}
+                  {!isLoading && !isError && renderChart(chart, chartData[chart.id] ?? [])}
                 </CardContent>
               </Card>
             ))}

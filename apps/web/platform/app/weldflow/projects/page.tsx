@@ -4,6 +4,8 @@ import { useInfiniteProjects, type ProjectListFilters } from '@/hooks/queries/us
 import { useDebounce } from '@/hooks/use-debounce';
 import { AllProjectsClient } from './all-projects-client';
 import { PageLoader } from '@/components/page-loader';
+import { useI18n } from '@/lib/i18n/provider';
+import { ListLoadError } from '@/app/weldflow/components/list-load-error';
 import type { ActiveFilter, SortState } from '@/components/entity-list';
 
 function activeFiltersToServer(filters: ActiveFilter[]): Pick<ProjectListFilters, 'status' | 'priority' | 'ownerId'> {
@@ -33,6 +35,7 @@ function sortStateToServer(state: SortState | null): Pick<ProjectListFilters, 's
 }
 
 export default function AllProjectsPage() {
+  const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [sortState, setSortState] = useState<SortState | null>(null);
@@ -48,6 +51,8 @@ export default function AllProjectsPage() {
     data: projectsData,
     error: projectsError,
     isLoading,
+    isError,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -59,6 +64,16 @@ export default function AllProjectsPage() {
   );
 
   if (isLoading) return <PageLoader fullScreen={false} />;
+  // A failed first load must not fall through to the "no projects" empty state.
+  if (isError && !projectsData) {
+    return (
+      <ListLoadError
+        message={t.projects.allProjects.failedToLoad}
+        retryLabel={t.projects.allProjects.retry}
+        onRetry={() => { void refetch(); }}
+      />
+    );
+  }
 
   return (
     <AllProjectsClient

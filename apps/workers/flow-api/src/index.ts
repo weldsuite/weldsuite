@@ -13,6 +13,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { runDigestSweep } from './cron/digest-sweep';
+import { isFilePurgeCron, runDeletedFilesPurge } from './cron/purge-deleted-files';
 import { digestSettingsRoutes } from './routes/digest-settings';
 import { documentsRoutes } from './routes/documents';
 import { goalsRoutes } from './routes/goals';
@@ -79,6 +80,16 @@ export default {
       ctx.waitUntil(
         runDigestSweep(env).catch((err) => {
           console.error('[DigestSweep] Failed:', err);
+        }),
+      );
+    }
+    // Daily: hard-delete files that were soft-deleted more than 30 days ago. Reads
+    // only the D1 due index and opens just the workspaces that have a file due
+    // (ADR DATA-008).
+    if (isFilePurgeCron(event.cron)) {
+      ctx.waitUntil(
+        runDeletedFilesPurge(env).catch((err) => {
+          console.error('[FilePurge] Failed:', err);
         }),
       );
     }

@@ -7,6 +7,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { ProjectKpiPeriod, ProjectKpiSummary } from '@weldsuite/core-api-client/schemas/project-analytics';
 import { normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
+import { projectNotDeleted } from '../lib/project-access';
 
 /** Completed / cancelled projects, whatever spelling the row was stored with. */
 function isClosedProjectStatus(status: string | null): boolean {
@@ -78,14 +79,16 @@ export async function getProjectKpiSummary(
       ? [isNull(projects.deletedAt)]
       : [isNull(projects.deletedAt), inArray(projects.id, scopedIds)];
 
+  // Unscoped (all projects): tasks and hours of soft-deleted projects must not
+  // inflate the totals. A scoped id list already comes from live projects only.
   const taskScope =
     scopedIds === null
-      ? [isNull(tasks.deletedAt), isNotNull(tasks.projectId)]
+      ? [isNull(tasks.deletedAt), isNotNull(tasks.projectId), projectNotDeleted(tasks.projectId)]
       : [isNull(tasks.deletedAt), inArray(tasks.projectId, scopedIds)];
 
   const timeScope =
     scopedIds === null
-      ? [isNull(timeEntries.deletedAt), isNotNull(timeEntries.projectId)]
+      ? [isNull(timeEntries.deletedAt), isNotNull(timeEntries.projectId), projectNotDeleted(timeEntries.projectId)]
       : [isNull(timeEntries.deletedAt), inArray(timeEntries.projectId, scopedIds)];
 
   const [

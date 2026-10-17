@@ -65,6 +65,8 @@ export namespace Projects {
     id: string;
     /** Workspace-wide sequential number, displayed as the bare number. */
     number?: number | null;
+    /** Project-prefixed task key, e.g. `WEB-12`. */
+    key?: string | null;
     title: string;
     startDate?: string;
     dueDate?: string;
@@ -89,6 +91,8 @@ export namespace Projects {
     utilization: number;
     overallocatedCount: number;
     teamMembers: TeamMemberWorkload[];
+    /** Open tasks nobody on these projects carries. Absent on the per-project endpoint. */
+    unassigned?: { tasks: WorkloadTask[] };
   }
 
   /**

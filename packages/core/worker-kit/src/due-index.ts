@@ -28,7 +28,9 @@ export type DueIndexKind =
   | 'domain_renew'
   // WeldReach (reach-api): outreach sends coming due, and daily warmup progress.
   | 'reach_send'
-  | 'reach_warmup';
+  | 'reach_warmup'
+  // WeldFlow (flow-api): soft-deleted project files / attachments reaching the end of retention.
+  | 'file_purge';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

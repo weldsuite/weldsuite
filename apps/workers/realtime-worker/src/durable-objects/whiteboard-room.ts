@@ -82,6 +82,11 @@ export class WhiteboardRoom extends DurableObject<Env> {
       case 'element:update':
       case 'element:delete':
       case 'element:batch': {
+        // Read-only participants (project viewers) may watch, not change the board.
+        if (!tags.includes('write:1')) {
+          ws.send(JSON.stringify({ type: 'error', code: 'read_only', message: 'Read-only access to this whiteboard' }));
+          break;
+        }
         // Broadcast element operations to all except sender session
         this.broadcastExceptSession(sessionId, JSON.stringify({
           ...msg,
@@ -174,6 +179,9 @@ export class WhiteboardRoom extends DurableObject<Env> {
     const userName = request.headers.get(AUTH_HEADERS.USER_NAME) || 'Unknown';
     // Client provides a unique session ID per tab
     const sessionId = request.headers.get('x-rt-session-id') || crypto.randomUUID();
+    // The edge worker decides write access (project role); anything but an explicit
+    // "true" joins read-only.
+    const canWrite = request.headers.get(AUTH_HEADERS.CAN_PUBLISH) === 'true';
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -182,6 +190,7 @@ export class WhiteboardRoom extends DurableObject<Env> {
       `user:${userId}`,
       `name:${userName}`,
       `session:${sessionId}`,
+      `write:${canWrite ? 1 : 0}`,
     ]);
 
     // Send current presence snapshot

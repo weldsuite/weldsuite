@@ -1,4 +1,11 @@
+import { getLocale } from '@weldsuite/i18n';
+import { getIntlLocale } from '@/lib/i18n/date-locale';
 import type { CellFormat, CellValue } from './types';
+
+/** BCP 47 tag of the UI language, so numbers and dates follow Settings > Appearance. */
+function intlLocale(): string {
+  return getIntlLocale(getLocale());
+}
 
 const FORMAT_PREFIX = '__fmt__';
 const NOTE_PREFIX = '__note__';
@@ -145,32 +152,32 @@ export function formatCellDisplay(rawValue: CellValue | undefined, format?: Cell
 
   switch (format.numberFormat) {
     case 'number':
-      return num.toLocaleString('en-US', {
+      return num.toLocaleString(intlLocale(), {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       });
     case 'currency': {
       const symbol = format.currencySymbol ?? '$';
-      const formatted = Math.abs(num).toLocaleString('en-US', {
+      const formatted = Math.abs(num).toLocaleString(intlLocale(), {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       });
       return num < 0 ? `-${symbol}${formatted}` : `${symbol}${formatted}`;
     }
     case 'percent':
-      return (num * 100).toLocaleString('en-US', {
+      return (num * 100).toLocaleString(intlLocale(), {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       }) + '%';
     case 'date': {
       const d = new Date(num);
       if (Number.isNaN(d.getTime())) return str;
-      return d.toLocaleDateString();
+      return d.toLocaleDateString(intlLocale());
     }
     case 'time': {
       const d = new Date(num);
       if (Number.isNaN(d.getTime())) return str;
-      return d.toLocaleTimeString();
+      return d.toLocaleTimeString(intlLocale());
     }
     case 'scientific':
       return num.toExponential(decimals);

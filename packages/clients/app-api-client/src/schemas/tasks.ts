@@ -82,7 +82,10 @@ export const createTaskSchema = z.object({
 // specially server-side (move guard, cycle detection + reciprocal sync).
 export const updateTaskSchema = z.object({
   title: createTaskSchema.shape.title.optional(),
-  description: createTaskSchema.shape.description,
+  // Fields a client clears send an explicit null (an `undefined` is dropped by
+  // JSON and would leave the stored value alone), so these accept null and a
+  // null is written as a cleared column.
+  description: createTaskSchema.shape.description.nullable(),
   status: createTaskSchema.shape.status,
   priority: createTaskSchema.shape.priority,
   type: createTaskSchema.shape.type,
@@ -96,12 +99,12 @@ export const updateTaskSchema = z.object({
   customerId: createTaskSchema.shape.customerId,
   contactId: createTaskSchema.shape.contactId,
   personId: createTaskSchema.shape.personId,
-  startDate: createTaskSchema.shape.startDate,
-  dueDate: createTaskSchema.shape.dueDate,
-  estimatedHours: createTaskSchema.shape.estimatedHours,
+  startDate: createTaskSchema.shape.startDate.nullable(),
+  dueDate: createTaskSchema.shape.dueDate.nullable(),
+  estimatedHours: createTaskSchema.shape.estimatedHours.nullable(),
   // Clients send null to clear the time estimate.
   duration: z.number().nullable().optional(),
-  storyPoints: createTaskSchema.shape.storyPoints,
+  storyPoints: createTaskSchema.shape.storyPoints.nullable(),
   labels: createTaskSchema.shape.labels,
   tags: createTaskSchema.shape.tags,
   isBillable: createTaskSchema.shape.isBillable,

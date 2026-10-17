@@ -31,20 +31,28 @@ export default function WhiteboardDetailPage() {
     { label: whiteboardName },
   ]);
 
+  // A failed load must not fall through to an empty, editable canvas: the first stroke
+  // would autosave over every stored element.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
+    setLoadFailed(false);
     void whiteboardApi.getById(projectId, whiteboardId).then((result) => {
       if (cancelled) return;
       if (result.success && result.data) {
         setElements(result.data.elements ?? []);
         if (result.data.name) setWhiteboardName(result.data.name);
         setNameDraft(result.data.name ?? '');
+      } else {
+        setLoadFailed(true);
       }
       setIsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [projectId, whiteboardId]);
+  }, [projectId, whiteboardId, loadAttempt]);
 
   const commitName = async () => {
     const next = nameDraft.trim();
@@ -66,6 +74,22 @@ export default function WhiteboardDetailPage() {
 
   if (isLoading) {
     return <PageLoader fullScreen={false} />;
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center" role="alert">
+        <p className="text-sm text-muted-foreground">{st('sweep.weldflow.whiteboardListPage.loadFailed')}</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => router.push(`/weldflow/project/${projectId}/whiteboard`)}>
+            {st('sweep.weldflow.whiteboardListPage.backToList')}
+          </Button>
+          <Button size="sm" onClick={() => setLoadAttempt((n) => n + 1)}>
+            {st('sweep.weldflow.whiteboardListPage.retry')}
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (

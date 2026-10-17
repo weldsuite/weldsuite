@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/weldflow/project/[projectId]/timeline/page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+// The project timeline is the Gantt view.
 export const Route = createFileRoute('/weldflow/project/$projectId/timeline/')({
-  component: PageComponent,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/weldflow/project/$projectId/gantt', params });
+  },
 });

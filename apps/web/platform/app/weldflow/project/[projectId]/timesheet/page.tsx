@@ -143,6 +143,57 @@ const MAX_DAY_MINUTES = 24 * 60;
 /** Soft threshold: past this a day total is probably a typo (30 instead of 3). */
 const LONG_DAY_MINUTES = 12 * 60;
 
+/**
+ * One time entry as the grid holds it. The list payload nests `task` / `user`,
+ * but it resolves against the project's task and member lists too, so a row is
+ * never labelled with an entry description or "Unknown" when the lookup is
+ * simply absent.
+ */
+function toTimeEntry(
+  entry: RawTimeEntry,
+  taskTitleById: ReadonlyMap<string, string>,
+  memberNameById: ReadonlyMap<string, string>,
+  untitledLabel: string,
+): TimeEntry {
+  const taskTitle = entry.task?.title || (entry.taskId ? taskTitleById.get(entry.taskId) : undefined);
+  return {
+    id: entry.id,
+    taskId: entry.taskId,
+    // An entry linked to a task is labelled by that task, never by its own
+    // description (which differs per entry and would rename the row).
+    taskName: taskTitle || (entry.taskId ? undefined : entry.description) || untitledLabel,
+    description: entry.description,
+    date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
+    duration: Number(entry.duration) || entry.durationMinutes || 0,
+    startTime: entry.startTime ?? null,
+    endTime: entry.endTime ?? null,
+    userId: entry.userId,
+    // Left undefined when unresolvable: the popover then omits the "by …"
+    // line instead of printing a misleading "by Unknown".
+    userName: entry.user?.name || memberNameById.get(entry.userId),
+    billable: entry.billable ?? entry.isBillable ?? true,
+    status: entry.status || 'draft',
+    task: entry.task ?? (entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined),
+    user: entry.user,
+  };
+}
+
+/** The time entries of a list response (a bare array or a `{ items }` page), resolved for the grid. */
+function toTimeEntries(
+  data: unknown,
+  tasks: RawProjectTask[],
+  members: ProjectMember[],
+  untitledLabel: string,
+): TimeEntry[] {
+  const list = data as RawTimeEntry[] | { items?: RawTimeEntry[] } | undefined;
+  const rawEntries = Array.isArray(list) ? list : list?.items || [];
+  const taskTitleById = new Map(tasks.map((tk) => [tk.id, tk.title]));
+  const memberNameById = new Map(
+    members.filter((m) => m.user?.name).map((m) => [m.userId, m.user!.name]),
+  );
+  return rawEntries.map((entry) => toTimeEntry(entry, taskTitleById, memberNameById, untitledLabel));
+}
+
 /** Minutes already logged on `date` by the entries in view, `excludeId` aside. */
 function minutesLoggedOnDay(entries: TimeEntry[], date: Date, excludeId?: string | null): number {
   const key = format(date, 'yyyy-MM-dd');
@@ -733,7 +784,8 @@ function TimesheetWeekView({
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              title={st('sweep.weldflow.edit')}
+                              title={entry.status === 'approved' ? st('sweep.weldflow.timesheetPage.entryApprovedLocked') : st('sweep.weldflow.edit')}
+                              disabled={entry.status === 'approved'}
                               onClick={() => openEditDialog(entry)}
                             >
                               <Pencil className="h-3.5 w-3.5" />
@@ -742,8 +794,8 @@ function TimesheetWeekView({
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-red-600 hover:text-red-700"
-                              title={st('sweep.weldflow.delete')}
-                              disabled={deletingEntryId === entry.id}
+                              title={entry.status === 'approved' ? st('sweep.weldflow.timesheetPage.entryApprovedLocked') : st('sweep.weldflow.delete')}
+                              disabled={deletingEntryId === entry.id || entry.status === 'approved'}
                               onClick={() => setEntryToDelete(entry)}
                             >
                               {deletingEntryId === entry.id ? (
@@ -1739,6 +1791,29 @@ export default function TimesheetPage() {
     return new Date(today.getFullYear(), today.getMonth(), 1);
   });
 
+  // Entries are fetched for the visible range only (the API caps one page at 500
+  // rows, so loading "the newest 500" left older weeks empty on busy projects).
+  // The month grid also shows the neighbouring days of its first and last week,
+  // so its range covers the whole grid. Bounds are formatted from local parts,
+  // not toISOString: a UTC conversion shifts the boundary a day east of GMT.
+  const fetchRange = useMemo(() => {
+    if (viewMode === 'week') {
+      const end = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6);
+      return { fromDate: format(currentWeekStart, 'yyyy-MM-dd'), toDate: format(end, 'yyyy-MM-dd') };
+    }
+    const first = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const offsetToMonday = first.getDay() === 0 ? -6 : 1 - first.getDay();
+    const start = new Date(first.getFullYear(), first.getMonth(), first.getDate() + offsetToMonday);
+    // A month grid spans at most six weeks.
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 41);
+    return { fromDate: format(start, 'yyyy-MM-dd'), toDate: format(end, 'yyyy-MM-dd') };
+  }, [viewMode, currentWeekStart, currentMonth]);
+  const { fromDate: fetchFrom, toDate: fetchTo } = fetchRange;
+  // Only the first load of a project blanks the page; moving between weeks keeps the grid up.
+  const loadedProjectRef = useRef<string | null>(null);
+  // Drops the response of a superseded request (fast week navigation).
+  const loadSeqRef = useRef(0);
+
   // Focus search input when opened
   useEffect(() => {
     if (searchOpen && searchInputRef.current) {
@@ -1773,61 +1848,29 @@ export default function TimesheetPage() {
 
   // Load data
   const loadData = useCallback(async () => {
-    setIsLoading(true);
+    const seq = ++loadSeqRef.current;
+    if (loadedProjectRef.current !== projectId) setIsLoading(true);
     setError(null);
 
     try {
       const [entriesResult, tasksResult, membersResult] = await Promise.all([
-        timeEntriesApi.list(projectId, { limit: 500 }),
-        tasksApi.list(projectId),
+        timeEntriesApi.list(projectId, { limit: 500, fromDate: fetchFrom, toDate: fetchTo }),
+        tasksApi.listAllPages(projectId),
         membersApi.list(projectId),
       ]);
+      if (seq !== loadSeqRef.current) return;
+
+      const taskRows = (tasksResult.success ? tasksResult.data || [] : []) as RawProjectTask[];
+      const memberRows = (membersResult.success ? membersResult.data || [] : []) as ProjectMember[];
 
       if (entriesResult.success) {
-        const rawEntries = (Array.isArray(entriesResult.data)
-          ? entriesResult.data
-          : entriesResult.data?.items || []) as unknown as RawTimeEntry[];
-        // The list payload nests `task` / `user`, but resolve against the
-        // project's task and member lists too so a row is never labelled with an
-        // entry description or "Unknown" when the lookup is simply absent.
-        const taskTitleById = new Map(
-          (tasksResult.success ? ((tasksResult.data || []) as RawProjectTask[]) : []).map((tk) => [tk.id, tk.title]),
-        );
-        const memberNameById = new Map(
-          (membersResult.success ? ((membersResult.data || []) as ProjectMember[]) : [])
-            .filter((m) => m.user?.name)
-            .map((m) => [m.userId, m.user!.name]),
-        );
-        const transformedEntries = rawEntries.map((entry) => {
-          const taskTitle = entry.task?.title || (entry.taskId ? taskTitleById.get(entry.taskId) : undefined);
-          return {
-            id: entry.id,
-            taskId: entry.taskId,
-            // An entry linked to a task is labelled by that task, never by its own
-            // description (which differs per entry and would rename the row).
-            taskName: taskTitle || (entry.taskId ? undefined : entry.description) || tt.untitled,
-            description: entry.description,
-            date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
-            duration: Number(entry.duration) || entry.durationMinutes || 0,
-            startTime: entry.startTime ?? null,
-            endTime: entry.endTime ?? null,
-            userId: entry.userId,
-            // Left undefined when unresolvable: the popover then omits the "by …"
-            // line instead of printing a misleading "by Unknown".
-            userName: entry.user?.name || memberNameById.get(entry.userId),
-            billable: entry.billable ?? entry.isBillable ?? true,
-            status: entry.status || 'draft',
-            task: entry.task ?? (entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined),
-            user: entry.user,
-          };
-        });
-        setEntries(transformedEntries);
+        setEntries(toTimeEntries(entriesResult.data, taskRows, memberRows, tt.untitled));
       } else {
         setError(entriesResult.error || tt.failedToLoadEntries);
       }
 
       if (tasksResult.success) {
-        setTasks(((tasksResult.data || []) as RawProjectTask[]).map((task) => ({
+        setTasks(taskRows.map((task) => ({
           id: task.id,
           title: task.title,
           number: task.number ?? null,
@@ -1839,15 +1882,19 @@ export default function TimesheetPage() {
         setProjectMembers(membersResult.data || []);
       }
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       console.error('Error loading data:', err);
       setError(tt.failedToLoadData);
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) {
+        loadedProjectRef.current = projectId;
+        setIsLoading(false);
+      }
     }
     // The copy (`tt`) is deliberately not a dependency: a language switch must
     // re-translate the labels, not refetch every time entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, fetchFrom, fetchTo]);
 
   useEffect(() => {
     void loadData();
@@ -2031,6 +2078,11 @@ export default function TimesheetPage() {
         setNewEntryEndTime('');
         setSelectedDate(null);
         void loadData();
+      } else if (result.status === 409) {
+        // Approved entries are locked server-side. Nothing was applied locally;
+        // reload so the row shows its approved state.
+        toast.error(st('sweep.weldflow.timesheetPage.entryApprovedLocked'));
+        void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.saveFailed'));
       }
@@ -2064,6 +2116,9 @@ export default function TimesheetPage() {
       const result = await timeEntriesApi.delete(projectId, entryId);
       if (result.success) {
         toast.success(st('sweep.weldflow.timesheetPage.timeEntryDeleted'));
+        void loadData();
+      } else if (result.status === 409) {
+        toast.error(st('sweep.weldflow.timesheetPage.entryApprovedLocked'));
         void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.deleteFailed'));

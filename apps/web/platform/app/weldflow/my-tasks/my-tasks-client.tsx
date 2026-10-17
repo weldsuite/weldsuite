@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useTransition, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useMemo, useTransition, useCallback, useEffect, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -60,12 +60,20 @@ import {
 import { cn } from '@/lib/utils';
 import { coloredSquareColors, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { toast } from 'sonner';
-import { tasksApi, membersApi, labelsApi } from '../lib/api-client';
+import { tasksApi, labelsApi } from '../lib/api-client';
+import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
+import { buildEntityAssigneeDirectory } from '../project/[projectId]/tasks/entity-assignees';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { LabelOverflowList } from '../lib/label-overflow-list';
+import { withOtherGroup } from '../lib/with-other-group';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { MyTasksPipeline } from './my-tasks-pipeline';
+
+/** The priorities a task row can hold. */
+type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 interface Task {
   id: string;
@@ -74,7 +82,7 @@ interface Task {
   title: string;
   description?: string;
   status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
+  priority: TaskPriority;
   assignee?: string;
   assigneeId?: string;
   assigneeIds?: string[];
@@ -260,10 +268,11 @@ function toCrmTask(task: Task): CrmTask {
     // Unknown (custom stage) statuses pass through instead of collapsing to
     // 'todo', which a save would then write back.
     status: statusToCrm[task.status] ?? (task.status as CrmTask['status']),
-    priority: task.priority === 'urgent' ? 'high' : (task.priority as CrmTask['priority']),
+    priority: task.priority as CrmTask['priority'],
     assignee: primary,
     assignees: assigneesList,
     dueDate: task.dueDate,
+    duration: task.duration,
     createdAt: task.createdAt,
     labels: task.labels,
     repeat: (task.repeat || undefined) as CrmTask['repeat'],
@@ -302,7 +311,7 @@ interface SaveTaskFormData {
   title: string;
   description?: string;
   status: Task['status'];
-  priority?: 'low' | 'medium' | 'high';
+  priority?: TaskPriority;
   assigneeId?: string;
   assigneeIds?: string[];
   dueDate?: Date;
@@ -344,35 +353,32 @@ function fillNewTaskScalarsFromForm(newTask: Task, data: SaveTaskFormData): void
   if (newTask.duration == null && data.duration != null) newTask.duration = data.duration;
 }
 
+type TaskUpdatePayload = Parameters<typeof tasksApi.update>[2];
+
 // Applies the multi-assignee `assigneeIds` normalisation to an inline-edit
-// payload (multi-assignee fields win over the singular ones).
-function applyAssigneePayload(apiData: Record<string, unknown>, data: Partial<Task>): void {
+// payload (multi-assignee fields win over the singular ones). An empty list
+// goes out as `[]`, which unassigns everyone.
+function applyAssigneePayload(payload: TaskUpdatePayload, data: Partial<Task>): void {
   if (data.assigneeIds !== undefined || data.assignees !== undefined) {
-    let ids: string[];
-    if (data.assigneeIds === undefined) {
-      ids = data.assignees?.map((a) => a.id) ?? [];
-    } else {
-      ids = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
-    }
-    apiData.assigneeIds = ids.length > 0 ? ids : null;
-    delete apiData.assigneeId;
-    delete apiData.assignee;
-    delete apiData.assignees;
-  } else if (data.assigneeId !== undefined && data.assignee !== undefined) {
-    apiData.assigneeId = data.assigneeId;
-    delete apiData.assignee;
+    payload.assigneeIds = data.assigneeIds === undefined
+      ? data.assignees?.map((a) => a.id) ?? []
+      : data.assigneeIds;
+  } else if (data.assigneeId !== undefined) {
+    payload.assigneeIds = data.assigneeId ? [data.assigneeId] : [];
   }
 }
 
-// Build the API payload for an inline task edit: normalises dates and the
-// assignee fields.
-function buildTaskUpdatePayload(data: Partial<Task>): Record<string, unknown> {
-  const apiData: Record<string, unknown> = { ...data };
-  if (data.dueDate !== undefined) {
-    apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
-  }
-  applyAssigneePayload(apiData, data);
-  return apiData;
+// Build the API payload for an inline task edit. Cleared fields go out as an
+// explicit `null`: `undefined` is dropped by JSON.stringify, so the server never
+// heard that a date had been cleared (the UI only looked cleared until a reload).
+function buildTaskUpdatePayload(data: Partial<Task>): TaskUpdatePayload {
+  const payload: TaskUpdatePayload = {};
+  if (data.title !== undefined) payload.title = data.title;
+  if (data.priority !== undefined) payload.priority = data.priority;
+  if ('dueDate' in data) payload.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
+  if ('startDate' in data) payload.startDate = data.startDate ? data.startDate.toISOString() : null;
+  applyAssigneePayload(payload, data);
+  return payload;
 }
 
 // Build the inline-update payload for toggling `memberId` in a task's assignee list.
@@ -497,7 +503,10 @@ export function MyTasksClient({
   onSortChange,
 }: Readonly<MyTasksClientProps>) {
   const { t } = useI18n();
+  const st = useTranslations();
   const { formatShort } = useDateLocale();
+  // Task a row's "Delete" menu item asked to delete, until the user confirms.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   useBreadcrumbs([
     { label: t.projects.title, href: '/weldflow' },
     { label: t.projects.myTasks.title },
@@ -522,6 +531,15 @@ export function MyTasksClient({
   }), [t]);
 
   const [tasks, setTasks] = useState<Task[]>(() => flattenApiTasks(initialTasks));
+  // Rows this page added itself (created, duplicated, next recurrence) that the
+  // server list may not echo yet. Only these survive a refetch: the list stays
+  // mounted across a new search / filter, so keeping every unechoed row would
+  // leave rows that no longer match the filter on screen.
+  const optimisticIdsRef = useRef(new Set<string>());
+  const addOptimisticTask = useCallback((task: Task, position: 'start' | 'end' = 'start') => {
+    optimisticIdsRef.current.add(task.id);
+    setTasks((prev) => (position === 'start' ? [task, ...prev] : [...prev, task]));
+  }, []);
   const prevInitialTasksRef = useRef(initialTasks);
   useEffect(() => {
     if (prevInitialTasksRef.current !== initialTasks) {
@@ -533,16 +551,18 @@ export function MyTasksClient({
 
         // Walk fresh in server order so the displayed order always matches the
         // server's deterministic ORDER BY. For each fresh row, merge in any
-        // optimistic-only fields from the prev copy. Then append prev rows the
-        // server hasn't echoed yet (just-created, replica lag) so they don't
-        // blink out — platform events / explicit deletes remove them when the
-        // server catches up.
+        // optimistic-only fields from the prev copy. Then append the rows this
+        // page just added that the server hasn't echoed yet (replica lag) so
+        // they don't blink out.
         const merged: Task[] = fresh.map((f) => {
           const p = prevById.get(f.id);
           return p ? mergeOptimisticTaskFields(f, p) : f;
         });
 
-        const optimisticOnly = prev.filter((p) => !freshById.has(p.id));
+        for (const id of optimisticIdsRef.current) {
+          if (freshById.has(id)) optimisticIdsRef.current.delete(id);
+        }
+        const optimisticOnly = prev.filter((p) => optimisticIdsRef.current.has(p.id));
         return [...merged, ...optimisticOnly];
       });
     }
@@ -572,12 +592,16 @@ export function MyTasksClient({
   // table interactions reference it), but opening/closing the drawer is done
   // by pushing the task onto the object-panel stack via `useObjectPanel`.
   const { open: openTaskPanel } = useObjectPanel();
-  useLayoutEffect(() => {
-    if (selectedTask) openTaskPanel({ type: 'task', id: selectedTask.id });
-  }, [selectedTask, openTaskPanel]);
+  // Opening is driven by the click itself, not by a change of `selectedTask`:
+  // after the panel is closed `selectedTask` still points at the same row, so
+  // clicking it again changed nothing and the panel could not be reopened (and
+  // an optimistic edit of that row would have popped the closed panel back up).
+  const openTask = useCallback((task: Task) => {
+    setSelectedTask(task);
+    openTaskPanel({ type: 'task', id: task.id });
+  }, [openTaskPanel]);
 
   const [isPending, startTransition] = useTransition();
-  const [availableAssignees, setAvailableAssignees] = useState<{ id: string; name: string; avatar?: string }[]>([]);
   const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
   const [groupBy, setGroupBy] = useState<'status' | 'priority' | 'dueDate' | 'project' | 'none'>('status');
@@ -612,7 +636,7 @@ export function MyTasksClient({
     title: string;
     description?: string;
     status: Task['status'];
-    priority?: 'low' | 'medium' | 'high';
+    priority?: TaskPriority;
     assigneeId?: string;
     dueDate?: Date;
     labels?: string[];
@@ -661,27 +685,19 @@ export function MyTasksClient({
     return null;
   }, [t.projects.myTasks.failedToCreateLabel]);
 
-  // Fetch members from all projects for assignee dropdown
-  useEffect(() => {
-    async function loadMembers() {
-      const results = await Promise.all(
-        projects.map(p => membersApi.list(p.id))
-      );
-      const memberMap = new Map<string, { id: string; name: string; avatar?: string }>();
-      results.forEach(r => {
-        (r.data || []).forEach((m) => {
-          const name = m.user?.name;
-          const id = m.userId || m.user?.id;
-          const avatar = m.user?.avatar;
-          if (name && id && !memberMap.has(id)) {
-            memberMap.set(id, { id, name, avatar });
-          }
-        });
-      });
-      setAvailableAssignees(Array.from(memberMap.values()));
-    }
-    if (projects.length > 0) void loadMembers();
-  }, [projects]);
+  // Assignee dropdown: the workspace member directory (one batched request
+  // instead of one members call per project), plus anyone already on a loaded
+  // task who has since left the workspace, so their name still renders.
+  const { data: workspaceMembersData } = useWorkspaceMemberDirectory();
+  const availableAssignees = useMemo(
+    () =>
+      buildEntityAssigneeDirectory(workspaceMembersData?.data ?? [], tasks).map((m) => ({
+        id: m.userId,
+        name: m.user.name,
+        avatar: m.user.avatar,
+      })),
+    [workspaceMembersData, tasks],
+  );
 
   // Live task sync: useRealtimeSync(platformSyncMap) invalidates ['task'] /
   // ['projects'] — no parallel PlatformEvents / useTaskEvents bridge.
@@ -696,7 +712,10 @@ export function MyTasksClient({
   const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
 
   const handleSaveTask = (data: SaveTaskFormData) => {
-    const selectedProject = data.linkedCompanyId ? projectById[data.linkedCompanyId] : projects[0];
+    // No project picked = a personal task (POST /tasks takes `projectId: null`).
+    // It used to fall back to the first project, so personal tasks could not be
+    // created at all.
+    const selectedProject = data.linkedCompanyId ? projectById[data.linkedCompanyId] : undefined;
 
     startTransition(async () => {
       const result = await tasksApi.createGlobal({
@@ -715,7 +734,7 @@ export function MyTasksClient({
       if (result.success && result.data) {
         const newTask = transformApiTask(result.data);
         fillNewTaskFromForm(newTask, data, selectedProject, availableAssignees);
-        setTasks(prev => [newTask, ...prev]);
+        addOptimisticTask(newTask, 'end');
         setShowTaskDialog(false);
         setDialogDefaultStatus(undefined);
         toast.success(t.projects.myTasks.taskCreated);
@@ -745,7 +764,7 @@ export function MyTasksClient({
           const nextResult = await tasksApi.getById(result.data.nextTaskId);
           const nextTask = nextResult.data;
           if (nextResult.success && nextTask) {
-            setTasks(prev => [transformApiTask(nextTask), ...prev]);
+            addOptimisticTask(transformApiTask(nextTask), 'end');
             toast.success(t.projects.myTasks.nextRecurringCreated);
           }
         }
@@ -755,7 +774,7 @@ export function MyTasksClient({
         toast.error(result.error || t.projects.myTasks.taskUpdateFailed);
       }
     });
-  }, [tasks, startTransition, queryClient, t]);
+  }, [tasks, startTransition, queryClient, t, addOptimisticTask]);
 
   const deleteTask = useCallback((taskId: string) => {
     startTransition(async () => {
@@ -809,7 +828,7 @@ export function MyTasksClient({
         const nextResult = await tasksApi.getById(result.data.nextTaskId);
         const nextTask = nextResult.data;
         if (nextResult.success && nextTask) {
-          setTasks(prev => [transformApiTask(nextTask), ...prev]);
+          addOptimisticTask(transformApiTask(nextTask), 'end');
           toast.success(t.projects.myTasks.nextRecurringCreated);
         }
       }
@@ -820,7 +839,7 @@ export function MyTasksClient({
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: oldStatus } : t));
       toast.error(t.projects.myTasks.taskMoveFailed);
     }
-  }, [tasks, t, queryClient]);
+  }, [tasks, t, queryClient, addOptimisticTask]);
 
   const handlePipelineReorder = useCallback(async (columnStatus: string, reorderedTaskIds: string[]) => {
     // Optimistic update — reorder tasks within the column
@@ -967,6 +986,7 @@ export function MyTasksClient({
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   const updateTaskInline = useCallback(async (taskId: string, data: Partial<Task>) => {
+    const previous = tasksRef.current.find((row) => row.id === taskId);
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...data } : t));
     setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...data } : prev);
@@ -976,21 +996,24 @@ export function MyTasksClient({
     // Prefer the project-scoped task update endpoint (which already supports
     // multi-assignees) when the task has a projectId; fall back to the
     // global endpoint for truly orphan tasks.
-    const existingTask = tasksRef.current.find((t) => t.id === taskId);
+    const existingTask = previous;
     const projectId = existingTask?.projectId;
     const result = projectId
-      ? await tasksApi.update(projectId, taskId, apiData as Parameters<typeof tasksApi.update>[2])
-      : await tasksApi.updateById(taskId, apiData as Parameters<typeof tasksApi.updateById>[1]);
+      ? await tasksApi.update(projectId, taskId, apiData)
+      : await tasksApi.updateById(taskId, apiData);
     if (result.success) {
       void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
     } else {
-      // Rollback on failure
-      setTasks(prev => prev.map(t => {
-        if (t.id !== taskId) return t;
-        const rollback: Record<string, unknown> = { ...t };
-        Object.keys(data).forEach(k => delete rollback[k]);
-        return rollback as unknown as Task;
-      }));
+      // Rollback on failure: put back the previous value of exactly the fields
+      // this edit touched (it used to delete them, leaving the row with no
+      // priority or due date).
+      if (previous) {
+        const snapshot = Object.fromEntries(
+          Object.keys(data).map((key) => [key, previous[key as keyof Task]]),
+        ) as Partial<Task>;
+        setTasks(prev => prev.map(row => (row.id === taskId ? { ...row, ...snapshot } : row)));
+        setSelectedTask(prev => (prev?.id === taskId ? { ...prev, ...snapshot } : prev));
+      }
       toast.error(t.projects.myTasks.taskUpdateFailed);
     }
   }, [queryClient, t]);
@@ -1025,7 +1048,8 @@ export function MyTasksClient({
     {
       field: 'project',
       label: t.projects.myTasks.filterProject,
-      options: projects.map(p => ({ value: p.name, label: p.name })),
+      // The value is the id: the server's `projectId` filter takes an id.
+      options: projects.map(p => ({ value: p.id, label: p.name })),
     },
     {
       field: 'label',
@@ -1035,11 +1059,12 @@ export function MyTasksClient({
   ], [projects, availableLabels, t]);
 
   // Group configs vary by the active "Group by" choice.
-  const groupConfigs: GroupConfig<Task>[] = useMemo(() => {
+  const baseGroupConfigs: GroupConfig<Task>[] = useMemo(() => {
     if (groupBy === 'none') return [];
 
     if (groupBy === 'priority') {
       return [
+        { id: 'critical', label: t.projects.myTasks.priorityLabels.critical, sortOrder: 0, filter: (task) => (task.priority as string) === 'critical' },
         { id: 'urgent', label: t.projects.myTasks.priorityLabels.urgent, sortOrder: 1, filter: (task) => task.priority === 'urgent' },
         { id: 'high', label: t.projects.myTasks.priorityLabels.high, sortOrder: 2, filter: (task) => task.priority === 'high' },
         { id: 'medium', label: t.projects.myTasks.priorityLabels.medium, sortOrder: 3, filter: (task) => task.priority === 'medium' },
@@ -1089,6 +1114,13 @@ export function MyTasksClient({
       { id: 'cancelled', label: t.projects.myTasks.statusLabels.cancelled, sortOrder: 7, filter: (task) => task.status === 'cancelled' },
     ];
   }, [groupBy, projects, t]);
+
+  // A task matching no group (e.g. a status or project that isn't listed) would
+  // vanish from the list, so the leftovers get a catch-all group.
+  const groupConfigs: GroupConfig<Task>[] = useMemo(
+    () => withOtherGroup(baseGroupConfigs, t.projects.myTasks.groupLabels.other),
+    [baseGroupConfigs, t.projects.myTasks.groupLabels.other],
+  );
 
   const groupByOptions = useMemo(() => [
     { value: 'status' as const, label: t.projects.myTasks.groupByStatus },
@@ -1145,8 +1177,8 @@ export function MyTasksClient({
           : result.filter(t => t.priority !== filter.value);
       } else if (filter.field === 'project') {
         result = filter.operator === 'is'
-          ? result.filter(t => t.project === filter.value)
-          : result.filter(t => t.project !== filter.value);
+          ? result.filter(t => t.projectId === filter.value)
+          : result.filter(t => t.projectId !== filter.value);
       } else if (filter.field === 'label') {
         result = filter.operator === 'is'
           ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
@@ -1155,6 +1187,14 @@ export function MyTasksClient({
     });
     return result;
   }, []);
+
+  // With the page driving the filters, EntityList does not run `applyFilters`
+  // itself. The server takes "is" filters and "status is not"; the other
+  // "is not" filters only exist here, so apply them to the loaded rows.
+  const visibleTasks = useMemo(() => {
+    const negated = (activeFiltersProp ?? []).filter((f) => f.operator === 'is not' && f.field !== 'status');
+    return negated.length > 0 ? applyFilters(sortedTasks, negated) : sortedTasks;
+  }, [activeFiltersProp, sortedTasks, applyFilters]);
 
   const handleSort = useCallback((columnId: string) => {
     setSortState(prev => {
@@ -1201,7 +1241,7 @@ export function MyTasksClient({
         <button
           type="button"
           aria-label={task.title}
-          onClick={() => setSelectedTask(task)}
+          onClick={() => openTask(task)}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         />
         {/* Checkbox */}
@@ -1494,10 +1534,15 @@ export function MyTasksClient({
                 startTransition(async () => {
                   const result = await tasksApi.createGlobal({
                     projectId: task.projectId,
-                    title: `${task.title} (copy)`,
+                    title: `${task.title} ${t.projects.myTasks.copySuffix}`,
                     description: task.description,
                     status: task.status,
                     priority: task.priority,
+                    dueDate: task.dueDate?.toISOString(),
+                    startDate: task.startDate?.toISOString(),
+                    duration: task.duration,
+                    assigneeIds: task.assigneeIds ?? (task.assigneeId ? [task.assigneeId] : undefined),
+                    labels: task.labels,
                     repeat: task.repeat || undefined,
                   });
                   if (result.success && result.data) {
@@ -1506,7 +1551,7 @@ export function MyTasksClient({
                       newTask.project = task.project;
                       newTask.projectId = task.projectId;
                     }
-                    setTasks(prev => [newTask, ...prev]);
+                    addOptimisticTask(newTask, 'end');
                     toast.success(t.projects.myTasks.taskDuplicated);
                     void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
                   } else {
@@ -1518,7 +1563,7 @@ export function MyTasksClient({
                 {t.projects.myTasks.duplicate}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950" onClick={() => deleteTask(task.id)}>
+              <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950" onClick={() => setPendingDeleteId(task.id)}>
                 <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
                 {t.projects.myTasks.delete}
               </DropdownMenuItem>
@@ -1527,7 +1572,7 @@ export function MyTasksClient({
         </div>
       </div>
     );
-  }, [isPending, toggleTaskStatus, deleteTask, availableLabels, handleStatusChange, updateTaskInline, availableAssignees, formatDateShort, startTransition, queryClient, t, priorityConfig, statusConfig, subtasksByParent, collapsedTaskIds, toggleExpandTask]);
+  }, [isPending, toggleTaskStatus, availableLabels, handleStatusChange, updateTaskInline, availableAssignees, formatDateShort, startTransition, queryClient, t, openTask, addOptimisticTask, priorityConfig, statusConfig, subtasksByParent, collapsedTaskIds, toggleExpandTask]);
 
   // Recursively render a task's subtasks under it, with the same tree guides
   // as the project task list. Each row and its own descendants live in sibling
@@ -1643,7 +1688,7 @@ export function MyTasksClient({
             strategy={verticalListSortingStrategy}
           >
             <EntityList<Task>
-              items={sortedTasks}
+              items={visibleTasks}
               isLoading={false}
               error={null}
               headerColumns={headerColumns}
@@ -1721,7 +1766,7 @@ export function MyTasksClient({
             tasks={boardTasks}
             availableLabels={availableLabels}
             filterConfigs={filterConfigs}
-            onTaskClick={(task) => setSelectedTask(task)}
+            onTaskClick={openTask}
             onStatusChange={handleStatusChange}
             onReorder={handlePipelineReorder}
             onCreateTask={(status) => {
@@ -1751,26 +1796,67 @@ export function MyTasksClient({
         onCreateLabel={handleCreateLabel}
         defaultAssignee={userId || undefined}
         defaultStatus={dialogDefaultStatus}
-        defaultRecord={projects[0]?.id}
         recordLabel={t.projects.myTasks.selectProject}
         recordSearchPlaceholder={t.projects.project.searchProjects}
         recordEmptyLabel={t.projects.project.noProjects}
         onSave={handleSaveTask}
         onUpdate={(taskId, data) => {
-          const projectData: Record<string, unknown> = {};
-          if (data.title) projectData.title = data.title;
-          if (data.description !== undefined) projectData.description = data.description;
-          if (data.status) projectData.status = statusFromCrm[data.status] || data.status;
-          if (data.priority) projectData.priority = data.priority;
-          if (data.dueDate !== undefined) projectData.dueDate = data.dueDate?.toISOString();
-          if (data.labels !== undefined) projectData.labels = data.labels;
-          if (data.repeat !== undefined) projectData.repeat = data.repeat || null;
+          const projectData: TaskUpdatePayload = {};
+          // The same edit in the shape the list rows hold (a Date, not the ISO
+          // string the API takes), so a saved date keeps grouping and filtering.
+          const localPatch: Partial<Task> = {};
+          if (data.title) {
+            projectData.title = data.title;
+            localPatch.title = data.title;
+          }
+          if (data.description !== undefined) {
+            projectData.description = data.description || null;
+            localPatch.description = data.description || undefined;
+          }
+          if (data.status) {
+            const status = statusFromCrm[data.status] || data.status;
+            projectData.status = status;
+            localPatch.status = status as Task['status'];
+          }
+          if (data.priority) {
+            projectData.priority = data.priority;
+            localPatch.priority = data.priority;
+          }
+          if (data.dueDate !== undefined) {
+            projectData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
+            localPatch.dueDate = data.dueDate ?? undefined;
+          }
+          // Only a changed duration is sent: the dialog echoes the current value
+          // back on every save, and a write re-plans the task's calendar block.
+          if (data.duration !== undefined && data.duration !== editingCrmTask?.duration) {
+            projectData.duration = data.duration;
+            localPatch.duration = data.duration;
+          }
+          if (data.labels !== undefined) {
+            projectData.labels = data.labels;
+            localPatch.labels = data.labels;
+          }
+          if (data.repeat !== undefined) {
+            projectData.repeat = data.repeat;
+            localPatch.repeat = data.repeat;
+          }
+          if (data.assigneeIds !== undefined) {
+            projectData.assigneeIds = data.assigneeIds;
+            const resolved = data.assigneeIds.map((id) => {
+              const member = availableAssignees.find((m) => m.id === id);
+              return { id, name: member?.name ?? '', avatar: member?.avatar };
+            });
+            localPatch.assigneeIds = data.assigneeIds;
+            localPatch.assigneeId = data.assigneeIds[0];
+            localPatch.assignees = resolved;
+            localPatch.assignee = resolved[0]?.name;
+          }
 
           startTransition(async () => {
-            const result = await tasksApi.updateById(taskId, projectData as Parameters<typeof tasksApi.updateById>[1]);
+            const result = await tasksApi.updateById(taskId, projectData);
             if (result.success) {
-              setTasks(prev => prev.map(t => t.id === taskId ? ({ ...t, ...projectData } as Task) : t));
-              setSelectedTask(prev => prev?.id === taskId ? ({ ...prev, ...projectData } as Task) : prev);
+              setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...localPatch } : t));
+              setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...localPatch } : prev);
               setShowTaskDialog(false);
               setDialogDefaultStatus(undefined);
               setEditingCrmTask(null);
@@ -1801,6 +1887,20 @@ export function MyTasksClient({
         onSave={handleSaveSubtask}
         onUpdate={() => {}}
         isPending={isPending}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
+        title={st('sweep.entities.deleteTask')}
+        description={st('sweep.entities.deleteTaskConfirmDescription')}
+        confirmLabel={st('sweep.entities.deleteTask')}
+        cancelLabel={st('common.actions.cancel')}
+        variant="destructive"
+        onConfirm={() => {
+          if (pendingDeleteId) deleteTask(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
       />
 
       {/* Task detail panel is now rendered globally via ObjectPanelHost. */}

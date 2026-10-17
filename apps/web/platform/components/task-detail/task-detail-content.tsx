@@ -511,8 +511,9 @@ export interface TaskUpdateData {
   description?: string;
   status?: Task['status'];
   priority?: NonNullable<Task['priority']>;
-  dueDate?: Date;
-  startDate?: Date;
+  /** `null` clears the date (`undefined` means "leave it alone"). */
+  dueDate?: Date | null;
+  startDate?: Date | null;
   assignee?: NonNullable<Task['assignee']> | null;
   assignees?: NonNullable<Task['assignees']> | null;
   linkedCompany?: NonNullable<Task['linkedCompany']> | null;
@@ -784,14 +785,14 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
           <Calendar
             mode="single"
             selected={task.dueDate}
-            onSelect={(date) => onUpdate(task.id, { dueDate: date })}
+            onSelect={(date) => onUpdate(task.id, { dueDate: date ?? null })}
             autoFocus
           />
           {task.dueDate && (
             <Command className="h-auto rounded-none border-t">
               <CommandList>
                 <CommandGroup>
-                  <CommandItem onSelect={() => onUpdate(task.id, { dueDate: undefined })}>
+                  <CommandItem onSelect={() => onUpdate(task.id, { dueDate: null })}>
                     <CalendarX />
                     {t('sweep.shared.noDate')}
                   </CommandItem>
