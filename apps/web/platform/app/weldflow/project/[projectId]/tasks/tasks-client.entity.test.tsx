@@ -23,7 +23,10 @@ vi.mock('@/contexts/breadcrumb-context', () => ({ useOptionalBreadcrumbs: () => 
 vi.mock('@/components/objects/company/use-company-data', () => ({
   useCompanies: () => ({ data: { data: [] } }),
 }));
-vi.mock('@/components/object-panel', () => ({ useObjectPanel: () => ({ open: vi.fn() }) }));
+vi.mock('@/components/object-panel', () => ({
+  useObjectPanel: () => ({ open: vi.fn() }),
+  useObjectPanelNavigationReporter: () => () => {},
+}));
 vi.mock('@/hooks/queries/use-feature-flags-queries', () => ({ useFeatureFlag: () => false }));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
   useWorkspaceMemberDirectory: () => ({ data: { data: [] } }),
