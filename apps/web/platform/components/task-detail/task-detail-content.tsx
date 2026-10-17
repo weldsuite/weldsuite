@@ -587,6 +587,11 @@ export interface TaskDetailContentProps {
 
 type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
 
+/** Where a project task's label settings live; tasks without a project have none. */
+function projectSettingsHref(projectId: string | undefined): string | undefined {
+  return projectId ? `/weldflow/project/${projectId}/settings` : undefined;
+}
+
 function formatRelativeTime(dateStr: string | null, labels: RelativeTimeLabels): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
@@ -1100,6 +1105,9 @@ export function TaskDetailContent({
   const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
   const changeRecordButtonRef = useRef<HTMLButtonElement>(null);
   const isRecordPicker = availablePeople !== undefined;
+  // The record picker's copy: "record" wording on CRM tasks, "customer" otherwise.
+  const recordText = (recordKey: Parameters<typeof t>[0], customerKey: Parameters<typeof t>[0]) =>
+    t(isRecordPicker ? recordKey : customerKey);
   // The record currently linked to the task: a company or a person.
   const linkedRecord = useMemo(() => {
     if (task.linkedCompany) return { ...task.linkedCompany, type: 'company' as const };
@@ -1304,7 +1312,7 @@ export function TaskDetailContent({
           <div className="group/record flex items-center gap-3">
             <div className="flex items-center gap-2 w-32 flex-shrink-0">
               <Building className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{isRecordPicker ? t('sweep.shared.record') : t('sweep.shared.customer')}</span>
+              <span className="text-sm text-muted-foreground">{recordText('sweep.shared.record', 'sweep.shared.customer')}</span>
             </div>
             <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
               {linkedRecord && onOpenRecord ? (
@@ -1347,7 +1355,7 @@ export function TaskDetailContent({
                     className="h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start gap-2 group/field group/recordlink transition-colors hover:bg-transparent dark:hover:bg-transparent"
                   >
                     {linkedRecordChip ?? (
-                      <span className="text-muted-foreground group-hover/field:underline">{isRecordPicker ? t('sweep.shared.setRecord') : t('sweep.shared.setCustomer')}</span>
+                      <span className="text-muted-foreground group-hover/field:underline">{recordText('sweep.shared.setRecord', 'sweep.shared.setCustomer')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
@@ -1363,12 +1371,12 @@ export function TaskDetailContent({
               >
                 <Command>
                   <CommandInput
-                    placeholder={isRecordPicker ? t('sweep.shared.searchRecordPlaceholder') : t('sweep.shared.searchCustomerPlaceholder')}
+                    placeholder={recordText('sweep.shared.searchRecordPlaceholder', 'sweep.shared.searchCustomerPlaceholder')}
                   />
                   <CommandList className="max-h-none overflow-visible">
                     <PickerScrollArea>
                       <CommandEmpty>
-                        {isRecordPicker ? t('sweep.shared.noRecordFound') : t('sweep.shared.noCustomerFound')}
+                        {recordText('sweep.shared.noRecordFound', 'sweep.shared.noCustomerFound')}
                       </CommandEmpty>
                       {availableCompanies.length > 0 && (
                         <CommandGroup heading={isRecordPicker ? t('sweep.shared.recordCompanies') : undefined}>
@@ -1503,7 +1511,7 @@ export function TaskDetailContent({
                   task={task}
                   availableLabels={availableLabels}
                   onUpdate={onUpdate}
-                  settingsHref={projectId ? `/weldflow/project/${projectId}/settings` : undefined}
+                  settingsHref={projectSettingsHref(projectId)}
                   onRequestCreate={
                     onCreateLabel
                       ? () => {
