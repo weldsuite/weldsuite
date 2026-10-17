@@ -91,6 +91,7 @@ import {
   TextAlignStart,
   SquareChartGantt,
   HandCoins,
+  WalletCards,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -462,7 +463,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: t.navigation.moduleSidebar.groups.accounting,
         items: [
-          { title: t.navigation.moduleSidebar.weldbooks.chartOfAccounts, href: '/weldbooks/accounts', icon: BookOpen },
+          { title: t.navigation.moduleSidebar.weldbooks.chartOfAccounts, href: '/weldbooks/accounts', icon: WalletCards },
           { title: t.navigation.moduleSidebar.weldbooks.journalEntries, href: '/weldbooks/journal', icon: TextAlignStart },
           { title: t.navigation.moduleSidebar.weldbooks.vatReturns, href: '/weldbooks/vat', icon: Receipt },
           { title: t.navigation.moduleSidebar.weldbooks.fixedAssets, href: '/weldbooks/fixed-assets', icon: SquareChartGantt },

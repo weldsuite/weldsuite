@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useAccountingAccounts, useTaxLineCatalog } from '@/hooks/queries/use-accounting-queries';
-import { Landmark, ListTree } from 'lucide-react';
+import { ListTree, WalletCards } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
@@ -173,7 +173,7 @@ export default function ChartOfAccountsPage() {
       emptyState={{
         icon: (
           <EmptyStateIllustration>
-            <Landmark className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            <WalletCards className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
           </EmptyStateIllustration>
         ),
         title: tap.noAccounts,
