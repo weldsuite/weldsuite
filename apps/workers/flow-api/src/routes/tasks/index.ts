@@ -50,7 +50,6 @@ import {
 } from '@weldsuite/app-api-client/schemas/tasks';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import { generateId } from '@weldsuite/worker-kit/id';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { assigneeIdsInvolved, buildTaskChanges } from '../../lib/task-changes';
@@ -68,7 +67,6 @@ import {
   canWriteProject,
   canWriteTaskProject,
 } from '../../lib/project-access';
-import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import { MAX_SUBTASK_DEPTH, softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
 import { applyStatusChange, stageForStatus } from '@weldsuite/flow-domain/task-stage';
@@ -615,6 +613,12 @@ function syncCalendarOnStatusChange(
   }
 }
 
+/** The assignees of a task row: the multi-assignee list, else the single assignee. */
+function assigneeIdsOf(row: { assigneeIds?: string[] | null; assigneeId?: string | null }): string[] {
+  if (row.assigneeIds?.length) return row.assigneeIds;
+  return row.assigneeId ? [row.assigneeId] : [];
+}
+
 /**
  * A repeating task's next occurrence is a task like any other: it gets its
  * calendar slot, the `created` entity event, GitHub sync and an assignment
@@ -650,7 +654,7 @@ function announceNextOccurrence(c: TaskCtx, db: TaskDb, row: typeof t.$inferSele
   });
   dispatchGithubOutboundSync(c, { taskId: row.id, projectId: row.projectId, kinds: ['create'] });
   dispatchAssignmentNotifications(c, {
-    assigneeIds: row.assigneeIds?.length ? row.assigneeIds : row.assigneeId ? [row.assigneeId] : [],
+    assigneeIds: assigneeIdsOf(row),
     taskId: row.id,
     taskTitle: row.title,
     projectId: row.projectId,
@@ -660,22 +664,75 @@ function announceNextOccurrence(c: TaskCtx, db: TaskDb, row: typeof t.$inferSele
   });
 }
 
+/** Row condition for "this task, not soft-deleted". */
+function liveTask(id: string): SQL | undefined {
+  return and(eq(t.id, id), isNull(t.deletedAt));
+}
+
+/**
+ * Writes a status / position change and tells whether THIS write completed the
+ * task. A not-done → done change is written as `UPDATE … WHERE status <> 'done'`,
+ * so of any number of concurrent requests (a double-clicked toggle, `/status` done
+ * sent twice) exactly one gets a row back and owns the completion; the others
+ * still write the rest of the change but leave the winner's completion date and
+ * stage alone.
+ */
+async function writeTaskChange(
+  db: TaskDb,
+  id: string,
+  update: Record<string, any>,
+  beforeStatus: unknown,
+): Promise<boolean> {
+  if (!isCompletion(beforeStatus, update.status)) {
+    await db.update(t).set(update).where(liveTask(id));
+    return false;
+  }
+  const claimed = await db
+    .update(t)
+    .set(update)
+    .where(and(liveTask(id), sql`${t.status} IS DISTINCT FROM 'done'`))
+    .returning({ id: t.id });
+  if (claimed.length > 0) return true;
+  const rest = { ...update };
+  delete rest.status;
+  delete rest.completedDate;
+  delete rest.stageId;
+  await db.update(t).set(rest).where(liveTask(id));
+  return false;
+}
+
+/**
+ * For writes that cannot be one conditional UPDATE (PATCH /:id, which may commit
+ * dependency rows in a batch): claims the not-done → done transition up front.
+ * True for exactly one of any number of concurrent completions.
+ */
+async function claimCompletion(db: TaskDb, id: string, beforeStatus: unknown, nextStatus: unknown): Promise<boolean> {
+  if (!isCompletion(beforeStatus, nextStatus)) return false;
+  const claimed = await db
+    .update(t)
+    .set({ status: 'done', updatedAt: new Date() })
+    .where(and(liveTask(id), sql`${t.status} IS DISTINCT FROM 'done'`))
+    .returning({ id: t.id });
+  return claimed.length > 0;
+}
+
 /**
  * What completing a task owes the rest of the platform: the `project_task.completed`
  * entity event (agent subscriptions and workflow triggers listen for it) and, for
- * a repeating task, its next occurrence. Only a not-done → done transition counts,
- * so a repeated `/status` done, a reorder inside the Done column or a toggle with
- * a stale client status never fire it (or spawn a second occurrence) again.
- * `after` is the task as it stands once the change is written. Returns the new
- * occurrence's id, if one was created.
+ * a repeating task, its next occurrence. `completed` comes from the write itself
+ * (`writeTaskChange` / `claimCompletion`): only the request that actually moved the
+ * task from not-done to done owns it, so a repeated `/status` done, a reorder inside
+ * the Done column, a toggle with a stale client status or two concurrent completions
+ * never fire it (or spawn a second occurrence) twice. `after` is the task as it
+ * stands once the change is written. Returns the new occurrence's id, if one was created.
  */
 async function handleTaskCompletion(
   c: TaskCtx,
   db: TaskDb,
-  before: { status?: unknown },
+  completed: boolean,
   after: Record<string, any>,
 ): Promise<string | null> {
-  if (!isCompletion(before.status, after.status)) return null;
+  if (!completed) return null;
 
   publishEntityEvent({
     c,
@@ -1574,6 +1631,29 @@ export function reorderedPositions(
   return result;
 }
 
+/**
+ * `reorderedPositions` per project. A reorder without a `projectId` (My Tasks) can
+ * span several projects, and positions only mean something inside one: each project's
+ * tasks (personal tasks, with no project, form a group of their own) reuse that
+ * group's slots, so one project's positions never land on another's tasks.
+ */
+export function reorderedPositionsByProject(
+  rows: ReadonlyArray<{ id: string; projectId: string | null; position: number }>,
+  orderedIds: readonly string[],
+): Map<string, number> {
+  const groups = new Map<string | null, { id: string; position: number }[]>();
+  for (const row of rows) {
+    const group = groups.get(row.projectId) ?? [];
+    group.push(row);
+    groups.set(row.projectId, group);
+  }
+  const result = new Map<string, number>();
+  for (const group of groups.values()) {
+    for (const [id, position] of reorderedPositions(group, orderedIds)) result.set(id, position);
+  }
+  return result;
+}
+
 app.patch(
   '/reorder',
   requirePermission('tasks:update'),
@@ -1608,7 +1688,7 @@ app.patch(
         }
       }
 
-      const positions = reorderedPositions(rows, taskIds);
+      const positions = reorderedPositionsByProject(rows, taskIds);
       const now = new Date();
       if (positions.size > 0) {
         await atomically(db, (handle) =>
@@ -2046,7 +2126,7 @@ app.patch(
       const stageId = await stageForStatus(db, currentTask, newStatus);
       if (stageId) updateData.stageId = stageId;
 
-      await db.update(t).set(updateData).where(and(eq(t.id, id), isNull(t.deletedAt)));
+      const completed = await writeTaskChange(db, id, updateData, currentTask.status);
 
       // Calendar sync
       const calendarEventId = (currentTask as any).calendarEventId;
@@ -2059,7 +2139,7 @@ app.patch(
       }
 
       // Completion: `completed` event + the next occurrence of a repeating task
-      const nextTaskId = await handleTaskCompletion(c, db, currentTask, {
+      const nextTaskId = await handleTaskCompletion(c, db, completed, {
         ...currentTask,
         ...updateData,
       });
@@ -2122,14 +2202,14 @@ app.patch(
       const stageId = await stageForStatus(db, currentTask, status);
       if (stageId) updateData.stageId = stageId;
 
-      await db.update(t).set(updateData).where(and(eq(t.id, id), isNull(t.deletedAt)));
+      const completed = await writeTaskChange(db, id, updateData, currentTask.status);
 
       const calendarEventId = (currentTask as any).calendarEventId;
       if (calendarEventId) {
         syncCalendarOnStatusChange(c, db, calendarEventId, (currentTask as any).status, status);
       }
 
-      const nextTaskId = await handleTaskCompletion(c, db, currentTask, {
+      const nextTaskId = await handleTaskCompletion(c, db, completed, {
         ...currentTask,
         ...updateData,
       });
@@ -2200,17 +2280,14 @@ app.patch(
         const stageId = await stageForStatus(db, task, data.status);
         if (stageId) positionUpdate.stageId = stageId;
       }
-      await db
-        .update(t)
-        .set(positionUpdate)
-        .where(and(eq(t.id, id), isNull(t.deletedAt)));
+      const completed = await writeTaskChange(db, id, positionUpdate, currentTask.status);
 
       // Calendar sync on status change
       if (currentTask?.calendarEventId && data.status) {
         syncCalendarOnStatusChange(c, db, currentTask.calendarEventId, currentTask.status, data.status);
       }
 
-      const nextTaskId = await handleTaskCompletion(c, db, currentTask, {
+      const nextTaskId = await handleTaskCompletion(c, db, completed, {
         ...currentTask,
         ...positionUpdate,
       });
@@ -2297,6 +2374,51 @@ app.put(
 // root is detached from its old parent (parentTaskId = null).
 // ============================================================================
 
+/**
+ * The destination project's default pipeline stage (lowest position) drives the
+ * reset stage + system status of a moved task. Falls back to a plain "todo"
+ * backlog when the project has no pipeline stages.
+ */
+async function destinationDefaults(
+  db: TaskDb,
+  destProjectId: string,
+): Promise<{ resetStageId: string | null; resetStatus: string }> {
+  const [defaultStage] = await db
+    .select({
+      id: schema.projectPipelineStages.id,
+      systemStatus: schema.projectPipelineStages.systemStatus,
+    })
+    .from(schema.projectPipelineStages)
+    .where(
+      and(
+        eq(schema.projectPipelineStages.projectId, destProjectId),
+        isNull(schema.projectPipelineStages.deletedAt),
+      ),
+    )
+    .orderBy(asc(schema.projectPipelineStages.position))
+    .limit(1);
+  return { resetStageId: defaultStage?.id ?? null, resetStatus: defaultStage?.systemStatus ?? 'todo' };
+}
+
+/** The full descendant subtree of a task (BFS over parentTaskId, bounded by MAX_SUBTASK_DEPTH). */
+async function collectDescendants(db: TaskDb, rootId: string): Promise<{ id: string; title: string }[]> {
+  const descendants: { id: string; title: string }[] = [];
+  const seenIds = new Set<string>([rootId]);
+  let frontier = [rootId];
+  for (let depth = 0; depth < MAX_SUBTASK_DEPTH && frontier.length > 0; depth++) {
+    const children = await db
+      .select({ id: t.id, title: t.title })
+      .from(t)
+      .where(and(inArray(t.parentTaskId, frontier), isNull(t.deletedAt)));
+    const fresh = children.filter((row) => !seenIds.has(row.id));
+    if (fresh.length === 0) break;
+    for (const row of fresh) seenIds.add(row.id);
+    descendants.push(...fresh);
+    frontier = fresh.map((row) => row.id);
+  }
+  return descendants;
+}
+
 app.post(
   '/:id/move',
   requirePermission('tasks:update'),
@@ -2340,42 +2462,10 @@ app.post(
         .limit(1);
       if (!destProject) return error.notFound(c, 'Project', destProjectId);
 
-      // Destination's default pipeline stage (lowest position) drives the
-      // reset stage + system status. Falls back to a plain "todo" backlog when
-      // the project has no pipeline stages.
-      const [defaultStage] = await db
-        .select({
-          id: schema.projectPipelineStages.id,
-          systemStatus: schema.projectPipelineStages.systemStatus,
-        })
-        .from(schema.projectPipelineStages)
-        .where(
-          and(
-            eq(schema.projectPipelineStages.projectId, destProjectId),
-            isNull(schema.projectPipelineStages.deletedAt),
-          ),
-        )
-        .orderBy(asc(schema.projectPipelineStages.position))
-        .limit(1);
-      const resetStageId = defaultStage?.id ?? null;
-      const resetStatus = defaultStage?.systemStatus ?? 'todo';
+      const { resetStageId, resetStatus } = await destinationDefaults(db, destProjectId);
 
-      // Gather the full descendant subtree (BFS over parentTaskId, bounded by
-      // MAX_SUBTASK_DEPTH) so subtasks travel with their parent.
-      const descendants: { id: string; title: string }[] = [];
-      const seenIds = new Set<string>([id]);
-      let frontier = [id];
-      for (let depth = 0; depth < MAX_SUBTASK_DEPTH && frontier.length > 0; depth++) {
-        const children = await db
-          .select({ id: t.id, title: t.title })
-          .from(t)
-          .where(and(inArray(t.parentTaskId, frontier), isNull(t.deletedAt)));
-        const fresh = children.filter((row) => !seenIds.has(row.id));
-        if (fresh.length === 0) break;
-        for (const row of fresh) seenIds.add(row.id);
-        descendants.push(...fresh);
-        frontier = fresh.map((row) => row.id);
-      }
+      // Subtasks travel with their parent.
+      const descendants = await collectDescendants(db, id);
       const descendantIds = descendants.map((row) => row.id);
 
       // Next board position at the bottom of the destination project's list.
@@ -2443,6 +2533,44 @@ app.post(
     }
   },
 );
+
+/**
+ * Writes a PATCH: the columns, plus the dependency rows when the body carried links,
+ * as one unit. The completion is claimed before the (possibly batched) write, so two
+ * concurrent completions cannot both spawn the next occurrence. Returns whether this
+ * write completed the task.
+ */
+async function writePatchedTask(
+  db: TaskDb,
+  args: {
+    id: string;
+    existing: { status?: unknown };
+    update: Record<string, any>;
+    resolvedStatus: unknown;
+    dependencyPlan: DependencyPlan | null;
+  },
+): Promise<boolean> {
+  const { id, existing, update, resolvedStatus, dependencyPlan } = args;
+  const completed = await claimCompletion(db, id, existing.status, resolvedStatus);
+  if (dependencyPlan) {
+    await commitDependencyUpdate(db, id, dependencyPlan, update);
+  } else {
+    await db.update(t).set(update).where(liveTask(id));
+  }
+  return completed;
+}
+
+/** The plan for the dependency lists a PATCH sends (null when it sends none), or the failure response. */
+async function planPatchDependencies(
+  c: TaskCtx,
+  db: TaskDb,
+  id: string,
+  input: { dependsOn?: string[]; blocks?: string[] },
+): Promise<DependencyPlan | null | Response> {
+  if (input.dependsOn === undefined && input.blocks === undefined) return null;
+  const plan = await planDependencyUpdate(c, db, id, input);
+  return plan.ok ? plan : dependencyFailureResponse(c, id, plan);
+}
 
 /** The dependency lists a PATCH echoes back: only the ones the body sent. */
 function dependencyEchoFor(
@@ -2512,29 +2640,21 @@ app.patch(
 
       // Dependencies run through the same checks + reciprocal sync as
       // PUT /:id/dependencies. Validated here, written below with the columns.
-      let dependencyPlan: DependencyPlan | null = null;
-      if (dependsOn !== undefined || blocks !== undefined) {
-        const plan = await planDependencyUpdate(c, db, id, { dependsOn, blocks });
-        if (!plan.ok) return dependencyFailureResponse(c, id, plan);
-        dependencyPlan = plan;
-      }
+      const dependencyPlan = await planPatchDependencies(c, db, id, { dependsOn, blocks });
+      if (dependencyPlan instanceof Response) return dependencyPlan;
       const dependencyEcho = dependencyEchoFor(dependencyPlan, { dependsOn, blocks });
 
       const update = buildTaskUpdate(data);
       const resolvedStatus = await applyStatusChange(db, existing, data, update);
 
-      if (dependencyPlan) {
-        await commitDependencyUpdate(db, id, dependencyPlan, update);
-      } else {
-        await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
-      }
+      const completed = await writePatchedTask(db, { id, existing, update, resolvedStatus, dependencyPlan });
 
       // Phase 1 dual-write: mirror the customFields blob into the typed values table.
       await syncValuesForEntity(db, 'task', id, data.customFields);
 
       syncCalendarAfterUpdate(c, db, { existing, data, resolvedStatus, userId, id });
 
-      const nextTaskId = await handleTaskCompletion(c, db, existing, {
+      const nextTaskId = await handleTaskCompletion(c, db, completed, {
         ...existing,
         ...update,
         status: resolvedStatus,

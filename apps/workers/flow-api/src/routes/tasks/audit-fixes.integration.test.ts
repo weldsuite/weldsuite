@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
-import { reorderedPositions, tasksRoutes } from './index';
+import { reorderedPositions, reorderedPositionsByProject, tasksRoutes } from './index';
 import { myTasksRoutes } from '../my-tasks';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -289,6 +289,28 @@ describe('completion: events and recurrence (TASK-774, TASK-775, TASK-788)', () 
     expect((await successors('Repeat task_rec_2')).filter((task) => task.status === 'todo')).toHaveLength(1);
   });
 
+  it('two concurrent completions spawn one occurrence and publish `completed` once', async () => {
+    await seedRepeating('task_rec_race');
+    mockedPublish.mockClear();
+
+    const responses = await Promise.all([
+      send('PATCH', '/task_rec_race/status', { status: 'done' }),
+      send('PATCH', '/task_rec_race/status', { status: 'done' }),
+      send('PATCH', '/task_rec_race/toggle', { currentStatus: 'todo' }),
+      send('PATCH', '/task_rec_race/position', { position: 2, status: 'done' }),
+    ]);
+
+    expect(responses.map((res) => res.status)).toEqual([200, 200, 200, 200]);
+    const spawned = await Promise.all(
+      responses.map(async (res) => ((await res.json()) as { data: { nextTaskId?: string } }).data.nextTaskId),
+    );
+    expect(spawned.filter(Boolean)).toHaveLength(1);
+    expect((await successors('Repeat task_rec_race')).filter((task) => task.id !== 'task_rec_race')).toHaveLength(1);
+    expect(published('completed').filter((call) => call.entityId === 'task_rec_race')).toHaveLength(1);
+    // The loser requests did not overwrite the winner's completion.
+    expect((await row('task_rec_race'))?.status).toBe('done');
+  });
+
   it('done → todo → done does not stack a second open occurrence', async () => {
     await seedRepeating('task_rec_3');
     await send('PATCH', '/task_rec_3/status', { status: 'done' });
@@ -470,6 +492,41 @@ describe('reorder (TASK-795)', () => {
       ['c', 1],
       ['a', 2],
     ]);
+  });
+
+  it('reorderedPositionsByProject reuses the slots of each project on its own', () => {
+    const rows = [
+      { id: 'a1', projectId: 'A', position: 1 },
+      { id: 'b1', projectId: 'B', position: 10 },
+      { id: 'a2', projectId: 'A', position: 2 },
+      { id: 'b2', projectId: 'B', position: 20 },
+      { id: 'p1', projectId: null, position: 5 },
+      { id: 'p2', projectId: null, position: 6 },
+    ];
+    const result = reorderedPositionsByProject(rows, ['b2', 'a2', 'p2', 'b1', 'a1', 'p1']);
+    expect(Object.fromEntries(result)).toEqual({ a2: 1, a1: 2, b2: 10, b1: 20, p2: 5, p1: 6 });
+  });
+
+  it('a reorder without projectId groups tasks by project: positions never cross projects', async () => {
+    await seedProject('proj_ro_one');
+    await seedProject('proj_ro_two');
+    await seedTask({ id: 'task_rm_a1', projectId: 'proj_ro_one', position: 1 });
+    await seedTask({ id: 'task_rm_b1', projectId: 'proj_ro_two', position: 100 });
+    await seedTask({ id: 'task_rm_a2', projectId: 'proj_ro_one', position: 2 });
+    await seedTask({ id: 'task_rm_b2', projectId: 'proj_ro_two', position: 200 });
+    await seedTask({ id: 'task_rm_other', projectId: 'proj_ro_two', position: 150 }); // not in the list
+
+    const res = await send('PATCH', '/reorder', {
+      taskIds: ['task_rm_b2', 'task_rm_a2', 'task_rm_b1', 'task_rm_a1'],
+    });
+    expect(res.status).toBe(200);
+
+    const position = async (id: string) => (await row(id))?.position;
+    expect(await position('task_rm_a2')).toBe(1);
+    expect(await position('task_rm_a1')).toBe(2);
+    expect(await position('task_rm_b2')).toBe(100);
+    expect(await position('task_rm_b1')).toBe(200);
+    expect(await position('task_rm_other')).toBe(150);
   });
 
   it('keeps the dropped order after a reload and never lands on another task’s position', async () => {
