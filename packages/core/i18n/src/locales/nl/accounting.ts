@@ -2583,13 +2583,6 @@ export const accounting = {
     // Settings page
     settings: {
       title: 'Instellingen',
-      companyDetails: 'Bedrijfsgegevens',
-      companyDetailsDesc:
-        'Naam, adres, fiscale nummers, bankgegevens en afsluitdatums staan bij de entiteit. Ze worden op facturen afgedrukt.',
-      editEntityDetails: 'Entiteitgegevens bewerken',
-      legalNameLabel: 'Statutaire naam',
-      addressLabel: 'Adres',
-      notSet: 'Niet ingesteld',
       emailInbox: 'E-mailinbox',
       activeInbox: 'Actieve inbox:',
       autoScanEnabled: '(automatisch scannen ingeschakeld)',
@@ -3306,6 +3299,12 @@ export const accounting = {
       nameRequired: 'Naam is verplicht',
       invalidEmail: 'Vul een geldig e-mailadres in',
       readOnly: 'U kunt deze gegevens bekijken, maar u hebt geen rechten om ze te wijzigen.',
+      tabs: {
+        details: 'Gegevens',
+        weldbooks: 'WeldBooks',
+      },
+      weldbooksDescription: 'Hoe WeldBooks de boekhouding van deze entiteit voert: dimensies, factuursjablonen, inhaalboekingen en exports.',
+      weldbooksSwitched: "WeldBooks werkt nu in {name}, dus deze instellingen en de pagina's die ze openen gelden voor deze entiteit.",
     },
 
     // Afsluitdatums + uitzonderingen (entiteit bewerken)

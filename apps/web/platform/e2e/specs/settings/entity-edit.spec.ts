@@ -9,6 +9,7 @@
  *   2. The page shows the address fields, tax identifiers and bank details.
  *   3. The lock dates card shows all five lock dates.
  *   4. The lock exceptions card is present.
+ *   5. The WeldBooks tab holds the WeldBooks settings of the entity.
  */
 
 import { test, expect } from '../../fixtures';
@@ -40,5 +41,13 @@ test.describe('Settings · entity edit page', () => {
     await expect(page.locator('#lock-periodLockDate')).toBeVisible();
     await expect(page.locator('#lock-hardLockDate')).toBeVisible();
     await expect(page.getByText(/lock exceptions/i)).toBeVisible();
+  });
+
+  test('shows the WeldBooks settings on the WeldBooks tab', async ({ page }) => {
+    await page.getByRole('tab', { name: /^weldbooks$/i }).click();
+    await expect(page).toHaveURL(/\/settings\/entities\/[^/]+\/edit\?tab=weldbooks$/, { timeout: 10_000 });
+    await expect(page.getByRole('link', { name: /manage templates/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/ledger catch-up/i)).toBeVisible();
+    await expect(page.locator('#entity-name')).toBeHidden();
   });
 });
