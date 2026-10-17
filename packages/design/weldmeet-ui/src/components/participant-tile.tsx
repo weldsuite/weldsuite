@@ -83,6 +83,8 @@ export interface ParticipantTileProps {
   canManageParticipants?: boolean;
   /** Host app's "Remove from call" handler; falls back to `participant.kick()` when omitted. */
   onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
+  /** Tooltip of a "poor connection" icon on the name tag; omitted when their stream arrives fine. */
+  connectionWarning?: string;
 }
 
 interface TileClassOptions {
@@ -114,20 +116,22 @@ interface TileNameTagProps {
   ringing: boolean;
   localMuted: boolean;
   onClickDetails?: (participant: MeetingPeer) => void;
+  connectionWarning?: string;
 }
 
-function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDetails }: Readonly<TileNameTagProps>) {
+function TileNameTag({ participant, name, isSelf, ringing, localMuted, onClickDetails, connectionWarning }: Readonly<TileNameTagProps>) {
   return (
     <ParticipantNameTag
       name={isSelf ? 'You' : name}
       audioEnabled={ringing ? undefined : participant.audioEnabled}
       localMuted={localMuted}
       onClick={!ringing && onClickDetails ? () => onClickDetails(participant) : undefined}
+      connectionWarning={ringing ? undefined : connectionWarning}
     />
   );
 }
 
-export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false, onRemoveParticipant }: Readonly<ParticipantTileProps>) {
+export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pinned, onTogglePin, onSendMessage, onClickDetails, colorSeed, canManageParticipants = false, onRemoveParticipant, connectionWarning }: Readonly<ParticipantTileProps>) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   useSpeakerOutput(audioRef);
@@ -296,6 +300,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
         ringing={ringing}
         localMuted={localMuted}
         onClickDetails={onClickDetails}
+        connectionWarning={connectionWarning}
       />
 
       {/* Participant context menu */}

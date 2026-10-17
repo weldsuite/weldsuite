@@ -9,6 +9,11 @@
  * RNNoise (xiph) is a recurrent model that denoises one 480-sample (10 ms @
  * 48 kHz) frame at a time. No ERB filterbank, no multi-frame complex filter,
  * no model URLs to fetch — the wasm binary is inlined in the sync build.
+ *
+ * Frames normally arrive on a MessagePort straight from the worklet
+ * (`connect`) and go back on it, without passing through the main thread;
+ * `ready` carries `directPort: true` to say this worker supports that. The
+ * main-thread relay (`frame` on `self`) still works for an older main bundle.
  */
 import { createRNNWasmModuleSync, type RnnoiseModule } from '@jitsi/rnnoise-wasm';
 import { FRAME_SIZE } from './constants';
@@ -27,9 +32,36 @@ let state = 0;
 let pcmPtr = 0;
 let heapView: Float32Array | null = null;
 let frameCount = 0;
+let logRtf = false;
+let rtfWindow: number[] = [];
 
 function post(msg: WorkerEvent, transfer: Transferable[] = []): void {
   self.postMessage(msg, transfer);
+}
+
+/** On the direct path the main thread never sees frames, so the RTF summary is sent from here. */
+function recordRtf(processingMs: number): void {
+  if (!logRtf) return;
+  rtfWindow.push(processingMs / 10);
+  if (rtfWindow.length < 100) return;
+  const mean = rtfWindow.reduce((a, b) => a + b, 0) / rtfWindow.length;
+  const max = Math.max(...rtfWindow);
+  rtfWindow = [];
+  post({ type: 'rtf', mean, max });
+}
+
+/** Denoise worklet frames arriving on `port` and send them straight back on it. */
+function connectWorklet(port: MessagePort): void {
+  port.onmessage = (ev: MessageEvent<{ type: string; pcm: Float32Array }>) => {
+    if (ev.data.type !== 'capture-frame') return;
+    try {
+      const { out, processingMs } = denoise(ev.data.pcm);
+      port.postMessage({ type: 'processed-frame', pcm: out }, [out.buffer]);
+      recordRtf(processingMs);
+    } catch (e) {
+      post({ type: 'error', message: String((e as Error)?.message ?? e) });
+    }
+  };
 }
 
 async function init(): Promise<void> {
@@ -45,10 +77,16 @@ async function init(): Promise<void> {
   pcmPtr = m._malloc(RNNOISE_FRAME * 4);
   heapView = m.HEAPF32.subarray(pcmPtr / 4, pcmPtr / 4 + RNNOISE_FRAME);
   frameCount = 0;
-  post({ type: 'ready' });
+  post({ type: 'ready', directPort: true });
 }
 
+/** The main-thread relay: an older main bundle hands frames over on `self`. */
 function processFrame(pcm: Float32Array, seq: number): void {
+  const { out, processingMs } = denoise(pcm);
+  post({ type: 'frame', pcm: out, seq, processingMs }, [out.buffer]);
+}
+
+function denoise(pcm: Float32Array): { out: Float32Array; processingMs: number } {
   if (!mod || !heapView) throw new Error('rnnoise worker not initialized');
   const t0 = performance.now();
 
@@ -68,7 +106,7 @@ function processFrame(pcm: Float32Array, seq: number): void {
   for (let i = 0; i < n; i++) out[i] = heapView[i] / INT16_SCALE;
   frameCount++;
 
-  post({ type: 'frame', pcm: out, seq, processingMs: performance.now() - t0 }, [out.buffer]);
+  return { out, processingMs: performance.now() - t0 };
 }
 
 function dispose(): void {
@@ -86,7 +124,10 @@ function dispose(): void {
 self.onmessage = (ev: MessageEvent<WorkerMessage>) => {
   const msg = ev.data;
   if (msg.type === 'init') {
+    logRtf = !!msg.logRtf;
     init().catch((e) => post({ type: 'error', message: String(e?.message ?? e) }));
+  } else if (msg.type === 'connect') {
+    connectWorklet(msg.port);
   } else if (msg.type === 'frame') {
     try {
       processFrame(msg.pcm, msg.seq);

@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { MicOff, VolumeX } from 'lucide-react';
+import { MicOff, SignalLow, VolumeX } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 
 export interface ParticipantNameTagProps {
@@ -21,6 +21,8 @@ export interface ParticipantNameTagProps {
   /** Optional leading icon rendered before the name (e.g. a screen icon for a
    *  screen-share tag). Size it to h-3.5 w-3.5 to match the mic affordances. */
   icon?: ReactNode;
+  /** When set, a red signal icon shows this person's stream reaches you poorly; the text is its tooltip. */
+  connectionWarning?: string;
 }
 
 /**
@@ -35,6 +37,7 @@ export function ParticipantNameTag({
   className,
   onClick,
   icon,
+  connectionWarning,
 }: Readonly<ParticipantNameTagProps>) {
   const baseClassName =
     'absolute bottom-2 left-2 z-10 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white text-[13px] font-medium px-2.5 py-1 rounded-md';
@@ -43,6 +46,11 @@ export function ParticipantNameTag({
       {icon}
       {!audioEnabled && <MicOff className="h-3.5 w-3.5" />}
       {localMuted && <VolumeX className="h-3.5 w-3.5 text-red-400" />}
+      {connectionWarning && (
+        <span title={connectionWarning} role="img" aria-label={connectionWarning}>
+          <SignalLow className="h-3.5 w-3.5 text-red-400" aria-hidden />
+        </span>
+      )}
       <span>{name}</span>
     </>
   );

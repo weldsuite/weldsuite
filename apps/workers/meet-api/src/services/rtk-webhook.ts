@@ -42,7 +42,7 @@ import {
   type RecordingPart,
 } from '@weldsuite/meet-domain/recordings';
 import { endMeetingSession, endMeetingSessionIfEmpty } from './weldmeet/meeting-lifecycle';
-import { endChatCall, endChatCallIfEmpty } from '@weldsuite/chat-domain/call-lifecycle';
+import { endChatCall, endChatCallIfEmpty, wasAnswered } from '@weldsuite/chat-domain/call-lifecycle';
 
 // ============================================================================
 // Types
@@ -219,6 +219,7 @@ export async function handleMeetingEnded(
   env: Env,
   mapping: RtkMeetingMapping,
   rtkMeetingId: string,
+  rtkSession?: RtkWebhookEvent['meeting'],
 ): Promise<void> {
   const db = await getTenantDbForWorkspace(env, mapping.orgId);
 
@@ -258,8 +259,29 @@ export async function handleMeetingEnded(
     }
     console.log(`[RTK Webhook] Ended session ${logSafe(mapping.sessionId)} for RTK meeting ${logSafe(rtkMeetingId)}`);
   } else if (mapping.type === 'call' && mapping.callId) {
-    await handleCallMeetingEnded(env, db, mapping.orgId, mapping.callId, rtkMeetingId);
+    await handleCallMeetingEnded(env, db, mapping.orgId, mapping.callId, rtkMeetingId, rtkSession);
   }
+}
+
+/**
+ * True when a `meeting.ended` is about a RealtimeKit session that belongs to
+ * an earlier call in the same room. A DM keeps one room for all its calls (see
+ * `@weldsuite/chat-domain/dm-call-room`), so its mapping already points at the
+ * newest call when the previous call's session ends a minute later:
+ * - the session ended before this call was created, or
+ * - it started before this call and nobody has answered yet: the caller has
+ *   not reached the room, and an unanswered DM call is the ring timeout's to end.
+ */
+export function isEarlierCallSession(
+  call: { createdAt: Date | null; initiatorId: string; participants?: ChatCallParticipant[] | null },
+  rtkSession: RtkWebhookEvent['meeting'] | undefined,
+): boolean {
+  const createdAt = call.createdAt ? new Date(call.createdAt).getTime() : Number.NaN;
+  if (Number.isNaN(createdAt)) return false;
+  const endedAt = rtkSession?.endedAt ? Date.parse(rtkSession.endedAt) : Number.NaN;
+  if (!Number.isNaN(endedAt) && endedAt < createdAt) return true;
+  const startedAt = rtkSession?.startedAt ? Date.parse(rtkSession.startedAt) : Number.NaN;
+  return !Number.isNaN(startedAt) && startedAt < createdAt && !wasAnswered(call);
 }
 
 /** meeting.ended for a WeldChat call. */
@@ -269,6 +291,7 @@ async function handleCallMeetingEnded(
   orgId: string,
   callId: string,
   rtkMeetingId: string,
+  rtkSession: RtkWebhookEvent['meeting'] | undefined,
 ): Promise<void> {
   const { chatCalls } = schema;
   const [call] = await db
@@ -279,6 +302,10 @@ async function handleCallMeetingEnded(
 
   if (!call || call.status === 'ended') {
     console.log(`[RTK Webhook] Call ${callId} already ended or not found`);
+    return;
+  }
+  if (isEarlierCallSession(call, rtkSession)) {
+    console.log(`[RTK Webhook] meeting.ended for ${logSafe(rtkMeetingId)} ignored: an earlier call's session`);
     return;
   }
 

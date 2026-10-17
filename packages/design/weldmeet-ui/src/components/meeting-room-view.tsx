@@ -59,6 +59,7 @@ interface TileContext {
   selfColorSeed: string | undefined;
   isOrganizer: boolean;
   onRemoveParticipant: MeetingRoomViewProps['onRemoveParticipant'];
+  poorConnectionPeers: MeetingRoomViewProps['poorConnectionPeers'];
 }
 
 /** A camera tile wired to the room's pin / details / hand-raise state. */
@@ -76,6 +77,7 @@ function CameraTile({ ctx, entry, pinned }: Readonly<{ ctx: TileContext; entry: 
       colorSeed={isSelf ? ctx.selfColorSeed : undefined}
       canManageParticipants={ctx.isOrganizer}
       onRemoveParticipant={ctx.onRemoveParticipant}
+      connectionWarning={!isSelf && ctx.poorConnectionPeers?.peerIds.has(p.id) ? ctx.poorConnectionPeers.label : undefined}
     />
   );
 }
@@ -828,6 +830,8 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
     hostControls,
     captions,
     rightReservation = 0,
+    headerStatusSlot,
+    poorConnectionPeers,
     pinnedId: controlledPinnedId,
     onTogglePin: onTogglePinProp,
   } = props;
@@ -986,6 +990,7 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
     selfColorSeed,
     isOrganizer,
     onRemoveParticipant,
+    poorConnectionPeers,
   };
 
   const handleToggleChat = () => {
@@ -1025,6 +1030,7 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
           showChatButton={showChatButton}
           showToolsButton={showToolsButton}
           mobileOverflowActions
+          statusSlot={headerStatusSlot}
         />
 
         <div className="flex-1 min-h-0 overflow-hidden relative">

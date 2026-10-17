@@ -872,23 +872,50 @@ var state = 0;
 var pcmPtr = 0;
 var heapView = null;
 var frameCount = 0;
+var logRtf = false;
+var rtfWindow = [];
 function post(msg, transfer = []) {
   self.postMessage(msg, transfer);
+}
+function recordRtf(processingMs) {
+  if (!logRtf) return;
+  rtfWindow.push(processingMs / 10);
+  if (rtfWindow.length < 100) return;
+  const mean = rtfWindow.reduce((a, b) => a + b, 0) / rtfWindow.length;
+  const max = Math.max(...rtfWindow);
+  rtfWindow = [];
+  post({ type: "rtf", mean, max });
+}
+function connectWorklet(port) {
+  port.onmessage = (ev) => {
+    if (ev.data.type !== "capture-frame") return;
+    try {
+      const { out, processingMs } = denoise(ev.data.pcm);
+      port.postMessage({ type: "processed-frame", pcm: out }, [out.buffer]);
+      recordRtf(processingMs);
+    } catch (e) {
+      post({ type: "error", message: String(e?.message ?? e) });
+    }
+  };
 }
 async function init() {
   if (FRAME_SIZE !== RNNOISE_FRAME) {
     throw new Error(`rnnoise expects ${RNNOISE_FRAME}-sample frames, worklet emits ${FRAME_SIZE}`);
   }
   const m = rnnoise_sync_default();
-  if (m.ready) await m.ready;
+  if (m.ready !== void 0) await m.ready;
   mod = m;
   state = m._rnnoise_create(0);
   pcmPtr = m._malloc(RNNOISE_FRAME * 4);
   heapView = m.HEAPF32.subarray(pcmPtr / 4, pcmPtr / 4 + RNNOISE_FRAME);
   frameCount = 0;
-  post({ type: "ready" });
+  post({ type: "ready", directPort: true });
 }
 function processFrame(pcm, seq) {
+  const { out, processingMs } = denoise(pcm);
+  post({ type: "frame", pcm: out, seq, processingMs }, [out.buffer]);
+}
+function denoise(pcm) {
   if (!mod || !heapView) throw new Error("rnnoise worker not initialized");
   const t0 = performance.now();
   const n = Math.min(pcm.length, RNNOISE_FRAME);
@@ -901,7 +928,7 @@ function processFrame(pcm, seq) {
   const out = new Float32Array(FRAME_SIZE);
   for (let i = 0; i < n; i++) out[i] = heapView[i] / INT16_SCALE;
   frameCount++;
-  post({ type: "frame", pcm: out, seq, processingMs: performance.now() - t0 }, [out.buffer]);
+  return { out, processingMs: performance.now() - t0 };
 }
 function dispose() {
   if (mod) {
@@ -917,7 +944,10 @@ function dispose() {
 self.onmessage = (ev) => {
   const msg = ev.data;
   if (msg.type === "init") {
+    logRtf = !!msg.logRtf;
     init().catch((e) => post({ type: "error", message: String(e?.message ?? e) }));
+  } else if (msg.type === "connect") {
+    connectWorklet(msg.port);
   } else if (msg.type === "frame") {
     try {
       processFrame(msg.pcm, msg.seq);

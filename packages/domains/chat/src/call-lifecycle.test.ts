@@ -6,6 +6,8 @@ const rtk = vi.hoisted(() => ({
   endError: null as Error | null,
   /** What RealtimeKit reports as connected; an Error makes the lookup fail. */
   live: 0 as number | Error,
+  /** Every participant RealtimeKit has for the room (each one a working token). */
+  participants: [] as Array<{ id: string; customParticipantId: string; createdAt: string }>,
 }));
 
 vi.mock('@weldsuite/cloudflare-realtime', () => ({
@@ -22,6 +24,13 @@ vi.mock('@weldsuite/cloudflare-realtime', () => ({
     rtk.calls.push(`live:${id}`);
     if (rtk.live instanceof Error) throw rtk.live;
     return rtk.live;
+  }),
+  listParticipants: vi.fn(async (_env: unknown, id: string) => {
+    rtk.calls.push(`list:${id}`);
+    return rtk.participants;
+  }),
+  removeParticipant: vi.fn(async (_env: unknown, id: string, participantId: string) => {
+    rtk.calls.push(`remove:${id}:${participantId}`);
   }),
 }));
 
@@ -62,6 +71,7 @@ beforeEach(() => {
   rtk.kickError = null;
   rtk.endError = null;
   rtk.live = 0;
+  rtk.participants = [];
   vi.restoreAllMocks();
 });
 
@@ -100,6 +110,46 @@ describe('teardownRtkMeeting', () => {
       '[CallLifecycle] RTK end meeting failed',
       expect.objectContaining({ callId: 'call_3', cfAppId: 'rtk_3' }),
     );
+  });
+
+  const dmRoomKv = () => ({
+    ...fakeKv(),
+    get: async (key: string) => (key === 'chat-dm-room:org_1:ch_dm' ? 'rtk_room' : null),
+  });
+
+  it("keeps a DM's persistent room active and mapped for the next call", async () => {
+    const kv = dmRoomKv();
+    await teardownRtkMeeting({ WORKSPACE_CACHE: kv }, 'rtk_room', { callId: 'call_5', orgId: 'org_1', channelId: 'ch_dm' });
+    expect(rtk.calls).toEqual(['kick:rtk_room', 'list:rtk_room']);
+    expect(kv.deleted).toEqual([]);
+  });
+
+  it("revokes every token the DM's room handed out up to the end of the call, but not the next call's", async () => {
+    const endedAt = new Date('2026-10-17T12:00:00.000Z');
+    rtk.participants = [
+      { id: 'p_caller', customParticipantId: 'user_a', createdAt: '2026-10-17T11:59:00.000Z' },
+      // A token /prepare minted for someone who has since left the group DM.
+      { id: 'p_prepared', customParticipantId: 'user_gone', createdAt: '2026-10-10T09:00:00.000Z' },
+      // The next call, started right after this one was marked over.
+      { id: 'p_next', customParticipantId: 'user_a', createdAt: '2026-10-17T12:00:01.000Z' },
+    ];
+
+    await teardownRtkMeeting({ WORKSPACE_CACHE: dmRoomKv() }, 'rtk_room', {
+      callId: 'call_7',
+      orgId: 'org_1',
+      channelId: 'ch_dm',
+      endedAt,
+    });
+
+    expect(rtk.calls).toEqual(['kick:rtk_room', 'list:rtk_room', 'remove:rtk_room:p_caller', 'remove:rtk_room:p_prepared']);
+    expect(rtk.calls).not.toContain('end:rtk_room');
+  });
+
+  it('ends a room that is not (or no longer) the DM room', async () => {
+    const kv = { ...fakeKv(), get: async () => 'rtk_newer_room' };
+    await teardownRtkMeeting({ WORKSPACE_CACHE: kv }, 'rtk_old', { callId: 'call_6', orgId: 'org_1', channelId: 'ch_dm' });
+    expect(rtk.calls).toEqual(['kick:rtk_old', 'end:rtk_old']);
+    expect(kv.deleted).toEqual(['rtk-meeting:rtk_old']);
   });
 
   it('works without a KV binding', async () => {

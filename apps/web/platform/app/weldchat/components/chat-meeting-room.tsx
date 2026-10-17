@@ -27,7 +27,13 @@ import {
   playScreenShareSound,
 } from '@/lib/utils/notification-sound';
 import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
-import { MeetingRoomView, type MeetingPeer, type MeetingRoomViewProps } from '@weldsuite/weldmeet-ui';
+import {
+  ConnectionIndicator,
+  MeetingRoomView,
+  useConnectionQuality,
+  type MeetingPeer,
+  type MeetingRoomViewProps,
+} from '@weldsuite/weldmeet-ui';
 import { useI18n } from '@/lib/i18n/provider';
 import { ChannelChatPanel } from './channel-chat-panel';
 
@@ -407,6 +413,15 @@ function ChatMeetingRoomAdapter() {
     return () => clearTimeout(id);
   }, [isAlone, leaveCall]);
 
+  // Signal bars in the header for your own connection, and a warning on the
+  // tile of anyone whose stream reaches you poorly: a lagging voice gets a
+  // visible reason, and you can tell whose side it is on.
+  const connection = useConnectionQuality(meeting);
+  const poorConnectionPeers = useMemo(
+    () => ({ peerIds: connection.poorPeerIds, label: t.weldchat.calling.connection.peerPoor }),
+    [connection.poorPeerIds, t],
+  );
+
   const backgroundEffectsSlot = (
     <BackgroundEffectsPanel
       backgroundType={backgroundType}
@@ -448,6 +463,8 @@ function ChatMeetingRoomAdapter() {
       onToggleEffects={() => setShowEffects((v) => !v)}
       effectsOpen={showEffects}
       backgroundEffectsSlot={backgroundEffectsSlot}
+      headerStatusSlot={<ConnectionIndicator quality={connection} labels={t.weldchat.calling.connection} />}
+      poorConnectionPeers={poorConnectionPeers}
       // In-call chat tab — shows the CURRENT channel's chat (the call always
       // belongs to a channel/DM). Rendered via the shared chat panel, wired to
       // the WeldChat channel data layer in ChannelChatPanel.

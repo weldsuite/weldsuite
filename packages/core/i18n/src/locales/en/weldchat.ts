@@ -75,6 +75,18 @@ export const weldchat = {
       reconnected: 'You are back in the call',
       connectionLost: "Couldn't reconnect to the call. Call again to continue.",
       supersededByOtherCall: 'You left this call because you joined another call or meeting.',
+      joinFailed: "Couldn't join the call. It may have ended already.",
+      connection: {
+        connection: 'Connection',
+        good: 'Good',
+        fair: 'Unstable',
+        poor: 'Poor',
+        reconnecting: 'Reconnecting…',
+        offline: 'Offline',
+        unknown: 'Checking connection…',
+        packetLoss: 'Packet loss {value}%',
+        peerPoor: 'Poor connection: their audio and video may lag or drop',
+      },
     },
     callOverlay: {
       microphone: 'Microphone',
