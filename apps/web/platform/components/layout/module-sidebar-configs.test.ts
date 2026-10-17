@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { getModuleKey } from './module-sidebar-configs';
+import { en } from '@weldsuite/i18n/locales/en';
+import { getModuleKey, MODULE_CONFIGS } from './module-sidebar-configs';
+
+describe('WeldBooks sidebar', () => {
+  it('has no settings page: the settings live on the entity in Settings → Entities', () => {
+    const items = MODULE_CONFIGS.weldbooks!.getMenuItems(en).flatMap((group) => group.items);
+    const hrefs = items.map((item) => item.href);
+    expect(hrefs).not.toContain('/weldbooks/settings');
+    // Dimensions keep their own page in WeldBooks.
+    expect(hrefs).toContain('/weldbooks/settings/dimensions');
+  });
+});
 
 describe('getModuleKey', () => {
   it('maps module paths to their module', () => {

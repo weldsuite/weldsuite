@@ -250,7 +250,6 @@ export const navigation = {
         agedReceivables: 'Aged Receivables',
         agedPayables: 'Aged Payables',
         entities: 'Entities',
-        settings: 'Settings',
         vendors: 'Vendors',
         creditMemos: 'Credit Memos',
         salesTaxCenter: 'Sales Tax Center',
