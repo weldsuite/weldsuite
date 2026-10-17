@@ -5,7 +5,8 @@
  * again, so the seeded data is left as it was.
  *
  * Verifies:
- *   1. The settings page links to the templates page.
+ *   1. The WeldBooks settings (the WeldBooks tab of the entity in Settings →
+ *      Entities, where /weldbooks/settings leads) link to the templates page.
  *   2. A template is created from a preset and opens in the designer.
  *   3. Adding a block enables Save, undo takes it back, Save persists.
  *   4. The new template shows up on the list and can be deleted.

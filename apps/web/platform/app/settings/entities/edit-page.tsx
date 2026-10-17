@@ -3,13 +3,14 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Link, useParams } from '@tanstack/react-router';
-import { AlertCircle, ArrowLeft } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
+import { AlertCircle, ArrowLeft, Building2, Calculator } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
+import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import {
   Select,
   SelectContent,
@@ -27,7 +28,7 @@ import {
 } from '@/hooks/queries/use-accounting-queries';
 import type { AccountingEntity, UpdateAccountingEntityInput } from '@/lib/api/domains/weldbooks';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
-import { DEFAULT_TERMINOLOGY, usesIban } from '@/lib/weldbooks/jurisdiction';
+import { DEFAULT_TERMINOLOGY, NO_JURISDICTION_FEATURES, usesIban } from '@/lib/weldbooks/jurisdiction';
 import { useTerminologyLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { entityTypesFor } from '@/lib/weldbooks/entity-types';
 import { classificationsOf, isUsJurisdictionCode, type UsEntityTypeSummary } from '@/lib/weldbooks/us-entity';
@@ -40,6 +41,7 @@ import {
   validBrRegime,
   type BrEntityValues,
 } from '@/lib/weldbooks/br-entity';
+import { WeldbooksEntitySettings } from '@/app/weldbooks/settings/entity-settings';
 import { LockDatesCard } from './components/lock-dates-card';
 import { LockExceptionsCard } from './components/lock-exceptions-card';
 import { RemapTaxLinesDialog } from './components/remap-tax-lines-dialog';
@@ -274,10 +276,15 @@ function entityUpdatePayload(
   return payload;
 }
 
+type EntityTab = 'details' | 'weldbooks';
+
 export default function EditEntityPage() {
   const { id } = useParams({ strict: false }) as { id: string };
+  const search: { tab?: string } = useSearch({ strict: false });
+  const navigate = useNavigate();
   const { t, language } = useI18n();
   const te = t.accounting.entityEdit;
+  const activeTab: EntityTab = search.tab === 'weldbooks' ? 'weldbooks' : 'details';
   const entityQuery = useAccountingEntity(id);
   const { data: jurisdictions } = useAccountingJurisdictions();
   const canUpdate = useCan('entities:update');
@@ -314,6 +321,20 @@ export default function EditEntityPage() {
     );
   }
 
+  const tabs: PageTab[] = [
+    { id: 'details', label: te.tabs.details, icon: Building2 },
+    { id: 'weldbooks', label: te.tabs.weldbooks, icon: Calculator },
+  ];
+
+  // The details tab is the default, so only the WeldBooks tab is named in the URL.
+  function setTab(tab: string) {
+    navigate({
+      to: '/settings/entities/$id/edit',
+      params: { id },
+      search: tab === 'weldbooks' ? { tab } : {},
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start gap-3">
@@ -324,30 +345,41 @@ export default function EditEntityPage() {
         </Link>
         <div>
           <h1 className="text-2xl font-semibold">{te.title.replace('{name}', entity.name)}</h1>
-          <p className="text-sm text-muted-foreground">{te.description}</p>
+          <p className="text-sm text-muted-foreground">
+            {activeTab === 'weldbooks' ? te.weldbooksDescription : te.description}
+          </p>
         </div>
       </div>
 
-      {!canUpdate && (
-        <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{te.readOnly}</p>
+      <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={setTab} />
+
+      {activeTab === 'weldbooks' && (
+        <WeldbooksEntitySettings entity={entity} features={jurisdiction?.features ?? NO_JURISDICTION_FEATURES} />
       )}
 
-      <EntityDetailsForm
-        key={entity.id}
-        entity={entity}
-        canUpdate={canUpdate}
-        canRevealTaxIds={canRevealTaxIds}
-        language={language || 'en'}
-        taxIdField={terminology.taxId === 'ein' ? 'einOrSsn' : 'vatNumber'}
-        taxIdLabel={labels.taxId}
-        taxIdIsEin={terminology.taxId === 'ein'}
-        registrationLabel={labels.registrationId}
-        jurisdictionName={jurisdiction ? `${jurisdiction.name} (${jurisdiction.code})` : entity.jurisdictionCode}
-        usEntityTypes={jurisdiction?.entityTypes}
-      />
+      {/* Hidden rather than unmounted, so unsaved changes survive a look at the WeldBooks tab. */}
+      <div hidden={activeTab !== 'details'} className="space-y-6">
+        {!canUpdate && (
+          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{te.readOnly}</p>
+        )}
 
-      <LockDatesCard entity={entity} canUpdate={canUpdate} />
-      <LockExceptionsCard entityId={entity.id} canUpdate={canUpdate} />
+        <EntityDetailsForm
+          key={entity.id}
+          entity={entity}
+          canUpdate={canUpdate}
+          canRevealTaxIds={canRevealTaxIds}
+          language={language || 'en'}
+          taxIdField={terminology.taxId === 'ein' ? 'einOrSsn' : 'vatNumber'}
+          taxIdLabel={labels.taxId}
+          taxIdIsEin={terminology.taxId === 'ein'}
+          registrationLabel={labels.registrationId}
+          jurisdictionName={jurisdiction ? `${jurisdiction.name} (${jurisdiction.code})` : entity.jurisdictionCode}
+          usEntityTypes={jurisdiction?.entityTypes}
+        />
+
+        <LockDatesCard entity={entity} canUpdate={canUpdate} />
+        <LockExceptionsCard entityId={entity.id} canUpdate={canUpdate} />
+      </div>
     </div>
   );
 }

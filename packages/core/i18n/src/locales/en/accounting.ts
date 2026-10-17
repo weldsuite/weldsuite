@@ -2549,13 +2549,6 @@ export const accounting = {
     // Settings page
     settings: {
       title: 'Settings',
-      companyDetails: 'Company Details',
-      companyDetailsDesc:
-        'Name, address, tax identifiers, bank details and lock dates are kept on the entity. They are printed on invoices.',
-      editEntityDetails: 'Edit entity details',
-      legalNameLabel: 'Legal name',
-      addressLabel: 'Address',
-      notSet: 'Not set',
       emailInbox: 'Email Inbox',
       activeInbox: 'Active inbox:',
       autoScanEnabled: '(auto-scan enabled)',
@@ -3273,6 +3266,12 @@ export const accounting = {
       nameRequired: 'Name is required',
       invalidEmail: 'Enter a valid email address',
       readOnly: 'You can view these details but you do not have permission to change them.',
+      tabs: {
+        details: 'Details',
+        weldbooks: 'WeldBooks',
+      },
+      weldbooksDescription: 'How WeldBooks keeps the books of this entity: dimensions, invoice templates, catch-up and exports.',
+      weldbooksSwitched: 'WeldBooks now works in {name}, so these settings and the pages they open apply to this entity.',
     },
 
     // Lock dates + lock exceptions (entity edit page)

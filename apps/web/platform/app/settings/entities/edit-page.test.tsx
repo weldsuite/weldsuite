@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AccountingEntity } from '@/lib/api/domains/weldbooks';
 import type { JurisdictionSummary } from '@/lib/weldbooks/jurisdiction';
+import { en } from '@weldsuite/i18n/locales/en';
 
 const mocks = vi.hoisted(() => ({
   entity: undefined as unknown,
@@ -11,10 +12,14 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   canRevealTaxIds: true,
+  search: {} as { tab?: string },
+  navigate: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ id: 'ent_us' }),
+  useSearch: () => mocks.search,
+  useNavigate: () => mocks.navigate,
   Link: ({ children, to, ...rest }: { children: React.ReactNode; to: string }) => (
     <a href={to} {...rest}>
       {children}
@@ -38,6 +43,11 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: { revealEntitySsn: vi.fn() } }));
 vi.mock('./components/lock-dates-card', () => ({ LockDatesCard: () => <div data-testid="lock-dates" /> }));
 vi.mock('./components/lock-exceptions-card', () => ({ LockExceptionsCard: () => <div data-testid="lock-exceptions" /> }));
+vi.mock('@/app/weldbooks/settings/entity-settings', () => ({
+  WeldbooksEntitySettings: ({ entity, features }: { entity: { id: string }; features: { salesTax: boolean } }) => (
+    <div data-testid="weldbooks-settings" data-entity={entity.id} data-sales-tax={String(features.salesTax)} />
+  ),
+}));
 vi.mock('@/lib/i18n/provider', async () => {
   const { en } = await import('@weldsuite/i18n/locales/en');
   return { useI18n: () => ({ t: en, language: 'en' }) };
@@ -125,9 +135,64 @@ beforeAll(() => {
   Element.prototype.releasePointerCapture = () => {};
 });
 
+describe('EditEntityPage tabs', () => {
+  beforeEach(() => {
+    mocks.entity = usEntity;
+    mocks.search = {};
+    mocks.navigate.mockReset();
+  });
+
+  it('opens on the details tab, without the WeldBooks settings', () => {
+    render(<EditEntityPage />);
+
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+    expect(screen.getByTestId('lock-dates')).toBeInTheDocument();
+    expect(screen.queryByTestId('weldbooks-settings')).not.toBeInTheDocument();
+  });
+
+  it('shows the WeldBooks settings of this entity on the WeldBooks tab, without the details form', () => {
+    mocks.search = { tab: 'weldbooks' };
+    render(<EditEntityPage />);
+
+    const settings = screen.getByTestId('weldbooks-settings');
+    expect(settings).toHaveAttribute('data-entity', 'ent_us');
+    // The features of the entity's own jurisdiction, not of the entity selected in WeldBooks.
+    expect(settings).toHaveAttribute('data-sales-tax', 'true');
+    // Hidden, not unmounted: unsaved changes are kept for the way back.
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('lock-dates')).not.toBeVisible();
+    expect(screen.getByText(en.accounting.entityEdit.weldbooksDescription)).toBeInTheDocument();
+  });
+
+  it('names the WeldBooks tab in the URL and leaves the details tab out', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<EditEntityPage />);
+
+    expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('tab', { name: 'WeldBooks' }));
+    expect(mocks.navigate).toHaveBeenLastCalledWith({
+      to: '/settings/entities/$id/edit',
+      params: { id: 'ent_us' },
+      search: { tab: 'weldbooks' },
+    });
+    unmount();
+
+    mocks.search = { tab: 'weldbooks' };
+    render(<EditEntityPage />);
+    expect(screen.getByRole('tab', { name: 'WeldBooks' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('tab', { name: 'Details' }));
+    expect(mocks.navigate).toHaveBeenLastCalledWith({
+      to: '/settings/entities/$id/edit',
+      params: { id: 'ent_us' },
+      search: {},
+    });
+  });
+});
+
 describe('EditEntityPage (US entity)', () => {
   beforeEach(() => {
     mocks.entity = usEntity;
+    mocks.search = {};
     mocks.canRevealTaxIds = true;
     mocks.updateEntity.mockReset();
     mocks.applyTaxLines.mockReset();
