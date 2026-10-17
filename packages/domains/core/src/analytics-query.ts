@@ -599,7 +599,8 @@ export interface ChartPlan {
 
 const EMPTY_PLAN: ChartPlan = { queries: [], finish: () => [] };
 
-export function planChartQuery(workspaceId: string, params: ChartQueryParams): ChartPlan {
+/** Looks up the entity, metric (compound ones resolved) and group-by of a chart query. */
+function resolveChartInputs(params: ChartQueryParams) {
   const entityInfo = ENTITY_MODULE_MAP[params.entity];
   if (!entityInfo) {
     throw new Error(`Unknown entity: ${params.entity}`);
@@ -619,6 +620,11 @@ export function planChartQuery(workspaceId: string, params: ChartQueryParams): C
   if (!groupByInfo) {
     throw new Error(`Unknown groupBy: ${resolvedGroupByKey}`);
   }
+  return { entityInfo, compound, resolvedMetricKey, baseSpec, groupByInfo };
+}
+
+export function planChartQuery(workspaceId: string, params: ChartQueryParams): ChartPlan {
+  const { entityInfo, compound, resolvedMetricKey, baseSpec, groupByInfo } = resolveChartInputs(params);
 
   const scopeClause = projectScopeClause(entityInfo.entityType, params);
   if (scopeClause === 'none') return EMPTY_PLAN;
@@ -635,32 +641,51 @@ export function planChartQuery(workspaceId: string, params: ChartQueryParams): C
     scopeClause,
   };
   const limit = sanitizeLimit(params.limit);
-  const direction = params.sortOrder === 'desc' ? 'DESC' : 'ASC';
   const bucket = groupByInfo.isDate ? groupByInfo.bucket ?? 'day' : undefined;
-  const rolledUp = bucket !== undefined && bucket !== 'day';
 
   if (compound?.ratio) {
     return planRatio(ctx, compound.ratio, { bucket, isDate: groupByInfo.isDate, sortOrder: params.sortOrder, limit });
   }
+  return planAggregate(ctx, {
+    spec: withCalculation(baseSpec, params.aggregation),
+    metricKey: resolvedMetricKey,
+    filterOverride: compound?.filterOverride,
+    bucket,
+    sortOrder: params.sortOrder,
+    limit,
+  });
+}
 
-  // A plain aggregate over one metric column.
-  const spec = withCalculation(baseSpec, params.aggregation);
+/** A plain aggregate over one metric column. */
+function planAggregate(
+  ctx: QueryContext,
+  plan: {
+    spec: MetricSpec;
+    metricKey: string;
+    filterOverride: Record<string, string> | undefined;
+    bucket: DateBucket | undefined;
+    sortOrder: string | undefined;
+    limit: number | undefined;
+  },
+): ChartPlan {
+  const { spec, bucket, limit } = plan;
+  const isDate = ctx.group.isDate;
+  const rolledUp = bucket !== undefined && bucket !== 'day';
   const selects = [aggregateSql(spec)];
   // Averages rolled up to a coarser bucket need the event count as their weight.
   if (rolledUp && spec.fn === 'AVG') selects.push('SUM(count)');
 
   // For count-based metrics on time series, only count 'created' events.
-  const extraWhere =
-    ['count', 'total'].includes(resolvedMetricKey) && groupByInfo.isDate ? [`action = 'created'`] : [];
+  const extraWhere = ['count', 'total'].includes(plan.metricKey) && isDate ? [`action = 'created'`] : [];
 
   const query = buildSelect(ctx, selects, {
-    filters: compound?.filterOverride ? [compound.filterOverride] : [],
+    filters: plan.filterOverride ? [plan.filterOverride] : [],
     extraWhere,
     // A time series with a limit asks for its most recent days; rolled-up series
     // are limited after merging the per-day rows.
-    order: groupByInfo.isDate
-      ? { by: groupByInfo.column, direction: limit && !rolledUp ? 'DESC' : 'ASC' }
-      : { by: aggregateSql(spec), direction },
+    order: isDate
+      ? { by: ctx.groupColumn, direction: limit && !rolledUp ? 'DESC' : 'ASC' }
+      : { by: aggregateSql(spec), direction: plan.sortOrder === 'desc' ? 'DESC' : 'ASC' },
     limit: rolledUp ? undefined : limit,
   });
 
@@ -670,7 +695,7 @@ export function planChartQuery(workspaceId: string, params: ChartQueryParams): C
       let parsed = parseRows(rows);
       if (rolledUp && bucket) parsed = rollUp(parsed, bucket, spec.fn);
       const points = parsed.map((r) => ({ label: r.label, value: r.values[0] ?? 0 }));
-      return groupByInfo.isDate ? sortAndLimit(points, true, params.sortOrder, limit) : points;
+      return isDate ? sortAndLimit(points, true, plan.sortOrder, limit) : points;
     },
   };
 }

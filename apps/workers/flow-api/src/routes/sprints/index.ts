@@ -158,6 +158,31 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createSpr
   }
 });
 
+/**
+ * Lifecycle stamps follow the status: started when it first becomes active,
+ * completed when it first becomes completed (and cleared when it leaves completed).
+ * Writes the stamps into `update`; returns the status the sprint ends up in and
+ * which transitions this change made.
+ */
+function applyLifecycleStamps(
+  existing: typeof t.$inferSelect,
+  update: Partial<typeof t.$inferInsert>,
+  now: Date,
+): { after: string; started: boolean; completed: boolean } {
+  const before = existing.status;
+  const after = update.status ?? before;
+  const started = after === SPRINT_ACTIVE && before !== SPRINT_ACTIVE;
+  const completed = after === SPRINT_COMPLETED && before !== SPRINT_COMPLETED;
+  if (started && !existing.startedAt) update.startedAt = now;
+  if (completed) {
+    update.completedAt = now;
+    if (!existing.startedAt) update.startedAt = now;
+  } else if (after !== SPRINT_COMPLETED && before === SPRINT_COMPLETED) {
+    update.completedAt = null;
+  }
+  return { after, started, completed };
+}
+
 app.patch('/:id', requirePermission('projects:update'), zValidator('json', updateSprintSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -179,19 +204,7 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
     }
     const now = new Date();
     const update = { ...data, updatedAt: now } as Partial<typeof t.$inferInsert>;
-    // Lifecycle stamps follow the status: started when it first becomes active,
-    // completed when it first becomes completed.
-    const before = existing.status;
-    const after = update.status ?? before;
-    const started = after === SPRINT_ACTIVE && before !== SPRINT_ACTIVE;
-    const completed = after === SPRINT_COMPLETED && before !== SPRINT_COMPLETED;
-    if (started && !existing.startedAt) update.startedAt = now;
-    if (completed) {
-      update.completedAt = now;
-      if (!existing.startedAt) update.startedAt = now;
-    } else if (after !== SPRINT_COMPLETED && before === SPRINT_COMPLETED) {
-      update.completedAt = null;
-    }
+    const { after, started, completed } = applyLifecycleStamps(existing, update, now);
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     const eventData = {
       id,

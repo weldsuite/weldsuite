@@ -14,7 +14,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -66,6 +66,12 @@ async function canModerateComment(
   return !!task?.projectId && canManageProject(c, task.projectId);
 }
 
+/** Tasks in the caller's projects, plus personal ones; no limit for scope:all (`null`). */
+function taskProjectScope(accessible: string[] | null): SQL | undefined {
+  if (accessible === null) return undefined;
+  return or(isNull(schema.tasks.projectId), inArray(schema.tasks.projectId, accessible.length ? accessible : ['']));
+}
+
 app.get('/', requirePermission('tasks:read'), zValidator('query', listFiltersSchema), async (c) => {
   const db = c.get('tenantDb');
   const f = c.req.valid('query');
@@ -94,17 +100,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listFiltersSch
     const accessibleTaskIds = db
       .select({ id: schema.tasks.id })
       .from(schema.tasks)
-      .where(
-        and(
-          isNull(schema.tasks.deletedAt),
-          accessible === null
-            ? undefined
-            : or(
-                isNull(schema.tasks.projectId),
-                inArray(schema.tasks.projectId, accessible.length ? accessible : ['']),
-              ),
-        ),
-      );
+      .where(and(isNull(schema.tasks.deletedAt), taskProjectScope(accessible)));
     conditions.push(inArray(t.taskId, accessibleTaskIds));
   }
   const where = and(...conditions);

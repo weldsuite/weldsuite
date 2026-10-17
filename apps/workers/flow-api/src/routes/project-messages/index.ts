@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -23,8 +23,8 @@ import {
   accessibleProjectIds,
   canAccessProject,
   canWriteProject,
+  inAccessibleProjects,
   mayAccess,
-  projectNotDeleted,
   resolveProjectAccess,
 } from '../../lib/project-access';
 
@@ -75,10 +75,7 @@ app.get('/', requirePermission('projects:read'), zValidator('query', listFilters
   if (f.projectId) {
     if (!(await canAccessProject(c, f.projectId))) return error.forbidden(c, PROJECT_DENIED);
   } else {
-    const accessible = await accessibleProjectIds(c);
-    conditions.push(
-      accessible === null ? projectNotDeleted(t.projectId) : inArray(t.projectId, accessible.length ? accessible : ['']),
-    );
+    conditions.push(inAccessibleProjects(t.projectId, await accessibleProjectIds(c)));
   }
   if (f.senderId) conditions.push(eq(t.senderId, f.senderId));
   const where = and(...conditions);

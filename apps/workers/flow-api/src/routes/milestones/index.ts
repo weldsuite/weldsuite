@@ -6,7 +6,7 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMilestoneSchema, updateMilestoneSchema } from '@weldsuite/core-api-client/schemas/milestones';
@@ -14,7 +14,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject, canWriteProject, projectNotDeleted } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject, inAccessibleProjects } from '../../lib/project-access';
 import { containsPattern } from '../../lib/ilike-pattern';
 import {
   MILESTONE_TIMESTAMP_FIELDS,
@@ -40,10 +40,7 @@ async function buildListFilters(c: AppContext, q: Record<string, string>): Promi
   if (q.projectId) {
     if (!(await canAccessProject(c, q.projectId))) return null;
   } else {
-    const accessible = await accessibleProjectIds(c);
-    conditions.push(
-      accessible === null ? projectNotDeleted(t.projectId) : inArray(t.projectId, accessible.length ? accessible : ['']),
-    );
+    conditions.push(inAccessibleProjects(t.projectId, await accessibleProjectIds(c)));
   }
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
   if (q.search) {

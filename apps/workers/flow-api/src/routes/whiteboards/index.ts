@@ -11,14 +11,14 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, ilike, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject, canWriteProject, projectNotDeleted } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject, inAccessibleProjects } from '../../lib/project-access';
 import { containsPattern } from '../../lib/ilike-pattern';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -48,10 +48,7 @@ async function projectScopeConditions(c: AppContext, projectId: string | undefin
     if (!(await canAccessProject(c, projectId))) return null;
     return conditions;
   }
-  const accessible = await accessibleProjectIds(c);
-  conditions.push(
-    accessible === null ? projectNotDeleted(t.projectId) : inArray(t.projectId, accessible.length ? accessible : ['']),
-  );
+  conditions.push(inAccessibleProjects(t.projectId, await accessibleProjectIds(c)));
   return conditions;
 }
 

@@ -60,41 +60,47 @@ async function findDuplicateLabel(
 
 const duplicateLabelMessage = (name: string) => `A label named "${name}" already exists`;
 
+/**
+ * Project-membership boundary of the list. With a projectId: that project's labels
+ * PLUS workspace-wide labels (projectId IS NULL), and the caller must have access to
+ * the project (null = off-limits). Without one (cross-project views like my-tasks /
+ * CRM): the workspace-wide labels plus the labels of the projects the caller can access.
+ */
+async function labelScopeCondition(c: LabelCtx, projectId: string | undefined): Promise<SQL | null> {
+  if (projectId !== undefined && projectId !== '') {
+    if (!(await canAccessProject(c, projectId))) return null;
+    return sql`(${t.projectId} = ${projectId} OR ${t.projectId} IS NULL)`;
+  }
+  const accessible = await accessibleProjectIds(c);
+  if (accessible === null) return projectNotDeleted(t.projectId);
+  if (accessible.length === 0) return isNull(t.projectId);
+  return sql`(${t.projectId} IS NULL OR ${inArray(t.projectId, accessible)})`;
+}
+
+/** Keyset condition for the rows after `cursor`, or undefined when the cursor row is unknown. */
+async function labelCursorCondition(db: TenantDb, cursor: string): Promise<SQL | undefined> {
+  const [cur] = await db
+    .select({ createdAt: t.createdAt, id: t.id })
+    .from(t).where(eq(t.id, cursor)).limit(1);
+  if (!cur?.createdAt) return undefined;
+  return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
+}
+
 app.get('/', requirePermission('projects:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: SQL[] = [isNull(t.deletedAt)];
-  // Project-membership boundary. With a projectId: that project's labels PLUS
-  // workspace-wide labels (projectId IS NULL), and the caller must have access to
-  // the project. Without one (cross-project views like my-tasks / CRM): the
-  // workspace-wide labels plus the labels of the projects the caller can access.
-  if (q.projectId !== undefined && q.projectId !== '') {
-    if (!(await canAccessProject(c, q.projectId))) return error.forbidden(c, PROJECT_DENIED);
-    conditions.push(sql`(${t.projectId} = ${q.projectId} OR ${t.projectId} IS NULL)`);
-  } else {
-    const accessible = await accessibleProjectIds(c);
-    if (accessible === null) conditions.push(projectNotDeleted(t.projectId));
-    else if (accessible.length) conditions.push(sql`(${t.projectId} IS NULL OR ${inArray(t.projectId, accessible)})`);
-    else conditions.push(isNull(t.projectId));
-  }
+  const scope = await labelScopeCondition(c, q.projectId);
+  if (!scope) return error.forbidden(c, PROJECT_DENIED);
+  // The count ignores the cursor: it is the size of the whole filtered list.
+  const filterConditions: SQL[] = [isNull(t.deletedAt), scope];
   if (q.search) {
-    conditions.push(ilike(t.name, containsPattern(q.search)));
+    filterConditions.push(ilike(t.name, containsPattern(q.search)));
   }
-  if (q.cursor) {
-    const [cur] = await db
-      .select({ createdAt: t.createdAt, id: t.id })
-      .from(t).where(eq(t.id, q.cursor)).limit(1);
-    if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
-    }
-  }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const cursorCondition = q.cursor ? await labelCursorCondition(db, q.cursor) : undefined;
+  const where = and(...filterConditions, cursorCondition);
+  const countWhere = and(...filterConditions);
 
   try {
     const tasks = schema.tasks;

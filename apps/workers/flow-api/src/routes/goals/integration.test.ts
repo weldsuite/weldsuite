@@ -160,6 +160,6 @@ describe('PATCH /:id', () => {
     const [row] = await db.select().from(schema.projectGoals).where(eq(schema.projectGoals.id, data.id));
     expect(row?.projectId).toBe('prj_g_patch');
     expect(row?.deletedAt).toBeNull();
-    expect((row?.goals as unknown[]).length).toBe(2);
+    expect(row?.goals as unknown[]).toHaveLength(2);
   });
 });
