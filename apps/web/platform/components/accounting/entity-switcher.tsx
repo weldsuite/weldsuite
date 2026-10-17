@@ -87,7 +87,7 @@ export function EntitySwitcher() {
           .map((e) => ({
             id: e.id,
             name: e.name,
-            description: `${e.jurisdictionCode} · ${e.baseCurrency}${e.legalName ? ` · ${e.legalName}` : ''}`,
+            description: [e.jurisdictionCode, e.baseCurrency, e.legalName].filter(Boolean).join(' · '),
             trailing: e.isDefault ? (
               <span className="text-[10px] uppercase text-muted-foreground">
                 {t('sweep.weldbooks.entitySwitcher.default')}

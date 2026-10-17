@@ -32,7 +32,8 @@ export default function fresh(paperSize: PaperSize, accent?: string | null): Inv
   const ink = legible(brand, totalsCard);
   // The bar follows the theme accent (and later accent changes) unless a pale brand had to be deepened for text;
   // a near-white brand is deepened so the bar still reads on white.
-  const bar = luminance(brand) > 0.7 ? washTo(0.7) : ink === brand ? 'accent' : brand;
+  let bar = ink === brand ? 'accent' : brand;
+  if (luminance(brand) > 0.7) bar = washTo(0.7);
 
   // Grid: two halves with a 16pt gutter; cards fill a half and inset their text by the card padding. The 48pt margin and
   // 10pt padding put the bill-to text 58pt (20.5mm) in, clear of the edge of a left window envelope (DIN 5008, NL EA5/6).
