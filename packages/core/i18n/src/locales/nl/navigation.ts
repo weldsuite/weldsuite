@@ -250,7 +250,6 @@ export const navigation = {
         agedReceivables: 'Openstaande debiteuren',
         agedPayables: 'Openstaande crediteuren',
         entities: 'Entiteiten',
-        settings: 'Instellingen',
         vendors: 'Leveranciers',
         creditMemos: 'Creditnota\'s',
         salesTaxCenter: 'Sales tax-centrum',
