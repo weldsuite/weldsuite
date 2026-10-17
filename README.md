@@ -72,7 +72,9 @@ The **WeldSuite name and logo are trademarks** and are *not* covered by the AGPL
 
 ## Contributing
 
-Contributions are welcome. Start with [CONTRIBUTING.md](./CONTRIBUTING.md), which covers dev setup, the pull-request flow, and the Contributor License Agreement (CLA) that every contributor signs. We accept PRs but don't guarantee response times, so please be patient. By participating you agree to our [Code of Conduct](./CODE_OF_CONDUCT.md).
+WeldSuite is built by the WeldSuite team. The source is public so you can audit and self-host it, but this repository does not take outside contributions: **only members of the [weldsuite](https://github.com/weldsuite) organization can open pull requests and issues.** Team members: start with [CONTRIBUTING.md](./CONTRIBUTING.md), which covers dev setup, the pull-request flow and the Contributor License Agreement (CLA). By participating you agree to our [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+Not on the team and found a problem? Security issues go through [SECURITY.md](./SECURITY.md); anything else to [weldsuite.org](https://weldsuite.org).
 
 ## Security
 

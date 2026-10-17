@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the suggestion! Please search existing issues and discussions first. For larger features, it's worth opening a discussion before a formal request so we can align on the approach.
+        Thanks for the suggestion! Please search existing issues first. For larger features, raise it with the team before a formal request so we can align on the approach.
   - type: textarea
     id: problem
     attributes:
