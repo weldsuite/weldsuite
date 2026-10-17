@@ -460,6 +460,7 @@ import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbook
 import { Route as WeldbooksBankingStatementsIdIndexRouteImport } from './routes/weldbooks/banking/statements/$id/index'
 import { Route as WeldbooksBankingFeedsCallbackIndexRouteImport } from './routes/weldbooks/banking/feeds/callback/index'
 import { Route as WeldbooksAccountsIdEditIndexRouteImport } from './routes/weldbooks/accounts/$id/edit/index'
+import { Route as SettingsEntitiesIdInvoiceTemplatesIndexRouteImport } from './routes/settings/entities/$id/invoice-templates/index'
 import { Route as SettingsEntitiesIdEditIndexRouteImport } from './routes/settings/entities/$id/edit/index'
 import { Route as SettingsAppsPhoneNumbersPortIndexRouteImport } from './routes/settings/apps/phone-numbers/port/index'
 import { Route as SettingsAppsPhoneNumbersNewNumberIndexRouteImport } from './routes/settings/apps/phone-numbers/new-number/index'
@@ -480,6 +481,7 @@ import { Route as WeldflowProjectProjectIdAnalyticsBuilderIndexRouteImport } fro
 import { Route as WeldflowProjectProjectIdAnalyticsIdIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/$id/index'
 import { Route as WelddeskHelpCenterArticlesIdEditIndexRouteImport } from './routes/welddesk/help-center/articles/$id/edit/index'
 import { Route as WeldbooksBankingStatementsIdReportIndexRouteImport } from './routes/weldbooks/banking/statements/$id/report/index'
+import { Route as SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRouteImport } from './routes/settings/entities/$id/invoice-templates/$templateId/index'
 import { Route as SettingsAppsPhoneNumbersPortIdIndexRouteImport } from './routes/settings/apps/phone-numbers/port/$id/index'
 import { Route as PreviewWeldmailAccountIdLabelSlugComposeIndexRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/compose/index'
 import { Route as PreviewWeldmailAccountIdLabelSlugMessageIdIndexRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/$messageId/index'
@@ -2946,6 +2948,12 @@ const WeldbooksAccountsIdEditIndexRoute =
     path: '/accounts/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
+const SettingsEntitiesIdInvoiceTemplatesIndexRoute =
+  SettingsEntitiesIdInvoiceTemplatesIndexRouteImport.update({
+    id: '/entities/$id/invoice-templates/',
+    path: '/entities/$id/invoice-templates/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsEntitiesIdEditIndexRoute =
   SettingsEntitiesIdEditIndexRouteImport.update({
     id: '/entities/$id/edit/',
@@ -3065,6 +3073,12 @@ const WeldbooksBankingStatementsIdReportIndexRoute =
     id: '/banking/statements/$id/report/',
     path: '/banking/statements/$id/report/',
     getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute =
+  SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRouteImport.update({
+    id: '/entities/$id/invoice-templates/$templateId/',
+    path: '/entities/$id/invoice-templates/$templateId/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
 const SettingsAppsPhoneNumbersPortIdIndexRoute =
   SettingsAppsPhoneNumbersPortIdIndexRouteImport.update({
@@ -3506,6 +3520,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/settings/entities/$id/edit/': typeof SettingsEntitiesIdEditIndexRoute
+  '/settings/entities/$id/invoice-templates/': typeof SettingsEntitiesIdInvoiceTemplatesIndexRoute
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/banking/feeds/callback/': typeof WeldbooksBankingFeedsCallbackIndexRoute
   '/weldbooks/banking/statements/$id/': typeof WeldbooksBankingStatementsIdIndexRoute
@@ -3566,6 +3581,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldmail/$accountId/$labelSlug/$messageId/': typeof PreviewWeldmailAccountIdLabelSlugMessageIdIndexRoute
   '/preview/weldmail/$accountId/$labelSlug/compose/': typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRoute
   '/settings/apps/phone-numbers/port/$id/': typeof SettingsAppsPhoneNumbersPortIdIndexRoute
+  '/settings/entities/$id/invoice-templates/$templateId/': typeof SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute
   '/weldbooks/banking/statements/$id/report/': typeof WeldbooksBankingStatementsIdReportIndexRoute
   '/welddesk/help-center/articles/$id/edit/': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
@@ -3944,6 +3960,7 @@ export interface FileRoutesByTo {
   '/settings/apps/phone-numbers/new-number': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/settings/entities/$id/edit': typeof SettingsEntitiesIdEditIndexRoute
+  '/settings/entities/$id/invoice-templates': typeof SettingsEntitiesIdInvoiceTemplatesIndexRoute
   '/weldbooks/accounts/$id/edit': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/banking/feeds/callback': typeof WeldbooksBankingFeedsCallbackIndexRoute
   '/weldbooks/banking/statements/$id': typeof WeldbooksBankingStatementsIdIndexRoute
@@ -4004,6 +4021,7 @@ export interface FileRoutesByTo {
   '/preview/weldmail/$accountId/$labelSlug/$messageId': typeof PreviewWeldmailAccountIdLabelSlugMessageIdIndexRoute
   '/preview/weldmail/$accountId/$labelSlug/compose': typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRoute
   '/settings/apps/phone-numbers/port/$id': typeof SettingsAppsPhoneNumbersPortIdIndexRoute
+  '/settings/entities/$id/invoice-templates/$templateId': typeof SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute
   '/weldbooks/banking/statements/$id/report': typeof WeldbooksBankingStatementsIdReportIndexRoute
   '/welddesk/help-center/articles/$id/edit': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
@@ -4423,6 +4441,7 @@ export interface FileRoutesById {
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/settings/entities/$id/edit/': typeof SettingsEntitiesIdEditIndexRoute
+  '/settings/entities/$id/invoice-templates/': typeof SettingsEntitiesIdInvoiceTemplatesIndexRoute
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/banking/feeds/callback/': typeof WeldbooksBankingFeedsCallbackIndexRoute
   '/weldbooks/banking/statements/$id/': typeof WeldbooksBankingStatementsIdIndexRoute
@@ -4483,6 +4502,7 @@ export interface FileRoutesById {
   '/preview/weldmail/$accountId/$labelSlug/$messageId/': typeof PreviewWeldmailAccountIdLabelSlugMessageIdIndexRoute
   '/preview/weldmail/$accountId/$labelSlug/compose/': typeof PreviewWeldmailAccountIdLabelSlugComposeIndexRoute
   '/settings/apps/phone-numbers/port/$id/': typeof SettingsAppsPhoneNumbersPortIdIndexRoute
+  '/settings/entities/$id/invoice-templates/$templateId/': typeof SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute
   '/weldbooks/banking/statements/$id/report/': typeof WeldbooksBankingStatementsIdReportIndexRoute
   '/welddesk/help-center/articles/$id/edit/': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
@@ -4903,6 +4923,7 @@ export interface FileRouteTypes {
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
     | '/settings/entities/$id/edit/'
+    | '/settings/entities/$id/invoice-templates/'
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/banking/feeds/callback/'
     | '/weldbooks/banking/statements/$id/'
@@ -4963,6 +4984,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug/$messageId/'
     | '/preview/weldmail/$accountId/$labelSlug/compose/'
     | '/settings/apps/phone-numbers/port/$id/'
+    | '/settings/entities/$id/invoice-templates/$templateId/'
     | '/weldbooks/banking/statements/$id/report/'
     | '/welddesk/help-center/articles/$id/edit/'
     | '/weldflow/project/$projectId/analytics/$id/'
@@ -5341,6 +5363,7 @@ export interface FileRouteTypes {
     | '/settings/apps/phone-numbers/new-number'
     | '/settings/apps/phone-numbers/port'
     | '/settings/entities/$id/edit'
+    | '/settings/entities/$id/invoice-templates'
     | '/weldbooks/accounts/$id/edit'
     | '/weldbooks/banking/feeds/callback'
     | '/weldbooks/banking/statements/$id'
@@ -5401,6 +5424,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug/$messageId'
     | '/preview/weldmail/$accountId/$labelSlug/compose'
     | '/settings/apps/phone-numbers/port/$id'
+    | '/settings/entities/$id/invoice-templates/$templateId'
     | '/weldbooks/banking/statements/$id/report'
     | '/welddesk/help-center/articles/$id/edit'
     | '/weldflow/project/$projectId/analytics/$id'
@@ -5819,6 +5843,7 @@ export interface FileRouteTypes {
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
     | '/settings/entities/$id/edit/'
+    | '/settings/entities/$id/invoice-templates/'
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/banking/feeds/callback/'
     | '/weldbooks/banking/statements/$id/'
@@ -5879,6 +5904,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug/$messageId/'
     | '/preview/weldmail/$accountId/$labelSlug/compose/'
     | '/settings/apps/phone-numbers/port/$id/'
+    | '/settings/entities/$id/invoice-templates/$templateId/'
     | '/weldbooks/banking/statements/$id/report/'
     | '/welddesk/help-center/articles/$id/edit/'
     | '/weldflow/project/$projectId/analytics/$id/'
@@ -9103,6 +9129,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksAccountsIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/settings/entities/$id/invoice-templates/': {
+      id: '/settings/entities/$id/invoice-templates/'
+      path: '/entities/$id/invoice-templates'
+      fullPath: '/settings/entities/$id/invoice-templates/'
+      preLoaderRoute: typeof SettingsEntitiesIdInvoiceTemplatesIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/entities/$id/edit/': {
       id: '/settings/entities/$id/edit/'
       path: '/entities/$id/edit'
@@ -9242,6 +9275,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldbooks/banking/statements/$id/report/'
       preLoaderRoute: typeof WeldbooksBankingStatementsIdReportIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/settings/entities/$id/invoice-templates/$templateId/': {
+      id: '/settings/entities/$id/invoice-templates/$templateId/'
+      path: '/entities/$id/invoice-templates/$templateId'
+      fullPath: '/settings/entities/$id/invoice-templates/$templateId/'
+      preLoaderRoute: typeof SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
     '/settings/apps/phone-numbers/port/$id/': {
       id: '/settings/apps/phone-numbers/port/$id/'
@@ -9393,7 +9433,9 @@ interface SettingsRouteRouteChildren {
   SettingsAppsPhoneNumbersNewNumberIndexRoute: typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   SettingsAppsPhoneNumbersPortIndexRoute: typeof SettingsAppsPhoneNumbersPortIndexRoute
   SettingsEntitiesIdEditIndexRoute: typeof SettingsEntitiesIdEditIndexRoute
+  SettingsEntitiesIdInvoiceTemplatesIndexRoute: typeof SettingsEntitiesIdInvoiceTemplatesIndexRoute
   SettingsAppsPhoneNumbersPortIdIndexRoute: typeof SettingsAppsPhoneNumbersPortIdIndexRoute
+  SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute: typeof SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute
 }
 
 const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
@@ -9462,8 +9504,12 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsPhoneNumbersPortIndexRoute:
     SettingsAppsPhoneNumbersPortIndexRoute,
   SettingsEntitiesIdEditIndexRoute: SettingsEntitiesIdEditIndexRoute,
+  SettingsEntitiesIdInvoiceTemplatesIndexRoute:
+    SettingsEntitiesIdInvoiceTemplatesIndexRoute,
   SettingsAppsPhoneNumbersPortIdIndexRoute:
     SettingsAppsPhoneNumbersPortIdIndexRoute,
+  SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute:
+    SettingsEntitiesIdInvoiceTemplatesTemplateIdIndexRoute,
 }
 
 const SettingsRouteRouteWithChildren = SettingsRouteRoute._addFileChildren(

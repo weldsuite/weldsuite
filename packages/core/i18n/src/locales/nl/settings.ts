@@ -33,6 +33,8 @@ export const settings = {
       entities: 'Entiteiten',
       newEntity: 'Nieuwe entiteit',
       editEntity: 'Entiteit bewerken',
+      invoiceTemplates: 'Factuursjablonen',
+      editInvoiceTemplate: 'Sjabloon bewerken',
 
       // Security section
       security: 'Beveiliging',

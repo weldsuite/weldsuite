@@ -53,6 +53,24 @@ describe('buildBreadcrumbSegments', () => {
     expect(labels('/settings/entities/add')).toEqual([en.settings.title, 'Entities', 'New entity']);
   });
 
+  it('puts an entity\'s invoice templates and their designer under the entity, without the ids', () => {
+    expect(buildBreadcrumbSegments('/settings/entities/ent_123/invoice-templates', en.settings.title, en.settings.menu)).toEqual([
+      { label: en.settings.title, href: '/settings' },
+      { label: 'Entities', href: '/settings/entities' },
+      { label: 'Edit entity', href: '/settings/entities/ent_123/edit' },
+      { label: 'Invoice templates' },
+    ]);
+    expect(
+      buildBreadcrumbSegments('/settings/entities/ent_123/invoice-templates/itpl_9', en.settings.title, en.settings.menu),
+    ).toEqual([
+      { label: en.settings.title, href: '/settings' },
+      { label: 'Entities', href: '/settings/entities' },
+      { label: 'Edit entity', href: '/settings/entities/ent_123/edit' },
+      { label: 'Invoice templates', href: '/settings/entities/ent_123/invoice-templates' },
+      { label: 'Edit template' },
+    ]);
+  });
+
   it('falls back to a capitalized segment for unknown paths', () => {
     expect(labels('/settings/some-new-page')).toEqual([en.settings.title, 'Some new page']);
   });
