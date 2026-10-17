@@ -43,6 +43,7 @@ import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   ObjectPanelTabs,
   useObjectPanel,
+  useObjectPanelNavigationReporter,
   useObjectPanelShell,
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
@@ -496,6 +497,11 @@ function PersonCompaniesTab({
   const st = useTranslations();
   const unlinkMut = useUnlinkPersonFromCompany();
   const [linkOpen, setLinkOpen] = useState(false);
+  // Previous / next in the company panel step through this person's companies.
+  const reportDisplayedCompanies = useObjectPanelNavigationReporter<PersonCompanyListItem>({
+    type: 'company',
+    getId: (pc) => pc.companyId,
+  });
   const linkedIds = useMemo(
     () => new Set(employments.map((e) => e.companyId)),
     [employments],
@@ -613,6 +619,7 @@ function PersonCompaniesTab({
     <TabListScope>
       <EntityList<PersonCompanyListItem>
         items={items}
+        onDisplayedItemsChange={reportDisplayedCompanies}
         isLoading={false}
         error={null}
         filters={filterConfigs}

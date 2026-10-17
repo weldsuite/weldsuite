@@ -27,7 +27,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import {
   DndContext,
@@ -875,6 +875,13 @@ export function TasksClient({
   // directly: an effect keyed on `selectedTask` would not fire again for a task
   // that is still selected after its panel was closed (TASK-1072).
   const { open: openTaskPanel } = useObjectPanel();
+  // Previous / next in the open panel step through the rows as shown, loading
+  // the next page past the last one.
+  const reportDisplayedTasks = useObjectPanelNavigationReporter<Task>({
+    type: 'task',
+    hasMore: hasNextPage,
+    loadMore: onLoadMore,
+  });
 
   const [isPending, startTransition] = useTransition();
   // Read the permission context directly (not via useProjectPermissions which throws
@@ -2079,6 +2086,7 @@ export function TasksClient({
           <EntityContainerScope enabled={isEntityMode}>
           <EntityList<Task>
             items={sortedTasks}
+            onDisplayedItemsChange={reportDisplayedTasks}
             isLoading={false}
             error={null}
             headerColumns={headerColumns}

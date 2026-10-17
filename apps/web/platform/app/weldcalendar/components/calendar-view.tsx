@@ -123,7 +123,7 @@ import { useCreateTask, type Task } from '@/hooks/use-crm-tasks';
 import { useWorkspaceMembers, useWorkingHours, type WorkingHours, type DayHours } from '@/hooks/queries/use-settings-queries';
 import { EventDialog } from './event-dialog';
 import { GuestSearchInput } from './guest-search-input';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { WeekDayHeader, TimeLabelColumn, TODAY_BLUE } from './calendar-shared';
 import { getActiveCalendarIds } from './calendar-sidebar-section';
 import { useSlotDrag } from '../hooks/use-slot-drag';
@@ -550,6 +550,16 @@ export function CalendarView() {
       .filter((evt) => matchesEventSearch(evt, trimmedSearch));
     return mergeSearchResults(server, local, Date.now());
   }, [trimmedSearch, filteredEvents, searchData, activeFilters]);
+
+  // Previous / next in the task panel step through the task events shown, by start time.
+  const panelTaskIds = useMemo(() => {
+    const shown = trimmedSearch ? searchResults : filteredEvents;
+    const taskEvents = shown
+      .filter((evt) => evt.sourceType === 'task')
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    return Array.from(new Set(taskEvents.flatMap((evt) => (evt.sourceId ? [evt.sourceId] : []))));
+  }, [trimmedSearch, searchResults, filteredEvents]);
+  useObjectPanelNavigationSource({ type: 'task', ids: panelTaskIds });
 
   const calendarColorMap = useMemo(() => {
     const map: Record<string, string> = {};

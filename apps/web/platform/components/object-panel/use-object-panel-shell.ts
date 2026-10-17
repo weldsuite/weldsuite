@@ -28,7 +28,9 @@
 import { useState, useMemo, useCallback } from 'react';
 import type { ComponentProps } from 'react';
 import type { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { useContentAreaBounds } from './use-content-area-bounds';
+import { NEXT_OBJECT_SHORTCUT, PREVIOUS_OBJECT_SHORTCUT } from './use-object-panel-navigation';
 import type { ObjectPanelComponentProps } from './types';
 
 type EntityDetailViewProps = ComponentProps<typeof EntityDetailView>;
@@ -36,7 +38,7 @@ type EntityDetailViewProps = ComponentProps<typeof EntityDetailView>;
 export interface UseObjectPanelShellOptions
   extends Pick<
     ObjectPanelComponentProps,
-    'isOpen' | 'onClose' | 'onBack' | 'mode' | 'onModeChange'
+    'isOpen' | 'onClose' | 'onBack' | 'mode' | 'onModeChange' | 'navigation'
   > {
   /** Panel-mode width in pixels. Defaults to 479 (matches `ObjectPanelHost`). */
   width?: number;
@@ -73,6 +75,7 @@ export interface ObjectPanelShellResult {
     | 'leftOffset'
     | 'width'
     | 'loading'
+    | 'navigation'
   >;
 }
 
@@ -85,6 +88,7 @@ export function useObjectPanelShell({
   onBack,
   mode: controlledMode,
   onModeChange,
+  navigation,
   width = DEFAULT_PANEL_WIDTH,
   loading,
   zIndex = DEFAULT_Z_INDEX,
@@ -109,6 +113,26 @@ export function useObjectPanelShell({
 
   const contentBounds = useContentAreaBounds();
 
+  // Previous / next arrows, only when the panel was opened from a list.
+  const t = useTranslations();
+  const onPrevious = navigation?.onPrevious;
+  const onNext = navigation?.onNext;
+  const hasNavigation = navigation !== undefined;
+  const headerNavigation = useMemo<ObjectPanelShellResult['entityDetailViewProps']['navigation']>(
+    () =>
+      hasNavigation
+        ? {
+            onPrevious,
+            onNext,
+            previousLabel: t('common.objectPanel.previous'),
+            nextLabel: t('common.objectPanel.next'),
+            previousShortcut: PREVIOUS_OBJECT_SHORTCUT,
+            nextShortcut: NEXT_OBJECT_SHORTCUT,
+          }
+        : undefined,
+    [hasNavigation, onPrevious, onNext, t],
+  );
+
   // Drawer inset (Agent / Calendar / Notifications) lives entirely in a
   // `:root` CSS variable maintained by `useContentAreaBounds` — it
   // doesn't go through React state, so we don't pass it here either.
@@ -128,6 +152,7 @@ export function useObjectPanelShell({
       leftOffset: contentBounds.left,
       width,
       loading,
+      navigation: headerNavigation,
     }),
     [
       mode,
@@ -141,6 +166,7 @@ export function useObjectPanelShell({
       contentBounds.left,
       width,
       loading,
+      headerNavigation,
     ],
   );
 

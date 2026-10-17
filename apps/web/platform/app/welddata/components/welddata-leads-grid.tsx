@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSetAtom } from 'jotai';
 import { toast } from 'sonner';
 import {
@@ -180,6 +180,17 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
 
   const leads = useMemo(() => leadsResp?.data ?? [], [leadsResp]);
   const displayLeads = useRowsWithCompanyLogos(leads, leadLogoDomain);
+
+  // The lead panel reads leads from this cache, so the panel's previous / next
+  // arrows can only reach rows that are in it: stash every loaded lead.
+  useEffect(() => {
+    if (leads.length === 0) return;
+    cacheLead((prev) => {
+      const next = { ...prev };
+      for (const lead of leads) next[lead.id] = welddataLeadFromSavedLead(lead);
+      return next;
+    });
+  }, [leads, cacheLead]);
   const enrichColumns = useMemo(() => columns ?? [], [columns]);
   const cellMap = useMemo(() => cells ?? {}, [cells]);
 
@@ -551,6 +562,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
               entities={displayLeads}
               pagination={{ page: 1, pageSize: leads.length || 50, totalCount: leads.length, totalPages: 1 }}
               listName={listName}
+              objectPanel={{ type: 'welddata-lead' }}
             />
           </div>
         )}

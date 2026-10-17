@@ -57,6 +57,7 @@ export function WarehousesList({
         isLoading={isLoading}
         columns={columns}
         onRowClick={(w) => openObjectPanel({ type: 'warehouse', id: w.id })}
+        objectPanel={{ type: 'warehouse' }}
         onEdit={setEditing}
         onDelete={handleDelete}
         searchQuery={search}

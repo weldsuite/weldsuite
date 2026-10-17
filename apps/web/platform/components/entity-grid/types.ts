@@ -1,4 +1,5 @@
 import { LucideIcon } from 'lucide-react';
+import type { ObjectPanelListNavigation } from '@/components/object-panel/use-object-panel-navigation';
 
 // Field types supported by the grid
 export type FieldType =
@@ -345,6 +346,9 @@ export interface EntityGridProps<TEntity> {
   // Remember the sort the user picks (per grid, in this browser) so the page
   // can restore it next time. Pair with `usePersistedGridSort` on the page.
   persistSort?: boolean;
+  // What `actions.onRowClick` opens, so that panel's previous / next arrows
+  // step through the rows in the order shown.
+  objectPanel?: ObjectPanelListNavigation<TEntity>;
 }
 
 // Props for editor components

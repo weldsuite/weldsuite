@@ -6,7 +6,7 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useTasks } from '@/hooks/queries/use-task-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { FlowCard, type FlowRow, type FlowStatus, type FlowPriority } from '@/components/home/app-cards';
 import type { HomeWidgetDefinition } from '../types';
 
@@ -65,6 +65,9 @@ function Render({ settings }: Readonly<{ settings: WeldflowMyTasksSettings }>) {
   });
   const apiRows = ((tasksRes.data as { data?: ApiTask[] } | undefined)?.data ?? []) as ApiTask[];
   const rows = apiRows.map(mapTask).slice(0, settings.maxCount);
+
+  // Previous / next in the task panel step through the rows as shown.
+  useObjectPanelNavigationSource({ type: 'task', ids: rows.flatMap((row) => (row.id ? [row.id] : [])) });
 
   return (
     <FlowCard

@@ -56,7 +56,7 @@ import { formatTaskNumber, taskNumberMatches } from '@/lib/task-number';
 import { ganttApi, tasksApi, membersApi, labelsApi } from '@/app/weldflow/lib/api-client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { useI18n } from '@/lib/i18n/provider';
@@ -1053,6 +1053,9 @@ const GanttPage = () => {
 
     return result;
   }, [features, activeFilters, searchQuery]);
+
+  // Previous / next in the task panel step through the tasks as listed in the sidebar.
+  useObjectPanelNavigationSource({ type: 'task', ids: filteredFeatures.map(f => f.id) });
 
   if (isLoading) {
     return <PageLoader fullScreen={false} />;

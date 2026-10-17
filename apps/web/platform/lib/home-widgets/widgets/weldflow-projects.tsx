@@ -4,7 +4,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useTaskProjects } from '@/hooks/queries/use-task-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import {
   ProjectsCard,
   type ProjectRow,
@@ -83,6 +83,9 @@ function Render({ settings }: Readonly<{ settings: WeldflowProjectsSettings }>) 
     ? apiRows
     : apiRows.filter((p) => mapStatus(p.status) === settings.status);
   const rows = filtered.map(mapProject).slice(0, settings.maxCount);
+
+  // Previous / next in the project panel step through the rows as shown.
+  useObjectPanelNavigationSource({ type: 'project', ids: rows.flatMap((row) => (row.id ? [row.id] : [])) });
 
   return (
     <ProjectsCard

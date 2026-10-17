@@ -51,6 +51,7 @@ export function PickListsList({
         isLoading={isLoading}
         columns={columns}
         onRowClick={(row) => openObjectPanel({ type: 'pick-list', id: row.id })}
+        objectPanel={{ type: 'pick-list' }}
         searchQuery={search}
         onSearchChange={onSearchChange}
         searchPlaceholder={t.searchPlaceholder}

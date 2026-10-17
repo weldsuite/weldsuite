@@ -278,6 +278,7 @@ export function PeopleGrid({
           availableLists={bulk.availableLists}
           listName={listContext?.listName}
           persistSort={!listContext}
+          objectPanel={{ type: 'person' }}
         />
       )}
       <QuickAddPersonDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />

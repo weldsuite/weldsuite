@@ -20,7 +20,7 @@ import {
   type HeaderColumn,
 } from '@/components/entity-list';
 import { applySelectFilters } from '@/lib/list-filters';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { DealDetailsModal } from '@/components/weldcrm/pipeline/deal-details-modal';
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
@@ -106,6 +106,8 @@ export function DealsSection({
 }: Readonly<DealsSectionProps & { entityKind?: 'company' | 'person'; isLoading?: boolean }>) {
   const t = useTranslations();
   const { open: openPanel } = useObjectPanel();
+  // Previous / next in the deal panel step through these deals, in group order.
+  const reportDisplayedDeals = useObjectPanelNavigationReporter<DealListItem>({ type: 'opportunity' });
   const [createDealOpen, setCreateDealOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
@@ -305,6 +307,7 @@ export function DealsSection({
     <TabListScope>
       <EntityList<DealListItem>
         items={visible}
+        onDisplayedItemsChange={reportDisplayedDeals}
         isLoading={isLoading}
         error={null}
         filters={filterConfigs}
