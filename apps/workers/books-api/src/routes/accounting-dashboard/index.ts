@@ -3,7 +3,9 @@
  *
  * Returns aggregated KPIs (revenue, expenses, receivables, payables,
  * bank balances, recent payments, upcoming due invoices, pending documents,
- * monthly revenue trend) for the WeldBooks dashboard view. Scoped to a single
+ * monthly revenue trend (12 months) and revenue / expenses / profit trend
+ * (24 months), receivables and payables aging)
+ * for the WeldBooks dashboard view. Scoped to a single
  * accounting entity via `resolveEntityId` (X-Accounting-Entity-Id header →
  * `?entityId=` query param → workspace default entity).
  *
@@ -80,8 +82,10 @@ app.get('/', requirePermission('reports:read'), async (c) => {
     const year = Number(today.slice(0, 4));
     const monthStart = new Date(Date.UTC(year, Number(today.slice(5, 7)) - 1, 1));
 
-    // Revenue, expenses and profit: the ledger's profit & loss.
-    const trend = monthColumns(today, 12);
+    // Revenue, expenses and profit: the ledger's profit & loss. The trend runs
+    // 24 months so the dashboard can compare any range with the one before it.
+    const trend = monthColumns(today, 24);
+    const lastTwelve = trend.slice(-12);
     const currentMonth = trend[trend.length - 1];
     const yearColumn: ReportColumn = { key: 'year', label: String(year), from: `${year}-01-01`, to: `${year}-12-31` };
     const basis = await resolveBasis(db, entity, null);
@@ -117,6 +121,7 @@ app.get('/', requirePermission('reports:read'), async (c) => {
         outstandingCount: report.documents.length,
         overdue: money(overdue.reduce((total, d) => total + Number(d.balance), 0)),
         overdueCount: overdue.length,
+        aging: report.buckets,
       };
     };
     const receivables = summarize(agedReceivables);
@@ -213,7 +218,13 @@ app.get('/', requirePermission('reports:read'), async (c) => {
       recentPayments,
       upcomingDue,
       pendingDocuments: pendingDocs.count,
-      monthlyRevenue: trend.map((column) => ({ month: column.key, total: revenueRow[column.key] })),
+      monthlyRevenue: lastTwelve.map((column) => ({ month: column.key, total: revenueRow[column.key] })),
+      monthlyTrend: trend.map((column) => ({
+        month: column.key,
+        revenue: revenueRow[column.key],
+        expenses: expensesRow[column.key],
+        profit: profitRow[column.key],
+      })),
     });
   } catch (err) {
     console.error('[app-api/accounting-dashboard] get failed:', err);

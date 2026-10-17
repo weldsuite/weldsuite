@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { getMilestoneStats, withMilestoneStats } from '@weldsuite/flow-domain/project-stats';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
@@ -41,7 +42,11 @@ app.get('/', requireScope('milestones:read'), zValidator('query', listMilestones
   if (q.projectId) where.push(eq(table.projectId, q.projectId));
   if (q.status) where.push(eq(table.status, q.status));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
-  return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
+  // The stored counter columns are never maintained; compute them on read
+  // (same definitions as flow-api).
+  const rows = result.data as Array<{ id: string; status: string | null }>;
+  const stats = await getMilestoneStats(db, rows);
+  return list(c, withMilestoneStats(rows, stats) as unknown as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
 app.get('/:id', requireScope('milestones:read'), async (c) => {
@@ -53,7 +58,8 @@ app.get('/:id', requireScope('milestones:read'), async (c) => {
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
   if (!row) return error.notFound(c, 'Milestone', id);
-  return success(c, row);
+  const stats = await getMilestoneStats(db, [row]);
+  return success(c, withMilestoneStats([row], stats)[0]);
 });
 
 app.post('/', requireScope('milestones:write'), zValidator('json', createMilestoneSchema), async (c) => {

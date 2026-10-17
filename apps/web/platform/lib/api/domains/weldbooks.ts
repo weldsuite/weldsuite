@@ -1,9 +1,15 @@
 import { weldbooksApi } from '../weldbooks-client';
 import type { PostalAddress } from '@/components/address/postal-address';
 import type { StoredAccountingAddress } from '@/lib/weldbooks/address';
+import type { BrFiscalView } from '@/lib/weldbooks/br-contact';
 import type { WeekFiscalYearConfig } from '@/lib/weldbooks/fiscal-year';
 import type { JurisdictionSummary } from '@/lib/weldbooks/jurisdiction';
 import type { UsAccountingMethod } from '@/lib/weldbooks/us-entity';
+import type {
+  CreateInvoiceTemplateInput,
+  InvoiceTemplate,
+  UpdateInvoiceTemplateInput,
+} from '@weldsuite/books-domain/invoice-template/schema';
 import type {
   AgedReport,
   BalanceSheetReport,
@@ -109,6 +115,8 @@ export interface UpdateAccountingEntityInput {
     bankName?: string;
   };
   taxIdentifiers?: { vatNumber?: string; registrationNumber?: string; einOrSsn?: string };
+  /** Logo, colours and document texts of invoices; replaced as a whole. */
+  branding?: AccountingEntity['branding'];
   /** US: Social Security number of a sole proprietor without an EIN. Write-only; `null` clears it. */
   ssn?: string | null;
   fiscalYearStart?: number;
@@ -307,14 +315,20 @@ export interface Dashboard {
   expenses: { month: string; year: string };
   profit: { month: string; year: string };
   /** Posted documents in base currency, credit notes subtracted; overdue leaves credit notes out. */
-  receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number };
-  payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number };
+  receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number; aging?: DashboardAging };
+  payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number; aging?: DashboardAging };
   bankAccounts: Array<{ id: string; name: string; iban: string | null; currentBalance: string | null; currency: string | null }>;
   recentPayments: Payment[];
   upcomingDue: Array<{ id: string; invoiceNumber: string | null; contactName: string | null; dueDate: string; balanceDue: string | null }>;
   pendingDocuments: number;
   monthlyRevenue: Array<{ month: string; total: string }>;
+  /** Ledger revenue, expenses and net profit for the last 24 months, oldest first (absent on older API versions). */
+  monthlyTrend?: Array<{ month: string; revenue: string; expenses: string; profit: string }>;
 }
+
+export type DashboardAgingBucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
+/** Open balance per days-past-due bucket, as in the aged receivables / payables report. */
+export type DashboardAging = Record<DashboardAgingBucket, { total: string; count: number }>;
 
 export interface Settings {
   id: string;
@@ -375,10 +389,30 @@ export interface TaxRate {
   ledgerAccountId: string | null;
 }
 
+/** Whether an accounting contact is a business or an individual: the CRM company or person it wraps. */
+export type ContactKind = 'company' | 'person';
+
+/** The contact person of a company contact: a CRM person, the company's billing contact. */
+export interface ContactPerson {
+  personId: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
 export interface Customer {
   id: string;
   type?: string | null;
   role: string;
+  /** null for contacts from before contacts wrapped a CRM identity; their first save sets it. */
+  kind?: ContactKind | null;
+  /** The CRM company this contact is (kind 'company'). */
+  companyId?: string | null;
+  /** The CRM person this contact is (kind 'person'). */
+  personId?: string | null;
+  contactPerson?: ContactPerson | null;
   name: string;
   companyName?: string | null;
   firstName?: string | null;
@@ -394,6 +428,8 @@ export interface Customer {
   shippingAddress?: StoredAccountingAddress | null;
   paymentTermsDays?: number | null;
   notes?: string | null;
+  /** Brazil: municipal registration, municipality, ICMS / Simples status, the CPF of a person. */
+  brFiscal?: BrFiscalView | null;
   outstandingBalance?: string | null;
   /** `active` or `archived`; an archived contact is hidden from lists and pickers. */
   status?: string | null;
@@ -403,6 +439,8 @@ export interface Customer {
 
 export interface Invoice {
   id: string;
+  /** The invoice template (invoice designer) it prints with; null uses the entity's default, else the built-in layout. */
+  templateId?: string | null;
   invoiceNumber: string | null;
   type: string;
   status: string;
@@ -800,6 +838,21 @@ export const accountingApi = {
       `/accounting-entities/${id}/lock-exceptions/${exceptionId}/revoke`,
     ),
 
+  // Invoice templates (invoice designer): one default per entity, an invoice may pick one
+  listInvoiceTemplates: (entityId: string) =>
+    weldbooksApi.get<CursorListResponse<InvoiceTemplate>>(`/invoice-templates${buildQuery({ entityId })}`),
+  getInvoiceTemplate: (id: string) => weldbooksApi.get<ApiResponse<InvoiceTemplate>>(`/invoice-templates/${id}`),
+  createInvoiceTemplate: (data: CreateInvoiceTemplateInput) =>
+    weldbooksApi.post<ApiResponse<InvoiceTemplate>>('/invoice-templates', data),
+  /** `isDefault: true` makes it the entity's default and unsets the previous one. */
+  updateInvoiceTemplate: (id: string, data: UpdateInvoiceTemplateInput) =>
+    weldbooksApi.patch<ApiResponse<InvoiceTemplate>>(`/invoice-templates/${id}`, data),
+  /** Invoices that used it fall back to the entity's default. */
+  deleteInvoiceTemplate: (id: string) => weldbooksApi.delete<unknown>(`/invoice-templates/${id}`),
+  /** A copy named "<name> (copy)", never the default. */
+  duplicateInvoiceTemplate: (id: string) =>
+    weldbooksApi.post<ApiResponse<InvoiceTemplate>>(`/invoice-templates/${id}/duplicate`),
+
   // Accounts
   /** `taxLine: 'none'` lists the income and expense accounts without a tax line (US); a line code lists the accounts on it. */
   listAccounts: (params?: { type?: string; subtype?: string; isActive?: string; search?: string; taxLine?: string }) =>
@@ -833,6 +886,7 @@ export const accountingApi = {
   // Contacts
   listCustomers: (params?: {
     role?: 'customer' | 'supplier' | 'both' | 'none';
+    kind?: ContactKind;
     search?: string;
     page?: number;
     pageSize?: number;

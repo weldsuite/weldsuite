@@ -206,7 +206,7 @@ describe('IN adapter registration', () => {
     expect(hasAdapter('IN')).toBe(true);
     expect(hasAdapter('NL')).toBe(true);
     const codes = listJurisdictions().map((j) => j.code).sort();
-    expect(codes).toEqual(['IN', 'NL', 'US']);
+    expect(codes).toEqual(['BR', 'IN', 'NL', 'US']);
     expect(getAdapter('IN').defaultCurrency).toBe('INR');
   });
 

@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { renderMessageContent } from '../lib/render-message-content';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 /** A channel, group, DM, or user picked as a forward target. */
 interface ForwardTarget {
@@ -80,6 +81,7 @@ export function ForwardMessageDialog({
   sourceChannelId,
 }: Readonly<ForwardMessageDialogProps>) {
   const { t } = useI18n();
+  const workspaceUrl = useWorkspaceUrl();
   const st = useTranslations();
   const [query, setQuery] = useState('');
   const [selectedList, setSelectedList] = useState<ForwardTarget[]>([]);
@@ -213,7 +215,7 @@ export function ForwardMessageDialog({
       toast.error(t.weldchat.forwardMessage.linkUnavailable);
       return;
     }
-    const url = `${window.location.origin}/weldchat/${sourceChannelId}?msg=${messageId}`;
+    const url = workspaceUrl(`/weldchat/${sourceChannelId}?msg=${messageId}`);
     navigator.clipboard.writeText(url).then(
       () => toast.success(t.weldchat.forwardMessage.messageLinkCopied),
       () => toast.error(t.sweep.entities.copyLinkFailed),

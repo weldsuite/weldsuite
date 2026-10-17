@@ -141,6 +141,11 @@ const REVIEWED = [
     reason: 'Single-provider switch kept on purpose as the explicit seam for further gateway providers.',
     files: ['packages/core/ai/src/config.ts'],
   },
+  {
+    rule: 'sonarjs/no-hardcoded-ip',
+    reason: 'Dotted chart-of-accounts codes such as 1.1.4.10 (Brazilian plano de contas), not IP addresses.',
+    files: ['packages/domains/books/src/jurisdictions/br/chart-of-accounts.ts'],
+  },
 ];
 
 // Paths are literal file names; brackets and parentheses in route folders

@@ -5,18 +5,80 @@
  * in wrangler.toml `[triggers]` (api-worker had these crons configured only in
  * the Cloudflare dashboard; the app-api re-host makes them declarative).
  *
- * Reads enabled digest schedules from master DB, filters to workspaces
- * whose send_hour matches the current hour in their timezone, then
- * dispatches a SendDigestWorkflow per eligible member.
+ * Reads enabled digest schedules from master DB, keeps the workspaces whose
+ * send_hour is the current hour in their timezone (ADR FLOW-007: only those
+ * tenants are opened), then dispatches a SendDigestWorkflow per eligible member.
+ *
+ * A workspace whose pass failed (the tenant could not be opened, or some member's
+ * dispatch threw) is recorded in KV and retried by the next hourly passes of the
+ * same local day, and only that workspace: a pass that succeeded is never repeated.
+ * The workflow instance id carries the workspace-local date, so a retry finds the
+ * members that already got their digest (instance exists, skipped) and only
+ * dispatches the ones the failed pass missed; it also stops at local midnight.
  *
  * Ported from apps/api-worker/src/cron/digest-sweep.ts (W4 legacy-worker
  * phase-out) — only the Env/db import paths and the optional SEND_DIGEST
  * binding guard changed.
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, inArray, isNull } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getMasterDb, getTenantDbForWorkspace, schema, masterSchema } from '@weldsuite/worker-kit/db';
+
+/** True when `currentHour` is the workspace's send hour (the only hour its tenant is opened). */
+export function isDue(currentHour: number, sendHour: number): boolean {
+  return currentHour === sendHour;
+}
+
+/** KV prefix of the workspaces whose pass failed and is retried the same local day. */
+export const RETRY_KEY_PREFIX = 'flow:digest-retry:';
+
+/** A retry record outlives the local day it belongs to; older ones are dropped on sight. */
+const RETRY_TTL_SECONDS = 26 * 60 * 60;
+
+/** The failed pass of one workspace, retried until its local day ends. */
+interface DigestRetry {
+  timezone: string;
+  /** Workspace-local date (YYYY-MM-DD) of the failed pass. */
+  date: string;
+}
+
+export async function recordRetry(kv: KVNamespace, workspaceId: string, retry: DigestRetry): Promise<void> {
+  try {
+    await kv.put(RETRY_KEY_PREFIX + workspaceId, JSON.stringify(retry), { expirationTtl: RETRY_TTL_SECONDS });
+  } catch (err) {
+    console.warn(`[DigestSweep] could not record retry for ${workspaceId}:`, err);
+  }
+}
+
+export async function clearRetry(kv: KVNamespace, workspaceId: string): Promise<void> {
+  await kv.delete(RETRY_KEY_PREFIX + workspaceId).catch(() => undefined);
+}
+
+/**
+ * Workspaces to retry now: recorded failures that are still on the local day of the
+ * failed pass and whose schedule is still enabled. Anything else is dropped. A KV
+ * failure only loses the retries; it never widens the sweep to other tenants.
+ */
+export async function listRetries(
+  kv: KVNamespace,
+  schedules: Map<string, DueSchedule>,
+): Promise<DueSchedule[]> {
+  const retries: DueSchedule[] = [];
+  try {
+    const { keys } = await kv.list({ prefix: RETRY_KEY_PREFIX });
+    for (const { name } of keys) {
+      const workspaceId = name.slice(RETRY_KEY_PREFIX.length);
+      const record = await kv.get<DigestRetry>(name, 'json');
+      const sameDay = record && schedules.has(workspaceId) && getTodayInTimezone(record.timezone) === record.date;
+      if (record && sameDay) retries.push({ workspaceId, timezone: record.timezone });
+      else await clearRetry(kv, workspaceId);
+    }
+  } catch (err) {
+    console.warn('[DigestSweep] could not read the retry list:', err);
+  }
+  return retries;
+}
 
 /**
  * Compute current hour for each timezone using Intl.DateTimeFormat.
@@ -61,7 +123,6 @@ function getTodayInTimezone(timezone: string): string {
 }
 
 type MasterDb = ReturnType<typeof getMasterDb>;
-type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
 type SendDigestWorkflow = NonNullable<Env['SEND_DIGEST']>;
 
 interface DigestMember {
@@ -75,51 +136,66 @@ interface DueSchedule {
   timezone: string;
 }
 
+/** The slice of a member's notification preferences the digest honours. */
+interface DigestPreferences {
+  doNotDisturb: boolean | null;
+  modulePreferences: unknown;
+}
+
+type DispatchResult = 'dispatched' | 'skipped' | 'already-sent';
+
+/** Whether the member opted out of the digest (do-not-disturb, or digest / email preference disabled). */
+function hasOptedOut(prefs: DigestPreferences | undefined): boolean {
+  if (prefs?.doNotDisturb) return true;
+  const modulePrefs = prefs?.modulePreferences as Record<string, { enabled?: boolean; email?: boolean }> | null | undefined;
+  return modulePrefs?.digest?.enabled === false || modulePrefs?.digest?.email === false;
+}
+
+/** `workflow.create` rejects an id that already has an instance. */
+function isDuplicateInstance(err: unknown): boolean {
+  return err instanceof Error && /already[_ ]exists/i.test(err.message);
+}
+
 /**
  * Dispatch the digest workflow for one member unless they have no email or
- * opted out (do-not-disturb, or digest/email preference disabled).
- * Returns true when a workflow instance was created.
+ * opted out. 'already-sent' means today's instance exists (an earlier pass
+ * dispatched it), which is what makes a repeat pass safe.
  */
-async function dispatchMemberDigest(
+export async function dispatchMemberDigest(
   workflow: SendDigestWorkflow,
-  db: TenantDb,
+  prefs: DigestPreferences | undefined,
   clerkOrgId: string,
   member: DigestMember,
   timezone: string,
   dateStr: string,
-): Promise<boolean> {
-  if (!member.email) return false;
+): Promise<DispatchResult> {
+  if (!member.email || hasOptedOut(prefs)) return 'skipped';
 
-  // Check notification preferences
-  const [prefs] = await db
-    .select()
-    .from(schema.notificationPreferences)
-    .where(eq(schema.notificationPreferences.userId, member.userId))
-    .limit(1);
-
-  if (prefs?.doNotDisturb) return false;
-
-  const modulePrefs = prefs?.modulePreferences as Record<string, any> | null;
-  if (modulePrefs?.digest?.enabled === false || modulePrefs?.digest?.email === false) return false;
-
-  // Dispatch workflow
-  await workflow.create({
-    id: `digest-${clerkOrgId}-${member.userId}-${dateStr}`,
-    params: {
-      workspaceId: clerkOrgId,
-      userId: member.userId,
-      email: member.email,
-      name: member.name || member.email.split('@')[0],
-      timezone,
-    },
-  });
-  return true;
+  try {
+    await workflow.create({
+      id: `digest-${clerkOrgId}-${member.userId}-${dateStr}`,
+      params: {
+        workspaceId: clerkOrgId,
+        userId: member.userId,
+        email: member.email,
+        name: member.name || member.email.split('@')[0],
+        timezone,
+      },
+    });
+  } catch (err) {
+    if (isDuplicateInstance(err)) return 'already-sent';
+    throw err;
+  }
+  return 'dispatched';
 }
 
 /**
- * Dispatch digests for every active member of one due workspace.
- * `counter.dispatched` is bumped per member so a mid-workspace failure still
- * keeps the count of workflows already created.
+ * Dispatch digests for every active member of one due workspace. One member's
+ * failure is logged and does not stop the rest; the caller records the workspace
+ * for a retry when any member failed (members already dispatched are skipped on
+ * the retry). `counter.dispatched` is bumped per member so a mid-workspace
+ * failure still keeps the count of workflows already created. Returns how many
+ * members failed.
  */
 async function sweepWorkspace(
   env: Env,
@@ -127,7 +203,7 @@ async function sweepWorkspace(
   masterDb: MasterDb,
   schedule: DueSchedule,
   counter: { dispatched: number },
-): Promise<void> {
+): Promise<number> {
   // Look up clerkOrgId
   const [workspace] = await masterDb
     .select({ clerkOrgId: masterSchema.workspaces.clerkOrgId })
@@ -137,7 +213,7 @@ async function sweepWorkspace(
 
   if (!workspace?.clerkOrgId) {
     console.warn(`[DigestSweep] Workspace ${schedule.workspaceId} has no clerkOrgId`);
-    return;
+    return 0;
   }
 
   const db = await getTenantDbForWorkspace(env, workspace.clerkOrgId);
@@ -155,13 +231,43 @@ async function sweepWorkspace(
       eq(schema.workspaceMembers.status, 'ACTIVE'),
       isNull(schema.workspaceMembers.deletedAt),
     ));
+  if (members.length === 0) return 0;
 
+  // Notification preferences for the whole workspace in one query.
+  const prefRows = await db
+    .select({
+      userId: schema.notificationPreferences.userId,
+      doNotDisturb: schema.notificationPreferences.doNotDisturb,
+      modulePreferences: schema.notificationPreferences.modulePreferences,
+    })
+    .from(schema.notificationPreferences)
+    .where(inArray(schema.notificationPreferences.userId, members.map((m) => m.userId)));
+  const prefsByUser = new Map(prefRows.map((row) => [row.userId, row]));
+
+  let failed = 0;
   for (const member of members) {
-    const sent = await dispatchMemberDigest(workflow, db, workspace.clerkOrgId, member, schedule.timezone, dateStr);
-    if (sent) counter.dispatched++;
+    try {
+      const result = await dispatchMemberDigest(
+        workflow,
+        prefsByUser.get(member.userId),
+        workspace.clerkOrgId,
+        member,
+        schedule.timezone,
+        dateStr,
+      );
+      if (result === 'dispatched') counter.dispatched++;
+    } catch (err) {
+      failed++;
+      console.error(
+        `[DigestSweep] Failed member ${member.userId} in workspace ${schedule.workspaceId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
-  console.log(`[DigestSweep] Dispatched for workspace ${schedule.workspaceId}: ${members.length} members checked`);
+  const failureNote = failed > 0 ? `, ${failed} failed (retried next pass)` : '';
+  console.log(`[DigestSweep] Workspace ${schedule.workspaceId}: ${members.length} members checked${failureNote}`);
+  return failed;
 }
 
 /**
@@ -197,21 +303,39 @@ export async function runDigestSweep(env: Env): Promise<{ dispatched: number }> 
   const uniqueTimezones = [...new Set(allSchedules.map((s) => s.timezone))];
   const hourByTimezone = getCurrentHourForTimezones(uniqueTimezones);
 
-  // Filter to workspaces whose send_hour matches current hour in their timezone
-  const dueWorkspaces = allSchedules.filter((s) => {
+  // Only workspaces whose send_hour is the current hour in their timezone.
+  const dueWorkspaces: DueSchedule[] = allSchedules.filter((s) => {
     const currentHour = hourByTimezone.get(s.timezone);
-    return currentHour !== undefined && currentHour === s.sendHour;
+    return currentHour !== undefined && isDue(currentHour, s.sendHour);
   });
 
-  console.log(`[DigestSweep] ${dueWorkspaces.length} workspaces due (of ${allSchedules.length} enabled)`);
+  // Plus the workspaces whose earlier pass today failed, and only those.
+  const dueIds = new Set(dueWorkspaces.map((s) => s.workspaceId));
+  const schedulesById = new Map(allSchedules.map((s) => [s.workspaceId, s]));
+  const retries = (await listRetries(env.WORKSPACE_CACHE, schedulesById)).filter((s) => !dueIds.has(s.workspaceId));
+  const toSweep = [...dueWorkspaces, ...retries];
+
+  console.log(
+    `[DigestSweep] ${dueWorkspaces.length} workspaces due, ${retries.length} retried (of ${allSchedules.length} enabled)`,
+  );
 
   const counter = { dispatched: 0 };
 
-  for (const schedule of dueWorkspaces) {
+  for (const schedule of toSweep) {
+    let failed: number;
     try {
-      await sweepWorkspace(env, env.SEND_DIGEST, masterDb, schedule, counter);
+      failed = await sweepWorkspace(env, env.SEND_DIGEST, masterDb, schedule, counter);
     } catch (err) {
+      failed = 1;
       console.error(`[DigestSweep] Failed workspace ${schedule.workspaceId}:`, err instanceof Error ? err.message : err);
+    }
+    if (failed > 0) {
+      await recordRetry(env.WORKSPACE_CACHE, schedule.workspaceId, {
+        timezone: schedule.timezone,
+        date: getTodayInTimezone(schedule.timezone),
+      });
+    } else if (!dueIds.has(schedule.workspaceId)) {
+      await clearRetry(env.WORKSPACE_CACHE, schedule.workspaceId);
     }
   }
 

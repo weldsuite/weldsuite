@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ParticipantTile, ScreenShareTile } from './participant-tile';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import { useSpeakerOutput } from '../hooks/use-speaker-output';
@@ -726,7 +727,13 @@ function CaptionsOverlay({ captions }: Readonly<{ captions: NonNullable<MeetingR
   );
 }
 
-/** Wraps the room in a fixed full-screen overlay when fullscreen is on. */
+/**
+ * Wraps the room in a fixed full-screen overlay when fullscreen is on.
+ *
+ * Portaled to <body>: the platform mounts its call overlays inside the page
+ * content card, a `z-10` stacking context, where no z-index can lift the room
+ * above the app's `z-50` sidebar rail (it showed through the call).
+ */
 function FullscreenFrame({
   isFullscreen,
   rightReservation,
@@ -737,7 +744,7 @@ function FullscreenFrame({
   children: ReactNode;
 }>) {
   if (!isFullscreen) return <>{children}</>;
-  return (
+  const frame = (
     <div
       className="fixed inset-0 z-50 flex bg-background transition-[right] duration-200"
       style={rightReservation > 0 ? { right: `${rightReservation}px` } : undefined}
@@ -745,6 +752,7 @@ function FullscreenFrame({
       {children}
     </div>
   );
+  return typeof document === 'undefined' ? frame : createPortal(frame, document.body);
 }
 
 /**

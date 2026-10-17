@@ -215,7 +215,7 @@ export function SheetTabBar({
           <Button
             variant="ghost"
             className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground h-auto justify-start"
-            onClick={() => { onDuplicateSheet(menuSheet.id, `${menuSheet.name} (copy)`); setMenuSheetId(null); }}
+            onClick={() => { onDuplicateSheet(menuSheet.id, `${menuSheet.name} (${t.projects.sidebar.copySuffix})`); setMenuSheetId(null); }}
           >
             <Copy className="h-3.5 w-3.5 mr-2" />
             {t.projects.table.duplicateSheet}

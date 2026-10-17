@@ -234,6 +234,23 @@ jobs:
         working-directory: apps/workers/personal-api
         run: pnpm test
 
+  # Public API (wsk_ keys) and the MCP server. Both boot pglite in-process, so
+  # each package runs on its own (pglite crashes when many instances start
+  # at once); the two run one after the other on this runner.
+  unit-public-api:
+    name: Unit · external-api + mcp-server
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Run Vitest · external-api
+        working-directory: apps/workers/external-api
+        run: pnpm test
+      - name: Run Vitest · mcp-server
+        working-directory: apps/workers/mcp-server
+        run: pnpm test
+
   unit-platform:
     name: Unit · platform
     runs-on: ubuntu-latest

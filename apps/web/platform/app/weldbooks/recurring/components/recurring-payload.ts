@@ -3,12 +3,13 @@ import type { RecurringInvoice } from '@/lib/api/domains/weldbooks';
 import type { RecurringTemplateTaxItem } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { cleanTaxRateId } from '@/lib/weldbooks/document-tax';
 import { dimensionPayload, type SalesTaxLineValues } from '@/lib/weldbooks/document-tax-form';
+import { brDocumentPayload, brLinePayload, type BrDocumentValues, type BrLineValues } from '@/lib/weldbooks/br-fiscal';
 
 export const RECURRING_FREQUENCIES = ['weekly', 'biweekly', 'monthly', 'quarterly', 'biannually', 'yearly'] as const;
 export type RecurringFrequency = (typeof RECURRING_FREQUENCIES)[number];
 
 /** A line of the recurring invoice form. */
-export interface RecurringLineValues extends Partial<SalesTaxLineValues> {
+export interface RecurringLineValues extends Partial<SalesTaxLineValues>, Partial<BrLineValues> {
   description: string;
   quantity: number | string;
   unitPrice: number | string;
@@ -19,7 +20,7 @@ export interface RecurringLineValues extends Partial<SalesTaxLineValues> {
   accountId?: string;
 }
 
-export interface RecurringFormShape {
+export interface RecurringFormShape extends Partial<BrDocumentValues> {
   name?: string;
   contactId: string;
   frequency: RecurringFrequency;
@@ -39,13 +40,15 @@ export interface RecurringPayloadOptions {
   mode: 'add' | 'edit';
   /** The entity charges sales tax (a US entity): lines carry tax code, use and inclusion; the template an origin. */
   salesTax: boolean;
+  /** The entity keeps Brazilian books: lines carry NCM, CFOP and fiscal details, the template its withholdings. */
+  br?: boolean;
   currency?: string | null;
   /** The template as stored, so fields the form doesn't show (internal notes, revenue account) survive an edit. */
   existing?: RecurringInvoice['templateData'];
 }
 
 /** One template line. Template amounts are numbers (the schema of `recurring_invoices.template_data`). */
-function templateItem(item: RecurringLineValues, salesTax: boolean): RecurringTemplateTaxItem {
+function templateItem(item: RecurringLineValues, salesTax: boolean, br: boolean): RecurringTemplateTaxItem {
   return {
     description: item.description,
     quantity: Number(item.quantity) || 0,
@@ -62,6 +65,7 @@ function templateItem(item: RecurringLineValues, salesTax: boolean): RecurringTe
         }
       : {}),
     ...dimensionPayload(item),
+    ...(br ? brLinePayload(item) : {}),
   };
 }
 
@@ -78,7 +82,8 @@ export function buildRecurringPayload(values: RecurringFormShape, options: Recur
 
   const templateData = {
     ...(existing ?? {}),
-    items: values.items.map((item) => templateItem(item, salesTax)),
+    items: values.items.map((item) => templateItem(item, salesTax, Boolean(options.br))),
+    ...(options.br ? { fiscalData: brDocumentPayload(values) } : {}),
     notes: values.notes || undefined,
     reference: values.reference || undefined,
     paymentTermsDays: Number.isFinite(terms) && terms > 0 ? terms : undefined,

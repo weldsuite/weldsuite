@@ -8,6 +8,7 @@
 
 import { eq, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
+import { workspaceAppUrl } from '@weldsuite/emails';
 import { createAndDeliverNotification } from '../orchestrator';
 import type { Database, NotificationEnv } from '../types';
 
@@ -91,7 +92,7 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
   }
 
   const baseUrl = env.PUBLIC_APP_URL ?? '';
-  const absoluteUrl = baseUrl ? `${baseUrl}${actionUrl}` : actionUrl;
+  const absoluteUrl = baseUrl ? workspaceAppUrl(baseUrl, workspaceId, actionUrl) : actionUrl;
 
   return createAndDeliverNotification({
     db,
@@ -123,7 +124,7 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
         timezone,
         description: taskDescription,
         taskUrl: absoluteUrl,
-        settingsUrl: baseUrl ? `${baseUrl}/settings/notifications` : undefined,
+        settingsUrl: baseUrl ? workspaceAppUrl(baseUrl, workspaceId, '/settings/notifications') : undefined,
       },
     },
   });

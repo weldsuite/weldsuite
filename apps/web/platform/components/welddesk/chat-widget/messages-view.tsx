@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 import { Button } from '@weldsuite/ui/components/button';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface MessagesViewProps {
   onClose: () => void;
@@ -49,6 +50,7 @@ export function MessagesView({
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking'],
   hideCloseButton = false
 }: Readonly<MessagesViewProps>) {
+  const { t } = useI18n();
   const [activeTab] = useState('messages');
   const [showSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,23 +59,23 @@ export function MessagesView({
   const allMessages = [
     {
       id: '1',
-      title: 'Third',
-      preview: 'Hi 👋 How can I help you?',
-      time: '6 dagen geleden',
+      title: t.helpdeskWidget.messages.samples.first.title,
+      preview: t.helpdeskWidget.messages.samples.first.preview,
+      time: t.helpdeskWidget.messages.samples.first.time,
       unread: false
     },
     {
       id: '2', 
-      title: 'Support',
-      preview: 'Your issue has been resolved. Please check and confirm.',
-      time: '2 weken geleden',
+      title: t.helpdeskWidget.messages.samples.second.title,
+      preview: t.helpdeskWidget.messages.samples.second.preview,
+      time: t.helpdeskWidget.messages.samples.second.time,
       unread: false
     },
     {
       id: '3',
-      title: 'Billing',
-      preview: 'Your invoice for this month is ready for review.',
-      time: '1 maand geleden',
+      title: t.helpdeskWidget.messages.samples.third.title,
+      preview: t.helpdeskWidget.messages.samples.third.preview,
+      time: t.helpdeskWidget.messages.samples.third.time,
       unread: false
     }
   ];
@@ -96,10 +98,10 @@ export function MessagesView({
           <MessageSquare size={28} className="text-gray-400 dark:text-muted-foreground" strokeWidth={1.5} />
         </div>
         <h3 className="text-gray-900 dark:text-foreground font-semibold text-base mb-2">
-          No conversations yet
+          {t.helpdeskWidget.messages.emptyTitle}
         </h3>
         <p className="text-gray-500 dark:text-muted-foreground text-sm leading-relaxed mb-6">
-          Start a new conversation with our support team
+          {t.helpdeskWidget.messages.emptyDescription}
         </p>
         <Button
           variant="ghost"
@@ -107,7 +109,7 @@ export function MessagesView({
           className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg transition-all duration-150 text-sm font-medium hover:bg-blue-700"
         >
           <Plus size={16} strokeWidth={2} />
-          New conversation
+          {t.helpdeskWidget.messages.newConversation}
         </Button>
       </div>
     );
@@ -118,10 +120,10 @@ export function MessagesView({
           <Search size={28} className="text-gray-400 dark:text-muted-foreground" strokeWidth={1.5} />
         </div>
         <h3 className="text-gray-900 dark:text-foreground font-semibold text-base mb-2">
-          No results found
+          {t.helpdeskWidget.messages.noResultsTitle}
         </h3>
         <p className="text-gray-500 dark:text-muted-foreground text-sm leading-relaxed">
-          Try searching with different keywords
+          {t.helpdeskWidget.messages.noResultsDescription}
         </p>
       </div>
     );
@@ -205,7 +207,7 @@ export function MessagesView({
             letterSpacing: '-0.01em',
           }}
         >
-          Messages
+          {t.helpdeskWidget.messages.title}
         </h2>
 
         {/* Actions */}
@@ -214,7 +216,7 @@ export function MessagesView({
             variant="ghost"
             onClick={() => !hideCloseButton && onClose()}
             className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all duration-150 p-0"
-            aria-label="Close"
+            aria-label={t.helpdeskWidget.common.close}
           >
             <X
               size={18}
@@ -235,7 +237,7 @@ export function MessagesView({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search conversations..."
+                placeholder={t.helpdeskWidget.messages.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
@@ -262,7 +264,7 @@ export function MessagesView({
             onClick={onOpenChat}
             className="h-10 w-[189px] flex items-center justify-center gap-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-[10px] text-sm font-medium transition-all duration-200 hover:bg-gray-800 dark:hover:bg-gray-200"
           >
-            Send new message
+            {t.helpdeskWidget.messages.sendNewMessage}
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
               <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
             </svg>
@@ -283,16 +285,16 @@ export function MessagesView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: () => {} },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: onNavigateAppointments },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: () => {} },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: onNavigateAppointments },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

@@ -27,9 +27,11 @@ import { bankReconciliationsRoutes } from './bank-reconciliations';
 import { billsRoutes } from './bills';
 import { exemptionCertificatesRoutes } from './exemption-certificates';
 import { fiscalPeriodsRoutes } from './fiscal-periods';
+import { fiscalDocumentsRoutes } from './fiscal-documents';
 import { fixedAssetsRoutes } from './fixed-assets';
 import { form1099FilingsRoutes } from './form-1099/filings';
 import { invoicesRoutes } from './invoices';
+import { invoiceTemplatesRoutes } from './invoice-templates';
 import { paymentRunsRoutes } from './payment-runs';
 import { payrollConnectionsRoutes, payrollImportsRoutes } from './payroll';
 import { paymentsRoutes } from './payments';
@@ -38,6 +40,7 @@ import { salesTaxJurisdictionsRoutes } from './sales-tax-jurisdictions';
 import { salesTaxRulesRoutes } from './sales-tax-rules';
 import { salesTaxZonesRoutes } from './sales-tax-zones';
 import { taxReturnsRoutes } from './tax-returns';
+import { receivedFiscalDocumentsRoutes } from './received-fiscal-documents';
 import { w9RequestsRoutes } from './w9-requests';
 
 const ROUTES_DIR = __dirname;
@@ -63,6 +66,8 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/sales-tax-rules', router: salesTaxRulesRoutes, prefix: 'taxes' },
   { mount: '/api/exemption-certificates', router: exemptionCertificatesRoutes, prefix: 'taxes' },
   { mount: '/api/fixed-assets', router: fixedAssetsRoutes, prefix: 'accounts' },
+  // Invoice templates: read with invoices:read, changed with the accounts:* settings keys.
+  { mount: '/api/invoice-templates', router: invoiceTemplatesRoutes, prefix: 'accounts' },
   // Payroll: imports are created through POST /csv (not POST /) and reversed by DELETE; never patched.
   { mount: '/api/payroll/imports', router: payrollImportsRoutes, prefix: 'journal', skipPost: true, skipPatch: true },
   { mount: '/api/payroll/connections', router: payrollConnectionsRoutes, prefix: 'journal', skipPatch: true },
@@ -87,6 +92,7 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/exemption-certificates', router: exemptionCertificatesRoutes, permission: 'taxes:read' },
   { mount: '/api/bills', router: billsRoutes, permission: 'bills:read' },
   { mount: '/api/fixed-assets', router: fixedAssetsRoutes, permission: 'accounts:read' },
+  { mount: '/api/invoice-templates', router: invoiceTemplatesRoutes, permission: 'invoices:read' },
   { mount: '/api/payroll/imports', router: payrollImportsRoutes, permission: 'journal:read' },
   { mount: '/api/payroll/connections', router: payrollConnectionsRoutes, permission: 'journal:read' },
   { mount: '/api/fiscal-periods', router: fiscalPeriodsRoutes, permission: 'reports:read' },
@@ -97,6 +103,9 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/payment-runs', router: paymentRunsRoutes, permission: 'bills:read' },
   { mount: '/api/form-1099/filings', router: form1099FilingsRoutes, permission: 'taxes:read' },
   { mount: '/api/w9-requests', router: w9RequestsRoutes, permission: 'taxes:read' },
+  // Brazil: fiscal documents are issued through POST /issue and received ones fetched through POST /sync, not created by POST /.
+  { mount: '/api/fiscal-documents', router: fiscalDocumentsRoutes, permission: 'invoices:read' },
+  { mount: '/api/received-fiscal-documents', router: receivedFiscalDocumentsRoutes, permission: 'bills:read' },
 ];
 
 describe('entity-event coverage', () => {

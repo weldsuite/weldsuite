@@ -1,6 +1,8 @@
 # Contributing to WeldSuite
 
-Thanks for your interest in contributing! This guide covers how to get set up, how we work, and what we expect in a pull request.
+This guide is for members of the [weldsuite](https://github.com/weldsuite) GitHub organization. It covers how to get set up, how we work, and what we expect in a pull request.
+
+> **Outside contributions are not accepted.** Pull requests and issues on this repository can only be opened by people with write access, i.e. members of the organization. The source is public so you can audit and self-host it. To report a vulnerability, see [SECURITY.md](./SECURITY.md).
 
 Work lands on **`develop`** (test). Production is a PR from `develop` into **`main`**.
 

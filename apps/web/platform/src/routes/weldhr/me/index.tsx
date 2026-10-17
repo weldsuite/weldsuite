@@ -4,7 +4,7 @@ import { LEGACY_MY_HR_TABS, MY_HR_PATHS } from '@/app/weldhr/access';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldhr/me/')({
-  staticData: { breadcrumb: { label: 'Overview' } },
+  staticData: { breadcrumb: { labelKey: 'overview' } },
   validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
     tab: typeof search.tab === 'string' ? search.tab : undefined,
   }),

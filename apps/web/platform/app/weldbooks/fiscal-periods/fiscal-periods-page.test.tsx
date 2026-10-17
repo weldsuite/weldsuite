@@ -28,6 +28,13 @@ vi.mock('@/hooks/queries/use-weldbooks-assets-queries', () => ({
 import FiscalPeriodsPage from './page';
 import { polyfillRadixSelect, renderWithProviders } from '../fixed-assets/test-utils';
 
+/** The list row (a `group` div of the standard list) of a period, found by its name. */
+function rowOf(name: string): HTMLElement {
+  const row = screen.getByText(name).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row for ${name}`);
+  return row;
+}
+
 const weekPeriods = (existing: number): PlannedFiscalPeriod[] => {
   // A 53-week year: three quarters of 4-4-5 weeks and a last one of 4-4-6.
   const weeks = [4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4, 6];
@@ -75,12 +82,12 @@ describe('Fiscal periods page', () => {
     expect(screen.getByTestId('fiscal-weeks')).toHaveTextContent('53-week year');
     expect(screen.getByText(/the extra week is in period 12, which has six weeks/)).toBeInTheDocument();
 
-    const first = screen.getByTestId('fiscal-period-FY2026 P01');
+    const first = rowOf('FY2026 P01');
     expect(within(first).getByText('4')).toBeInTheDocument();
     expect(within(first).getByText('Exists')).toBeInTheDocument();
-    const third = screen.getByTestId('fiscal-period-FY2026 P03');
+    const third = rowOf('FY2026 P03');
     expect(within(third).getByText('5')).toBeInTheDocument();
-    const last = screen.getByTestId('fiscal-period-FY2026 P12');
+    const last = rowOf('FY2026 P12');
     expect(within(last).getByText('6')).toBeInTheDocument();
     expect(within(last).getByText('To create')).toBeInTheDocument();
   });
@@ -139,7 +146,7 @@ describe('Fiscal periods page', () => {
 
     expect(screen.getByTestId('fiscal-summary')).toHaveTextContent('Calendar months');
     expect(screen.queryByTestId('fiscal-weeks')).not.toBeInTheDocument();
-    expect(screen.queryByRole('columnheader', { name: 'Weeks' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Weeks')).not.toBeInTheDocument();
     expect(screen.getByTestId('fiscal-generate')).toHaveTextContent('Create 12 missing periods');
   });
 
@@ -155,7 +162,7 @@ describe('Fiscal periods page', () => {
     permissions.delete('reports:create');
     renderWithProviders(<FiscalPeriodsPage />);
     expect(screen.queryByTestId('fiscal-generate')).not.toBeInTheDocument();
-    expect(screen.getByTestId('fiscal-period-FY2026 P01')).toBeInTheDocument();
+    expect(rowOf('FY2026 P01')).toBeInTheDocument();
   });
 });
 
@@ -189,10 +196,10 @@ describe('Fiscal periods page: closing and reopening', () => {
     renderWithProviders(<FiscalPeriodsPage />);
     expect(screen.getByTestId('fiscal-status-FY2026 P01')).toHaveTextContent('Open');
     expect(screen.getByTestId('fiscal-status-FY2026 P02')).toHaveTextContent('Closed');
-    const locked = screen.getByTestId('fiscal-period-FY2026 P03');
+    const locked = rowOf('FY2026 P03');
     expect(within(locked).getByText('Open')).toBeInTheDocument();
     expect(within(locked).getByText('Locked')).toBeInTheDocument();
-    expect(within(screen.getByTestId('fiscal-period-FY2026 P04')).getByText('To create')).toBeInTheDocument();
+    expect(within(rowOf('FY2026 P04')).getByText('To create')).toBeInTheDocument();
     // A period that does not exist has nothing to close.
     expect(screen.queryByTestId('fiscal-close-FY2026 P04')).not.toBeInTheDocument();
   });

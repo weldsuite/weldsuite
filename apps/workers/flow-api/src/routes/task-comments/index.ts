@@ -2,7 +2,8 @@
  * Task comment routes — /api/task-comments/*.
  *
  * Comments on WeldFlow project tasks. `authorId` is set from the Clerk
- * session; only the author can edit/delete their own comment. The list
+ * session; only the author can edit their own comment, and the author or a
+ * manager of the task's project can delete it. The list
  * response includes `authorName` and `authorAvatar` joined from
  * `workspaceMembers` so the UI doesn't need a second round trip.
  *
@@ -10,16 +11,22 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessTaskProject, canWriteTaskProject } from '../../lib/project-access';
+import {
+  accessibleProjectIds,
+  canAccessTaskProject,
+  canManageProject,
+  canWriteTaskProject,
+} from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.taskComments;
@@ -45,6 +52,26 @@ const updateCommentSchema = z.object({
   content: z.string().min(1),
 });
 
+/** May the caller delete other people's comments on this task: they manage its project. */
+async function canModerateComment(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  taskId: string,
+): Promise<boolean> {
+  const [task] = await c
+    .get('tenantDb')
+    .select({ projectId: schema.tasks.projectId })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, taskId))
+    .limit(1);
+  return !!task?.projectId && canManageProject(c, task.projectId);
+}
+
+/** Tasks in the caller's projects, plus personal ones; no limit for scope:all (`null`). */
+function taskProjectScope(accessible: string[] | null): SQL | undefined {
+  if (accessible === null) return undefined;
+  return or(isNull(schema.tasks.projectId), inArray(schema.tasks.projectId, accessible.length ? accessible : ['']));
+}
+
 app.get('/', requirePermission('tasks:read'), zValidator('query', listFiltersSchema), async (c) => {
   const db = c.get('tenantDb');
   const f = c.req.valid('query');
@@ -58,26 +85,23 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listFiltersSch
   if (f.authorId) conditions.push(eq(t.authorId, f.authorId));
   // A comment's access follows its task's project.
   if (f.taskId) {
-    if ((await canAccessTaskProject(c, f.taskId)) === 'denied') return error.forbidden(c, TASK_DENIED);
+    const access = await canAccessTaskProject(c, f.taskId);
+    if (access === 'not-found') return error.notFound(c, 'Task', f.taskId);
+    if (access === 'denied') return error.forbidden(c, TASK_DENIED);
   } else {
-    // No task filter: restrict to comments whose task is in an accessible
-    // project. taskComments has no projectId, so constrain via a subquery on
-    // tasks. NOTE: non-project tasks (null projectId) are included and are NOT
-    // owner-scoped — the same known-deferred gap as the tasks route (no
-    // per-user gate on personal/CRM tasks yet).
+    // No task filter: restrict to comments whose task is live and in an
+    // accessible project. taskComments has no projectId, so constrain via a
+    // subquery on tasks. A deleted task's comments never list (they are removed
+    // with it, and rows from before that must not leak). NOTE: non-project tasks
+    // (null projectId) are included and are NOT owner-scoped — the same
+    // known-deferred gap as the tasks route (no per-user gate on personal/CRM
+    // tasks yet).
     const accessible = await accessibleProjectIds(c);
-    if (accessible !== null) {
-      const accessibleTaskIds = db
-        .select({ id: schema.tasks.id })
-        .from(schema.tasks)
-        .where(
-          or(
-            isNull(schema.tasks.projectId),
-            inArray(schema.tasks.projectId, accessible.length ? accessible : ['']),
-          ),
-        );
-      conditions.push(inArray(t.taskId, accessibleTaskIds));
-    }
+    const accessibleTaskIds = db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(and(isNull(schema.tasks.deletedAt), taskProjectScope(accessible)));
+    conditions.push(inArray(t.taskId, accessibleTaskIds));
   }
   const where = and(...conditions);
 
@@ -129,9 +153,10 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   try {
     const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!row) return error.notFound(c, 'Task comment', id);
-    if ((await canAccessTaskProject(c, row.taskId)) === 'denied') {
-      return error.forbidden(c, TASK_DENIED);
-    }
+    const access = await canAccessTaskProject(c, row.taskId);
+    // The comments of a deleted task are gone with it.
+    if (access === 'not-found') return error.notFound(c, 'Task comment', id);
+    if (access === 'denied') return error.forbidden(c, TASK_DENIED);
     return success(c, row);
   } catch (err) {
     console.error('[app-api/task-comments] get failed:', err);
@@ -213,18 +238,22 @@ app.patch(
   },
 );
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+// Gated on `tasks:update`, not `tasks:delete`: a member deletes their own
+// comment (the default MEMBER role holds tasks:update but not tasks:delete), and
+// a manager of the task's project (project admin / owner, `projects:scope:all`)
+// may remove anyone's, to moderate.
+app.delete('/:id', requirePermission('tasks:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const userId = c.get('userId');
   try {
     const [existing] = await db
-      .select({ authorId: t.authorId })
+      .select({ authorId: t.authorId, taskId: t.taskId })
       .from(t)
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Task comment', id);
-    if (existing.authorId !== userId) {
+    if (existing.authorId !== userId && !(await canModerateComment(c, existing.taskId))) {
       return error.forbidden(c, 'You can only delete your own comments');
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));

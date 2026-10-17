@@ -45,6 +45,7 @@ export function invoiceDocumentContext(invoice: InvoiceRow): UsDocumentContext {
     shippingAddress: invoice.shippingAddress,
     shipFromAddress: invoice.shipFromAddress,
     marketplaceFacilitated: invoice.marketplaceFacilitated,
+    fiscalData: invoice.fiscalData,
     originalInvoiceId: invoice.creditNoteForInvoiceId,
   };
 }
@@ -65,6 +66,9 @@ export function invoiceItemToTaxItem(item: InvoiceItemRow): DocumentTaxItem {
     taxIncluded: item.taxIncluded,
     taxOverrideAmount: item.taxOverrideAmount,
     taxOverrideReason: item.taxOverrideReason,
+    ncm: item.ncm,
+    cfop: item.cfop,
+    fiscalData: item.fiscalData,
   };
 }
 
@@ -76,6 +80,7 @@ export function invoiceTaxColumns(calc: CalculatedDocumentTax) {
     taxTotal: calc.taxTotal,
     total: calc.total,
     taxBreakdown: calc.taxBreakdown,
+    ...(calc.taxWarnings ? { taxWarnings: calc.taxWarnings } : {}),
     ...(calc.salesTax
       ? {
           taxEngine: calc.salesTax.engine,

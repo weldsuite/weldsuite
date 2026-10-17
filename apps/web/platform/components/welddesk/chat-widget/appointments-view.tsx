@@ -18,6 +18,7 @@ import {
   Package
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 
 interface AppointmentsViewProps {
@@ -47,6 +48,7 @@ export function AppointmentsView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
 }: Readonly<AppointmentsViewProps>) {
+  const { t, format, language } = useI18n();
   const fieldId = useId();
   const [activeTab] = useState('appointments');
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -131,13 +133,13 @@ export function AppointmentsView({
             letterSpacing: '-0.01em'
           }}
         >
-          Book Appointment
+          {t.helpdeskWidget.appointments.title}
         </h2>
         <Button
           variant="ghost"
           onClick={onClose}
           className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-md transition-all duration-150"
-          aria-label="Close"
+          aria-label={t.helpdeskWidget.common.close}
         >
           <X
             size={18}
@@ -155,7 +157,7 @@ export function AppointmentsView({
             {/* Appointment Type */}
             <div>
               <p className="block text-sm font-medium text-gray-700 mb-3">
-                Appointment Type
+                {t.helpdeskWidget.appointments.appointmentType}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <Button
@@ -169,7 +171,7 @@ export function AppointmentsView({
                   )}
                 >
                   <Video size={20} className={selectedType === 'video' ? "text-blue-600 mb-2" : "text-gray-400 mb-2"} />
-                  <p className="text-sm font-medium">Video Call</p>
+                  <p className="text-sm font-medium">{t.helpdeskWidget.appointments.videoCall}</p>
                 </Button>
                 <Button
                   variant="ghost"
@@ -182,7 +184,7 @@ export function AppointmentsView({
                   )}
                 >
                   <Phone size={20} className={selectedType === 'phone' ? "text-blue-600 mb-2" : "text-gray-400 mb-2"} />
-                  <p className="text-sm font-medium">Phone Call</p>
+                  <p className="text-sm font-medium">{t.helpdeskWidget.appointments.phoneCall}</p>
                 </Button>
               </div>
             </div>
@@ -190,7 +192,7 @@ export function AppointmentsView({
             {/* Calendar */}
             <div>
               <p className="block text-sm font-medium text-gray-700 mb-3">
-                Select Date
+                {t.helpdeskWidget.appointments.selectDate}
               </p>
               <div className="border border-gray-200 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-3">
@@ -202,7 +204,7 @@ export function AppointmentsView({
                     <ChevronLeft size={16} />
                   </Button>
                   <span className="text-sm font-medium">
-                    {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    {selectedDate.toLocaleDateString(language, { month: 'long', year: 'numeric' })}
                   </span>
                   <Button
                     variant="ghost"
@@ -214,8 +216,8 @@ export function AppointmentsView({
                 </div>
                 
                 <div className="grid grid-cols-7 gap-1 text-center">
-                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day) => (
-                    <div key={day} className="text-xs text-gray-500 py-1">{day}</div>
+                  {t.helpdeskWidget.appointments.weekdaysShort.map((day, index) => (
+                    <div key={`${index}-${day}`} className="text-xs text-gray-500 py-1">{day}</div>
                   ))}
                   {getDaysInMonth(selectedDate).map(({ key, day }) => (
                     <Button
@@ -242,7 +244,7 @@ export function AppointmentsView({
             {/* Time Selection */}
             <div>
               <p className="block text-sm font-medium text-gray-700 mb-3">
-                Select Time
+                {t.helpdeskWidget.appointments.selectTime}
               </p>
               <div className="grid grid-cols-3 gap-2">
                 {availableTimes.map((time) => (
@@ -267,7 +269,7 @@ export function AppointmentsView({
             <div className="space-y-3">
               <div>
                 <label htmlFor={`${fieldId}-name`} className="block text-sm font-medium text-gray-700 mb-1">
-                  Name
+                  {t.helpdeskWidget.appointments.name}
                 </label>
                 <input
                   id={`${fieldId}-name`}
@@ -275,12 +277,12 @@ export function AppointmentsView({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
-                  placeholder="John Smith"
+                  placeholder={t.helpdeskWidget.appointments.namePlaceholder}
                 />
               </div>
               <div>
                 <label htmlFor={`${fieldId}-email`} className="block text-sm font-medium text-gray-700 mb-1">
-                  Email
+                  {t.helpdeskWidget.appointments.email}
                 </label>
                 <input
                   id={`${fieldId}-email`}
@@ -293,7 +295,7 @@ export function AppointmentsView({
               </div>
               <div>
                 <label htmlFor={`${fieldId}-notes`} className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes (optional)
+                  {t.helpdeskWidget.appointments.notesOptional}
                 </label>
                 <textarea
                   id={`${fieldId}-notes`}
@@ -301,7 +303,7 @@ export function AppointmentsView({
                   onChange={(e) => setNotes(e.target.value)}
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-1 focus:ring-gray-300"
                   rows={2}
-                  placeholder="What would you like to discuss?"
+                  placeholder={t.helpdeskWidget.appointments.notesPlaceholder}
                 />
               </div>
             </div>
@@ -319,7 +321,7 @@ export function AppointmentsView({
               )}
             >
               <Calendar size={16} />
-              Book Appointment
+              {t.helpdeskWidget.appointments.bookAppointment}
             </Button>
           </div>
         ) : (
@@ -328,14 +330,14 @@ export function AppointmentsView({
               <Calendar size={32} className="text-green-600" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              Appointment Booked!
+              {t.helpdeskWidget.appointments.booked}
             </h3>
             <p className="text-sm text-gray-600 mb-4">
-              Your {selectedType} call is scheduled for:
+              {format(t.helpdeskWidget.appointments.scheduledFor, { type: selectedType === 'phone' ? t.helpdeskWidget.appointments.typePhone : t.helpdeskWidget.appointments.typeVideo })}
             </p>
             <div className="bg-gray-50 rounded-lg p-4">
               <p className="font-medium text-gray-900">
-                {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                {selectedDate.toLocaleDateString(language, { weekday: 'long', month: 'long', day: 'numeric' })}
               </p>
               <p className="text-gray-600 flex items-center justify-center gap-1 mt-1">
                 <Clock size={14} />
@@ -343,7 +345,7 @@ export function AppointmentsView({
               </p>
             </div>
             <p className="text-xs text-gray-500 mt-4">
-              You&apos;ll receive a confirmation email shortly
+              {t.helpdeskWidget.appointments.confirmationNotice}
             </p>
           </div>
         )}
@@ -363,16 +365,16 @@ export function AppointmentsView({
           <div className="flex items-center h-full overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <div className="flex items-center min-w-full px-2">
               {[
-                { id: 'home', icon: Home, label: 'Home', onClick: onNavigateHome },
-                { id: 'messages', icon: MessageSquare, label: 'Chat', onClick: onNavigateMessages },
-                { id: 'help', icon: HelpCircle, label: 'Help', onClick: onNavigateFAQ },
-                { id: 'status', icon: Activity, label: 'Status', onClick: onNavigateStatus },
-                { id: 'changelog', icon: Sparkles, label: 'Changelog', onClick: onNavigateChangelog },
-                { id: 'news', icon: Sparkles, label: 'News', onClick: onNavigateNews },
-                { id: 'appointments', icon: Calendar, label: 'Book', onClick: () => {} },
-                { id: 'announcements', icon: Megaphone, label: 'Announce', onClick: onNavigateAnnouncements },
-                { id: 'events', icon: Calendar, label: 'Events', onClick: onNavigateEvents },
-                { id: 'parcel-tracking', icon: Package, label: 'Track', onClick: onNavigateParcelTracking }
+                { id: 'home', icon: Home, label: t.helpdeskWidget.nav.home, onClick: onNavigateHome },
+                { id: 'messages', icon: MessageSquare, label: t.helpdeskWidget.nav.chat, onClick: onNavigateMessages },
+                { id: 'help', icon: HelpCircle, label: t.helpdeskWidget.nav.help, onClick: onNavigateFAQ },
+                { id: 'status', icon: Activity, label: t.helpdeskWidget.nav.status, onClick: onNavigateStatus },
+                { id: 'changelog', icon: Sparkles, label: t.helpdeskWidget.nav.changelog, onClick: onNavigateChangelog },
+                { id: 'news', icon: Sparkles, label: t.helpdeskWidget.nav.news, onClick: onNavigateNews },
+                { id: 'appointments', icon: Calendar, label: t.helpdeskWidget.nav.book, onClick: () => {} },
+                { id: 'announcements', icon: Megaphone, label: t.helpdeskWidget.nav.announce, onClick: onNavigateAnnouncements },
+                { id: 'events', icon: Calendar, label: t.helpdeskWidget.nav.events, onClick: onNavigateEvents },
+                { id: 'parcel-tracking', icon: Package, label: t.helpdeskWidget.nav.track, onClick: onNavigateParcelTracking }
               ].filter(tab => enabledPages.includes(tab.id)).map((tab) => (
                 <Button
                   key={tab.id}

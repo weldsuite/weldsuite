@@ -645,7 +645,7 @@ export function BusinessSettingsForm() {
                 <FormItem>
                   <FormLabel>{ts.addressLine2}</FormLabel>
                   <FormControl>
-                    <Input placeholder="2nd floor" {...field} />
+                    <Input placeholder={ts.addressLine2Placeholder} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

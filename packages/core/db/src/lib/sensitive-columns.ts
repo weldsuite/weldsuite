@@ -26,8 +26,8 @@
 export const SENSITIVE_COLUMNS = {
   /** TIN + vendor ACH account number, AES-GCM blob of `{ tin?, achAccountNumber? }`. */
   parties: ['sensitiveEncrypted'],
-  /** The owner's SSN (sole proprietor) and the customer's own sales tax engine credentials. */
-  entities: ['ssnEncrypted', 'salesTaxCredentialsEncrypted'],
+  /** The owner's SSN (sole proprietor), the customer's own sales tax engine credentials and the BR fiscal provider token. */
+  entities: ['ssnEncrypted', 'salesTaxCredentialsEncrypted', 'fiscalCredentialsEncrypted'],
   /** Full bank account number; only `accountNumberLast4` is shown. */
   bank_accounts: ['accountNumberEncrypted'],
   /** Bank feed provider access token(s). */

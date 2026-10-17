@@ -27,6 +27,7 @@ import {
 } from '@/lib/breadcrumbs/build-segments';
 import { useFallbackLabelRegistry } from './app-header-fallback-registry';
 import { useCurrentBreadcrumbsMaybe } from '@/contexts/breadcrumb-context';
+import { useI18n } from '@/lib/i18n/provider';
 
 /**
  * Crumb sizing. The trail never wraps: when the header is narrow every crumb
@@ -46,6 +47,7 @@ interface AppHeaderTrailProps {
 
 export function AppHeaderTrail({ onResolved }: Readonly<AppHeaderTrailProps>) {
   const matches = useMatches();
+  const { t } = useI18n();
   const registry = useFallbackLabelRegistry();
   const providerCrumbs = useCurrentBreadcrumbsMaybe();
 
@@ -66,8 +68,8 @@ export function AppHeaderTrail({ onResolved }: Readonly<AppHeaderTrailProps>) {
       staticData: m.staticData as MatchLike['staticData'],
       loaderData: m.loaderData as MatchLike['loaderData'],
     }));
-    return buildBreadcrumbSegments(matchLike, registry);
-  }, [matches, registry, providerCrumbs]);
+    return buildBreadcrumbSegments(matchLike, registry, (key) => t.navigation.breadcrumbs[key]);
+  }, [matches, registry, providerCrumbs, t]);
 
   useEffect(() => {
     onResolved?.({ hideAll });

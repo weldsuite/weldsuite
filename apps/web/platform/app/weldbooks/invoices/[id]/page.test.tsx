@@ -11,6 +11,7 @@ const env = vi.hoisted(() => ({
   createCreditMemo: vi.fn(),
   applyCredit: vi.fn(),
   generatePdf: vi.fn(),
+  listTemplates: vi.fn(),
   push: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
   certificates: new Map<string, { id: string; certificateNumber: string | null; reason: string; states: string[] }>(),
@@ -58,7 +59,7 @@ vi.mock('@/lib/weldbooks/invoice-pdf', () => ({
   generateInvoicePdf: env.generatePdf,
   downloadPdf: vi.fn(),
 }));
-vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: { getInvoiceAttachment: vi.fn() } }));
+vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: { getInvoiceAttachment: vi.fn(), listInvoiceTemplates: env.listTemplates } }));
 vi.mock('../components/record-payment-dialog', () => ({ RecordPaymentDialog: () => null }));
 vi.mock('@/components/page-loader', () => ({ PageLoader: () => null }));
 
@@ -145,6 +146,8 @@ describe('InvoiceDetailPage: sales tax', () => {
     env.commit.mockReset();
     env.createCreditMemo.mockReset();
     env.generatePdf.mockReset().mockResolvedValue(new Uint8Array());
+    // No designed templates: the built-in layout prints.
+    env.listTemplates.mockReset().mockResolvedValue({ data: [] });
     env.push.mockReset();
     Object.values(env.toast).forEach((fn) => fn.mockReset());
   });
@@ -272,6 +275,18 @@ describe('InvoiceDetailPage: sales tax', () => {
     expect(options.labels.jurisdictionTax).toBe('{tax} – {jurisdiction} {rate}%');
     expect(options.labels.creditNote).toBe('CREDIT MEMO');
     expect(options.labels.exempt.reasonWithCertificate).toBe('Exempt sale: {reason}. Certificate no. {number}.');
+  });
+
+  it('does not fall back to the built-in layout when the invoice templates cannot be loaded', async () => {
+    const user = userEvent.setup();
+    env.invoice = invoice();
+    env.listTemplates.mockRejectedValue(new Error('offline'));
+    renderWithProviders(<InvoiceDetailPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Download PDF' }));
+
+    await waitFor(() => expect(env.toast.error).toHaveBeenCalled());
+    expect(env.generatePdf).not.toHaveBeenCalled();
   });
 
   describe('provider sync', () => {

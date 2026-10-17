@@ -546,6 +546,7 @@ export const weldcalendar = {
       locationMeetingLinkCustomHint: 'Gasten krijgen deze link in plaats van een WeldMeet-link. Maak het veld leeg om weer voor elke boeking een WeldMeet-link aan te maken.',
       locationPhoneHint: 'De persoon die de afspraak maakt, geeft het telefoonnummer op',
       locationAddressLabel: 'Adres *',
+      locationAddressPlaceholder: 'Hoofdstraat 123, Plaats',
       locationAddressHint: 'Adres is verplicht voor persoonlijke afspraken',
       descriptionTitle: 'Omschrijving',
       descriptionHint: 'Voeg een toelichting op je dienst toe. Deze verschijnt op je boekingspagina en in bevestigingsmails.',

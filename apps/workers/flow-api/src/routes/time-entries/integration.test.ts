@@ -8,8 +8,8 @@
  *   - GET /:id        owner-only; another user's entry returns 404.
  *   - PATCH /:id      owner-only; another user's entry returns 404.
  *   - DELETE /:id     owner-only; another user's entry returns 404.
- *   - PATCH /:id/approve  cross-user (manager workflow) — NOT blocked.
- *   - PATCH /:id/reject   cross-user (manager workflow) — NOT blocked.
+ *   - PATCH /:id/approve  cross-user manager workflow (see guards.integration.test.ts).
+ *   - PATCH /:id/reject   cross-user manager workflow (see guards.integration.test.ts).
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -852,15 +852,15 @@ describe('/api/time-entries · pglite integration', () => {
   });
 
   // -----------------------------------------------------------------------
-  // PATCH /:id/approve — cross-user (manager workflow), must NOT be blocked
+  // PATCH /:id/approve — cross-user (manager workflow), for a projects:scope:all holder
   // -----------------------------------------------------------------------
 
-  it('PATCH /:id/approve approves an entry owned by a different user (manager flow)', async () => {
+  it('PATCH /:id/approve approves an entry owned by a different user (admin flow)', async () => {
     await seedEntry(db, 'time_approve_other', 'user_mary');
 
     const { request } = createTestApp('/api/time-entries', timeEntriesRoutes, {
       context: {
-        permissions: permissions('time:update'),
+        permissions: permissions('time:update', 'projects:scope:all'),
         userId: 'user_manager',
         tenantDb: db,
       },
@@ -883,15 +883,15 @@ describe('/api/time-entries · pglite integration', () => {
   });
 
   // -----------------------------------------------------------------------
-  // PATCH /:id/reject — cross-user (manager workflow), must NOT be blocked
+  // PATCH /:id/reject — cross-user (manager workflow), for a projects:scope:all holder
   // -----------------------------------------------------------------------
 
-  it('PATCH /:id/reject rejects an entry owned by a different user (manager flow)', async () => {
+  it('PATCH /:id/reject rejects an entry owned by a different user (admin flow)', async () => {
     await seedEntry(db, 'time_reject_other', 'user_nancy');
 
     const { request } = createTestApp('/api/time-entries', timeEntriesRoutes, {
       context: {
-        permissions: permissions('time:update'),
+        permissions: permissions('time:update', 'projects:scope:all'),
         userId: 'user_manager2',
         tenantDb: db,
       },

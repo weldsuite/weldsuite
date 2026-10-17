@@ -153,6 +153,17 @@ export const parties = pgTable('parties', {
     source?: 'upload' | 'online';
   }>(),
   backupWithholding: boolean('backup_withholding').default(false),
+  /**
+   * Brazil: the counterparty's state and municipal registrations and the
+   * flags the tax engine needs (ICMS taxpayer, Simples Nacional).
+   */
+  brFiscal: jsonb('br_fiscal').$type<{
+    inscricaoEstadual?: string;
+    inscricaoMunicipal?: string;
+    icmsContributor?: boolean;
+    simplesNacional?: boolean;
+    municipalityCode?: string;
+  }>(),
   /** IRS TIN Matching result: match | mismatch | not_issued | invalid | pending. */
   tinMatchStatus: varchar('tin_match_status', { length: 20 }),
   tinMatchedAt: timestamp('tin_matched_at'),

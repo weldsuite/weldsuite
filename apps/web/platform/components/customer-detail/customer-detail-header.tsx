@@ -65,6 +65,7 @@ import { useFileUpload } from '@/hooks/use-file-upload';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { InlineTextEditor } from '@/components/shared/inline-text-editor';
+import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
 interface CustomerDetailHeaderProps {
   variant?: 'page' | 'panel';
@@ -96,6 +97,7 @@ export function CustomerDetailHeader({
   onDelete,
 }: Readonly<CustomerDetailHeaderProps>) {
   const t = useTranslations();
+  const workspaceUrl = useWorkspaceUrl();
   const router = useRouter();
   const {
     data,
@@ -454,7 +456,7 @@ export function CustomerDetailHeader({
   };
 
   const shareRecordPath = recordPanelPath(customerId);
-  const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}${shareRecordPath}` : shareRecordPath;
+  const shareUrl = typeof window !== 'undefined' ? workspaceUrl(shareRecordPath) : shareRecordPath;
 
   const dialogs = (
     <HeaderDialogs
@@ -1035,10 +1037,10 @@ function HeaderDialogs({
       <ConfirmDialog
         open={confirmDeleteOpen}
         onOpenChange={onConfirmDeleteOpenChange}
-        title={isPanel ? t('sweep.weldcrm.customerDetailHeader.deleteEntityTitle', { entity: entityLabel }) : `Delete this ${entityLabel}?`}
-        description={getDeleteDescription(isPanel, customerName, entityLabel, t)}
+        title={t('sweep.weldcrm.customerDetailHeader.deleteEntityTitle', { entity: entityLabel })}
+        description={getDeleteDescription(customerName, entityLabel, t)}
         variant="destructive"
-        confirmLabel={isPanel ? t('sweep.weldcrm.customerDetailHeader.delete') : 'Delete'}
+        confirmLabel={t('sweep.weldcrm.customerDetailHeader.delete')}
         onConfirm={() => {
           onDelete?.();
         }}
@@ -1048,19 +1050,13 @@ function HeaderDialogs({
 }
 
 function getDeleteDescription(
-  isPanel: boolean,
   customerName: string,
   entityLabel: string,
   t: ReturnType<typeof useTranslations>,
 ): string {
-  if (isPanel) {
-    return customerName
-      ? t('sweep.weldcrm.customerDetailHeader.deleteNamedConfirmation', { name: customerName })
-      : t('sweep.weldcrm.customerDetailHeader.deleteEntityConfirmation', { entity: entityLabel });
-  }
   return customerName
-    ? `${customerName} will be permanently removed. This action cannot be undone.`
-    : `This ${entityLabel} will be permanently removed. This action cannot be undone.`;
+    ? t('sweep.weldcrm.customerDetailHeader.deleteNamedConfirmation', { name: customerName })
+    : t('sweep.weldcrm.customerDetailHeader.deleteEntityConfirmation', { entity: entityLabel });
 }
 
 // ────────────────────────────────────────────────────────────────────

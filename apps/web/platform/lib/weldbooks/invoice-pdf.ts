@@ -17,6 +17,8 @@ import { normalizeAccountingAddress, type StoredAccountingAddress } from './addr
 import { formatWeldbooksNumber } from './format-money';
 import { exemptNoticeText, exemptReasonsOf, groupTaxBreakdown, hasExemptRows, type ExemptNoticeLabels } from './document-tax';
 import { placeOfSupplyName } from './gst';
+import { groupBrTaxRows } from './br-fiscal';
+import { pixQrMatrix } from './pix';
 
 export interface InvoicePdfEntity {
   name: string;
@@ -87,6 +89,30 @@ export interface InvoicePdfLabels {
   placeOfSupply?: string;
   hsnSac?: string;
   outsideIndia?: string;
+  /** Brazil: NCM / CFOP under a line, the grouped taxes of the totals, the Pix block and the fiscal document. */
+  br?: {
+    ncm: string;
+    cfop: string;
+    includedTaxes: string;
+    withholdings: string;
+    informationalTaxes: string;
+    netAmount: string;
+    pixPayment: string;
+    fiscalDocument: string;
+    accessKey: string;
+    /** `{number}` is replaced by the document number. */
+    fiscalDocumentNumber: string;
+  };
+}
+
+/** Brazil: what an invoice prints besides its lines and totals. */
+export interface BrInvoicePdfExtras {
+  /** The Pix key and BR Code for the amount due (see `brPixFor`). */
+  pix?: { key: string; payload: string } | null;
+  /** The authorised NF-e / NFS-e of the invoice. */
+  fiscalDocument?: { label: string; number?: string | null; accessKey?: string | null } | null;
+  /** Statements the regime requires (see `brComplianceNotices`). */
+  notices?: string[];
 }
 
 export interface InvoicePdfOptions {
@@ -99,6 +125,8 @@ export interface InvoicePdfOptions {
   paperSize?: 'a4' | 'letter';
   /** Numbers of the exemption certificates the invoice's exempt rows rest on, for the exempt notice. */
   certificateNumbers?: string[];
+  /** Brazil: Pix QR, fiscal document and compliance notices; its presence makes the invoice a Brazilian one. */
+  br?: BrInvoicePdfExtras;
 }
 
 type InvoiceCustomer = {
@@ -158,7 +186,7 @@ const NARROW_SPACES = new RegExp('[' + String.fromCharCode(0x202f, 0x2009) + ']'
 /** Characters the standard (WinAnsi) PDF fonts can draw. */
 const WIN_ANSI = /^[\x20-\x7E\xA0-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]*$/;
 
-function formatCurrency(value: string | number | null | undefined, currency: string | null, locale: string | undefined): string {
+export function formatCurrency(value: string | number | null | undefined, currency: string | null, locale: string | undefined): string {
   const n = Number(value ?? 0);
   const amount = Number.isFinite(n) ? n : 0;
   if (!currency) {
@@ -178,7 +206,7 @@ function formatCurrency(value: string | number | null | undefined, currency: str
   }
 }
 
-function defaultFormatDate(locale: string | undefined) {
+export function defaultFormatDate(locale: string | undefined) {
   return (value: string | null | undefined) => {
     if (!value) return '-';
     const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
@@ -291,7 +319,7 @@ function fill(template: string, values: Record<string, string | number>): string
  * `einOrSsn` printed only when it is written as an EIN (NN-NNNNNNN). Nine
  * bare digits could be an SSN, which must never appear on an invoice.
  */
-function printableEin(value: string | undefined): string | null {
+export function printableEin(value: string | undefined): string | null {
   const trimmed = value?.trim() ?? '';
   return /^\d{2}-\d{7}$/.test(trimmed) ? trimmed : null;
 }
@@ -334,6 +362,8 @@ function drawHeader(
 }
 
 interface RenderHelpers {
+  /** A Brazilian invoice: NCM / CFOP are printed under each line. */
+  br?: boolean;
   /** An India GST tax invoice: the buyer's GSTIN and the place of supply are printed. */
   gst?: boolean;
   labels: InvoicePdfLabels;
@@ -460,6 +490,78 @@ function drawTableHeader(ctx: DrawContext, labels: InvoicePdfLabels, tableX: num
   }
 }
 
+type InvoicePdfItem = NonNullable<InvoiceWithTax['items']>[number];
+
+/** The code lines printed under an item's description (null when not printed). */
+function itemCodeLines(
+  item: InvoicePdfItem,
+  labels: InvoicePdfLabels,
+  gst: boolean | undefined,
+  br: boolean | undefined,
+): { hsnLine: string | null; brLine: string | null } {
+  // India GST: the HSN/SAC code goes on a line of its own under the description.
+  const hsnLine = gst && item.hsnSac ? `${labels.hsnSac ?? 'HSN/SAC'}: ${item.hsnSac}` : null;
+  const brLine = br ? brLineCodes(item, labels) : null;
+  return { hsnLine, brLine };
+}
+
+/** A new page for the rest of the line items, headed "continued"; returns the y below the heading. */
+function startContinuationPage(pdf: PDFDocument, ctx: DrawContext, invoice: InvoiceWithTax, labels: InvoicePdfLabels): number {
+  ctx.page = pdf.addPage([ctx.size.width, ctx.size.height]);
+  const y = ctx.size.height - MARGIN_TOP;
+  drawText(ctx, fill(labels.continued, { number: invoice.invoiceNumber ?? labels.invoice }), MARGIN_X, y, {
+    size: 10,
+    bold: true,
+  });
+  return y - 20;
+}
+
+/** The wrapped description of a row, with its HSN/SAC and NCM / CFOP lines under it. */
+function drawItemDescription(
+  ctx: DrawContext,
+  { descLines, hsnLine, brLine }: { descLines: string[]; hsnLine: string | null; brLine: string | null },
+  x: number,
+  y: number,
+) {
+  let lineY = y;
+  for (const line of descLines) {
+    drawText(ctx, line, x, lineY, { size: 9 });
+    lineY -= ROW_HEIGHT;
+  }
+  if (hsnLine) drawText(ctx, hsnLine, x, lineY, { size: 8, color: ctx.muted });
+  if (brLine) drawText(ctx, brLine, x, lineY - (hsnLine ? ROW_HEIGHT : 0), { size: 8, color: ctx.muted });
+}
+
+/** Quantity, unit price, tax rate and line total of a row, right-aligned. */
+function drawItemAmounts(
+  ctx: DrawContext,
+  item: InvoicePdfItem,
+  {
+    col,
+    tableX,
+    y,
+    currency,
+    locale,
+  }: { col: ReturnType<typeof columns>; tableX: number; y: number; currency: string | null; locale: string | undefined },
+) {
+  drawText(ctx, formatWeldbooksNumber(item.quantity ?? '1', locale), tableX + col.qty.x, y, { size: 9, align: 'right', width: col.qty.width });
+  drawText(ctx, formatCurrency(item.unitPrice, currency, locale), tableX + col.unitPrice.x, y, {
+    size: 9,
+    align: 'right',
+    width: col.unitPrice.width,
+  });
+  drawText(ctx, item.taxRate ? formatWeldbooksNumber(item.taxRate, locale) + '%' : '-', tableX + col.tax.x, y, {
+    size: 9,
+    align: 'right',
+    width: col.tax.width,
+  });
+  drawText(ctx, formatCurrency(item.lineTotal, currency, locale), tableX + col.total.x, y, {
+    size: 9,
+    align: 'right',
+    width: col.total.width,
+  });
+}
+
 /** Line-item rows with page breaks. Mutates `ctx.page` on a break; returns the next y. */
 function drawLineItems(
   pdf: PDFDocument,
@@ -473,9 +575,15 @@ function drawLineItems(
     tableWidth,
     startY,
     gst,
+    br,
+    reservedHeight = 120,
   }: {
     /** An India GST tax invoice: a line's HSN/SAC code is printed under it. */
     gst?: boolean;
+    /** A Brazilian invoice: a line's NCM and CFOP are printed under it. */
+    br?: boolean;
+    /** Space kept free under the table for the totals. */
+    reservedHeight?: number;
     labels: InvoicePdfLabels;
     currency: string | null;
     locale: string | undefined;
@@ -486,47 +594,20 @@ function drawLineItems(
 ): number {
   const col = columns(tableWidth);
   let y = startY;
-  const totalsReservedHeight = 120; // approx space for totals + footer
+  const totalsReservedHeight = reservedHeight; // approx space for totals + footer
   for (const item of invoice.items ?? []) {
     const descLines = wrapText(item.description, ctx.font, 9, col.description.width);
-    // India GST: the HSN/SAC code goes on a line of its own under the description.
-    const hsnLine = gst && item.hsnSac ? `${labels.hsnSac ?? 'HSN/SAC'}: ${item.hsnSac}` : null;
-    const rowLines = Math.max(1, descLines.length + (hsnLine ? 1 : 0));
+    const { hsnLine, brLine } = itemCodeLines(item, labels, gst, br);
+    const rowLines = Math.max(1, descLines.length + (hsnLine ? 1 : 0) + (brLine ? 1 : 0));
     const rowH = rowLines * ROW_HEIGHT;
 
     // Page break if we'd overlap totals band.
     if (y - rowH < MARGIN_BOTTOM + totalsReservedHeight) {
-      ctx.page = pdf.addPage([ctx.size.width, ctx.size.height]);
-      y = ctx.size.height - MARGIN_TOP;
-      drawText(ctx, fill(labels.continued, { number: invoice.invoiceNumber ?? labels.invoice }), MARGIN_X, y, {
-        size: 10,
-        bold: true,
-      });
-      y -= 20;
+      y = startContinuationPage(pdf, ctx, invoice, labels);
     }
 
-    let lineY = y;
-    for (const line of descLines) {
-      drawText(ctx, line, tableX + col.description.x, lineY, { size: 9 });
-      lineY -= ROW_HEIGHT;
-    }
-    if (hsnLine) drawText(ctx, hsnLine, tableX + col.description.x, lineY, { size: 8, color: ctx.muted });
-    drawText(ctx, formatWeldbooksNumber(item.quantity ?? '1', locale), tableX + col.qty.x, y, { size: 9, align: 'right', width: col.qty.width });
-    drawText(ctx, formatCurrency(item.unitPrice, currency, locale), tableX + col.unitPrice.x, y, {
-      size: 9,
-      align: 'right',
-      width: col.unitPrice.width,
-    });
-    drawText(ctx, item.taxRate ? formatWeldbooksNumber(item.taxRate, locale) + '%' : '-', tableX + col.tax.x, y, {
-      size: 9,
-      align: 'right',
-      width: col.tax.width,
-    });
-    drawText(ctx, formatCurrency(item.lineTotal, currency, locale), tableX + col.total.x, y, {
-      size: 9,
-      align: 'right',
-      width: col.total.width,
-    });
+    drawItemDescription(ctx, { descLines, hsnLine, brLine }, tableX + col.description.x, y);
+    drawItemAmounts(ctx, item, { col, tableX, y, currency, locale });
 
     y -= rowH;
     ctx.page.drawRectangle({
@@ -538,6 +619,34 @@ function drawLineItems(
     });
   }
   return y;
+}
+
+/** "NCM: 84713012 · CFOP: 5102" under a Brazilian line; null when it has neither. */
+export function brLineCodes(
+  item: { ncm?: string | null; cfop?: string | null },
+  labels: Pick<InvoicePdfLabels, 'br'>,
+): string | null {
+  const parts = [
+    item.ncm ? `${labels.br?.ncm ?? 'NCM'}: ${item.ncm}` : '',
+    item.cfop ? `${labels.br?.cfop ?? 'CFOP'}: ${item.cfop}` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * The totals rows of a Brazilian invoice: taxes added on top, then the
+ * withholdings (negative), which are what the customer pays less. Taxes
+ * already inside the price and the CBS / IBS test amounts are listed apart.
+ */
+export function brTotalsOf(invoice: InvoiceWithTax) {
+  const groups = groupBrTaxRows(invoice.taxBreakdown);
+  const rows = (treatment: string) => groups.find((g) => g.treatment === treatment)?.rows ?? [];
+  return {
+    added: rows('added').map((row) => ({ label: row.taxRateName, amount: row.taxAmount })),
+    withheld: rows('withheld').map((row) => ({ label: row.taxRateName, amount: -row.taxAmount })),
+    embedded: rows('embedded').map((row) => ({ label: row.taxRateName, amount: row.taxAmount })),
+    informational: rows('informational').map((row) => ({ label: row.taxRateName, amount: row.taxAmount })),
+  };
 }
 
 /**
@@ -578,6 +687,7 @@ function drawTotals(
   currency: string | null,
   locale: string | undefined,
   startY: number,
+  br = false,
 ): number {
   let y = startY - 20;
   const totalsW = 200;
@@ -590,16 +700,133 @@ function drawTotals(
   };
 
   totalsRow(labels.subtotal, formatCurrency(invoice.subtotal, currency, locale));
-  for (const row of taxRowsOf(invoice, labels)) {
+  const brTotals = br ? brTotalsOf(invoice) : null;
+  const taxRows = brTotals ? [...brTotals.added, ...brTotals.withheld] : taxRowsOf(invoice, labels);
+  for (const row of taxRows) {
     totalsRow(row.label, formatCurrency(row.amount, currency, locale));
   }
   y -= 4;
   ctx.page.drawRectangle({ x: totalsX, y: y + 4, width: totalsW, height: 1, color: ctx.accent });
   y -= 4;
-  totalsRow(labels.total, formatCurrency(invoice.total, currency, locale), true, ctx.text);
+  totalsRow(brTotals ? (labels.br?.netAmount ?? labels.total) : labels.total, formatCurrency(invoice.total, currency, locale), true, ctx.text);
   if (invoice.amountPaid && Number(invoice.amountPaid) > 0) {
     totalsRow(labels.paid, '-' + formatCurrency(invoice.amountPaid, currency, locale));
     totalsRow(labels.balanceDue, formatCurrency(invoice.balanceDue, currency, locale), true, ctx.accent);
+  }
+  if (brTotals) {
+    y = drawBrInfoTotals(ctx, labels, brTotals, { currency, locale, x: totalsX, width: totalsW, y });
+  }
+  return y;
+}
+
+/** Taxes inside the price and the CBS / IBS test amounts of a Brazilian invoice, under the total. Returns the y below them. */
+function drawBrInfoTotals(
+  ctx: DrawContext,
+  labels: InvoicePdfLabels,
+  brTotals: ReturnType<typeof brTotalsOf>,
+  { currency, locale, x, width, y: startY }: { currency: string | null; locale: string | undefined; x: number; width: number; y: number },
+): number {
+  let y = startY;
+  // Taxes inside the price and the CBS / IBS test amounts: for information, under the total.
+  const info: Array<[string, Array<{ label: string; amount: number }>]> = [
+    [labels.br?.includedTaxes ?? '', brTotals.embedded],
+    [labels.br?.informationalTaxes ?? '', brTotals.informational],
+  ];
+  for (const [title, rows] of info) {
+    if (rows.length === 0) continue;
+    y -= 6;
+    drawText(ctx, title, x, y, { size: 7, bold: true, color: ctx.muted, width });
+    y -= 12;
+    for (const row of rows) {
+      drawText(ctx, row.label, x, y, { size: 8, color: ctx.muted });
+      drawText(ctx, formatCurrency(row.amount, currency, locale), x, y, { size: 8, color: ctx.muted, align: 'right', width });
+      y -= 12;
+    }
+  }
+  return y;
+}
+
+/** A new page when less than `needed` points are left above the footer; returns the y to continue at. */
+function ensureSpace(pdf: PDFDocument, ctx: DrawContext, y: number, needed: number): number {
+  if (y - needed >= MARGIN_BOTTOM + 90) return y;
+  ctx.page = pdf.addPage([ctx.size.width, ctx.size.height]);
+  return ctx.size.height - MARGIN_TOP;
+}
+
+/** Splits an unbroken string (a Pix BR Code) every `n` characters. */
+function chunk(value: string, n: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < value.length; i += n) out.push(value.slice(i, i + n));
+  return out;
+}
+
+/**
+ * Brazil: the authorised fiscal document, the Pix QR code (drawn from its
+ * modules) with its "copia e cola" text, and the compliance notices. Returns the y below them.
+ */
+function drawBrExtras(
+  pdf: PDFDocument,
+  ctx: DrawContext,
+  labels: InvoicePdfLabels,
+  extras: BrInvoicePdfExtras,
+  startY: number,
+): number {
+  let y = startY - 12;
+  const contentWidth = ctx.size.width - 2 * MARGIN_X;
+
+  if (extras.fiscalDocument) {
+    const doc = extras.fiscalDocument;
+    y = ensureSpace(pdf, ctx, y, 40);
+    drawText(ctx, (labels.br?.fiscalDocument ?? '').toUpperCase(), MARGIN_X, y, { size: 8, bold: true, color: ctx.muted });
+    y -= 13;
+    const number = doc.number ? (labels.br?.fiscalDocumentNumber ?? '{number}').replace('{number}', doc.number) : '';
+    drawText(ctx, [doc.label, number].filter(Boolean).join(' '), MARGIN_X, y, { size: 9, bold: true });
+    y -= 12;
+    if (doc.accessKey) {
+      drawText(ctx, `${labels.br?.accessKey ?? ''}: ${doc.accessKey.replace(/(\d{4})(?=\d)/g, '$1 ')}`, MARGIN_X, y, { size: 8, color: ctx.muted });
+      y -= 12;
+    }
+    y -= 6;
+  }
+
+  if (extras.pix) {
+    const qrSize = 92;
+    y = ensureSpace(pdf, ctx, y, qrSize + 16);
+    const matrix = pixQrMatrix(extras.pix.payload);
+    const cell = qrSize / matrix.length;
+    const top = y;
+    ctx.page.drawRectangle({ x: MARGIN_X, y: top - qrSize, width: qrSize, height: qrSize, color: rgb(1, 1, 1) });
+    matrix.forEach((row, r) => {
+      row.forEach((dark, c) => {
+        if (!dark) return;
+        ctx.page.drawRectangle({
+          x: MARGIN_X + c * cell,
+          y: top - (r + 1) * cell,
+          width: cell + 0.15,
+          height: cell + 0.15,
+          color: rgb(0, 0, 0),
+        });
+      });
+    });
+    const textX = MARGIN_X + qrSize + 14;
+    let textY = top - 12;
+    drawText(ctx, labels.br?.pixPayment ?? 'Pix', textX, textY, { size: 11, bold: true });
+    textY -= 14;
+    drawText(ctx, extras.pix.key, textX, textY, { size: 9 });
+    textY -= 14;
+    for (const line of chunk(extras.pix.payload, 62)) {
+      drawText(ctx, line, textX, textY, { size: 6.5, color: ctx.muted });
+      textY -= 8;
+    }
+    y = top - qrSize - 14;
+  }
+
+  for (const notice of extras.notices ?? []) {
+    for (const line of wrapText(notice, ctx.font, 8, contentWidth)) {
+      y = ensureSpace(pdf, ctx, y, 12);
+      drawText(ctx, line, MARGIN_X, y, { size: 8, bold: true });
+      y -= 11;
+    }
   }
   return y;
 }
@@ -696,6 +923,7 @@ export async function generateInvoicePdf(
   const size = (options.paperSize ?? invoicePaperSize(entity)) === 'letter' ? LETTER : A4;
   const helpers: RenderHelpers = {
     gst: entity.jurisdictionCode?.toUpperCase() === 'IN',
+    br: entity.jurisdictionCode?.toUpperCase() === 'BR' || Boolean(options.br),
     labels: options.labels,
     formatDate: options.formatDate ?? defaultFormatDate(locale),
     countryName: options.countryName,
@@ -719,10 +947,23 @@ export async function generateInvoicePdf(
   drawTableHeader(ctx, options.labels, tableX, tableWidth, y);
   y -= TABLE_HEADER_HEIGHT;
 
-  y = drawLineItems(pdf, ctx, invoice, { labels: options.labels, currency, locale, tableX, tableWidth, startY: y, gst: helpers.gst });
+  // A Brazilian invoice lists withholdings and the taxes inside the price under its total: keep more room.
+  const brRows = helpers.br ? Object.values(brTotalsOf(invoice)).reduce((n, rows) => n + rows.length, 0) : 0;
+  y = drawLineItems(pdf, ctx, invoice, {
+    labels: options.labels,
+    currency,
+    locale,
+    tableX,
+    tableWidth,
+    startY: y,
+    gst: helpers.gst,
+    br: helpers.br,
+    reservedHeight: 120 + brRows * 14 + (helpers.br ? 28 : 0),
+  });
 
-  y = drawTotals(ctx, invoice, options.labels, currency, locale, y);
-  drawExemptNotice(ctx, invoice, options.labels, options.certificateNumbers ?? [], y);
+  y = drawTotals(ctx, invoice, options.labels, currency, locale, y, helpers.br);
+  y = drawExemptNotice(ctx, invoice, options.labels, options.certificateNumbers ?? [], y);
+  if (options.br) drawBrExtras(pdf, ctx, options.labels, options.br, y);
 
   drawFooter(ctx, entity, options.labels);
 

@@ -16,19 +16,49 @@
  * docx/pdf export stays client-side (serialized from the loaded blocks).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { eq } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { schema } from '@weldsuite/worker-kit/db';
 import * as documentsService from '../../services/documents';
 import * as documentVersionsService from '../../services/document-versions';
 import * as filesService from '@weldsuite/core-domain/files';
 import { buildEmptyDocx } from '../../lib/office-templates';
+import { canAccessProject, canWriteProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type DocumentCtx = Context<{ Bindings: Env; Variables: Variables }>;
+
+const PROJECT_DENIED = 'You are not a member of this project';
+const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
+
+/**
+ * Project-membership gate for a document addressed by its backing file id.
+ * Project documents are `files` rows with entityType 'project' (entityId = the
+ * project), so the `files:*` permission alone would let any workspace user read
+ * or overwrite them. Reads need project access, writes need write access
+ * (viewers are read-only). Files that do not belong to a project (drive
+ * documents) pass; null when the caller may proceed, else the error response.
+ */
+async function guardProjectDocument(c: DocumentCtx, fileId: string, mode: 'read' | 'write'): Promise<Response | null> {
+  const [file] = await c
+    .get('tenantDb')
+    .select({ entityType: schema.files.entityType, entityId: schema.files.entityId })
+    .from(schema.files)
+    .where(eq(schema.files.id, fileId))
+    .limit(1);
+  if (file?.entityType !== 'project' || !file.entityId) return null;
+  if (mode === 'write') {
+    return (await canWriteProject(c, file.entityId)) ? null : error.forbidden(c, PROJECT_WRITE_DENIED);
+  }
+  return (await canAccessProject(c, file.entityId)) ? null : error.forbidden(c, PROJECT_DENIED);
+}
 
 const DOCUMENT_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -47,6 +77,8 @@ const createVersionSchema = z.object({
 
 app.get('/:fileId', requirePermission('files:read'), async (c) => {
   const fileId = c.req.param('fileId');
+  const denied = await guardProjectDocument(c, fileId, 'read');
+  if (denied) return denied;
   try {
     const row = await documentsService.getDocByFileId(c.get('tenantDb'), fileId);
     return success(c, row);
@@ -133,6 +165,8 @@ app.put(
 
     const { content } = c.req.valid('json');
     const db = c.get('tenantDb');
+    const denied = await guardProjectDocument(c, fileId, 'write');
+    if (denied) return denied;
 
     try {
       // The doc row FK-references files.id — make sure the file exists (and is
@@ -172,6 +206,8 @@ app.put(
 
 app.get('/:fileId/versions', requirePermission('files:read'), async (c) => {
   const fileId = c.req.param('fileId');
+  const denied = await guardProjectDocument(c, fileId, 'read');
+  if (denied) return denied;
   try {
     const rows = await documentVersionsService.listVersions(c.get('tenantDb'), fileId);
     return success(c, rows);
@@ -191,6 +227,8 @@ app.post(
     if (!userId) return error.unauthorized(c);
     const { label } = c.req.valid('json');
     const db = c.get('tenantDb');
+    const denied = await guardProjectDocument(c, fileId, 'write');
+    if (denied) return denied;
 
     try {
       const doc = await documentsService.getDocByFileId(db, fileId);
@@ -213,6 +251,8 @@ app.post(
 app.get('/:fileId/versions/:versionId', requirePermission('files:read'), async (c) => {
   const fileId = c.req.param('fileId');
   const versionId = c.req.param('versionId');
+  const denied = await guardProjectDocument(c, fileId, 'read');
+  if (denied) return denied;
   try {
     const row = await documentVersionsService.getVersion(c.get('tenantDb'), fileId, versionId);
     if (!row) return error.notFound(c, 'Version', versionId);
@@ -232,10 +272,24 @@ app.post(
     const userId = c.get('userId');
     if (!userId) return error.unauthorized(c);
     const db = c.get('tenantDb');
+    const denied = await guardProjectDocument(c, fileId, 'write');
+    if (denied) return denied;
 
     try {
       const version = await documentVersionsService.getVersion(db, fileId, versionId);
       if (!version) return error.notFound(c, 'Version', versionId);
+
+      // Snapshot what is about to be overwritten, so a restore can be undone.
+      const current = await documentsService.getDocByFileId(db, fileId);
+      if (current) {
+        await documentVersionsService.createVersion(
+          db,
+          fileId,
+          (current.content ?? []) as documentsService.DocBlocks,
+          userId,
+          null,
+        );
+      }
 
       const row = await documentsService.upsertDocContent(
         db,

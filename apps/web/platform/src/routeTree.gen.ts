@@ -125,15 +125,11 @@ import { Route as WeldhrAbsenteeismIndexRouteImport } from './routes/weldhr/abse
 import { Route as WeldhostDomainsIndexRouteImport } from './routes/weldhost/domains/index'
 import { Route as WeldflowWorkloadIndexRouteImport } from './routes/weldflow/workload/index'
 import { Route as WeldflowWhiteboardIndexRouteImport } from './routes/weldflow/whiteboard/index'
-import { Route as WeldflowTimelineIndexRouteImport } from './routes/weldflow/timeline/index'
-import { Route as WeldflowTableIndexRouteImport } from './routes/weldflow/table/index'
 import { Route as WeldflowSettingsIndexRouteImport } from './routes/weldflow/settings/index'
 import { Route as WeldflowProjectsIndexRouteImport } from './routes/weldflow/projects/index'
-import { Route as WeldflowNotesIndexRouteImport } from './routes/weldflow/notes/index'
 import { Route as WeldflowMyTasksIndexRouteImport } from './routes/weldflow/my-tasks/index'
 import { Route as WeldflowGoalsIndexRouteImport } from './routes/weldflow/goals/index'
 import { Route as WeldflowFilesIndexRouteImport } from './routes/weldflow/files/index'
-import { Route as WeldflowDocumentsIndexRouteImport } from './routes/weldflow/documents/index'
 import { Route as WeldflowAnalyticsIndexRouteImport } from './routes/weldflow/analytics/index'
 import { Route as WelddriveUploadsIndexRouteImport } from './routes/welddrive/uploads/index'
 import { Route as WelddriveTrashIndexRouteImport } from './routes/welddrive/trash/index'
@@ -183,6 +179,7 @@ import { Route as WeldbooksSettingsIndexRouteImport } from './routes/weldbooks/s
 import { Route as WeldbooksSalesTaxIndexRouteImport } from './routes/weldbooks/sales-tax/index'
 import { Route as WeldbooksReportsIndexRouteImport } from './routes/weldbooks/reports/index'
 import { Route as WeldbooksRecurringIndexRouteImport } from './routes/weldbooks/recurring/index'
+import { Route as WeldbooksReceivedNfeIndexRouteImport } from './routes/weldbooks/received-nfe/index'
 import { Route as WeldbooksPayrollIndexRouteImport } from './routes/weldbooks/payroll/index'
 import { Route as WeldbooksPaymentRunsIndexRouteImport } from './routes/weldbooks/payment-runs/index'
 import { Route as WeldbooksJournalIndexRouteImport } from './routes/weldbooks/journal/index'
@@ -201,6 +198,7 @@ import { Route as WeldbooksBankingIndexRouteImport } from './routes/weldbooks/ba
 import { Route as WeldbooksAccountsIndexRouteImport } from './routes/weldbooks/accounts/index'
 import { Route as WeldadsCampaignsIndexRouteImport } from './routes/weldads/campaigns/index'
 import { Route as WeldadsAccountsIndexRouteImport } from './routes/weldads/accounts/index'
+import { Route as WWorkspaceIndexRouteImport } from './routes/w/$workspace/index'
 import { Route as SocialTeamIndexRouteImport } from './routes/social/team/index'
 import { Route as SocialSettingsIndexRouteImport } from './routes/social/settings/index'
 import { Route as SocialQueueIndexRouteImport } from './routes/social/queue/index'
@@ -224,6 +222,7 @@ import { Route as SettingsIntegrationsIndexRouteImport } from './routes/settings
 import { Route as SettingsGeneralIndexRouteImport } from './routes/settings/general/index'
 import { Route as SettingsFeedbackIndexRouteImport } from './routes/settings/feedback/index'
 import { Route as SettingsExportIndexRouteImport } from './routes/settings/export/index'
+import { Route as SettingsEntitiesIndexRouteImport } from './routes/settings/entities/index'
 import { Route as SettingsDesktopIndexRouteImport } from './routes/settings/desktop/index'
 import { Route as SettingsCustomObjectsIndexRouteImport } from './routes/settings/custom-objects/index'
 import { Route as SettingsCustomFieldsIndexRouteImport } from './routes/settings/custom-fields/index'
@@ -255,9 +254,12 @@ import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$me
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
+import { Route as WWorkspaceSplatRouteImport } from './routes/w/$workspace/$'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldhrRouteImport } from './routes/settings/apps/weldhr'
+import { Route as SettingsAppsWeldflowRouteImport } from './routes/settings/apps/weldflow'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
+import { Route as SettingsAppsWeldcalendarRouteImport } from './routes/settings/apps/weldcalendar'
 import { Route as ObjectsSlugRecordIdRouteImport } from './routes/objects/$slug/$recordId'
 import { Route as AuthRegisterSplatRouteImport } from './routes/auth/register/$'
 import { Route as AuthLoginSplatRouteImport } from './routes/auth/login/$'
@@ -296,7 +298,6 @@ import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldh
 import { Route as WeldhostDomainsExternalIndexRouteImport } from './routes/weldhost/domains/external/index'
 import { Route as WeldhostDomainsIdIndexRouteImport } from './routes/weldhost/domains/$id/index'
 import { Route as WeldflowTaskTaskIdIndexRouteImport } from './routes/weldflow/task/$taskId/index'
-import { Route as WeldflowSpaceSpaceIdIndexRouteImport } from './routes/weldflow/space/$spaceId/index'
 import { Route as WeldflowProjectProjectIdIndexRouteImport } from './routes/weldflow/project/$projectId/index'
 import { Route as WeldflowAnalyticsBuilderIndexRouteImport } from './routes/weldflow/analytics/builder/index'
 import { Route as WeldflowAnalyticsIdIndexRouteImport } from './routes/weldflow/analytics/$id/index'
@@ -316,6 +317,7 @@ import { Route as WeldconnectExecutionsIdIndexRouteImport } from './routes/weldc
 import { Route as WeldcalendarSchedulingNewIndexRouteImport } from './routes/weldcalendar/scheduling/new/index'
 import { Route as WeldcalendarSchedulingIdIndexRouteImport } from './routes/weldcalendar/scheduling/$id/index'
 import { Route as WeldbooksVatIdIndexRouteImport } from './routes/weldbooks/vat/$id/index'
+import { Route as WeldbooksSettingsInvoiceTemplatesIndexRouteImport } from './routes/weldbooks/settings/invoice-templates/index'
 import { Route as WeldbooksSettingsDimensionsIndexRouteImport } from './routes/weldbooks/settings/dimensions/index'
 import { Route as WeldbooksSalesTaxSettingsIndexRouteImport } from './routes/weldbooks/sales-tax/settings/index'
 import { Route as WeldbooksSalesTaxReturnsIndexRouteImport } from './routes/weldbooks/sales-tax/returns/index'
@@ -382,6 +384,7 @@ import { Route as SettingsIntegrationsDiscordIndexRouteImport } from './routes/s
 import { Route as SettingsIntegrationsCrmSyncIndexRouteImport } from './routes/settings/integrations/crm-sync/index'
 import { Route as SettingsIntegrationsAttioIndexRouteImport } from './routes/settings/integrations/attio/index'
 import { Route as SettingsIntegrationsIdIndexRouteImport } from './routes/settings/integrations/$id/index'
+import { Route as SettingsEntitiesAddIndexRouteImport } from './routes/settings/entities/add/index'
 import { Route as SettingsAppsWeldsuiteIndexRouteImport } from './routes/settings/apps/weldsuite/index'
 import { Route as SettingsAppsWeldmailIndexRouteImport } from './routes/settings/apps/weldmail/index'
 import { Route as SettingsAppsWelddeskIndexRouteImport } from './routes/settings/apps/welddesk/index'
@@ -410,7 +413,6 @@ import { Route as WeldmailAccountIdLabelSlugMessageIdIndexRouteImport } from './
 import { Route as WeldhrPayrollRunsRunIdIndexRouteImport } from './routes/weldhr/payroll/runs/$runId/index'
 import { Route as WeldhostDomainsPurchaseSuccessIndexRouteImport } from './routes/weldhost/domains/purchase/success/index'
 import { Route as WeldhostDomainsPurchaseCancelIndexRouteImport } from './routes/weldhost/domains/purchase/cancel/index'
-import { Route as WeldflowSpaceSpaceIdModuleTypeIndexRouteImport } from './routes/weldflow/space/$spaceId/$moduleType/index'
 import { Route as WeldflowProjectProjectIdWorkloadIndexRouteImport } from './routes/weldflow/project/$projectId/workload/index'
 import { Route as WeldflowProjectProjectIdWhiteboardIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/index'
 import { Route as WeldflowProjectProjectIdTimesheetIndexRouteImport } from './routes/weldflow/project/$projectId/timesheet/index'
@@ -439,6 +441,7 @@ import { Route as WeldconnectWorkflowsIdEditIndexRouteImport } from './routes/we
 import { Route as WeldconnectTemplatesIdEditIndexRouteImport } from './routes/weldconnect/templates/$id/edit/index'
 import { Route as WeldcalendarSchedulingIdViewIndexRouteImport } from './routes/weldcalendar/scheduling/$id/view/index'
 import { Route as WeldcalendarSchedulingIdEditIndexRouteImport } from './routes/weldcalendar/scheduling/$id/edit/index'
+import { Route as WeldbooksSettingsInvoiceTemplatesIdIndexRouteImport } from './routes/weldbooks/settings/invoice-templates/$id/index'
 import { Route as WeldbooksSalesTaxReturnsIdIndexRouteImport } from './routes/weldbooks/sales-tax/returns/$id/index'
 import { Route as WeldbooksSalesTaxNexusStateIndexRouteImport } from './routes/weldbooks/sales-tax/nexus/$state/index'
 import { Route as WeldbooksSalesTaxCertificatesReportsIndexRouteImport } from './routes/weldbooks/sales-tax/certificates/reports/index'
@@ -457,6 +460,7 @@ import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbook
 import { Route as WeldbooksBankingStatementsIdIndexRouteImport } from './routes/weldbooks/banking/statements/$id/index'
 import { Route as WeldbooksBankingFeedsCallbackIndexRouteImport } from './routes/weldbooks/banking/feeds/callback/index'
 import { Route as WeldbooksAccountsIdEditIndexRouteImport } from './routes/weldbooks/accounts/$id/edit/index'
+import { Route as SettingsEntitiesIdEditIndexRouteImport } from './routes/settings/entities/$id/edit/index'
 import { Route as SettingsAppsPhoneNumbersPortIndexRouteImport } from './routes/settings/apps/phone-numbers/port/index'
 import { Route as SettingsAppsPhoneNumbersNewNumberIndexRouteImport } from './routes/settings/apps/phone-numbers/new-number/index'
 import { Route as PreviewWeldmailAccountIdLabelSlugIndexRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/index'
@@ -1065,16 +1069,6 @@ const WeldflowWhiteboardIndexRoute = WeldflowWhiteboardIndexRouteImport.update({
   path: '/whiteboard/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
-const WeldflowTimelineIndexRoute = WeldflowTimelineIndexRouteImport.update({
-  id: '/timeline/',
-  path: '/timeline/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowTableIndexRoute = WeldflowTableIndexRouteImport.update({
-  id: '/table/',
-  path: '/table/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
 const WeldflowSettingsIndexRoute = WeldflowSettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
@@ -1083,11 +1077,6 @@ const WeldflowSettingsIndexRoute = WeldflowSettingsIndexRouteImport.update({
 const WeldflowProjectsIndexRoute = WeldflowProjectsIndexRouteImport.update({
   id: '/projects/',
   path: '/projects/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowNotesIndexRoute = WeldflowNotesIndexRouteImport.update({
-  id: '/notes/',
-  path: '/notes/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
 const WeldflowMyTasksIndexRoute = WeldflowMyTasksIndexRouteImport.update({
@@ -1103,11 +1092,6 @@ const WeldflowGoalsIndexRoute = WeldflowGoalsIndexRouteImport.update({
 const WeldflowFilesIndexRoute = WeldflowFilesIndexRouteImport.update({
   id: '/files/',
   path: '/files/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowDocumentsIndexRoute = WeldflowDocumentsIndexRouteImport.update({
-  id: '/documents/',
-  path: '/documents/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
 const WeldflowAnalyticsIndexRoute = WeldflowAnalyticsIndexRouteImport.update({
@@ -1370,6 +1354,12 @@ const WeldbooksRecurringIndexRoute = WeldbooksRecurringIndexRouteImport.update({
   path: '/recurring/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldbooksReceivedNfeIndexRoute =
+  WeldbooksReceivedNfeIndexRouteImport.update({
+    id: '/received-nfe/',
+    path: '/received-nfe/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksPayrollIndexRoute = WeldbooksPayrollIndexRouteImport.update({
   id: '/payroll/',
   path: '/payroll/',
@@ -1463,6 +1453,11 @@ const WeldadsAccountsIndexRoute = WeldadsAccountsIndexRouteImport.update({
   id: '/accounts/',
   path: '/accounts/',
   getParentRoute: () => WeldadsRouteRoute,
+} as any)
+const WWorkspaceIndexRoute = WWorkspaceIndexRouteImport.update({
+  id: '/w/$workspace/',
+  path: '/w/$workspace/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const SocialTeamIndexRoute = SocialTeamIndexRouteImport.update({
   id: '/team/',
@@ -1580,6 +1575,11 @@ const SettingsFeedbackIndexRoute = SettingsFeedbackIndexRouteImport.update({
 const SettingsExportIndexRoute = SettingsExportIndexRouteImport.update({
   id: '/export/',
   path: '/export/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsEntitiesIndexRoute = SettingsEntitiesIndexRouteImport.update({
+  id: '/entities/',
+  path: '/entities/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsDesktopIndexRoute = SettingsDesktopIndexRouteImport.update({
@@ -1742,6 +1742,11 @@ const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
   path: '/dm/$userId',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
+const WWorkspaceSplatRoute = WWorkspaceSplatRouteImport.update({
+  id: '/w/$workspace/$',
+  path: '/w/$workspace/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsCustomObjectsObjectIdRoute =
   SettingsCustomObjectsObjectIdRouteImport.update({
     id: '/custom-objects/$objectId',
@@ -1753,11 +1758,22 @@ const SettingsAppsWeldhrRoute = SettingsAppsWeldhrRouteImport.update({
   path: '/apps/weldhr',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsAppsWeldflowRoute = SettingsAppsWeldflowRouteImport.update({
+  id: '/apps/weldflow',
+  path: '/apps/weldflow',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAppsWeldcrmRoute = SettingsAppsWeldcrmRouteImport.update({
   id: '/apps/weldcrm',
   path: '/apps/weldcrm',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsAppsWeldcalendarRoute =
+  SettingsAppsWeldcalendarRouteImport.update({
+    id: '/apps/weldcalendar',
+    path: '/apps/weldcalendar',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const ObjectsSlugRecordIdRoute = ObjectsSlugRecordIdRouteImport.update({
   id: '/objects/$slug/$recordId',
   path: '/objects/$slug/$recordId',
@@ -1971,12 +1987,6 @@ const WeldflowTaskTaskIdIndexRoute = WeldflowTaskTaskIdIndexRouteImport.update({
   path: '/task/$taskId/',
   getParentRoute: () => WeldflowRouteRoute,
 } as any)
-const WeldflowSpaceSpaceIdIndexRoute =
-  WeldflowSpaceSpaceIdIndexRouteImport.update({
-    id: '/space/$spaceId/',
-    path: '/space/$spaceId/',
-    getParentRoute: () => WeldflowRouteRoute,
-  } as any)
 const WeldflowProjectProjectIdIndexRoute =
   WeldflowProjectProjectIdIndexRouteImport.update({
     id: '/',
@@ -2085,6 +2095,12 @@ const WeldbooksVatIdIndexRoute = WeldbooksVatIdIndexRouteImport.update({
   path: '/vat/$id/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldbooksSettingsInvoiceTemplatesIndexRoute =
+  WeldbooksSettingsInvoiceTemplatesIndexRouteImport.update({
+    id: '/settings/invoice-templates/',
+    path: '/settings/invoice-templates/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksSettingsDimensionsIndexRoute =
   WeldbooksSettingsDimensionsIndexRouteImport.update({
     id: '/settings/dimensions/',
@@ -2476,6 +2492,12 @@ const SettingsIntegrationsIdIndexRoute =
     path: '/integrations/$id/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SettingsEntitiesAddIndexRoute =
+  SettingsEntitiesAddIndexRouteImport.update({
+    id: '/entities/add/',
+    path: '/entities/add/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsAppsWeldsuiteIndexRoute =
   SettingsAppsWeldsuiteIndexRouteImport.update({
     id: '/apps/weldsuite/',
@@ -2641,12 +2663,6 @@ const WeldhostDomainsPurchaseCancelIndexRoute =
     id: '/domains/purchase/cancel/',
     path: '/domains/purchase/cancel/',
     getParentRoute: () => WeldhostRouteRoute,
-  } as any)
-const WeldflowSpaceSpaceIdModuleTypeIndexRoute =
-  WeldflowSpaceSpaceIdModuleTypeIndexRouteImport.update({
-    id: '/space/$spaceId/$moduleType/',
-    path: '/space/$spaceId/$moduleType/',
-    getParentRoute: () => WeldflowRouteRoute,
   } as any)
 const WeldflowProjectProjectIdWorkloadIndexRoute =
   WeldflowProjectProjectIdWorkloadIndexRouteImport.update({
@@ -2816,6 +2832,12 @@ const WeldcalendarSchedulingIdEditIndexRoute =
     path: '/scheduling/$id/edit/',
     getParentRoute: () => WeldcalendarRouteRoute,
   } as any)
+const WeldbooksSettingsInvoiceTemplatesIdIndexRoute =
+  WeldbooksSettingsInvoiceTemplatesIdIndexRouteImport.update({
+    id: '/settings/invoice-templates/$id/',
+    path: '/settings/invoice-templates/$id/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksSalesTaxReturnsIdIndexRoute =
   WeldbooksSalesTaxReturnsIdIndexRouteImport.update({
     id: '/sales-tax/returns/$id/',
@@ -2923,6 +2945,12 @@ const WeldbooksAccountsIdEditIndexRoute =
     id: '/accounts/$id/edit/',
     path: '/accounts/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const SettingsEntitiesIdEditIndexRoute =
+  SettingsEntitiesIdEditIndexRouteImport.update({
+    id: '/entities/$id/edit/',
+    path: '/entities/$id/edit/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
 const SettingsAppsPhoneNumbersPortIndexRoute =
   SettingsAppsPhoneNumbersPortIndexRouteImport.update({
@@ -3157,9 +3185,12 @@ export interface FileRoutesByFullPath {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/w/$workspace/$': typeof WWorkspaceSplatRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
@@ -3191,6 +3222,7 @@ export interface FileRoutesByFullPath {
   '/settings/custom-fields/': typeof SettingsCustomFieldsIndexRoute
   '/settings/custom-objects/': typeof SettingsCustomObjectsIndexRoute
   '/settings/desktop/': typeof SettingsDesktopIndexRoute
+  '/settings/entities/': typeof SettingsEntitiesIndexRoute
   '/settings/export/': typeof SettingsExportIndexRoute
   '/settings/feedback/': typeof SettingsFeedbackIndexRoute
   '/settings/general/': typeof SettingsGeneralIndexRoute
@@ -3214,6 +3246,7 @@ export interface FileRoutesByFullPath {
   '/social/queue/': typeof SocialQueueIndexRoute
   '/social/settings/': typeof SocialSettingsIndexRoute
   '/social/team/': typeof SocialTeamIndexRoute
+  '/w/$workspace/': typeof WWorkspaceIndexRoute
   '/weldads/accounts/': typeof WeldadsAccountsIndexRoute
   '/weldads/campaigns/': typeof WeldadsCampaignsIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
@@ -3232,6 +3265,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/journal/': typeof WeldbooksJournalIndexRoute
   '/weldbooks/payment-runs/': typeof WeldbooksPaymentRunsIndexRoute
   '/weldbooks/payroll/': typeof WeldbooksPayrollIndexRoute
+  '/weldbooks/received-nfe/': typeof WeldbooksReceivedNfeIndexRoute
   '/weldbooks/recurring/': typeof WeldbooksRecurringIndexRoute
   '/weldbooks/reports/': typeof WeldbooksReportsIndexRoute
   '/weldbooks/sales-tax/': typeof WeldbooksSalesTaxIndexRoute
@@ -3281,15 +3315,11 @@ export interface FileRoutesByFullPath {
   '/welddrive/trash/': typeof WelddriveTrashIndexRoute
   '/welddrive/uploads/': typeof WelddriveUploadsIndexRoute
   '/weldflow/analytics/': typeof WeldflowAnalyticsIndexRoute
-  '/weldflow/documents/': typeof WeldflowDocumentsIndexRoute
   '/weldflow/files/': typeof WeldflowFilesIndexRoute
   '/weldflow/goals/': typeof WeldflowGoalsIndexRoute
   '/weldflow/my-tasks/': typeof WeldflowMyTasksIndexRoute
-  '/weldflow/notes/': typeof WeldflowNotesIndexRoute
   '/weldflow/projects/': typeof WeldflowProjectsIndexRoute
   '/weldflow/settings/': typeof WeldflowSettingsIndexRoute
-  '/weldflow/table/': typeof WeldflowTableIndexRoute
-  '/weldflow/timeline/': typeof WeldflowTimelineIndexRoute
   '/weldflow/whiteboard/': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
@@ -3348,6 +3378,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/welddesk/': typeof SettingsAppsWelddeskIndexRoute
   '/settings/apps/weldmail/': typeof SettingsAppsWeldmailIndexRoute
   '/settings/apps/weldsuite/': typeof SettingsAppsWeldsuiteIndexRoute
+  '/settings/entities/add/': typeof SettingsEntitiesAddIndexRoute
   '/settings/integrations/$id/': typeof SettingsIntegrationsIdIndexRoute
   '/settings/integrations/attio/': typeof SettingsIntegrationsAttioIndexRoute
   '/settings/integrations/crm-sync/': typeof SettingsIntegrationsCrmSyncIndexRoute
@@ -3414,6 +3445,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/sales-tax/returns/': typeof WeldbooksSalesTaxReturnsIndexRoute
   '/weldbooks/sales-tax/settings/': typeof WeldbooksSalesTaxSettingsIndexRoute
   '/weldbooks/settings/dimensions/': typeof WeldbooksSettingsDimensionsIndexRoute
+  '/weldbooks/settings/invoice-templates/': typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   '/weldbooks/vat/$id/': typeof WeldbooksVatIdIndexRoute
   '/weldcalendar/scheduling/$id/': typeof WeldcalendarSchedulingIdIndexRoute
   '/weldcalendar/scheduling/new/': typeof WeldcalendarSchedulingNewIndexRoute
@@ -3433,7 +3465,6 @@ export interface FileRoutesByFullPath {
   '/weldflow/analytics/$id/': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
-  '/weldflow/space/$spaceId/': typeof WeldflowSpaceSpaceIdIndexRoute
   '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external/': typeof WeldhostDomainsExternalIndexRoute
@@ -3474,6 +3505,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldmail/$accountId/$labelSlug/': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
+  '/settings/entities/$id/edit/': typeof SettingsEntitiesIdEditIndexRoute
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/banking/feeds/callback/': typeof WeldbooksBankingFeedsCallbackIndexRoute
   '/weldbooks/banking/statements/$id/': typeof WeldbooksBankingStatementsIdIndexRoute
@@ -3492,6 +3524,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/sales-tax/certificates/reports/': typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   '/weldbooks/sales-tax/nexus/$state/': typeof WeldbooksSalesTaxNexusStateIndexRoute
   '/weldbooks/sales-tax/returns/$id/': typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  '/weldbooks/settings/invoice-templates/$id/': typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
   '/weldconnect/templates/$id/edit/': typeof WeldconnectTemplatesIdEditIndexRoute
@@ -3520,7 +3553,6 @@ export interface FileRoutesByFullPath {
   '/weldflow/project/$projectId/timesheet/': typeof WeldflowProjectProjectIdTimesheetIndexRoute
   '/weldflow/project/$projectId/whiteboard/': typeof WeldflowProjectProjectIdWhiteboardIndexRoute
   '/weldflow/project/$projectId/workload/': typeof WeldflowProjectProjectIdWorkloadIndexRoute
-  '/weldflow/space/$spaceId/$moduleType/': typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
   '/weldhost/domains/purchase/cancel/': typeof WeldhostDomainsPurchaseCancelIndexRoute
   '/weldhost/domains/purchase/success/': typeof WeldhostDomainsPurchaseSuccessIndexRoute
   '/weldhr/payroll/runs/$runId/': typeof WeldhrPayrollRunsRunIdIndexRoute
@@ -3593,9 +3625,12 @@ export interface FileRoutesByTo {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/w/$workspace/$': typeof WWorkspaceSplatRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
@@ -3627,6 +3662,7 @@ export interface FileRoutesByTo {
   '/settings/custom-fields': typeof SettingsCustomFieldsIndexRoute
   '/settings/custom-objects': typeof SettingsCustomObjectsIndexRoute
   '/settings/desktop': typeof SettingsDesktopIndexRoute
+  '/settings/entities': typeof SettingsEntitiesIndexRoute
   '/settings/export': typeof SettingsExportIndexRoute
   '/settings/feedback': typeof SettingsFeedbackIndexRoute
   '/settings/general': typeof SettingsGeneralIndexRoute
@@ -3650,6 +3686,7 @@ export interface FileRoutesByTo {
   '/social/queue': typeof SocialQueueIndexRoute
   '/social/settings': typeof SocialSettingsIndexRoute
   '/social/team': typeof SocialTeamIndexRoute
+  '/w/$workspace': typeof WWorkspaceIndexRoute
   '/weldads/accounts': typeof WeldadsAccountsIndexRoute
   '/weldads/campaigns': typeof WeldadsCampaignsIndexRoute
   '/weldbooks/accounts': typeof WeldbooksAccountsIndexRoute
@@ -3668,6 +3705,7 @@ export interface FileRoutesByTo {
   '/weldbooks/journal': typeof WeldbooksJournalIndexRoute
   '/weldbooks/payment-runs': typeof WeldbooksPaymentRunsIndexRoute
   '/weldbooks/payroll': typeof WeldbooksPayrollIndexRoute
+  '/weldbooks/received-nfe': typeof WeldbooksReceivedNfeIndexRoute
   '/weldbooks/recurring': typeof WeldbooksRecurringIndexRoute
   '/weldbooks/reports': typeof WeldbooksReportsIndexRoute
   '/weldbooks/sales-tax': typeof WeldbooksSalesTaxIndexRoute
@@ -3717,15 +3755,11 @@ export interface FileRoutesByTo {
   '/welddrive/trash': typeof WelddriveTrashIndexRoute
   '/welddrive/uploads': typeof WelddriveUploadsIndexRoute
   '/weldflow/analytics': typeof WeldflowAnalyticsIndexRoute
-  '/weldflow/documents': typeof WeldflowDocumentsIndexRoute
   '/weldflow/files': typeof WeldflowFilesIndexRoute
   '/weldflow/goals': typeof WeldflowGoalsIndexRoute
   '/weldflow/my-tasks': typeof WeldflowMyTasksIndexRoute
-  '/weldflow/notes': typeof WeldflowNotesIndexRoute
   '/weldflow/projects': typeof WeldflowProjectsIndexRoute
   '/weldflow/settings': typeof WeldflowSettingsIndexRoute
-  '/weldflow/table': typeof WeldflowTableIndexRoute
-  '/weldflow/timeline': typeof WeldflowTimelineIndexRoute
   '/weldflow/whiteboard': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains': typeof WeldhostDomainsIndexRoute
@@ -3782,6 +3816,7 @@ export interface FileRoutesByTo {
   '/settings/apps/welddesk': typeof SettingsAppsWelddeskIndexRoute
   '/settings/apps/weldmail': typeof SettingsAppsWeldmailIndexRoute
   '/settings/apps/weldsuite': typeof SettingsAppsWeldsuiteIndexRoute
+  '/settings/entities/add': typeof SettingsEntitiesAddIndexRoute
   '/settings/integrations/$id': typeof SettingsIntegrationsIdIndexRoute
   '/settings/integrations/attio': typeof SettingsIntegrationsAttioIndexRoute
   '/settings/integrations/crm-sync': typeof SettingsIntegrationsCrmSyncIndexRoute
@@ -3848,6 +3883,7 @@ export interface FileRoutesByTo {
   '/weldbooks/sales-tax/returns': typeof WeldbooksSalesTaxReturnsIndexRoute
   '/weldbooks/sales-tax/settings': typeof WeldbooksSalesTaxSettingsIndexRoute
   '/weldbooks/settings/dimensions': typeof WeldbooksSettingsDimensionsIndexRoute
+  '/weldbooks/settings/invoice-templates': typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   '/weldbooks/vat/$id': typeof WeldbooksVatIdIndexRoute
   '/weldcalendar/scheduling/$id': typeof WeldcalendarSchedulingIdIndexRoute
   '/weldcalendar/scheduling/new': typeof WeldcalendarSchedulingNewIndexRoute
@@ -3867,7 +3903,6 @@ export interface FileRoutesByTo {
   '/weldflow/analytics/$id': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdIndexRoute
-  '/weldflow/space/$spaceId': typeof WeldflowSpaceSpaceIdIndexRoute
   '/weldflow/task/$taskId': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external': typeof WeldhostDomainsExternalIndexRoute
@@ -3908,6 +3943,7 @@ export interface FileRoutesByTo {
   '/preview/weldmail/$accountId/$labelSlug': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port': typeof SettingsAppsPhoneNumbersPortIndexRoute
+  '/settings/entities/$id/edit': typeof SettingsEntitiesIdEditIndexRoute
   '/weldbooks/accounts/$id/edit': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/banking/feeds/callback': typeof WeldbooksBankingFeedsCallbackIndexRoute
   '/weldbooks/banking/statements/$id': typeof WeldbooksBankingStatementsIdIndexRoute
@@ -3926,6 +3962,7 @@ export interface FileRoutesByTo {
   '/weldbooks/sales-tax/certificates/reports': typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   '/weldbooks/sales-tax/nexus/$state': typeof WeldbooksSalesTaxNexusStateIndexRoute
   '/weldbooks/sales-tax/returns/$id': typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  '/weldbooks/settings/invoice-templates/$id': typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   '/weldcalendar/scheduling/$id/edit': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view': typeof WeldcalendarSchedulingIdViewIndexRoute
   '/weldconnect/templates/$id/edit': typeof WeldconnectTemplatesIdEditIndexRoute
@@ -3954,7 +3991,6 @@ export interface FileRoutesByTo {
   '/weldflow/project/$projectId/timesheet': typeof WeldflowProjectProjectIdTimesheetIndexRoute
   '/weldflow/project/$projectId/whiteboard': typeof WeldflowProjectProjectIdWhiteboardIndexRoute
   '/weldflow/project/$projectId/workload': typeof WeldflowProjectProjectIdWorkloadIndexRoute
-  '/weldflow/space/$spaceId/$moduleType': typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
   '/weldhost/domains/purchase/cancel': typeof WeldhostDomainsPurchaseCancelIndexRoute
   '/weldhost/domains/purchase/success': typeof WeldhostDomainsPurchaseSuccessIndexRoute
   '/weldhr/payroll/runs/$runId': typeof WeldhrPayrollRunsRunIdIndexRoute
@@ -4066,9 +4102,12 @@ export interface FileRoutesById {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/w/$workspace/$': typeof WWorkspaceSplatRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
@@ -4100,6 +4139,7 @@ export interface FileRoutesById {
   '/settings/custom-fields/': typeof SettingsCustomFieldsIndexRoute
   '/settings/custom-objects/': typeof SettingsCustomObjectsIndexRoute
   '/settings/desktop/': typeof SettingsDesktopIndexRoute
+  '/settings/entities/': typeof SettingsEntitiesIndexRoute
   '/settings/export/': typeof SettingsExportIndexRoute
   '/settings/feedback/': typeof SettingsFeedbackIndexRoute
   '/settings/general/': typeof SettingsGeneralIndexRoute
@@ -4123,6 +4163,7 @@ export interface FileRoutesById {
   '/social/queue/': typeof SocialQueueIndexRoute
   '/social/settings/': typeof SocialSettingsIndexRoute
   '/social/team/': typeof SocialTeamIndexRoute
+  '/w/$workspace/': typeof WWorkspaceIndexRoute
   '/weldads/accounts/': typeof WeldadsAccountsIndexRoute
   '/weldads/campaigns/': typeof WeldadsCampaignsIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
@@ -4141,6 +4182,7 @@ export interface FileRoutesById {
   '/weldbooks/journal/': typeof WeldbooksJournalIndexRoute
   '/weldbooks/payment-runs/': typeof WeldbooksPaymentRunsIndexRoute
   '/weldbooks/payroll/': typeof WeldbooksPayrollIndexRoute
+  '/weldbooks/received-nfe/': typeof WeldbooksReceivedNfeIndexRoute
   '/weldbooks/recurring/': typeof WeldbooksRecurringIndexRoute
   '/weldbooks/reports/': typeof WeldbooksReportsIndexRoute
   '/weldbooks/sales-tax/': typeof WeldbooksSalesTaxIndexRoute
@@ -4190,15 +4232,11 @@ export interface FileRoutesById {
   '/welddrive/trash/': typeof WelddriveTrashIndexRoute
   '/welddrive/uploads/': typeof WelddriveUploadsIndexRoute
   '/weldflow/analytics/': typeof WeldflowAnalyticsIndexRoute
-  '/weldflow/documents/': typeof WeldflowDocumentsIndexRoute
   '/weldflow/files/': typeof WeldflowFilesIndexRoute
   '/weldflow/goals/': typeof WeldflowGoalsIndexRoute
   '/weldflow/my-tasks/': typeof WeldflowMyTasksIndexRoute
-  '/weldflow/notes/': typeof WeldflowNotesIndexRoute
   '/weldflow/projects/': typeof WeldflowProjectsIndexRoute
   '/weldflow/settings/': typeof WeldflowSettingsIndexRoute
-  '/weldflow/table/': typeof WeldflowTableIndexRoute
-  '/weldflow/timeline/': typeof WeldflowTimelineIndexRoute
   '/weldflow/whiteboard/': typeof WeldflowWhiteboardIndexRoute
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
@@ -4257,6 +4295,7 @@ export interface FileRoutesById {
   '/settings/apps/welddesk/': typeof SettingsAppsWelddeskIndexRoute
   '/settings/apps/weldmail/': typeof SettingsAppsWeldmailIndexRoute
   '/settings/apps/weldsuite/': typeof SettingsAppsWeldsuiteIndexRoute
+  '/settings/entities/add/': typeof SettingsEntitiesAddIndexRoute
   '/settings/integrations/$id/': typeof SettingsIntegrationsIdIndexRoute
   '/settings/integrations/attio/': typeof SettingsIntegrationsAttioIndexRoute
   '/settings/integrations/crm-sync/': typeof SettingsIntegrationsCrmSyncIndexRoute
@@ -4323,6 +4362,7 @@ export interface FileRoutesById {
   '/weldbooks/sales-tax/returns/': typeof WeldbooksSalesTaxReturnsIndexRoute
   '/weldbooks/sales-tax/settings/': typeof WeldbooksSalesTaxSettingsIndexRoute
   '/weldbooks/settings/dimensions/': typeof WeldbooksSettingsDimensionsIndexRoute
+  '/weldbooks/settings/invoice-templates/': typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   '/weldbooks/vat/$id/': typeof WeldbooksVatIdIndexRoute
   '/weldcalendar/scheduling/$id/': typeof WeldcalendarSchedulingIdIndexRoute
   '/weldcalendar/scheduling/new/': typeof WeldcalendarSchedulingNewIndexRoute
@@ -4342,7 +4382,6 @@ export interface FileRoutesById {
   '/weldflow/analytics/$id/': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
-  '/weldflow/space/$spaceId/': typeof WeldflowSpaceSpaceIdIndexRoute
   '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external/': typeof WeldhostDomainsExternalIndexRoute
@@ -4383,6 +4422,7 @@ export interface FileRoutesById {
   '/preview/weldmail/$accountId/$labelSlug/': typeof PreviewWeldmailAccountIdLabelSlugIndexRoute
   '/settings/apps/phone-numbers/new-number/': typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
+  '/settings/entities/$id/edit/': typeof SettingsEntitiesIdEditIndexRoute
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/banking/feeds/callback/': typeof WeldbooksBankingFeedsCallbackIndexRoute
   '/weldbooks/banking/statements/$id/': typeof WeldbooksBankingStatementsIdIndexRoute
@@ -4401,6 +4441,7 @@ export interface FileRoutesById {
   '/weldbooks/sales-tax/certificates/reports/': typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   '/weldbooks/sales-tax/nexus/$state/': typeof WeldbooksSalesTaxNexusStateIndexRoute
   '/weldbooks/sales-tax/returns/$id/': typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  '/weldbooks/settings/invoice-templates/$id/': typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
   '/weldconnect/templates/$id/edit/': typeof WeldconnectTemplatesIdEditIndexRoute
@@ -4429,7 +4470,6 @@ export interface FileRoutesById {
   '/weldflow/project/$projectId/timesheet/': typeof WeldflowProjectProjectIdTimesheetIndexRoute
   '/weldflow/project/$projectId/whiteboard/': typeof WeldflowProjectProjectIdWhiteboardIndexRoute
   '/weldflow/project/$projectId/workload/': typeof WeldflowProjectProjectIdWorkloadIndexRoute
-  '/weldflow/space/$spaceId/$moduleType/': typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
   '/weldhost/domains/purchase/cancel/': typeof WeldhostDomainsPurchaseCancelIndexRoute
   '/weldhost/domains/purchase/success/': typeof WeldhostDomainsPurchaseSuccessIndexRoute
   '/weldhr/payroll/runs/$runId/': typeof WeldhrPayrollRunsRunIdIndexRoute
@@ -4542,9 +4582,12 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
+    | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
     | '/settings/custom-objects/$objectId'
+    | '/w/$workspace/$'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
@@ -4576,6 +4619,7 @@ export interface FileRouteTypes {
     | '/settings/custom-fields/'
     | '/settings/custom-objects/'
     | '/settings/desktop/'
+    | '/settings/entities/'
     | '/settings/export/'
     | '/settings/feedback/'
     | '/settings/general/'
@@ -4599,6 +4643,7 @@ export interface FileRouteTypes {
     | '/social/queue/'
     | '/social/settings/'
     | '/social/team/'
+    | '/w/$workspace/'
     | '/weldads/accounts/'
     | '/weldads/campaigns/'
     | '/weldbooks/accounts/'
@@ -4617,6 +4662,7 @@ export interface FileRouteTypes {
     | '/weldbooks/journal/'
     | '/weldbooks/payment-runs/'
     | '/weldbooks/payroll/'
+    | '/weldbooks/received-nfe/'
     | '/weldbooks/recurring/'
     | '/weldbooks/reports/'
     | '/weldbooks/sales-tax/'
@@ -4666,15 +4712,11 @@ export interface FileRouteTypes {
     | '/welddrive/trash/'
     | '/welddrive/uploads/'
     | '/weldflow/analytics/'
-    | '/weldflow/documents/'
     | '/weldflow/files/'
     | '/weldflow/goals/'
     | '/weldflow/my-tasks/'
-    | '/weldflow/notes/'
     | '/weldflow/projects/'
     | '/weldflow/settings/'
-    | '/weldflow/table/'
-    | '/weldflow/timeline/'
     | '/weldflow/whiteboard/'
     | '/weldflow/workload/'
     | '/weldhost/domains/'
@@ -4733,6 +4775,7 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/'
     | '/settings/apps/weldmail/'
     | '/settings/apps/weldsuite/'
+    | '/settings/entities/add/'
     | '/settings/integrations/$id/'
     | '/settings/integrations/attio/'
     | '/settings/integrations/crm-sync/'
@@ -4799,6 +4842,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/returns/'
     | '/weldbooks/sales-tax/settings/'
     | '/weldbooks/settings/dimensions/'
+    | '/weldbooks/settings/invoice-templates/'
     | '/weldbooks/vat/$id/'
     | '/weldcalendar/scheduling/$id/'
     | '/weldcalendar/scheduling/new/'
@@ -4818,7 +4862,6 @@ export interface FileRouteTypes {
     | '/weldflow/analytics/$id/'
     | '/weldflow/analytics/builder/'
     | '/weldflow/project/$projectId/'
-    | '/weldflow/space/$spaceId/'
     | '/weldflow/task/$taskId/'
     | '/weldhost/domains/$id/'
     | '/weldhost/domains/external/'
@@ -4859,6 +4902,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug/'
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
+    | '/settings/entities/$id/edit/'
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/banking/feeds/callback/'
     | '/weldbooks/banking/statements/$id/'
@@ -4877,6 +4921,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/certificates/reports/'
     | '/weldbooks/sales-tax/nexus/$state/'
     | '/weldbooks/sales-tax/returns/$id/'
+    | '/weldbooks/settings/invoice-templates/$id/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
     | '/weldconnect/templates/$id/edit/'
@@ -4905,7 +4950,6 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/timesheet/'
     | '/weldflow/project/$projectId/whiteboard/'
     | '/weldflow/project/$projectId/workload/'
-    | '/weldflow/space/$spaceId/$moduleType/'
     | '/weldhost/domains/purchase/cancel/'
     | '/weldhost/domains/purchase/success/'
     | '/weldhr/payroll/runs/$runId/'
@@ -4978,9 +5022,12 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
+    | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
     | '/settings/custom-objects/$objectId'
+    | '/w/$workspace/$'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
@@ -5012,6 +5059,7 @@ export interface FileRouteTypes {
     | '/settings/custom-fields'
     | '/settings/custom-objects'
     | '/settings/desktop'
+    | '/settings/entities'
     | '/settings/export'
     | '/settings/feedback'
     | '/settings/general'
@@ -5035,6 +5083,7 @@ export interface FileRouteTypes {
     | '/social/queue'
     | '/social/settings'
     | '/social/team'
+    | '/w/$workspace'
     | '/weldads/accounts'
     | '/weldads/campaigns'
     | '/weldbooks/accounts'
@@ -5053,6 +5102,7 @@ export interface FileRouteTypes {
     | '/weldbooks/journal'
     | '/weldbooks/payment-runs'
     | '/weldbooks/payroll'
+    | '/weldbooks/received-nfe'
     | '/weldbooks/recurring'
     | '/weldbooks/reports'
     | '/weldbooks/sales-tax'
@@ -5102,15 +5152,11 @@ export interface FileRouteTypes {
     | '/welddrive/trash'
     | '/welddrive/uploads'
     | '/weldflow/analytics'
-    | '/weldflow/documents'
     | '/weldflow/files'
     | '/weldflow/goals'
     | '/weldflow/my-tasks'
-    | '/weldflow/notes'
     | '/weldflow/projects'
     | '/weldflow/settings'
-    | '/weldflow/table'
-    | '/weldflow/timeline'
     | '/weldflow/whiteboard'
     | '/weldflow/workload'
     | '/weldhost/domains'
@@ -5167,6 +5213,7 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk'
     | '/settings/apps/weldmail'
     | '/settings/apps/weldsuite'
+    | '/settings/entities/add'
     | '/settings/integrations/$id'
     | '/settings/integrations/attio'
     | '/settings/integrations/crm-sync'
@@ -5233,6 +5280,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/returns'
     | '/weldbooks/sales-tax/settings'
     | '/weldbooks/settings/dimensions'
+    | '/weldbooks/settings/invoice-templates'
     | '/weldbooks/vat/$id'
     | '/weldcalendar/scheduling/$id'
     | '/weldcalendar/scheduling/new'
@@ -5252,7 +5300,6 @@ export interface FileRouteTypes {
     | '/weldflow/analytics/$id'
     | '/weldflow/analytics/builder'
     | '/weldflow/project/$projectId'
-    | '/weldflow/space/$spaceId'
     | '/weldflow/task/$taskId'
     | '/weldhost/domains/$id'
     | '/weldhost/domains/external'
@@ -5293,6 +5340,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug'
     | '/settings/apps/phone-numbers/new-number'
     | '/settings/apps/phone-numbers/port'
+    | '/settings/entities/$id/edit'
     | '/weldbooks/accounts/$id/edit'
     | '/weldbooks/banking/feeds/callback'
     | '/weldbooks/banking/statements/$id'
@@ -5311,6 +5359,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/certificates/reports'
     | '/weldbooks/sales-tax/nexus/$state'
     | '/weldbooks/sales-tax/returns/$id'
+    | '/weldbooks/settings/invoice-templates/$id'
     | '/weldcalendar/scheduling/$id/edit'
     | '/weldcalendar/scheduling/$id/view'
     | '/weldconnect/templates/$id/edit'
@@ -5339,7 +5388,6 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/timesheet'
     | '/weldflow/project/$projectId/whiteboard'
     | '/weldflow/project/$projectId/workload'
-    | '/weldflow/space/$spaceId/$moduleType'
     | '/weldhost/domains/purchase/cancel'
     | '/weldhost/domains/purchase/success'
     | '/weldhr/payroll/runs/$runId'
@@ -5450,9 +5498,12 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
+    | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
     | '/settings/custom-objects/$objectId'
+    | '/w/$workspace/$'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
@@ -5484,6 +5535,7 @@ export interface FileRouteTypes {
     | '/settings/custom-fields/'
     | '/settings/custom-objects/'
     | '/settings/desktop/'
+    | '/settings/entities/'
     | '/settings/export/'
     | '/settings/feedback/'
     | '/settings/general/'
@@ -5507,6 +5559,7 @@ export interface FileRouteTypes {
     | '/social/queue/'
     | '/social/settings/'
     | '/social/team/'
+    | '/w/$workspace/'
     | '/weldads/accounts/'
     | '/weldads/campaigns/'
     | '/weldbooks/accounts/'
@@ -5525,6 +5578,7 @@ export interface FileRouteTypes {
     | '/weldbooks/journal/'
     | '/weldbooks/payment-runs/'
     | '/weldbooks/payroll/'
+    | '/weldbooks/received-nfe/'
     | '/weldbooks/recurring/'
     | '/weldbooks/reports/'
     | '/weldbooks/sales-tax/'
@@ -5574,15 +5628,11 @@ export interface FileRouteTypes {
     | '/welddrive/trash/'
     | '/welddrive/uploads/'
     | '/weldflow/analytics/'
-    | '/weldflow/documents/'
     | '/weldflow/files/'
     | '/weldflow/goals/'
     | '/weldflow/my-tasks/'
-    | '/weldflow/notes/'
     | '/weldflow/projects/'
     | '/weldflow/settings/'
-    | '/weldflow/table/'
-    | '/weldflow/timeline/'
     | '/weldflow/whiteboard/'
     | '/weldflow/workload/'
     | '/weldhost/domains/'
@@ -5641,6 +5691,7 @@ export interface FileRouteTypes {
     | '/settings/apps/welddesk/'
     | '/settings/apps/weldmail/'
     | '/settings/apps/weldsuite/'
+    | '/settings/entities/add/'
     | '/settings/integrations/$id/'
     | '/settings/integrations/attio/'
     | '/settings/integrations/crm-sync/'
@@ -5707,6 +5758,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/returns/'
     | '/weldbooks/sales-tax/settings/'
     | '/weldbooks/settings/dimensions/'
+    | '/weldbooks/settings/invoice-templates/'
     | '/weldbooks/vat/$id/'
     | '/weldcalendar/scheduling/$id/'
     | '/weldcalendar/scheduling/new/'
@@ -5726,7 +5778,6 @@ export interface FileRouteTypes {
     | '/weldflow/analytics/$id/'
     | '/weldflow/analytics/builder/'
     | '/weldflow/project/$projectId/'
-    | '/weldflow/space/$spaceId/'
     | '/weldflow/task/$taskId/'
     | '/weldhost/domains/$id/'
     | '/weldhost/domains/external/'
@@ -5767,6 +5818,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail/$accountId/$labelSlug/'
     | '/settings/apps/phone-numbers/new-number/'
     | '/settings/apps/phone-numbers/port/'
+    | '/settings/entities/$id/edit/'
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/banking/feeds/callback/'
     | '/weldbooks/banking/statements/$id/'
@@ -5785,6 +5837,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/certificates/reports/'
     | '/weldbooks/sales-tax/nexus/$state/'
     | '/weldbooks/sales-tax/returns/$id/'
+    | '/weldbooks/settings/invoice-templates/$id/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
     | '/weldconnect/templates/$id/edit/'
@@ -5813,7 +5866,6 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/timesheet/'
     | '/weldflow/project/$projectId/whiteboard/'
     | '/weldflow/project/$projectId/workload/'
-    | '/weldflow/space/$spaceId/$moduleType/'
     | '/weldhost/domains/purchase/cancel/'
     | '/weldhost/domains/purchase/success/'
     | '/weldhr/payroll/runs/$runId/'
@@ -5884,10 +5936,12 @@ export interface RootRouteChildren {
   OnboardingIndexRoute: typeof OnboardingIndexRoute
   WelcomeIndexRoute: typeof WelcomeIndexRoute
   ObjectsSlugRecordIdRoute: typeof ObjectsSlugRecordIdRoute
+  WWorkspaceSplatRoute: typeof WWorkspaceSplatRoute
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
   PreviewHelpDocsIndexRoute: typeof PreviewHelpDocsIndexRoute
+  WWorkspaceIndexRoute: typeof WWorkspaceIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -6704,20 +6758,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowWhiteboardIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldflow/timeline/': {
-      id: '/weldflow/timeline/'
-      path: '/timeline'
-      fullPath: '/weldflow/timeline/'
-      preLoaderRoute: typeof WeldflowTimelineIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/table/': {
-      id: '/weldflow/table/'
-      path: '/table'
-      fullPath: '/weldflow/table/'
-      preLoaderRoute: typeof WeldflowTableIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
     '/weldflow/settings/': {
       id: '/weldflow/settings/'
       path: '/settings'
@@ -6730,13 +6770,6 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/weldflow/projects/'
       preLoaderRoute: typeof WeldflowProjectsIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/notes/': {
-      id: '/weldflow/notes/'
-      path: '/notes'
-      fullPath: '/weldflow/notes/'
-      preLoaderRoute: typeof WeldflowNotesIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/my-tasks/': {
@@ -6758,13 +6791,6 @@ declare module '@tanstack/react-router' {
       path: '/files'
       fullPath: '/weldflow/files/'
       preLoaderRoute: typeof WeldflowFilesIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/documents/': {
-      id: '/weldflow/documents/'
-      path: '/documents'
-      fullPath: '/weldflow/documents/'
-      preLoaderRoute: typeof WeldflowDocumentsIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/analytics/': {
@@ -7110,6 +7136,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksRecurringIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/received-nfe/': {
+      id: '/weldbooks/received-nfe/'
+      path: '/received-nfe'
+      fullPath: '/weldbooks/received-nfe/'
+      preLoaderRoute: typeof WeldbooksReceivedNfeIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/payroll/': {
       id: '/weldbooks/payroll/'
       path: '/payroll'
@@ -7235,6 +7268,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldads/accounts/'
       preLoaderRoute: typeof WeldadsAccountsIndexRouteImport
       parentRoute: typeof WeldadsRouteRoute
+    }
+    '/w/$workspace/': {
+      id: '/w/$workspace/'
+      path: '/w/$workspace'
+      fullPath: '/w/$workspace/'
+      preLoaderRoute: typeof WWorkspaceIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/social/team/': {
       id: '/social/team/'
@@ -7395,6 +7435,13 @@ declare module '@tanstack/react-router' {
       path: '/export'
       fullPath: '/settings/export/'
       preLoaderRoute: typeof SettingsExportIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/entities/': {
+      id: '/settings/entities/'
+      path: '/entities'
+      fullPath: '/settings/entities/'
+      preLoaderRoute: typeof SettingsEntitiesIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/desktop/': {
@@ -7614,6 +7661,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldchatDmUserIdRouteImport
       parentRoute: typeof WeldchatRouteRoute
     }
+    '/w/$workspace/$': {
+      id: '/w/$workspace/$'
+      path: '/w/$workspace/$'
+      fullPath: '/w/$workspace/$'
+      preLoaderRoute: typeof WWorkspaceSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/custom-objects/$objectId': {
       id: '/settings/custom-objects/$objectId'
       path: '/custom-objects/$objectId'
@@ -7628,11 +7682,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsWeldhrRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/apps/weldflow': {
+      id: '/settings/apps/weldflow'
+      path: '/apps/weldflow'
+      fullPath: '/settings/apps/weldflow'
+      preLoaderRoute: typeof SettingsAppsWeldflowRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/apps/weldcrm': {
       id: '/settings/apps/weldcrm'
       path: '/apps/weldcrm'
       fullPath: '/settings/apps/weldcrm'
       preLoaderRoute: typeof SettingsAppsWeldcrmRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/weldcalendar': {
+      id: '/settings/apps/weldcalendar'
+      path: '/apps/weldcalendar'
+      fullPath: '/settings/apps/weldcalendar'
+      preLoaderRoute: typeof SettingsAppsWeldcalendarRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/objects/$slug/$recordId': {
@@ -7901,13 +7969,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowTaskTaskIdIndexRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldflow/space/$spaceId/': {
-      id: '/weldflow/space/$spaceId/'
-      path: '/space/$spaceId'
-      fullPath: '/weldflow/space/$spaceId/'
-      preLoaderRoute: typeof WeldflowSpaceSpaceIdIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
     '/weldflow/project/$projectId/': {
       id: '/weldflow/project/$projectId/'
       path: '/'
@@ -8039,6 +8100,13 @@ declare module '@tanstack/react-router' {
       path: '/vat/$id'
       fullPath: '/weldbooks/vat/$id/'
       preLoaderRoute: typeof WeldbooksVatIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/settings/invoice-templates/': {
+      id: '/weldbooks/settings/invoice-templates/'
+      path: '/settings/invoice-templates'
+      fullPath: '/weldbooks/settings/invoice-templates/'
+      preLoaderRoute: typeof WeldbooksSettingsInvoiceTemplatesIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
     '/weldbooks/settings/dimensions/': {
@@ -8503,6 +8571,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsIdIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/entities/add/': {
+      id: '/settings/entities/add/'
+      path: '/entities/add'
+      fullPath: '/settings/entities/add/'
+      preLoaderRoute: typeof SettingsEntitiesAddIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/apps/weldsuite/': {
       id: '/settings/apps/weldsuite/'
       path: '/apps/weldsuite'
@@ -8698,13 +8773,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldhost/domains/purchase/cancel/'
       preLoaderRoute: typeof WeldhostDomainsPurchaseCancelIndexRouteImport
       parentRoute: typeof WeldhostRouteRoute
-    }
-    '/weldflow/space/$spaceId/$moduleType/': {
-      id: '/weldflow/space/$spaceId/$moduleType/'
-      path: '/space/$spaceId/$moduleType'
-      fullPath: '/weldflow/space/$spaceId/$moduleType/'
-      preLoaderRoute: typeof WeldflowSpaceSpaceIdModuleTypeIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/project/$projectId/workload/': {
       id: '/weldflow/project/$projectId/workload/'
@@ -8902,6 +8970,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldcalendarSchedulingIdEditIndexRouteImport
       parentRoute: typeof WeldcalendarRouteRoute
     }
+    '/weldbooks/settings/invoice-templates/$id/': {
+      id: '/weldbooks/settings/invoice-templates/$id/'
+      path: '/settings/invoice-templates/$id'
+      fullPath: '/weldbooks/settings/invoice-templates/$id/'
+      preLoaderRoute: typeof WeldbooksSettingsInvoiceTemplatesIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/sales-tax/returns/$id/': {
       id: '/weldbooks/sales-tax/returns/$id/'
       path: '/sales-tax/returns/$id'
@@ -9027,6 +9102,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldbooks/accounts/$id/edit/'
       preLoaderRoute: typeof WeldbooksAccountsIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/settings/entities/$id/edit/': {
+      id: '/settings/entities/$id/edit/'
+      path: '/entities/$id/edit'
+      fullPath: '/settings/entities/$id/edit/'
+      preLoaderRoute: typeof SettingsEntitiesIdEditIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
     '/settings/apps/phone-numbers/port/': {
       id: '/settings/apps/phone-numbers/port/'
@@ -9257,7 +9339,9 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
 
 interface SettingsRouteRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsAppsWeldcalendarRoute: typeof SettingsAppsWeldcalendarRoute
   SettingsAppsWeldcrmRoute: typeof SettingsAppsWeldcrmRoute
+  SettingsAppsWeldflowRoute: typeof SettingsAppsWeldflowRoute
   SettingsAppsWeldhrRoute: typeof SettingsAppsWeldhrRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
@@ -9269,6 +9353,7 @@ interface SettingsRouteRouteChildren {
   SettingsCustomFieldsIndexRoute: typeof SettingsCustomFieldsIndexRoute
   SettingsCustomObjectsIndexRoute: typeof SettingsCustomObjectsIndexRoute
   SettingsDesktopIndexRoute: typeof SettingsDesktopIndexRoute
+  SettingsEntitiesIndexRoute: typeof SettingsEntitiesIndexRoute
   SettingsExportIndexRoute: typeof SettingsExportIndexRoute
   SettingsFeedbackIndexRoute: typeof SettingsFeedbackIndexRoute
   SettingsGeneralIndexRoute: typeof SettingsGeneralIndexRoute
@@ -9289,6 +9374,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWelddeskIndexRoute: typeof SettingsAppsWelddeskIndexRoute
   SettingsAppsWeldmailIndexRoute: typeof SettingsAppsWeldmailIndexRoute
   SettingsAppsWeldsuiteIndexRoute: typeof SettingsAppsWeldsuiteIndexRoute
+  SettingsEntitiesAddIndexRoute: typeof SettingsEntitiesAddIndexRoute
   SettingsIntegrationsIdIndexRoute: typeof SettingsIntegrationsIdIndexRoute
   SettingsIntegrationsAttioIndexRoute: typeof SettingsIntegrationsAttioIndexRoute
   SettingsIntegrationsCrmSyncIndexRoute: typeof SettingsIntegrationsCrmSyncIndexRoute
@@ -9306,12 +9392,15 @@ interface SettingsRouteRouteChildren {
   SettingsTeamMemberIdIndexRoute: typeof SettingsTeamMemberIdIndexRoute
   SettingsAppsPhoneNumbersNewNumberIndexRoute: typeof SettingsAppsPhoneNumbersNewNumberIndexRoute
   SettingsAppsPhoneNumbersPortIndexRoute: typeof SettingsAppsPhoneNumbersPortIndexRoute
+  SettingsEntitiesIdEditIndexRoute: typeof SettingsEntitiesIdEditIndexRoute
   SettingsAppsPhoneNumbersPortIdIndexRoute: typeof SettingsAppsPhoneNumbersPortIdIndexRoute
 }
 
 const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
+  SettingsAppsWeldcalendarRoute: SettingsAppsWeldcalendarRoute,
   SettingsAppsWeldcrmRoute: SettingsAppsWeldcrmRoute,
+  SettingsAppsWeldflowRoute: SettingsAppsWeldflowRoute,
   SettingsAppsWeldhrRoute: SettingsAppsWeldhrRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
@@ -9323,6 +9412,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsCustomFieldsIndexRoute: SettingsCustomFieldsIndexRoute,
   SettingsCustomObjectsIndexRoute: SettingsCustomObjectsIndexRoute,
   SettingsDesktopIndexRoute: SettingsDesktopIndexRoute,
+  SettingsEntitiesIndexRoute: SettingsEntitiesIndexRoute,
   SettingsExportIndexRoute: SettingsExportIndexRoute,
   SettingsFeedbackIndexRoute: SettingsFeedbackIndexRoute,
   SettingsGeneralIndexRoute: SettingsGeneralIndexRoute,
@@ -9346,6 +9436,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWelddeskIndexRoute: SettingsAppsWelddeskIndexRoute,
   SettingsAppsWeldmailIndexRoute: SettingsAppsWeldmailIndexRoute,
   SettingsAppsWeldsuiteIndexRoute: SettingsAppsWeldsuiteIndexRoute,
+  SettingsEntitiesAddIndexRoute: SettingsEntitiesAddIndexRoute,
   SettingsIntegrationsIdIndexRoute: SettingsIntegrationsIdIndexRoute,
   SettingsIntegrationsAttioIndexRoute: SettingsIntegrationsAttioIndexRoute,
   SettingsIntegrationsCrmSyncIndexRoute: SettingsIntegrationsCrmSyncIndexRoute,
@@ -9370,6 +9461,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
     SettingsAppsPhoneNumbersNewNumberIndexRoute,
   SettingsAppsPhoneNumbersPortIndexRoute:
     SettingsAppsPhoneNumbersPortIndexRoute,
+  SettingsEntitiesIdEditIndexRoute: SettingsEntitiesIdEditIndexRoute,
   SettingsAppsPhoneNumbersPortIdIndexRoute:
     SettingsAppsPhoneNumbersPortIdIndexRoute,
 }
@@ -9446,6 +9538,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksJournalIndexRoute: typeof WeldbooksJournalIndexRoute
   WeldbooksPaymentRunsIndexRoute: typeof WeldbooksPaymentRunsIndexRoute
   WeldbooksPayrollIndexRoute: typeof WeldbooksPayrollIndexRoute
+  WeldbooksReceivedNfeIndexRoute: typeof WeldbooksReceivedNfeIndexRoute
   WeldbooksRecurringIndexRoute: typeof WeldbooksRecurringIndexRoute
   WeldbooksReportsIndexRoute: typeof WeldbooksReportsIndexRoute
   WeldbooksSalesTaxIndexRoute: typeof WeldbooksSalesTaxIndexRoute
@@ -9503,6 +9596,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksSalesTaxReturnsIndexRoute: typeof WeldbooksSalesTaxReturnsIndexRoute
   WeldbooksSalesTaxSettingsIndexRoute: typeof WeldbooksSalesTaxSettingsIndexRoute
   WeldbooksSettingsDimensionsIndexRoute: typeof WeldbooksSettingsDimensionsIndexRoute
+  WeldbooksSettingsInvoiceTemplatesIndexRoute: typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   WeldbooksVatIdIndexRoute: typeof WeldbooksVatIdIndexRoute
   WeldbooksAccountsIdEditIndexRoute: typeof WeldbooksAccountsIdEditIndexRoute
   WeldbooksBankingFeedsCallbackIndexRoute: typeof WeldbooksBankingFeedsCallbackIndexRoute
@@ -9522,6 +9616,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksSalesTaxCertificatesReportsIndexRoute: typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   WeldbooksSalesTaxNexusStateIndexRoute: typeof WeldbooksSalesTaxNexusStateIndexRoute
   WeldbooksSalesTaxReturnsIdIndexRoute: typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  WeldbooksSettingsInvoiceTemplatesIdIndexRoute: typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   WeldbooksBankingStatementsIdReportIndexRoute: typeof WeldbooksBankingStatementsIdReportIndexRoute
 }
 
@@ -9543,6 +9638,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksJournalIndexRoute: WeldbooksJournalIndexRoute,
   WeldbooksPaymentRunsIndexRoute: WeldbooksPaymentRunsIndexRoute,
   WeldbooksPayrollIndexRoute: WeldbooksPayrollIndexRoute,
+  WeldbooksReceivedNfeIndexRoute: WeldbooksReceivedNfeIndexRoute,
   WeldbooksRecurringIndexRoute: WeldbooksRecurringIndexRoute,
   WeldbooksReportsIndexRoute: WeldbooksReportsIndexRoute,
   WeldbooksSalesTaxIndexRoute: WeldbooksSalesTaxIndexRoute,
@@ -9614,6 +9710,8 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksSalesTaxReturnsIndexRoute: WeldbooksSalesTaxReturnsIndexRoute,
   WeldbooksSalesTaxSettingsIndexRoute: WeldbooksSalesTaxSettingsIndexRoute,
   WeldbooksSettingsDimensionsIndexRoute: WeldbooksSettingsDimensionsIndexRoute,
+  WeldbooksSettingsInvoiceTemplatesIndexRoute:
+    WeldbooksSettingsInvoiceTemplatesIndexRoute,
   WeldbooksVatIdIndexRoute: WeldbooksVatIdIndexRoute,
   WeldbooksAccountsIdEditIndexRoute: WeldbooksAccountsIdEditIndexRoute,
   WeldbooksBankingFeedsCallbackIndexRoute:
@@ -9641,6 +9739,8 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
     WeldbooksSalesTaxCertificatesReportsIndexRoute,
   WeldbooksSalesTaxNexusStateIndexRoute: WeldbooksSalesTaxNexusStateIndexRoute,
   WeldbooksSalesTaxReturnsIdIndexRoute: WeldbooksSalesTaxReturnsIdIndexRoute,
+  WeldbooksSettingsInvoiceTemplatesIdIndexRoute:
+    WeldbooksSettingsInvoiceTemplatesIdIndexRoute,
   WeldbooksBankingStatementsIdReportIndexRoute:
     WeldbooksBankingStatementsIdReportIndexRoute,
 }
@@ -10025,22 +10125,16 @@ interface WeldflowRouteRouteChildren {
   WeldflowIndexRoute: typeof WeldflowIndexRoute
   WeldflowProjectProjectIdRouteRoute: typeof WeldflowProjectProjectIdRouteRouteWithChildren
   WeldflowAnalyticsIndexRoute: typeof WeldflowAnalyticsIndexRoute
-  WeldflowDocumentsIndexRoute: typeof WeldflowDocumentsIndexRoute
   WeldflowFilesIndexRoute: typeof WeldflowFilesIndexRoute
   WeldflowGoalsIndexRoute: typeof WeldflowGoalsIndexRoute
   WeldflowMyTasksIndexRoute: typeof WeldflowMyTasksIndexRoute
-  WeldflowNotesIndexRoute: typeof WeldflowNotesIndexRoute
   WeldflowProjectsIndexRoute: typeof WeldflowProjectsIndexRoute
   WeldflowSettingsIndexRoute: typeof WeldflowSettingsIndexRoute
-  WeldflowTableIndexRoute: typeof WeldflowTableIndexRoute
-  WeldflowTimelineIndexRoute: typeof WeldflowTimelineIndexRoute
   WeldflowWhiteboardIndexRoute: typeof WeldflowWhiteboardIndexRoute
   WeldflowWorkloadIndexRoute: typeof WeldflowWorkloadIndexRoute
   WeldflowAnalyticsIdIndexRoute: typeof WeldflowAnalyticsIdIndexRoute
   WeldflowAnalyticsBuilderIndexRoute: typeof WeldflowAnalyticsBuilderIndexRoute
-  WeldflowSpaceSpaceIdIndexRoute: typeof WeldflowSpaceSpaceIdIndexRoute
   WeldflowTaskTaskIdIndexRoute: typeof WeldflowTaskTaskIdIndexRoute
-  WeldflowSpaceSpaceIdModuleTypeIndexRoute: typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
 }
 
 const WeldflowRouteRouteChildren: WeldflowRouteRouteChildren = {
@@ -10048,23 +10142,16 @@ const WeldflowRouteRouteChildren: WeldflowRouteRouteChildren = {
   WeldflowProjectProjectIdRouteRoute:
     WeldflowProjectProjectIdRouteRouteWithChildren,
   WeldflowAnalyticsIndexRoute: WeldflowAnalyticsIndexRoute,
-  WeldflowDocumentsIndexRoute: WeldflowDocumentsIndexRoute,
   WeldflowFilesIndexRoute: WeldflowFilesIndexRoute,
   WeldflowGoalsIndexRoute: WeldflowGoalsIndexRoute,
   WeldflowMyTasksIndexRoute: WeldflowMyTasksIndexRoute,
-  WeldflowNotesIndexRoute: WeldflowNotesIndexRoute,
   WeldflowProjectsIndexRoute: WeldflowProjectsIndexRoute,
   WeldflowSettingsIndexRoute: WeldflowSettingsIndexRoute,
-  WeldflowTableIndexRoute: WeldflowTableIndexRoute,
-  WeldflowTimelineIndexRoute: WeldflowTimelineIndexRoute,
   WeldflowWhiteboardIndexRoute: WeldflowWhiteboardIndexRoute,
   WeldflowWorkloadIndexRoute: WeldflowWorkloadIndexRoute,
   WeldflowAnalyticsIdIndexRoute: WeldflowAnalyticsIdIndexRoute,
   WeldflowAnalyticsBuilderIndexRoute: WeldflowAnalyticsBuilderIndexRoute,
-  WeldflowSpaceSpaceIdIndexRoute: WeldflowSpaceSpaceIdIndexRoute,
   WeldflowTaskTaskIdIndexRoute: WeldflowTaskTaskIdIndexRoute,
-  WeldflowSpaceSpaceIdModuleTypeIndexRoute:
-    WeldflowSpaceSpaceIdModuleTypeIndexRoute,
 }
 
 const WeldflowRouteRouteWithChildren = WeldflowRouteRoute._addFileChildren(
@@ -10663,10 +10750,12 @@ const rootRouteChildren: RootRouteChildren = {
   OnboardingIndexRoute: OnboardingIndexRoute,
   WelcomeIndexRoute: WelcomeIndexRoute,
   ObjectsSlugRecordIdRoute: ObjectsSlugRecordIdRoute,
+  WWorkspaceSplatRoute: WWorkspaceSplatRoute,
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,
   PreviewHelpDocsIndexRoute: PreviewHelpDocsIndexRoute,
+  WWorkspaceIndexRoute: WWorkspaceIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

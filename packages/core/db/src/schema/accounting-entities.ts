@@ -90,6 +90,8 @@ export const entities = pgTable('entities', {
   salesTaxEngineConfig: jsonb('sales_tax_engine_config').$type<Record<string, unknown>>(),
   /** AES-GCM blob of the engine credentials (the customer's own key). Never returned. */
   salesTaxCredentialsEncrypted: text('sales_tax_credentials_encrypted'),
+  /** Brazil: the fiscal document provider's API token (Focus NFe), sealed like the sales tax credentials. */
+  fiscalCredentialsEncrypted: text('fiscal_credentials_encrypted'),
   /** AES-GCM blob of the owner's SSN, for a sole proprietor without an EIN. */
   ssnEncrypted: text('ssn_encrypted'),
   ssnLast4: varchar('ssn_last4', { length: 4 }),

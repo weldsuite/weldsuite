@@ -23,9 +23,8 @@ import {
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@weldsuite/ui/components/button';
-import { Plus, Calendar, Search, Flag, Tag, Hash, Clock, CalendarClock } from 'lucide-react';
+import { Plus, Calendar, Search, Flag, Tag, Clock, CalendarClock } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '../lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
@@ -126,7 +125,9 @@ function applyActiveFilter(tasks: Task[], filter: ActiveFilter): Task[] {
   const { field } = filter;
   if (field !== 'status' && field !== 'priority' && field !== 'project') return tasks;
   const wantMatch = filter.operator === 'is';
-  return tasks.filter(t => (t[field] === filter.value) === wantMatch);
+  // The project filter's value is a project id (what the server filters on).
+  const key = field === 'project' ? 'projectId' : field;
+  return tasks.filter(t => (t[key] === filter.value) === wantMatch);
 }
 
 function applyActiveFilters(tasks: Task[], activeFilters: ActiveFilter[]): Task[] {
@@ -296,23 +297,6 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
               .filter((l): l is NonNullable<typeof l> => !!l)
               .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
           />
-        </div>
-      )}
-
-      {/* Tags */}
-      {task.tags && task.tags.length > 0 && (
-        <div className="flex items-center gap-2 mt-3">
-          <Hash className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <div className="flex flex-wrap gap-1 min-w-0">
-            {task.tags.slice(0, 3).map((tag) => (
-              <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
-                {tag}
-              </Badge>
-            ))}
-            {task.tags.length > 3 && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">+{task.tags.length - 3}</Badge>
-            )}
-          </div>
         </div>
       )}
     </>

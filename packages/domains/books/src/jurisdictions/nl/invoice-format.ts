@@ -24,6 +24,9 @@ const nlLabels: InvoiceLabels = {
   vatNumberLabel: 'BTW-nummer',
   registrationLabel: 'KVK',
   draftNotice: 'Concept: geen geldige factuur',
+  reference: 'Referentie',
+  notes: 'Opmerkingen',
+  terms: 'Voorwaarden',
 };
 
 const enLabels: InvoiceLabels = {

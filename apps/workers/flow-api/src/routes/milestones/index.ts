@@ -6,7 +6,7 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createMilestoneSchema, updateMilestoneSchema } from '@weldsuite/core-api-client/schemas/milestones';
@@ -14,7 +14,14 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { accessibleProjectIds, canAccessProject, canWriteProject } from '../../lib/project-access';
+import { accessibleProjectIds, canAccessProject, canWriteProject, inAccessibleProjects } from '../../lib/project-access';
+import { containsPattern } from '../../lib/ilike-pattern';
+import {
+  MILESTONE_TIMESTAMP_FIELDS,
+  MILESTONE_WRITABLE_FIELDS,
+  coerceTimestamps,
+  pickWritable,
+} from '../../lib/writable-columns';
 import { getMilestoneStats, withMilestoneStats } from '@weldsuite/flow-domain/project-stats';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -22,6 +29,7 @@ const t = schema.milestones;
 
 const PROJECT_DENIED = 'You are not a member of this project';
 const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
+const MILESTONE_COMPLETED = 'completed';
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -32,12 +40,11 @@ async function buildListFilters(c: AppContext, q: Record<string, string>): Promi
   if (q.projectId) {
     if (!(await canAccessProject(c, q.projectId))) return null;
   } else {
-    const accessible = await accessibleProjectIds(c);
-    if (accessible !== null) conditions.push(inArray(t.projectId, accessible.length ? accessible : ['']));
+    conditions.push(inAccessibleProjects(t.projectId, await accessibleProjectIds(c)));
   }
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
   if (q.search) {
-    conditions.push(like(t.name, `%${q.search}%`));
+    conditions.push(ilike(t.name, containsPattern(q.search)));
   }
   return conditions;
 }
@@ -99,33 +106,48 @@ app.get('/:id', requirePermission('milestones:read'), async (c) => {
 
 app.post('/', requirePermission('milestones:create'), zValidator('json', createMilestoneSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  // Allow-listed columns only (the schema is passthrough, the DB row is not).
+  const picked = pickWritable(c.req.valid('json') as Record<string, unknown>, MILESTONE_WRITABLE_FIELDS);
   const id = generateId('ms');
   const now = new Date();
   // projectId + dueDate are NOT NULL at the DB layer; surface a
   // clean 400 instead of a 500 from the Drizzle insert.
-  if (!data.projectId) {
+  const projectId = picked.projectId as string | null | undefined;
+  if (!projectId) {
     return error.badRequest(c, 'Missing required field: projectId');
   }
-  if (!(await canWriteProject(c, data.projectId))) {
+  if (!(await canWriteProject(c, projectId))) {
     return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
-  if (!data.dueDate) {
+  if (!picked.dueDate) {
     return error.badRequest(c, 'Missing required field: dueDate');
   }
   // Coerce dueDate string → Date so the timestamp column binds.
-  const dueDate = new Date(data.dueDate);
+  const writable = coerceTimestamps(picked, MILESTONE_TIMESTAMP_FIELDS);
+  if (!writable.ok) return error.badRequest(c, `Invalid date: ${writable.field}`);
+  const data = writable.values;
+  // A milestone created already completed carries its completion time.
+  const completedAt = data.status === MILESTONE_COMPLETED ? now : null;
   try {
     await db
       .insert(t)
-      .values({ id, ...data, dueDate, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+      .values({ ...data, id, completedAt, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
     publishEntityEvent({
       c,
       entityType: 'project_milestone',
       entityId: id,
       action: 'created',
-      data: { id, projectId: data.projectId, name: data.name, status: data.status ?? 'pending' },
+      data: { id, projectId, name: data.name, status: data.status ?? 'pending' },
     });
+    if (completedAt) {
+      publishEntityEvent({
+        c,
+        entityType: 'project_milestone',
+        entityId: id,
+        action: 'completed',
+        data: { id, projectId, name: data.name, status: MILESTONE_COMPLETED },
+      });
+    }
     return success(c, { id }, 201);
   } catch (err) {
     console.error('[app-api/milestones] create failed:', err);
@@ -136,31 +158,40 @@ app.post('/', requirePermission('milestones:create'), zValidator('json', createM
 app.patch('/:id', requirePermission('milestones:update'), zValidator('json', updateMilestoneSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  const writable = coerceTimestamps(
+    pickWritable(c.req.valid('json') as Record<string, unknown>, MILESTONE_WRITABLE_FIELDS),
+    MILESTONE_TIMESTAMP_FIELDS,
+  );
+  if (!writable.ok) return error.badRequest(c, `Invalid date: ${writable.field}`);
+  const data = writable.values;
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Milestone', id);
     if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
       return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
-    if (data.projectId && data.projectId !== existing.projectId && !(await canWriteProject(c, data.projectId))) {
+    const newProjectId = data.projectId as string | null | undefined;
+    if (newProjectId && newProjectId !== existing.projectId && !(await canWriteProject(c, newProjectId))) {
       return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    const now = new Date();
+    const update = { ...data, updatedAt: now } as Partial<typeof t.$inferInsert>;
+    // completedAt follows the status: stamped on the move to completed, cleared on the move away.
+    const wasCompleted = existing.status === MILESTONE_COMPLETED;
+    const isCompleted = (update.status ?? existing.status) === MILESTONE_COMPLETED;
+    if (isCompleted && !wasCompleted) update.completedAt = now;
+    else if (!isCompleted && wasCompleted) update.completedAt = null;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
-    publishEntityEvent({
-      c,
-      entityType: 'project_milestone',
-      entityId: id,
-      action: 'updated',
-      data: {
-        id,
-        projectId: existing.projectId,
-        name: (update.name as string | undefined) ?? existing.name,
-        status: (update.status as string | undefined) ?? existing.status,
-      },
-    });
+    const eventData = {
+      id,
+      projectId: existing.projectId,
+      name: update.name ?? existing.name,
+      status: update.status ?? existing.status,
+    };
+    publishEntityEvent({ c, entityType: 'project_milestone', entityId: id, action: 'updated', data: eventData });
+    if (isCompleted && !wasCompleted) {
+      publishEntityEvent({ c, entityType: 'project_milestone', entityId: id, action: 'completed', data: eventData });
+    }
     return success(c, { id });
   } catch (err) {
     console.error('[app-api/milestones] update failed:', err);

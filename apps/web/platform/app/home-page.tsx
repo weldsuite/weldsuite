@@ -63,14 +63,16 @@ function HomeWidgetsArea() {
 }
 
 export default function HomePage() {
+  const { t } = useI18n();
+  const tp = t.weldsuiteHome.page;
   const { user } = useUser();
   const navigate = useNavigate();
-  const firstName = user?.firstName || user?.fullName?.split(' ')[0] || 'there';
+  const firstName = user?.firstName || user?.fullName?.split(' ')[0] || tp.fallbackName;
   const greeting = (() => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 18) return 'Good afternoon';
-    return 'Good evening';
+    if (hour < 12) return tp.greetingMorning;
+    if (hour < 18) return tp.greetingAfternoon;
+    return tp.greetingEvening;
   })();
 
   const [input, setInput] = useState('');
@@ -126,7 +128,7 @@ export default function HomePage() {
       <BreadcrumbHeader
         segments={[
           { label: 'WeldSuite', href: '/' },
-          { label: 'Home', href: '/' },
+          { label: tp.breadcrumbHome, href: '/' },
         ]}
       />
 

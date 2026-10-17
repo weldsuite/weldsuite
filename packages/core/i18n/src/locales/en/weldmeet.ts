@@ -409,6 +409,8 @@ export const weldmeet = {
     },
   },
   newMeetingPage: {
+    instantMeetingTitle: 'Instant Meeting',
+    meetingTitle: 'Meeting',
     heroTitle: 'Start or join a meeting,',
     heroSubtitle: 'for everyone',
     heroDescription: 'Start a new meeting or enter a code to join an existing one.',

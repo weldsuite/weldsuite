@@ -1,7 +1,9 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const permissions = vi.hoisted(() => ({ allowed: new Set<string>() }));
+const navigate = vi.hoisted(() => vi.fn());
 const overview = vi.hoisted(() => ({ data: undefined as unknown, isLoading: false, isError: false }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -10,6 +12,7 @@ vi.mock('@tanstack/react-router', () => ({
     const query = search ? `?${new URLSearchParams(search).toString()}` : '';
     return <a href={`${path}${query}`}>{children}</a>;
   },
+  useNavigate: () => navigate,
 }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.allowed.has(permission) }),
@@ -82,7 +85,15 @@ const data: NexusOverview = {
 
 beforeAll(installPointerPolyfills);
 
+/** The list row (a `group` div of the standard list) of a state, found by its code chip. */
+function stateRow(code: string): HTMLElement {
+  const row = screen.getByText(code).closest<HTMLElement>('div.group');
+  if (!row) throw new Error(`No list row for ${code}`);
+  return row;
+}
+
 beforeEach(() => {
+  navigate.mockReset();
   overview.data = data;
   overview.isLoading = false;
   overview.isError = false;
@@ -102,49 +113,55 @@ describe('Nexus monitor page', () => {
   it('keeps the states in the order the server sent: nearest to its threshold first', () => {
     renderWithProviders(<NexusMonitorPage />);
 
-    const rows = screen.getAllByTestId(/^nexus-row-/).map((row) => row.getAttribute('data-testid'));
-    expect(rows).toEqual(['nexus-row-WA', 'nexus-row-CA', 'nexus-row-NY', 'nexus-row-TX']);
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('div.group'));
+    expect(rows).toHaveLength(4);
+    expect(rows.map((row) => row.querySelector('[data-row-overlay]')?.getAttribute('aria-label'))).toEqual([
+      'Washington: Details',
+      'California: Details',
+      'New York: Details',
+      'Texas: Details',
+    ]);
   });
 
   it('draws each bar in the tone of its progress', () => {
     renderWithProviders(<NexusMonitorPage />);
 
-    const tone = (state: string) => within(screen.getByTestId(`nexus-row-${state}`)).getByRole('progressbar').getAttribute('data-tone');
+    const tone = (state: string) => within(stateRow(state)).getByRole('progressbar').getAttribute('data-tone');
     expect(tone('WA')).toBe('registered');
     expect(tone('CA')).toBe('exceeded');
     expect(tone('NY')).toBe('watch');
     expect(tone('TX')).toBe('neutral');
 
-    const ny = within(screen.getByTestId('nexus-row-NY')).getByRole('progressbar');
-    expect(ny).toHaveAttribute('aria-valuenow', '90');
-    expect(within(screen.getByTestId('nexus-row-CA')).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+    expect(within(stateRow('NY')).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '90');
+    expect(within(stateRow('CA')).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
   });
 
   it('shows the alert of each state', () => {
     renderWithProviders(<NexusMonitorPage />);
 
-    expect(within(screen.getByTestId('nexus-row-CA')).getByText('Register now')).toBeInTheDocument();
-    expect(within(screen.getByTestId('nexus-row-NY')).getByText('Watch')).toBeInTheDocument();
-    expect(within(screen.getByTestId('nexus-row-WA')).getByText('Registered', { selector: 'span[data-slot="badge"]' })).toBeInTheDocument();
-    expect(within(screen.getByTestId('nexus-row-TX')).getByText('OK')).toBeInTheDocument();
+    expect(within(stateRow('CA')).getByText('Register now')).toBeInTheDocument();
+    expect(within(stateRow('NY')).getByText('Watch')).toBeInTheDocument();
+    // A registered state shows it twice: as its alert and in the registered column.
+    expect(within(stateRow('WA')).getAllByText('Registered')).toHaveLength(2);
+    expect(within(stateRow('TX')).getByText('OK')).toBeInTheDocument();
   });
 
   it('shows sales against the threshold, and transactions where the state tests them', () => {
     renderWithProviders(<NexusMonitorPage />);
 
-    const ny = screen.getByTestId('nexus-row-NY');
+    const ny = stateRow('NY');
     expect(ny).toHaveTextContent('$450000 of $500000');
     expect(ny).toHaveTextContent('60 of 100');
-    expect(screen.getByTestId('nexus-row-TX')).not.toHaveTextContent(' of 100');
+    expect(stateRow('TX')).not.toHaveTextContent(' of 100');
   });
 
   it('offers Register only for an exceeded state without a registration', () => {
     renderWithProviders(<NexusMonitorPage />);
 
-    const register = within(screen.getByTestId('nexus-row-CA')).getByRole('link', { name: 'Register' });
+    const register = within(stateRow('CA')).getByRole('link', { name: 'Register' });
     expect(register).toHaveAttribute('href', '/weldbooks/sales-tax/agencies/new?state=CA');
     for (const state of ['WA', 'NY', 'TX']) {
-      expect(within(screen.getByTestId(`nexus-row-${state}`)).queryByRole('link', { name: 'Register' })).not.toBeInTheDocument();
+      expect(within(stateRow(state)).queryByRole('link', { name: 'Register' })).not.toBeInTheDocument();
     }
   });
 
@@ -154,18 +171,18 @@ describe('Nexus monitor page', () => {
     expect(screen.queryByRole('link', { name: 'Register' })).not.toBeInTheDocument();
   });
 
-  it('links each state to its detail', () => {
+  it('opens the detail of a state from its row', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<NexusMonitorPage />);
-    expect(within(screen.getByTestId('nexus-row-NY')).getByRole('link', { name: 'Details' })).toHaveAttribute(
-      'href',
-      '/weldbooks/sales-tax/nexus/NY',
-    );
+    await user.click(within(stateRow('NY')).getByRole('button', { name: 'New York: Details' }));
+    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/nexus/$state', params: { state: 'NY' } });
   });
 
   it('says when the collection start of a state is not confirmed and when to collect from', () => {
     renderWithProviders(<NexusMonitorPage />);
-    const ca = screen.getByTestId('nexus-row-CA');
-    expect(ca).toHaveTextContent('Collect from 2026-08-15');
+    const ca = stateRow('CA');
+    expect(ca).toHaveTextContent('2026-08-15');
+    expect(ca.querySelector('[title^="Collect from 2026-08-15"]')).not.toBeNull();
     expect(within(ca).getByTitle('Check with the state')).toBeInTheDocument();
   });
 

@@ -32,11 +32,31 @@ vi.mock('@/hooks/queries/use-settings-queries', () => ({ useWorkspaceMembers: ()
 vi.mock('@/hooks/use-file-upload', () => ({ useFileUpload: () => ({ uploadFile: vi.fn() }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
+/** The WeldCRM records the "Find in WeldCRM" pickers list. */
+const crm = vi.hoisted(() => ({
+  companies: [] as Array<Record<string, unknown>>,
+  people: [] as Array<Record<string, unknown>>,
+}));
+vi.mock('@/components/objects/company/use-company-data', () => ({
+  useCompanies: () => ({ data: { data: crm.companies }, isLoading: false }),
+}));
+vi.mock('@/components/objects/person/use-person-data', () => ({
+  usePeople: () => ({ data: { data: crm.people }, isLoading: false }),
+}));
+vi.mock('@/lib/crm/company-logo', () => ({
+  logoDomainForCompany: () => undefined,
+  useRowsWithCompanyLogos: <T,>(rows: T[]) => rows,
+}));
+const panel = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('@/components/object-panel/use-object-panel', () => ({ useObjectPanel: () => ({ open: panel.open }) }));
+
 import { ContactForm, type ContactFormContact, type ContactPayload } from './contact-form';
 
 const supplier: ContactFormContact = {
   id: 'c1',
   role: 'supplier',
+  kind: 'company',
+  companyId: 'company_acme',
   name: 'Acme Plumbing',
   companyName: 'Acme Plumbing LLC',
   email: 'billing@acme.test',
@@ -58,13 +78,13 @@ const supplier: ContactFormContact = {
   billingAddress: { line1: '1 Main St', city: 'Austin', state: 'TX', postalCode: '78701', country: 'US' },
 };
 
-function renderForm(contact: ContactFormContact | undefined = supplier) {
+function renderForm(contact: ContactFormContact | null = supplier, mode: 'add' | 'edit' = 'edit') {
   const onSubmit = vi.fn<(payload: ContactPayload) => void>();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <I18nProvider initialLanguage="en">
-        <ContactForm mode="edit" contact={contact} isPending={false} onSubmit={onSubmit} onCancel={vi.fn()} />
+        <ContactForm mode={mode} contact={contact ?? undefined} isPending={false} onSubmit={onSubmit} onCancel={vi.fn()} />
       </I18nProvider>
     </QueryClientProvider>,
   );
@@ -83,6 +103,9 @@ beforeAll(() => {
 beforeEach(() => {
   api.get.mockReset();
   api.post.mockReset();
+  panel.open.mockReset();
+  crm.companies = [];
+  crm.people = [];
   perms.granted = new Set(['tax_ids:reveal', 'banking:manage', 'suppliers:update']);
   jurisdiction.value = {
     labels: { supplier: 'Vendor', taxId: 'EIN', registrationId: 'State ID' },
@@ -287,5 +310,154 @@ describe('ContactForm: sections that only apply to the US', () => {
     expect(screen.queryByText('Tax reporting')).toBeNull();
     // A customer of a US entity gets the sales tax default instead.
     expect(screen.getByLabelText('Use')).toBeTruthy();
+  });
+});
+
+describe('ContactForm: a company or a person', () => {
+  const create = () => screen.getByRole('button', { name: 'Create Contact' });
+  /** The company and its contact person both have Email and Phone inputs, so these go by id. */
+  const field = (selector: string) => document.querySelector(selector) as HTMLInputElement;
+
+  beforeEach(() => {
+    jurisdiction.value = {
+      labels: { supplier: 'Supplier', taxId: 'VAT number', registrationId: 'KvK' },
+      code: 'NL',
+      usesIban: true,
+      features: { form1099: false, salesTax: false },
+    };
+  });
+
+  it('creates a company by default, with the company name on invoices unless another is given', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(null, 'add');
+    await user.click(create());
+    expect(await screen.findByText('Company name is required')).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.type(field('#companyName'), 'Acme Holding B.V.');
+    await user.click(create());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const payload = onSubmit.mock.calls[0]![0];
+    expect(payload).toMatchObject({ kind: 'company', name: 'Acme Holding B.V.', companyName: 'Acme Holding B.V.' });
+    expect(payload.firstName).toBeUndefined();
+    expect(payload.contactPerson).toBeUndefined();
+  });
+
+  it('a person has a first and last name and no tax numbers or contact person', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(null, 'add');
+    await user.click(screen.getByRole('radio', { name: 'Person' }));
+    expect(screen.queryByLabelText('VAT number')).toBeNull();
+    expect(screen.queryByText('Contact person')).toBeNull();
+
+    await user.click(create());
+    expect(await screen.findByText('Enter a first or last name')).toBeTruthy();
+    await user.type(field('#firstName'), 'Jane');
+    await user.type(field('#lastName'), 'Doe');
+    await user.click(create());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const payload = onSubmit.mock.calls[0]![0];
+    expect(payload).toMatchObject({ kind: 'person', name: 'Jane Doe', firstName: 'Jane', lastName: 'Doe' });
+    expect('companyName' in payload).toBe(false);
+    expect('vatNumber' in payload).toBe(false);
+    expect('contactPerson' in payload).toBe(false);
+  });
+
+  it('links the WeldCRM company that is picked and fills in its details', async () => {
+    crm.companies = [
+      {
+        id: 'company_globex',
+        name: 'Globex Holding BV',
+        displayName: 'Globex',
+        email: 'ap@globex.example',
+        vatNumber: 'NL001122334B01',
+      },
+    ];
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(null, 'add');
+    await user.click(screen.getByRole('button', { name: 'Find a company in WeldCRM' }));
+    await user.click(await screen.findByText('Globex'));
+    expect(screen.getByText(/^Linked to WeldCRM/)).toBeTruthy();
+    expect(field('#companyName').value).toBe('Globex Holding BV');
+
+    await user.click(create());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      kind: 'company',
+      companyId: 'company_globex',
+      name: 'Globex',
+      companyName: 'Globex Holding BV',
+      email: 'ap@globex.example',
+      vatNumber: 'NL001122334B01',
+    });
+  });
+
+  it('sends a new contact person without an id', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(null, 'add');
+    await user.type(field('#companyName'), 'Billing Co');
+    await user.type(field('#cp-firstName'), 'Fleur');
+    await user.type(field('#cp-email'), 'fleur@billing.example');
+    await user.click(create());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0].contactPerson).toEqual({ firstName: 'Fleur', email: 'fleur@billing.example' });
+  });
+
+  it('picks the contact person from WeldCRM', async () => {
+    crm.people = [
+      { id: 'person_jan', displayName: 'Jan de Boer', firstName: 'Jan', lastName: 'de Boer', email: 'jan@example.com', directPhone: '010 123 4567' },
+    ];
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm(null, 'add');
+    await user.type(field('#companyName'), 'Boer BV');
+    await user.click(screen.getByRole('button', { name: 'Choose from WeldCRM' }));
+    await user.click(await screen.findByText('Jan de Boer'));
+    expect(screen.getByText('Jan de Boer in WeldCRM')).toBeTruthy();
+    await user.click(create());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0].contactPerson).toEqual({
+      personId: 'person_jan',
+      firstName: 'Jan',
+      lastName: 'de Boer',
+      email: 'jan@example.com',
+      phone: '010 123 4567',
+    });
+  });
+
+  it('on edit keeps the type, and removing the contact person sends null', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm({
+      id: 'c2',
+      role: 'customer',
+      kind: 'company',
+      companyId: 'company_initech',
+      name: 'Initech',
+      companyName: 'Initech BV',
+      contactPerson: { personId: 'person_bill', name: 'Bill Lumbergh', firstName: 'Bill', lastName: 'Lumbergh', email: 'bill@initech.example', phone: null },
+    });
+    expect(screen.queryByRole('radio', { name: 'Person' })).toBeNull();
+    await user.click(screen.getAllByRole('button', { name: 'Open in WeldCRM' })[0]!);
+    expect(panel.open).toHaveBeenCalledWith({ type: 'company', id: 'company_initech' });
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    await user.click(save());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const payload = onSubmit.mock.calls[0]![0];
+    expect('kind' in payload).toBe(false);
+    expect(payload.name).toBe('Initech');
+    expect(payload.companyName).toBe('Initech BV');
+    expect(payload.contactPerson).toBeNull();
+  });
+
+  it('lets a contact from before contacts had a type choose one', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderForm({ id: 'c3', role: 'supplier', kind: null, name: 'Piet Pieters' });
+    await user.click(screen.getByRole('radio', { name: 'Person' }));
+    expect(field('#firstName').value).toBe('');
+    await user.type(field('#firstName'), 'Piet');
+    await user.type(field('#lastName'), 'Pieters');
+    await user.click(save());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ kind: 'person', name: 'Piet Pieters', firstName: 'Piet' });
   });
 });

@@ -4,14 +4,16 @@
  * EntityList's built-in "columns" row renderer always appends a hard-coded
  * (non-i18n, no-op) Edit dropdown, which doesn't fit WeldBooks' navigate-to-
  * detail lists. This wrapper renders EntityList with a custom row that:
+ *   - has the WeldFlow task row's spacing, divider, hover and fixed 53px height,
  *   - is clickable to open the record (when `onRowClick` is given) via a
  *     stretched native button behind the cells,
- *   - shows a trailing chevron affordance instead of the dead action menu,
+ *   - shows a trailing row menu (`renderRowMenu`) or, failing that, a chevron
+ *     affordance instead of the dead action menu,
  *   - lets interactive cell content (buttons, links, inputs) keep working on its own.
  *
- * Pages pass the same `ColumnDef[]` they'd pass to EntityList, so the visual
- * language (top bar, header row, spacing, empty state) stays identical to
- * every other platform module.
+ * Pages pass the same `ColumnDef[]` they'd pass to EntityList and render their
+ * cells with `./weldbooks-row-cells`, so every WeldBooks list looks like the
+ * task list. Each cell is a vertically centred flex box that truncates.
  */
 
 import type { ReactNode } from 'react';
@@ -25,15 +27,25 @@ import {
   type FilterConfig,
   type ActiveFilter,
   type GroupConfig,
+  type SortState,
 } from '@/components/entity-list';
 
 interface WeldbooksEntityListProps<T extends { id: string }> {
   items: T[];
   isLoading: boolean;
+  error?: Error | null;
   columns: ColumnDef<T>[];
   onRowClick?: (item: T) => void;
+  /** Accessible name of a row's click target; defaults to "View". */
+  getRowLabel?: (item: T) => string;
+  /** Extra classes per row (e.g. dimmed when void). */
+  getRowClassName?: (item: T) => string;
+  /** Trailing per-row menu (three-dot dropdown). Replaces the chevron. */
+  renderRowMenu?: (item: T) => ReactNode;
 
   filters?: FilterConfig[];
+  /** Client-side filtering for `filters` (omit when filtering server-side). */
+  applyFilters?: (items: T[], activeFilters: ActiveFilter[]) => T[];
   /** Row grouping (e.g. accounts by type, bills by status). Group headers render above each bucket. */
   groups?: GroupConfig<T>[];
   searchPlaceholder?: string;
@@ -47,8 +59,17 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
   activeFilters?: ActiveFilter[];
   onFiltersChange?: (filters: ActiveFilter[]) => void;
 
+  // Pagination (load more at the end of the list).
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
+
+  sortState?: SortState | null;
+  onSort?: (columnId: string) => void;
+
   createButton?: { label: string; onClick: () => void };
   actionButtons?: ReactNode;
+  leftActionButtons?: ReactNode;
 
   emptyState: {
     icon?: ReactNode;
@@ -57,14 +78,91 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
     action?: { label: string; onClick: () => void };
     secondaryAction?: { label: string; onClick: () => void };
   };
+  noResultsState?: { icon?: ReactNode; title: string; description: string };
+}
+
+/** The column header of a WeldBooks list, the same row EntityList draws above its items (not sticky). */
+export function WeldbooksListHeader<T>({ columns }: Readonly<{ columns: ColumnDef<T>[] }>) {
+  return (
+    <div className="hidden h-[35px] items-center gap-4 border-b border-border/70 px-4 md:flex">
+      {columns.map((column) => (
+        <div key={column.id} className={column.width}>
+          <span className="text-xs font-medium text-muted-foreground">{column.header}</span>
+        </div>
+      ))}
+      <div className="w-[40px]" />
+    </div>
+  );
+}
+
+/**
+ * One WeldBooks list row: the WeldFlow task row's spacing, divider, hover and
+ * fixed 53px height, a stretched click target when `onRowClick` is given, and
+ * a trailing row menu or chevron. `WeldbooksEntityList` draws every row with
+ * it; a short list outside a list page (the dashboard) can use it directly.
+ */
+export function WeldbooksListRow<T extends { id: string }>({
+  item,
+  columns,
+  onRowClick,
+  getRowLabel,
+  getRowClassName,
+  renderRowMenu,
+}: Readonly<{
+  item: T;
+  columns: ColumnDef<T>[];
+  onRowClick?: (item: T) => void;
+  getRowLabel?: (item: T) => string;
+  getRowClassName?: (item: T) => string;
+  renderRowMenu?: (item: T) => ReactNode;
+}>) {
+  const t = useTranslations();
+  return (
+    <div
+      className={cn(
+        'group relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border',
+        onRowClick && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50',
+        getRowClassName?.(item),
+      )}
+    >
+      {onRowClick ? (
+        <RowOverlayButton label={getRowLabel?.(item) ?? t('common.actions.view')} onClick={() => onRowClick(item)} />
+      ) : null}
+      {columns.map((column) => (
+        <div key={column.id} className={cn('flex min-w-0 items-center', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
+          {column.render(item, {
+            onEdit: () => {},
+            onDelete: () => {},
+            onDuplicate: () => {},
+            onUpdate: () => {},
+          })}
+        </div>
+      ))}
+      {/* h-7 matches the task row's menu button, so rows share its fixed 53px height. */}
+      <div className={cn('w-[40px] h-7 flex items-center justify-end', renderRowMenu && 'relative z-[1]')}>
+        {renderRowMenu ? renderRowMenu(item) : <RowChevron visible={Boolean(onRowClick)} />}
+      </div>
+    </div>
+  );
+}
+
+/** The hover chevron of a clickable row without a row menu. */
+function RowChevron({ visible }: Readonly<{ visible: boolean }>) {
+  if (!visible) return null;
+  return <ChevronRight className="h-4 w-4 text-muted-foreground/50 opacity-0 group-hover:opacity-100" />;
 }
 
 export function WeldbooksEntityList<T extends { id: string }>({
   items,
   isLoading,
+  error,
   columns,
   onRowClick,
+  getRowLabel,
+  getRowClassName,
+  renderRowMenu,
   filters = [],
+  applyFilters,
   groups,
   searchPlaceholder,
   searchFields,
@@ -72,54 +170,55 @@ export function WeldbooksEntityList<T extends { id: string }>({
   onSearchChange,
   activeFilters,
   onFiltersChange,
+  hasMore,
+  isLoadingMore,
+  onLoadMore,
+  sortState,
+  onSort,
   createButton,
   actionButtons,
+  leftActionButtons,
   emptyState,
+  noResultsState,
 }: Readonly<WeldbooksEntityListProps<T>>) {
-  const t = useTranslations();
   return (
     <EntityList<T>
       items={items}
       isLoading={isLoading}
+      error={error}
       columns={columns}
       groups={groups}
       filters={filters}
-      searchFields={searchFields}
+      applyFilters={applyFilters}
+      // EntityList only shows its desktop search box when `searchFields` is set, and
+      // ignores the fields when search is controlled. Server-searched lists pass a
+      // placeholder so their search box shows too.
+      searchFields={searchFields ?? (onSearchChange ? (['id'] as (keyof T)[]) : undefined)}
       searchQuery={searchQuery}
       onSearchChange={onSearchChange}
       activeFilters={activeFilters}
       onFiltersChange={onFiltersChange}
+      hasMore={hasMore}
+      isLoadingMore={isLoadingMore}
+      onLoadMore={onLoadMore}
+      sortState={sortState}
+      onSort={onSort}
       searchPlaceholder={searchPlaceholder}
       createButton={createButton}
       actionButtons={actionButtons}
+      leftActionButtons={leftActionButtons}
       emptyState={emptyState}
+      noResultsState={noResultsState}
       renderRow={(item) => (
-        <div
+        <WeldbooksListRow
           key={item.id}
-          className={cn(
-            'group relative flex items-center gap-4 px-4 py-3 border-b border-border/70',
-            onRowClick && 'cursor-pointer hover:bg-muted/40',
-          )}
-        >
-          {onRowClick ? (
-            <RowOverlayButton label={t('common.actions.view')} onClick={() => onRowClick(item)} />
-          ) : null}
-          {columns.map((column) => (
-            <div key={column.id} className={cn(column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
-              {column.render(item, {
-                onEdit: () => {},
-                onDelete: () => {},
-                onDuplicate: () => {},
-                onUpdate: () => {},
-              })}
-            </div>
-          ))}
-          <div className="w-[40px] flex justify-end">
-            {onRowClick ? (
-              <ChevronRight className="h-4 w-4 text-muted-foreground/50 opacity-0 group-hover:opacity-100" />
-            ) : null}
-          </div>
-        </div>
+          item={item}
+          columns={columns}
+          onRowClick={onRowClick}
+          getRowLabel={getRowLabel}
+          getRowClassName={getRowClassName}
+          renderRowMenu={renderRowMenu}
+        />
       )}
     />
   );

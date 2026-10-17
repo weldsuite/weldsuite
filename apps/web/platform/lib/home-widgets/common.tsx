@@ -1,7 +1,37 @@
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useI18n } from '@/lib/i18n/provider';
 import { EmptyStateIllustration } from '@/components/entity-list';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
+
+/**
+ * Localized building blocks for the compact relative-time labels the home
+ * widgets show ("now", "12m", "Yest", ...). Widget row mappers take this so
+ * they stay plain functions outside React.
+ */
+export function useHomeTime() {
+  const { t, format } = useI18n();
+  const tm = t.weldsuiteHome.time;
+  return useMemo(
+    () => ({
+      now: tm.now,
+      justNow: tm.justNow,
+      today: tm.today,
+      yesterday: tm.yesterdayShort,
+      anonymousVisitor: tm.anonymousVisitor,
+      noSubject: tm.noSubject,
+      minutes: (count: number) => format(tm.minutesShort, { count }),
+      hours: (count: number) => format(tm.hoursShort, { count }),
+      days: (count: number) => format(tm.daysShort, { count }),
+      minutesAgo: (count: number) => format(tm.minutesAgo, { count }),
+      hoursAgo: (count: number) => format(tm.hoursAgo, { count }),
+      todayAt: (time: string) => format(tm.todayAt, { time }),
+      tomorrowAt: (time: string) => format(tm.tomorrowAt, { time }),
+    }),
+    [tm, format],
+  );
+}
+
+export type HomeTime = ReturnType<typeof useHomeTime>;
 
 export function NoSettingsForm() {
   const { t } = useI18n();

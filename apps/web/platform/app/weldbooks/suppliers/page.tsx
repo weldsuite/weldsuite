@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Truck } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { RowAvatar, RowChip, RowText, RowTitle, StatusChip, type ChipTone } from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
   type ColumnDef,
@@ -13,18 +13,19 @@ import { useSupplierContacts } from '@/hooks/queries/use-weldbooks-1099-queries'
 import type { VendorTaxContact } from '@/lib/api/domains/weldbooks-1099';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from '../customers/components/contact-list-cells';
 import { supplierTinStatus, type SupplierTinStatus } from './supplier-tax-status';
 
 interface SupplierRow extends VendorTaxContact {
   vatNumber?: string | null;
 }
 
-const TIN_BADGE: Record<Exclude<SupplierTinStatus, 'none'>, 'success' | 'warning' | 'destructive' | 'secondary' | 'outline'> = {
-  missing: 'warning',
-  on_file: 'outline',
-  matched: 'success',
-  mismatch: 'destructive',
-  pending: 'secondary',
+const TIN_TONE: Record<Exclude<SupplierTinStatus, 'none'>, ChipTone> = {
+  missing: 'amber',
+  on_file: 'gray',
+  matched: 'green',
+  mismatch: 'red',
+  pending: 'blue',
 };
 
 export default function AccountingSuppliersPage() {
@@ -40,6 +41,7 @@ export default function AccountingSuppliersPage() {
   // Backend expands role=supplier → supplier + both. This pill lets the user
   // narrow to only the dual-role entries when auditing.
   const filterConfigs: FilterConfig[] = [
+    contactKindFilter(tsp.filterKindLabel, t.accounting.contacts.kinds),
     {
       field: 'role',
       label: tsp.filterRoleLabel,
@@ -74,6 +76,7 @@ export default function AccountingSuppliersPage() {
   const { data, isLoading } = useSupplierContacts({
     search,
     role: roleFilter ?? 'supplier',
+    kind: readKindFilter(filters),
     only1099: form1099Filter !== undefined,
     archived: archivedFilter,
   });
@@ -88,30 +91,38 @@ export default function AccountingSuppliersPage() {
     {
       id: 'name',
       header: tsp.colName,
-      width: 'flex-1',
-      render: (supplier) => <span className="font-medium">{supplier.name}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (supplier) => (
+        <>
+          <RowAvatar name={supplier.name || '?'} icon={contactKindIcon(supplier)} />
+          <RowTitle>{supplier.name}</RowTitle>
+        </>
+      ),
     },
     {
       id: 'email',
       header: tsp.colEmail,
-      width: 'flex-1',
-      render: (c) => <span className="text-muted-foreground">{c.email ?? '—'}</span>,
+      width: 'w-[240px]',
+      render: (c) => <RowText>{contactEmail(c)}</RowText>,
     },
     {
       id: 'role',
       header: tsp.colRole,
-      width: 'w-[140px]',
-      render: (c) => (
-        <Badge variant="outline" className="capitalize">
-          {c.role === 'both' ? labels.customerAndSupplier : c.role ?? '—'}
-        </Badge>
-      ),
+      width: 'w-[170px]',
+      render: (c) =>
+        c.role ? (
+          <StatusChip tone={c.role === 'both' ? 'indigo' : 'purple'}>
+            <span className="capitalize">{c.role === 'both' ? labels.customerAndSupplier : c.role}</span>
+          </StatusChip>
+        ) : (
+          <RowText />
+        ),
     },
     {
       id: 'vat',
       header: labels.taxId,
       width: 'w-[180px]',
-      render: (c) => <span className="text-muted-foreground">{c.vatNumber ?? '—'}</span>,
+      render: (c) => <RowText>{c.vatNumber}</RowText>,
     },
     ...(show1099
       ? ([
@@ -121,23 +132,23 @@ export default function AccountingSuppliersPage() {
             width: 'w-[110px]',
             render: (c) =>
               c.is1099Vendor ? (
-                <Badge variant="secondary">{c.default1099Form ? ts.formShort[c.default1099Form] : ts.vendor1099}</Badge>
+                <RowChip tone="blue">{c.default1099Form ? ts.formShort[c.default1099Form] : ts.vendor1099}</RowChip>
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <RowText />
               ),
           },
           {
             id: 'tin',
             header: ts.colTin,
-            width: 'w-[190px]',
+            width: 'w-[220px] gap-2',
             render: (c) => {
               const status = supplierTinStatus(c);
-              if (status === 'none') return <span className="text-muted-foreground">—</span>;
+              if (status === 'none') return <RowText />;
               return (
-                <span className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant={TIN_BADGE[status]}>{ts.tinStatus[status]}</Badge>
-                  {c.tinMasked ? <span className="font-mono text-xs text-muted-foreground">{c.tinMasked}</span> : null}
-                </span>
+                <>
+                  <StatusChip tone={TIN_TONE[status]}>{ts.tinStatus[status]}</StatusChip>
+                  {c.tinMasked ? <RowText className="font-mono text-xs">{c.tinMasked}</RowText> : null}
+                </>
               );
             },
           },
@@ -147,11 +158,11 @@ export default function AccountingSuppliersPage() {
             width: 'w-[110px]',
             render: (c) =>
               c.w9?.receivedAt || c.w9?.legalName ? (
-                <Badge variant="success">{ts.w9Received}</Badge>
+                <StatusChip tone="green">{ts.w9Received}</StatusChip>
               ) : c.is1099Vendor ? (
-                <Badge variant="warning">{ts.w9Missing}</Badge>
+                <StatusChip tone="amber">{ts.w9Missing}</StatusChip>
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <RowText />
               ),
           },
         ] satisfies ColumnDef<SupplierRow>[])
@@ -184,7 +195,7 @@ export default function AccountingSuppliersPage() {
           </EmptyStateIllustration>
         ),
         title: tsp.noSuppliers,
-        description: tsp.searchPlaceholder,
+        description: tsp.emptyDescription,
         action: {
           label: tsp.newSupplier,
           onClick: () => navigate({ to: '/weldbooks/customers/add' }),

@@ -9,6 +9,7 @@ import { useProjectMembers } from '@/hooks/queries/use-projects-queries';
 import { BookmarksPopover } from '@/app/weldchat/components/bookmarks-popover';
 import { ChatFiltersButton } from '@/app/weldchat/components/chat-filters-button';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface ProjectChatPanelProps {
   projectId: string;
@@ -18,6 +19,7 @@ interface ProjectChatPanelProps {
 const MAX_VISIBLE_AVATARS = 4;
 
 export function ProjectChatPanel({ projectId, projectName }: Readonly<ProjectChatPanelProps>) {
+  const { t } = useI18n();
   const { data: membersData } = useProjectMembers(projectId);
   const members: Array<{
     userId: string;
@@ -87,7 +89,7 @@ export function ProjectChatPanel({ projectId, projectName }: Readonly<ProjectCha
               variant="ghost"
               size="icon"
               className={cn('h-8 w-8', bookmarksOpen && 'bg-accent')}
-              title="Bookmarks"
+              title={t.weldchat.channelHeader.bookmarks}
             >
               <Bookmark className="h-4 w-4" />
             </Button>

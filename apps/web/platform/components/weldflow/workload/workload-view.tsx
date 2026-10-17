@@ -11,7 +11,7 @@ import {
   useGantt,
   type GanttFeature,
 } from '@weldsuite/ui/components/gantt';
-import { Check, ChevronDown, ChevronRight, MinusIcon, PlusIcon, AlertCircle, Search, CalendarIcon, SquarePen, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, MinusIcon, PlusIcon, AlertCircle, Search, CalendarIcon, SquarePen, Trash2, UserX } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useCallback, memo, type ReactNode } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
@@ -20,16 +20,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { EntityDetailPanel, type EntityField, type Comment, type ActivityItem } from '@weldsuite/ui/components/entity-detail-panel';
+import { useObjectPanel } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { formatTaskNumber } from '@/lib/task-number';
 import { formatHoursDecimalAsHm } from '@/lib/format-hours';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { formatDistance,
-  startOfDay,
   addDays,
-  isWithinInterval,
   eachDayOfInterval,
   isSameDay,
 } from 'date-fns';
@@ -44,6 +42,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useDateLocale } from '@/lib/i18n/date-locale';
+import { dailyLoad, loadCategory, spreadTaskLoad } from './workload-math';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 
 // Internal types derived from API data
@@ -61,9 +60,14 @@ interface Task {
   number?: number | null;
   name: string;
   assigneeId: string;
+  /** False when the task has neither a start nor a due date: it carries no load. */
+  scheduled: boolean;
   startAt: Date;
   endAt: Date;
+  /** Hours the task adds to each working day of its range. */
   hoursPerDay: number;
+  /** The range contains no working day (e.g. a Saturday-only task), so weekends count. */
+  weekendOnly: boolean;
   color: string;
   projectName?: string;
 }
@@ -74,8 +78,11 @@ const TASK_COLORS = [
   '#86efac', '#fcd34d', '#f9a8d4', '#a5b4fc', '#67e8f9',
 ];
 
+/** Assignee id of the synthetic "Unassigned" bucket; never a real user id. */
+const UNASSIGNED_ID = '__unassigned__';
+
 // Transform API data to internal format
-function transformApiData(data: Projects.WorkloadOverview | null): { members: TeamMember[], tasks: Task[] } {
+function transformApiData(data: Projects.WorkloadOverview | null, defaultRole: string): { members: TeamMember[], tasks: Task[] } {
   if (!data?.teamMembers) {
     return { members: [], tasks: [] };
   }
@@ -84,7 +91,7 @@ function transformApiData(data: Projects.WorkloadOverview | null): { members: Te
     id: member.userId,
     name: member.name,
     image: member.avatar,
-    role: member.role || 'Team Member',
+    role: member.role || defaultRole,
     hoursPerDay: member.capacity ? member.capacity / 5 : 8, // Convert weekly capacity to daily (assuming 5-day week)
   }));
 
@@ -94,45 +101,35 @@ function transformApiData(data: Projects.WorkloadOverview | null): { members: Te
   data.teamMembers.forEach(member => {
     if (member.tasks) {
       member.tasks.forEach(task => {
-        const now = new Date();
-        // Use actual start/due dates with sensible fallbacks
-        let startAt: Date;
-        if (task.startDate) {
-          startAt = new Date(task.startDate);
-        } else if (task.dueDate) {
-          startAt = addDays(new Date(task.dueDate), -7);
-        } else {
-          startAt = now;
-        }
-        let endAt: Date;
-        if (task.dueDate) {
-          endAt = new Date(task.dueDate);
-        } else if (task.startDate) {
-          endAt = addDays(new Date(task.startDate), 7);
-        } else {
-          endAt = addDays(now, 7);
-        }
-
-        // Calculate hours per day based on estimated hours and duration
-        const durationDays = Math.max(1, Math.ceil((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60 * 24)));
-        // The API returns numeric columns as strings ("0.50"), so coerce before dividing.
-        const estimatedHours = Number(task.estimatedHours) || 0;
-        const hoursPerDay = estimatedHours > 0 ? estimatedHours / durationDays : 2;
+        // Hours are spread over working days, uncapped; undated tasks carry no load.
+        const load = spreadTaskLoad(task);
 
         tasks.push({
           id: task.id,
           number: task.number ?? null,
           name: task.title,
           assigneeId: member.userId,
-          startAt,
-          endAt,
-          hoursPerDay: Math.min(hoursPerDay, member.capacity ? member.capacity / 5 : 8), // Cap at member's daily capacity
+          ...load,
           color: TASK_COLORS[colorIndex % TASK_COLORS.length],
           projectName: task.projectName,
         });
         colorIndex++;
       });
     }
+  });
+
+  // Open tasks nobody carries: listed in their own section, never counted as load.
+  (data.unassigned?.tasks ?? []).forEach(task => {
+    tasks.push({
+      id: task.id,
+      number: task.number ?? null,
+      name: task.title,
+      assigneeId: UNASSIGNED_ID,
+      ...spreadTaskLoad(task),
+      color: TASK_COLORS[colorIndex % TASK_COLORS.length],
+      projectName: task.projectName,
+    });
+    colorIndex++;
   });
 
   return { members, tasks };
@@ -158,16 +155,7 @@ const calculateDailyWorkload = (
   memberId: string,
   tasks: Task[],
   date: Date
-): { totalHours: number; tasks: Task[] } => {
-  const memberTasks = tasks.filter(
-    (task) =>
-      task.assigneeId === memberId &&
-      isWithinInterval(date, { start: startOfDay(task.startAt), end: startOfDay(task.endAt) })
-  );
-
-  const totalHours = memberTasks.reduce((sum, task) => sum + task.hoursPerDay, 0);
-  return { totalHours, tasks: memberTasks };
-};
+): { totalHours: number; tasks: Task[] } => dailyLoad(memberId, tasks, date);
 
 // Task sidebar item (Gantt style)
 const TaskSidebarItem = memo(({
@@ -187,11 +175,16 @@ const TaskSidebarItem = memo(({
     task.endAt && isSameDay(task.startAt, task.endAt)
       ? addDays(task.endAt, 1)
       : task.endAt;
-  const duration = tempEndAt
-    ? formatDistance(task.startAt, tempEndAt, { locale: dateFnsLocale })
-    : st('sweep.weldflow.workloadView.durationSoFar', {
-        duration: formatDistance(task.startAt, new Date(), { locale: dateFnsLocale }),
-      });
+  let duration: string;
+  if (!task.scheduled) {
+    duration = st('projects.gantt.noDates');
+  } else if (tempEndAt) {
+    duration = formatDistance(task.startAt, tempEndAt, { locale: dateFnsLocale });
+  } else {
+    duration = st('sweep.weldflow.workloadView.durationSoFar', {
+      duration: formatDistance(task.startAt, new Date(), { locale: dateFnsLocale }),
+    });
+  }
 
   return (
     <button
@@ -286,6 +279,51 @@ const TeamMemberSidebarItem = memo(({
 });
 
 TeamMemberSidebarItem.displayName = 'TeamMemberSidebarItem';
+
+// Section header for open tasks nobody carries: no capacity, so no availability figure
+const UnassignedSidebarItem = memo(({
+  taskCount,
+  rowHeight,
+  isExpanded,
+  onToggle,
+}: Readonly<{
+  taskCount: number;
+  rowHeight: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+}>) => {
+  const st = useTranslations();
+  return (
+    <button
+      type="button"
+      aria-expanded={isExpanded}
+      className="w-full text-left border-b border-border/50 flex items-center gap-3 px-3 cursor-pointer hover:bg-secondary/50"
+      style={{ height: rowHeight }}
+      onClick={onToggle}
+    >
+      <span className="h-5 w-5 flex items-center justify-center text-muted-foreground rounded-[5px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+        {isExpanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+      </span>
+      <span className="h-[30px] w-[30px] -ml-1 flex items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground">
+        <UserX className="h-4 w-4" />
+      </span>
+      <span className="block flex-1 min-w-0 -ml-1 text-sm font-medium truncate">
+        {st('sweep.weldflow.workloadView.unassignedTasks')}
+      </span>
+      <span className="block text-xs text-muted-foreground">
+        {taskCount === 1
+          ? st('sweep.weldflow.workloadView.taskCountSingular')
+          : st('sweep.weldflow.workloadView.taskCount', { count: taskCount })}
+      </span>
+    </button>
+  );
+});
+
+UnassignedSidebarItem.displayName = 'UnassignedSidebarItem';
 
 // Workload area chart component for a team member
 const WorkloadAreaChart = memo(({
@@ -684,139 +722,17 @@ const milestoneStatusColors: Record<string, string> = {
   postponed: 'bg-orange-100 text-orange-900',
 };
 
-const markerColors = [
-  { name: 'Blue', className: 'bg-blue-100 text-blue-900', color: '#dbeafe' },
-  { name: 'Green', className: 'bg-green-100 text-green-900', color: '#dcfce7' },
-  { name: 'Purple', className: 'bg-purple-100 text-purple-900', color: '#f3e8ff' },
-  { name: 'Red', className: 'bg-red-100 text-red-900', color: '#fee2e2' },
-  { name: 'Orange', className: 'bg-orange-100 text-orange-900', color: '#ffedd5' },
-  { name: 'Teal', className: 'bg-teal-100 text-teal-900', color: '#ccfbf1' },
-  { name: 'Yellow', className: 'bg-yellow-100 text-yellow-900', color: '#fef9c3' },
-  { name: 'Pink', className: 'bg-pink-100 text-pink-900', color: '#fce7f3' },
-];
-
-function mapMilestoneToMarker(milestone: GanttMilestone): GanttMarkerType {
+function mapMilestoneToMarker(milestone: GanttMilestone, untitledLabel: string): GanttMarkerType {
   const dueDate = milestone.dueDate ? new Date(milestone.dueDate) : new Date();
   const statusClass = (milestone.status && milestoneStatusColors[milestone.status]) || milestoneStatusColors.planned;
   return {
     id: milestone.id,
     date: dueDate,
-    label: milestone.name || 'Untitled Milestone',
+    label: milestone.name || untitledLabel,
     className: statusClass,
     originalMilestone: milestone,
   };
 }
-
-interface TaskComment extends Comment {
-  taskId: string;
-}
-
-// Task detail side panel component
-const TaskDetailPanel = memo(({
-  task,
-  member,
-  onClose,
-  comments,
-  commentInput,
-  onCommentInputChange,
-  onSendComment,
-}: Readonly<{
-  task: Task | null;
-  member: TeamMember | null;
-  onClose: () => void;
-  comments: TaskComment[];
-  commentInput: string;
-  onCommentInputChange: (value: string) => void;
-  onSendComment: () => void;
-}>) => {
-  const st = useTranslations();
-  const { formatShort, formatMedium } = useDateLocale();
-  if (!task || !member) return null;
-
-  const _tempEndAt =
-    task.endAt && isSameDay(task.startAt, task.endAt)
-      ? addDays(task.endAt, 1)
-      : task.endAt;
-
-  // Prepare fields for the detail panel
-  const fields: EntityField[] = [
-    {
-      label: st('sweep.weldflow.workloadView.detailAssignee'),
-      value: (
-        <div className="flex items-center gap-2">
-          <Avatar className="h-6 w-6 rounded-md">
-            {member.image && <AvatarImage src={member.image} className="rounded-md" />}
-            <AvatarFallback className="rounded-md text-[10px]">{member.name.slice(0, 2)}</AvatarFallback>
-          </Avatar>
-          <span className="text-sm">{member.name}</span>
-        </div>
-      )
-    },
-    {
-      label: st('sweep.weldflow.workloadView.detailDueDate'),
-      value: `${formatShort(task.startAt)} - ${formatMedium(task.endAt)}`
-    },
-    {
-      label: st('sweep.weldflow.workloadView.detailProject'),
-      value: task.projectName || st('sweep.weldflow.workloadView.detailNoProject')
-    },
-    {
-      label: st('sweep.weldflow.workloadView.detailStatus'),
-      value: (
-        <span className="text-green-600">{st('sweep.weldflow.workloadView.detailInProgress')}</span>
-      )
-    }
-  ];
-
-  // Prepare activities
-  const activities: ActivityItem[] = [
-    {
-      id: 'created',
-      author: {
-        name: member.name,
-        initials: member.name.slice(0, 2),
-        color: '#8b5cf6'
-      },
-      action: st('sweep.weldflow.workloadView.detailActivityCreated'),
-      timestamp: st('sweep.weldflow.workloadView.detailDaysAgo', { count: 6 })
-    },
-    {
-      id: 'assigned',
-      author: {
-        name: member.name,
-        initials: member.name.slice(0, 2),
-        color: '#8b5cf6'
-      },
-      action: st('sweep.weldflow.workloadView.detailActivityAssigned', { name: member.name }),
-      timestamp: st('sweep.weldflow.workloadView.detailDaysAgo', { count: 5 })
-    }
-  ];
-
-  return (
-    <EntityDetailPanel
-      isOpen={!!task}
-      onClose={onClose}
-      title={task.name}
-      topOffset="90px"
-      visibilityText={st('sweep.weldflow.workloadView.detailVisibleToEveryone')}
-      isCompleted={false}
-      onToggleComplete={() => {}}
-      fields={fields}
-      descriptionValue=""
-      onDescriptionChange={() => {}}
-      descriptionPlaceholder={st('sweep.weldflow.workloadView.detailAddDescription')}
-      comments={comments}
-      commentInput={commentInput}
-      onCommentInputChange={onCommentInputChange}
-      onSendComment={onSendComment}
-      activities={activities}
-      onShare={() => {}}
-      onCopyLink={() => {}}
-    />
-  );
-});
-
-TaskDetailPanel.displayName = 'TaskDetailPanel';
 
 export interface WorkloadViewProps {
   initialData: Projects.WorkloadOverview | null;
@@ -832,15 +748,14 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
   const canEditMilestones = !!projectId && canWrite;
   // Transform API data to internal format
   const { members: teamMembers, tasks } = useMemo(
-    () => transformApiData(initialData),
-    [initialData]
+    () => transformApiData(initialData, st('sweep.weldflow.workloadView.defaultRole')),
+    [initialData, st]
   );
   const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly' | 'quarterly'>('monthly');
   const [zoom, setZoom] = useState(100);
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [comments, setComments] = useState<TaskComment[]>([]);
-  const [commentInput, setCommentInput] = useState('');
+  const { open: openObjectPanel } = useObjectPanel();
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -867,12 +782,12 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     try {
       const result = await ganttApi.getMilestones(projectId);
       if (result.success && result.data) {
-        setMarkers(result.data.map(mapMilestoneToMarker));
+        setMarkers(result.data.map((m) => mapMilestoneToMarker(m, st('sweep.weldflow.workloadView.untitledMilestone'))));
       }
     } catch (err) {
       console.error('Failed to load milestones:', err);
     }
-  }, [projectId]);
+  }, [projectId, st]);
 
   useEffect(() => {
     loadMilestones();
@@ -896,7 +811,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     });
     if (result.success && result.data) {
       const created = result.data;
-      setMarkers((prev) => prev.map((m) => (m.id === tempId ? mapMilestoneToMarker(created) : m)));
+      setMarkers((prev) => prev.map((m) => (m.id === tempId ? mapMilestoneToMarker(created, st('sweep.weldflow.workloadView.untitledMilestone')) : m)));
       toast.success(st('sweep.weldflow.workloadView.milestoneCreated'));
     } else {
       setMarkers((prev) => prev.filter((m) => m.id !== tempId));
@@ -966,12 +881,6 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     }
   }, [projectId, canWrite, loadMilestones, st]);
 
-  const handleChangeMarkerColor = useCallback((markerId: string, colorClassName: string) => {
-    if (!canWrite) return;
-    setMarkers((prev) => prev.map((m) => m.id === markerId ? { ...m, className: colorClassName } : m));
-    setSelectedMarker((prev) => prev?.id === markerId ? { ...prev, className: colorClassName } : prev);
-  }, [canWrite]);
-
   const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       field: 'role',
@@ -992,6 +901,12 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     },
   ], [teamMembers, st]);
 
+  const viewModeLabels = {
+    daily: st('projects.gantt.viewDay'),
+    weekly: st('projects.gantt.viewWeek'),
+    monthly: st('projects.gantt.viewMonth'),
+    quarterly: st('projects.gantt.viewQuarter'),
+  };
   const range = viewMode === 'weekly' ? 'daily' : viewMode;
   const effectiveZoom = viewMode === 'weekly' ? Math.max(100, zoom * 1.5) : zoom;
 
@@ -1007,40 +922,56 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     });
   };
 
-  // Get tasks for a specific member
-  const getMemberTasks = (memberId: string) => {
-    return tasks.filter((task) => task.assigneeId === memberId);
-  };
+  // Scheduled tasks drive the chart and the Gantt rows; undated ones are listed apart.
+  const getScheduledTasks = (memberId: string) =>
+    tasks.filter((task) => task.assigneeId === memberId && task.scheduled);
+  const getUnscheduledTasks = (memberId: string) =>
+    tasks.filter((task) => task.assigneeId === memberId && !task.scheduled);
 
-  // Get member for a task
-  const getMemberForTask = (task: Task) => {
-    return teamMembers.find((m) => m.id === task.assigneeId) || null;
-  };
+  // The filter pills and the search box narrow the member list.
+  const visibleMembers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const today = new Date();
+    return teamMembers.filter((member) => {
+      if (query && !member.name.toLowerCase().includes(query) && !member.role.toLowerCase().includes(query)) {
+        return false;
+      }
+      return activeFilters.every((filter) => {
+        // A pill still waiting for its operator or value filters nothing yet.
+        if (!filter.operator || !filter.value) return true;
+        let actual: string;
+        if (filter.field === 'role') {
+          actual = member.role;
+        } else if (filter.field === 'workload') {
+          actual = loadCategory(calculateDailyWorkload(member.id, tasks, today).totalHours, member.hoursPerDay);
+        } else {
+          return true;
+        }
+        const matches = actual === filter.value;
+        return filter.operator === 'is not' ? !matches : matches;
+      });
+    });
+  }, [teamMembers, tasks, searchQuery, activeFilters]);
 
-  // Get comments for the selected task
-  const getTaskComments = (taskId: string) => {
-    return comments.filter(comment => comment.taskId === taskId);
-  };
+  // The "Unassigned" section lists open tasks nobody carries. Role and workload
+  // pills describe people, so any complete pill hides it; the search box still
+  // matches it by name.
+  const unassignedScheduled = getScheduledTasks(UNASSIGNED_ID);
+  const unassignedUnscheduled = getUnscheduledTasks(UNASSIGNED_ID);
+  const unassignedTotal = unassignedScheduled.length + unassignedUnscheduled.length;
+  const unassignedExpanded = expandedMembers.has(UNASSIGNED_ID);
+  const unassignedLabel = st('sweep.weldflow.workloadView.unassignedTasks');
+  const showUnassigned = (() => {
+    if (unassignedTotal === 0) return false;
+    if (activeFilters.some((filter) => filter.operator && filter.value)) return false;
+    const query = searchQuery.trim().toLowerCase();
+    return !query || unassignedLabel.toLowerCase().includes(query);
+  })();
 
-  // Handle sending a comment
-  const handleSendComment = () => {
-    if (!commentInput.trim() || !selectedTask) return;
-
-    const member = getMemberForTask(selectedTask);
-    const newComment: TaskComment = {
-      id: `comment-${Date.now()}`,
-      author: {
-        name: member?.name || 'User',
-        initials: member?.name.slice(0, 2) || 'U',
-        color: '#8b5cf6',
-      },
-      content: commentInput,
-      createdAt: new Date(),
-      taskId: selectedTask.id,
-    };
-
-    setComments(prev => [...prev, newComment]);
-    setCommentInput('');
+  // Open the real task in the shared task panel (live status, comments and activity).
+  const openTask = (task: Task) => {
+    setSelectedTaskId(task.id);
+    openObjectPanel({ type: 'task', id: task.id });
   };
 
   // Show error state
@@ -1071,12 +1002,12 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 w-[100px] justify-between shadow-none text-sm text-muted-foreground">
-                {{ daily: 'Day', weekly: 'Week', monthly: 'Month', quarterly: 'Quarter' }[viewMode]}
+                {viewModeLabels[viewMode]}
                 <ChevronDown className="h-3.5 w-3.5 opacity-50" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-[100px] p-1">
-              {([['daily', 'Day'], ['weekly', 'Week'], ['monthly', 'Month'], ['quarterly', 'Quarter']] as const).map(([value, label]) => (
+              {(Object.entries(viewModeLabels) as [keyof typeof viewModeLabels, string][]).map(([value, label]) => (
                 <Button
                   key={value}
                   variant="ghost"
@@ -1162,14 +1093,20 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
       >
         <GanttSidebar sidebarLabel={st('sweep.weldflow.workloadView.members')} sidebarSecondaryLabel={st('sweep.weldflow.workloadView.availability')}>
           <div className="flex flex-col">
-            {teamMembers.length === 0 && (
+            {teamMembers.length === 0 && unassignedTotal === 0 && (
               <div className="flex flex-col items-center justify-center p-4 text-center h-32">
                 <p className="text-xs text-muted-foreground">{st('sweep.weldflow.workloadView.noTeamMembers')}</p>
               </div>
             )}
-            {teamMembers.map((member) => {
+            {teamMembers.length > 0 && visibleMembers.length === 0 && !showUnassigned && (
+              <div className="flex flex-col items-center justify-center p-4 text-center h-32">
+                <p className="text-xs text-muted-foreground">{st('sweep.weldflow.workloadView.noMatchingMembers')}</p>
+              </div>
+            )}
+            {visibleMembers.map((member) => {
               const isExpanded = expandedMembers.has(member.id);
-              const memberTasks = getMemberTasks(member.id);
+              const memberTasks = getScheduledTasks(member.id);
+              const unscheduledTasks = getUnscheduledTasks(member.id);
 
               return (
                 <div key={member.id}>
@@ -1181,16 +1118,36 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                     onToggle={() => toggleMember(member.id)}
                   />
                   {/* Task rows when expanded */}
-                  {isExpanded && memberTasks.length > 0 && memberTasks.map((task) => (
+                  {isExpanded && memberTasks.map((task) => (
                     <TaskSidebarItem
                       key={task.id}
                       task={task}
                       rowHeight={TASK_ROW_HEIGHT}
-                      isSelected={selectedTask?.id === task.id}
-                      onClick={() => setSelectedTask(task)}
+                      isSelected={selectedTaskId === task.id}
+                      onClick={() => openTask(task)}
                     />
                   ))}
-                  {isExpanded && memberTasks.length === 0 && (
+                  {/* Tasks without dates carry no load: listed apart instead of inventing one */}
+                  {isExpanded && unscheduledTasks.length > 0 && (
+                    <>
+                      <div
+                        className="flex items-center pl-6 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                        style={{ height: TASK_ROW_HEIGHT }}
+                      >
+                        {st('sweep.weldflow.workloadView.unscheduled', { count: unscheduledTasks.length })}
+                      </div>
+                      {unscheduledTasks.map((task) => (
+                        <TaskSidebarItem
+                          key={task.id}
+                          task={task}
+                          rowHeight={TASK_ROW_HEIGHT}
+                          isSelected={selectedTaskId === task.id}
+                          onClick={() => openTask(task)}
+                        />
+                      ))}
+                    </>
+                  )}
+                  {isExpanded && memberTasks.length === 0 && unscheduledTasks.length === 0 && (
                     <div
                       className="flex items-center pl-6 text-sm text-muted-foreground"
                       style={{ height: TASK_ROW_HEIGHT }}
@@ -1201,6 +1158,44 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                 </div>
               );
             })}
+            {showUnassigned && (
+              <div>
+                <UnassignedSidebarItem
+                  taskCount={unassignedTotal}
+                  rowHeight={ROW_HEIGHT}
+                  isExpanded={unassignedExpanded}
+                  onToggle={() => toggleMember(UNASSIGNED_ID)}
+                />
+                {unassignedExpanded && unassignedScheduled.map((task) => (
+                  <TaskSidebarItem
+                    key={task.id}
+                    task={task}
+                    rowHeight={TASK_ROW_HEIGHT}
+                    isSelected={selectedTaskId === task.id}
+                    onClick={() => openTask(task)}
+                  />
+                ))}
+                {unassignedExpanded && unassignedUnscheduled.length > 0 && (
+                  <>
+                    <div
+                      className="flex items-center pl-6 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                      style={{ height: TASK_ROW_HEIGHT }}
+                    >
+                      {st('sweep.weldflow.workloadView.unscheduled', { count: unassignedUnscheduled.length })}
+                    </div>
+                    {unassignedUnscheduled.map((task) => (
+                      <TaskSidebarItem
+                        key={task.id}
+                        task={task}
+                        rowHeight={TASK_ROW_HEIGHT}
+                        isSelected={selectedTaskId === task.id}
+                        onClick={() => openTask(task)}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </GanttSidebar>
         <GanttTimeline>
@@ -1209,9 +1204,10 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
             className="absolute top-0 left-0 w-full"
             style={{ marginTop: 'var(--gantt-header-height)' }}
           >
-            {teamMembers.map((member) => {
+            {visibleMembers.map((member) => {
               const isExpanded = expandedMembers.has(member.id);
-              const memberTasks = getMemberTasks(member.id);
+              const memberTasks = getScheduledTasks(member.id);
+              const unscheduledCount = getUnscheduledTasks(member.id).length;
               const avgWorkload = calculateDailyWorkload(member.id, tasks, new Date()).totalHours;
 
               return (
@@ -1255,19 +1251,57 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                     />
                   </div>
                   {/* Task rows when expanded */}
-                  {isExpanded && memberTasks.length > 0 && memberTasks.map((task) => (
+                  {isExpanded && memberTasks.map((task) => (
                     <TaskTimelineRow
                       key={task.id}
                       task={task}
                       rowHeight={TASK_ROW_HEIGHT}
                     />
                   ))}
-                  {isExpanded && memberTasks.length === 0 && (
+                  {/* Spacers keep the timeline rows aligned with the sidebar's Unscheduled section */}
+                  {isExpanded && unscheduledCount > 0 && (
+                    <div style={{ height: TASK_ROW_HEIGHT * (unscheduledCount + 1) }} />
+                  )}
+                  {isExpanded && memberTasks.length === 0 && unscheduledCount === 0 && (
                     <div style={{ height: TASK_ROW_HEIGHT }} />
                   )}
                 </div>
               );
             })}
+            {showUnassigned && (
+              <div>
+                {/* Mobile header - only visible on mobile */}
+                <button
+                  type="button"
+                  aria-expanded={unassignedExpanded}
+                  className="md:hidden flex items-center gap-2 px-3 py-2 bg-background border-b border-border cursor-pointer sticky left-0 z-20 text-left"
+                  style={{ width: '100vw', maxWidth: '100vw' }}
+                  onClick={() => toggleMember(UNASSIGNED_ID)}
+                >
+                  <span className="h-5 w-5 flex items-center justify-center text-muted-foreground">
+                    {unassignedExpanded ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </span>
+                  <span className="text-sm font-medium flex-1 truncate">{unassignedLabel}</span>
+                  <span className="text-xs text-muted-foreground">{unassignedTotal}</span>
+                </button>
+                {/* No capacity to chart: an empty row keeps the timeline aligned with the sidebar */}
+                <div className="relative border-b border-border" style={{ height: ROW_HEIGHT }} />
+                {unassignedExpanded && unassignedScheduled.map((task) => (
+                  <TaskTimelineRow
+                    key={task.id}
+                    task={task}
+                    rowHeight={TASK_ROW_HEIGHT}
+                  />
+                ))}
+                {unassignedExpanded && unassignedUnscheduled.length > 0 && (
+                  <div style={{ height: TASK_ROW_HEIGHT * (unassignedUnscheduled.length + 1) }} />
+                )}
+              </div>
+            )}
           </div>
           {markers.map((marker) => (
             <GanttMarker
@@ -1399,37 +1433,12 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                     <p className="text-xs text-muted-foreground mt-1">
                       {formatMedium(selectedMarker.date)}
                       {(selectedMarker.date.getHours() !== 0 || selectedMarker.date.getMinutes() !== 0) && (
-                        <span> at {selectedMarker.date.getHours().toString().padStart(2, '0')}:{selectedMarker.date.getMinutes().toString().padStart(2, '0')}</span>
+                        <span> {st('projects.gantt.atTime', { time: `${selectedMarker.date.getHours().toString().padStart(2, '0')}:${selectedMarker.date.getMinutes().toString().padStart(2, '0')}` })}</span>
                       )}
                     </p>
                   </div>
                   {canEditMilestones && (
                     <>
-                      <Separator className="my-1" />
-                      <div className="px-2 py-1.5">
-                        <p className="text-xs font-medium text-muted-foreground mb-1.5">{st('sweep.weldflow.workloadView.colorLabel')}</p>
-                        <div className="grid grid-cols-8 gap-1">
-                          {markerColors.map((colorOption) => (
-                            <Button
-                              key={colorOption.name}
-                              variant="ghost"
-                              className={cn(
-                                "h-5 w-5 rounded-[4px] flex items-center justify-center transition-shadow p-0",
-                                selectedMarker.className === colorOption.className
-                                  ? 'ring-2 ring-ring ring-offset-1 ring-offset-background'
-                                  : 'hover:ring-1 hover:ring-ring/40 hover:ring-offset-1 hover:ring-offset-background'
-                              )}
-                              style={{ backgroundColor: colorOption.color }}
-                              onClick={() => handleChangeMarkerColor(selectedMarker.id, colorOption.className)}
-                              title={st(`sweep.weldflow.workloadView.color${colorOption.name}`)}
-                            >
-                              {selectedMarker.className === colorOption.className && (
-                                <Check className="h-3 w-3 text-foreground/60" />
-                              )}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
                       <Separator className="my-1" />
                       <div
                         role="menuitem"
@@ -1478,17 +1487,6 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
           )}
         </PopoverContent>
       </Popover>
-
-      {/* Task Detail Panel */}
-      <TaskDetailPanel
-        task={selectedTask}
-        member={selectedTask ? getMemberForTask(selectedTask) : null}
-        onClose={() => setSelectedTask(null)}
-        comments={selectedTask ? getTaskComments(selectedTask.id) : []}
-        commentInput={commentInput}
-        onCommentInputChange={setCommentInput}
-        onSendComment={handleSendComment}
-      />
     </div>
   );
 }

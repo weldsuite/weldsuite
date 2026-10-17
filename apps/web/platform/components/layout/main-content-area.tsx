@@ -12,8 +12,8 @@ export function MainContentArea({ children, embedded }: Readonly<MainContentArea
     <div
       className={
         embedded
-          ? 'ml-16 h-full overflow-hidden'
-          : 'ml-0 md:ml-16 h-screen pt-14 md:pt-0 overflow-hidden'
+          ? 'ml-15 h-full overflow-hidden'
+          : 'ml-0 md:ml-15 h-screen pt-14 md:pt-0 overflow-hidden'
       }
     >
       {children}

@@ -2,9 +2,17 @@ import { cleanPostalAddress, type PostalAddress } from '@/components/address/pos
 import { cleanTaxRateId } from '@/lib/weldbooks/document-tax';
 import { amountOrUndefined, amountString, dimensionPayload } from '@/lib/weldbooks/document-tax-form';
 import { exchangeRatePayload } from '@/lib/weldbooks/currencies';
+import {
+  brDocumentPayload,
+  brLinePayload,
+  type BrDocumentFiscalPayload,
+  type BrDocumentValues,
+  type BrLineFiscalPayload,
+  type BrLineValues,
+} from '@/lib/weldbooks/br-fiscal';
 
 /** A line of the bill form. */
-export interface BillLineValues {
+export interface BillLineValues extends Partial<BrLineValues> {
   description: string;
   quantity: number | string;
   unitPrice: number | string;
@@ -25,7 +33,7 @@ export interface BillLineValues {
   locationId?: string;
 }
 
-export interface BillFormShape {
+export interface BillFormShape extends Partial<BrDocumentValues> {
   contactId: string;
   issueDate: string;
   dueDate: string;
@@ -57,6 +65,8 @@ export interface BillPayload {
   vendorAddress?: PostalAddress;
   /** `null` clears a stored delivery address on edit. */
   deliveryAddress?: PostalAddress | null;
+  /** Brazil: withholdings and the supplier's NF-e access key; `null` clears them on edit. */
+  fiscalData?: BrDocumentFiscalPayload | null;
   items: Array<{
     description: string;
     quantity: string;
@@ -74,6 +84,10 @@ export interface BillPayload {
     form1099Box?: string | null;
     classId: string | null;
     locationId: string | null;
+    /** Brazil. */
+    ncm?: string | null;
+    cfop?: string | null;
+    fiscalData?: BrLineFiscalPayload | null;
   }>;
 }
 
@@ -83,6 +97,8 @@ export interface BillPayloadOptions {
   salesTax: boolean;
   /** The entity files 1099s: lines carry a 1099 box. */
   form1099: boolean;
+  /** The entity keeps Brazilian books: lines carry NCM, CFOP and fiscal details, the bill its withholdings. */
+  br?: boolean;
   /** The user emptied an exchange rate the bill held: look it up again. */
   resetExchangeRate?: boolean;
 }
@@ -110,6 +126,7 @@ export function buildBillPayload(values: BillFormShape, options: BillPayloadOpti
     ...exchangeRatePayload(values.exchangeRate, options.resetExchangeRate),
     vendorAddress: vendorAddress ?? (mode === 'edit' ? {} : undefined),
     ...(salesTax ? { deliveryAddress: delivery ?? (mode === 'edit' ? null : undefined) } : {}),
+    ...(options.br ? brBillFiscal(values, mode) : {}),
     items: values.items.map((item) => ({
       description: item.description,
       quantity: amountString(item.quantity, '1'),
@@ -126,7 +143,14 @@ export function buildBillPayload(values: BillFormShape, options: BillPayloadOpti
         : {}),
       accountId: item.accountId || undefined,
       ...(form1099 ? { form1099Box: item.form1099Box || null } : {}),
+      ...(options.br ? brLinePayload(item) : {}),
       ...dimensionPayload(item),
     })),
   };
+}
+
+/** Brazil: the bill's `fiscalData` (withholdings, access key); `null` on edit clears what a stored bill held. */
+function brBillFiscal(values: BillFormShape, mode: 'add' | 'edit'): { fiscalData?: BrDocumentFiscalPayload | null } {
+  const fiscalData = brDocumentPayload(values, { bill: true });
+  return fiscalData || mode === 'edit' ? { fiscalData } : {};
 }

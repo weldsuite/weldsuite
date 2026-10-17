@@ -68,7 +68,41 @@ export type SystemAccountRole =
   | 'payroll_tax_expense'
   | 'payroll_liabilities'
   | 'unapplied_cash_payment_income'
-  | 'unapplied_cash_bill_payment_expense';
+  | 'unapplied_cash_bill_payment_expense'
+  // Brazil: taxes on sales (a payable per tax), the revenue deductions they are
+  // booked against, creditable taxes on purchases, and withholdings both ways.
+  | 'tax_payable_icms'
+  | 'tax_payable_ipi'
+  | 'tax_payable_pis'
+  | 'tax_payable_cofins'
+  | 'tax_payable_iss'
+  | 'tax_payable_simples'
+  | 'tax_payable_irpj'
+  | 'tax_payable_csll'
+  | 'tax_payable_cbs'
+  | 'tax_payable_ibs'
+  | 'tax_recoverable_cbs'
+  | 'tax_recoverable_ibs'
+  | 'tax_recoverable_icms'
+  | 'tax_recoverable_ipi'
+  | 'tax_recoverable_pis'
+  | 'tax_recoverable_cofins'
+  | 'revenue_deduction_icms'
+  | 'revenue_deduction_pis'
+  | 'revenue_deduction_cofins'
+  | 'revenue_deduction_iss'
+  | 'revenue_deduction_simples'
+  | 'withheld_receivable_irrf'
+  | 'withheld_receivable_pis'
+  | 'withheld_receivable_cofins'
+  | 'withheld_receivable_csll'
+  | 'withheld_receivable_inss'
+  | 'withholding_payable_irrf'
+  | 'withholding_payable_csrf'
+  | 'withholding_payable_inss'
+  | 'withholding_payable_iss'
+  | 'income_tax_expense'
+  | 'social_contribution_expense';
 
 /** GST component code used in India tax expansion (CGST/SGST/IGST). */
 export type GstComponentCode = 'cgst' | 'sgst' | 'igst' | 'utgst';
@@ -127,10 +161,24 @@ export interface InvoiceLabels {
   registrationLabel: string;
   /** Banner on a draft's preview, so it can't pass for the finalized document. */
   draftNotice: string;
+  /** Captions of the customer's reference, the invoice notes and the terms (English when omitted). */
+  reference?: string;
+  notes?: string;
+  terms?: string;
   /** India GST tax invoice labels (English fallbacks when a jurisdiction omits them). */
   hsnSac?: string;
   placeOfSupply?: string;
   taxableValue?: string;
+  /** Brazil: product/operation codes, taxes inside the price, withholdings and the net amount. */
+  ncm?: string;
+  cfop?: string;
+  includedTaxes?: string;
+  withholdings?: string;
+  netAmount?: string;
+  informationalTaxes?: string;
+  fiscalDocument?: string;
+  accessKey?: string;
+  pixPayment?: string;
 }
 
 /** Entity identifiers an invoice can print. `einOrSsn` is the US tax ID (print it only when it is an EIN). */
@@ -269,6 +317,12 @@ export interface JurisdictionFeatures {
   salesTax: boolean;
   /** US 1099 information returns. */
   form1099: boolean;
+  /** Brazil monthly tax worksheet (apuração): Simples DAS, ISS, PIS/COFINS, IRPJ/CSLL, withholdings. */
+  brTaxReturn: boolean;
+  /** Electronic fiscal documents (BR NF-e / NFS-e) issued through a provider. */
+  fiscalDocuments: boolean;
+  /** Brazil SPED ECD digital bookkeeping export. */
+  spedEcd: boolean;
 }
 
 /**
@@ -288,9 +342,9 @@ export type PurchaseTaxTreatment = 'recoverable' | 'cost';
  * user sees "BTW", "BTW-nummer", "Leverancier" and "Creditnota".
  */
 export interface JurisdictionTerminology {
-  tax: 'vat' | 'gst' | 'sales_tax';
-  taxId: 'vat_number' | 'gstin' | 'ein';
-  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id';
+  tax: 'vat' | 'gst' | 'sales_tax' | 'tributos';
+  taxId: 'vat_number' | 'gstin' | 'ein' | 'cnpj';
+  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id' | 'ie';
   supplier: 'supplier' | 'vendor';
   creditNote: 'credit_note' | 'credit_memo';
 }
@@ -321,7 +375,8 @@ export interface JurisdictionAdapter {
 
   getChartOfAccountsTemplate(opts?: ChartOfAccountsTemplateOptions): ChartOfAccountsTemplateRow[];
 
-  getStandardTaxCategories(): TaxCategoryTemplate[];
+  /** Rates seeded at entity creation (BR: the tax profiles of the entity's regime active, the others seeded switched off). */
+  getStandardTaxCategories(opts?: ChartOfAccountsTemplateOptions): TaxCategoryTemplate[];
 
   validateTaxIdentifier(type: TaxIdentifierType, value: string): TaxIdentifierValidation;
 
@@ -335,4 +390,69 @@ export interface JurisdictionAdapter {
   getInvoiceRequirements(locale?: string): InvoiceRequirements;
 
   resolveTaxRate(ctx: TaxResolutionContext): TaxRateDecision;
+
+  /**
+   * Whole-document tax calculation for jurisdictions where one line carries
+   * several taxes with different bases and treatments (BR: ICMS inside the
+   * price, IPI on top, withholdings off the total). When present, books-api
+   * uses it instead of the single-rate / GST expansion.
+   */
+  computeDocumentTaxes?(lines: DocumentTaxLineInput[], ctx: DocumentTaxContext): DocumentTaxResult;
+}
+
+/** One document line as the document tax hook sees it (amounts in the document currency). */
+export interface DocumentTaxLineInput {
+  /** Net line amount: quantity x price less the line discount. */
+  lineTotal: number;
+  taxRateId: string | null;
+  taxRateName: string | null;
+  taxCategoryCode: string | null;
+  /** The rate stored on the line (percent). */
+  rate: number;
+  /** The tax rate's jurisdiction_metadata (BR: the tax profile). */
+  jurisdictionMetadata: Record<string, unknown> | null;
+  /** Per-line fiscal fields (BR: NCM, CFOP, origin, rate overrides). */
+  fiscalData?: Record<string, unknown> | null;
+}
+
+export interface DocumentTaxContext {
+  direction: 'sales' | 'purchase';
+  /** yyyy-mm-dd; picks the rules in force (BR: the CBS/IBS test year). */
+  issueDate?: string;
+  /** entities.jurisdiction_settings of the entity issuing or receiving the document. */
+  entitySettings?: Record<string, unknown> | null;
+  /** entities.tax_classification (BR: the tax regime). */
+  entityTaxClassification?: string | null;
+  /** The other party: country, region (BR: UF) and its own fiscal flags. */
+  counterparty?: {
+    country?: string | null;
+    stateCode?: string | null;
+    taxId?: string | null;
+    fiscal?: Record<string, unknown> | null;
+  };
+  /** Document-level fiscal fields (BR: withholdings, final consumer). */
+  documentFiscal?: Record<string, unknown> | null;
+}
+
+/** A computed tax amount, in the shape of a document's tax_breakdown row. */
+export interface DocumentTaxRow {
+  taxRateId: string;
+  taxRateName: string;
+  taxRate: number;
+  taxableAmount: number;
+  taxAmount: number;
+  component?: string;
+  accountRole?: string;
+  offsetAccountRole?: string;
+  taxCategoryCode?: string;
+  treatment?: 'added' | 'embedded' | 'withheld' | 'informational';
+}
+
+export interface DocumentTaxResult {
+  /** Rows per input line, in input order. */
+  lines: Array<{ rows: DocumentTaxRow[] }>;
+  /** Rows on the document as a whole (BR withholdings, on the sum of the service lines). */
+  documentRows: DocumentTaxRow[];
+  /** Notes for previews (a missing UF, a withholding under the minimum). */
+  warnings: string[];
 }

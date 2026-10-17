@@ -7,9 +7,9 @@ const EU_COUNTRIES = new Set([
 /** Which words a contact's tax and registration fields use. */
 export interface ContactIdKinds {
   /** The tax number field: a VAT number, a GSTIN, or a plain tax id. */
-  taxId: 'vat_number' | 'gstin' | 'tax_id' | 'entity';
+  taxId: 'vat_number' | 'gstin' | 'cnpj' | 'tax_id' | 'entity';
   /** The company registration field; `null` hides it (a US contact has no such number to file here). */
-  registrationId: 'kvk' | 'kbo' | 'company_number' | 'pan' | 'entity' | null;
+  registrationId: 'kvk' | 'kbo' | 'company_number' | 'pan' | 'ie' | 'entity' | null;
 }
 
 /**
@@ -24,6 +24,8 @@ export function contactIdKinds(countryCode: string | null | undefined): ContactI
   if (country === 'NL') return { taxId: 'vat_number', registrationId: 'kvk' };
   if (country === 'BE') return { taxId: 'vat_number', registrationId: 'kbo' };
   if (country === 'IN') return { taxId: 'gstin', registrationId: 'pan' };
+  // Brazil: CNPJ (a CPF for a person is entered in the same field), and the Inscrição Estadual.
+  if (country === 'BR') return { taxId: 'cnpj', registrationId: 'ie' };
   // A US business is identified by an EIN (collected with the vendor tax details), not a registration number.
   if (country === 'US') return { taxId: 'tax_id', registrationId: null };
   if (EU_COUNTRIES.has(country) || country === 'GB') return { taxId: 'vat_number', registrationId: 'company_number' };

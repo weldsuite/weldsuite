@@ -14,13 +14,16 @@ import { verifyInstallStateJwt, fetchInstallationMeta } from '../services/github
 import { upsertConnection, revokeConnection } from '../services/github/connections';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // The browser must land back on the platform app, not on app-api. Error
 // redirects use this absolute base; success uses the absolute `returnTo`.
+// Once the state JWT names the workspace, redirects land in it (`/w/{orgId}/…`, FE-013).
 const APP_BASE = 'https://app.weldsuite.org';
-const settingsPath = (qs: string) => `${APP_BASE}/settings/integrations/github${qs}`;
+const settingsPath = (qs: string, workspaceId?: string) =>
+  workspaceAppUrl(APP_BASE, workspaceId, `/settings/integrations/github${qs}`);
 
 app.get('/callback', async (c) => {
   const query = c.req.query();
@@ -38,19 +41,19 @@ app.get('/callback', async (c) => {
   }
 
   const { workspaceId, returnTo } = claims;
-  const successRedirect = returnTo || settingsPath('?installed=1');
+  const successRedirect = returnTo || settingsPath('?installed=1', workspaceId);
 
   const encryptionKey = { v1: c.env.DATABASE_ENCRYPTION_KEY, v2: c.env.DATABASE_ENCRYPTION_KEY_V2 };
   if (!encryptionKey.v1 && !encryptionKey.v2) {
     console.error('[GitHub] DATABASE_ENCRYPTION_KEY is not configured');
-    return c.redirect(settingsPath('?error=configuration_error'));
+    return c.redirect(settingsPath('?error=configuration_error', workspaceId));
   }
 
   const appId = c.env.GITHUB_APP_ID;
   const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
   if (!appId || !privateKey) {
     console.error('[GitHub] GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY is not configured');
-    return c.redirect(settingsPath('?error=configuration_error'));
+    return c.redirect(settingsPath('?error=configuration_error', workspaceId));
   }
 
   try {
@@ -58,7 +61,7 @@ app.get('/callback', async (c) => {
 
     if (setupAction === 'delete') {
       await revokeConnection(db, workspaceId);
-      return c.redirect(settingsPath('?disconnected=1'));
+      return c.redirect(settingsPath('?disconnected=1', workspaceId));
     }
 
     const meta = await fetchInstallationMeta(appId, privateKey, installationId);
@@ -87,7 +90,7 @@ app.get('/callback', async (c) => {
       '| cause:',
       logSafe(e?.cause instanceof Error ? e.cause.message : e?.cause),
     );
-    return c.redirect(settingsPath('?error=internal_error'));
+    return c.redirect(settingsPath('?error=internal_error', workspaceId));
   }
 });
 

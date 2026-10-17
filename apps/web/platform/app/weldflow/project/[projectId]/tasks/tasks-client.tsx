@@ -1,7 +1,9 @@
 
-import React, { useState, useMemo, useTransition, useEffect, useLayoutEffect, useCallback, useRef, useContext } from 'react';
+import React, { useState, useMemo, useTransition, useEffect, useCallback, useRef, useContext } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useTranslations } from '@weldsuite/i18n/client';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useStageLabel } from '../../../lib/stage-labels';
 import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
@@ -25,7 +27,6 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import {
@@ -55,7 +56,6 @@ import {
   Repeat,
   ListTodo,
   Paperclip,
-  Link,
   ChevronRight,
   FolderInput,
 } from 'lucide-react';
@@ -68,11 +68,16 @@ import { buildEntityAssigneeDirectory } from './entity-assignees';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
+import { withOtherGroup } from '@/app/weldflow/lib/with-other-group';
+import { persistStageChange } from '@/app/weldflow/lib/persist-stage-change';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
 import { EntityList, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { TabEmptyIllustration, TAB_EMPTY_STATE_TABLE_CLASS } from '@/components/objects/_shared/tab-empty-state';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
+
+/** The priorities a task row can hold. */
+type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 interface Task {
   id: string;
@@ -82,7 +87,7 @@ interface Task {
   description?: string;
   stageId?: string | null;
   status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
+  priority: TaskPriority;
   assignee?: string;
   assigneeId?: string | null;
   assigneeIds?: string[];
@@ -201,7 +206,6 @@ function transformApiTask(apiTask: RawApiTask): Task {
     dueDate: apiTask.dueDate ? new Date(apiTask.dueDate) : undefined,
     duration: apiTask.duration ?? undefined,
     createdAt: new Date(apiTask.createdAt),
-    tags: apiTask.tags || undefined,
     labels: apiTask.labels || undefined,
     customFields: apiTask.customFields || undefined,
     attachmentCount: apiTask.attachmentsCount || apiTask._count?.attachments || attachmentsFromCustomFields,
@@ -271,8 +275,8 @@ const statusFromCrm: Record<string, Task['status']> = {
 // Sort-order lookups for the board's "Sort by status/priority" columns — static,
 // so these live at module scope instead of being recreated (with a new array
 // identity) on every render.
-const STATUS_SORT_ORDER = ['todo', 'in_progress', 'review', 'done', 'cancelled'];
-const PRIORITY_SORT_ORDER = ['low', 'medium', 'high', 'urgent'];
+const STATUS_SORT_ORDER = ['backlog', 'todo', 'in_progress', 'review', 'testing', 'done', 'cancelled'];
+const PRIORITY_SORT_ORDER = ['low', 'medium', 'high', 'urgent', 'critical'];
 
 // Entity mode embeds the board in a ~400px object panel (or in the column next
 // to the chat when the panel is expanded), but the full column set needs ~820px
@@ -291,6 +295,11 @@ const ENTITY_NARROW_PRIORITY = '@max-[560px]:w-[80px]';
 const ENTITY_NARROW_DUE = '@max-[560px]:w-[68px]';
 const ENTITY_NARROW_ACTIONS = '@max-[560px]:w-[28px]';
 const ENTITY_NARROW_GAP = '@max-[560px]:gap-2';
+
+/** An entity-mode container-query class, or none outside entity mode. */
+function entityOnly(isEntityMode: boolean, cls: string): string | undefined {
+  return isEntityMode ? cls : undefined;
+}
 
 /** Makes the board a size container in entity mode; a no-op wrapper elsewhere. */
 function EntityContainerScope({ enabled, children }: Readonly<{ enabled: boolean; children: React.ReactNode }>) {
@@ -338,7 +347,7 @@ function toCrmTask(
     // Unknown (custom stage) statuses pass through instead of collapsing to
     // 'todo', which a save would then write back.
     status: statusToCrm[task.status] ?? (task.status as CrmTask['status']),
-    priority: task.priority === 'urgent' ? 'high' : (task.priority as CrmTask['priority']),
+    priority: task.priority as CrmTask['priority'],
     assignee: primaryAssignee,
     assignees: assigneesList,
     dueDate: task.dueDate,
@@ -406,6 +415,25 @@ function getTaskAssigneeIds(task: Task): string[] {
   return task.assigneeId ? [task.assigneeId] : [];
 }
 
+type TaskUpdatePayload = Parameters<typeof tasksApi.update>[2];
+
+// PATCH body for an inline edit. Cleared fields go out as an explicit `null` /
+// `[]`: `undefined` is dropped by JSON.stringify, so the server never heard that
+// a date or the assignees had been cleared (and the UI only looked cleared until
+// the next reload).
+function buildTaskPatchPayload(data: Partial<Task>): TaskUpdatePayload {
+  const payload: TaskUpdatePayload = {};
+  if (data.title !== undefined) payload.title = data.title;
+  if (data.priority !== undefined) payload.priority = data.priority;
+  if ('dueDate' in data) payload.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
+  if (data.assignees !== undefined) {
+    payload.assigneeIds = data.assignees.map((a) => a.id);
+  } else if (data.assigneeId !== undefined) {
+    payload.assigneeIds = data.assigneeId ? [data.assigneeId] : [];
+  }
+  return payload;
+}
+
 // Commit a synchronous state update inside a View Transition when the browser
 // supports it, otherwise run it directly.
 function runInViewTransition(commit: () => void): void {
@@ -415,33 +443,6 @@ function runInViewTransition(commit: () => void): void {
   } else {
     commit();
   }
-}
-
-// Persist a stage pick. Moving into/out of 'done' goes through the toggle
-// endpoint (which handles recurrence), then the stage/status is saved on top.
-async function persistStageChange(
-  projectId: string,
-  taskId: string,
-  stageId: string,
-  oldStatus: Task['status'],
-  newStatus: Task['status'],
-) {
-  if (newStatus === 'done' && oldStatus !== 'done') {
-    const result = await tasksApi.toggle(projectId, taskId, oldStatus);
-    if (result.success) {
-      // toggle only flips status; also persist the picked stageId
-      await tasksApi.update(projectId, taskId, { stageId });
-    }
-    return result;
-  }
-  if (newStatus !== 'done' && oldStatus === 'done') {
-    const result = await tasksApi.toggle(projectId, taskId, 'done');
-    if (result.success) {
-      await tasksApi.update(projectId, taskId, { stageId, status: newStatus });
-    }
-    return result;
-  }
-  return tasksApi.update(projectId, taskId, { stageId, status: newStatus });
 }
 
 function repeatBadgeLabel(repeat: NonNullable<Task['repeat']>): string {
@@ -528,6 +529,151 @@ function TaskAssigneeTriggerContent({ task, projectMembers }: Readonly<{ task: T
         {task.assignee.split(' ')[0]}
       </span>
     </div>
+  );
+}
+
+/** A task row's attachment and subtask counts, each shown only when non-zero. */
+function TaskCountBadges({ task }: Readonly<{ task: Task }>) {
+  return (
+    <>
+      {(task.attachmentCount ?? 0) > 0 && (
+        <span className="inline-flex h-[18px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
+          <Paperclip className="h-2.5 w-2.5 shrink-0" />
+          {task.attachmentCount}
+        </span>
+      )}
+      {(task.subtaskCount ?? 0) > 0 && (
+        <span className="inline-flex h-[18px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
+          <ListTodo className="h-2.5 w-2.5 shrink-0" />
+          {task.completedSubtaskCount}/{task.subtaskCount}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** The status picker's options: the project's stages, or the built-in statuses when it has none. */
+function TaskStatusOptions({
+  task,
+  currentStageId,
+  projectStages,
+  statusConfig,
+  onSelect,
+}: Readonly<{
+  task: Task;
+  currentStageId: string | null;
+  projectStages: Array<{ id: string; name: string; color: string; systemStatus: string }>;
+  statusConfig: Record<string, { label: string }>;
+  onSelect: (taskId: string, stageId: string) => unknown;
+}>) {
+  const stageLabel = useStageLabel();
+  if (projectStages.length === 0) {
+    return (
+      <>
+        {Object.entries(statusConfig).map(([key, config]) => (
+          <Button
+            key={key}
+            variant="ghost"
+            onClick={() => onSelect(task.id, key)}
+            className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
+          >
+            <span>{config.label}</span>
+            {task.status === key && <Check className="h-3.5 w-3.5 text-primary" />}
+          </Button>
+        ))}
+      </>
+    );
+  }
+  return (
+    <>
+      {projectStages.map(s => (
+        <Button
+          key={s.id}
+          variant="ghost"
+          onClick={() => onSelect(task.id, s.id)}
+          className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
+        >
+          <span className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
+            <span>{stageLabel(s.name, s.systemStatus)}</span>
+          </span>
+          {currentStageId === s.id && <Check className="h-3.5 w-3.5 text-primary" />}
+        </Button>
+      ))}
+    </>
+  );
+}
+
+/** The assignee picker's options: toggle each project member, or clear them all. */
+function TaskAssigneeOptions({
+  task,
+  projectMembers,
+  clearLabel,
+  onUpdate,
+}: Readonly<{
+  task: Task;
+  projectMembers: ProjectMember[];
+  clearLabel: string;
+  onUpdate: (taskId: string, data: Partial<Task>) => Promise<unknown>;
+}>) {
+  const currentAssignees = task.assignees ?? [];
+  return (
+    <>
+      {projectMembers.filter(m => m.user?.name).map((member) => {
+        const isSelected = currentAssignees.some((a) => a.id === member.userId);
+        return (
+          <Button
+            key={member.userId}
+            variant="ghost"
+            onClick={() => {
+              const nextAssignees = isSelected
+                ? currentAssignees.filter((a) => a.id !== member.userId)
+                : [
+                    ...currentAssignees,
+                    { id: member.userId, name: member.user!.name, avatar: member.user?.avatar },
+                  ];
+              const primary = nextAssignees[0];
+              void onUpdate(task.id, {
+                assigneeId: primary?.id ?? null,
+                assignee: primary?.name,
+                assignees: nextAssignees,
+              });
+            }}
+            className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
+          >
+            <span className="flex items-center gap-2">
+              <Avatar className="h-5 w-5 !rounded-[7px]">
+                {member.user?.avatar && (
+                  <AvatarImage
+                    src={member.user.avatar}
+                    alt={member.user!.name}
+                    className="!rounded-[7px]"
+                  />
+                )}
+                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                  {member.user!.name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <span>{member.user!.name}</span>
+            </span>
+            {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+          </Button>
+        );
+      })}
+      {(task.assignee || currentAssignees.length > 0) && (
+        <>
+          <div className="h-px bg-border my-1" />
+          <Button
+            variant="ghost"
+            onClick={() => onUpdate(task.id, { assigneeId: null, assignee: undefined, assignees: [] })}
+            className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-2" />
+            <span>{clearLabel}</span>
+          </Button>
+        </>
+      )}
+    </>
   );
 }
 
@@ -623,8 +769,11 @@ export function TasksClient({
   entityScope,
 }: Readonly<TasksClientProps>) {
   const { t } = useI18n();
+  const st = useTranslations();
   const { formatShort } = useDateLocale();
   const stageLabel = useStageLabel();
+  // Task a row's "Delete" menu item asked to delete, until the user confirms.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // Entity mode: board is embedded inside a CRM panel scoped to a company/person.
   // Tasks span multiple projects; project-only features are suppressed.
   const isEntityMode = !!entityScope;
@@ -722,15 +871,10 @@ export function TasksClient({
   }, [companiesQuery.data]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   // The detail panel is rendered globally via ObjectPanelHost — opening it
-  // just pushes the task id onto the object-panel stack.
+  // just pushes the task id onto the object-panel stack. The row click opens it
+  // directly: an effect keyed on `selectedTask` would not fire again for a task
+  // that is still selected after its panel was closed (TASK-1072).
   const { open: openTaskPanel } = useObjectPanel();
-  useLayoutEffect(() => {
-    if (selectedTask) openTaskPanel({ type: 'task', id: selectedTask.id });
-    // Intentionally keyed on the id, not the whole object — re-opening the panel
-    // on every unrelated field edit (priority/status/etc. while the same task
-    // stays selected) would reset the panel's own transient UI state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTask?.id, openTaskPanel]);
 
   const [isPending, startTransition] = useTransition();
   // Read the permission context directly (not via useProjectPermissions which throws
@@ -754,7 +898,7 @@ export function TasksClient({
     title: string;
     description?: string;
     status: CrmTask['status'];
-    priority?: 'low' | 'medium' | 'high';
+    priority?: TaskPriority;
     assigneeId?: string;
     assigneeIds?: string[];
     dueDate?: Date;
@@ -935,7 +1079,7 @@ export function TasksClient({
     title: string;
     description?: string;
     status: string;
-    priority?: 'low' | 'medium' | 'high';
+    priority?: TaskPriority;
     assigneeId?: string;
     assigneeIds?: string[];
     dueDate?: Date;
@@ -961,7 +1105,9 @@ export function TasksClient({
     const resolvedStatus = pickedStage?.systemStatus ?? statusMap[data.status] ?? 'todo';
 
     const assigneeIds = data.assigneeIds || (data.assigneeId ? [data.assigneeId] : undefined);
-    const repeat = data.repeat ? { frequency: data.repeat.frequency } : undefined;
+    // The whole repeat object: "every 3 weeks" needs its interval and unit, or it
+    // is saved as a plain "custom".
+    const repeat = data.repeat;
 
     setIsCreatingTask(true);
     // Entity mode has no single project to create into — create via the global
@@ -991,6 +1137,7 @@ export function TasksClient({
           priority: data.priority,
           assigneeIds,
           dueDate: data.dueDate?.toISOString(),
+          duration: data.duration,
           labels: data.labels,
           repeat,
         });
@@ -998,7 +1145,9 @@ export function TasksClient({
 
     if (result.success && result.data) {
       const newTask = transformApiTask(result.data as RawApiTask);
-      setTasks(prev => [newTask, ...prev]);
+      // A project board is ordered by position and the server puts a new task
+      // last, so show it there; the entity panel has no shared order.
+      setTasks(prev => (isEntityMode ? [newTask, ...prev] : [...prev, newTask]));
       setShowAddDialog(false);
       toast.success(t.projects.tasks.taskCreated);
     } else {
@@ -1169,8 +1318,28 @@ export function TasksClient({
 
   const formatDateShort = useCallback((date: Date | string) => formatShort(date), [formatShort]);
 
+  // Apply a patch to a task wherever it lives: the top-level list or any
+  // parent's inline subtask list (a subtask only exists in the latter).
+  const patchTaskEverywhere = useCallback((taskId: string, patch: Partial<Task>) => {
+    setTasks(prev => prev.map(row => row.id === taskId ? { ...row, ...patch } : row));
+    setInlineSubtasks(prev => {
+      let touched = false;
+      const next: Record<string, Task[]> = {};
+      for (const [pid, subs] of Object.entries(prev)) {
+        if (subs.some((s) => s.id === taskId)) {
+          touched = true;
+          next[pid] = subs.map((s) => s.id === taskId ? { ...s, ...patch } : s);
+        } else {
+          next[pid] = subs;
+        }
+      }
+      return touched ? next : prev;
+    });
+    setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...patch } : prev);
+  }, []);
+
   const handleStageChange = useCallback(async (taskId: string, stageId: string) => {
-    const task = tasks.find(t => t.id === taskId);
+    const { task } = findTaskWithParent(tasks, inlineSubtasks, taskId);
     if (!task) return;
     const stage = projectStages.find(s => s.id === stageId);
     if (!stage) return;
@@ -1179,7 +1348,7 @@ export function TasksClient({
     const oldStageId = task.stageId ?? null;
 
     // Optimistic update
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stageId: stage.id, status: newStatus } : t));
+    patchTaskEverywhere(taskId, { stageId: stage.id, status: newStatus });
 
     const result = await persistStageChange(projectId, taskId, stage.id, oldStatus, newStatus);
 
@@ -1188,37 +1357,27 @@ export function TasksClient({
         await prependNextRecurringTask(result.data.nextTaskId);
       }
     } else {
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: oldStatus, stageId: oldStageId } : t));
+      patchTaskEverywhere(taskId, { status: oldStatus, stageId: oldStageId });
       toast.error(t.projects.tasks.failedToUpdateTask);
     }
-  }, [tasks, projectId, projectStages, prependNextRecurringTask, t.projects.tasks.failedToUpdateTask]);
+  }, [tasks, inlineSubtasks, projectId, projectStages, patchTaskEverywhere, prependNextRecurringTask, t.projects.tasks.failedToUpdateTask]);
 
   const updateTaskInline = useCallback(async (taskId: string, data: Partial<Task>) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...data } : t));
-    setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...data } : prev);
+    const { task: previous } = findTaskWithParent(tasks, inlineSubtasks, taskId);
+    patchTaskEverywhere(taskId, data);
 
-    const apiData: Record<string, unknown> = { ...data };
-    if (data.dueDate !== undefined) {
-      apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
-    }
-    if (data.assignees !== undefined) {
-      const ids = (data.assignees as { id: string }[] | null | undefined)?.map((a) => a.id) ?? [];
-      apiData.assigneeIds = ids.length > 0 ? ids : null;
-      delete apiData.assigneeId;
-      delete apiData.assignee;
-      delete apiData.assignees;
-    } else if (data.assigneeId !== undefined) {
-      apiData.assigneeIds = data.assigneeId ? [data.assigneeId] : null;
-      delete apiData.assigneeId;
-      delete apiData.assignee;
-      delete apiData.assignees;
-    }
-
-    const result = await tasksApi.update(projectId, taskId, apiData);
+    const result = await tasksApi.update(projectId, taskId, buildTaskPatchPayload(data));
     if (!result.success) {
+      // Put back exactly the fields this edit touched.
+      if (previous) {
+        const snapshot = Object.fromEntries(
+          Object.keys(data).map((key) => [key, previous[key as keyof Task]]),
+        ) as Partial<Task>;
+        patchTaskEverywhere(taskId, snapshot);
+      }
       toast.error(t.projects.tasks.failedToUpdateTask);
     }
-  }, [projectId, t.projects.tasks.failedToUpdateTask]);
+  }, [tasks, inlineSubtasks, projectId, patchTaskEverywhere, t.projects.tasks.failedToUpdateTask]);
 
   // Filter out subtasks from the main list — they'll be shown inline when parent is expanded
   const topLevelTasks = useMemo(() => tasks.filter(t => !t.parentTaskId), [tasks]);
@@ -1258,11 +1417,9 @@ export function TasksClient({
     {
       field: 'status',
       label: t.projects.tasks.filterStatus,
-      options: [
-        { value: 'todo', label: t.projects.tasks.filterTodoOpt },
-        { value: 'in_progress', label: t.projects.tasks.filterInProgressOpt },
-        { value: 'done', label: t.projects.tasks.filterDoneOpt },
-      ],
+      // Every status a task can hold, not just three: a project's custom stages
+      // map onto these through their `systemStatus`.
+      options: Object.entries(statusConfig).map(([value, config]) => ({ value, label: config.label })),
     },
     {
       field: 'priority',
@@ -1271,6 +1428,7 @@ export function TasksClient({
         { value: 'low', label: t.projects.tasks.priorityLow },
         { value: 'medium', label: t.projects.tasks.priorityMedium },
         { value: 'high', label: t.projects.tasks.priorityHigh },
+        { value: 'urgent', label: t.projects.tasks.priorityUrgent },
       ],
     },
     {
@@ -1297,7 +1455,7 @@ export function TasksClient({
         { value: 'no-date', label: t.projects.tasks.groupNoDate },
       ],
     },
-  ], [availableLabels, projectMembers, t]);
+  ], [availableLabels, projectMembers, statusConfig, t]);
 
   // Resolve a task to its pipeline stage. Prefer `stageId`; fall back to matching
   // the task's `status` against each stage's `systemStatus` (for legacy tasks that
@@ -1312,11 +1470,12 @@ export function TasksClient({
 
   // Group configs vary by the active "Group by" choice. Returning [] tells
   // EntityList to render a single ungrouped section.
-  const groupConfigs: GroupConfig<Task>[] = useMemo(() => {
+  const baseGroupConfigs: GroupConfig<Task>[] = useMemo(() => {
     if (groupBy === 'none') return [];
 
     if (groupBy === 'priority') {
       return [
+        { id: 'critical', label: t.projects.tasks.priorityCritical, sortOrder: 0, filter: (t) => (t.priority as string) === 'critical' },
         { id: 'urgent', label: t.projects.tasks.priorityUrgent, sortOrder: 1, filter: (t) => t.priority === 'urgent' },
         { id: 'high', label: t.projects.tasks.priorityHigh, sortOrder: 2, filter: (t) => t.priority === 'high' },
         { id: 'medium', label: t.projects.tasks.priorityMedium, sortOrder: 3, filter: (t) => t.priority === 'medium' },
@@ -1342,7 +1501,7 @@ export function TasksClient({
 
     if (groupBy === 'assignee') {
       const memberGroups: GroupConfig<Task>[] = projectMembers.map((m, i) => {
-        const name = m.user?.name || 'Unknown';
+        const name = m.user?.name || t.common.labels.unknown;
         const initials = name
           .split(' ')
           .map(part => part[0])
@@ -1372,13 +1531,14 @@ export function TasksClient({
       return memberGroups;
     }
 
-    // Default: status (one group per project stage, falling back to todo/in_progress/done).
+    // Default: status (one group per project stage, falling back to one per status).
     if (projectStages.length === 0) {
-      return [
-        { id: 'todo', label: t.projects.tasks.groupTodo, sortOrder: 1, filter: (t) => t.status === 'todo' },
-        { id: 'in_progress', label: t.projects.tasks.groupInProgress, sortOrder: 2, filter: (t) => t.status === 'in_progress' },
-        { id: 'done', label: t.projects.tasks.groupDone, sortOrder: 3, filter: (t) => t.status === 'done' },
-      ];
+      return Object.entries(statusConfig).map(([status, config], i) => ({
+        id: status,
+        label: config.label,
+        sortOrder: i + 1,
+        filter: (t: Task) => t.status === status,
+      }));
     }
     return projectStages.map((stage, i) => ({
       id: stage.id,
@@ -1389,7 +1549,15 @@ export function TasksClient({
         return s?.id === stage.id;
       },
     }));
-  }, [groupBy, projectStages, getTaskStage, projectMembers, t, stageLabel]);
+  }, [groupBy, projectStages, getTaskStage, projectMembers, statusConfig, t, stageLabel]);
+
+  // A task that matches no group would silently vanish from the list (a status
+  // no stage maps to, a priority nobody listed, a former member's tasks), so the
+  // leftovers get a catch-all group.
+  const groupConfigs: GroupConfig<Task>[] = useMemo(
+    () => withOtherGroup(baseGroupConfigs, t.projects.tasks.groupOther),
+    [baseGroupConfigs, t.projects.tasks.groupOther],
+  );
 
   const groupByOptions = [
     { value: 'status' as const, label: t.projects.tasks.groupByStatus },
@@ -1538,11 +1706,11 @@ export function TasksClient({
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'checkbox', header: t.projects.tasks.headerTask, width: 'w-4 flex-shrink-0' },
-    { id: 'task', header: '', width: cn('min-w-[200px] flex-1', isEntityMode && ENTITY_NARROW_TITLE) },
-    { id: 'status', header: t.projects.tasks.headerStatus, width: cn('w-[120px]', isEntityMode && ENTITY_HIDE_WHEN_COMPACT), sortable: true },
-    { id: 'priority', header: t.projects.tasks.headerPriority, width: cn('w-[100px]', isEntityMode && ENTITY_NARROW_PRIORITY), sortable: true },
-    { id: 'dueDate', header: t.projects.tasks.headerDue, width: cn('w-[100px]', isEntityMode && ENTITY_NARROW_DUE), sortable: true },
-    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', isEntityMode && ENTITY_HIDE_WHEN_NARROW), sortable: true },
+    { id: 'task', header: '', width: cn('min-w-[200px] flex-1', entityOnly(isEntityMode, ENTITY_NARROW_TITLE)) },
+    { id: 'status', header: t.projects.tasks.headerStatus, width: cn('w-[120px]', entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT)), sortable: true },
+    { id: 'priority', header: t.projects.tasks.headerPriority, width: cn('w-[100px]', entityOnly(isEntityMode, ENTITY_NARROW_PRIORITY)), sortable: true },
+    { id: 'dueDate', header: t.projects.tasks.headerDue, width: cn('w-[100px]', entityOnly(isEntityMode, ENTITY_NARROW_DUE)), sortable: true },
+    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', entityOnly(isEntityMode, ENTITY_HIDE_WHEN_NARROW)), sortable: true },
   ], [t, isEntityMode]);
 
   // Render a single task row (reused for top-level and subtask rows). `depth`
@@ -1566,7 +1734,7 @@ export function TasksClient({
           // Phones: let the metadata columns wrap under the title instead of
           // running past the viewport edge (the list container clips overflow).
           "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1.5",
-          isEntityMode && ENTITY_NARROW_GAP,
+          entityOnly(isEntityMode, ENTITY_NARROW_GAP),
           !isSubtask && "border-b border-gray-200/70 dark:border-border",
           isVisuallyDone && !isCompleting && "opacity-50",
           isCompleting && "task-completing-inner"
@@ -1579,9 +1747,6 @@ export function TasksClient({
           aria-label={task.title}
           onClick={() => {
             setSelectedTask(task);
-            // Open directly as well: the selection effect is keyed on the id, so
-            // it would not fire again for a task that is still "selected" after
-            // its panel was closed.
             openTaskPanel({ type: 'task', id: task.id });
           }}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -1597,7 +1762,7 @@ export function TasksClient({
         </div>
 
         {/* Task Title */}
-        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", isEntityMode && ENTITY_NARROW_TITLE)}>
+        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", entityOnly(isEntityMode, ENTITY_NARROW_TITLE))}>
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="h-[18px] flex-shrink-0 py-0" />
           )}
@@ -1624,47 +1789,21 @@ export function TasksClient({
                 .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
             />
           )}
-          {task.tags && task.tags.length > 0 && (
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {task.tags.slice(0, 2).map((tag) => (
-                <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>
-              ))}
-              {task.tags.length > 2 && (
-                <span className="text-[10px] text-gray-500">+{task.tags.length - 2}</span>
-              )}
-            </div>
-          )}
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
               <Repeat className="h-2.5 w-2.5" />
               {repeatBadgeLabel(task.repeat)}
             </span>
           )}
-          {((task.dependsOn?.length ?? 0) > 0 || (task.blocks?.length ?? 0) > 0) && (
-            <div className="flex items-center flex-shrink-0 text-gray-400 dark:text-muted-foreground">
-              <Link className="h-3 w-3" />
-            </div>
-          )}
         </div>
 
         {/* Attachments & Subtask count */}
-        <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
-          {(task.attachmentCount ?? 0) > 0 && (
-            <span className="-translate-y-[1.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
-              <Paperclip className="h-3 w-3 shrink-0" />
-              {task.attachmentCount}
-            </span>
-          )}
-          {(task.subtaskCount ?? 0) > 0 && (
-            <span className="-translate-y-[0.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
-              <ListTodo className="h-3 w-3 shrink-0" />
-              {task.completedSubtaskCount}/{task.subtaskCount}
-            </span>
-          )}
+        <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT))}>
+          <TaskCountBadges task={task} />
         </div>
 
         {/* Status */}
-        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1672,40 +1811,19 @@ export function TasksClient({
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
-              {projectStages.length > 0 ? (
-                projectStages.map(s => (
-                  <Button
-                    key={s.id}
-                    variant="ghost"
-                    onClick={() => handleStageChange(task.id, s.id)}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-                      <span>{stageLabel(s.name, s.systemStatus)}</span>
-                    </span>
-                    {(stage?.id ?? null) === s.id && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                ))
-              ) : (
-                Object.entries(statusConfig).map(([key, config]) => (
-                  <Button
-                    key={key}
-                    variant="ghost"
-                    onClick={() => handleStageChange(task.id, key)}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
-                  >
-                    <span>{config.label}</span>
-                    {task.status === key && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                ))
-              )}
+              <TaskStatusOptions
+                task={task}
+                currentStageId={stage?.id ?? null}
+                projectStages={projectStages}
+                statusConfig={statusConfig}
+                onSelect={handleStageChange}
+              />
             </PopoverContent>
           </Popover>
         </div>
 
         {/* Priority */}
-        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", isEntityMode && ENTITY_NARROW_PRIORITY)}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_NARROW_PRIORITY))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1729,7 +1847,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", isEntityMode && ENTITY_NARROW_DUE)}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_NARROW_DUE))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1764,7 +1882,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", isEntityMode && ENTITY_HIDE_WHEN_NARROW)}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_NARROW))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1779,67 +1897,18 @@ export function TasksClient({
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
-              {projectMembers.filter(m => m.user?.name).map((member) => {
-                const currentAssignees = task.assignees ?? [];
-                const isSelected = currentAssignees.some((a) => a.id === member.userId);
-                return (
-                  <Button
-                    key={member.userId}
-                    variant="ghost"
-                    onClick={() => {
-                      const nextAssignees = isSelected
-                        ? currentAssignees.filter((a) => a.id !== member.userId)
-                        : [
-                            ...currentAssignees,
-                            { id: member.userId, name: member.user!.name, avatar: member.user?.avatar },
-                          ];
-                      const primary = nextAssignees[0];
-                      void updateTaskInline(task.id, {
-                        assigneeId: primary?.id ?? null,
-                        assignee: primary?.name,
-                        assignees: nextAssignees,
-                      });
-                    }}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5 !rounded-[7px]">
-                        {member.user?.avatar && (
-                          <AvatarImage
-                            src={member.user.avatar}
-                            alt={member.user!.name}
-                            className="!rounded-[7px]"
-                          />
-                        )}
-                        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                          {member.user!.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span>{member.user!.name}</span>
-                    </span>
-                    {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                );
-              })}
-              {(task.assignee || (task.assignees && task.assignees.length > 0)) && (
-                <>
-                  <div className="h-px bg-border my-1" />
-                  <Button
-                    variant="ghost"
-                    onClick={() => updateTaskInline(task.id, { assigneeId: null, assignee: undefined, assignees: [] })}
-                    className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-2" />
-                    <span>{t.projects.tasks.clearAssignee}</span>
-                  </Button>
-                </>
-              )}
+              <TaskAssigneeOptions
+                task={task}
+                projectMembers={projectMembers}
+                clearLabel={t.projects.tasks.clearAssignee}
+                onUpdate={updateTaskInline}
+              />
             </PopoverContent>
           </Popover>
         </div>
 
         {/* Actions - only show for users with write permission */}
-        <div className={cn("relative z-[1] w-[40px] flex justify-end", isEntityMode && ENTITY_NARROW_ACTIONS)}>
+        <div className={cn("relative z-[1] w-[40px] flex justify-end", entityOnly(isEntityMode, ENTITY_NARROW_ACTIONS))}>
           {canWrite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1864,15 +1933,23 @@ export function TasksClient({
                     // In entity mode use the task's own projectId (tasks span multiple projects).
                     const dupProjectId = (isEntityMode ? task.projectId : null) ?? projectId;
                     const result = await tasksApi.create(dupProjectId, {
-                      title: `${task.title} (copy)`,
+                      title: `${task.title} ${t.projects.tasks.copySuffix}`,
                       description: task.description,
                       status: task.status,
+                      stageId: task.stageId ?? undefined,
                       priority: task.priority,
+                      dueDate: task.dueDate?.toISOString(),
+                      duration: task.duration,
+                      assigneeIds: getTaskAssigneeIds(task),
+                      labels: task.labels,
+                      repeat: task.repeat ?? undefined,
                     });
                     if (result.success && result.data) {
                       const duplicatedTask = transformApiTask(result.data as RawApiTask);
-                      setTasks(prev => [duplicatedTask, ...prev]);
+                      setTasks(prev => (isEntityMode ? [duplicatedTask, ...prev] : [...prev, duplicatedTask]));
                       toast.success(t.projects.tasks.taskDuplicated);
+                    } else {
+                      toast.error(result.error || t.projects.tasks.failedToDuplicateTask);
                     }
                   });
                 }}>
@@ -1886,7 +1963,7 @@ export function TasksClient({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950" onClick={() => deleteTask(task.id)}>
+                <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950" onClick={() => setPendingDeleteId(task.id)}>
                   <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
                   {t.projects.tasks.deleteTaskItem}
                 </DropdownMenuItem>
@@ -1896,7 +1973,7 @@ export function TasksClient({
         </div>
       </div>
     );
-  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel, stageLabel]);
+  }, [isPending, canWrite, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel, stageLabel]);
 
   // Subtask container — keeps the rows mounted and toggles visibility via
   // `hidden`. Unmounting/remounting dozens of nested rows on every click is
@@ -1942,7 +2019,7 @@ export function TasksClient({
                   this row's height by the `relative` wrapper. */}
               <div className="relative border-b border-gray-200/70 dark:border-border">
                 <div style={{ position: 'absolute', left: guideLeft, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
-                <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% - 6px)', width: 10, height: 8, borderLeft: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', borderRadius: '0 0 0 6px', zIndex: 1 }} />
+                <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% - 6px)', width: 15, height: 8, borderLeft: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', borderRadius: '0 0 0 6px', zIndex: 1 }} />
                 {!isLast && (
                   <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% + 2px)', bottom: 0, width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
                 )}
@@ -2112,33 +2189,71 @@ export function TasksClient({
         onSave={handleTaskDialogSave}
         projectId={projectId}
         onUpdate={(taskId, data) => {
-          const projectData: Record<string, unknown> = {};
-          if (data.title) projectData.title = data.title;
-          if (data.description !== undefined) projectData.description = data.description;
+          const projectData: TaskUpdatePayload = {};
+          // The same edit in the shape the list rows hold (a Date, not the ISO
+          // string the API takes), so a saved date keeps grouping and filtering.
+          const localPatch: Partial<Task> = {};
+          if (data.title) {
+            projectData.title = data.title;
+            localPatch.title = data.title;
+          }
+          if (data.description !== undefined) {
+            projectData.description = data.description || null;
+            localPatch.description = data.description || undefined;
+          }
           if (data.status) {
             const picked = projectStages.find(s => s.id === data.status);
             if (picked) {
               projectData.stageId = picked.id;
               projectData.status = picked.systemStatus;
+              localPatch.stageId = picked.id;
+              localPatch.status = picked.systemStatus as Task['status'];
             } else {
-              projectData.status = statusFromCrm[data.status] || data.status;
+              const status = statusFromCrm[data.status] || data.status;
+              projectData.status = status;
+              localPatch.status = status as Task['status'];
             }
           }
-          if (data.priority) projectData.priority = data.priority;
-          if (data.dueDate !== undefined) projectData.dueDate = data.dueDate?.toISOString();
+          if (data.priority) {
+            projectData.priority = data.priority;
+            localPatch.priority = data.priority;
+          }
+          if (data.dueDate !== undefined) {
+            projectData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
+            localPatch.dueDate = data.dueDate ?? undefined;
+          }
           // Only a changed duration is sent: the dialog echoes the current value
           // back on every save, and a write re-plans the task's calendar block.
           if (data.duration !== undefined && data.duration !== editingCrmTask?.duration) {
             projectData.duration = data.duration;
+            localPatch.duration = data.duration;
           }
-          if (data.labels !== undefined) projectData.labels = data.labels;
-          if (data.repeat !== undefined) projectData.repeat = data.repeat;
+          if (data.labels !== undefined) {
+            projectData.labels = data.labels;
+            localPatch.labels = data.labels;
+          }
+          if (data.repeat !== undefined) {
+            projectData.repeat = data.repeat;
+            localPatch.repeat = data.repeat;
+          }
+          if (data.assigneeIds !== undefined) {
+            projectData.assigneeIds = data.assigneeIds;
+            const resolved = data.assigneeIds.flatMap((id) => {
+              const member = projectMembers.find((m) => m.userId === id);
+              return member?.user
+                ? [{ id, name: member.user.name, avatar: member.user.avatar }]
+                : [];
+            });
+            localPatch.assigneeIds = data.assigneeIds;
+            localPatch.assigneeId = data.assigneeIds[0] ?? null;
+            localPatch.assignees = resolved;
+            localPatch.assignee = resolved[0]?.name;
+          }
 
           startTransition(async () => {
             const result = await tasksApi.update(projectId, taskId, projectData);
             if (result.success) {
-              setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...projectData } : t));
-              setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...projectData } : prev);
+              patchTaskEverywhere(taskId, localPatch);
               setShowAddDialog(false);
               setEditingCrmTask(null);
               toast.success(t.projects.tasks.taskUpdated);
@@ -2181,6 +2296,20 @@ export function TasksClient({
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
+        title={st('sweep.entities.deleteTask')}
+        description={st('sweep.entities.deleteTaskConfirmDescription')}
+        confirmLabel={st('sweep.entities.deleteTask')}
+        cancelLabel={st('common.actions.cancel')}
+        variant="destructive"
+        onConfirm={() => {
+          if (pendingDeleteId) deleteTask(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+      />
 
       {/* Task detail panel is now rendered globally via ObjectPanelHost. */}
     </>

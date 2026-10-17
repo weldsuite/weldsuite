@@ -76,6 +76,44 @@ export const updateChartLayoutsSchema = z.object({
   ),
 });
 
+/**
+ * Entities a WeldFlow chart may query (singular + plural spellings). Anything
+ * else (helpdesk tickets, CRM leads, ...) belongs to another module's analytics
+ * and is rejected, so a project report cannot read another module's data.
+ */
+export const weldflowChartEntitySchema = z.enum([
+  'project',
+  'projects',
+  'task',
+  'tasks',
+  'time_entry',
+  'time_entries',
+  'milestone',
+  'milestones',
+]);
+
+/** One chart's query inside `POST /reports/:reportId/charts-data`. */
+export const chartDataQuerySchema = z.object({
+  chartId: z.string().min(1).max(64),
+  entity: weldflowChartEntitySchema,
+  metric: z.string().regex(/^[a-z_]+$/).max(64),
+  timeRange: z.string().max(32).default('last_30_days'),
+  groupBy: z.string().max(32).default('day'),
+  aggregation: z.string().max(16).default('sum'),
+  sortOrder: z.string().max(8).default('asc'),
+  /** Integer row cap; it ends up in the SQL, so it is bounded here. */
+  limit: z.number().int().min(1).max(1000).nullish(),
+  /** Narrow the chart to one project; the caller must be able to access it. */
+  projectId: z.string().min(1).max(64).nullish(),
+});
+
+export const chartsDataRequestSchema = z.object({
+  charts: z.array(chartDataQuerySchema).max(50),
+});
+
+export type ChartDataQuery = z.infer<typeof chartDataQuerySchema>;
+export type ChartsDataRequest = z.infer<typeof chartsDataRequestSchema>;
+
 export type CreateChartInput = z.infer<typeof createChartSchema>;
 export type UpdateChartInput = z.infer<typeof updateChartSchema>;
 export type UpdateChartLayoutsInput = z.infer<typeof updateChartLayoutsSchema>;

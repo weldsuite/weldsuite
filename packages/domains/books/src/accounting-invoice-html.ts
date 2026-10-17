@@ -14,6 +14,12 @@ import { getAdapter } from './jurisdictions/registry';
 import type { InvoiceLabels } from './jurisdictions/types';
 import { formatExemptSaleNotice } from './jurisdictions/us/invoice-format';
 import { gstStateName } from './jurisdictions/in/states';
+import { pixQrMatrix, pixQrSvg } from './jurisdictions/br/pix';
+import type { InvoiceDocumentData, TotalsRowData } from './invoice-template/data';
+import { layoutInvoice } from './invoice-template/layout';
+import { renderMobileInvoice } from './invoice-template/mobile';
+import type { InvoiceTemplateDocument } from './invoice-template/schema';
+import { renderInvoiceHtmlDocument } from './invoice-template/svg';
 
 interface InvoiceLineItem {
   description: string;
@@ -45,6 +51,8 @@ interface TaxBreakdownItem {
   exemptAmount?: number;
   exemptReason?: string;
   certificateId?: string;
+  /** Brazil: added | embedded | withheld | informational. */
+  treatment?: string;
 }
 
 export interface InvoiceRenderData {
@@ -83,6 +91,10 @@ export interface InvoiceRenderData {
   certificateNumbers?: Record<string, string | null | undefined>;
   /** A draft prints a "not a valid invoice" banner and a watermark: it isn't booked and can still change. */
   draft?: boolean;
+  /** Brazil: Pix BR Code for the amount due (see jurisdictions/br/pix). */
+  pix?: { key: string; payload: string } | null;
+  /** Brazil: the authorised fiscal document of the invoice. */
+  fiscalDocument?: { label: string; number?: string | null; accessKey?: string | null } | null;
 }
 
 function makeCurrencyFmt(locale: string, currency: string) {
@@ -187,14 +199,17 @@ function buildTaxRows(
 
 const LEVEL_ORDER: Record<string, number> = { state: 0, county: 1, city: 2, district: 3 };
 
-/** US sales tax rows: one per jurisdiction with the rate and the taxable amount, state first. */
-function buildUsTaxRows(
-  taxBreakdown: TaxBreakdownItem[],
-  labels: InvoiceLabels,
-  fmtCurrency: CurrencyFmt,
-  fmtNumber: NumberFmt,
-): string {
-  const groups = new Map<string, { name: string; level: string; rate: number; taxable: number; tax: number }>();
+interface UsTaxGroup {
+  name: string;
+  level: string;
+  rate: number;
+  taxable: number;
+  tax: number;
+}
+
+/** US sales tax groups: one per jurisdiction and rate, state first. */
+function usTaxGroups(taxBreakdown: TaxBreakdownItem[]): UsTaxGroup[] {
+  const groups = new Map<string, UsTaxGroup>();
   for (const row of taxBreakdown) {
     if (row.taxAmount === 0 && row.taxableAmount === 0) continue;
     const name = row.jurisdictionName ?? row.taxRateName ?? '';
@@ -213,8 +228,17 @@ function buildUsTaxRows(
       });
     }
   }
-  return [...groups.values()]
-    .sort((a, b) => (LEVEL_ORDER[a.level] ?? 9) - (LEVEL_ORDER[b.level] ?? 9) || a.name.localeCompare(b.name))
+  return [...groups.values()].sort((a, b) => (LEVEL_ORDER[a.level] ?? 9) - (LEVEL_ORDER[b.level] ?? 9) || a.name.localeCompare(b.name));
+}
+
+/** US sales tax rows: one per jurisdiction with the rate and the taxable amount, state first. */
+function buildUsTaxRows(
+  taxBreakdown: TaxBreakdownItem[],
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+  fmtNumber: NumberFmt,
+): string {
+  return usTaxGroups(taxBreakdown)
     .map(
       (g) => `
     <tr>
@@ -231,11 +255,11 @@ function buildUsTaxRows(
  * by several agencies repeats its exempt part on each agency's row, so each
  * line counts once.
  */
-function buildUsExemptNotices(
+function usExemptNotices(
   taxBreakdown: TaxBreakdownItem[],
   certificateNumbers: InvoiceRenderData['certificateNumbers'],
   fmtCurrency: CurrencyFmt,
-): string {
+): string[] {
   const seenLines = new Set<string>();
   const notices = new Map<string, { reason: string; certificateId?: string; amount: number }>();
   for (const row of taxBreakdown) {
@@ -249,13 +273,20 @@ function buildUsExemptNotices(
     if (notice) notice.amount += row.exemptAmount ?? 0;
     else notices.set(key, { reason: row.exemptReason, certificateId: row.certificateId, amount: row.exemptAmount ?? 0 });
   }
-  if (notices.size === 0) return '';
-  const lines = [...notices.values()]
-    .map((n) => {
-      const number = n.certificateId ? certificateNumbers?.[n.certificateId] : null;
-      return `<div>${escapeHtml(formatExemptSaleNotice(n.reason, number))} (${fmtCurrency(n.amount)} not taxed)</div>`;
-    })
-    .join('');
+  return [...notices.values()].map((n) => {
+    const number = n.certificateId ? certificateNumbers?.[n.certificateId] : null;
+    return `${formatExemptSaleNotice(n.reason, number)} (${fmtCurrency(n.amount)} not taxed)`;
+  });
+}
+
+function buildUsExemptNotices(
+  taxBreakdown: TaxBreakdownItem[],
+  certificateNumbers: InvoiceRenderData['certificateNumbers'],
+  fmtCurrency: CurrencyFmt,
+): string {
+  const notices = usExemptNotices(taxBreakdown, certificateNumbers, fmtCurrency);
+  if (notices.length === 0) return '';
+  const lines = notices.map((n) => `<div>${escapeHtml(n)}</div>`).join('');
   return `
       <div style="margin-top:12px;font-size:12px;color:#666;">${lines}</div>`;
 }
@@ -371,15 +402,17 @@ function buildGstItemsTable(
   </table>`;
 }
 
-/** Tax totals of an Indian invoice: one row per component and rate (CGST 9%, SGST 9%, IGST 18%), taxable value included. */
-function buildGstTaxRows(
-  taxBreakdown: TaxBreakdownItem[],
-  labels: InvoiceLabels,
-  fmtCurrency: CurrencyFmt,
-  fmtNumber: NumberFmt,
-): string {
+interface GstTaxGroup {
+  component?: string;
+  rate: number;
+  taxable: number;
+  tax: number;
+}
+
+/** India GST groups: one per component and rate, in CGST / SGST / UTGST / IGST order. */
+function gstTaxGroups(taxBreakdown: TaxBreakdownItem[]): GstTaxGroup[] {
   const order = ['cgst', 'sgst', 'utgst', 'igst'];
-  const groups = new Map<string, { component?: string; rate: number; taxable: number; tax: number }>();
+  const groups = new Map<string, GstTaxGroup>();
   for (const row of taxBreakdown) {
     if (row.component === 'export') continue;
     const key = `${row.component ?? ''}|${row.taxRate}`;
@@ -391,8 +424,17 @@ function buildGstTaxRows(
       groups.set(key, { component: row.component, rate: row.taxRate, taxable: row.taxableAmount, tax: row.taxAmount });
     }
   }
-  return [...groups.values()]
-    .sort((a, b) => order.indexOf(a.component ?? '') - order.indexOf(b.component ?? '') || a.rate - b.rate)
+  return [...groups.values()].sort((a, b) => order.indexOf(a.component ?? '') - order.indexOf(b.component ?? '') || a.rate - b.rate);
+}
+
+/** Tax totals of an Indian invoice: one row per component and rate (CGST 9%, SGST 9%, IGST 18%), taxable value included. */
+function buildGstTaxRows(
+  taxBreakdown: TaxBreakdownItem[],
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+  fmtNumber: NumberFmt,
+): string {
+  return gstTaxGroups(taxBreakdown)
     .map((g) => {
       const label = g.component ? (GST_COMPONENT_LABEL[g.component] ?? labels.tax) : labels.tax;
       return `
@@ -502,6 +544,63 @@ function buildPaidRows(
         </tr>`;
 }
 
+/** A titled group of Brazilian tax rows (name, base, amount); `sign` -1 prints them as deductions. */
+function brTaxGroup(title: string, rows: TaxBreakdownItem[], fmtCurrency: CurrencyFmt, sign: 1 | -1 = 1): string {
+  if (rows.length === 0) return '';
+  const lines = rows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding:2px 0 2px 8px;color:#666;font-size:13px;">${escapeHtml(row.taxRateName ?? '')} <span style="color:#999;">(${fmtCurrency(row.taxableAmount)})</span></td>
+          <td style="padding:2px 0;text-align:right;font-size:13px;">${sign < 0 ? '-' : ''}${fmtCurrency(row.taxAmount)}</td>
+        </tr>`,
+    )
+    .join('');
+  return `
+        <tr><td colspan="2" style="padding:8px 0 2px;font-size:11px;text-transform:uppercase;color:#999;">${escapeHtml(title)}</td></tr>${lines}`;
+}
+
+/**
+ * Brazil: taxes on top of the price (IPI) add to the total; taxes inside the
+ * price (ISS, ICMS, PIS, COFINS) are shown for information; withholdings come
+ * off what the customer pays; the 2026 CBS/IBS test amounts are informational.
+ */
+function buildBrTaxRows(taxBreakdown: TaxBreakdownItem[], labels: InvoiceLabels, fmtCurrency: CurrencyFmt): string {
+  const of = (treatment: string) => taxBreakdown.filter((row) => (row.treatment ?? 'added') === treatment && row.taxAmount !== 0);
+  return [
+    brTaxGroup(labels.tax, of('added'), fmtCurrency),
+    brTaxGroup(labels.withholdings ?? 'Retenções', of('withheld'), fmtCurrency, -1),
+    brTaxGroup(labels.includedTaxes ?? 'Tributos incluídos no preço', of('embedded'), fmtCurrency),
+    brTaxGroup(labels.informationalTaxes ?? 'CBS/IBS', of('informational'), fmtCurrency),
+  ].join('');
+}
+
+/** Brazil: the Pix QR code (BR Code) for the amount due and its "copia e cola" text. */
+function buildPixBlock(pix: InvoiceRenderData['pix'], labels: InvoiceLabels): string {
+  if (!pix) return '';
+  return `
+  <div style="margin-top:24px;display:flex;gap:20px;align-items:center;padding:16px;border:1px solid #e5e7eb;border-radius:6px;">
+    <div style="flex:none;">${pixQrSvg(pix.payload, 140)}</div>
+    <div style="font-size:12px;color:#555;min-width:0;">
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px;">${escapeHtml(labels.pixPayment ?? 'Pix')}</div>
+      <div>${escapeHtml(pix.key)}</div>
+      <div style="margin-top:6px;font-family:monospace;font-size:10px;word-break:break-all;color:#777;">${escapeHtml(pix.payload)}</div>
+    </div>
+  </div>`;
+}
+
+/** Brazil: the authorised NF-e / NFS-e this invoice belongs to. */
+function buildFiscalDocumentBlock(doc: InvoiceRenderData['fiscalDocument'], labels: InvoiceLabels): string {
+  if (!doc) return '';
+  const key = doc.accessKey ? `<div>${escapeHtml(labels.accessKey ?? 'Chave')}: <span style="font-family:monospace;">${escapeHtml(doc.accessKey.replace(/(\d{4})(?=\d)/g, '$1 '))}</span></div>` : '';
+  return `
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;color:#999;">${escapeHtml(labels.fiscalDocument ?? 'NF')}</div>
+      <div style="font-weight:500;">${escapeHtml(doc.label)}${doc.number ? ` nº ${escapeHtml(doc.number)}` : ''}</div>
+      <div style="font-size:11px;color:#777;">${key}</div>
+    </div>`;
+}
+
 function buildComplianceBlock(notices: string[]): string {
   if (notices.length === 0) return '';
   const rows = notices
@@ -595,10 +694,19 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const taxBreakdown = invoice.taxBreakdown || [];
   const usSalesTax = adapter.features.salesTax && taxBreakdown.some((row) => row.jurisdictionName);
   const gstInvoice = entity.jurisdictionCode === 'IN';
+  const brInvoice = entity.jurisdictionCode === 'BR';
   let buildRows = buildTaxRows;
   if (usSalesTax) buildRows = buildUsTaxRows;
   else if (gstInvoice) buildRows = buildGstTaxRows;
+  else if (brInvoice) buildRows = (rows, l, currencyFmt) => buildBrTaxRows(rows, l, currencyFmt);
   const taxRows = buildRows(taxBreakdown, labels, fmtCurrency, fmtNumber);
+  // Brazil prints its groups of taxes instead of one tax total (it can be negative: withholdings).
+  const taxTotalRow = brInvoice
+    ? ''
+    : `<tr>
+          <td style="padding:6px 0;color:#666;">${labels.taxTotal}</td>
+          <td style="padding:6px 0;text-align:right;">${fmtCurrency(invoice.taxTotal)}</td>
+        </tr>`;
   const exemptNotices = usSalesTax
     ? buildUsExemptNotices(taxBreakdown, invoice.certificateNumbers, fmtCurrency)
     : '';
@@ -671,6 +779,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
     </div>
     ${buildReferenceBlock(invoice.reference)}
     ${gstInvoice ? buildGstPlaceOfSupplyBlock(invoice.placeOfSupply, labels) : ''}
+    ${buildFiscalDocumentBlock(invoice.fiscalDocument, labels)}
   </div>
 
   ${
@@ -701,10 +810,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
         </tr>
         ${buildDiscountRow(invoice.discountTotal, labels, fmtCurrency)}
         ${taxRows}
-        <tr>
-          <td style="padding:6px 0;color:#666;">${labels.taxTotal}</td>
-          <td style="padding:6px 0;text-align:right;">${fmtCurrency(invoice.taxTotal)}</td>
-        </tr>
+        ${taxTotalRow}
         <tr style="border-top:2px solid ${primaryColor};">
           <td style="padding:12px 0;font-size:18px;font-weight:bold;">${labels.total}</td>
           <td style="padding:12px 0;text-align:right;font-size:18px;font-weight:bold;">${fmtCurrency(invoice.total)}</td>
@@ -724,6 +830,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
       <div>Ref: ${escapeHtml(invoice.invoiceNumber)}</div>
     </div>
     ${buildPaymentInstructionsNote(branding.paymentInstructions)}
+    ${buildPixBlock(invoice.pix, labels)}
   </div>
 
   ${buildNotesBlock(invoice.notes)}
@@ -736,4 +843,308 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
 </div>
 </body>
 </html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Designed invoices (invoice templates)
+// ---------------------------------------------------------------------------
+
+/** What every part of a designed invoice needs: formatters, labels and the jurisdiction's rules. */
+interface TemplateRenderCtx {
+  invoice: InvoiceRenderData;
+  entity: Entity;
+  requirements: ReturnType<ReturnType<typeof getAdapter>['getInvoiceRequirements']>;
+  labels: InvoiceLabels;
+  currency: string;
+  money: CurrencyFmt;
+  num: NumberFmt;
+  date: (dateStr: string) => string;
+  taxBreakdown: TaxBreakdownItem[];
+  usSalesTax: boolean;
+  gst: boolean;
+  br: boolean;
+  amountPaid: number;
+  balanceDue: number;
+}
+
+function templateRenderCtx(invoice: InvoiceRenderData, entity: Entity): TemplateRenderCtx {
+  const locale = entity.locale || 'en-US';
+  const currency = invoice.currency || entity.baseCurrency || 'EUR';
+  const adapter = getAdapter(entity.jurisdictionCode);
+  const requirements = adapter.getInvoiceRequirements(locale);
+  const taxBreakdown = invoice.taxBreakdown ?? [];
+  return {
+    invoice,
+    entity,
+    requirements,
+    labels: requirements.labels,
+    currency,
+    money: makeCurrencyFmt(locale, currency),
+    num: makeNumberFmt(locale),
+    date: makeDateFmt(locale),
+    taxBreakdown,
+    usSalesTax: adapter.features.salesTax && taxBreakdown.some((row) => row.jurisdictionName),
+    gst: entity.jurisdictionCode === 'IN',
+    br: entity.jurisdictionCode === 'BR',
+    amountPaid: Number.parseFloat(invoice.amountPaid || '0'),
+    balanceDue: Number.parseFloat(invoice.balanceDue || invoice.total),
+  };
+}
+
+const hasDiscount = (item: InvoiceLineItem) => Number.parseFloat(item.discountPercent ?? '0') > 0;
+
+/** Line items. An Indian tax invoice names each line's HSN/SAC and its tax split. */
+function templateTable(c: TemplateRenderCtx): InvoiceDocumentData['table'] {
+  const { invoice, labels, money, num, gst } = c;
+  const { supply, stateTax } = gstSupplyOf(c.taxBreakdown);
+  const igst = gst && supply === 'inter';
+  const columns: InvoiceDocumentData['table']['columns'] = {
+    index: { label: '#', align: 'right' },
+    description: { label: labels.description },
+    quantity: { label: labels.quantity, align: 'right' },
+    unitPrice: { label: labels.unitPrice, align: 'right' },
+    taxRate: { label: igst ? 'IGST %' : `${labels.tax} %`, align: 'right', required: gst },
+    taxAmount: { label: igst ? 'IGST' : labels.tax, align: 'right', required: gst },
+    amount: { label: labels.amount, align: 'right' },
+    amountWithTax: { label: labels.total, align: 'right' },
+  };
+  if (invoice.items.some((item) => item.unit)) columns.unit = { label: 'Unit' };
+  if (invoice.items.some(hasDiscount)) columns.discount = { label: labels.discount, align: 'right' };
+  if (gst) columns.hsnSac = { label: labels.hsnSac ?? 'HSN/SAC', required: true };
+
+  const split = gst && supply === 'intra';
+  const rows = invoice.items.map((item, i) => ({
+    cells: {
+      index: String(i + 1),
+      description: item.description,
+      hsnSac: item.hsnSac ?? '',
+      quantity: num(item.quantity),
+      unit: item.unit ?? '',
+      unitPrice: money(item.unitPrice),
+      discount: hasDiscount(item) ? `${num(item.discountPercent ?? '0')}%` : '',
+      ...lineTaxCells(item, split ? GST_COMPONENT_LABEL[stateTax] : null, c),
+      amount: money(item.lineTotal),
+      amountWithTax: money(item.lineTotalWithTax ?? item.lineTotal),
+    },
+  }));
+  return { columns, rows };
+}
+
+/** A line's tax rate and amount; split into CGST and the state tax (`stateLabel`) on an Indian intra-state invoice. */
+function lineTaxCells(item: InvoiceLineItem, stateLabel: string | null, c: TemplateRenderCtx): { taxRate: string; taxAmount: string } {
+  const rate = Number.parseFloat(item.taxRate ?? '0') || 0;
+  const lineTax = Number.parseFloat(item.taxAmount ?? '0') || 0;
+  if (!stateLabel) return { taxRate: rate ? `${c.num(rate)}%` : '-', taxAmount: c.money(lineTax) };
+  // Same split as the GST table: CGST is half the slab rounded to the paisa, the state tax the rest.
+  const cgst = roundCents(((Number.parseFloat(item.lineTotal) || 0) * (rate / 2)) / 100);
+  const half = c.num(rate / 2);
+  return {
+    taxRate: `CGST ${half}%\n${stateLabel} ${half}%`,
+    taxAmount: `${c.money(cgst)}\n${c.money(roundCents(lineTax - cgst))}`,
+  };
+}
+
+const brRowsOf = (taxBreakdown: TaxBreakdownItem[], treatment: string) =>
+  taxBreakdown.filter((row) => (row.treatment ?? 'added') === treatment && row.taxAmount !== 0);
+
+/** The tax rows of the totals in the jurisdiction's form. */
+function templateTaxRows(c: TemplateRenderCtx): TotalsRowData[] {
+  const { labels, money, num, taxBreakdown } = c;
+  if (c.usSalesTax) {
+    return usTaxGroups(taxBreakdown).map((g) => ({ label: `${labels.tax} - ${g.name} ${num(g.rate)}%`, value: money(g.tax) }));
+  }
+  if (c.gst) {
+    return gstTaxGroups(taxBreakdown).map((g) => {
+      const name = g.component ? (GST_COMPONENT_LABEL[g.component] ?? labels.tax) : labels.tax;
+      return { label: `${name} ${num(g.rate)}%`, value: money(g.tax) };
+    });
+  }
+  if (c.br) {
+    return [
+      ...brRowsOf(taxBreakdown, 'added').map((row) => ({ label: row.taxRateName ?? labels.tax, value: money(row.taxAmount) })),
+      ...brRowsOf(taxBreakdown, 'withheld').map((row) => ({ label: row.taxRateName ?? labels.tax, value: '-' + money(row.taxAmount) })),
+    ];
+  }
+  return taxBreakdown.map((row) => ({ label: `${labels.tax} ${num(row.taxRate)}%`, value: money(row.taxAmount) }));
+}
+
+/** Brazil: taxes inside the price and the CBS/IBS test amounts, for information under the total. */
+function brInformationRows(c: TemplateRenderCtx): TotalsRowData[] {
+  const groups: Array<[string, TaxBreakdownItem[]]> = [
+    [c.labels.includedTaxes ?? 'Tributos incluídos no preço', brRowsOf(c.taxBreakdown, 'embedded')],
+    [c.labels.informationalTaxes ?? 'CBS/IBS', brRowsOf(c.taxBreakdown, 'informational')],
+  ];
+  return groups
+    .filter(([, rows]) => rows.length > 0)
+    .flatMap(([title, rows]) => [
+      { label: title, value: '', kind: 'heading' as const },
+      ...rows.map((row) => ({ label: row.taxRateName ?? '', value: c.money(row.taxAmount), kind: 'muted' as const })),
+    ]);
+}
+
+function templateTotals(c: TemplateRenderCtx): TotalsRowData[] {
+  const { invoice, labels, money } = c;
+  const totals: TotalsRowData[] = [{ label: labels.subtotal, value: money(invoice.subtotal) }];
+  if (Number.parseFloat(invoice.discountTotal) > 0) totals.push({ label: labels.discount, value: '-' + money(invoice.discountTotal) });
+  const taxRows = templateTaxRows(c);
+  totals.push(...taxRows);
+  if (!c.br && taxRows.length !== 1) totals.push({ label: labels.taxTotal, value: money(invoice.taxTotal) });
+  totals.push({ label: c.br ? (labels.netAmount ?? labels.total) : labels.total, value: money(invoice.total), kind: 'total' });
+  if (!isNotPositive(c.amountPaid)) {
+    totals.push({ label: labels.amountPaid, value: '-' + money(c.amountPaid), kind: 'muted' });
+    totals.push({ label: labels.balanceDue, value: money(c.balanceDue), kind: 'balance' });
+  }
+  if (c.br) totals.push(...brInformationRows(c));
+  return totals;
+}
+
+function templateLegal(c: TemplateRenderCtx): InvoiceDocumentData['legal'] {
+  const { invoice, labels } = c;
+  const doc = invoice.fiscalDocument;
+  const docNumber = doc?.number ? ` nº ${doc.number}` : '';
+  const accessKey = doc?.accessKey ? doc.accessKey.replace(/(\d{4})(?=\d)/g, '$1 ') : '';
+  return {
+    notices: [
+      ...(invoice.complianceNotices ?? []),
+      ...(c.usSalesTax ? usExemptNotices(c.taxBreakdown, invoice.certificateNumbers, c.money) : []),
+    ],
+    fiscalDocument: doc
+      ? [`${labels.fiscalDocument ?? 'NF'}: ${doc.label}${docNumber}`, accessKey ? `${labels.accessKey ?? 'Chave'}: ${accessKey}` : ''].filter(Boolean)
+      : null,
+    pix: invoice.pix
+      ? { title: labels.pixPayment ?? 'Pix', key: invoice.pix.key, payload: invoice.pix.payload, matrix: pixQrMatrix(invoice.pix.payload) }
+      : null,
+    requiredFooter: c.requirements.requiredFooter ?? null,
+  };
+}
+
+function templateFields(c: TemplateRenderCtx): InvoiceDocumentData['fields'] {
+  const { invoice, entity, money } = c;
+  const taxIds = entity.taxIdentifiers ?? {};
+  const bank = entity.bankDetails ?? {};
+  return {
+    title: invoice.type === 'credit_note' ? c.labels.creditNote : c.labels.invoice,
+    invoiceNumber: invoice.invoiceNumber,
+    issueDate: c.date(invoice.issueDate),
+    dueDate: c.date(invoice.dueDate),
+    reference: invoice.reference ?? '',
+    placeOfSupply: c.gst ? gstPlaceOfSupplyText(invoice.placeOfSupply) : '',
+    currency: c.currency,
+    total: money(invoice.total),
+    balanceDue: money(c.balanceDue),
+    amountPaid: isNotPositive(c.amountPaid) ? '' : money(c.amountPaid),
+    customerName: invoice.contactName,
+    customerEmail: invoice.contactEmail ?? '',
+    customerTaxId: invoice.contactVatNumber ?? '',
+    sellerName: entity.name,
+    sellerLegalName: entity.legalName ?? entity.name,
+    sellerEmail: entity.contact?.email ?? '',
+    sellerPhone: entity.contact?.phone ?? '',
+    sellerWebsite: entity.contact?.website ?? '',
+    sellerTaxId: taxIds.vatNumber ?? '',
+    sellerRegistrationId: taxIds.registrationNumber ?? '',
+    sellerIban: bank.iban ?? '',
+    sellerBic: bank.bic ?? '',
+    footerText: entity.branding?.footerText ?? '',
+  };
+}
+
+/** Seller, buyer and ship-to blocks; countries print only when the invoice crosses a border (see generateInvoiceHtml). */
+function templateParties(c: TemplateRenderCtx): Pick<InvoiceDocumentData, 'seller' | 'billTo' | 'shipTo'> {
+  const { invoice, entity, labels } = c;
+  const taxIds = entity.taxIdentifiers ?? {};
+  const sellerCountry = (normalizePostalAddress(entity.address)?.country ?? entity.jurisdictionCode).toUpperCase();
+  const buyerCountry = normalizePostalAddress(invoice.billingAddress)?.country;
+  const crossBorder = !!buyerCountry && buyerCountry !== sellerCountry;
+  const shipping = distinctShippingAddress(invoice);
+  return {
+    seller: {
+      name: entity.legalName ?? entity.name,
+      lines: formatPostalAddressLines(entity.address, { omitCountry: crossBorder ? undefined : sellerCountry }),
+      contactLines: [entity.contact?.email, entity.contact?.phone, entity.contact?.website].filter((v): v is string => !!v),
+      taxIdLines: [
+        taxIds.registrationNumber ? `${labels.registrationLabel}: ${taxIds.registrationNumber}` : '',
+        taxIds.vatNumber ? `${labels.vatNumberLabel}: ${taxIds.vatNumber}` : '',
+      ].filter(Boolean),
+    },
+    billTo: {
+      name: invoice.contactName,
+      lines: formatPostalAddressLines(invoice.billingAddress, { omitCountry: sellerCountry }),
+      contactLines: invoice.contactEmail ? [invoice.contactEmail] : [],
+      taxIdLines: invoice.contactVatNumber ? [`${labels.vatNumberLabel}: ${invoice.contactVatNumber}`] : [],
+    },
+    shipTo: shipping ? { name: invoice.contactName, lines: formatPostalAddressLines(shipping, { omitCountry: sellerCountry }) } : null,
+  };
+}
+
+function templateBankLines(bank: BankDetails): string[] {
+  return [
+    bank.iban ? `IBAN: ${bank.iban}` : '',
+    bank.bic ? `BIC: ${bank.bic}` : '',
+    bank.accountNumber && !bank.iban ? `Account: ${bank.accountNumber}` : '',
+    bank.routingNumber ? `Routing: ${bank.routingNumber}` : '',
+  ].filter(Boolean);
+}
+
+/**
+ * What a designed invoice prints, built from the same inputs and with the same
+ * jurisdiction rules as `generateInvoiceHtml`: US per-jurisdiction tax rows and
+ * exempt notices, India's HSN/SAC and CGST/SGST split per line, Brazil's tax
+ * groups and Pix, compliance notices and the required footer.
+ */
+export function invoiceTemplateData(invoice: InvoiceRenderData, entity: Entity): InvoiceDocumentData {
+  const c = templateRenderCtx(invoice, entity);
+  const { labels } = c;
+  const branding = entity.branding ?? {};
+  const typeLabel = invoice.type === 'credit_note' ? labels.creditNote : labels.invoice;
+  return {
+    fields: templateFields(c),
+    fieldLabels: {
+      title: typeLabel,
+      invoiceNumber: labels.invoiceNumber,
+      issueDate: labels.date,
+      dueDate: labels.dueDate,
+      reference: labels.reference ?? 'Reference',
+      placeOfSupply: labels.placeOfSupply ?? 'Place of supply',
+      total: labels.total,
+      balanceDue: labels.balanceDue,
+      amountPaid: labels.amountPaid,
+      customerTaxId: labels.vatNumberLabel,
+      sellerTaxId: labels.vatNumberLabel,
+      sellerRegistrationId: labels.registrationLabel,
+    },
+    labels: {
+      from: labels.from,
+      billTo: labels.billTo,
+      shipTo: labels.shipTo,
+      payment: labels.paymentInstructions,
+      notes: labels.notes ?? 'Notes',
+      terms: labels.terms ?? 'Terms',
+      page: '{page} / {total}',
+    },
+    logoUrl: safeImageUrl(branding.logoUrl),
+    ...templateParties(c),
+    table: templateTable(c),
+    totals: templateTotals(c),
+    payment: { bankLines: templateBankLines(entity.bankDetails ?? {}), instructions: branding.paymentInstructions ?? null },
+    notes: invoice.notes ?? null,
+    terms: branding.termsAndConditions ?? null,
+    legal: templateLegal(c),
+    draft: invoice.draft ? { banner: labels.draftNotice, watermark: labels.draftNotice.split(':')[0] } : null,
+  };
+}
+
+/** The printable HTML of an invoice laid out with a designed template. */
+export function generateTemplatedInvoiceHtml(template: InvoiceTemplateDocument, invoice: InvoiceRenderData, entity: Entity): string {
+  const labels = getAdapter(entity.jurisdictionCode).getInvoiceRequirements(entity.locale || 'en-US').labels;
+  const data = invoiceTemplateData(invoice, entity);
+  const layout = layoutInvoice(template, data);
+  const typeLabel = invoice.type === 'credit_note' ? labels.creditNote : labels.invoice;
+  const draftPrefix = invoice.draft ? `${labels.draftNotice} · ` : '';
+  return renderInvoiceHtmlDocument(layout, {
+    title: `${draftPrefix}${typeLabel} ${invoice.invoiceNumber}`,
+    lang: entity.locale || 'en-US',
+    // Phones get the template's single-column layout instead of a shrunken A4 page.
+    mobile: renderMobileInvoice(template, data),
+  });
 }

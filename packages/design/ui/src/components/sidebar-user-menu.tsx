@@ -7,9 +7,8 @@ import {
   ChevronsUpDown,
   Check,
   Plus,
-  Building2,
+  Building,
   Mail,
-  MessageSquare,
   Star,
 } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -32,7 +31,6 @@ import {
   STATUS_LABELS,
   PRESENCE_STATUSES,
 } from "./status-dot";
-import { CustomStatusDialog, type CustomStatusValue } from "./custom-status-dialog";
 
 export interface UserInfo {
   name?: string;
@@ -96,8 +94,6 @@ export interface SidebarUserMenuPresence {
   statusOptions?: string[];
   /** Localized labels for each status value. Defaults to English. */
   statusLabels?: Record<string, string>;
-  /** "Set custom status..." menu item label. */
-  customStatusLabel?: string;
 }
 
 export interface SidebarUserMenuProps {
@@ -127,8 +123,8 @@ export interface SidebarUserMenuProps {
 
   /**
    * Optional presence integration. When provided, renders the avatar status
-   * dot, a status picker submenu, and the custom-status dialog. When omitted,
-   * no presence UI appears and behavior is unchanged.
+   * dot and a status picker submenu. When omitted, no presence UI appears and
+   * behavior is unchanged.
    */
   presence?: SidebarUserMenuPresence;
 }
@@ -153,29 +149,24 @@ export function SidebarUserMenu({
   presence,
 }: Readonly<SidebarUserMenuProps>) {
   const [open, setOpen] = useState(false);
-  const [showCustomStatus, setShowCustomStatus] = useState(false);
 
   const myStatus = presence?.myStatus;
   const setMyStatus = presence?.setMyStatus;
   const statusOptions = presence?.statusOptions ?? PRESENCE_STATUSES;
   const statusLabels = presence?.statusLabels ?? STATUS_LABELS;
-  const customStatusLabel = presence?.customStatusLabel ?? "Set custom status...";
   const labels: Record<string, string> = statusLabels;
   const labelFor = (status?: string) =>
     labels[(status as string) || "offline"] ?? labels["offline"];
-
-  const customStatusValue: CustomStatusValue = {
-    statusText: myStatus?.statusText,
-    statusEmoji: myStatus?.statusEmoji,
-  };
 
   // Shared status-picker submenu (collapsed + expanded). Only rendered when a
   // setter is injected via the `presence` prop.
   const statusPicker = setMyStatus ? (
     <>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="gap-2">
-          <StatusDot status={myStatus?.status} size="sm" />
+        <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground">
+          <span className="flex size-4 items-center justify-center">
+            <StatusDot status={myStatus?.status} size="sm" />
+          </span>
           <span>{labelFor(myStatus?.status)}</span>
         </DropdownMenuSubTrigger>
         <DropdownMenuPortal>
@@ -183,27 +174,18 @@ export function SidebarUserMenu({
             {statusOptions.map((status) => (
               <DropdownMenuItem
                 key={status}
-                onClick={() =>
-                  setMyStatus(status, myStatus?.statusText, myStatus?.statusEmoji)
-                }
+                // No custom-status editor here any more, so a pick also clears
+                // any custom text/emoji left on the row.
+                onClick={() => setMyStatus(status)}
                 className="gap-2"
               >
-                <StatusDot status={status} size="sm" />
+                <span className="flex size-4 items-center justify-center">
+                  <StatusDot status={status} size="sm" />
+                </span>
                 <span className="flex-1">{labelFor(status)}</span>
                 {myStatus?.status === status && <Check className="h-4 w-4" />}
               </DropdownMenuItem>
             ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => {
-                setOpen(false);
-                setShowCustomStatus(true);
-              }}
-              className="gap-2"
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span>{customStatusLabel}</span>
-            </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuPortal>
       </DropdownMenuSub>
@@ -263,8 +245,8 @@ export function SidebarUserMenu({
           {emailAccounts.length > 0 && (
             <>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Mail className="mr-2 h-4 w-4" />
+                <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground">
+                  <Mail className="h-4 w-4" />
                   <span className="truncate">
                     {currentEmailAccount?.email || "Select Account"}
                   </span>
@@ -278,7 +260,7 @@ export function SidebarUserMenu({
                       >
                         <Check
                           className={cn(
-                            "mr-2 h-4 w-4",
+                            "h-4 w-4",
                             currentEmailAccount?.id === account.id
                               ? "opacity-100"
                               : "opacity-0"
@@ -321,7 +303,7 @@ export function SidebarUserMenu({
                       <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={onEmailAccountAdd}>
-                          <Plus className="mr-2 h-4 w-4" />
+                          <Plus className="h-4 w-4" />
                           Add Account
                         </DropdownMenuItem>
                       </>
@@ -337,8 +319,8 @@ export function SidebarUserMenu({
           {(workspaces.length > 0 || onWorkspaceCreate) && (
             <>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Building2 className="mr-2 h-4 w-4" />
+                <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground">
+                  <Building className="h-4 w-4" />
                   <span className="truncate">
                     {currentWorkspace?.name || "Workspace"}
                   </span>
@@ -352,7 +334,7 @@ export function SidebarUserMenu({
                       >
                         <Check
                           className={cn(
-                            "mr-2 h-4 w-4",
+                            "h-4 w-4",
                             currentWorkspace?.id === workspace.id
                               ? "opacity-100"
                               : "opacity-0"
@@ -364,7 +346,7 @@ export function SidebarUserMenu({
                     {workspaces.length > 0 && onWorkspaceCreate && <DropdownMenuSeparator />}
                     {onWorkspaceCreate && (
                       <DropdownMenuItem onClick={onWorkspaceCreate}>
-                        <Plus className="mr-2 h-4 w-4" />
+                        <Plus className="h-4 w-4" />
                         Create Workspace
                       </DropdownMenuItem>
                     )}
@@ -377,7 +359,7 @@ export function SidebarUserMenu({
           
           {onSettings && (
             <DropdownMenuItem onClick={onSettings}>
-              <Settings className="mr-2 h-4 w-4" />
+              <Settings className="h-4 w-4" />
               <span>Settings</span>
               <span className="ml-auto text-xs text-muted-foreground">⌘,</span>
             </DropdownMenuItem>
@@ -386,21 +368,13 @@ export function SidebarUserMenu({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={onSignOut}>
-                <LogOut className="mr-2 h-4 w-4" />
+                <LogOut className="h-4 w-4" />
                 Sign out
               </DropdownMenuItem>
             </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <CustomStatusDialog
-        open={showCustomStatus}
-        onOpenChange={setShowCustomStatus}
-        value={customStatusValue}
-        onSave={({ statusText, statusEmoji }) =>
-          setMyStatus?.(myStatus?.status || "online", statusText, statusEmoji)
-        }
-      />
       </>
     );
   }
@@ -411,12 +385,12 @@ export function SidebarUserMenu({
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="w-full justify-start gap-2 px-2"
+          className="h-auto w-full justify-start gap-2 px-2.5 has-[>svg]:px-2.5 py-1.5 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground dark:data-[state=open]:bg-accent/50"
         >
           <div className="relative flex-shrink-0">
-            <Avatar className="h-6 w-6">
-              <AvatarImage src={user?.avatar} alt={user?.name} />
-              <AvatarFallback>{userInitials}</AvatarFallback>
+            <Avatar className="h-7 w-7 !rounded-[12px]">
+              <AvatarImage className="!rounded-[12px]" src={user?.avatar} alt={user?.name} />
+              <AvatarFallback className="!rounded-[12px]">{userInitials}</AvatarFallback>
             </Avatar>
             {statusIndicator}
           </div>
@@ -431,7 +405,7 @@ export function SidebarUserMenu({
           <ChevronsUpDown className="h-4 w-4 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent align="start" sideOffset={5} className="w-[241px]">
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">{user?.name || "User"}</p>
@@ -452,8 +426,8 @@ export function SidebarUserMenu({
               Email Account
             </DropdownMenuLabel>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Mail className="mr-2 h-4 w-4" />
+              <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground">
+                <Mail className="h-4 w-4" />
                 <span className="truncate">
                   {currentEmailAccount?.email || "Select Account"}
                 </span>
@@ -467,7 +441,7 @@ export function SidebarUserMenu({
                     >
                       <Check
                         className={cn(
-                          "mr-2 h-4 w-4",
+                          "h-4 w-4",
                           currentEmailAccount?.id === account.id
                             ? "opacity-100"
                             : "opacity-0"
@@ -510,7 +484,7 @@ export function SidebarUserMenu({
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={onEmailAccountAdd}>
-                        <Plus className="mr-2 h-4 w-4" />
+                        <Plus className="h-4 w-4" />
                         Add Account
                       </DropdownMenuItem>
                     </>
@@ -529,8 +503,8 @@ export function SidebarUserMenu({
               Workspace
             </DropdownMenuLabel>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Building2 className="mr-2 h-4 w-4" />
+              <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='text-'])]:text-muted-foreground">
+                <Building className="h-4 w-4" />
                 <span className="truncate">
                   {currentWorkspace?.name || "Workspace"}
                 </span>
@@ -544,7 +518,7 @@ export function SidebarUserMenu({
                     >
                       <Check
                         className={cn(
-                          "mr-2 h-4 w-4",
+                          "h-4 w-4",
                           currentWorkspace?.id === workspace.id
                             ? "opacity-100"
                             : "opacity-0"
@@ -556,7 +530,7 @@ export function SidebarUserMenu({
                   {workspaces.length > 0 && onWorkspaceCreate && <DropdownMenuSeparator />}
                   {onWorkspaceCreate && (
                     <DropdownMenuItem onClick={onWorkspaceCreate}>
-                      <Plus className="mr-2 h-4 w-4" />
+                      <Plus className="h-4 w-4" />
                       Create Workspace
                     </DropdownMenuItem>
                   )}
@@ -569,7 +543,7 @@ export function SidebarUserMenu({
         
         {onSettings && (
           <DropdownMenuItem onClick={onSettings}>
-            <Settings className="mr-2 h-4 w-4" />
+            <Settings className="h-4 w-4" />
             <span>Settings</span>
             <span className="ml-auto text-xs text-muted-foreground">⌘,</span>
           </DropdownMenuItem>
@@ -578,21 +552,13 @@ export function SidebarUserMenu({
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onSignOut}>
-              <LogOut className="mr-2 h-4 w-4" />
+              <LogOut className="h-4 w-4" />
               Sign out
             </DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
-    <CustomStatusDialog
-      open={showCustomStatus}
-      onOpenChange={setShowCustomStatus}
-      value={customStatusValue}
-      onSave={({ statusText, statusEmoji }) =>
-        setMyStatus?.(myStatus?.status || "online", statusText, statusEmoji)
-      }
-    />
     </>
   );
 }

@@ -10,6 +10,7 @@
 import { and, asc, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import { schema, masterSchema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
 import type { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 import {
   RealtimeRegistrar,
@@ -1312,8 +1313,17 @@ export async function createCheckout(
     years,
   });
 
-  const successUrl = `${params.origin}/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${registrationIds.join(',')}`;
-  const cancelUrl = `${params.origin}/weldhost/domains/purchase/cancel?registration_ids=${registrationIds.join(',')}`;
+  // Return into this workspace even if the session's active one changed meanwhile.
+  const successUrl = workspaceAppUrl(
+    params.origin,
+    workspaceRow.clerkOrgId,
+    `/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${registrationIds.join(',')}`,
+  );
+  const cancelUrl = workspaceAppUrl(
+    params.origin,
+    workspaceRow.clerkOrgId,
+    `/weldhost/domains/purchase/cancel?registration_ids=${registrationIds.join(',')}`,
+  );
 
   let session: { id: string; url: string };
   try {

@@ -8,6 +8,10 @@ WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platf
 
 Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps), **WeldPass** (secret management and team password manager). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
 
+### Design docs and ADRs (separate repo)
+
+How WeldSuite is built, and why, is documented in the private repo [`weldsuite/weldsuite-documentation`](https://github.com/weldsuite/weldsuite-documentation): a design doc per platform area and per `weld*` module, and Architecture Decision Records numbered per area (`API-003`, `DATA-004`, …). It is cloned next to this repo (`../weldsuite-documentation`), not as a submodule. Use the **`weldsuite-docs` skill** (`.claude/skills/weldsuite-docs`) to find, read and update it: read the area's design doc and ADRs before changing how an area works, and treat an *Accepted* ADR as a rule. `docs/plans/` and `docs/decisions/` in this repo stay here; the docs repo summarises and links to them.
+
 ### WeldApps, user-created apps
 
 Users build their own apps for the platform: static bundles hosted in R2, rendered in a sandboxed iframe at `/apps/{code}`, distributed via the app store (`private` = authoring workspace only; `public` = global store after manual review), billed monthly via Stripe (+Connect payouts).
@@ -504,7 +508,7 @@ This repo runs an agent-driven workflow. Specialist sub-agents live in `.claude/
 
 **Domain:** `weldflow-projects`, `weldmeet-meetings`, `weldcrm`, `welddesk-helpdesk`, `weldmail`, `weldbooks-accounting`, `weldsuite-invoicing`, `weldsuite-time-tracking`, `weldhost-domains`, `weldcommerce`, `weldsuite-wms`, `weldagent-ai`, `weldsuite-social`
 
-**Country accounting:** `accounting-be`, `-nl`, `-de`, `-fr`, `-uk`, `-us`
+**Country accounting:** `accounting-be`, `-nl`, `-de`, `-fr`, `-uk`, `-us`, `-in`, `-br`
 
 ### Autopilot
 
@@ -537,6 +541,7 @@ Before marking a task done:
 - `pnpm build` of touched app(s) passes
 - No stray `console.log`, `any`, or `@ts-ignore`
 - Schema changes flagged to user, no migration files without approval
+- Architectural decision made, reversed or replaced → ADR added or superseded and design doc updated in `weldsuite-documentation` (skill `weldsuite-docs`), docs PR linked from the code PR
 - WeldSuite task updated with PR/commit and closed
 
 ### Do / Don't

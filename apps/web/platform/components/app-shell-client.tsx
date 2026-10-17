@@ -69,24 +69,32 @@ const MeetingPiPWidget = lazy(() =>
   import('@/app/weldmeet/components/meeting-pip-widget').then((m) => ({ default: m.MeetingPiPWidget })),
 );
 
-/** /auth, /onboarding and /invite bootstrap their own org context; the public /w9 form has none at all. */
+/**
+ * /auth, /onboarding, /invite and /w/{workspace} links bootstrap their own org
+ * context; the public /w9 form has none at all.
+ */
 function bootstrapsOwnOrg(pathname: string): boolean {
   return (
     pathname.startsWith('/auth/') ||
     pathname === '/onboarding' ||
     pathname.startsWith('/invite') ||
+    pathname.startsWith('/w/') ||
     pathname.startsWith('/w9/')
   );
 }
 
-/** Drop the persisted query cache (it belongs to the old org) and reload. */
+/**
+ * Drop the persisted query cache (it belongs to the old org) and reload the
+ * same page, so a /w/{workspace} link that switched org still lands where it
+ * pointed.
+ */
 function reloadIntoNewOrg() {
   try {
     window.localStorage.removeItem('weldsuite:query-cache');
   } catch {
     // storage unavailable — reload anyway
   }
-  window.location.href = '/';
+  window.location.reload();
 }
 
 /**
@@ -118,6 +126,8 @@ function isMinimalPath(pathname: string): boolean {
     pathname.startsWith('/invite/') ||
     // The vendor-facing W-9 form: no shell, no sign-in, the token in the link is the credential.
     pathname.startsWith('/w9/') ||
+    // A /w/{workspace} link only resolves its workspace and redirects.
+    pathname.startsWith('/w/') ||
     pathname === '/call-room'
   );
 }

@@ -15,18 +15,25 @@
  * fit arbitrary sort fields, so this surface stays page-based like the
  * legacy endpoint the WeldFlow infinite-scroll list expects.
  *
+ * includeSubtasks=true attaches each returned task's full subtask tree as
+ * `children` (whoever the subtasks are assigned to), so the list can show
+ * them nested under their parent.
+ *
  * Read-only; no entity events. Permission: `tasks:read`.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, inArray, isNull, like, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { taskStatusAliases } from '@weldsuite/app-api-client/schemas/tasks';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import { workspaceDayBounds } from '@weldsuite/flow-domain/day-boundaries';
+import { containsPattern, queryBoolean } from '../../lib/query-params';
+import { taskInLiveProject } from '../../lib/task-scope';
 import {
   dueDateBucketEnum,
   taskSortFieldEnum,
@@ -34,6 +41,7 @@ import {
   dueDateBucketCondition,
   resolveTaskSortColumn,
   enrichTasksWithAssignees,
+  attachSubtaskTreeAcrossProjects,
 } from '../tasks';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -50,6 +58,7 @@ const myTasksFiltersSchema = z.object({
   dueDateBucket: dueDateBucketEnum,
   sortField: taskSortFieldEnum,
   sortDirection: z.enum(['asc', 'desc']).optional().default('asc'),
+  includeSubtasks: queryBoolean.default('false'),
 });
 
 app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFiltersSchema), async (c) => {
@@ -61,6 +70,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
   // Tasks assigned to the user as primary assignee OR via the multi-assignee array.
   const conditions: any[] = [
     isNull(tasks.deletedAt),
+    taskInLiveProject(tasks.projectId),
     or(
       eq(tasks.assigneeId, userId),
       sql`${tasks.assigneeIds}::jsonb @> ${JSON.stringify([userId])}::jsonb`,
@@ -84,11 +94,13 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
     );
   }
   if (q.dueDateBucket) {
-    conditions.push(dueDateBucketCondition(q.dueDateBucket, tasks.dueDate));
+    conditions.push(
+      dueDateBucketCondition(q.dueDateBucket, tasks.dueDate, await workspaceDayBounds(db)),
+    );
   }
   if (q.search) {
-    const term = `%${q.search}%`;
-    conditions.push(or(like(tasks.title, term), like(tasks.description, term), like(tasks.key, term))!);
+    const term = containsPattern(q.search);
+    conditions.push(or(ilike(tasks.title, term), ilike(tasks.description, term), ilike(tasks.key, term))!);
   }
 
   try {
@@ -147,6 +159,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
       const project = projectByTaskId.get(task.id);
       return { ...task, project: project?.id ? project : null };
     });
+    if (q.includeSubtasks) await attachSubtaskTreeAcrossProjects(db, data);
 
     // Offset-based: cursor is always null, hasMore drives the next page fetch.
     return list(c, data, cursorPagination(totalCount, hasMore, null));

@@ -6,7 +6,7 @@
 
 import { useMemo } from 'react';
 import { MODULE_CONFIGS } from './module-sidebar-configs';
-import { HOSTED_APP_NAV_FALLBACKS } from './user-app-sidebar';
+import { getHostedAppNavFallbacks } from './user-app-sidebar';
 import { useI18n } from '@/lib/i18n/provider';
 
 type MenuLeaf = { href?: string; title: string };
@@ -44,7 +44,7 @@ export function useFallbackLabelRegistry(): Map<string, string> {
       addMenuGroups(map, config.getMenuItems(t));
     }
     // Hosted WeldApp section paths (sidebar hrefs under /apps/{code}/…)
-    for (const [code, items] of Object.entries(HOSTED_APP_NAV_FALLBACKS)) {
+    for (const [code, items] of Object.entries(getHostedAppNavFallbacks(t))) {
       for (const item of items) {
         map.set(hostedAppHref(code, item.path), item.label);
       }

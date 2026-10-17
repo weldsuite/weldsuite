@@ -1,22 +1,21 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingCustomers } from '@/hooks/queries/use-accounting-queries';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Users } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
-import {
-  EmptyStateIllustration,
-  type ColumnDef,
-  type FilterConfig,
-  type ActiveFilter,
-} from '@/components/entity-list';
+import { RowAvatar, RowChip, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { EmptyStateIllustration, type ColumnDef, type FilterConfig, type ActiveFilter } from '@/components/entity-list';
+import type { ContactKind, ContactPerson } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from './components/contact-list-cells';
 
 interface CustomerRow {
   id: string;
   name: string;
+  kind?: ContactKind | null;
   email?: string | null;
+  contactPerson?: ContactPerson | null;
   role?: string | null;
   vatNumber?: string | null;
   archivedAt?: string | null;
@@ -33,6 +32,7 @@ export default function AccountingCustomersPage() {
   // Backend expands role=customer → customer + both. This pill lets the user
   // narrow to only the dual-role entries when they want to audit them.
   const filterConfigs: FilterConfig[] = [
+    contactKindFilter(tcp.filterKindLabel, t.accounting.contacts.kinds),
     {
       field: 'role',
       label: tcp.filterRoleLabel,
@@ -56,6 +56,7 @@ export default function AccountingCustomersPage() {
   const { data, isLoading } = useAccountingCustomers({
     search,
     role: roleFilter ?? 'customer',
+    kind: readKindFilter(filters),
     archived: archivedFilter,
   });
 
@@ -65,33 +66,42 @@ export default function AccountingCustomersPage() {
     {
       id: 'name',
       header: tcp.colName,
-      width: 'flex-1',
-      render: (customer) => <span className="font-medium">{customer.name}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (customer) => (
+        <>
+          <RowAvatar name={customer.name || '?'} icon={contactKindIcon(customer)} />
+          <RowTitle
+            chips={customer.archivedAt ? <RowChip tone="gray">{t.accounting.contacts.archived}</RowChip> : null}
+          >
+            {customer.name}
+          </RowTitle>
+        </>
+      ),
     },
     {
       id: 'email',
       header: tcp.colEmail,
-      width: 'flex-1',
-      render: (c) => <span className="text-muted-foreground">{c.email ?? '—'}</span>,
+      width: 'w-[240px]',
+      render: (c) => <RowText>{contactEmail(c)}</RowText>,
     },
     {
       id: 'role',
       header: tcp.colRole,
-      width: 'w-[140px]',
-      render: (c) => (
-        <>
-          <Badge variant="outline" className="capitalize">
-            {c.role === 'both' ? labels.customerAndSupplier : c.role ?? '—'}
-          </Badge>
-          {c.archivedAt ? <Badge variant="secondary" className="ml-1">{t.accounting.contacts.archived}</Badge> : null}
-        </>
-      ),
+      width: 'w-[170px]',
+      render: (c) =>
+        c.role ? (
+          <StatusChip tone={c.role === 'both' ? 'indigo' : 'blue'}>
+            <span className="capitalize">{c.role === 'both' ? labels.customerAndSupplier : c.role}</span>
+          </StatusChip>
+        ) : (
+          <RowText />
+        ),
     },
     {
       id: 'vat',
       header: labels.taxId,
       width: 'w-[180px]',
-      render: (c) => <span className="text-muted-foreground">{c.vatNumber ?? '—'}</span>,
+      render: (c) => <RowText>{c.vatNumber}</RowText>,
     },
   ];
 
@@ -118,7 +128,7 @@ export default function AccountingCustomersPage() {
           </EmptyStateIllustration>
         ),
         title: tcp.noCustomers,
-        description: tcp.searchPlaceholder,
+        description: tcp.emptyDescription,
         action: {
           label: tcp.newCustomer,
           onClick: () => navigate({ to: '/weldbooks/customers/add' }),
@@ -127,4 +137,3 @@ export default function AccountingCustomersPage() {
     />
   );
 }
-

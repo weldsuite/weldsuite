@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import type { TranslationNamespaces } from '@/lib/i18n';
 import {
   Video,
   MessageCircle,
@@ -33,223 +34,80 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useIntegrations, usePrintNodeSettings, useUpdatePrintNodeSettings } from '@/hooks/queries/use-settings-queries';
 
-// Integration definitions with content
+// Integration definitions. The descriptive copy (description, overview, features,
+// how it works) lives in the settings locale under `integrations.catalog`.
+type IntegrationCategory = 'communication' | 'shipping' | 'accounting' | 'ecommerce' | 'printing';
+type IntegrationCatalogKey = keyof TranslationNamespaces['settings']['integrations']['catalog'];
+
 const INTEGRATION_DATA: Record<string, {
   name: string;
-  description: string;
-  category: 'Communication' | 'Shipping' | 'Accounting' | 'E-Commerce' | 'Printing';
+  catalogKey: IntegrationCatalogKey;
+  category: IntegrationCategory;
   icon: React.ReactNode;
   configurable: boolean;
-  overview: string;
-  features: string[];
-  howItWorks: string[];
 }> = {
   'google-meet': {
     name: 'Google Meet',
-    description: 'Schedule and join video meetings from your workspace.',
-    category: 'Communication',
+    catalogKey: 'googleMeet',
+    category: 'communication',
     icon: <Video className="h-5 w-5" />,
     configurable: false,
-    overview: 'Google Meet integration brings seamless video conferencing directly into your WeldSuite workspace. Schedule meetings, join calls, and collaborate with your team without switching between applications. Share your screen, present documents, and hold productive meetings all from within your familiar workspace environment.',
-    features: [
-      'One-click meeting creation from any workspace context',
-      'Calendar integration for scheduled meetings',
-      'Screen sharing and presentation mode',
-      'Real-time collaboration during calls',
-      'Meeting recordings and transcripts',
-      'Automatic meeting notes and action items',
-    ],
-    howItWorks: [
-      'Connect your Google account to enable the integration',
-      'Access Google Meet from the communication menu in your workspace',
-      'Create instant meetings or schedule them for later',
-      'Invite team members and external participants directly',
-      'Meeting summaries are automatically saved to your workspace',
-    ],
   },
   'microsoft-teams': {
     name: 'Microsoft Teams',
-    description: 'Collaborate through chat, video calls, and meetings.',
-    category: 'Communication',
+    catalogKey: 'microsoftTeams',
+    category: 'communication',
     icon: <MessageCircle className="h-5 w-5" />,
     configurable: false,
-    overview: 'Microsoft Teams integration connects your WeldSuite workspace with the full power of Teams collaboration. Chat with colleagues, join video meetings, and access Microsoft 365 documents seamlessly. Keep your team aligned with integrated communication tools.',
-    features: [
-      'Direct messaging and group chats',
-      'Video and audio conferencing',
-      'Integration with Microsoft 365 apps',
-      'File sharing and co-authoring',
-      'Presence status synchronization',
-      'Meeting scheduling with Outlook calendar',
-    ],
-    howItWorks: [
-      'Sign in with your Microsoft account',
-      'Grant permissions for Teams access',
-      'Access Teams features from the sidebar',
-      'Start or join meetings directly from workspace',
-      'Chat messages sync automatically',
-    ],
   },
-  'slack': {
+  slack: {
     name: 'Slack',
-    description: 'Get real-time notifications in your Slack channels.',
-    category: 'Communication',
+    catalogKey: 'slack',
+    category: 'communication',
     icon: <MessageCircle className="h-5 w-5" />,
     configurable: false,
-    overview: 'Slack integration keeps your team informed with real-time notifications and updates. Receive alerts about important events, share updates to channels, and keep your workflow connected. Customize which notifications go where to reduce noise and increase productivity.',
-    features: [
-      'Real-time notifications for workspace events',
-      'Customizable notification rules per channel',
-      'Direct message notifications',
-      'Slash commands for quick actions',
-      'Rich message formatting with attachments',
-      'Thread support for organized discussions',
-    ],
-    howItWorks: [
-      'Install the WeldSuite app in your Slack workspace',
-      'Configure which channels receive notifications',
-      'Set up notification rules based on event types',
-      'Use slash commands to interact with WeldSuite',
-      'Click notifications to jump directly to relevant items',
-    ],
   },
-  'dhl': {
+  dhl: {
     name: 'DHL',
-    description: 'Manage shipments and track packages worldwide.',
-    category: 'Shipping',
+    catalogKey: 'dhl',
+    category: 'shipping',
     icon: <Activity className="h-5 w-5" />,
     configurable: true,
-    overview: 'DHL integration streamlines your international shipping operations. Generate labels, track packages in real-time, and manage deliveries across the globe. Access competitive rates and reliable delivery services directly from your workspace.',
-    features: [
-      'Automated shipping label generation',
-      'Real-time package tracking',
-      'Rate comparison and optimization',
-      'Customs documentation for international shipments',
-      'Pickup scheduling',
-      'Delivery notifications and updates',
-    ],
-    howItWorks: [
-      'Enter your DHL account credentials',
-      'Configure default shipping preferences',
-      'Generate labels directly from orders',
-      'Track shipments from the shipping dashboard',
-      'Receive automatic status updates',
-    ],
   },
-  'ups': {
+  ups: {
     name: 'UPS',
-    description: 'Ship and track deliveries with competitive rates.',
-    category: 'Shipping',
+    catalogKey: 'ups',
+    category: 'shipping',
     icon: <Activity className="h-5 w-5" />,
     configurable: true,
-    overview: 'UPS integration provides access to one of the world\'s largest delivery networks. Ship packages domestically and internationally with confidence. Get real-time tracking, competitive rates, and reliable delivery estimates.',
-    features: [
-      'Domestic and international shipping',
-      'Real-time tracking and notifications',
-      'Rate shopping across service levels',
-      'Address validation',
-      'Return label generation',
-      'Pickup scheduling and management',
-    ],
-    howItWorks: [
-      'Connect your UPS account',
-      'Set up shipping preferences and defaults',
-      'Create shipments from your orders',
-      'Print labels and schedule pickups',
-      'Track all shipments in one dashboard',
-    ],
   },
-  'postnl': {
+  postnl: {
     name: 'PostNL',
-    description: 'Ship within Netherlands and internationally.',
-    category: 'Shipping',
+    catalogKey: 'postnl',
+    category: 'shipping',
     icon: <Package className="h-5 w-5" />,
     configurable: true,
-    overview: 'PostNL integration is perfect for businesses shipping within the Netherlands and across Europe. Access the extensive PostNL network with pickup points, track & trace, and reliable delivery services.',
-    features: [
-      'Dutch and European shipping services',
-      'Extensive pickup point network',
-      'Track & trace integration',
-      'Same-day delivery options',
-      'Letterbox packages support',
-      'Return management',
-    ],
-    howItWorks: [
-      'Enter your PostNL API credentials',
-      'Configure shipping products and services',
-      'Generate labels for your orders',
-      'Track shipments through the dashboard',
-      'Manage returns efficiently',
-    ],
   },
   'exact-online': {
     name: 'Exact Online',
-    description: 'Sync invoices and automate your bookkeeping.',
-    category: 'Accounting',
+    catalogKey: 'exactOnline',
+    category: 'accounting',
     icon: <DollarSign className="h-5 w-5" />,
     configurable: true,
-    overview: 'Exact Online integration synchronizes your financial data automatically. Invoices, expenses, and payments flow seamlessly between systems, reducing manual data entry and ensuring your books are always up to date.',
-    features: [
-      'Automatic invoice synchronization',
-      'Expense tracking and categorization',
-      'Bank transaction matching',
-      'Financial reporting',
-      'Multi-company support',
-      'VAT calculation and reporting',
-    ],
-    howItWorks: [
-      'Authorize the connection to Exact Online',
-      'Map your accounts and categories',
-      'Configure sync settings and frequency',
-      'Transactions sync automatically',
-      'Review and reconcile in either system',
-    ],
   },
-  'quickbooks': {
+  quickbooks: {
     name: 'QuickBooks',
-    description: 'Seamless accounting with transactions and reports.',
-    category: 'Accounting',
+    catalogKey: 'quickbooks',
+    category: 'accounting',
     icon: <DollarSign className="h-5 w-5" />,
     configurable: true,
-    overview: 'QuickBooks integration brings powerful accounting capabilities to your workspace. Sync invoices, track expenses, and generate financial reports. Keep your accounting data consistent across systems without manual entry.',
-    features: [
-      'Two-way invoice synchronization',
-      'Expense and receipt tracking',
-      'Customer and vendor sync',
-      'Financial report generation',
-      'Bank feed integration',
-      'Multi-currency support',
-    ],
-    howItWorks: [
-      'Connect your QuickBooks account via OAuth',
-      'Configure account mappings',
-      'Set up automatic sync rules',
-      'Review synced transactions',
-      'Generate reports from either platform',
-    ],
   },
-  'printnode': {
+  printnode: {
     name: 'PrintNode',
-    description: 'Automated cloud printing for labels and documents.',
-    category: 'Printing',
+    catalogKey: 'printnode',
+    category: 'printing',
     icon: <Printer className="h-5 w-5" />,
     configurable: true,
-    overview: 'PrintNode integration enables automated cloud printing for your business. Print shipping labels, packing slips, invoices, and custom documents to any connected printer. Set up print rules to automate your workflow.',
-    features: [
-      'Cloud printing to any connected printer',
-      'Automatic label printing on order creation',
-      'Multiple printer support',
-      'Print queue management',
-      'Custom print templates',
-      'Print history and logging',
-    ],
-    howItWorks: [
-      'Create a PrintNode account and get your API key',
-      'Install the PrintNode client on your computers',
-      'Enter your API key in the integration settings',
-      'Configure default printers for different document types',
-      'Documents will print automatically based on your rules',
-    ],
   },
 };
 
@@ -336,6 +194,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
     return null;
   }
 
+  const copy = ti.catalog[integration.catalogKey];
   const relatedIds = getRelatedIntegrations(integrationId, integration.category);
 
   const handleConnect = () => {
@@ -439,7 +298,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
 
                 {/* Description */}
                 <p className="text-base text-muted-foreground mb-4 max-w-2xl">
-                  {integration.description}
+                  {copy.description}
                 </p>
 
                 {/* Connect Button */}
@@ -484,7 +343,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                       <rect x="9" y="9" width="6" height="6" rx="1" />
                     </svg>
                   </div>
-                  <span className="text-sm text-muted-foreground">{integration.category}</span>
+                  <span className="text-sm text-muted-foreground">{ti.categories[integration.category]}</span>
                 </div>
               </div>
 
@@ -499,7 +358,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                 <h3 className="text-sm font-medium text-foreground mb-2">{ti.lastUpdated}</h3>
                 <div className="flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">December 2024</span>
+                  <span className="text-sm text-muted-foreground">{ti.lastUpdatedValue}</span>
                 </div>
               </div>
 
@@ -623,7 +482,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               <div className="mb-10">
                 <h2 className="text-xl font-semibold text-foreground mb-4">{ti.overview}</h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  {integration.overview}
+                  {copy.overview}
                 </p>
               </div>
 
@@ -631,7 +490,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               <div className="mb-10">
                 <h2 className="text-xl font-semibold text-foreground mb-4">{ti.features}</h2>
                 <ul className="space-y-2">
-                  {integration.features.map((feature) => (
+                  {copy.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-3">
                       <svg className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -646,7 +505,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               <div className="mb-10">
                 <h2 className="text-xl font-semibold text-foreground mb-4">{ti.howItWorks}</h2>
                 <ul className="space-y-3">
-                  {integration.howItWorks.map((step, index) => (
+                  {copy.howItWorks.map((step, index) => (
                     <li key={step} className="flex items-start gap-3">
                       <span className="text-primary text-sm font-mono tabular-nums shrink-0 mt-0.5">
                         {index + 1}.
@@ -661,7 +520,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               {relatedIds.length > 0 && (
                 <div className="pt-8 border-t border-border">
                   <h2 className="text-[0.8rem] font-medium text-muted-foreground uppercase tracking-wider mb-4">
-                    {ti.otherInCategory.replace('{category}', integration.category)}
+                    {ti.otherInCategory.replace('{category}', ti.categories[integration.category])}
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {relatedIds.map((relatedId) => {
@@ -682,7 +541,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                                 {related.name}
                               </h3>
                               <p className="text-xs text-muted-foreground truncate">
-                                {related.category}
+                                {ti.categories[related.category]}
                               </p>
                             </div>
                           </div>

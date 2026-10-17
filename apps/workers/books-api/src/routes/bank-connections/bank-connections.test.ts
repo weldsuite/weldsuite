@@ -214,7 +214,9 @@ describe('connections', () => {
     expect(listed.json?.pagination).toMatchObject({ totalCount: 1, hasMore: false });
     expect(JSON.stringify(listed.json)).not.toContain('access-secret-1');
 
-    provider.script = [page({ upserts: [tx({ providerTransactionId: 't1' }), tx({ providerTransactionId: 'p1', pending: true, amountMinor: -300, description: 'Hold' })] })];
+    // Dated today: the sync voids pending rows older than 14 days by the real clock.
+    const today = new Date().toISOString().slice(0, 10);
+    provider.script = [page({ upserts: [tx({ providerTransactionId: 't1' }), tx({ providerTransactionId: 'p1', pending: true, amountMinor: -300, description: 'Hold', date: today })] })];
     const synced = await api(`/${id}/sync`, { method: 'POST', body: { refresh: true } });
     expect(synced.status).toBe(200);
     expect(synced.json?.data.outcome).toMatchObject({ added: 1, pending: 1, status: 'active' });

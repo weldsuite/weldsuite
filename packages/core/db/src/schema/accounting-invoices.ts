@@ -84,8 +84,12 @@ export const invoices = pgTable('invoices', {
   placeOfSupply: varchar('place_of_supply', { length: 2 }),
   /** Buyer's tax id (GSTIN / VAT number) as it was when the document was finalized. */
   contactTaxNumber: varchar('contact_tax_number', { length: 50 }),
+  /** Brazil: document fiscal fields (withholdings, final consumer, natureza da operação). */
+  fiscalData: jsonb('fiscal_data').$type<Record<string, unknown>>(),
 
   paymentLink: varchar('payment_link', { length: 500 }),
+  /** The invoice template (`invoice_templates`) this prints with; null uses the entity's default, else the built-in layout. */
+  templateId: varchar('template_id', { length: 30 }),
   journalEntryId: varchar('journal_entry_id', { length: 30 }),
   createdBy: varchar('created_by', { length: 255 }),
 }, (table) => [
@@ -128,6 +132,11 @@ export const invoiceItems = pgTable('invoice_items', {
   taxUse: varchar('tax_use', { length: 10 }),
   /** India GST: HSN (goods) or SAC (services) code printed on the tax invoice. */
   hsnSac: varchar('hsn_sac', { length: 10 }),
+  /** Brazil: NCM of the goods (8 digits) and CFOP of the operation (4 digits). */
+  ncm: varchar('ncm', { length: 8 }),
+  cfop: varchar('cfop', { length: 4 }),
+  /** Brazil: the rest of the line's fiscal fields (origin, CEST, ICMS/IPI/ISS rate overrides, LC 116 service item). */
+  fiscalData: jsonb('fiscal_data').$type<Record<string, unknown>>(),
   /** The price includes the tax; it is backed out of the line. */
   taxIncluded: boolean('tax_included').default(false),
   /** Tax the user set by hand; kept across recalculations of the draft. */

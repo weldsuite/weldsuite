@@ -333,7 +333,7 @@ export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) 
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm">{t.mail.ai.responseTime}</span>
-                    <span className="text-sm font-medium">2.5 hours avg</span>
+                    <span className="text-sm font-medium">{t.mail.ai.responseTimeAverage}</span>
                   </div>
                   <Progress value={75} className="h-2" />
                 </div>
@@ -350,7 +350,7 @@ export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) 
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm">{t.mail.ai.peakActivity}</span>
-                    <span className="text-sm font-medium">9-11 AM</span>
+                    <span className="text-sm font-medium">{t.mail.ai.peakActivityHours}</span>
                   </div>
                   <Progress value={90} className="h-2" />
                 </div>

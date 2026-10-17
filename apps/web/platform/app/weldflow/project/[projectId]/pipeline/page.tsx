@@ -20,6 +20,7 @@ import {
   verticalListSortingStrategy,
   horizontalListSortingStrategy,
   useSortable,
+  arrayMove,
 } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -64,7 +65,6 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
@@ -80,13 +80,9 @@ import { formatShortDateNow } from '@/lib/i18n/date-locale';
 import { useStageLabel } from '../../../lib/stage-labels';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { buildStatusToStageId } from '@/app/weldflow/lib/stage-resolution';
+import { persistStageChange } from '@/app/weldflow/lib/persist-stage-change';
 
 // ---------- Types ----------
-
-interface Tag {
-  name: string;
-  color: string;
-}
 
 interface ProjectLabel {
   id: string;
@@ -113,7 +109,6 @@ interface TaskFeature {
   taskKey?: string;
   commentsCount?: number;
   attachmentsCount?: number;
-  tags?: Tag[];
   labels?: string[];
 }
 
@@ -179,7 +174,6 @@ interface RawPipelineTask {
   commentsCount?: number;
   attachmentsCount?: number;
   _count?: { comments?: number; attachments?: number };
-  tags?: (string | Tag)[];
   labels?: string[];
   assigneeId?: string;
   assigneeName?: string;
@@ -187,7 +181,17 @@ interface RawPipelineTask {
   assignees?: { id: string; name: string; avatar?: string; image?: string }[];
 }
 
-function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, string>): TaskFeature {
+/** Translated fallbacks for a task without a title / an assignee without a name. */
+interface FeatureFallbacks {
+  untitled: string;
+  unknown: string;
+}
+
+function mapTaskToFeature(
+  task: RawPipelineTask,
+  statusToStageId: Map<string, string> | undefined,
+  fallbacks: FeatureFallbacks,
+): TaskFeature {
   const startDate = task.startDate ? new Date(task.startDate) : new Date();
   const endDate = task.dueDate ? new Date(task.dueDate) : new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -200,7 +204,7 @@ function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, s
 
   return {
     id: task.id,
-    name: task.title || 'Untitled Task',
+    name: task.title || fallbacks.untitled,
     description: task.description,
     startAt: startDate,
     endAt: endDate,
@@ -211,7 +215,7 @@ function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, s
     column: resolvedColumn,
     owner: task.assignee ? {
       id: task.assignee.id || task.assigneeId || '',
-      name: task.assignee.name || task.assigneeName || 'Unknown',
+      name: task.assignee.name || task.assigneeName || fallbacks.unknown,
       image: task.assignee.avatar || task.assignee.image,
     } : undefined,
     owners: Array.isArray(task.assignees) && task.assignees.length > 0
@@ -222,16 +226,6 @@ function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, s
     taskKey: task.key,
     commentsCount: task.commentsCount || task._count?.comments || 0,
     attachmentsCount: task.attachmentsCount || task._count?.attachments || 0,
-    tags: (task.tags || []).map((tag: string | Tag) => {
-      if (typeof tag === 'object' && tag !== null) return tag;
-      try {
-        const parsed = JSON.parse(tag);
-        if (parsed.name && parsed.color) return parsed as Tag;
-      } catch {
-        // Not valid JSON — fall through to the plain-string tag below.
-      }
-      return { name: String(tag), color: '#94a3b8' };
-    }),
     labels: task.labels || undefined,
   };
 }
@@ -437,23 +431,6 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
         </div>
       )}
 
-      {/* Tags */}
-      {feature.tags && feature.tags.length > 0 && (
-        <div className="flex items-center gap-2 mt-3">
-          <Hash className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <div className="flex flex-wrap gap-1 min-w-0">
-            {feature.tags.slice(0, 3).map((tag) => (
-              <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
-                {tag.name}
-              </Badge>
-            ))}
-            {feature.tags.length > 3 && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">+{feature.tags.length - 3}</Badge>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Footer: comments, attachments */}
       {((feature.commentsCount ?? 0) > 0 || (feature.attachmentsCount ?? 0) > 0) && (
         <div className="flex items-center gap-3 text-gray-400 mt-2.5">
@@ -656,6 +633,26 @@ function resolveTaskDropStageId(overId: string, features: TaskFeature[]): string
 }
 
 /** Move stage `fromId` to the position of `toId`; null when either is missing. */
+/**
+ * The card list after a drop: the moved card is in its new column and, when it
+ * was dropped on another card, sits next to it. Dropped on an empty part of a
+ * column, it keeps its place in the list order.
+ */
+function placeMovedFeature(
+  features: TaskFeature[],
+  movedId: string,
+  targetStageId: string,
+  overId: string | undefined,
+): TaskFeature[] {
+  const moved = features.map(f => f.id === movedId ? { ...f, column: targetStageId } : f);
+  if (!overId) return moved;
+  return arrayMove(
+    moved,
+    features.findIndex(f => f.id === movedId),
+    features.findIndex(f => f.id === overId),
+  );
+}
+
 function reorderStages(stages: StageColumn[], fromId: string, toId: string): StageColumn[] | null {
   const oldIdx = stages.findIndex(s => s.id === fromId);
   const newIdx = stages.findIndex(s => s.id === toId);
@@ -674,6 +671,10 @@ const PipelinePage = () => {
   const { t } = useI18n();
   const stageLabel = useStageLabel();
   const { canWrite } = useProjectPermissions();
+  const featureFallbacks = useMemo<FeatureFallbacks>(
+    () => ({ untitled: t.projects.pipeline.untitledTask, unknown: t.common.labels.unknown }),
+    [t],
+  );
 
   const [features, setFeatures] = useState<TaskFeature[]>([]);
   const [columns, setColumns] = useState<StageColumn[]>([]);
@@ -707,18 +708,15 @@ const PipelinePage = () => {
   // Calculation type per column
   const [columnCalculations, setColumnCalculations] = useState<Record<string, string>>({});
 
-  // Detail panel state
-  const [selectedFeature, setSelectedFeature] = useState<TaskFeature | null>(null);
   // Pushing a task onto the global object-panel stack opens the new
-  // self-contained task panel (rendered by ObjectPanelHost).
+  // self-contained task panel (rendered by ObjectPanelHost). A click opens it
+  // directly: this used to go through a "selected card" state whose effect only
+  // fired when the selection changed, so a card that was opened and closed once
+  // could not be opened again.
   const { open: openTaskPanel } = useObjectPanel();
-  useEffect(() => {
-    if (selectedFeature) openTaskPanel({ type: 'task', id: selectedFeature.id });
-    // Deliberately keyed on the id, not the whole `selectedFeature` object — several
-    // handlers below replace it with a new object for the same id (optimistic
-    // updates), which would otherwise re-open the panel on every such update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFeature?.id, openTaskPanel]);
+  const openFeature = useCallback((feature: TaskFeature) => {
+    openTaskPanel({ type: 'task', id: feature.id });
+  }, [openTaskPanel]);
   // Drag state
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
   const [draggedFeatureOriginalColumn, setDraggedFeatureOriginalColumn] = useState<{ id: string; column: string } | null>(null);
@@ -769,7 +767,8 @@ const PipelinePage = () => {
     setError(null);
     try {
       const [tasksResult, membersResult, stagesResult] = await Promise.all([
-        tasksApi.list(projectId),
+        // Every page: a single `list` call stopped at 50 tasks.
+        tasksApi.listAllPages(projectId),
         membersApi.list(projectId),
         stagesApi.list(projectId),
       ]);
@@ -781,7 +780,7 @@ const PipelinePage = () => {
       }
       if (tasksResult.success && tasksResult.data) {
         const tasks = tasksResult.data as RawPipelineTask[];
-        setFeatures(tasks.map((task) => mapTaskToFeature(task, statusToStageId)));
+        setFeatures(tasks.map((task) => mapTaskToFeature(task, statusToStageId, featureFallbacks)));
       } else {
         setError(tasksResult.error || t.projects.pipeline.failedToLoadData);
       }
@@ -824,8 +823,7 @@ const PipelinePage = () => {
         f.taskKey?.toLowerCase().includes(query) ||
         // Lets "1042" / "#1042" find the card by its number.
         taskNumberMatches(f.number, query) ||
-        f.owner?.name.toLowerCase().includes(query) ||
-        f.tags?.some(t => t.name.toLowerCase().includes(query))
+        f.owner?.name.toLowerCase().includes(query)
       );
     }
 
@@ -852,6 +850,27 @@ const PipelinePage = () => {
     }
   };
 
+  // The reorder is computed and persisted here, not inside a state updater:
+  // React may call an updater twice (StrictMode), which sent the request twice.
+  const handleStageDrop = (activeId: string, overId: string) => {
+    const fromId = activeId.replace(STAGE_SORTABLE_PREFIX, '');
+    const toId = resolveStageDropId(overId);
+    if (fromId === toId) return;
+    const next = reorderStages(columns, fromId, toId);
+    if (!next) return;
+    setColumns(next);
+    void persistStageOrder(next, columns);
+  };
+
+  // Completing a recurring task creates its next occurrence: show it.
+  const showNextRecurringTask = async (nextTaskId: string) => {
+    const next = await tasksApi.get(projectId, nextTaskId);
+    if (next.success && next.data) {
+      setFeatures(prev => [...prev, mapTaskToFeature(next.data as RawPipelineTask, statusToStageId, featureFallbacks)]);
+      toast.success(t.projects.pipeline.nextRecurringCreated);
+    }
+  };
+
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveDealId(null);
@@ -863,17 +882,7 @@ const PipelinePage = () => {
 
     // Stage reordering
     if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
-      const fromId = activeId.replace(STAGE_SORTABLE_PREFIX, '');
-      const toId = resolveStageDropId(overId);
-
-      if (fromId !== toId) {
-        setColumns(prev => {
-          const next = reorderStages(prev, fromId, toId);
-          if (!next) return prev;
-          void persistStageOrder(next);
-          return next;
-        });
-      }
+      handleStageDrop(activeId, overId);
       setDraggedFeatureOriginalColumn(null);
       return;
     }
@@ -883,26 +892,53 @@ const PipelinePage = () => {
     const movedFeature = features.find(f => f.id === draggedFeatureOriginalColumn.id);
     if (!movedFeature) { setDraggedFeatureOriginalColumn(null); return; }
 
+    const originalColumn = draggedFeatureOriginalColumn.column;
     const targetStageId = resolveTaskDropStageId(overId, features);
+    const overFeature = features.find(f => f.id === overId && f.id !== movedFeature.id);
+    setDraggedFeatureOriginalColumn(null);
+    if (!targetStageId) return;
 
-    if (targetStageId && targetStageId !== draggedFeatureOriginalColumn.column) {
-      // Optimistic update
-      setFeatures(prev => prev.map(f => f.id === movedFeature.id ? { ...f, column: targetStageId! } : f));
+    // Where the card lands: next to the card it was dropped on. Dropped on an
+    // empty part of a column, it keeps its place in the list order.
+    const reordered = placeMovedFeature(features, movedFeature.id, targetStageId, overFeature?.id);
+    // The pre-drop list, kept to roll the optimistic update back on a failure.
+    const beforeDrop = features;
 
-      const targetStage = columns.find(c => c.id === targetStageId);
-      const result = await tasksApi.update(projectId, movedFeature.id, {
-        stageId: targetStageId,
-        status: targetStage?.systemStatus ?? targetStageId,
-      });
-      if (result.success) {
-        toast.success(t.projects.pipeline.taskMoved);
-      } else {
-        toast.error(t.projects.pipeline.taskUpdateFailed);
-        void loadData();
+    if (targetStageId === originalColumn) {
+      // Ordering within a column: only the position changes.
+      if (!overFeature) return;
+      setFeatures(reordered);
+      const result = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
+      if (!result.success) {
+        setFeatures(beforeDrop);
+        toast.error(t.projects.pipeline.taskReorderFailed);
       }
+      return;
     }
 
-    setDraggedFeatureOriginalColumn(null);
+    // Optimistic update
+    setFeatures(reordered);
+
+    const targetStage = columns.find(c => c.id === targetStageId);
+    const originalStage = columns.find(c => c.id === originalColumn);
+    const result = await persistStageChange(
+      projectId,
+      movedFeature.id,
+      targetStageId,
+      originalStage?.systemStatus ?? originalColumn,
+      targetStage?.systemStatus ?? targetStageId,
+    );
+    if (!result.success) {
+      toast.error(t.projects.pipeline.taskUpdateFailed);
+      void loadData();
+      return;
+    }
+    toast.success(t.projects.pipeline.taskMoved);
+    if (overFeature) {
+      const reorderResult = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
+      if (!reorderResult.success) toast.error(t.projects.pipeline.taskReorderFailed);
+    }
+    if (result.data?.nextTaskId) await showNextRecurringTask(result.data.nextTaskId);
   };
 
   const activeDeal = activeDealId ? features.find(f => f.id === activeDealId) : null;
@@ -918,7 +954,7 @@ const PipelinePage = () => {
     title: string;
     description?: string;
     status: string;
-    priority?: 'low' | 'medium' | 'high';
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
     assignee?: string;
     assigneeIds?: string[];
     dueDate?: Date;
@@ -952,7 +988,7 @@ const PipelinePage = () => {
       });
       if (result.success && result.data) {
         const newTask = result.data;
-        setFeatures(prev => [...prev, mapTaskToFeature(newTask, statusToStageId)]);
+        setFeatures(prev => [...prev, mapTaskToFeature(newTask, statusToStageId, featureFallbacks)]);
         setShowCreateDialog(false);
         toast.success(t.projects.pipeline.taskCreated);
       } else {
@@ -997,6 +1033,9 @@ const PipelinePage = () => {
       setFeatures(features.map(f => f.column === stageId ? { ...f, column: remaining[0].id } : f));
       setColumns(remaining);
       toast.success(t.projects.pipeline.stageDeleted);
+    } else if (result.status === 400) {
+      // The target stage was refused (gone, or from another project).
+      toast.error(t.projects.pipeline.stageDeleteInvalidTarget);
     } else {
       toast.error(t.projects.pipeline.stageDeleteFailed);
     }
@@ -1005,7 +1044,7 @@ const PipelinePage = () => {
   const handleDuplicateStage = async (stage: StageColumn) => {
     if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stage.id);
-    const result = await stagesApi.create(projectId, { name: stage.name + ' (Copy)', color: stage.color, position: idx + 1, systemStatus: stage.systemStatus });
+    const result = await stagesApi.create(projectId, { name: `${stage.name} ${t.projects.pipeline.stageCopySuffix}`, color: stage.color, position: idx + 1, systemStatus: stage.systemStatus });
     if (result.success && result.data) {
       const newStage: StageColumn = { id: result.data.id, name: result.data.name, color: result.data.color || stage.color, systemStatus: result.data.systemStatus || stage.systemStatus };
       const next = [...columns];
@@ -1017,10 +1056,16 @@ const PipelinePage = () => {
     }
   };
 
-  const persistStageOrder = useCallback(async (ordered: StageColumn[]) => {
+  // Saves a new stage order; when the server refuses, the previous order comes
+  // back and the user is told (a failed save used to be swallowed silently).
+  const persistStageOrder = useCallback(async (ordered: StageColumn[], previous: StageColumn[]) => {
     if (!canWrite) return;
-    await stagesApi.reorder(projectId, ordered.map(s => s.id));
-  }, [canWrite, projectId]);
+    const result = await stagesApi.reorder(projectId, ordered.map(s => s.id));
+    if (!result.success) {
+      setColumns(previous);
+      toast.error(t.projects.pipeline.stageReorderFailed);
+    }
+  }, [canWrite, projectId, t]);
 
   const handleMoveStageLeft = (stageId: string) => {
     if (!canWrite) return;
@@ -1029,7 +1074,7 @@ const PipelinePage = () => {
     const next = [...columns];
     [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
     setColumns(next);
-    void persistStageOrder(next);
+    void persistStageOrder(next, columns);
   };
 
   const handleMoveStageRight = (stageId: string) => {
@@ -1039,7 +1084,7 @@ const PipelinePage = () => {
     const next = [...columns];
     [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
     setColumns(next);
-    void persistStageOrder(next);
+    void persistStageOrder(next, columns);
   };
 
 
@@ -1166,7 +1211,7 @@ const PipelinePage = () => {
                             <div className="space-y-2">
                               <SortableContext items={stageFeatures.map(d => d.id)} strategy={verticalListSortingStrategy}>
                                 {stageFeatures.map((feature) => (
-                                  <TaskCard key={feature.id} feature={feature} availableLabels={availableLabels} canWrite={canWrite} onClick={() => setSelectedFeature(feature)} />
+                                  <TaskCard key={feature.id} feature={feature} availableLabels={availableLabels} canWrite={canWrite} onClick={() => openFeature(feature)} />
                                 ))}
                               </SortableContext>
                             </div>
@@ -1215,18 +1260,6 @@ const PipelinePage = () => {
                           .filter((l): l is NonNullable<typeof l> => !!l)
                           .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
                       />
-                    </div>
-                  )}
-                  {activeDeal.tags && activeDeal.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {activeDeal.tags.slice(0, 3).map((tag) => (
-                        <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
-                          {tag.name}
-                        </Badge>
-                      ))}
-                      {activeDeal.tags.length > 3 && (
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">+{activeDeal.tags.length - 3}</Badge>
-                      )}
                     </div>
                   )}
                 </div>
@@ -1298,7 +1331,9 @@ const PipelinePage = () => {
           if (!canWrite) return;
           const updateData: Parameters<typeof tasksApi.update>[2] = {};
           if (data.title) updateData.title = data.title;
-          if (data.description !== undefined) updateData.description = data.description;
+          // Cleared fields go out as an explicit `null`: `undefined` is dropped by
+          // JSON, so a removed description / due date / recurrence stayed saved.
+          if (data.description !== undefined) updateData.description = data.description || null;
           if (data.status) {
             const stage = columns.find(c => c.id === data.status);
             if (stage) {
@@ -1309,27 +1344,30 @@ const PipelinePage = () => {
             }
           }
           if (data.priority) updateData.priority = data.priority;
-          if (data.dueDate !== undefined) updateData.dueDate = data.dueDate?.toISOString();
+          if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
           if (data.duration !== undefined) updateData.duration = data.duration;
           if (data.labels !== undefined) updateData.labels = data.labels;
+          if (data.repeat !== undefined) updateData.repeat = data.repeat;
+          if (data.assigneeIds !== undefined) updateData.assigneeIds = data.assigneeIds;
 
           void (async () => {
             const result = await tasksApi.update(projectId, taskId, updateData);
             if (result.success) {
-              setFeatures(prev => prev.map(f => f.id === taskId ? {
+              // The card follows the stage the task now sits in (a stage id), not
+              // the stage's status.
+              const patchFeature = (f: TaskFeature): TaskFeature => ({
                 ...f,
                 ...(updateData.title && { name: updateData.title }),
-                ...(updateData.description !== undefined && { description: updateData.description }),
-                ...(updateData.status && { column: updateData.status }),
+                ...(updateData.description !== undefined && { description: updateData.description ?? undefined }),
+                ...(updateData.stageId && { column: updateData.stageId }),
                 ...(updateData.priority && { priority: updateData.priority }),
-              } : f));
-              setSelectedFeature(prev => prev?.id === taskId ? {
-                ...prev,
-                ...(updateData.title && { name: updateData.title }),
-                ...(updateData.description !== undefined && { description: updateData.description }),
-                ...(updateData.status && { column: updateData.status }),
-                ...(updateData.priority && { priority: updateData.priority }),
-              } : prev);
+                ...(updateData.dueDate !== undefined && {
+                  hasDueDate: !!updateData.dueDate,
+                  ...(updateData.dueDate && { endAt: new Date(updateData.dueDate) }),
+                }),
+                ...(updateData.labels !== undefined && { labels: updateData.labels }),
+              });
+              setFeatures(prev => prev.map(f => f.id === taskId ? patchFeature(f) : f));
               setShowCreateDialog(false);
               setEditingCrmTask(null);
               toast.success(t.projects.pipeline.taskUpdated);

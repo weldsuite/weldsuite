@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { ArrowLeft, ClipboardCheck, Loader2, Undo2 } from 'lucide-react';
+import { ArrowLeft, ClipboardCheck, EllipsisVertical, FileText, Loader2, Play, Undo2 } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
@@ -15,15 +14,15 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { PageLoader } from '@/components/page-loader';
+import type { ActiveFilter, ColumnDef, FilterConfig } from '@/components/entity-list';
+import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { RowAmount, RowDate, RowTitle, StatusChip, type ChipTone } from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import {
@@ -43,10 +42,22 @@ import {
 import { maskedAccountNumber } from '../components/routing-number';
 import { inProgressOf, latestCompleted, parseStatementBalance } from './reconciliation-math';
 
-const STATUS_VARIANT: Record<ReconciliationStatus, 'success' | 'outline' | 'warning'> = {
-  completed: 'success',
-  undone: 'outline',
-  in_progress: 'warning',
+const STATUSES: readonly ReconciliationStatus[] = ['in_progress', 'completed', 'undone'];
+
+/** Client-side filtering of the history on its status pill (`is` / `is not`). */
+function filterByStatus(rows: ReconciliationHistoryRow[], active: ActiveFilter[]): ReconciliationHistoryRow[] {
+  return active.reduce((kept, pill) => {
+    if (pill.field !== 'status' || pill.value === '') return kept;
+    if (pill.operator === 'is') return kept.filter((row) => row.status === pill.value);
+    if (pill.operator === 'is not') return kept.filter((row) => row.status !== pill.value);
+    return kept;
+  }, rows);
+}
+
+const STATUS_TONE: Record<ReconciliationStatus, ChipTone> = {
+  completed: 'green',
+  undone: 'gray',
+  in_progress: 'amber',
 };
 
 export default function StatementReconciliationsPage() {
@@ -197,119 +208,174 @@ export default function StatementReconciliationsPage() {
     );
   }
 
-  const renderRow = (row: ReconciliationHistoryRow) => (
-    <TableRow key={row.id} data-testid="reconciliation-row">
-      <TableCell className="whitespace-nowrap">{formatDate(row.statementDate)}</TableCell>
-      <TableCell className="text-right tabular-nums">{formatMoney(row.statementEndingBalance, currency)}</TableCell>
-      <TableCell className="text-right tabular-nums">
-        {row.clearedBalance === null ? '—' : formatMoney(row.clearedBalance, currency)}
-      </TableCell>
-      <TableCell className="text-right tabular-nums">
-        {row.difference === null ? '—' : formatMoney(row.difference, currency)}
-      </TableCell>
-      <TableCell>
-        <Badge variant={STATUS_VARIANT[row.status]}>{ts.statuses[row.status]}</Badge>
-      </TableCell>
-      <TableCell className="whitespace-nowrap text-muted-foreground">
-        {row.completedAt ? formatDateTime(row.completedAt) : '—'}
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          {row.status === 'in_progress' ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/weldbooks/banking/statements/$id" params={{ id: row.id }}>{ts.resume}</Link>
-            </Button>
-          ) : null}
-          {row.status !== 'in_progress' && row.hasReport ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/weldbooks/banking/statements/$id/report" params={{ id: row.id }}>{ts.viewReport}</Link>
-            </Button>
-          ) : null}
-          {latest?.id === row.id && can('banking:manage') ? (
-            <Button variant="ghost" size="sm" onClick={() => setUndoId(row.id)} data-testid="undo-reconciliation">
-              <Undo2 className="h-4 w-4" />
-              {ts.undo}
-            </Button>
-          ) : null}
-        </div>
-      </TableCell>
-    </TableRow>
-  );
+  const statusFilters: FilterConfig[] = [
+    { field: 'status', label: ts.columns.status, options: STATUSES.map((value) => ({ value, label: ts.statuses[value] })) },
+  ];
 
-  let historyBody: ReactNode;
-  if (history.isLoading && accountId) {
-    historyBody = <PageLoader fullScreen={false} />;
-  } else if (rows.length === 0) {
-    historyBody = <p className="p-4 text-sm text-muted-foreground">{ts.historyEmpty}</p>;
-  } else {
-    historyBody = (
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{ts.columns.statementDate}</TableHead>
-              <TableHead className="text-right">{ts.columns.endingBalance}</TableHead>
-              <TableHead className="text-right">{ts.columns.clearedBalance}</TableHead>
-              <TableHead className="text-right">{ts.columns.difference}</TableHead>
-              <TableHead>{ts.columns.status}</TableHead>
-              <TableHead>{ts.columns.completed}</TableHead>
-              <TableHead className="text-right">{ts.columns.actions}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>{rows.map(renderRow)}</TableBody>
-        </Table>
+  const openRow = (row: ReconciliationHistoryRow) => {
+    if (row.status !== 'in_progress' && row.hasReport) {
+      void navigate({ to: '/weldbooks/banking/statements/$id/report', params: { id: row.id } });
+    } else {
+      void navigate({ to: '/weldbooks/banking/statements/$id', params: { id: row.id } });
+    }
+  };
+
+  const columns: ColumnDef<ReconciliationHistoryRow>[] = [
+    {
+      id: 'statementDate',
+      header: ts.columns.statementDate,
+      width: 'min-w-[160px] flex-1 gap-2',
+      render: (row) => <RowTitle>{formatDate(row.statementDate)}</RowTitle>,
+    },
+    {
+      id: 'endingBalance',
+      header: ts.columns.endingBalance,
+      width: 'w-[140px]',
+      render: (row) => <RowAmount>{formatMoney(row.statementEndingBalance, currency)}</RowAmount>,
+    },
+    {
+      id: 'clearedBalance',
+      header: ts.columns.clearedBalance,
+      width: 'w-[140px]',
+      render: (row) => <RowAmount>{row.clearedBalance === null ? null : formatMoney(row.clearedBalance, currency)}</RowAmount>,
+    },
+    {
+      id: 'difference',
+      header: ts.columns.difference,
+      width: 'w-[140px]',
+      render: (row) => <RowAmount>{row.difference === null ? null : formatMoney(row.difference, currency)}</RowAmount>,
+    },
+    {
+      id: 'status',
+      header: ts.columns.status,
+      width: 'w-[110px]',
+      render: (row) => <StatusChip tone={STATUS_TONE[row.status]}>{ts.statuses[row.status]}</StatusChip>,
+    },
+    {
+      id: 'completed',
+      header: ts.columns.completed,
+      width: 'w-[160px]',
+      render: (row) => <RowDate>{row.completedAt ? formatDateTime(row.completedAt) : null}</RowDate>,
+    },
+  ];
+
+  const renderRowMenu = (row: ReconciliationHistoryRow) => {
+    const canUndo = latest?.id === row.id && can('banking:manage');
+    const hasReport = row.status !== 'in_progress' && row.hasReport;
+    if (row.status !== 'in_progress' && !hasReport && !canUndo) return null;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={t.common.actions.openMenu}
+            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent"
+          >
+            <EllipsisVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {row.status === 'in_progress' ? (
+            <DropdownMenuItem onClick={() => openRow(row)}>
+              <Play className="mr-0.5 h-3.5 w-3.5" />
+              {ts.resume}
+            </DropdownMenuItem>
+          ) : null}
+          {hasReport ? (
+            <DropdownMenuItem onClick={() => openRow(row)}>
+              <FileText className="mr-0.5 h-3.5 w-3.5" />
+              {ts.viewReport}
+            </DropdownMenuItem>
+          ) : null}
+          {canUndo ? (
+            <DropdownMenuItem
+              data-testid="undo-reconciliation"
+              className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
+              onClick={() => setUndoId(row.id)}
+            >
+              <Undo2 className="mr-0.5 h-3.5 w-3.5 text-red-600" />
+              {ts.undo}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
+  // Nothing reconciled yet: a line of text under the form reads better than a list's tall empty state.
+  const historyLoading = history.isLoading && !!accountId;
+  let historySection: ReactNode;
+  if (rows.length === 0 && !historyLoading) {
+    historySection = (
+      <div className="space-y-1 px-6 pb-6">
+        <h2 className="text-sm font-medium">{ts.historyTitle}</h2>
+        <p className="text-sm text-muted-foreground">{ts.historyEmpty}</p>
       </div>
+    );
+  } else {
+    historySection = (
+      <WeldbooksEntityList<ReconciliationHistoryRow>
+        items={rows}
+        isLoading={historyLoading}
+        columns={columns}
+        onRowClick={openRow}
+        getRowLabel={(row) => formatDate(row.statementDate)}
+        renderRowMenu={renderRowMenu}
+        leftActionButtons={<h2 className="text-sm font-medium">{ts.historyTitle}</h2>}
+        filters={statusFilters}
+        applyFilters={filterByStatus}
+        emptyState={{ title: ts.historyEmpty, description: '' }}
+        noResultsState={{ title: t.common.empty.noResults, description: '' }}
+      />
     );
   }
 
   return (
-    <div className="max-w-6xl space-y-4 p-6">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" asChild aria-label={ts.back}>
-          <Link to="/weldbooks/banking/reconciliation">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-semibold">{ts.title}</h1>
-          <p className="text-sm text-muted-foreground">{ts.subtitle}</p>
+    <div>
+      <div className="max-w-6xl space-y-4 p-6">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" asChild aria-label={ts.back}>
+            <Link to="/weldbooks/banking/reconciliation">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold">{ts.title}</h1>
+            <p className="text-sm text-muted-foreground">{ts.subtitle}</p>
+          </div>
         </div>
+
+        <div className="max-w-md space-y-1">
+          <Label htmlFor="statement-account">{ts.bankAccount}</Label>
+          <Select
+            value={accountId}
+            onValueChange={(value) => {
+              setAccountId(value);
+              setShowProblems(false);
+              start.reset();
+            }}
+            disabled={accountsLoading}
+          >
+            <SelectTrigger id="statement-account" data-testid="statement-account">
+              <SelectValue placeholder={ts.selectAccount} />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {accountLabel(a)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {startSection}
+
+        {undo.isError ? <p className="text-sm text-destructive" role="alert">{(undo.error as Error).message}</p> : null}
       </div>
 
-      <div className="max-w-md space-y-1">
-        <Label htmlFor="statement-account">{ts.bankAccount}</Label>
-        <Select
-          value={accountId}
-          onValueChange={(value) => {
-            setAccountId(value);
-            setShowProblems(false);
-            start.reset();
-          }}
-          disabled={accountsLoading}
-        >
-          <SelectTrigger id="statement-account" data-testid="statement-account">
-            <SelectValue placeholder={ts.selectAccount} />
-          </SelectTrigger>
-          <SelectContent>
-            {accounts.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {accountLabel(a)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {startSection}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{ts.historyTitle}</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">{historyBody}</CardContent>
-      </Card>
-
-      {undo.isError ? <p className="text-sm text-destructive" role="alert">{(undo.error as Error).message}</p> : null}
+      {historySection}
 
       <ConfirmDialog
         open={undoId !== null}

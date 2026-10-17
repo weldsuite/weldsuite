@@ -122,6 +122,8 @@ PLAID_ENV = "sandbox"
 BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
 BANK_FEED_WEBHOOK_URL = "https://integration-webhooks-test.weldsuite.org/webhooks/bank-feeds"
 PLATFORM_URL = "https://app-test.weldsuite.org"
+# Public base URL for provider callbacks (Focus NFe webhooks).
+BOOKS_API_URL = "https://books-api-test.weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -167,6 +169,8 @@ PLAID_ENV = "production"
 BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
 BANK_FEED_WEBHOOK_URL = "https://integration-webhooks.weldsuite.org/webhooks/bank-feeds"
 PLATFORM_URL = "https://app.weldsuite.org"
+# Public base URL for provider callbacks (Focus NFe webhooks).
+BOOKS_API_URL = "https://books-api.weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

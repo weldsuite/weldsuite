@@ -46,6 +46,8 @@ import type {
   BillPrefill,
   Contact,
   ContactBalance,
+  ContactKind,
+  ContactPerson,
   DashboardData,
   GlAccount,
   Invoice,
@@ -1156,9 +1158,17 @@ class WeldBooksApi {
    * A US vendor's taxpayer ID, W-9 and 1099 settings are deliberately not part
    * of this payload: a TIN is write-only on the server and is entered on the
    * web, never on a phone.
+   *
+   * `kind` says whether the contact wraps a CRM company or a person. Without it
+   * the server guesses from the names given, and a bare `fullName` becomes a
+   * company.
    */
   async createContact(data: {
+    kind?: ContactKind;
     fullName: string;
+    companyName?: string;
+    firstName?: string;
+    lastName?: string;
     email?: string;
     phone?: string;
     vatNumber?: string;
@@ -1166,7 +1176,11 @@ class WeldBooksApi {
     billingAddress?: PostalAddress | null;
   }): Promise<Contact> {
     const res = await client.post<DataEnvelope<Json>>('/accounting-contacts', {
+      ...(data.kind ? { kind: data.kind } : {}),
       fullName: data.fullName,
+      ...(data.companyName ? { companyName: data.companyName } : {}),
+      ...(data.firstName ? { firstName: data.firstName } : {}),
+      ...(data.lastName ? { lastName: data.lastName } : {}),
       ...(data.email ? { email: data.email } : {}),
       ...(data.phone ? { phone: data.phone } : {}),
       ...(data.vatNumber ? { vatNumber: data.vatNumber } : {}),
@@ -1393,6 +1407,9 @@ function toFeatures(raw: unknown, code: string): JurisdictionFeatures {
     gstReturn: flag('gstReturn'),
     salesTax: flag('salesTax'),
     form1099: flag('form1099'),
+    brTaxReturn: flag('brTaxReturn'),
+    fiscalDocuments: flag('fiscalDocuments'),
+    spedEcd: flag('spedEcd'),
   };
 }
 
@@ -1403,9 +1420,9 @@ function toTerminology(raw: unknown, code: string): JurisdictionTerminology {
   const pick = <K extends keyof JurisdictionTerminology>(key: K, allowed: readonly JurisdictionTerminology[K][]) =>
     allowed.includes(row[key] as JurisdictionTerminology[K]) ? (row[key] as JurisdictionTerminology[K]) : builtIn[key];
   return {
-    tax: pick('tax', ['vat', 'gst', 'sales_tax']),
-    taxId: pick('taxId', ['vat_number', 'gstin', 'ein']),
-    registrationId: pick('registrationId', ['kvk', 'pan', 'company_number', 'state_id']),
+    tax: pick('tax', ['vat', 'gst', 'sales_tax', 'tributos']),
+    taxId: pick('taxId', ['vat_number', 'gstin', 'ein', 'cnpj']),
+    registrationId: pick('registrationId', ['kvk', 'pan', 'company_number', 'state_id', 'ie']),
     supplier: pick('supplier', ['supplier', 'vendor']),
     creditNote: pick('creditNote', ['credit_note', 'credit_memo']),
   };
@@ -1475,14 +1492,33 @@ function toBankTransaction(row: Json): BankTransaction {
   };
 }
 
+/** A company's CRM billing contact; null, or a row without a person id, is none. */
+function toContactPerson(value: unknown): ContactPerson | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const row = value as Json;
+  if (!row.personId) return undefined;
+  const optional = (field: unknown) => (field ? str(field) : undefined);
+  return {
+    personId: str(row.personId),
+    name: str(row.name),
+    firstName: optional(row.firstName),
+    lastName: optional(row.lastName),
+    email: optional(row.email),
+    phone: optional(row.phone),
+  };
+}
+
 function toContact(row: Json): Contact {
   const billingAddress = toPostalAddress(row.billingAddress);
   const tinType = ['ein', 'ssn', 'itin'].includes(str(row.tinType)) ? (str(row.tinType) as TinType) : undefined;
+  const kind = row.kind === 'company' || row.kind === 'person' ? row.kind : undefined;
   return {
     id: str(row.id),
     name: str(row.displayName ?? row.name),
     email: str(row.email),
     type: str(row.role, 'customer') as Contact['type'],
+    kind,
+    contactPerson: kind === 'company' ? toContactPerson(row.contactPerson) : undefined,
     phone: row.phone ? str(row.phone) : undefined,
     vatNumber: row.vatNumber ? str(row.vatNumber) : undefined,
     city: row.city ? str(row.city) : billingAddress?.city,

@@ -12,6 +12,13 @@ import {
   type ExistingPerson,
 } from '../components/person-email-conflict-dialog';
 
+/** The contact a 409 points at: the WeldCRM record picked is already this customer or supplier. */
+function existingContactId(err: unknown): string | null {
+  const body = (err as { status?: number; body?: unknown } | null)?.body;
+  const details = (body as { error?: { details?: { contactId?: unknown } } } | undefined)?.error?.details;
+  return typeof details?.contactId === 'string' ? details.contactId : null;
+}
+
 export default function AddContactPage() {
   const navigate = useNavigate();
   const createContact = useCreateAccountingCustomer();
@@ -34,6 +41,17 @@ export default function AddContactPage() {
         return;
       }
       setConflict(null);
+      const contactId = existingContactId(err);
+      if (contactId) {
+        toast.error(tc.alreadyInBooks, {
+          description: err instanceof Error ? err.message : undefined,
+          action: {
+            label: tc.openExisting,
+            onClick: () => navigate({ to: '/weldbooks/customers/$id', params: { id: contactId } }),
+          },
+        });
+        return;
+      }
       toast.error(tc.createFailed, {
         description: err instanceof Error ? err.message : undefined,
       });

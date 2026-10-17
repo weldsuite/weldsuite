@@ -45,6 +45,8 @@ import { FORM_1099_OMIT, form1099BoxName } from '@/lib/weldbooks/form-1099';
 import { Link as AppLink } from '@/lib/router';
 import { SalesTaxErrorNotice, useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { TaxBreakdownList } from '@/app/weldbooks/invoices/components/tax-breakdown';
+import { BrTaxSummary } from '@/app/weldbooks/invoices/components/br-fields';
+import { isBrBreakdown } from '@/lib/weldbooks/br-fiscal';
 import { toast } from 'sonner';
 
 function statusVariant(status: string) {
@@ -420,6 +422,17 @@ export default function BillDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {isBrBreakdown(bill.taxBreakdown) && (
+        <Card data-testid="br-bill-tax-card">
+          <CardHeader>
+            <CardTitle>{t.weldbooksBr.document.billTaxTitle}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BrTaxSummary rows={bill.taxBreakdown} warnings={bill.taxWarnings} currency={bill.currency} />
+          </CardContent>
+        </Card>
+      )}
 
       {features.salesTax && useTaxGroups.length > 0 && (
         <Card data-testid="use-tax-card">

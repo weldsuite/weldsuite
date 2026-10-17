@@ -25,6 +25,15 @@ import { FORM_1099_OMIT, isForm1099BoxCode } from '@weldsuite/books-domain/juris
 import { validateSsn, validateZip } from '@weldsuite/books-domain/jurisdictions/us/identifiers';
 import { isUsAddressStateCode } from '@weldsuite/books-domain/jurisdictions/us/states';
 import {
+  allowedBrRegimes,
+  BR_ENTITY_TYPES,
+  BR_TAX_REGIMES,
+  isBrEntityType,
+  isBrTaxRegime,
+  type BrEntityType,
+  type BrTaxRegime,
+} from '@weldsuite/books-domain/jurisdictions/br';
+import {
   TAX_FORM_LABELS,
   TAX_LINE_CATEGORY_KEYS,
   getTaxLine,
@@ -82,11 +91,28 @@ export function resolveEntityKind(
   const entityType = input.entityType !== undefined ? input.entityType : (existing?.entityType ?? null);
   const requestedClassification = input.taxClassification;
 
+  if (jurisdictionCode.toUpperCase() === 'BR') {
+    // Brazil: taxClassification holds the regime tributário.
+    return resolveBrEntityKind(
+      { entityType, taxClassification: requestedClassification },
+      existing?.taxClassification ?? null,
+    );
+  }
+
   if (jurisdictionCode.toUpperCase() !== 'US') {
-    if (requestedClassification) throw new EntitySetupError('taxClassification applies to US entities only');
+    if (requestedClassification) throw new EntitySetupError('taxClassification applies to US and Brazilian entities only');
     return { entityType, taxClassification: null };
   }
 
+  return resolveUsEntityKind(entityType, requestedClassification, existing?.taxClassification ?? null);
+}
+
+/** US: the entity type and the classification it elects, checked against each other. */
+function resolveUsEntityKind(
+  entityType: string | null,
+  requestedClassification: string | null | undefined,
+  existingClassification: string | null,
+): { entityType: string | null; taxClassification: string | null } {
   if (entityType && !isUsEntityType(entityType)) {
     throw new EntitySetupError(`entityType must be one of: ${US_ENTITY_TYPES.join(', ')}`);
   }
@@ -94,7 +120,7 @@ export function resolveEntityKind(
     throw new EntitySetupError('taxClassification must be one of: sole_proprietor, disregarded, partnership, s_corp, c_corp, exempt');
   }
 
-  let classification = requestedClassification !== undefined ? requestedClassification : (existing?.taxClassification ?? null);
+  let classification = requestedClassification !== undefined ? requestedClassification : existingClassification;
   if (entityType) {
     if (classification && !isValidTaxClassification(entityType, classification)) {
       // A type change that leaves the old classification invalid falls back to the type's default; an explicit request doesn't.
@@ -324,4 +350,29 @@ export async function applyTaxLines(
     );
   }
   return result;
+}
+
+/**
+ * Brazil: the legal form (entityType) and the regime tributário
+ * (taxClassification). A MEI is always in the SIMEI and an S.A. can't opt for
+ * the Simples; a new entity without a regime starts in the Simples Nacional.
+ */
+function resolveBrEntityKind(
+  input: { entityType: string | null; taxClassification?: string | null },
+  existingRegime: string | null,
+): { entityType: string | null; taxClassification: string | null } {
+  const { entityType } = input;
+  if (entityType && !isBrEntityType(entityType)) {
+    throw new EntitySetupError(`entityType must be one of: ${BR_ENTITY_TYPES.join(', ')}`);
+  }
+  if (input.taxClassification && !isBrTaxRegime(input.taxClassification)) {
+    throw new EntitySetupError(`taxClassification (the regime) must be one of: ${BR_TAX_REGIMES.join(', ')}`);
+  }
+  const allowed = allowedBrRegimes(entityType as BrEntityType | null);
+  const requested = input.taxClassification ?? existingRegime;
+  if (input.taxClassification && !allowed.includes(input.taxClassification as BrTaxRegime)) {
+    throw new EntitySetupError(`This legal form can't be in that regime. Allowed: ${allowed.join(', ')}`);
+  }
+  const regime = requested && allowed.includes(requested as BrTaxRegime) ? requested : allowed[0];
+  return { entityType, taxClassification: regime };
 }

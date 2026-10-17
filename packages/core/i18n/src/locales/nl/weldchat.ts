@@ -309,6 +309,7 @@ export const weldchat = {
         advanced: 'Geavanceerd',
       },
       header: 'instellingen',
+      dialogDescription: 'Stel zichtbaarheid, sortering en meldingen voor deze groep in.',
       general: {
         channelName: 'Kanaalnaam',
         topic: 'Onderwerp',
@@ -574,6 +575,7 @@ export const weldchat = {
       reply: 'antwoord',
       replies: 'antwoorden',
       edited: '(bewerkt)',
+      inChannel: 'in #{name}',
       agentThinking: 'Bezig',
       viewProfile: 'Profiel van {name} bekijken',
       agentClickDetails: '(Agent) — klik voor details',
@@ -836,6 +838,8 @@ export const weldchat = {
     messageList: {
       loadOlderMessages: 'Oudere berichten laden',
       messageNotFound: 'Dat bericht is niet gevonden. Het is mogelijk verwijderd.',
+      loadError: 'Berichten konden niet worden geladen.',
+      tryAgain: 'Opnieuw proberen',
     },
     chatFiltersPanel: {
       attachment: 'bijlage',

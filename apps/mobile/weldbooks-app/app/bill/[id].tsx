@@ -35,7 +35,8 @@ import {
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
-import { TaxBreakdownCard } from '@/components/tax-breakdown';
+import { TaxBreakdownCard, TreatmentBreakdownCard } from '@/components/tax-breakdown';
+import { hasTreatmentRows } from '@/lib/tax-treatment';
 import type { Bill } from '@/types/accounting';
 
 type Confirm = 'reject' | 'delete' | null;
@@ -231,7 +232,12 @@ export default function BillDetailScreen() {
           labels={t.billDetail}
           taxLabel={isUs ? format(t.billDetail.taxPaid, terms) : labels.tax}
           extraRows={useTax > 0 ? [{ label: t.salesTax.useTaxAccrued, value: formatCurrency(useTax, currency) }] : []}
+          taxBreakdown={bill.taxBreakdown}
         />
+
+        {!isUs && hasTreatmentRows(bill.taxBreakdown) ? (
+          <TreatmentBreakdownCard rows={bill.taxBreakdown} currency={currency} />
+        ) : null}
 
         {useTax > 0 ? (
           <TaxBreakdownCard

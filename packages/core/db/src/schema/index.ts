@@ -304,6 +304,7 @@ export * from './accounting-payment-allocations';
 export * from './accounting-lock-date-exceptions';
 export * from './accounting-sales-tax';
 export * from './accounting-tax-returns';
+export * from './accounting-fiscal-documents';
 export * from './accounting-exemption-certificates';
 export * from './accounting-bank-feeds';
 export * from './accounting-bank-deposits';
@@ -311,6 +312,7 @@ export * from './accounting-form-1099';
 export * from './accounting-payment-runs';
 export * from './accounting-fixed-assets';
 export * from './accounting-dimensions';
+export * from './accounting-invoice-templates';
 
 // Calendar module
 export * from './calendars';

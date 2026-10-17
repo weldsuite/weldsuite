@@ -57,6 +57,23 @@ import { DocumentTaxPanel } from '@/app/weldbooks/invoices/components/document-t
 import { GstTaxSplit } from '@/app/weldbooks/invoices/components/gst-fields';
 import { useDocumentTaxPreview } from '@/app/weldbooks/invoices/components/use-document-tax-preview';
 import { buildBillPayload, type BillPayload } from './bill-payload';
+import { BrDocumentSection, BrLineFields, BrTaxSummary } from '@/app/weldbooks/invoices/components/br-fields';
+import {
+  EMPTY_BR_LINE,
+  brDocumentChecks,
+  brDocumentFields,
+  brDocumentPayload,
+  brDocumentProblems,
+  brDocumentValuesFromStored,
+  brLineChecks,
+  brLineFields,
+  brLineProblems,
+  brLineValuesFromStored,
+  type BrDocumentMessages,
+  type BrLineMessages,
+  type BrLineValues,
+} from '@/lib/weldbooks/br-fiscal';
+import { toTaxFormLine } from '@/lib/weldbooks/document-tax-form';
 
 export type { BillPayload };
 
@@ -67,10 +84,12 @@ const addressSchema = z.object({
   state: z.string().optional(),
   postalCode: z.string().optional(),
   country: z.string().optional(),
+  county: z.string().optional(),
 });
 
-function createBillFormSchema(st: (key: string) => string) {
-  const lineItemSchema = z.object({
+function createBillFormSchema(st: (key: string) => string, brMessages: { line: BrLineMessages; document: BrDocumentMessages }) {
+  const lineItemSchema = z
+    .object({
     description: z.string().min(1, st('sweep.weldbooks.billForm.descriptionRequired')),
     quantity: z.coerce.number().min(0.01, st('sweep.weldbooks.billForm.quantityMin')),
     unitPrice: z.coerce.number().min(0, st('sweep.weldbooks.billForm.unitPriceMin')),
@@ -84,9 +103,13 @@ function createBillFormSchema(st: (key: string) => string) {
     form1099Box: z.string().default(''),
     classId: z.string().default(''),
     locationId: z.string().default(''),
-  });
+    ...brLineFields,
+  })
+    .superRefine(brLineChecks(brMessages.line));
 
-  return z.object({
+  return z
+    .object({
+    ...brDocumentFields,
     contactId: z.string().min(1, st('sweep.weldbooks.billForm.supplierRequired')),
     issueDate: z.string().min(1, st('sweep.weldbooks.billForm.issueDateRequired')),
     dueDate: z.string().min(1, st('sweep.weldbooks.billForm.dueDateRequired')),
@@ -99,7 +122,8 @@ function createBillFormSchema(st: (key: string) => string) {
     deliveryDifferent: z.boolean().default(false),
     deliveryAddress: addressSchema,
     items: z.array(lineItemSchema).min(1, st('sweep.weldbooks.billForm.atLeastOneLineItem')),
-  });
+    })
+    .superRefine(brDocumentChecks(brMessages.document));
 }
 
 type BillFormValues = z.infer<ReturnType<typeof createBillFormSchema>>;
@@ -147,6 +171,7 @@ const emptyItem = {
   form1099Box: '',
   classId: '',
   locationId: '',
+  ...EMPTY_BR_LINE,
 };
 
 /** Select value of the default tax code / 1099 box; never stored. */
@@ -160,7 +185,17 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const tb = t.accounting.billForm;
   const td = useDocumentTexts();
   const submitLabel = mode === 'add' ? tb.createBill : tb.updateBill;
-  const billFormSchema = useMemo(() => createBillFormSchema(st), [st]);
+  const tbd = t.weldbooksBr.document;
+  const brMessages = useMemo(
+    () => ({
+      line: { ncm: tbd.errors.ncm, cfop: tbd.errors.cfop, cest: tbd.errors.cest, percent: tbd.errors.percent, issRate: tbd.errors.issRate },
+      document: { iss: tbd.errors.iss, irrf: tbd.errors.irrf, inss: tbd.errors.inss, accessKey: tbd.errors.accessKey },
+    }),
+    [tbd.errors],
+  );
+  const billFormSchema = useMemo(() => createBillFormSchema(st, brMessages), [st, brMessages]);
+  // Brazil: NCM / CFOP and fiscal details per line, withholdings and the NF-e access key per bill.
+  const br = features.brTaxReturn;
   const { data: contactsData } = useAccountingCustomers({ role: 'supplier' });
   const { data: taxRatesData } = useAccountingTaxRates();
   const { data: accountsData } = useAccountingAccounts({ type: 'expense' });
@@ -201,6 +236,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
       vendorAddress: toPostalAddressFormValue(normalizeAccountingAddress(bill?.vendorAddress)),
       deliveryDifferent: Boolean(deliveryStored),
       deliveryAddress: toPostalAddressFormValue(deliveryStored),
+      ...brDocumentValuesFromStored(stored?.fiscalData),
       items: stored?.items?.length
         ? stored.items.map((item) => ({
             description: item.description,
@@ -217,6 +253,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
             form1099Box: item.form1099Box ?? '',
             classId: item.classId ?? '',
             locationId: item.locationId ?? '',
+            ...brLineValuesFromStored(item),
           }))
         : prefilledItems ?? [{ ...emptyItem }],
     },
@@ -252,9 +289,11 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
       vendorTaxRate: item.vendorTaxRate,
       taxCode: item.taxCode,
       accrueUseTax: item.accrueUseTax,
+      ...(br ? { ncm: toTaxFormLine(item).ncm, cfop: toTaxFormLine(item).cfop, fiscalData: toTaxFormLine(item).fiscalData } : {}),
     })),
+    fiscalData: br ? brDocumentPayload(watched, { bill: true }) : undefined,
   });
-  const showLineOptions = salesTax || features.form1099;
+  const showLineOptions = salesTax || features.form1099 || br;
 
   // Copy the supplier's billing address in when the supplier changes (not
   // when an existing bill is opened).
@@ -288,6 +327,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
         mode,
         salesTax,
         form1099: features.form1099,
+        br,
         // An emptied rate field on a foreign bill: back to the rate of the issue date.
         resetExchangeRate: mode === 'edit' && rateEdited.current,
       }),
@@ -589,6 +629,20 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                     {showLineOptions && (
                       <TableRow className="bg-muted/30 hover:bg-muted/30" data-testid={`bill-line-${index}-options`}>
                         <TableCell colSpan={8}>
+                          {br && line && (
+                            <div className="mb-3">
+                              <BrLineFields
+                                idPrefix={`bill-${index}`}
+                                value={line as Partial<BrLineValues>}
+                                onChange={(patch) => {
+                                  for (const [key, value] of Object.entries(patch)) {
+                                    form.setValue(`items.${index}.${key}` as `items.${number}.ncm`, value as never, { shouldDirty: true });
+                                  }
+                                }}
+                                errors={brLineProblems(line as Partial<BrLineValues>, brMessages.line)}
+                              />
+                            </div>
+                          )}
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             {salesTax && (
                               <div className="space-y-1.5">
@@ -711,10 +765,39 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                 className="space-y-2 pt-2"
               />
               {features.gstReturn && <GstTaxSplit rows={preview.result?.taxBreakdown} currency={displayCurrency} />}
+              {br && (
+                <BrTaxSummary
+                  rows={preview.result?.taxBreakdown}
+                  warnings={preview.result?.warnings}
+                  currency={displayCurrency}
+                  previewNote
+                />
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {br && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{tbd.sectionTitle}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BrDocumentSection
+              idPrefix="bill-br"
+              direction="purchase"
+              value={watched}
+              errors={brDocumentProblems(watched, brMessages.document)}
+              onChange={(patch) => {
+                for (const [key, value] of Object.entries(patch)) {
+                  form.setValue(key as 'brIrrf', value as never, { shouldDirty: true });
+                }
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

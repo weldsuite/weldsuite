@@ -8,7 +8,7 @@ describe('US adapter registration', () => {
     expect(hasAdapter('us')).toBe(true);
     expect(getAdapter('US')).toBe(usAdapter);
     const codes = listJurisdictions().map((j) => j.code).sort();
-    expect(codes).toEqual(['IN', 'NL', 'US']);
+    expect(codes).toEqual(['BR', 'IN', 'NL', 'US']);
   });
 
   it('is the US in English with US dollars', () => {
@@ -27,6 +27,9 @@ describe('US adapter registration', () => {
       gstReturn: false,
       salesTax: true,
       form1099: true,
+      brTaxReturn: false,
+      fiscalDocuments: false,
+      spedEcd: false,
     });
     expect(getJurisdictionFeatures('US')).toEqual(usAdapter.features);
     const summary = listJurisdictions().find((j) => j.code === 'US');

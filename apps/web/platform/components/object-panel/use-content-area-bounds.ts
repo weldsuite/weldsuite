@@ -15,7 +15,7 @@ const BOTTOM_INSET_VAR = '--object-panel-content-bottom-inset';
  *
  * Used by overlay-style panels (fullscreen mode) to set their `topOffset`
  * and `leftOffset` so they cover the content area only, leaving the
- * platform sidebar (64px) and the per-module sidebar (16rem when
+ * platform sidebar (60px) and the per-module sidebar (16rem when
  * expanded) visible.
  *
  * Right-side drawer inset (the cumulative width of any open Agent /
@@ -32,7 +32,7 @@ const BOTTOM_INSET_VAR = '--object-panel-content-bottom-inset';
  * module sidebar is present.
  */
 export function useContentAreaBounds(): ContentAreaBounds {
-  const [bounds, setBounds] = useState<ContentAreaBounds>({ top: 60, left: 64 });
+  const [bounds, setBounds] = useState<ContentAreaBounds>({ top: 60, left: 60 });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -45,10 +45,10 @@ export function useContentAreaBounds(): ContentAreaBounds {
     const update = () => {
       const el = document.querySelector('[data-module-content]') as HTMLElement | null;
       if (!el) {
-        if (lastTop !== 60 || lastLeft !== 64) {
+        if (lastTop !== 60 || lastLeft !== 60) {
           lastTop = 60;
-          lastLeft = 64;
-          setBounds({ top: 60, left: 64 });
+          lastLeft = 60;
+          setBounds({ top: 60, left: 60 });
         }
         if (lastInset !== 0) {
           lastInset = 0;

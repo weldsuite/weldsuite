@@ -27,12 +27,17 @@ import { fxRatesRoutes } from './routes/fx-rates';
 import { glAccountsRoutes } from './routes/gl-accounts';
 import { icpDeclarationsRoutes } from './routes/icp-declarations';
 import { invoicesRoutes } from './routes/invoices';
+import { invoiceTemplatesRoutes } from './routes/invoice-templates';
 import { journalEntriesRoutes } from './routes/journal-entries';
 import { paymentsRoutes } from './routes/payments';
 import { reconciliationRulesRoutes } from './routes/reconciliation-rules';
 import { recurringInvoicesRoutes } from './routes/recurring-invoices';
 import { taxRatesRoutes } from './routes/tax-rates';
 import { vatReturnsRoutes } from './routes/vat-returns';
+import { fiscalDocumentsRoutes } from './routes/fiscal-documents';
+import { receivedFiscalDocumentsRoutes } from './routes/received-fiscal-documents';
+import { brTaxRoutes } from './routes/br-tax';
+import { publicFiscalWebhooksRoutes } from './routes/public-fiscal-webhooks';
 import { accountingDimensionsRoutes } from './routes/accounting-dimensions';
 import { bankConnectionsRoutes } from './routes/bank-connections';
 import { bankDepositsRoutes } from './routes/bank-deposits';
@@ -60,6 +65,8 @@ const app = createModuleApi<Env, Variables>({ service: 'books-api' });
 
 // Public W-9 form for vendors: no Clerk auth, the random token in the path is the credential.
 app.route('/public/w9', publicW9Routes);
+// Fiscal document provider callbacks (Focus NFe): no Clerk auth, the token in the path is the credential.
+app.route('/public/fiscal-webhooks', publicFiscalWebhooksRoutes);
 
 // Auth + tenant DB + feature flags for everything under /api/*
 app.use('/api/*', ...apiAuth());
@@ -87,6 +94,7 @@ app.route('/api/fiscal-periods', fiscalPeriodsRoutes);
 app.route('/api/fx-rates', fxRatesRoutes);
 app.route('/api/gl-accounts', glAccountsRoutes);
 app.route('/api/invoices', invoicesRoutes);
+app.route('/api/invoice-templates', invoiceTemplatesRoutes);
 app.route('/api/journal-entries', journalEntriesRoutes);
 app.route('/api/payments', paymentsRoutes);
 app.route('/api/reconciliation-rules', reconciliationRulesRoutes);
@@ -112,6 +120,10 @@ app.route('/api/sales-tax-zones', salesTaxZonesRoutes);
 app.route('/api/tax-calendar', taxCalendarRoutes);
 app.route('/api/tax-returns', taxReturnsRoutes);
 app.route('/api/w9-requests', w9RequestsRoutes);
+// Brazil (docs/plans/weldbooks-br.md)
+app.route('/api/br-tax', brTaxRoutes);
+app.route('/api/fiscal-documents', fiscalDocumentsRoutes);
+app.route('/api/received-fiscal-documents', receivedFiscalDocumentsRoutes);
 
 // Internal entrypoint, bound as BOOKS_INTERNAL (entrypoint = "BooksInternal") by
 // integration-webhook-worker, integration-sync-worker and hr-api. A named entrypoint is

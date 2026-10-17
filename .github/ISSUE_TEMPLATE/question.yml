@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Have a question about how something works? Please check the [README](../blob/main/README.md), [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md), and existing issues/discussions first.
+        Have a question about how something works? Please check the [README](../blob/main/README.md), [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md), and existing issues first.
   - type: textarea
     id: question
     attributes:

@@ -20,6 +20,7 @@ const permissions = vi.hoisted(() => ({ can: vi.fn() }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 vi.mock('@weldsuite/permissions/react', () => ({ usePermissions: () => ({ can: permissions.can, isOwner: false }) }));
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: vi.fn() }));
+vi.mock('@clerk/clerk-react', () => ({ useAuth: () => ({ orgSlug: 'acme', orgId: 'org_acme' }) }));
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn(), useSearch: () => ({}) }));
 vi.mock('@/lib/router', () => ({
   Link: ({ href, children }: { href: string; children?: React.ReactNode }) => <a href={href}>{children}</a>,
@@ -256,8 +257,8 @@ describe('Billing summary', () => {
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://checkout.stripe.test/session'));
     expect(api.reach.billingSetup).toHaveBeenCalledWith({
-      successUrl: 'https://app.test/weldreach/settings?billing=done',
-      cancelUrl: 'https://app.test/weldreach/settings',
+      successUrl: 'https://app.test/w/acme/weldreach/settings?billing=done',
+      cancelUrl: 'https://app.test/w/acme/weldreach/settings',
     });
   });
 });

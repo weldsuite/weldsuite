@@ -199,6 +199,11 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
       setDeletingStage(null);
       setReassignTargetId('');
       void load();
+    } else if (res.status === 400) {
+      // The reassignment target was refused (gone, or from another project):
+      // keep the dialog open so another one can be picked.
+      toast.error(t.projects.settings.statusDeleteInvalidTarget);
+      void load();
     } else {
       toast.error(res.error || t.projects.settings.failedToDeleteStatus);
     }

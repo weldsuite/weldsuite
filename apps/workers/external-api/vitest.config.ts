@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 
+// social-publish.test.ts mocks ../lib/social-context. With isolate:false every file shares one
+// module registry, so once another file has loaded the routes the mock no longer applies. The
+// `test` script therefore runs that file in its own vitest process (see package.json).
 export default defineConfig({
   test: {
     environment: 'node',

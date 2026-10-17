@@ -25,6 +25,7 @@ export function billDocumentContext(bill: BillRow): UsDocumentContext {
     currency: bill.currency,
     billingAddress: bill.vendorAddress,
     deliveryAddress: bill.deliveryAddress,
+    fiscalData: bill.fiscalData,
   };
 }
 
@@ -41,6 +42,9 @@ export function billItemToTaxItem(item: BillItemRow): DocumentTaxItem {
     taxRate: item.taxRate,
     taxCode: item.taxCode,
     accrueUseTax: item.accrueUseTax,
+    ncm: item.ncm,
+    cfop: item.cfop,
+    fiscalData: item.fiscalData,
   };
 }
 

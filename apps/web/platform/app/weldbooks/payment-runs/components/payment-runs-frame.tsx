@@ -51,20 +51,65 @@ export function UsOnlyGate({ children }: Readonly<{ children: ReactNode }>) {
   return <>{children}</>;
 }
 
+interface SectionNavProps {
+  active: (typeof NAV)[number]['key'];
+  label: string;
+  labels: Record<(typeof NAV)[number]['key'], string>;
+  className?: string;
+}
+
+/** The tabs between the vendor payment screens. */
+function SectionNav({ active, label, labels, className }: Readonly<SectionNavProps>) {
+  return (
+    <nav aria-label={label} className={cn('flex flex-wrap gap-1 border-b', className)}>
+      {NAV.map((item) => (
+        <Link
+          key={item.key}
+          to={item.href}
+          aria-current={active === item.key ? 'page' : undefined}
+          className={cn(
+            '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+            active === item.key
+              ? 'border-primary text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {labels[item.key]}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
 interface PaymentRunsFrameProps {
   title: string;
   subtitle?: string;
   /** Buttons on the right of the title. */
   actions?: ReactNode;
+  /**
+   * `list` is for a screen that is a standard list: the section tabs sit on top
+   * and the list (with its own toolbar) fills the page, so the heading block
+   * (`title`, `subtitle`, `actions`) is left out.
+   */
+  layout?: 'page' | 'list';
   children: ReactNode;
 }
 
 /** The shell of every vendor payment screen: the US gate, the title and the section tabs. */
-export function PaymentRunsFrame({ title, subtitle, actions, children }: Readonly<PaymentRunsFrameProps>) {
+export function PaymentRunsFrame({ title, subtitle, actions, layout = 'page', children }: Readonly<PaymentRunsFrameProps>) {
   const { t } = useI18n();
   const tn = t.weldbooksUs.payments.nav;
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const active = sectionOf(pathname);
+
+  if (layout === 'list') {
+    return (
+      <UsOnlyGate>
+        <SectionNav active={active} label={tn.title} labels={tn} className="px-4 pt-2" />
+        {children}
+      </UsOnlyGate>
+    );
+  }
 
   return (
     <UsOnlyGate>
@@ -77,23 +122,7 @@ export function PaymentRunsFrame({ title, subtitle, actions, children }: Readonl
           {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
 
-        <nav aria-label={tn.title} className="flex flex-wrap gap-1 border-b">
-          {NAV.map((item) => (
-            <Link
-              key={item.key}
-              to={item.href}
-              aria-current={active === item.key ? 'page' : undefined}
-              className={cn(
-                '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
-                active === item.key
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {tn[item.key]}
-            </Link>
-          ))}
-        </nav>
+        <SectionNav active={active} label={tn.title} labels={tn} />
 
         {children}
       </div>

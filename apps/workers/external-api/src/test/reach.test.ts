@@ -106,7 +106,9 @@ describe('campaigns', () => {
     // The send sweep is woken for the workspace's Clerk org id (not the master workspace id).
     const due = await app.dueRow();
     expect(due?.workspaceId).toBe(ORG_ID);
-    expect(due?.nextDueAt).toBeLessThan(Date.now() + 24 * 3_600_000);
+    // The next send window: tomorrow morning at the latest, or Monday when the test runs over
+    // a weekend, so the bound is a week rather than a day.
+    expect(due?.nextDueAt).toBeLessThan(Date.now() + 7 * 24 * 3_600_000);
 
     // The events carry the workspace and the actor of the key.
     const launchEvents = app.eventsOf('reach_campaign', 'launched');

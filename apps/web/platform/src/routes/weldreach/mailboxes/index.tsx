@@ -7,6 +7,6 @@ export const Route = createFileRoute('/weldreach/mailboxes/')({
   validateSearch: (search: Record<string, unknown>): { billing?: string } => ({
     billing: typeof search.billing === 'string' ? search.billing : undefined,
   }),
-  staticData: { breadcrumb: { label: 'Mailboxes & domains' } },
+  staticData: { breadcrumb: { labelKey: 'mailboxesAndDomains' } },
   component: PageComponent,
 });

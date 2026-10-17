@@ -766,7 +766,7 @@ export default function BookingPageDetailPage() {
                   <Input
                     value={locationValue}
                     onChange={(e) => setLocationValue(e.target.value)}
-                    placeholder="123 Main St, City"
+                    placeholder={tc.bookingDetail.locationAddressPlaceholder}
                   />
                   {!locationValue.trim() && (
                     <p className="text-xs text-muted-foreground">{tc.bookingDetail.locationAddressHint}</p>

@@ -951,9 +951,17 @@ export interface UserPreferences {
     mailDefaultAccountId?: string | null;
     /** WeldMail: last account/view the user opened (accountId or 'unified'). Fallback landing. */
     mailLastAccountId?: string | null;
-    /** WeldFlow: place tasks in free calendar slots. Absent = true. */
+    /** WeldFlow: place its tasks in free calendar slots. Absent = `autoScheduleTasks`, else true. */
+    autoScheduleFlowTasks?: boolean;
+    /** WeldCRM: place CRM-linked tasks in free calendar slots. Absent = `autoScheduleTasks`, else true. */
+    autoScheduleCrmTasks?: boolean;
+    /** Legacy switch both apps shared; read as the fallback, no longer written. */
     autoScheduleTasks?: boolean;
-    /** WeldFlow: move unfinished auto-scheduled tasks forward each night. Absent = true. */
+    /** WeldFlow: visible project tabs, in display order. Absent = every tab in the default order. */
+    weldflowProjectTabs?: string[];
+    /** WeldFlow: the user's own order of the projects in the sidebar (project ids). */
+    weldflowSidebarProjectOrder?: string[];
+    /** WeldCalendar: move unfinished auto-scheduled tasks forward each night. Absent = true. */
     autoRescheduleTasks?: boolean;
     homeWidgets?: {
       slots: [
@@ -1023,7 +1031,7 @@ export function useUpdateFontSize() {
     },
   });
 }
-const preferencesKey = [...settingsKeys.all, 'preferences'] as const;
+export const preferencesKey = [...settingsKeys.all, 'preferences'] as const;
 
 // Optimistically patch the cached uiPreferences so mail landing prefs feel
 // instant; rolls back on error and re-syncs from the server on settle.

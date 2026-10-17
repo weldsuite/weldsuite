@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 // The wizard and the "New mailbox" dialog both read `?billing=done` through TanStack Router; not needed here.
+vi.mock('@clerk/clerk-react', () => ({ useAuth: () => ({ orgSlug: 'acme', orgId: 'org_acme' }) }));
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn(), useSearch: () => ({}) }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));

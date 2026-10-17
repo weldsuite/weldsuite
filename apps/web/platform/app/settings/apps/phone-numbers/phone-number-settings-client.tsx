@@ -1,6 +1,6 @@
 
 import { useMemo, useState } from 'react';
-import { getTranslations } from '@/lib/i18n';
+import { getLocale, getTranslations } from '@/lib/i18n';
 import {
   ColumnDef,
   flexRender,
@@ -151,32 +151,53 @@ function formatPhoneNumber(number: string): string {
   return number;
 }
 
-const COUNTRIES = [
-  { code: 'US', name: 'United States', prefix: '+1' },
-  { code: 'CA', name: 'Canada', prefix: '+1' },
-  { code: 'GB', name: 'United Kingdom', prefix: '+44' },
-  { code: 'NL', name: 'Netherlands', prefix: '+31' },
-  { code: 'DE', name: 'Germany', prefix: '+49' },
-  { code: 'FR', name: 'France', prefix: '+33' },
-  { code: 'BE', name: 'Belgium', prefix: '+32' },
-  { code: 'AT', name: 'Austria', prefix: '+43' },
-  { code: 'CH', name: 'Switzerland', prefix: '+41' },
-  { code: 'AU', name: 'Australia', prefix: '+61' },
-  { code: 'ES', name: 'Spain', prefix: '+34' },
-  { code: 'IT', name: 'Italy', prefix: '+39' },
-  { code: 'SE', name: 'Sweden', prefix: '+46' },
-  { code: 'NO', name: 'Norway', prefix: '+47' },
-  { code: 'DK', name: 'Denmark', prefix: '+45' },
-  { code: 'PL', name: 'Poland', prefix: '+48' },
+const COUNTRY_DATA = [
+  { code: 'US', englishName: 'United States', prefix: '+1' },
+  { code: 'CA', englishName: 'Canada', prefix: '+1' },
+  { code: 'GB', englishName: 'United Kingdom', prefix: '+44' },
+  { code: 'NL', englishName: 'Netherlands', prefix: '+31' },
+  { code: 'DE', englishName: 'Germany', prefix: '+49' },
+  { code: 'FR', englishName: 'France', prefix: '+33' },
+  { code: 'BE', englishName: 'Belgium', prefix: '+32' },
+  { code: 'AT', englishName: 'Austria', prefix: '+43' },
+  { code: 'CH', englishName: 'Switzerland', prefix: '+41' },
+  { code: 'AU', englishName: 'Australia', prefix: '+61' },
+  { code: 'ES', englishName: 'Spain', prefix: '+34' },
+  { code: 'IT', englishName: 'Italy', prefix: '+39' },
+  { code: 'SE', englishName: 'Sweden', prefix: '+46' },
+  { code: 'NO', englishName: 'Norway', prefix: '+47' },
+  { code: 'DK', englishName: 'Denmark', prefix: '+45' },
+  { code: 'PL', englishName: 'Poland', prefix: '+48' },
 ];
+
+/** Country name in the active locale; falls back to the English name when Intl has no data. */
+function localizedCountryName(code: string, fallback: string): string {
+  try {
+    return new Intl.DisplayNames([getLocale()], { type: 'region' }).of(code) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const COUNTRIES = COUNTRY_DATA.map((c) => ({
+  ...c,
+  get name(): string {
+    return localizedCountryName(c.code, c.englishName);
+  },
+}));
 
 const NUMBER_TYPES = [
-  { value: 'local', label: 'Local' },
-  { value: 'toll-free', label: 'Toll-Free' },
-  { value: 'mobile', label: 'Mobile' },
-];
+  { value: 'local', labelKey: 'local' },
+  { value: 'toll-free', labelKey: 'tollFree' },
+  { value: 'mobile', labelKey: 'mobile' },
+] as const;
 
 type PhoneNumberTranslations = ReturnType<typeof getTranslations<'settings'>>['phoneNumbers'];
+
+function numberTypeLabel(numberType: string, labels: PhoneNumberTranslations['numberTypes']): string {
+  const match = NUMBER_TYPES.find((t) => t.value === numberType);
+  return match ? labels[match.labelKey] : numberType;
+}
 
 interface PhoneNumberColumnHandlers {
   onSetDefault: (numberId: string) => void;
@@ -237,7 +258,7 @@ function buildPhoneNumberColumns(
     header: tp.columns.type,
     cell: ({ row }) => (
       <Badge variant="secondary" className="font-mono text-xs rounded-md border border-border capitalize">
-        {row.original.numberType || 'local'}
+        {numberTypeLabel(row.original.numberType || 'local', tp.numberTypes)}
       </Badge>
     ),
   },
@@ -391,7 +412,7 @@ export function PhoneNumberSettingsClient({
         field: 'type',
         label: tp.columns.type,
         filterType: 'select',
-        options: NUMBER_TYPES.map((t) => ({ value: t.value, label: t.label })),
+        options: NUMBER_TYPES.map((t) => ({ value: t.value, label: tp.numberTypes[t.labelKey] })),
       },
       {
         field: 'country',

@@ -5,6 +5,7 @@ import {
   defaultJurisdictionCode,
   defaultTaxRateFor,
   findJurisdiction,
+  isBrJurisdiction,
   isUsJurisdiction,
   resolveFormatLocale,
   resolveJurisdictionContext,
@@ -20,6 +21,7 @@ import type { Jurisdiction } from '@/types/accounting';
 const US = BUILT_IN_JURISDICTIONS.find((j) => j.code === 'US') as Jurisdiction;
 const NL = BUILT_IN_JURISDICTIONS.find((j) => j.code === 'NL') as Jurisdiction;
 const IN = BUILT_IN_JURISDICTIONS.find((j) => j.code === 'IN') as Jurisdiction;
+const BR = BUILT_IN_JURISDICTIONS.find((j) => j.code === 'BR') as Jurisdiction;
 
 describe('terminology', () => {
   it('names a US entity in US words in English', () => {
@@ -64,6 +66,25 @@ describe('terminology', () => {
     });
   });
 
+  it('names a Brazilian entity in Brazilian words in English and in Dutch', () => {
+    expect(terminologyLabels(en.terminology, BR.terminology)).toMatchObject({
+      tax: 'Taxes',
+      taxPercent: 'Taxes %',
+      taxRateTemplate: '{rate}% taxes',
+      taxId: 'CNPJ',
+      taxIdPlaceholder: '11.222.333/0001-81',
+      registrationId: 'State registration (IE)',
+      supplier: 'Supplier',
+      creditNote: 'Credit note',
+    });
+    expect(terminologyLabels(nl.terminology, BR.terminology)).toMatchObject({
+      tax: 'Belastingen',
+      taxId: 'CNPJ',
+      supplier: 'Leverancier',
+      creditNote: 'Creditnota',
+    });
+  });
+
   it('keeps a Dutch-language user on one word for both vendor and supplier', () => {
     expect(terminologyLabels(nl.terminology, US.terminology)).toMatchObject({
       supplier: 'Leverancier',
@@ -75,14 +96,17 @@ describe('terminology', () => {
 
   it('has a label for every terminology code the API can send, in both languages', () => {
     for (const catalog of [en.terminology, nl.terminology]) {
-      for (const tax of ['vat', 'gst', 'sales_tax'] as const) {
+      for (const tax of ['vat', 'gst', 'sales_tax', 'tributos'] as const) {
         expect(catalog.tax[tax]).toBeTruthy();
         expect(catalog.taxPercent[tax]).toBeTruthy();
         expect(catalog.taxRate[tax]).toContain('{rate}');
       }
-      for (const id of ['vat_number', 'gstin', 'ein'] as const) {
+      for (const id of ['vat_number', 'gstin', 'ein', 'cnpj'] as const) {
         expect(catalog.taxId[id]).toBeTruthy();
         expect(catalog.taxIdPlaceholder[id]).toBeTruthy();
+      }
+      for (const id of ['kvk', 'pan', 'company_number', 'state_id', 'ie'] as const) {
+        expect(catalog.registrationId[id]).toBeTruthy();
       }
       for (const supplier of ['supplier', 'vendor'] as const) {
         expect(catalog.supplier[supplier]).toBeTruthy();
@@ -159,6 +183,23 @@ describe('features', () => {
     expect(IN.features).toMatchObject({ gstReturn: true, vatReturn: false, salesTax: false });
   });
 
+  it('gives the Brazilian entity its tax return, fiscal documents and SPED ECD and none of the other modules', () => {
+    expect(BR.features).toEqual({
+      ...NO_FEATURES,
+      brTaxReturn: true,
+      fiscalDocuments: true,
+      spedEcd: true,
+    });
+    expect(BR.defaultCurrency).toBe('BRL');
+    expect(BR.defaultLocale).toBe('pt-BR');
+  });
+
+  it('keeps the Brazilian modules off for every other country', () => {
+    for (const other of [NL, IN, US]) {
+      expect(other.features).toMatchObject({ brTaxReturn: false, fiscalDocuments: false, spedEcd: false });
+    }
+  });
+
   it('turns every module off for a country it does not know', () => {
     const context = resolveJurisdictionContext({ jurisdictionCode: 'ZZ', baseCurrency: 'XXX' });
 
@@ -203,6 +244,22 @@ describe('resolveJurisdictionContext', () => {
     expect(resolveJurisdictionContext({ jurisdictionCode: 'US', baseCurrency: 'USD' }).entityLocale).toBe('en-US');
   });
 
+  it('resolves a Brazilian entity from the built-in table', () => {
+    const context = resolveJurisdictionContext({ jurisdictionCode: 'br', baseCurrency: 'BRL' });
+
+    expect(context).toMatchObject({
+      code: 'BR',
+      isBr: true,
+      isUs: false,
+      usesIban: false,
+      currency: 'BRL',
+      entityLocale: 'pt-BR',
+    });
+    expect(context.features.brTaxReturn).toBe(true);
+    expect(context.terminology.taxId).toBe('cnpj');
+    expect(resolveJurisdictionContext({ jurisdictionCode: 'NL', baseCurrency: 'EUR' }).isBr).toBe(false);
+  });
+
   it('copes with no entity at all', () => {
     const context = resolveJurisdictionContext(null);
 
@@ -243,6 +300,11 @@ describe('resolveFormatLocale', () => {
     expect(resolveFormatLocale('nl', 'en-IN')).toBe('nl-NL');
   });
 
+  it('reads a Brazilian entity in pt-BR format whatever language the app is in', () => {
+    expect(resolveFormatLocale('en', 'pt-BR')).toBe('pt-BR');
+    expect(resolveFormatLocale('nl', 'pt_BR')).toBe('pt-BR');
+  });
+
   it('falls back to the app language without an entity locale', () => {
     expect(resolveFormatLocale('en', null)).toBe('en-GB');
     expect(resolveFormatLocale('nl', undefined)).toBe('nl-NL');
@@ -263,11 +325,19 @@ describe('small helpers', () => {
     expect(isUsJurisdiction(null)).toBe(false);
   });
 
+  it('recognises Brazil', () => {
+    expect(isBrJurisdiction('BR')).toBe(true);
+    expect(isBrJurisdiction('br')).toBe(true);
+    expect(isBrJurisdiction('US')).toBe(false);
+    expect(isBrJurisdiction(undefined)).toBe(false);
+  });
+
   it('banks on IBANs in Europe and on routing numbers in the US', () => {
     expect(usesIban('NL')).toBe(true);
     expect(usesIban('DE')).toBe(true);
     expect(usesIban('US')).toBe(false);
     expect(usesIban('IN')).toBe(false);
+    expect(usesIban('BR')).toBe(false);
     expect(usesIban(undefined)).toBe(false);
   });
 
@@ -275,12 +345,15 @@ describe('small helpers', () => {
     expect(defaultTaxRateFor('NL')).toBe('21');
     expect(defaultTaxRateFor('IN')).toBe('18');
     expect(defaultTaxRateFor('US')).toBe('0');
+    expect(defaultTaxRateFor('BR')).toBe('0');
     expect(defaultTaxRateFor(null)).toBe('0');
   });
 
   it('starts company setup on the country of the phone when it is supported', () => {
     expect(defaultJurisdictionCode('en-US')).toBe('US');
     expect(defaultJurisdictionCode('en_IN')).toBe('IN');
+    expect(defaultJurisdictionCode('pt-BR')).toBe('BR');
+    expect(defaultJurisdictionCode('pt-PT')).toBe('NL');
     expect(defaultJurisdictionCode('nl-NL')).toBe('NL');
     expect(defaultJurisdictionCode('en-GB')).toBe('NL');
     expect(defaultJurisdictionCode('en')).toBe('NL');

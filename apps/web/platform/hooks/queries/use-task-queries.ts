@@ -1,5 +1,5 @@
 
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient, useAppApi } from '@/lib/api/use-app-api';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { asText } from '@weldsuite/text';
@@ -104,12 +104,16 @@ export function useTaskProjects(params?: { page?: number; pageSize?: number; cur
 }export type MyTasksFilters = {
   search?: string;
   status?: string;
+  /** "Status is not": statuses to leave out. */
+  excludeStatus?: string[];
   priority?: string;
   projectId?: string;
   labelIds?: string[];
   dueDateBucket?: 'overdue' | 'today' | 'this-week' | 'later' | 'no-date';
   sortField?: 'title' | 'status' | 'priority' | 'dueDate' | 'assignee' | 'position' | 'createdAt';
   sortDirection?: 'asc' | 'desc';
+  /** Attach each task's subtask tree as `children`. */
+  includeSubtasks?: boolean;
 };
 
 export function useInfiniteMyTasks(filters: MyTasksFilters = {}, pageSize = 50) {
@@ -123,6 +127,7 @@ export function useInfiniteMyTasks(filters: MyTasksFilters = {}, pageSize = 50) 
         pageSize,
         ...filters,
         labelIds: filters.labelIds && filters.labelIds.length > 0 ? filters.labelIds.join(',') : undefined,
+        excludeStatus: filters.excludeStatus && filters.excludeStatus.length > 0 ? filters.excludeStatus.join(',') : undefined,
       });
       return client.get<{
         data: Projects.ProjectTask[];
@@ -135,6 +140,10 @@ export function useInfiniteMyTasks(filters: MyTasksFilters = {}, pageSize = 50) 
     getNextPageParam: (lastPage, allPages) => {
       return lastPage.pagination?.hasMore ? allPages.length + 1 : undefined;
     },
+    // Keep the rows (and the page, with its focused search box) mounted while a
+    // new search / filter / sort refetches; the page shows its loader only on the
+    // very first load.
+    placeholderData: keepPreviousData,
   });
 }
 

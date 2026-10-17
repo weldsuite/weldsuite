@@ -36,7 +36,8 @@ import {
   LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
-import { generateInvoiceHtml } from '@weldsuite/books-domain/accounting-invoice-html';
+import { generateInvoiceHtml, generateTemplatedInvoiceHtml, type InvoiceRenderData } from '@weldsuite/books-domain/accounting-invoice-html';
+import { brInvoiceRenderExtras } from '../../services/br-invoice-render';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { streamDocumentAttachment } from '../../lib/document-attachment';
 import {
@@ -45,7 +46,13 @@ import {
   getContactVatNumber,
   invoiceUsesReverseCharge,
 } from '@weldsuite/books-domain/accounting-compliance';
-import { calculateDocumentTax, TaxCalculationError, type DocumentTaxItem } from '../../services/accounting-tax-resolve';
+import {
+  calculateDocumentTax,
+  hasDocumentTaxHook,
+  TaxCalculationError,
+  type DocumentTaxItem,
+} from '../../services/accounting-tax-resolve';
+import { brDocumentFiscalSchema, brLineFiscalSchema, cfopSchema, ncmSchema } from '../../lib/br-fiscal-schemas';
 import { PostingError } from '../../services/accounting-document-posting';
 import { writeOffInvoice } from '../../services/accounting-bad-debt';
 import { assertDimensionsBelongToEntity } from '../../services/accounting-posting';
@@ -70,6 +77,7 @@ import {
 import { syncInvoiceWithProvider } from '../../services/sales-tax/provider-sync';
 import { salesTaxRuntimeFromEnv } from '../../services/sales-tax/runtime';
 import { orderInvoiceLines } from '../../services/sales-tax/order-invoice';
+import { resolveInvoiceTemplate, templateBelongsToEntity } from '../../services/invoice-templates';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -138,6 +146,10 @@ const lineItemSchema = z.object({
   taxCode: z.string().max(30).nullable().optional(),
   /** India GST: HSN (goods) or SAC (services) code, 4 to 8 digits. */
   hsnSac: z.string().trim().regex(/^(\d{4,8})?$/, 'HSN/SAC must be 4 to 8 digits').nullable().optional(),
+  /** Brazil: NCM of the goods, CFOP of the operation and the line's rate overrides. */
+  ncm: ncmSchema,
+  cfop: cfopSchema,
+  fiscalData: brLineFiscalSchema,
   taxUse: z.enum(['business', 'personal']).nullable().optional(),
   taxIncluded: z.boolean().optional(),
   taxOverrideAmount: z.union([z.string(), z.number()]).transform((v) => String(v)).nullable().optional(),
@@ -181,10 +193,14 @@ const createInvoiceSchema = z.object({
   shipFromAddress: addressSchema.nullable().optional(),
   /** India GST: two-digit state code of the place of supply (96 = outside India); derived from the buyer when omitted. */
   placeOfSupply: z.string().regex(/^\d{2}$/, 'Place of supply is a two-digit GST state code').nullable().optional(),
+  /** Brazil: withholdings, the buyer's ICMS status, natureza da operação. */
+  fiscalData: brDocumentFiscalSchema,
   /** Sold through a marketplace facilitator that collects the tax: no tax charged, the sale counts for nexus. */
   marketplaceFacilitated: z.boolean().optional(),
   revenueAccountId: z.string().max(30).optional(),
   creditNoteForInvoiceId: z.string().max(30).optional(),
+  /** The invoice template (invoice designer) to print with; null uses the entity default. Must belong to the invoice's entity. */
+  templateId: z.string().max(30).nullable().optional(),
   items: z.array(lineItemSchema).min(1),
 });
 
@@ -241,6 +257,13 @@ async function promoteAccountingRole(
 
 type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
 
+/** The billing, shipping and ship-from addresses a PUT/PATCH body changes, normalized. */
+function applyAddressUpdates(updateData: Record<string, unknown>, data: UpdateInvoiceInput): void {
+  if (data.billingAddress !== undefined) updateData.billingAddress = normalizePostalAddress(data.billingAddress);
+  if (data.shippingAddress !== undefined) updateData.shippingAddress = normalizePostalAddress(data.shippingAddress);
+  if (data.shipFromAddress !== undefined) updateData.shipFromAddress = normalizePostalAddress(data.shipFromAddress);
+}
+
 /** Scalar (non-item) columns a PUT/PATCH body may change on a draft invoice. */
 function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unknown> {
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -255,11 +278,11 @@ function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unkn
   if (data.reference !== undefined) updateData.reference = data.reference;
   if (data.notes !== undefined) updateData.notes = data.notes;
   if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
-  if (data.billingAddress !== undefined) updateData.billingAddress = normalizePostalAddress(data.billingAddress);
-  if (data.shippingAddress !== undefined) updateData.shippingAddress = normalizePostalAddress(data.shippingAddress);
-  if (data.shipFromAddress !== undefined) updateData.shipFromAddress = normalizePostalAddress(data.shipFromAddress);
+  applyAddressUpdates(updateData, data);
   if (data.marketplaceFacilitated !== undefined) updateData.marketplaceFacilitated = data.marketplaceFacilitated;
   if (data.revenueAccountId !== undefined) updateData.revenueAccountId = data.revenueAccountId;
+  if (data.templateId !== undefined) updateData.templateId = data.templateId;
+  if (data.fiscalData !== undefined) updateData.fiscalData = data.fiscalData;
 
   return updateData;
 }
@@ -276,7 +299,7 @@ const TAX_INPUT_FIELDS = [
 ] as const;
 
 /** The invoice fields an India GST draft's CGST/SGST/IGST split depends on besides its lines. */
-const GST_INPUT_FIELDS = ['contactId', 'billingAddress', 'shippingAddress', 'placeOfSupply'] as const;
+const GST_INPUT_FIELDS = ['contactId', 'billingAddress', 'shippingAddress', 'placeOfSupply', 'issueDate', 'fiscalData'] as const;
 
 /** The new line rows of an invoice, with the calculation's tax columns and the US inputs. */
 function buildItemRecords(
@@ -303,6 +326,9 @@ function buildItemRecords(
     sortOrder: item.sortOrder ?? idx,
     taxCode: item.taxCode || null,
     hsnSac: item.hsnSac || null,
+    ncm: item.ncm || null,
+    cfop: item.cfop || null,
+    fiscalData: item.fiscalData ?? null,
     taxUse: item.taxUse || null,
     taxIncluded: item.taxIncluded ?? false,
     taxOverrideAmount: item.taxOverrideAmount ?? null,
@@ -725,46 +751,47 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
         ? { name: invoice.contactName, email: invoice.contactEmail }
         : await loadContactSnapshot(db, invoice.contactId);
 
-    const html = generateInvoiceHtml(
-      {
-        draft: invoice.status === 'draft',
-        certificateNumbers: Object.fromEntries(certificates.map((cert) => [cert.id, cert.number])),
-        invoiceNumber: invoice.invoiceNumber || invoiceId,
-        type: invoice.type || 'standard',
-        issueDate: invoice.issueDate?.toISOString() || new Date().toISOString(),
-        dueDate: invoice.dueDate?.toISOString() || new Date().toISOString(),
-        currency: invoice.currency || entityRow.baseCurrency || 'EUR',
-        contactName: invoice.contactName || contact.name || '',
-        contactEmail: invoice.contactEmail ?? contact.email,
-        contactVatNumber,
-        complianceNotices,
-        billingAddress: invoice.billingAddress,
-        shippingAddress: invoice.shippingAddress,
-        reference: invoice.reference,
-        notes: invoice.notes,
-        placeOfSupply: invoice.placeOfSupply,
-        items: items.map((i) => ({
-          description: i.description || '',
-          hsnSac: i.hsnSac,
-          quantity: i.quantity || '1',
-          unitPrice: i.unitPrice || '0',
-          unit: i.unit ?? undefined,
-          discountPercent: i.discountPercent ?? undefined,
-          taxRate: i.taxRate ?? undefined,
-          lineTotal: i.lineTotal || '0',
-          lineTotalWithTax: i.lineTotalWithTax ?? undefined,
-          taxAmount: i.taxAmount ?? undefined,
-        })),
-        subtotal: invoice.subtotal || '0',
-        discountTotal: invoice.discountTotal || '0',
-        taxTotal: invoice.taxTotal || '0',
-        total: invoice.total || '0',
-        amountPaid: invoice.amountPaid ?? undefined,
-        balanceDue: invoice.balanceDue ?? undefined,
-        taxBreakdown: invoice.taxBreakdown || [],
-      },
-      entityRow,
-    );
+    const renderData: InvoiceRenderData = {
+      draft: invoice.status === 'draft',
+      certificateNumbers: Object.fromEntries(certificates.map((cert) => [cert.id, cert.number])),
+      invoiceNumber: invoice.invoiceNumber || invoiceId,
+      type: invoice.type || 'standard',
+      issueDate: invoice.issueDate?.toISOString() || new Date().toISOString(),
+      dueDate: invoice.dueDate?.toISOString() || new Date().toISOString(),
+      currency: invoice.currency || entityRow.baseCurrency || 'EUR',
+      contactName: invoice.contactName || contact.name || '',
+      contactEmail: invoice.contactEmail ?? contact.email,
+      contactVatNumber,
+      complianceNotices,
+      billingAddress: invoice.billingAddress,
+      shippingAddress: invoice.shippingAddress,
+      reference: invoice.reference,
+      notes: invoice.notes,
+      placeOfSupply: invoice.placeOfSupply,
+      items: items.map((i) => ({
+        description: i.description || '',
+        hsnSac: i.hsnSac,
+        quantity: i.quantity || '1',
+        unitPrice: i.unitPrice || '0',
+        unit: i.unit ?? undefined,
+        discountPercent: i.discountPercent ?? undefined,
+        taxRate: i.taxRate ?? undefined,
+        lineTotal: i.lineTotal || '0',
+        lineTotalWithTax: i.lineTotalWithTax ?? undefined,
+        taxAmount: i.taxAmount ?? undefined,
+      })),
+      subtotal: invoice.subtotal || '0',
+      discountTotal: invoice.discountTotal || '0',
+      taxTotal: invoice.taxTotal || '0',
+      total: invoice.total || '0',
+      amountPaid: invoice.amountPaid ?? undefined,
+      balanceDue: invoice.balanceDue ?? undefined,
+      taxBreakdown: invoice.taxBreakdown || [],
+      ...(await brInvoiceRenderExtras(db, entityRow, invoice)),
+    };
+    // The invoice's designed template, else the entity's default, else the built-in layout.
+    const template = await resolveInvoiceTemplate(db, { templateId: invoice.templateId, entityId: invoice.entityId });
+    const html = template ? generateTemplatedInvoiceHtml(template, renderData, entityRow) : generateInvoiceHtml(renderData, entityRow);
 
     return new Response(html, {
       headers: {
@@ -788,6 +815,9 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
   try {
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.');
+    if (data.templateId && !(await templateBelongsToEntity(db, data.templateId, entityId))) {
+      return error.badRequest(c, 'Invoice template not found for this accounting entity');
+    }
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
     const baseCurrency = await resolveEntityBaseCurrency(db, entityId);
     const currency = data.currency || baseCurrency;
@@ -834,6 +864,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
         shippingAddress,
         shipFromAddress,
         marketplaceFacilitated: data.marketplaceFacilitated,
+        fiscalData: data.fiscalData,
         originalInvoiceId: data.creditNoteForInvoiceId,
       },
     });
@@ -865,8 +896,10 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       shippingAddress,
       shipFromAddress,
       placeOfSupply: gst?.placeOfSupply ?? null,
+      fiscalData: data.fiscalData ?? null,
       marketplaceFacilitated: data.marketplaceFacilitated ?? false,
       revenueAccountId: data.revenueAccountId || null,
+      templateId: data.templateId || null,
       creditNoteForInvoiceId: data.creditNoteForInvoiceId || null,
       createdBy: userId,
       createdAt: new Date(),
@@ -940,6 +973,10 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
       );
     }
 
+    if (data.templateId && !(await templateBelongsToEntity(db, data.templateId, invoice.entityId))) {
+      return error.badRequest(c, 'Invoice template not found for this accounting entity');
+    }
+
     const updateData = buildInvoiceFieldUpdates(data);
     await applyInvoiceExchangeRate(db, invoice, data, updateData);
 
@@ -947,7 +984,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     await applyInvoiceContactSnapshot(db, invoice, data, updateData, contactChanged);
 
     const salesTaxEntity = usesSalesTax(await loadSalesTaxEntity(db, invoice.entityId));
-    const gstEntity = await isGstEntity(db, invoice.entityId);
+    // India's place of supply and Brazil's document tax both depend on the customer and the document fields.
+    const gstEntity = (await isGstEntity(db, invoice.entityId)) || (await hasDocumentTaxHook(db, invoice.entityId));
     let newItems: InvoiceItemRecords | undefined;
     let storedItemTax: StoredItemTax = [];
     if (invoiceTaxInputsChanged(data, salesTaxEntity, gstEntity)) {

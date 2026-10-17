@@ -29,6 +29,9 @@ export const NO_FEATURES: JurisdictionFeatures = {
   gstReturn: false,
   salesTax: false,
   form1099: false,
+  brTaxReturn: false,
+  fiscalDocuments: false,
+  spedEcd: false,
 };
 
 /** Neutral wording for an entity whose country is unknown. */
@@ -84,16 +87,39 @@ export const BUILT_IN_JURISDICTIONS: readonly Jurisdiction[] = [
       creditNote: 'credit_memo',
     },
   },
+  {
+    code: 'BR',
+    name: 'Brazil',
+    defaultLocale: 'pt-BR',
+    defaultCurrency: 'BRL',
+    features: { ...NO_FEATURES, brTaxReturn: true, fiscalDocuments: true, spedEcd: true },
+    terminology: {
+      tax: 'tributos',
+      taxId: 'cnpj',
+      registrationId: 'ie',
+      supplier: 'supplier',
+      creditNote: 'credit_note',
+    },
+  },
 ];
 
-/** Default line tax rate (percent) a new VAT / GST line starts with. US lines carry a tax code instead. */
+/**
+ * Default line tax rate (percent) a new VAT / GST line starts with. US lines
+ * carry a tax code instead, and Brazilian taxes come from the tax profiles of
+ * the product or service, so both start at none.
+ */
 const DEFAULT_TAX_RATE: Record<string, string> = {
   NL: '21',
   IN: '18',
+  BR: '0',
 };
 
 export function isUsJurisdiction(code: string | null | undefined): boolean {
   return code?.toUpperCase() === 'US';
+}
+
+export function isBrJurisdiction(code: string | null | undefined): boolean {
+  return code?.toUpperCase() === 'BR';
 }
 
 /** The jurisdiction for a code: the API's list first, then the built-in table. */
@@ -132,7 +158,7 @@ export function defaultJurisdictionCode(deviceLocale?: string): string {
   return BUILT_IN_JURISDICTIONS.find((jurisdiction) => jurisdiction.code === region)?.code ?? 'NL';
 }
 
-/** Countries whose businesses bank on IBAN/BIC (SEPA) rather than account + routing numbers. */
+/** Countries whose businesses bank on IBAN/BIC (SEPA) rather than account + routing numbers (Brazil banks on agência + conta, and Pix). */
 const IBAN_COUNTRIES = new Set([
   'AD', 'AT', 'BE', 'BG', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GB', 'GI', 'GR',
   'HR', 'HU', 'IE', 'IS', 'IT', 'LI', 'LT', 'LU', 'LV', 'MC', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO',
@@ -149,6 +175,7 @@ export function usesIban(code: string | null | undefined): boolean {
 // ---------------------------------------------------------------------------
 
 const EN_US = /^en[-_]US$/i;
+const PT_BR = /^pt[-_]BR$/i;
 const EN_REGION = /^en[-_][A-Za-z]{2}$/;
 
 /**
@@ -156,6 +183,9 @@ const EN_REGION = /^en[-_][A-Za-z]{2}$/;
  *
  * - A US entity always reads in US format ($1,234.56, MM/DD/YYYY), whatever
  *   language the app is in: it is what its invoices and the IRS use.
+ * - A Brazilian entity always reads in pt-BR (R$ 1.234,56, DD/MM/YYYY): its
+ *   invoices, the NF-e and the tax authorities do too, and the app has no
+ *   Portuguese translation yet, so only the formats follow the entity.
  * - An English-language user with another English-speaking entity (en-IN)
  *   gets that region's number style.
  * - Everyone else keeps the app language's own locale (en-GB, nl-NL), which is
@@ -167,6 +197,7 @@ export function resolveFormatLocale(
 ): string {
   if (entityLocale) {
     if (EN_US.test(entityLocale)) return 'en-US';
+    if (PT_BR.test(entityLocale)) return 'pt-BR';
     if (language === 'en' && EN_REGION.test(entityLocale)) return entityLocale.replace('_', '-');
   }
   return INTL_LOCALES[language];
@@ -191,6 +222,8 @@ export interface TerminologyLabels {
   /** "VAT number", "GSTIN", "EIN" */
   taxId: string;
   taxIdPlaceholder: string;
+  /** "KvK number", "PAN", "State registration (IE)" */
+  registrationId: string;
   /** "Supplier" / "Vendor" and its plural */
   supplier: string;
   suppliers: string;
@@ -209,6 +242,7 @@ export function terminologyLabels(
     taxRateTemplate: catalog.taxRate[terminology.tax],
     taxId: catalog.taxId[terminology.taxId],
     taxIdPlaceholder: catalog.taxIdPlaceholder[terminology.taxId],
+    registrationId: catalog.registrationId[terminology.registrationId],
     supplier: catalog.supplier[terminology.supplier],
     suppliers: catalog.suppliers[terminology.supplier],
     creditNote: catalog.creditNote[terminology.creditNote],
@@ -242,6 +276,7 @@ export interface JurisdictionContext {
   features: JurisdictionFeatures;
   terminology: JurisdictionTerminology;
   isUs: boolean;
+  isBr: boolean;
   usesIban: boolean;
   /** The entity's base currency; documents carry their own. */
   currency: string;
@@ -264,6 +299,7 @@ export function resolveJurisdictionContext(
     features: jurisdiction?.features ?? NO_FEATURES,
     terminology: jurisdiction?.terminology ?? DEFAULT_TERMINOLOGY,
     isUs: isUsJurisdiction(code),
+    isBr: isBrJurisdiction(code),
     usesIban: usesIban(code),
     currency: entity?.baseCurrency || jurisdiction?.defaultCurrency || FALLBACK_CURRENCY,
     entityLocale: entity?.locale || jurisdiction?.defaultLocale || null,

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
 import {
@@ -19,7 +19,9 @@ import {
   getAvailableActions,
   getHelpdeskActionTypes,
   getHelpdeskActionCategories,
+  getHelpdeskRoutingTriggers,
   isTerminalAction,
+  type HelpdeskTriggerDef,
 } from '../helpdesk-workflow-constants';
 import type { WorkflowStep, WorkflowTrigger, DerivedPath } from './canvas-utils';
 
@@ -29,9 +31,14 @@ import type { WorkflowStep, WorkflowTrigger, DerivedPath } from './canvas-utils'
 
 const MAX_PILLS = 2;
 
-export function getTriggerLabel(trigger: WorkflowTrigger | null, fallbackSelect = 'Select a trigger', fallbackConfigured = 'Configured trigger'): string {
+export function getTriggerLabel(
+  trigger: WorkflowTrigger | null,
+  fallbackSelect = 'Select a trigger',
+  fallbackConfigured = 'Configured trigger',
+  triggers: HelpdeskTriggerDef[] = HELPDESK_ROUTING_TRIGGERS,
+): string {
   if (!trigger) return fallbackSelect;
-  const m = HELPDESK_ROUTING_TRIGGERS.find(
+  const m = triggers.find(
     (t) => t.entityType === trigger.entityType && t.eventType === trigger.eventType,
   );
   return m?.label ?? trigger.eventType ?? fallbackConfigured;
@@ -479,9 +486,12 @@ function ConnectorDot({ side, connectorId }: Readonly<{ side: 'left' | 'right'; 
 // TriggerNode
 // ============================================================================
 
-export function getTriggerDescription(trigger: WorkflowTrigger | null): string {
+export function getTriggerDescription(
+  trigger: WorkflowTrigger | null,
+  triggers: HelpdeskTriggerDef[] = HELPDESK_ROUTING_TRIGGERS,
+): string {
   if (!trigger) return '';
-  const m = HELPDESK_ROUTING_TRIGGERS.find(
+  const m = triggers.find(
     (t) => t.entityType === trigger.entityType && t.eventType === trigger.eventType,
   );
   return m?.description ?? '';
@@ -512,6 +522,10 @@ export function TriggerNode({
 }>) {
   const { t } = useI18n();
   const cn_ = t.helpdesk.canvasNodes;
+  const routingTriggers = useMemo(
+    () => getHelpdeskRoutingTriggers(t.helpdesk.workflowConstants),
+    [t.helpdesk.workflowConstants],
+  );
 
   return (
     <button
@@ -539,11 +553,11 @@ export function TriggerNode({
 
         {/* Header row: icon + name */}
         <span className="flex items-start gap-2.5">
-          <span className="flex-1 text-sm font-semibold leading-snug pt-0.5">{getTriggerLabel(trigger, cn_.selectTrigger)}</span>
+          <span className="flex-1 text-sm font-semibold leading-snug pt-0.5">{getTriggerLabel(trigger, cn_.selectTrigger, undefined, routingTriggers)}</span>
         </span>
 
         {/* Description */}
-        <span className="mt-2.5 block text-xs text-muted-foreground">{getTriggerDescription(trigger)}</span>
+        <span className="mt-2.5 block text-xs text-muted-foreground">{getTriggerDescription(trigger, routingTriggers)}</span>
       </span>
     </button>
   );
@@ -797,8 +811,8 @@ export function PathNode({
               {/* Branch labels below ai_auto_reply (WeldAgent) */}
               {step.type === 'ai_auto_reply' && (() => {
                 const defs = [
-                  { value: 'escalated', label: 'Escalated' },
-                  { value: 'resolved', label: 'Resolved' },
+                  { value: 'escalated', label: cn_.branchEscalated },
+                  { value: 'resolved', label: cn_.branchResolved },
                 ];
                 return (
                   <div className="ml-2 mt-1 space-y-0.5 relative">
@@ -821,16 +835,19 @@ export function PathNode({
 
               {/* Branch labels below condition */}
               {step.type === 'condition' && (() => {
-                const condBranches: Array<{ value: string; label: string }> =
+                const condBranches: Array<{ value: string; label: string; colorLabel?: string }> =
                   Array.isArray(step.config?.branches) ? step.config!.branches : [];
                 const defs = condBranches.length > 0
                   ? condBranches
-                  : [{ value: 'if', label: 'True' }, { value: 'if_not', label: 'False' }];
+                  : [
+                      { value: 'if', label: cn_.branchTrue, colorLabel: 'True' },
+                      { value: 'if_not', label: cn_.branchFalse, colorLabel: 'False' },
+                    ];
 
                 return (
                   <div className="ml-2 mt-1 space-y-0.5 relative">
                     {defs.map((bd) => {
-                      const labelColor = getBranchLabelColor(bd.label);
+                      const labelColor = getBranchLabelColor(bd.colorLabel ?? bd.label);
 
                       return (
                         <div key={bd.value} className="flex items-center gap-2 py-1.5 relative">

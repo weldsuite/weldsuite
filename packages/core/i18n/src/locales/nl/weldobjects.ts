@@ -161,6 +161,12 @@ export const weldobjects = {
     },
   },
 
+  // Picklijst-zijpaneel
+  pickListPanel: {
+    assign: 'Toewijzen',
+    items: 'Items',
+  },
+
   errors: {
     saveFailed: 'Wijzigingen konden niet worden opgeslagen',
     deleteFailed: 'Verwijderen mislukt',

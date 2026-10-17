@@ -26,6 +26,8 @@ const routes: SmokeRoute[] = [
   // Desktop settings is Electron-only; in a browser the page redirects
   // back to /settings (see app/settings/desktop/page.tsx).
   { path: '/settings/desktop', expectedUrl: /\/settings$/ },
+  { path: '/settings/entities' },
+  { path: '/settings/entities/add' },
   { path: '/settings/export' },
   { path: '/settings/feedback' },
   { path: '/settings/general' },

@@ -86,11 +86,12 @@ interface CenterTotalLabelProps {
   /** Injected by Recharts when the element is passed as a <Label content>. */
   viewBox?: { cx?: number; cy?: number };
   total: number;
+  totalLabel: string;
   valueClassName: string;
 }
 
 // Rendered in the middle of the donut / radial charts. Module-level so its identity is stable across renders.
-function CenterTotalLabel({ viewBox, total, valueClassName }: Readonly<CenterTotalLabelProps>) {
+function CenterTotalLabel({ viewBox, total, totalLabel, valueClassName }: Readonly<CenterTotalLabelProps>) {
   if (viewBox?.cx === undefined || viewBox.cy === undefined) return null;
   return (
     <text
@@ -111,7 +112,7 @@ function CenterTotalLabel({ viewBox, total, valueClassName }: Readonly<CenterTot
         y={viewBox.cy + 24}
         className="fill-muted-foreground"
       >
-        Total
+        {totalLabel}
       </tspan>
     </text>
   )
@@ -162,6 +163,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
   const createChartMutation = useCreateAnalyticsChart();
   const { t } = useI18n();
   const ta = t.helpdesk.analyticsReports;
+  const tp = t.helpdesk.analyticsBuilderPreview;
 
   const chartTypes = [
     { id: 'area-chart', name: ta.chartTypeAreaChart, icon: chartTypeIcons['area-chart'], description: ta.chartTypeAreaChartDesc },
@@ -254,15 +256,15 @@ export default function HelpdeskAnalyticsBuilderPage() {
   // Dynamic chart config based on selected color
   const chartConfig = {
     desktop: {
-      label: "Value",
+      label: tp.value,
       color: chartColor,
     },
     mobile: {
-      label: "Mobile",
+      label: tp.mobile,
       color: "#93c5fd",
     },
     visitors: {
-      label: "Visitors",
+      label: tp.visitors,
       color: chartColor,
     },
     chrome: {
@@ -282,7 +284,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
       color: "#2563eb",
     },
     other: {
-      label: "Other",
+      label: tp.other,
       color: "#1d4ed8",
     },
   } satisfies ChartConfig;
@@ -608,7 +610,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                             strokeWidth={5}
                           >
                             <RechartsLabel
-                              content={<CenterTotalLabel total={totalMixedVisitors} valueClassName="fill-foreground text-3xl font-bold" />}
+                              content={<CenterTotalLabel total={totalMixedVisitors} totalLabel={ta.total} valueClassName="fill-foreground text-3xl font-bold" />}
                             />
                           </Pie>
                         </RechartsPieChart>
@@ -669,7 +671,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                           <RadialBar dataKey="visitors" background cornerRadius={10} />
                           <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
                             <RechartsLabel
-                              content={<CenterTotalLabel total={mixedBarChartData[0].visitors} valueClassName="fill-foreground text-4xl font-bold" />}
+                              content={<CenterTotalLabel total={mixedBarChartData[0].visitors} totalLabel={ta.total} valueClassName="fill-foreground text-4xl font-bold" />}
                             />
                           </PolarRadiusAxis>
                         </RadialBarChart>

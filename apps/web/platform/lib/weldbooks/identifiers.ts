@@ -171,3 +171,104 @@ export function ibanProblem(raw: string): IbanProblem | null {
 export function isValidIban(raw: string): boolean {
   return ibanProblem(raw) === null;
 }
+
+// ---------------------------------------------------------------------------
+// Brazil: CNPJ, CPF, Inscrição Estadual, CEP
+// ---------------------------------------------------------------------------
+// Platform copy of `packages/domains/books/src/jurisdictions/br/identifiers.ts`: keep the two in sync.
+
+/** Why a Brazilian identifier is not valid: the shape, or its check digits. */
+export type BrIdProblem = 'format' | 'checksum';
+
+/** A CNPJ without its mask, upper case (the first 12 characters may be letters since July 2026). */
+export function normalizeCnpj(value: string): string {
+  return value.replace(/[\s./-]/g, '').toUpperCase();
+}
+
+export function normalizeCpf(value: string): string {
+  return value.replace(/[\s.-]/g, '');
+}
+
+function mod11Digit(values: number[], weights: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) sum += values[i] * weights[i];
+  const remainder = sum % 11;
+  return remainder < 2 ? 0 : 11 - remainder;
+}
+
+const CNPJ_WEIGHTS_1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+const CNPJ_WEIGHTS_2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+
+/** The two check digits of a CNPJ from its first 12 characters (digits count their value, A..Z count 17..42). */
+export function cnpjCheckDigits(first12: string): string {
+  const values = [...first12].map((ch) => ch.charCodeAt(0) - 48);
+  const d1 = mod11Digit(values, CNPJ_WEIGHTS_1);
+  const d2 = mod11Digit([...values, d1], CNPJ_WEIGHTS_2);
+  return `${d1}${d2}`;
+}
+
+export function formatCnpj(value: string): string {
+  const n = normalizeCnpj(value);
+  return `${n.slice(0, 2)}.${n.slice(2, 5)}.${n.slice(5, 8)}/${n.slice(8, 12)}-${n.slice(12)}`;
+}
+
+export function formatCpf(value: string): string {
+  const n = normalizeCpf(value);
+  return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`;
+}
+
+/** Why a CNPJ is not valid (alphanumeric ones included), or null when it is. */
+export function cnpjProblem(value: string): BrIdProblem | null {
+  const n = normalizeCnpj(value);
+  if (!/^[0-9A-Z]{12}\d{2}$/.test(n) || /^(.)\1{13}$/.test(n)) return 'format';
+  return cnpjCheckDigits(n.slice(0, 12)) === n.slice(12) ? null : 'checksum';
+}
+
+export function isValidCnpj(value: string): boolean {
+  return cnpjProblem(value) === null;
+}
+
+/** Why a CPF is not valid, or null when it is. */
+export function cpfProblem(value: string): BrIdProblem | null {
+  const n = normalizeCpf(value);
+  if (!/^\d{11}$/.test(n) || /^(\d)\1{10}$/.test(n)) return 'format';
+  const digits = [...n].map(Number);
+  const dv = (count: number, start: number) => {
+    let sum = 0;
+    for (let i = 0; i < count; i++) sum += digits[i] * (start - i);
+    const remainder = (sum * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+  return dv(9, 10) === digits[9] && dv(10, 11) === digits[10] ? null : 'checksum';
+}
+
+export function isValidCpf(value: string): boolean {
+  return cpfProblem(value) === null;
+}
+
+/** A CNPJ (company) or a CPF (person), told apart by length: eleven digits is a CPF. */
+export function brTaxIdKind(value: string): 'cnpj' | 'cpf' {
+  const compact = normalizeCnpj(value);
+  return compact.length === 11 && /^\d+$/.test(compact) ? 'cpf' : 'cnpj';
+}
+
+export function brTaxIdProblem(value: string): BrIdProblem | null {
+  return brTaxIdKind(value) === 'cpf' ? cpfProblem(value) : cnpjProblem(value);
+}
+
+/** Inscrição Estadual: every state has its own check digit, so only the shape is checked (2 to 14 digits, or ISENTO). */
+export function isValidInscricaoEstadual(value: string): boolean {
+  const trimmed = value.trim().toUpperCase();
+  return trimmed === 'ISENTO' || /^\d{2,14}$/.test(trimmed.replace(/[\s./-]/g, ''));
+}
+
+/** A CEP as 00000-000, or undefined when it does not have eight digits. */
+export function normalizeCep(value: string): string | undefined {
+  const digits = value.replace(/\D/g, '');
+  return digits.length === 8 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : undefined;
+}
+
+/** IBGE municipality code: seven digits, the first two the state's code. */
+export function isValidMunicipalityCode(value: string): boolean {
+  return /^\d{7}$/.test(value.trim());
+}

@@ -5,6 +5,8 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { EmptyStateIllustration, type GroupConfig } from '@/components/entity-list';
+import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { PageLoader } from '@/components/page-loader';
 import { useCompleteDeadline, useReopenDeadline, useTaxCalendar } from '@/hooks/queries/use-weldbooks-assets-queries';
 import type { TaxDeadline } from '@/lib/api/domains/weldbooks-assets';
@@ -13,7 +15,7 @@ import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { errorMessage, fill } from '../fixed-assets/text';
-import { DeadlineRow } from './components/deadline-row';
+import { useDeadlineColumns, type DeadlineListRow } from './components/deadline-columns';
 import { MarkDoneDialog } from './components/mark-done-dialog';
 import { countStatuses, groupByMonth } from './deadline-status';
 
@@ -37,23 +39,31 @@ export default function TaxCalendarPage() {
 
   const data = calendar.data;
   const shownYear = year ?? data?.year ?? Number(today().slice(0, 4));
-  const groups = useMemo(() => groupByMonth(data?.items ?? []), [data?.items]);
+  const monthGroups = useMemo(() => groupByMonth(data?.items ?? []), [data?.items]);
   const counts = useMemo(() => (data ? countStatuses(data.items, data.today) : null), [data]);
   const monthName = useMemo(() => {
     const format = new Intl.DateTimeFormat(dateLocale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
-    return (month: string) => format.format(new Date(`${month}-01T00:00:00Z`));
+    return (month: string) => {
+      const name = format.format(new Date(`${month}-01T00:00:00Z`));
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    };
   }, [dateLocale]);
 
-  if (!isResolved && !jurisdictionError) return <PageLoader fullScreen={false} />;
-
-  if (!isUs || (data && !data.supported)) {
-    return (
-      <div className="space-y-2 p-4 sm:p-6">
-        <h1 className="text-2xl font-semibold">{tc.title}</h1>
-        <p className="text-sm text-muted-foreground">{common.usOnly}</p>
-      </div>
-    );
-  }
+  // The deadlines in month order, so each month's group reads in date order.
+  const rows = useMemo<DeadlineListRow[]>(
+    () => monthGroups.flatMap((group) => group.items.map((item) => ({ ...item, id: item.key }))),
+    [monthGroups],
+  );
+  const groups = useMemo<GroupConfig<DeadlineListRow>[]>(
+    () =>
+      monthGroups.map((group, index) => ({
+        id: group.month,
+        label: monthName(group.month),
+        sortOrder: index,
+        filter: (row) => row.dueDate.startsWith(group.month),
+      })),
+    [monthGroups, monthName],
+  );
 
   const canUpdate = can('taxes:update');
 
@@ -83,98 +93,95 @@ export default function TaxCalendarPage() {
     }
   };
 
-  let body: React.ReactNode;
-  if (calendar.isLoading) {
-    body = <PageLoader fullScreen={false} />;
-  } else if (calendar.isError || !data) {
-    body = (
-      <Card>
-        <CardContent className="space-y-3 py-10 text-center">
-          <p className="text-sm text-destructive" role="alert">
-            {tc.loadFailed}
-          </p>
-          <Button variant="outline" size="sm" onClick={() => void calendar.refetch()}>
-            {common.retry}
-          </Button>
-        </CardContent>
-      </Card>
+  const columns = useDeadlineColumns({
+    today: data?.today ?? today(),
+    canUpdate,
+    busyKey,
+    onMarkDone: (item) => {
+      setMarkError(null);
+      setMarking(item);
+    },
+    onReopen: (item) => void undo(item),
+  });
+
+  if (!isResolved && !jurisdictionError) return <PageLoader fullScreen={false} />;
+
+  if (!isUs || (data && !data.supported)) {
+    return (
+      <div className="space-y-2 p-4 sm:p-6">
+        <h1 className="text-2xl font-semibold">{tc.title}</h1>
+        <p className="text-sm text-muted-foreground">{common.usOnly}</p>
+      </div>
     );
-  } else if (data.items.length === 0) {
-    body = (
-      <Card>
-        <CardContent className="space-y-2 py-10 text-center">
-          <CalendarDays className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden />
-          <p className="font-medium">{tc.emptyTitle}</p>
-          <p className="text-sm text-muted-foreground">{fill(tc.emptyDescription, { year: shownYear })}</p>
-        </CardContent>
-      </Card>
-    );
-  } else {
-    body = (
-      <div className="space-y-6" data-testid="tax-calendar-agenda">
-        {groups.map((group) => (
-          <section key={group.month} aria-labelledby={`month-${group.month}`} className="space-y-1">
-            <h2 id={`month-${group.month}`} className="text-sm font-semibold capitalize text-muted-foreground">
-              {monthName(group.month)}
-            </h2>
-            <Card>
-              <CardContent className="py-0">
-                <ul className="divide-y">
-                  {group.items.map((deadline) => (
-                    <DeadlineRow
-                      key={deadline.key}
-                      deadline={deadline}
-                      today={data.today}
-                      canUpdate={canUpdate}
-                      busy={busyKey === deadline.key}
-                      onMarkDone={(item) => {
-                        setMarkError(null);
-                        setMarking(item);
-                      }}
-                      onReopen={(item) => void undo(item)}
-                    />
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          </section>
-        ))}
+  }
+
+  const yearNavigation = (
+    <div className="flex items-center gap-1">
+      <Button variant="outline" size="icon" className="h-8 w-8" aria-label={tc.previousYear} onClick={() => setYear(shownYear - 1)}>
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <span className="min-w-14 text-center text-sm font-semibold tabular-nums" data-testid="calendar-year">
+        {shownYear}
+      </span>
+      <Button variant="outline" size="icon" className="h-8 w-8" aria-label={tc.nextYear} onClick={() => setYear(shownYear + 1)}>
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+
+  if (calendar.isError || (!data && !calendar.isLoading)) {
+    return (
+      <div className="space-y-4 p-4 sm:p-6">
+        {yearNavigation}
+        <Card>
+          <CardContent className="space-y-3 py-10 text-center">
+            <p className="text-sm text-destructive" role="alert">
+              {tc.loadFailed}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void calendar.refetch()}>
+              {common.retry}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl space-y-6 p-4 sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">{tc.title}</h1>
-          <p className="text-sm text-muted-foreground">{tc.subtitle}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" aria-label={tc.previousYear} onClick={() => setYear(shownYear - 1)}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="min-w-16 text-center text-lg font-semibold tabular-nums" data-testid="calendar-year">
-            {shownYear}
-          </span>
-          <Button variant="outline" size="icon" aria-label={tc.nextYear} onClick={() => setYear(shownYear + 1)}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      {counts ? (
-        <div className="flex flex-wrap gap-2" data-testid="calendar-counts">
-          <Badge variant="destructive">{fill(tc.counts.overdue, { count: counts.overdue })}</Badge>
-          <Badge variant="warning">{fill(tc.counts.dueSoon, { count: counts.dueSoon })}</Badge>
-          <Badge variant="secondary">{fill(tc.counts.upcoming, { count: counts.upcoming })}</Badge>
-          <Badge variant="success">{fill(tc.counts.done, { count: counts.done })}</Badge>
+    <div>
+      {counts || data?.facts ? (
+        <div className="space-y-2 p-4 pb-0 sm:px-6">
+          {counts ? (
+            <div className="flex flex-wrap gap-2" data-testid="calendar-counts">
+              <Badge variant="destructive">{fill(tc.counts.overdue, { count: counts.overdue })}</Badge>
+              <Badge variant="warning">{fill(tc.counts.dueSoon, { count: counts.dueSoon })}</Badge>
+              <Badge variant="secondary">{fill(tc.counts.upcoming, { count: counts.upcoming })}</Badge>
+              <Badge variant="success">{fill(tc.counts.done, { count: counts.done })}</Badge>
+            </div>
+          ) : null}
+          {data?.facts ? <p className="text-xs text-muted-foreground">{tc.disclaimer}</p> : null}
         </div>
       ) : null}
 
-      {data?.facts ? <p className="text-xs text-muted-foreground">{tc.disclaimer}</p> : null}
-
-      {body}
+      <div data-testid="tax-calendar-agenda">
+        <WeldbooksEntityList<DeadlineListRow>
+          items={rows}
+          isLoading={calendar.isLoading}
+          columns={columns}
+          groups={groups}
+          filters={[]}
+          leftActionButtons={yearNavigation}
+          emptyState={{
+            icon: (
+              <EmptyStateIllustration>
+                <CalendarDays className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+              </EmptyStateIllustration>
+            ),
+            title: fill(tc.emptyTitle, { year: shownYear }),
+            description: fill(tc.emptyDescription, { year: shownYear }),
+          }}
+        />
+      </div>
 
       {marking ? (
         <MarkDoneDialog

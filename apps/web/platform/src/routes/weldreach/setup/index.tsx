@@ -11,6 +11,6 @@ export const Route = createFileRoute('/weldreach/setup/')({
     step: typeof search.step === 'string' ? search.step : undefined,
     billing: typeof search.billing === 'string' ? search.billing : undefined,
   }),
-  staticData: { breadcrumb: { label: 'Set up' } },
+  staticData: { breadcrumb: { labelKey: 'setUp' } },
   component: PageComponent,
 });

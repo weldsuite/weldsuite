@@ -3,11 +3,11 @@ import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { VatNotAvailable } from './components/vat-not-available';
 import GstReturnPage from './gst-return-page';
+import BrApuracaoPage from './br-apuracao-page';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
 import { useAccountingVatReturns, useCalculateVatReturn } from '@/hooks/queries/use-accounting-queries';
 import { accountingApi, type IcpDeclaration } from '@/lib/api/domains/weldbooks';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -25,16 +25,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@weldsuite/ui/components/dialog';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { FileText, Receipt, Trash2 } from 'lucide-react';
+import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
+import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
-import { Plus, Trash2 } from 'lucide-react';
+  RowAmount,
+  RowText,
+  RowTitle,
+  StatusChip,
+  statusTone,
+  type ChipTone,
+} from '@/components/accounting/weldbooks-row-cells';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -52,10 +53,10 @@ interface VatReturnRow {
   rubrieken?: Record<string, number> | null;
 }
 
-function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
-  if (status === 'filed' || status === 'accepted') return 'default';
-  if (status === 'rejected') return 'destructive';
-  return 'outline';
+/** A stored VAT return or ICP declaration as the list takes it: the shared status tones, plus the calculated / reviewed stages. */
+function vatStatusTone(status: string): ChipTone {
+  if (status === 'calculated' || status === 'reviewed') return 'blue';
+  return statusTone(status);
 }
 
 export default function VatReturnsPage() {
@@ -135,6 +136,9 @@ export default function VatReturnsPage() {
   // India has no stored return: the GSTR-1 / GSTR-3B worksheet of a period instead.
   if (features.gstReturn) return <GstReturnPage />;
 
+  // Brazil has no stored return either: the monthly apuração (DAS / taxes / withholdings) of a period.
+  if (features.brTaxReturn) return <BrApuracaoPage />;
+
   if (!features.vatReturn) {
     return <VatNotAvailable title={tv.notAvailableTitle} description={tv.notAvailableDescription} />;
   }
@@ -181,147 +185,156 @@ export default function VatReturnsPage() {
 
   const icpDeclarations = (icpData?.data ?? []) as IcpDeclaration[];
 
-  const statusBadge = (status: string) => (
-    <Badge variant={vatStatusBadgeVariant(status)}>
-      {tslVat[status as keyof typeof tslVat] ?? status}
-    </Badge>
+  const statusChip = (status: string) => (
+    <StatusChip tone={vatStatusTone(status)}>{tslVat[status as keyof typeof tslVat] ?? status}</StatusChip>
   );
 
-  return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">{tv.title}</h1>
+  const openVatDialog = () => {
+    setDialogMode('vat');
+    setShowDialog(true);
+  };
+  const openIcpDialog = () => {
+    setDialogMode('icp');
+    setShowDialog(true);
+  };
 
+  const returnColumns: ColumnDef<VatReturnRow>[] = [
+    {
+      id: 'period',
+      header: tv.colPeriod,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (vr) => <RowTitle>{vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}</RowTitle>,
+    },
+    {
+      id: 'type',
+      header: tv.colType,
+      width: 'w-[120px]',
+      render: (vr) => <RowText>{periodTypeLabel(vr.periodType)}</RowText>,
+    },
+    {
+      id: 'r5a',
+      header: tv.colR5a,
+      width: 'w-[130px]',
+      render: (vr) => <RowAmount>{fmt(vr.rubrieken?.r5a)}</RowAmount>,
+    },
+    {
+      id: 'r5b',
+      header: tv.colR5b,
+      width: 'w-[130px]',
+      render: (vr) => <RowAmount>{fmt(vr.rubrieken?.r5b)}</RowAmount>,
+    },
+    {
+      id: 'r5g',
+      header: tv.colR5g,
+      width: 'w-[130px]',
+      render: (vr) => {
+        const r5g = vr.rubrieken?.r5g ?? 0;
+        return (
+          <RowAmount className={`font-medium ${r5g >= 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(r5g)}</RowAmount>
+        );
+      },
+    },
+    {
+      id: 'status',
+      header: tv.colStatus,
+      width: 'w-[110px]',
+      render: (vr) => statusChip(vr.status),
+    },
+  ];
+
+  const icpColumns: ColumnDef<IcpDeclaration>[] = [
+    {
+      id: 'period',
+      header: tv.colPeriod,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (d) => <RowTitle>{d.periodLabel || periodRange(d.periodStart, d.periodEnd)}</RowTitle>,
+    },
+    {
+      id: 'total',
+      header: tv.icpColTotal,
+      width: 'w-[150px]',
+      render: (d) => <RowAmount>{fmt(d.totalAmount)}</RowAmount>,
+    },
+    {
+      id: 'status',
+      header: tv.colStatus,
+      width: 'w-[110px]',
+      render: (d) => statusChip(d.status),
+    },
+    {
+      id: 'actions',
+      header: '',
+      width: 'w-[150px] justify-end gap-2',
+      render: (d) =>
+        d.status === 'calculated' || d.status === 'reviewed' ? (
+          <>
+            <Button size="sm" variant="outline" className="h-7" disabled={fileIcp.isPending} onClick={() => fileIcp.mutate(d.id)}>
+              {tv.icpFile}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 px-0"
+              aria-label={tv.icpDelete}
+              disabled={deleteIcp.isPending}
+              onClick={() => setIcpToDelete(d.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </>
+        ) : null,
+    },
+  ];
+
+  return (
+    <>
       {/* BTW-aangiftes */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">{tv.returnsTitle}</CardTitle>
-          <Button
-            size="sm"
-            onClick={() => { setDialogMode('vat'); setShowDialog(true); }}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            {tv.listNewReturn}
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tv.colPeriod}</TableHead>
-                <TableHead>{tv.colType}</TableHead>
-                <TableHead className="text-right">{tv.colR5a}</TableHead>
-                <TableHead className="text-right">{tv.colR5b}</TableHead>
-                <TableHead className="text-right">{tv.colR5g}</TableHead>
-                <TableHead>{tv.colStatus}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {returns.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    {tv.listEmpty}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                returns.map((vr) => {
-                  const r5g = vr.rubrieken?.r5g ?? 0;
-                  return (
-                    <TableRow
-                      key={vr.id}
-                      className="cursor-pointer"
-                      onClick={() => navigate({ to: '/weldbooks/vat/$id', params: { id: vr.id } })}
-                    >
-                      <TableCell className="font-medium">
-                        {vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}
-                      </TableCell>
-                      <TableCell>{periodTypeLabel(vr.periodType)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5a)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5b)}</TableCell>
-                      <TableCell className={`text-right tabular-nums font-medium ${r5g >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {fmt(r5g)}
-                      </TableCell>
-                      <TableCell>{statusBadge(vr.status)}</TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {showIcp ? <h2 className="px-4 pt-4 text-sm font-semibold sm:px-6">{tv.returnsTitle}</h2> : null}
+      <WeldbooksEntityList<VatReturnRow>
+        items={returns}
+        isLoading={false}
+        columns={returnColumns}
+        onRowClick={(vr) => navigate({ to: '/weldbooks/vat/$id', params: { id: vr.id } })}
+        getRowLabel={(vr) => vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}
+        filters={[]}
+        createButton={{ label: tv.listNewReturn, onClick: openVatDialog }}
+        emptyState={{
+          icon: (
+            <EmptyStateIllustration>
+              <Receipt className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            </EmptyStateIllustration>
+          ),
+          title: tv.emptyTitle,
+          description: tv.emptyDescription,
+          action: { label: tv.listNewReturn, onClick: openVatDialog },
+        }}
+      />
 
       {/* EC Sales List (ICP) — only where the jurisdiction has it */}
       {showIcp ? (
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between space-y-0">
-          <div>
-            <CardTitle className="text-base">{tv.icpTitle}</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">{tv.icpDesc}</p>
+        <>
+          <div className="px-4 pt-6 sm:px-6">
+            <h2 className="text-sm font-semibold">{tv.icpTitle}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{tv.icpDesc}</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { setDialogMode('icp'); setShowDialog(true); }}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            {tv.icpNew}
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tv.colPeriod}</TableHead>
-                <TableHead className="text-right">{tv.icpColTotal}</TableHead>
-                <TableHead>{tv.colStatus}</TableHead>
-                <TableHead className="text-right"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {icpDeclarations.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                    {tv.icpEmpty}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                icpDeclarations.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell className="font-medium">
-                      {d.periodLabel || periodRange(d.periodStart, d.periodEnd)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{fmt(d.totalAmount)}</TableCell>
-                    <TableCell>{statusBadge(d.status)}</TableCell>
-                    <TableCell className="text-right">
-                      {d.status === 'calculated' || d.status === 'reviewed' ? (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={fileIcp.isPending}
-                            onClick={() => fileIcp.mutate(d.id)}
-                          >
-                            {tv.icpFile}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={tv.icpDelete}
-                            disabled={deleteIcp.isPending}
-                            onClick={() => setIcpToDelete(d.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+          <WeldbooksEntityList<IcpDeclaration>
+            items={icpDeclarations}
+            isLoading={false}
+            columns={icpColumns}
+            filters={[]}
+            createButton={{ label: tv.icpNew, onClick: openIcpDialog }}
+            emptyState={{
+              icon: (
+                <EmptyStateIllustration>
+                  <FileText className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+                </EmptyStateIllustration>
+              ),
+              title: tv.icpEmpty,
+              description: tv.icpEmptyDescription,
+              action: { label: tv.icpNew, onClick: openIcpDialog },
+            }}
+          />
+        </>
       ) : null}
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
@@ -384,6 +397,6 @@ export default function VatReturnsPage() {
           if (icpToDelete) await deleteIcp.mutateAsync(icpToDelete).catch(() => undefined);
         }}
       />
-    </div>
+    </>
   );
 }

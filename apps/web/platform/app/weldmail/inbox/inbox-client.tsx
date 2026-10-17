@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import { getIntlLocale } from '@/lib/i18n/date-locale';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
@@ -371,7 +372,7 @@ function ComposeHeader({ handleSendEmail, isSending, setComposeData, setIsCompos
             ) : (
               <Send className="h-3.5 w-3.5" />
             )}
-            <span className="text-sm">{isSending ? 'Sending...' : 'Send'}</span>
+            <span className="text-sm">{isSending ? st('mail.composeDialog.sending') : st('mail.compose.send')}</span>
           </Button>
         </div>
       </div>
@@ -512,7 +513,7 @@ function EmailToolbar({ completedEmails, getDateLabel, groupedMessages, handleAr
           <Button variant="ghost"
             onClick={() => selectedEmail && handlePin(selectedEmail.id)}
             className="p-1.5 hover:bg-accent rounded-md transition-colors"
-            title={selectedEmail && pinnedEmails.has(selectedEmail.id) ? "Unpin email" : "Pin email"}
+            title={selectedEmail && pinnedEmails.has(selectedEmail.id) ? t.mail.inboxPage.unpinEmail : t.mail.inboxPage.pinEmail}
           >
             <Pin className={cn(
               "h-4 w-4",
@@ -1441,7 +1442,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
                 <Button variant="ghost"
                   onClick={() => setIsAiPanelFullscreen(!isAiPanelFullscreen)}
                   className="p-1 hover:bg-gray-100 dark:hover:bg-secondary rounded-lg transition-colors"
-                  title={isAiPanelFullscreen ? "Exit fullscreen" : "Expand to fullscreen"}
+                  title={isAiPanelFullscreen ? t.mail.inboxPage.exitFullscreen : t.mail.inboxPage.expandFullscreen}
                 >
                   <Expand className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
                 </Button>
@@ -1735,7 +1736,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
               ) : (
                 <Send className="h-3.5 w-3.5" />
               )}
-              <span className="text-sm">{isSending ? 'Sending...' : 'Send'}</span>
+              <span className="text-sm">{isSending ? st('mail.composeDialog.sending') : st('mail.compose.send')}</span>
             </Button>
           </div>
         </div>
@@ -2022,7 +2023,7 @@ export function InboxClient({
   currentFolder,
   activeAccount
 }: Readonly<InboxClientProps>) {
-  const { t } = useI18n();
+  const { t, format: formatText, language } = useI18n();
   const notifySendError = useNotifySendError();
   const st = useTranslations();
   // Set breadcrumbs for inbox
@@ -2156,12 +2157,12 @@ export function InboxClient({
     messageDate.setHours(0, 0, 0, 0);
 
     if (messageDate.getTime() === today.getTime()) {
-      return 'Today';
+      return t.common.time.today;
     } else if (messageDate.getTime() === yesterday.getTime()) {
-      return 'Yesterday';
+      return t.common.time.yesterday;
     } else {
       // Return formatted date for older messages
-      return messageDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      return messageDate.toLocaleDateString(getIntlLocale(language), { month: 'long', day: 'numeric', year: 'numeric' });
     }
   };
 
@@ -2360,7 +2361,7 @@ export function InboxClient({
     if (isToday(emailDate)) {
       return format(emailDate, 'h:mm a');
     } else if (isYesterday(emailDate)) {
-      return 'Yesterday';
+      return t.common.time.yesterday;
     } else {
       return format(emailDate, 'MMM d');
     }
@@ -3263,7 +3264,7 @@ export function InboxClient({
                           </div>
                         </div>
                         <div>
-                          <CardTitle className="text-base mb-1">In the past 24 hours you missed {filteredMessages.filter(e => !e.isRead).length} messages</CardTitle>
+                          <CardTitle className="text-base mb-1">{formatText(t.mail.inboxPage.missedInPast24Hours, { count: filteredMessages.filter(e => !e.isRead).length })}</CardTitle>
                           <CardDescription className="text-sm">{t.mail.inboxPage.selectConversationToRead}</CardDescription>
                         </div>
                       </div>
@@ -3280,7 +3281,7 @@ export function InboxClient({
                             <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium leading-tight">{filteredMessages.filter(e => !e.isRead).length} ongelezen berichten</p>
+                            <p className="text-sm font-medium leading-tight">{formatText(t.mail.inboxPage.unreadMessagesCount, { count: filteredMessages.filter(e => !e.isRead).length })}</p>
                           </div>
                           <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                         </div>
@@ -3293,7 +3294,7 @@ export function InboxClient({
                             <Star className="h-3.5 w-3.5 text-muted-foreground" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium leading-tight">{filteredMessages.filter(e => e.isStarred).length} met ster gemarkeerd</p>
+                            <p className="text-sm font-medium leading-tight">{formatText(t.mail.inboxPage.starredMessagesCount, { count: filteredMessages.filter(e => e.isStarred).length })}</p>
                           </div>
                           <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                         </div>
@@ -3749,7 +3750,7 @@ export function InboxClient({
 
                 <div className="grid grid-cols-[140px_1fr] gap-y-3 text-sm">
                   <span className="text-gray-500 dark:text-muted-foreground">{t.mail.inboxPage.connectorsWorksWith}</span>
-                  <span className="text-gray-900 dark:text-foreground">Products, Orders, Customers, Inventory</span>
+                  <span className="text-gray-900 dark:text-foreground">{t.mail.inboxPage.connectorsWorksWithCommerce}</span>
 
                   <span className="text-gray-500 dark:text-muted-foreground">{t.mail.inboxPage.connectorsCategory}</span>
                   <span className="text-gray-900 dark:text-foreground">{t.mail.inboxPage.connectorsProductivity}</span>

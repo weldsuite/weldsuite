@@ -147,6 +147,14 @@ export function taxAccountFor(
   return requireAccount(byDirection, 'No tax account found. Link the tax rate to a ledger account or add a tax payable account.');
 }
 
+/** The account holding a system role (BR tax rows name theirs); a missing one is a setup error. */
+function roleAccount(accounts: EntityAccounts, role: string | undefined, what: string): string {
+  return requireAccount(
+    role ? accounts.byRole(role) : undefined,
+    `No account with the role ${role ?? '(none)'} for "${what}". Add it to the chart of accounts.`,
+  );
+}
+
 export function breakdownToTaxLine(
   row: BreakdownRow,
   rate: TaxRateRow | undefined,
@@ -312,9 +320,168 @@ class DimensionedAmounts {
   }
 }
 
+/**
+ * Brazil: what a bill's taxes do to the cost of its lines. A credit inside the
+ * price (ICMS, PIS/COFINS a recuperar) comes out of the cost, because it is
+ * booked as a receivable instead; a tax on top of the price that can't be
+ * credited (IPI for a reseller) goes into it. Each row is spread over the lines
+ * of its rate in proportion to their amounts, to the cent.
+ */
+function adjustBrPurchaseCost(
+  expenses: DimensionedAmounts,
+  breakdown: BreakdownRow[],
+  items: BillItemRow[],
+  accountOf: (item: BillItemRow) => string | undefined,
+): void {
+  for (const row of breakdown) {
+    let direction = 0;
+    if (row.treatment === 'embedded' && row.accountRole) direction = -1;
+    else if (row.treatment === 'added' && !row.accountRole) direction = 1;
+    if (direction === 0 || row.taxAmount === 0) continue;
+    const lines = items.filter((item) => (item.taxRateId ?? '') === row.taxRateId);
+    if (lines.length === 0) continue;
+    const parts = allocateCents(
+      toCents(row.taxAmount),
+      lines.map((item) => Number.parseFloat(item.lineTotal ?? '0')),
+    );
+    lines.forEach((item, i) => {
+      const accountId = accountOf(item);
+      if (accountId) expenses.add(accountId, direction * fromCents(parts[i]), item);
+    });
+  }
+}
+
+type AccountRow = typeof schema.accounts.$inferSelect;
+
+/** Where the tax rows of an invoice or bill are posted, and how their amounts convert. */
+interface TaxPosting {
+  accounts: EntityAccounts;
+  rates: Map<string, TaxRateRow>;
+  sign: 1 | -1;
+  currency: string;
+  toBase: (amount: number) => number;
+  contactId: string | null;
+  /** The document number, appended to line descriptions. */
+  documentNumber: string | null;
+  meta: { currency: string; exchangeRate: string; contactId: string | null };
+  lines: PostingLine[];
+  taxLines: PostingTaxLine[];
+}
+
+function rowTaxLine(row: BreakdownRow, rate: TaxRateRow | undefined, posting: TaxPosting, direction: 'sales' | 'purchase'): PostingTaxLine {
+  const { sign, currency, toBase, contactId } = posting;
+  return breakdownToTaxLine(row, rate, { direction, sign, currency, toBase, contactId });
+}
+
 // ---------------------------------------------------------------------------
 // Invoices and credit notes
 // ---------------------------------------------------------------------------
+
+/** Revenue per account and dimensions: the line's own account, else the invoice's default. */
+function invoiceRevenue(items: InvoiceItemRow[], accounts: EntityAccounts, defaultRevenue: AccountRow | undefined): DimensionedAmounts {
+  const revenue = new DimensionedAmounts();
+  for (const item of items) {
+    if (item.accountId && !accounts.byId(item.accountId)) {
+      throw new PostingError(`Line account ${item.accountId} does not belong to this accounting entity`);
+    }
+    const accountId = requireAccount(
+      accounts.byId(item.accountId) ?? defaultRevenue,
+      'No revenue account found. Choose a revenue account on the invoice line.',
+    );
+    revenue.add(accountId, Number.parseFloat(item.lineTotal ?? '0'), item);
+  }
+  return revenue;
+}
+
+/** US sales tax: a credit per agency's payable account, and the per-jurisdiction tax-ledger rows. */
+async function postInvoiceSalesTax(db: Database, invoice: InvoiceRow, breakdown: BreakdownRow[], posting: TaxPosting): Promise<void> {
+  const { accounts, sign, currency, toBase, meta, lines, taxLines } = posting;
+  const agencies = await loadAgencyAccounts(db, invoice.entityId);
+  const payable = new Map<string, { accountId: string; amount: number; label: string }>();
+  for (const row of breakdown) {
+    if (row.taxAmount === 0) continue;
+    const accountId = salesTaxAccountFor(accounts, agencies, row.agencyId);
+    const label = row.agencyId ? (agencies.get(row.agencyId)?.name ?? 'Sales tax') : 'Sales tax';
+    const existing = payable.get(accountId);
+    if (existing) existing.amount += row.taxAmount;
+    else payable.set(accountId, { accountId, amount: row.taxAmount, label });
+  }
+  for (const { accountId, amount, label } of payable.values()) {
+    lines.push({
+      accountId,
+      credit: toBase(amount * sign),
+      description: `Sales tax ${label} ${invoice.invoiceNumber ?? ''}`.trim(),
+      taxAmount: toBase(amount * sign),
+      ...meta,
+    });
+  }
+  taxLines.push(
+    ...usTaxLines(breakdown, {
+      sign,
+      direction: 'sales',
+      currency,
+      toBase,
+      contactId: invoice.contactId,
+      marketplaceFacilitated: invoice.marketplaceFacilitated,
+      shipToState: breakdown.find((r) => r.stateCode)?.stateCode ?? null,
+      shipToPostalCode: pickShipToZip(invoice),
+      engine: invoice.taxEngine,
+      engineRef: invoice.taxEngineRef,
+    }),
+  );
+}
+
+/** Tax rows with a rate (or a BR withholding) on an invoice: journal lines and tax-ledger rows. */
+function postInvoiceRateTax(breakdown: BreakdownRow[], posting: TaxPosting): void {
+  for (const row of breakdown) {
+    const rate = posting.rates.get(row.taxRateId);
+    if (row.treatment === 'informational') {
+      // BR CBS/IBS of the 2026 test year: on the tax ledger for the worksheet, nothing in the journal.
+      posting.taxLines.push(rowTaxLine(row, rate, posting, 'sales'));
+      continue;
+    }
+    if (row.taxAmount !== 0) posting.lines.push(...invoiceTaxRowLines(row, rate, posting));
+    // Withholdings are document-level (no rate) but still reach the tax ledger.
+    if (row.taxRateId || row.treatment === 'withheld') {
+      posting.taxLines.push(rowTaxLine(row, rate, posting, 'sales'));
+    }
+  }
+}
+
+/** The journal lines of an invoice tax row with a non-zero amount. */
+function invoiceTaxRowLines(row: BreakdownRow, rate: TaxRateRow | undefined, posting: TaxPosting): PostingLine[] {
+  const { accounts, meta } = posting;
+  const description = `${row.taxRateName ?? 'Tax'} ${posting.documentNumber ?? ''}`.trim();
+  const amount = posting.toBase(row.taxAmount * posting.sign);
+  if (row.treatment === 'withheld') {
+    // Kept back by the customer: a receivable from the tax authority (or less tax of our own) instead of from the customer.
+    return [{ accountId: roleAccount(accounts, row.accountRole, description), debit: amount, description, ...meta }];
+  }
+  if (row.treatment === 'embedded') {
+    // Inside the price: a deduction from revenue against the tax payable.
+    return [
+      { accountId: roleAccount(accounts, row.offsetAccountRole, description), debit: amount, description, ...meta },
+      {
+        accountId: roleAccount(accounts, row.accountRole, description),
+        credit: amount,
+        description,
+        taxRateId: row.taxRateId || null,
+        taxAmount: amount,
+        ...meta,
+      },
+    ];
+  }
+  return [
+    {
+      accountId: taxAccountFor(accounts, row, rate, 'sales'),
+      credit: amount,
+      description,
+      taxRateId: row.taxRateId || null,
+      taxAmount: amount,
+      ...meta,
+    },
+  ];
+}
 
 export async function buildInvoicePosting(
   db: Database,
@@ -349,17 +516,7 @@ export async function buildInvoicePosting(
     throw new PostingError('revenueAccountId does not belong to this accounting entity');
   }
 
-  const revenue = new DimensionedAmounts();
-  for (const item of items) {
-    if (item.accountId && !accounts.byId(item.accountId)) {
-      throw new PostingError(`Line account ${item.accountId} does not belong to this accounting entity`);
-    }
-    const accountId = requireAccount(
-      accounts.byId(item.accountId) ?? defaultRevenue,
-      'No revenue account found. Choose a revenue account on the invoice line.',
-    );
-    revenue.add(accountId, Number.parseFloat(item.lineTotal ?? '0'), item);
-  }
+  const revenue = invoiceRevenue(items, accounts, defaultRevenue);
 
   const lines: PostingLine[] = [];
   for (const { accountId, classId, locationId, amount } of revenue.entries()) {
@@ -373,64 +530,27 @@ export async function buildInvoicePosting(
     });
   }
 
-  const taxLines: PostingTaxLine[] = [];
+  const posting: TaxPosting = {
+    accounts,
+    rates,
+    sign,
+    currency,
+    toBase,
+    contactId: invoice.contactId,
+    documentNumber: invoice.invoiceNumber,
+    meta,
+    lines,
+    taxLines: [],
+  };
   if (salesTax) {
-    const agencies = await loadAgencyAccounts(db, invoice.entityId);
-    const payable = new Map<string, { accountId: string; amount: number; label: string }>();
-    for (const row of breakdown) {
-      if (row.taxAmount === 0) continue;
-      const accountId = salesTaxAccountFor(accounts, agencies, row.agencyId);
-      const label = row.agencyId ? (agencies.get(row.agencyId)?.name ?? 'Sales tax') : 'Sales tax';
-      const existing = payable.get(accountId);
-      if (existing) existing.amount += row.taxAmount;
-      else payable.set(accountId, { accountId, amount: row.taxAmount, label });
-    }
-    for (const { accountId, amount, label } of payable.values()) {
-      lines.push({
-        accountId,
-        credit: toBase(amount * sign),
-        description: `Sales tax ${label} ${invoice.invoiceNumber ?? ''}`.trim(),
-        taxAmount: toBase(amount * sign),
-        ...meta,
-      });
-    }
-    taxLines.push(
-      ...usTaxLines(breakdown, {
-        sign,
-        direction: 'sales',
-        currency,
-        toBase,
-        contactId: invoice.contactId,
-        marketplaceFacilitated: invoice.marketplaceFacilitated,
-        shipToState: breakdown.find((r) => r.stateCode)?.stateCode ?? null,
-        shipToPostalCode: pickShipToZip(invoice),
-        engine: invoice.taxEngine,
-        engineRef: invoice.taxEngineRef,
-      }),
-    );
+    await postInvoiceSalesTax(db, invoice, breakdown, posting);
   } else {
-    for (const row of breakdown) {
-      const rate = rates.get(row.taxRateId);
-      if (row.taxAmount !== 0) {
-        lines.push({
-          accountId: taxAccountFor(accounts, row, rate, 'sales'),
-          credit: toBase(row.taxAmount * sign),
-          description: `${row.taxRateName ?? 'Tax'} ${invoice.invoiceNumber ?? ''}`.trim(),
-          taxRateId: row.taxRateId || null,
-          taxAmount: toBase(row.taxAmount * sign),
-          ...meta,
-        });
-      }
-      if (row.taxRateId) {
-        taxLines.push(
-          breakdownToTaxLine(row, rate, { direction: 'sales', sign, currency, toBase, contactId: invoice.contactId }),
-        );
-      }
-    }
+    postInvoiceRateTax(breakdown, posting);
   }
+  const { taxLines } = posting;
 
-  // The receivable is the sum of what was credited, so the entry always balances in base currency.
-  const receivable = roundMoney(lines.reduce((sum, l) => sum + (l.credit ?? 0), 0));
+  // The receivable balances the entry: what was credited less what was debited (BR deductions, withholdings).
+  const receivable = roundMoney(lines.reduce((sum, l) => sum + (l.credit ?? 0) - (l.debit ?? 0), 0));
   lines.unshift({
     accountId: requireAccount(
       accountForRole(accounts, 'accounts_receivable', FALLBACK_CODES.accounts_receivable),
@@ -621,6 +741,164 @@ export async function postInvoiceWriteOff(
 // Bills
 // ---------------------------------------------------------------------------
 
+/** Expense per account and dimensions; supplier tax that can't be deducted is part of the line's cost. */
+function billExpenses(
+  items: BillItemRow[],
+  accounts: EntityAccounts,
+  defaultExpense: AccountRow | undefined,
+  taxDeductible: boolean,
+): DimensionedAmounts {
+  const expenses = new DimensionedAmounts();
+  for (const item of items) {
+    if (item.accountId && !accounts.byId(item.accountId)) {
+      throw new PostingError(`Line account ${item.accountId} does not belong to this accounting entity`);
+    }
+    const accountId = requireAccount(
+      accounts.byId(item.accountId) ?? defaultExpense,
+      'No expense account found. Choose an expense account on each bill line.',
+    );
+    const net = Number.parseFloat(item.lineTotal ?? '0');
+    const tax = taxDeductible ? 0 : Number.parseFloat(item.taxAmount ?? '0');
+    expenses.add(accountId, net + tax, item);
+  }
+  return expenses;
+}
+
+/** Use tax the buyer accrues: Dr the line's expense or asset, Cr the agency's Use Tax Payable. */
+async function postBillUseTax(
+  db: Database,
+  bill: BillRow,
+  useRows: BreakdownRow[],
+  items: BillItemRow[],
+  defaultExpense: AccountRow | undefined,
+  posting: TaxPosting,
+): Promise<void> {
+  const { accounts, sign, currency, toBase, meta, lines, taxLines } = posting;
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  const agencies = await loadAgencyAccounts(db, bill.entityId);
+  const accrued = new DimensionedAmounts();
+  const owed = new Map<string, number>();
+  for (const row of useRows) {
+    if (row.taxAmount === 0) continue;
+    const item = row.lineId ? itemById.get(row.lineId) : undefined;
+    const expenseAccount = requireAccount(accounts.byId(item?.accountId) ?? defaultExpense, 'No expense account found for use tax.');
+    accrued.add(expenseAccount, row.taxAmount, item ?? {});
+    const payable = useTaxAccountFor(accounts, agencies, row.agencyId);
+    owed.set(payable, (owed.get(payable) ?? 0) + row.taxAmount);
+  }
+  for (const { accountId, classId, locationId, amount } of accrued.entries()) {
+    lines.push({ accountId, debit: toBase(amount * sign), description: `Use tax ${bill.billNumber ?? ''}`.trim(), classId, locationId, ...meta });
+  }
+  for (const [accountId, amount] of owed) {
+    lines.push({
+      accountId,
+      credit: toBase(amount * sign),
+      description: `Use tax ${bill.billNumber ?? ''}`.trim(),
+      taxAmount: toBase(amount * sign),
+      ...meta,
+    });
+  }
+  taxLines.push(
+    ...usTaxLines(useRows, {
+      sign,
+      direction: 'use',
+      currency,
+      toBase,
+      contactId: bill.contactId,
+      shipToState: useRows.find((r) => r.stateCode)?.stateCode ?? null,
+      shipToPostalCode: zip5Of(pickShipTo(bill.deliveryAddress)) ?? null,
+      engine: null,
+      engineRef: null,
+    }),
+  );
+}
+
+/** One non-use tax row of a bill: its journal lines and, when it counts, its tax-ledger row. */
+function postBillTaxRow(row: BreakdownRow, posting: TaxPosting, taxDeductible: boolean, defaultExpense: AccountRow | undefined): void {
+  const rate = posting.rates.get(row.taxRateId);
+  if (row.treatment && row.treatment !== 'added') {
+    postBrBillTaxRow(row, rate, posting);
+    return;
+  }
+  if (row.treatment === 'added' && !row.accountRole) return; // BR tax without a credit: part of the cost
+  if (row.selfAssessed) {
+    // Owed and deducted by the buyer itself: both legs, nothing to the supplier.
+    if (row.taxAmount !== 0) posting.lines.push(...selfAssessedTaxLines(row, rate, posting, taxDeductible, defaultExpense));
+  } else if (taxDeductible && row.taxAmount !== 0) {
+    posting.lines.push({
+      accountId: taxAccountFor(posting.accounts, row, rate, 'purchase'),
+      debit: posting.toBase(row.taxAmount * posting.sign),
+      description: `${row.taxRateName ?? 'Tax'} ${posting.documentNumber ?? ''}`.trim(),
+      taxRateId: row.taxRateId || null,
+      taxAmount: posting.toBase(row.taxAmount * posting.sign),
+      ...posting.meta,
+    });
+  }
+  if (row.taxRateId && taxDeductible) {
+    posting.taxLines.push(rowTaxLine(row, rate, posting, 'purchase'));
+  }
+}
+
+/** Brazil: a credit inside the price (Dr recoverable, already taken out of the cost) or a withholding (Cr payable). */
+function postBrBillTaxRow(row: BreakdownRow, rate: TaxRateRow | undefined, posting: TaxPosting): void {
+  if (row.treatment === 'informational' || !row.accountRole || row.taxAmount === 0) return;
+  const { meta } = posting;
+  const description = `${row.taxRateName ?? 'Tax'} ${posting.documentNumber ?? ''}`.trim();
+  const amount = posting.toBase(row.taxAmount * posting.sign);
+  const accountId = roleAccount(posting.accounts, row.accountRole, description);
+  posting.lines.push(
+    row.treatment === 'withheld'
+      ? { accountId, credit: amount, description, ...meta }
+      : { accountId, debit: amount, description, taxRateId: row.taxRateId || null, taxAmount: amount, ...meta },
+  );
+  posting.taxLines.push(rowTaxLine(row, rate, posting, 'purchase'));
+}
+
+/** Both legs of a self-assessed tax row: the deduction (or the cost, when not deductible) and the tax payable. */
+function selfAssessedTaxLines(
+  row: BreakdownRow,
+  rate: TaxRateRow | undefined,
+  posting: TaxPosting,
+  taxDeductible: boolean,
+  defaultExpense: AccountRow | undefined,
+): PostingLine[] {
+  const { accounts, meta } = posting;
+  const documentNumber = posting.documentNumber ?? '';
+  const amount = posting.toBase(row.taxAmount * posting.sign);
+  const lines: PostingLine[] = [];
+  if (taxDeductible) {
+    lines.push({
+      accountId: taxAccountFor(accounts, row, rate, 'purchase'),
+      debit: amount,
+      description: `${row.taxRateName ?? 'Tax'} (self-assessed) ${documentNumber}`.trim(),
+      taxRateId: row.taxRateId || null,
+      taxAmount: amount,
+      ...meta,
+    });
+  } else {
+    lines.push({
+      accountId: requireAccount(defaultExpense, 'No expense account found for non-deductible tax.'),
+      debit: amount,
+      description: `${row.taxRateName ?? 'Tax'} (self-assessed, not deductible) ${documentNumber}`.trim(),
+      ...meta,
+    });
+  }
+  lines.push({
+    accountId: requireAccount(
+      accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable) ??
+        accountForRole(accounts, 'use_tax_payable') ??
+        accountForRole(accounts, 'sales_tax_payable'),
+      'No tax payable account found for this entity.',
+    ),
+    credit: amount,
+    description: `${row.taxRateName ?? 'Tax'} (self-assessed) ${documentNumber}`.trim(),
+    taxRateId: row.taxRateId || null,
+    taxAmount: amount,
+    ...meta,
+  });
+  return lines;
+}
+
 export async function buildBillPosting(
   db: Database,
   bill: BillRow,
@@ -653,20 +931,8 @@ export async function buildBillPosting(
     accounts.byId(party?.defaultExpenseAccountId) ??
     accountForRole(accounts, 'general_expense', FALLBACK_CODES.general_expense);
 
-  const expenses = new DimensionedAmounts();
-  const itemById = new Map(items.map((i) => [i.id, i]));
-  for (const item of items) {
-    if (item.accountId && !accounts.byId(item.accountId)) {
-      throw new PostingError(`Line account ${item.accountId} does not belong to this accounting entity`);
-    }
-    const accountId = requireAccount(
-      accounts.byId(item.accountId) ?? defaultExpense,
-      'No expense account found. Choose an expense account on each bill line.',
-    );
-    const net = Number.parseFloat(item.lineTotal ?? '0');
-    const tax = taxDeductible ? 0 : Number.parseFloat(item.taxAmount ?? '0');
-    expenses.add(accountId, net + tax, item);
-  }
+  const expenses = billExpenses(items, accounts, defaultExpense, taxDeductible);
+  adjustBrPurchaseCost(expenses, breakdown, items, (item) => accounts.byId(item.accountId)?.id ?? defaultExpense?.id);
 
   const lines: PostingLine[] = [];
   for (const { accountId, classId, locationId, amount } of expenses.entries()) {
@@ -680,102 +946,28 @@ export async function buildBillPosting(
     });
   }
 
-  const taxLines: PostingTaxLine[] = [];
+  const posting: TaxPosting = {
+    accounts,
+    rates,
+    sign,
+    currency,
+    toBase,
+    contactId: bill.contactId,
+    documentNumber: bill.billNumber,
+    meta,
+    lines,
+    taxLines: [],
+  };
   const useRows = breakdown.filter((r) => r.kind === 'use');
   if (useRows.length > 0) {
-    // Use tax the buyer accrues: Dr the line's expense or asset, Cr the agency's Use Tax Payable.
-    const agencies = await loadAgencyAccounts(db, bill.entityId);
-    const accrued = new DimensionedAmounts();
-    const owed = new Map<string, number>();
-    for (const row of useRows) {
-      if (row.taxAmount === 0) continue;
-      const item = row.lineId ? itemById.get(row.lineId) : undefined;
-      const expenseAccount = requireAccount(accounts.byId(item?.accountId) ?? defaultExpense, 'No expense account found for use tax.');
-      accrued.add(expenseAccount, row.taxAmount, item ?? {});
-      const payable = useTaxAccountFor(accounts, agencies, row.agencyId);
-      owed.set(payable, (owed.get(payable) ?? 0) + row.taxAmount);
-    }
-    for (const { accountId, classId, locationId, amount } of accrued.entries()) {
-      lines.push({ accountId, debit: toBase(amount * sign), description: `Use tax ${bill.billNumber ?? ''}`.trim(), classId, locationId, ...meta });
-    }
-    for (const [accountId, amount] of owed) {
-      lines.push({
-        accountId,
-        credit: toBase(amount * sign),
-        description: `Use tax ${bill.billNumber ?? ''}`.trim(),
-        taxAmount: toBase(amount * sign),
-        ...meta,
-      });
-    }
-    taxLines.push(
-      ...usTaxLines(useRows, {
-        sign,
-        direction: 'use',
-        currency,
-        toBase,
-        contactId: bill.contactId,
-        shipToState: useRows.find((r) => r.stateCode)?.stateCode ?? null,
-        shipToPostalCode: zip5Of(pickShipTo(bill.deliveryAddress)) ?? null,
-        engine: null,
-        engineRef: null,
-      }),
-    );
+    await postBillUseTax(db, bill, useRows, items, defaultExpense, posting);
   }
 
   for (const row of breakdown) {
     if (row.kind === 'use') continue;
-    const rate = rates.get(row.taxRateId);
-    if (row.selfAssessed) {
-      // Owed and deducted by the buyer itself: both legs, nothing to the supplier.
-      if (row.taxAmount !== 0) {
-        const amount = toBase(row.taxAmount * sign);
-        if (taxDeductible) {
-          lines.push({
-            accountId: taxAccountFor(accounts, row, rate, 'purchase'),
-            debit: amount,
-            description: `${row.taxRateName ?? 'Tax'} (self-assessed) ${bill.billNumber ?? ''}`.trim(),
-            taxRateId: row.taxRateId || null,
-            taxAmount: amount,
-            ...meta,
-          });
-        } else {
-          lines.push({
-            accountId: requireAccount(defaultExpense, 'No expense account found for non-deductible tax.'),
-            debit: amount,
-            description: `${row.taxRateName ?? 'Tax'} (self-assessed, not deductible) ${bill.billNumber ?? ''}`.trim(),
-            ...meta,
-          });
-        }
-        lines.push({
-          accountId: requireAccount(
-            accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable) ??
-              accountForRole(accounts, 'use_tax_payable') ??
-              accountForRole(accounts, 'sales_tax_payable'),
-            'No tax payable account found for this entity.',
-          ),
-          credit: amount,
-          description: `${row.taxRateName ?? 'Tax'} (self-assessed) ${bill.billNumber ?? ''}`.trim(),
-          taxRateId: row.taxRateId || null,
-          taxAmount: amount,
-          ...meta,
-        });
-      }
-    } else if (taxDeductible && row.taxAmount !== 0) {
-      lines.push({
-        accountId: taxAccountFor(accounts, row, rate, 'purchase'),
-        debit: toBase(row.taxAmount * sign),
-        description: `${row.taxRateName ?? 'Tax'} ${bill.billNumber ?? ''}`.trim(),
-        taxRateId: row.taxRateId || null,
-        taxAmount: toBase(row.taxAmount * sign),
-        ...meta,
-      });
-    }
-    if (row.taxRateId && taxDeductible) {
-      taxLines.push(
-        breakdownToTaxLine(row, rate, { direction: 'purchase', sign, currency, toBase, contactId: bill.contactId }),
-      );
-    }
+    postBillTaxRow(row, posting, taxDeductible, defaultExpense);
   }
+  const { taxLines } = posting;
 
   // Payable = everything debited except the self-assessed pairs, which net out.
   const debits = roundMoney(lines.reduce((sum, l) => sum + (l.debit ?? 0), 0));

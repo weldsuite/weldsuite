@@ -19,7 +19,9 @@ import { daysUntil } from '@/lib/date';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { describeApiError } from '@/lib/sales-tax';
+import { hasTreatmentRows, treatmentTotals } from '@/lib/tax-treatment';
 import { SectionCard, TotalsBlock } from '@/components/detail';
+import type { TaxBreakdownRow } from '@/types/accounting';
 
 type PluralForms = { one: string; other: string };
 
@@ -209,6 +211,7 @@ export function DocumentTotalsCard({
   labels,
   taxLabel,
   extraRows = [],
+  taxBreakdown,
 }: Readonly<{
   doc: DocumentAmounts;
   labels: { totals: string; subtotal: string; paid: string; balanceDue: string; total: string };
@@ -216,19 +219,36 @@ export function DocumentTotalsCard({
   taxLabel: string;
   /** Rows after the tax row, e.g. the use tax accrued on a US bill (not part of the total). */
   extraRows?: { label: string; value: string }[];
+  /**
+   * BR: rows that carry a treatment replace the single tax row with the taxes
+   * added on top and the withholdings taken off (total = subtotal + added - withheld).
+   */
+  taxBreakdown?: readonly TaxBreakdownRow[] | null;
 }>) {
+  const { t } = useI18n();
   const { formatCurrency, currency: entityCurrency } = useLocaleFormatters();
   const currency = documentCurrency(doc, entityCurrency);
   const balanceDue = toNumber(doc.balanceDue);
   const amountPaid = toNumber(doc.amountPaid);
   const partiallyPaid = balanceDue > 0 && amountPaid > 0;
 
+  let taxRows = [{ label: taxLabel, value: formatCurrency(doc.taxTotal, currency) }];
+  if (hasTreatmentRows(taxBreakdown)) {
+    const { added, withheld } = treatmentTotals(taxBreakdown);
+    taxRows = [
+      ...(added > 0 ? [{ label: t.taxTreatment.addedRow, value: formatCurrency(added, currency) }] : []),
+      ...(withheld > 0
+        ? [{ label: t.taxTreatment.withheldRow, value: `−${formatCurrency(withheld, currency)}` }]
+        : []),
+    ];
+  }
+
   return (
     <SectionCard title={labels.totals}>
       <TotalsBlock
         rows={[
           { label: labels.subtotal, value: formatCurrency(doc.subtotal, currency) },
-          { label: taxLabel, value: formatCurrency(doc.taxTotal, currency) },
+          ...taxRows,
           ...extraRows,
           ...(amountPaid > 0
             ? [{ label: labels.paid, value: `−${formatCurrency(amountPaid, currency)}` }]

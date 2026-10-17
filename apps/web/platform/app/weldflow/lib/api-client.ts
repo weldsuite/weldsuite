@@ -438,7 +438,7 @@ async function appApiGet<T>(path: string): Promise<ApiResponse<T>> {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
-      return { success: false, error: typeof message === 'string' ? message : 'Request failed' };
+      return { success: false, error: typeof message === 'string' ? message : 'Request failed', status: res.status, details: body?.error?.details };
     }
     const body = (await res.json()) as { data: T };
     return { success: true, data: body.data };
@@ -461,7 +461,7 @@ async function appApiPatch<T>(path: string, data?: unknown): Promise<ApiResponse
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
-      return { success: false, error: typeof message === 'string' ? message : 'Request failed' };
+      return { success: false, error: typeof message === 'string' ? message : 'Request failed', status: res.status, details: body?.error?.details };
     }
     const body = (await res.json()) as { data: T };
     return { success: true, data: body.data };
@@ -484,7 +484,7 @@ async function appApiPut<T>(path: string, data?: unknown): Promise<ApiResponse<T
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
-      return { success: false, error: typeof message === 'string' ? message : 'Request failed' };
+      return { success: false, error: typeof message === 'string' ? message : 'Request failed', status: res.status, details: body?.error?.details };
     }
     const body = (await res.json()) as { data: T };
     return { success: true, data: body.data };
@@ -501,7 +501,14 @@ async function appApiDelete<T>(path: string): Promise<ApiResponse<T>> {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok && res.status !== 204) {
-      return { success: false, error: `Request failed (${res.status})` };
+      const body = await res.json().catch(() => ({}));
+      const message = body?.error?.message || body?.error || `Request failed (${res.status})`;
+      return {
+        success: false,
+        error: typeof message === 'string' ? message : 'Request failed',
+        status: res.status,
+        details: body?.error?.details,
+      };
     }
     return { success: true } as ApiResponse<T>;
   } catch (error) {
@@ -722,6 +729,22 @@ export const tasksApi = {
     return appApiGet<ApiTask[]>(`/tasks?${qs}`);
   },
 
+  // Every top-level task of a project. `list` returns a single page (the
+  // server's default page size is 50), which silently cut longer projects off
+  // the board; this walks the pages until one comes back short.
+  listAllPages: async (projectId: string, params?: { includeSubtasks?: boolean }): Promise<ApiResponse<ApiTask[]>> => {
+    const pageSize = 200;
+    const maxPages = 50;
+    const all: ApiTask[] = [];
+    for (let page = 1; page <= maxPages; page++) {
+      const res = await tasksApi.list(projectId, { ...params, page, pageSize });
+      if (!res.success || !res.data) return res;
+      all.push(...res.data);
+      if (res.data.length < pageSize) break;
+    }
+    return { success: true, data: all };
+  },
+
   get: (_projectId: string, taskId: string) => appApiGet<ApiTask>(`/tasks/${taskId}`),
 
   create: (projectId: string, data: {
@@ -742,16 +765,20 @@ export const tasksApi = {
     customFields?: Record<string, unknown> | null;
   }) => appApiPost<ApiTask>(`/tasks/projects/${projectId}`, data),
 
+  // Clearable fields take `null` (JSON drops `undefined`, so an unset key would
+  // leave the stored value untouched): `dueDate`, `startDate` and `description`
+  // null clear them, `assigneeIds` null or `[]` unassigns, and `labels: []` /
+  // `repeat: null` remove labels / recurrence.
   update: (_projectId: string, taskId: string, data: {
     title?: string;
-    description?: string;
+    description?: string | null;
     status?: string;
     stageId?: string | null;
     priority?: string;
-    startDate?: string;
-    dueDate?: string;
-    duration?: number;
-    assigneeId?: string;
+    startDate?: string | null;
+    dueDate?: string | null;
+    duration?: number | null;
+    assigneeId?: string | null;
     assigneeIds?: string[] | null;
     customerId?: string | null;
     tags?: string[];
@@ -815,12 +842,14 @@ export const tasksApi = {
   // recurring task (server-side creation of the next occurrence).
   updateById: (taskId: string, data: {
     title?: string;
-    description?: string;
+    description?: string | null;
     status?: string;
     priority?: string;
-    startDate?: string;
-    dueDate?: string;
-    assigneeId?: string;
+    startDate?: string | null;
+    dueDate?: string | null;
+    duration?: number | null;
+    assigneeId?: string | null;
+    assigneeIds?: string[] | null;
     tags?: string[];
     labels?: string[];
     repeat?: { frequency: string; interval?: number; unit?: string } | null;
@@ -1264,8 +1293,11 @@ export const whiteboardApi = {
   list: (projectId: string) =>
     appApiGet<ApiWhiteboard[]>(`/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=100`),
 
-  create: (projectId: string, data: { name: string }) =>
+  create: (projectId: string, data: { name: string; elements?: WhiteboardElement[] }) =>
     appApiPost<ApiWhiteboard>('/whiteboards', { projectId, ...data }),
+
+  /** Every whiteboard the caller can access, across projects (`projectId` is on each row). */
+  listAll: () => appApiGet<ApiWhiteboard[]>('/whiteboards?limit=100'),
 
   getById: (_projectId: string, whiteboardId: string) =>
     appApiGet<ApiWhiteboard>(`/whiteboards/${whiteboardId}`),
@@ -1439,6 +1471,8 @@ export const timerApi = {
       '/time-entries/timer/stop',
       {
         ...overrides,
+        // The server splits the entry per local day, so it needs the caller's zone.
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         rate: overrides.rate !== undefined ? String(overrides.rate) : undefined,
       },
     ),
@@ -1457,18 +1491,22 @@ export interface ApiTeamMemberWorkload {
   initials: string;
   role: string;
   capacity: number;
-  tasks: {
-    id: string;
-    title: string;
-    projectId: string | null;
-    projectName: string;
-    estimatedHours: number;
-    actualHours: number;
-    priority: string;
-    status: string;
-    startDate: string | null;
-    dueDate: string | null;
-  }[];
+  tasks: ApiWorkloadTask[];
+}
+
+export interface ApiWorkloadTask {
+  id: string;
+  number: number | null;
+  key: string | null;
+  title: string;
+  projectId: string | null;
+  projectName: string;
+  estimatedHours: number;
+  actualHours: number;
+  priority: string;
+  status: string;
+  startDate: string | null;
+  dueDate: string | null;
 }
 
 export interface ApiWorkloadOverview {
@@ -1479,6 +1517,8 @@ export interface ApiWorkloadOverview {
   utilization: number;
   overallocatedCount: number;
   teamMembers: ApiTeamMemberWorkload[];
+  /** Open tasks nobody on these projects carries. */
+  unassigned?: { tasks: ApiWorkloadTask[] };
 }
 
 export const workloadApi = {
@@ -1607,7 +1647,8 @@ export const analyticsApi = {
     ),
 
   getChartData: (reportId: string, config: ChartDataQueryConfig) =>
-    appApiPost<Record<string, ChartDataPoint[]>>(`/project-analytics/reports/${reportId}/charts-data`, config),
+    // The endpoint reads `{ charts: [...] }` and keys the answer by `chartId`.
+    appApiPost<Record<string, ChartDataPoint[]>>(`/project-analytics/reports/${reportId}/charts-data`, { charts: [config] }),
 
   getChartsData: (reportId: string, configs: ChartDataQueryConfig[]) =>
     appApiPost<Record<string, ChartDataPoint[]>>(

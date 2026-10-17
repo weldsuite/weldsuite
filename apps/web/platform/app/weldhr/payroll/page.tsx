@@ -111,19 +111,25 @@ function HomeBody({ overview }: Readonly<{ overview: HrPayrollOverview }>) {
 // Setup checklist
 // ---------------------------------------------------------------------------
 
+/** Going into settings: its back button returns to this page. */
+function rememberSettingsReturn(to: string | undefined) {
+  if (to?.startsWith('/settings')) sessionStorage.setItem('settings-return-url', globalThis.location.pathname);
+}
+
 function SetupChecklist({ overview }: Readonly<{ overview: HrPayrollOverview }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const { setup } = overview;
   const canManage = can('payroll:manage');
 
-  const steps: Array<{ id: string; done: boolean; title: string; description: string; cta?: { label: string; to: '/weldhr/payroll/settings' | '/weldhr/payroll/employees' } }> = [
+  const steps: Array<{ id: string; done: boolean; title: string; description: string; cta?: { label: string; to: '/weldhr/payroll/settings' | '/weldhr/payroll/employees' | '/settings/entities'; search?: { tab: string } } }> = [
     {
       id: 'employer',
       done: setup.hasEmployer,
       title: t('weldhr.payroll.home.setup.employer.title'),
       description: t('weldhr.payroll.home.setup.employer.description'),
-      cta: canManage ? { label: t('weldhr.payroll.home.setup.employer.cta'), to: '/weldhr/payroll/settings' } : undefined,
+      // Employers live on Settings → Entities, next to the WeldBooks entities.
+      cta: canManage ? { label: t('weldhr.payroll.home.setup.employer.cta'), to: '/settings/entities', search: { tab: 'employers' } } : undefined,
     },
     {
       id: 'schedule',
@@ -167,7 +173,9 @@ function SetupChecklist({ overview }: Readonly<{ overview: HrPayrollOverview }>)
             </div>
             {!step.done && step.cta && (
               <Button asChild size="sm" variant="outline">
-                <Link to={step.cta.to}>{step.cta.label}</Link>
+                <Link to={step.cta.to} search={step.cta.search} onClick={() => rememberSettingsReturn(step.cta?.to)}>
+                  {step.cta.label}
+                </Link>
               </Button>
             )}
           </li>

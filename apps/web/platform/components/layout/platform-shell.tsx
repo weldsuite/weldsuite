@@ -53,13 +53,16 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
           theme tokens so this tracks light/dark automatically. The panel tone
           is the plain theme background (header, module sidebar, page content
           and object panels share the original surface colour — white in light
-          mode, #1c1d1f in dark) and the chrome is only a slight tint of it. */}
+          mode, #1c1d1f in dark) and the chrome is only a slight tint of it.
+          In dark mode the chrome is a fixed neutral #282828, the gray of
+          ChatGPT's dark sidebar rail. */}
       <div
         className={cn(
           embedded ? 'relative h-full' : 'relative h-screen',
           'overflow-hidden bg-[var(--shell-chrome)]',
           '[--shell-panel:var(--background)]',
           '[--shell-chrome:color-mix(in_oklch,var(--background)_96%,var(--foreground))]',
+          'dark:[--shell-chrome:#282828]',
         )}
       >
         {/* Global AppSidebar on the far left - fixed, hidden on mobile */}
@@ -92,15 +95,15 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
                   followed by <ModuleContent>, which lays the content, object
                   panel(s) and drawers out as a flex row (rounded white cards
                   separated by the row's gap). On mobile it stays full-bleed. */}
-              <div className="relative flex flex-1 min-w-0 h-full md:py-2 md:pr-2">
+              <div className="relative flex flex-1 min-w-0 h-full md:py-1 md:pr-1">
                 {/* Round all corners, except the left ones while an expanded
                     module sidebar (the `peer` sibling) sits flush against the
                     card — rounding there would carve a weird notch at the
                     sidebar seam. Pages without a module sidebar (App Store) or
                     with it collapsed (offcanvas) face the chrome on the left
-                    too, so they round. A left border draws the vertical
-                    divider along that edge. */}
-                <div className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] md:rounded-xl md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border-l md:border-border">
+                    too, so they round. A border outlines the card; next to
+                    the sidebar its left edge is the vertical divider. */}
+                <div className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] md:rounded-xl md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border md:border-border">
                   <AppAccessGuard>
                     {children}
                   </AppAccessGuard>

@@ -9,10 +9,11 @@ import {
   type SalesTaxLineValues,
 } from '@/lib/weldbooks/document-tax-form';
 import { exchangeRatePayload } from '@/lib/weldbooks/currencies';
+import { brDocumentPayload, brLinePayload, type BrDocumentValues, type BrLineValues } from '@/lib/weldbooks/br-fiscal';
 import { invoiceAddressPayload } from './invoice-address-section';
 
 /** A line of the invoice form (or its quick-create dialog). */
-export interface InvoiceLineValues extends Partial<SalesTaxLineValues> {
+export interface InvoiceLineValues extends Partial<SalesTaxLineValues>, Partial<BrLineValues> {
   description: string;
   quantity: number | string;
   unitPrice: number | string;
@@ -25,7 +26,7 @@ export interface InvoiceLineValues extends Partial<SalesTaxLineValues> {
 }
 
 /** What the invoice form holds; the dialog leaves the optional parts out. */
-export interface InvoiceFormShape {
+export interface InvoiceFormShape extends Partial<BrDocumentValues> {
   contactId: string;
   issueDate: string;
   dueDate: string;
@@ -57,6 +58,8 @@ export interface InvoicePayloadOptions {
   resetExchangeRate?: boolean;
   /** The entity charges India GST: lines carry their HSN/SAC and the invoice its place of supply. */
   gst?: boolean;
+  /** The entity keeps Brazilian books: lines carry NCM, CFOP and fiscal details, the invoice its withholdings. */
+  br?: boolean;
 }
 
 /**
@@ -86,6 +89,7 @@ export function buildInvoicePayload(values: InvoiceFormShape, options: InvoicePa
       unit: item.unit || undefined,
       discountPercent: amountOrUndefined(item.discountPercent),
       ...(options.gst ? { hsnSac: item.hsnSac?.trim() || null } : {}),
+      ...(options.br ? brLinePayload(item) : {}),
       ...(salesTax ? salesTaxLinePayload(item) : {}),
       ...dimensionPayload(item),
       // A credit memo line says which invoice line it credits, so the tax is reversed per line.
@@ -100,6 +104,11 @@ export function buildInvoicePayload(values: InvoiceFormShape, options: InvoicePa
   }
   // An empty place of supply is "derive it from the customer": on edit it is sent as null so a stored one is dropped.
   if (options.gst) payload.placeOfSupply = values.placeOfSupply || (mode === 'edit' ? null : undefined);
+  // Brazil: withholdings and the buyer's ICMS status; null clears what an edited invoice held.
+  if (options.br) {
+    const fiscalData = brDocumentPayload(values);
+    if (fiscalData || mode === 'edit') payload.fiscalData = fiscalData;
+  }
   const currency = values.currency || options.currency;
   if (currency) payload.currency = currency;
   Object.assign(payload, exchangeRatePayload(values.exchangeRate, options.resetExchangeRate));

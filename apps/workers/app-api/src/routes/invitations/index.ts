@@ -26,31 +26,23 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, and, isNull, or, sql } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
 import { clerkMiddleware } from '@weldsuite/worker-kit/middleware/clerk';
 import { schema, getMasterDb, masterSchema, getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import { success, error } from '@weldsuite/worker-kit/response';
-import { autoJoinUserToPublicChannels } from '@weldsuite/chat-domain/weldchat-auto-join';
-import { applyRoleChangeToChannels } from '@weldsuite/chat-domain/weldchat-role-links';
 import {
-  publishChatMemberJoined,
-  publishChatUserChannelNew,
-} from '@weldsuite/chat-domain/realtime/weldchat-publisher';
+  CLERK_ROLE_MAP,
+  fetchUserMemberships,
+  linkInvitedMember,
+  type ClerkOrgMembership,
+} from '../../services/member-link';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use('*', clerkMiddleware());
 
-type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
 type MasterDb = ReturnType<typeof getMasterDb>;
-type WorkspaceMemberRow = typeof schema.workspaceMembers.$inferSelect;
-
-/** Clerk org role → tenant workspace role. */
-const CLERK_ROLE_MAP: Record<string, string> = {
-  'org:admin': 'ADMIN',
-  'org:member': 'MEMBER',
-};
 
 interface InvitationDetails {
   workspaceId: string;
@@ -61,13 +53,6 @@ interface InvitationDetails {
   isExpired: boolean;
   isUsed: boolean;
   expiresAt?: string;
-}
-
-interface ClerkOrgMembership {
-  id: string;
-  organization: { id: string; name: string; slug: string };
-  role: string;
-  public_user_data: { identifier: string; first_name: string | null; last_name: string | null; image_url: string | null };
 }
 
 interface AcceptedInvitation {
@@ -192,175 +177,6 @@ async function findInvitationInTenantDbs(
   return null;
 }
 
-/** The user's current Clerk org memberships; null when Clerk cannot be reached. */
-async function fetchUserMemberships(env: Env, userId: string): Promise<ClerkOrgMembership[] | null> {
-  const membershipsResp = await fetch(
-    `https://api.clerk.com/v1/users/${userId}/organization_memberships?limit=100`,
-    { headers: { Authorization: `Bearer ${env.CLERK_SECRET_KEY}` } },
-  );
-
-  if (!membershipsResp.ok) {
-    console.error('[app-api/invitations] Failed to fetch user memberships from Clerk');
-    return null;
-  }
-
-  const memberships = await membershipsResp.json() as { data: ClerkOrgMembership[] };
-  return memberships.data || [];
-}
-
-/**
- * The PENDING member row this invitation refers to: by invitation ID first,
- * then by email (case-insensitive). Same broadened OR clause as the
- * workspace-worker webhook so the two paths agree on which row is "the
- * pending one" — otherwise the loser of the race creates a duplicate.
- */
-async function findPendingMember(
-  tenantDb: TenantDb,
-  token: string,
-  email: string,
-): Promise<WorkspaceMemberRow | undefined> {
-  const [byInvitation] = await tenantDb
-    .select()
-    .from(schema.workspaceMembers)
-    .where(and(
-      eq(schema.workspaceMembers.clerkInvitationId, token),
-      eq(schema.workspaceMembers.status, 'PENDING'),
-      isNull(schema.workspaceMembers.deletedAt),
-    ))
-    .limit(1);
-  if (byInvitation) return byInvitation;
-
-  const [byEmail] = await tenantDb
-    .select()
-    .from(schema.workspaceMembers)
-    .where(and(
-      sql`lower(${schema.workspaceMembers.email}) = lower(${email})`,
-      or(
-        eq(schema.workspaceMembers.status, 'PENDING'),
-        sql`${schema.workspaceMembers.userId} LIKE 'invited_%'`,
-        sql`${schema.workspaceMembers.userId} LIKE 'pending_clerk_%'`,
-      ),
-      isNull(schema.workspaceMembers.deletedAt),
-    ))
-    .limit(1);
-  return byEmail;
-}
-
-/** Update PENDING → ACTIVE and drop the cached memberType. */
-async function activatePendingMember(
-  env: Env,
-  tenantDb: TenantDb,
-  orgId: string,
-  userId: string,
-  membership: ClerkOrgMembership,
-  pending: WorkspaceMemberRow,
-): Promise<void> {
-  const name = [membership.public_user_data.first_name, membership.public_user_data.last_name]
-    .filter(Boolean).join(' ') || null;
-  const picture = membership.public_user_data.image_url;
-
-  // Guests and EMPLOYEE members stay on VIEWER regardless of Clerk role —
-  // guests are gated by per-channel membership and EMPLOYEE members by their
-  // fixed permission set, not by role. memberType itself is on the row
-  // already (set at invite time) and is intentionally not in the SET clause.
-  const keepsInvitedRole = pending.memberType === 'EXTERNAL_GUEST' || pending.memberType === 'EMPLOYEE';
-  const resolvedRole = keepsInvitedRole
-    ? (pending.role || 'VIEWER')
-    : (CLERK_ROLE_MAP[membership.role] || pending.role || 'MEMBER');
-
-  await tenantDb
-    .update(schema.workspaceMembers)
-    .set({
-      userId,
-      name,
-      picture,
-      role: resolvedRole,
-      status: 'ACTIVE',
-      clerkMembershipId: membership.id,
-      acceptedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.workspaceMembers.id, pending.id));
-
-  // Invalidate the memberType cache so the next request reads the
-  // freshly activated row instead of a stale (or missing) value.
-  await env.WORKSPACE_CACHE.delete(`member-type:${orgId}:${userId}`).catch(() => {});
-}
-
-/** Join the freshly activated member to the workspace's public channels (non-fatal). */
-async function joinPublicChannels(
-  env: Env,
-  tenantDb: TenantDb,
-  orgId: string,
-  userId: string,
-  memberType: WorkspaceMemberRow['memberType'],
-): Promise<void> {
-  try {
-    const joined = await autoJoinUserToPublicChannels(tenantDb, userId, memberType);
-    await Promise.all(
-      joined.map(async (ch) => {
-        try {
-          await publishChatUserChannelNew(env, orgId, userId, ch.id, ch.name);
-        } catch (e) {
-          console.error('[app-api/invitations] Realtime publish failed:', e);
-        }
-      }),
-    );
-  } catch (e) {
-    console.error('[app-api/invitations] Failed to auto-join public channels:', e);
-  }
-}
-
-type ChannelChange = Awaited<ReturnType<typeof applyRoleChangeToChannels>>['added'][number];
-
-async function publishRoleChannelJoin(
-  env: Env,
-  orgId: string,
-  change: ChannelChange,
-  userId: string,
-): Promise<void> {
-  try {
-    await publishChatMemberJoined(env, change.channelId, {
-      channelId: change.channelId,
-      userId,
-    });
-    await publishChatUserChannelNew(
-      env,
-      orgId,
-      userId,
-      change.channelId,
-      change.channelName,
-    );
-  } catch (e) {
-    console.error('[app-api/invitations] Role-channel publish failed:', e);
-  }
-}
-
-/**
- * Apply the role-driven channel memberships for a pending member that already
- * has a custom workspace role. Today this is a no-op because invitations don't
- * carry `roleId`, but wiring it now means future invitation-with-role flows
- * pick up channel membership without further changes.
- */
-async function applyRoleChannels(
-  env: Env,
-  tenantDb: TenantDb,
-  orgId: string,
-  userId: string,
-  roleId: string,
-): Promise<void> {
-  try {
-    const changes = await applyRoleChangeToChannels(tenantDb, userId, null, roleId);
-    await Promise.all(
-      changes.added.flatMap((change) =>
-        change.userIds.map((uid) => publishRoleChannelJoin(env, orgId, change, uid)),
-      ),
-    );
-  } catch (e) {
-    console.error('[app-api/invitations] Failed to apply role-driven channels:', e);
-  }
-}
-
 /**
  * If this org has a PENDING member matching the invitation or the user's
  * email, activate it and wire up channels. Null when there is nothing to
@@ -377,12 +193,8 @@ async function acceptPendingInOrg(
 
   try {
     const tenantDb = await getTenantDbForWorkspace(env, orgId);
-    const pending = await findPendingMember(tenantDb, token, membership.public_user_data.identifier);
+    const pending = await linkInvitedMember(env, tenantDb, membership, userId, token);
     if (!pending) return null;
-
-    await activatePendingMember(env, tenantDb, orgId, userId, membership, pending);
-    await joinPublicChannels(env, tenantDb, orgId, userId, pending.memberType);
-    if (pending.roleId) await applyRoleChannels(env, tenantDb, orgId, userId, pending.roleId);
 
     // Get workspace name
     const [workspace] = await masterDb

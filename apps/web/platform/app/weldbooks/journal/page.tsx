@@ -1,8 +1,9 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingJournalEntries } from '@/hooks/queries/use-accounting-queries';
-import { BookOpen } from 'lucide-react';
+import { TextAlignStart } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { RowAmount, RowDate, RowNumberChip, RowText, RowTitle } from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { toCalendarDate } from '@/lib/weldbooks/format';
@@ -10,6 +11,7 @@ import { toCalendarDate } from '@/lib/weldbooks/format';
 interface JournalEntryRow {
   id: string;
   date: string | null;
+  entryNumber: string | null;
   reference: string | null;
   description: string | null;
   totalDebit: number | null;
@@ -63,36 +65,41 @@ export default function JournalEntriesPage() {
 
   const entries = (data?.data ?? []) as unknown as JournalEntryRow[];
 
+  // Entries made without a free-text reference are still identified by their entry number.
   const columns: ColumnDef<JournalEntryRow>[] = [
-    {
-      id: 'date',
-      header: tjp.colDate,
-      width: 'w-[140px]',
-      render: (e) => <span className="text-muted-foreground">{formatDate(e.date)}</span>,
-    },
     {
       id: 'reference',
       header: tjp.colReference,
-      width: 'flex-1',
-      render: (e) => <span className="font-medium">{e.reference}</span>,
+      width: 'min-w-[200px] flex-1 gap-2',
+      render: (e) => (
+        <RowTitle chips={e.reference && e.entryNumber ? <RowNumberChip>{e.entryNumber}</RowNumberChip> : null}>
+          {e.reference || e.entryNumber || '—'}
+        </RowTitle>
+      ),
     },
     {
       id: 'description',
       header: tjp.colDescription,
-      width: 'flex-1',
-      render: (e) => <span className="text-muted-foreground">{e.description ?? '—'}</span>,
+      width: 'w-[240px]',
+      render: (e) => <RowText>{e.description}</RowText>,
+    },
+    {
+      id: 'date',
+      header: tjp.colDate,
+      width: 'w-[120px]',
+      render: (e) => <RowDate>{formatDate(e.date)}</RowDate>,
     },
     {
       id: 'debit',
       header: tjp.colDebit,
-      width: 'w-[140px]',
-      render: (e) => fmt(e.totalDebit),
+      width: 'w-[130px]',
+      render: (e) => <RowAmount>{fmt(e.totalDebit)}</RowAmount>,
     },
     {
       id: 'credit',
       header: tjp.colCredit,
-      width: 'w-[140px]',
-      render: (e) => fmt(e.totalCredit),
+      width: 'w-[130px]',
+      render: (e) => <RowAmount>{fmt(e.totalCredit)}</RowAmount>,
     },
   ];
 
@@ -112,11 +119,11 @@ export default function JournalEntriesPage() {
       emptyState={{
         icon: (
           <EmptyStateIllustration>
-            <BookOpen className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            <TextAlignStart className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
           </EmptyStateIllustration>
         ),
         title: tjp.noEntries,
-        description: t.accounting.description,
+        description: tjp.emptyDescription,
         action: {
           label: tjp.newEntry,
           onClick: () => navigate({ to: '/weldbooks/journal/add' }),

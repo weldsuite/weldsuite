@@ -12,6 +12,7 @@
     "./accounting-roles": "./src/accounting-roles.ts",
     "./accounting-vat-xml": "./src/accounting-vat-xml.ts",
     "./identifiers": "./src/identifiers.ts",
+    "./jurisdictions/br": "./src/jurisdictions/br/index.ts",
     "./jurisdictions/in": "./src/jurisdictions/in/index.ts",
     "./jurisdictions/nl": "./src/jurisdictions/nl/index.ts",
     "./jurisdictions/registry": "./src/jurisdictions/registry.ts",
@@ -21,7 +22,8 @@
     "./sales-tax": "./src/sales-tax/index.ts",
     "./sales-tax/*": "./src/sales-tax/*.ts",
     "./us-compliance/*": "./src/us-compliance/*.ts",
-    "./vies": "./src/vies.ts"
+    "./vies": "./src/vies.ts",
+    "./invoice-template/*": "./src/invoice-template/*.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -30,9 +32,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@pdf-lib/standard-fonts": "^1.0.0",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "pdf-lib": "^1.17.1",
+    "uqr": "0.1.2",
+    "zod": "^3.25.76"
   },
   "peerDependencies": {
     "hono": "^4.0.0"

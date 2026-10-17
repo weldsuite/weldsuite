@@ -95,7 +95,7 @@ export function ScheduledClient() {
     return (
       <div className="flex items-center justify-center gap-2 py-8">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Loading...</span>
+        <span className="text-sm text-muted-foreground">{t.mail.shared.loading}</span>
       </div>
     );
   }
@@ -113,7 +113,7 @@ export function ScheduledClient() {
             <div className="flex-1">
               <p className="font-medium">{email.subject || t.mail.shared.noSubject}</p>
               <p className="text-sm text-muted-foreground mb-2">
-                To: {getRecipients(email.to)}
+                {t.mail.shared.toPrefix} {getRecipients(email.to)}
               </p>
               {email.preview && (
                 <p className="text-sm text-muted-foreground line-clamp-1">

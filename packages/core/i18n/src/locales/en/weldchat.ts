@@ -309,6 +309,7 @@ export const weldchat = {
         advanced: 'Advanced',
       },
       header: 'settings',
+      dialogDescription: 'Configure visibility, sorting, and notifications for this group.',
       general: {
         channelName: 'Channel name',
         topic: 'Topic',
@@ -574,6 +575,7 @@ export const weldchat = {
       reply: 'reply',
       replies: 'replies',
       edited: '(edited)',
+      inChannel: 'in #{name}',
       agentThinking: 'Thinking',
       viewProfile: "View {name}'s profile",
       agentClickDetails: '(Agent) — click for details',
@@ -836,6 +838,8 @@ export const weldchat = {
     messageList: {
       loadOlderMessages: 'Load older messages',
       messageNotFound: 'That message could not be found. It may have been deleted.',
+      loadError: 'Could not load messages.',
+      tryAgain: 'Try again',
     },
     chatFiltersPanel: {
       attachment: 'attachment',

@@ -29,10 +29,13 @@ import {
   putDiscordGuildMapping,
 } from '@weldsuite/desk-domain/helpdesk-integrations';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
 
 const app = new Hono<{ Bindings: Env }>();
 
+// Once the state names the org, redirects land in that workspace (`/w/{orgId}/…`, FE-013).
 const DISCORD_SETTINGS_PATH = '/settings/integrations/discord';
+const SLACK_SETTINGS_PATH = '/welddesk/settings/integrations/slack';
 
 // ============================================================================
 // GET /discord/callback?code=...&state=...&guild_id=...
@@ -50,6 +53,7 @@ app.get('/discord/callback', async (c) => {
   }
 
   let appUrl = defaultAppUrl;
+  let stateOrgId: string | undefined;
   try {
     // 1. Validate state from KV
     const stateKey = `discord_oauth_state:${state}`;
@@ -69,12 +73,13 @@ app.get('/discord/callback', async (c) => {
     // Use the caller's origin if available (supports local dev against test API)
     appUrl = stateData.callerOrigin || defaultAppUrl;
     const { orgId } = stateData;
+    stateOrgId = orgId;
 
     const clientId = env.DISCORD_CLIENT_ID;
     const clientSecret = env.DISCORD_CLIENT_SECRET;
     const botToken = env.DISCORD_BOT_TOKEN;
     if (!clientId || !clientSecret) {
-      return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?error=config_error`);
+      return c.redirect(workspaceAppUrl(appUrl, orgId, `${DISCORD_SETTINGS_PATH}?error=config_error`));
     }
 
     // 2. Exchange code for tokens
@@ -95,7 +100,7 @@ app.get('/discord/callback', async (c) => {
     }
 
     if (!resolvedGuildId) {
-      return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?error=missing_guild`);
+      return c.redirect(workspaceAppUrl(appUrl, orgId, `${DISCORD_SETTINGS_PATH}?error=missing_guild`));
     }
 
     // 4. Get workspace ID for this org
@@ -162,10 +167,10 @@ app.get('/discord/callback', async (c) => {
     // 7. Redirect back to app with the connected server selected
     const qs = new URLSearchParams({ connected: 'true' });
     if (integrationId) qs.set('integrationId', integrationId);
-    return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?${qs.toString()}`);
+    return c.redirect(workspaceAppUrl(appUrl, orgId, `${DISCORD_SETTINGS_PATH}?${qs.toString()}`));
   } catch (err) {
     console.error('[app-api/integrations-helpdesk] Discord OAuth callback error:', err);
-    return c.redirect(`${appUrl}${DISCORD_SETTINGS_PATH}?error=callback_failed`);
+    return c.redirect(workspaceAppUrl(appUrl, stateOrgId, `${DISCORD_SETTINGS_PATH}?error=callback_failed`));
   }
 });
 
@@ -180,9 +185,10 @@ app.get('/slack/callback', async (c) => {
   const defaultAppUrl = getAppUrl(env);
 
   if (!code || !state) {
-    return c.redirect(`${defaultAppUrl}/welddesk/settings/integrations/slack?error=missing_params`);
+    return c.redirect(`${defaultAppUrl}${SLACK_SETTINGS_PATH}?error=missing_params`);
   }
 
+  let stateOrgId: string | undefined;
   try {
     // 1. Validate state
     const stateKey = `slack_oauth_state:${state}`;
@@ -193,17 +199,18 @@ app.get('/slack/callback', async (c) => {
     } | null;
 
     if (!stateData) {
-      return c.redirect(`${defaultAppUrl}/welddesk/settings/integrations/slack?error=invalid_state`);
+      return c.redirect(`${defaultAppUrl}${SLACK_SETTINGS_PATH}?error=invalid_state`);
     }
 
     await env.WORKSPACE_CACHE.delete(stateKey);
     const appUrl = stateData.callerOrigin || defaultAppUrl;
     const { orgId } = stateData;
+    stateOrgId = orgId;
 
     const clientId = env.SLACK_CLIENT_ID;
     const clientSecret = env.SLACK_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
-      return c.redirect(`${appUrl}/welddesk/settings/integrations/slack?error=config_error`);
+      return c.redirect(workspaceAppUrl(appUrl, orgId, `${SLACK_SETTINGS_PATH}?error=config_error`));
     }
 
     // 2. Exchange code for token
@@ -231,9 +238,8 @@ app.get('/slack/callback', async (c) => {
 
     if (!tokenData.ok || !tokenData.access_token) {
       console.error('[app-api/integrations-helpdesk] Slack token exchange failed:', logSafe(tokenData.error));
-      return c.redirect(
-        `${appUrl}/welddesk/settings/integrations/slack?error=${encodeURIComponent(tokenData.error || 'token_exchange_failed')}`,
-      );
+      const reason = encodeURIComponent(tokenData.error || 'token_exchange_failed');
+      return c.redirect(workspaceAppUrl(appUrl, orgId, `${SLACK_SETTINGS_PATH}?error=${reason}`));
     }
 
     const teamId = tokenData.team?.id;
@@ -295,10 +301,10 @@ app.get('/slack/callback', async (c) => {
       `[app-api/integrations-helpdesk] Connected Slack team "${logSafe(teamName)}" (${logSafe(teamId)}) for org ${logSafe(orgId)}`,
     );
 
-    return c.redirect(`${appUrl}/welddesk/settings/integrations/slack?connected=true`);
+    return c.redirect(workspaceAppUrl(appUrl, orgId, `${SLACK_SETTINGS_PATH}?connected=true`));
   } catch (err) {
     console.error('[app-api/integrations-helpdesk] Slack OAuth callback error:', err);
-    return c.redirect(`${defaultAppUrl}/welddesk/settings/integrations/slack?error=callback_failed`);
+    return c.redirect(workspaceAppUrl(defaultAppUrl, stateOrgId, `${SLACK_SETTINGS_PATH}?error=callback_failed`));
   }
 });
 
