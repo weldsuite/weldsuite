@@ -9,13 +9,13 @@ import { createTask } from '@weldsuite/flow-domain/tasks';
 import {
   checkNewTaskLinks,
   commitDependencyUpdate,
+  linkCreatedTask,
   planDependencyUpdate,
   validateTaskRelations,
 } from '@weldsuite/flow-domain/task-dependencies';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -153,9 +153,9 @@ app.post('/', requireScope('tasks:write'), zValidator('json', createBodySchema),
   const { row: created } = await createTask(db, coerceDates(data), { projectId, userId });
   let row = created;
   if (hasLinks) {
-    const plan = await planDependencyUpdate(db, created.id, { dependsOn, blocks });
-    if (!plan.ok) return error.badRequest(c, plan.message);
-    await commitDependencyUpdate(db, created.id, plan);
+    // A task whose links cannot be written is taken back out, not left behind.
+    const linkFailure = await linkCreatedTask(db, created.id, { dependsOn, blocks });
+    if (linkFailure) return error.badRequest(c, linkFailure.message);
     const [linked] = await db.select().from(table).where(eq(table.id, created.id)).limit(1);
     if (linked) row = linked;
   }
@@ -216,8 +216,9 @@ app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSche
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const body = c.req.valid('json');
-  // projectId / dependsOn / blocks are not plain column writes, see below.
-  const { projectId: _projectId, dependsOn, blocks, ...data } = body;
+  // dependsOn / blocks are not plain column writes, see below. `projectId` stays in
+  // `data` but never reaches the row: only PATCHABLE_TASK_COLUMNS are copied.
+  const { dependsOn, blocks, ...data } = body;
   const [existing] = await db
     .select({
       projectId: table.projectId,

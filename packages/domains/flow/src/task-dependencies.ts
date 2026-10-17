@@ -12,6 +12,7 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
+import { softDeleteTaskTree } from './task-tree';
 
 const t = schema.tasks;
 
@@ -201,6 +202,36 @@ export async function commitDependencyUpdate(
       .set({ ...columns, dependsOn: plan.dependsOn, blocks: plan.blocks, updatedAt: now })
       .where(and(eq(t.id, id), isNull(t.deletedAt))),
   ]);
+}
+
+/**
+ * Writes the links of a task that was just created (the create path inserts the
+ * row first, then plans and commits its `dependsOn` / `blocks`). When the links
+ * cannot be written, the task is taken back out (soft-deleted, so it never shows
+ * up and no `created` event is owed): a failed create leaves no link-less task
+ * behind for a client retry to duplicate. Returns the failure to report, or null
+ * when the links are in place; an unexpected error is rethrown after the cleanup.
+ */
+export async function linkCreatedTask(
+  db: Database,
+  id: string,
+  input: { dependsOn?: string[]; blocks?: string[] },
+): Promise<DependencyFailure | null> {
+  const discard = () => softDeleteTaskTree(db, id).catch(() => undefined);
+  let failure: DependencyFailure;
+  try {
+    const plan = await planDependencyUpdate(db, id, input);
+    if (plan.ok) {
+      await commitDependencyUpdate(db, id, plan);
+      return null;
+    }
+    failure = plan;
+  } catch (err) {
+    await discard();
+    throw err;
+  }
+  await discard();
+  return failure;
 }
 
 /**

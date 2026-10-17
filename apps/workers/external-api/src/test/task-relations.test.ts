@@ -10,6 +10,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { eq } from 'drizzle-orm';
+import { linkCreatedTask } from '@weldsuite/flow-domain/task-dependencies';
 import { createExternalTestApp } from './harness';
 import { createPgliteDb } from './pglite';
 import type { Database } from '../db';
@@ -115,6 +116,53 @@ describe('/v1/tasks relation guards · pglite integration', () => {
       expect(res.status).toBe(400);
       const all = await db.select({ title: schema.tasks.title }).from(schema.tasks);
       expect(all.some((r) => r.title === 'Dangling')).toBe(false);
+    });
+
+    describe('a task whose links cannot be written is taken back out', () => {
+      it('when the linked task is deleted after the up-front check', async () => {
+        await seedTask({ id: 'task_xrel_late_new', title: 'Late new', projectId: 'proj_xrel_a' });
+        await seedTask({ id: 'task_xrel_late_target', projectId: 'proj_xrel_a', deletedAt: new Date() });
+
+        const failure = await linkCreatedTask(db, 'task_xrel_late_new', { dependsOn: ['task_xrel_late_target'] });
+
+        expect(failure).toMatchObject({ ok: false, kind: 'invalid' });
+        expect((await row('task_xrel_late_new'))?.deletedAt).toBeInstanceOf(Date);
+      });
+
+      it('when the commit throws, and the error still reaches the caller', async () => {
+        await seedTask({ id: 'task_xrel_boom_new', title: 'Boom new', projectId: 'proj_xrel_a' });
+        await seedTask({ id: 'task_xrel_boom_target', projectId: 'proj_xrel_a' });
+        // The first all-or-nothing write (the link commit) fails; the clean-up that
+        // follows goes through.
+        let failedOnce = false;
+        const failing = new Proxy(db, {
+          get(target, prop, receiver) {
+            if ((prop === 'batch' || prop === 'transaction') && !failedOnce) {
+              return () => {
+                failedOnce = true;
+                return Promise.reject(new Error('commit failed'));
+              };
+            }
+            return Reflect.get(target, prop, receiver);
+          },
+        }) as Database;
+
+        await expect(linkCreatedTask(failing, 'task_xrel_boom_new', { dependsOn: ['task_xrel_boom_target'] })).rejects.toThrow(
+          'commit failed',
+        );
+        expect((await row('task_xrel_boom_new'))?.deletedAt).toBeInstanceOf(Date);
+        expect((await row('task_xrel_boom_target'))?.blocks ?? []).toEqual([]);
+      });
+
+      it('and leaves a task whose links were written alone', async () => {
+        await seedTask({ id: 'task_xrel_ok_new', title: 'Ok new', projectId: 'proj_xrel_a' });
+        await seedTask({ id: 'task_xrel_ok_target', projectId: 'proj_xrel_a' });
+
+        expect(await linkCreatedTask(db, 'task_xrel_ok_new', { dependsOn: ['task_xrel_ok_target'] })).toBeNull();
+
+        expect((await row('task_xrel_ok_new'))?.deletedAt).toBeNull();
+        expect((await row('task_xrel_ok_target'))?.blocks).toEqual(['task_xrel_ok_new']);
+      });
     });
   });
 
