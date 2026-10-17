@@ -102,7 +102,10 @@ const createTimeEntrySchema = z
     isRemote: z.boolean().default(false),
   });
 
-const updateTimeEntrySchema = createTimeEntrySchema.partial();
+/** `taskId: null` detaches the entry from its task (and moves it off a project's task). */
+const updateTimeEntrySchema = createTimeEntrySchema.partial().extend({
+  taskId: z.string().nullable().optional(),
+});
 
 type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -137,6 +140,54 @@ async function resolveEntryTarget(
     return error.forbidden(c, 'You do not have write access to this project');
   }
   return { projectId };
+}
+
+/** The task id when it still exists and fits the project the hours land on, else null. */
+async function usableTaskId(c: Ctx, taskId: string | null, projectId: string | null): Promise<string | null> {
+  if (!taskId) return null;
+  const [task] = await c
+    .get('tenantDb')
+    .select({ projectId: schema.tasks.projectId })
+    .from(schema.tasks)
+    .where(and(eq(schema.tasks.id, taskId), isNull(schema.tasks.deletedAt)))
+    .limit(1);
+  if (!task) return null;
+  if (task.projectId && task.projectId !== projectId) return null;
+  return taskId;
+}
+
+type TimerTarget = { projectId: string | null; taskId: string | null };
+
+/**
+ * Where a stopped timer's hours land. What the client sends on stop is checked
+ * strictly (404 / 403 / 400 like any entry). The target the timer was started with
+ * is not: the task may have been deleted, or the caller lost write access to the
+ * project, while it ran. Stopping must still save the tracked time, so the entry
+ * keeps whatever part of the stored target is still usable and drops the rest.
+ */
+async function resolveTimerTarget(
+  c: Ctx,
+  stored: TimerTarget,
+  overrides: { projectId?: string; taskId?: string },
+): Promise<TimerTarget | Response> {
+  if (overrides.taskId !== undefined) {
+    // A task override decides the project, unless the client names one to check against it.
+    const target = await resolveEntryTarget(c, {
+      projectId: overrides.projectId ?? null,
+      taskId: overrides.taskId,
+    });
+    if (target instanceof Response) return target;
+    return { projectId: target.projectId, taskId: overrides.taskId };
+  }
+  if (overrides.projectId !== undefined) {
+    const target = await resolveEntryTarget(c, { projectId: overrides.projectId });
+    if (target instanceof Response) return target;
+    return { projectId: target.projectId, taskId: await usableTaskId(c, stored.taskId, target.projectId) };
+  }
+  const projectId = stored.projectId && (await canWriteProject(c, stored.projectId)) ? stored.projectId : null;
+  // Without write access to the stored project the task (a project task) goes with it.
+  const taskId = stored.projectId && !projectId ? null : await usableTaskId(c, stored.taskId, projectId);
+  return { projectId, taskId };
 }
 
 /** Approved hours are final: change them by having a manager reject the entry first. */
@@ -646,10 +697,8 @@ app.post(
       if (!current) return error.notFound(c, 'Running timer', userId);
 
       // Validate the project / task the hours land on before the timer is consumed.
-      const target = await resolveEntryTarget(c, {
-        projectId: overrides.projectId ?? current.projectId,
-        taskId: overrides.taskId ?? current.taskId,
-      });
+      // Only client overrides are strict: the stored target may be gone by now.
+      const target = await resolveTimerTarget(c, current, overrides);
       if (target instanceof Response) return target;
 
       // Claim the timer atomically: DELETE ... RETURNING hands it to exactly one
@@ -662,8 +711,7 @@ app.post(
       const duration = minutesBetween(startedAt, now);
       const rate = overrides.rate !== undefined ? String(overrides.rate) : running.rate;
       const billable = overrides.billable ?? running.billable;
-      const taskId = overrides.taskId ?? running.taskId;
-      const projectId = target.projectId;
+      const { projectId, taskId } = target;
       const id = generateId('time');
 
       const costStr = computeCost(rate, duration);
@@ -846,7 +894,6 @@ const COPIED_PATCH_FIELDS = [
   'location',
   'isRemote',
   'taskId',
-  'projectId',
 ] as const;
 
 /** Only the fields the caller sent; recomputes `cost` when rate or duration changes. */
@@ -871,6 +918,51 @@ function buildTimeEntryUpdate(
   return update;
 }
 
+/**
+ * The project a PATCH leaves the entry on, when it re-points the project or task
+ * (`undefined` = untouched). Null is a real answer: a personal task, with no
+ * project, takes the entry off its old project.
+ */
+async function resolvePatchProject(
+  c: Ctx,
+  data: TimeEntryPatch,
+  existing: typeof t.$inferSelect,
+): Promise<{ projectId: string | null | undefined } | Response> {
+  if (data.projectId === undefined && data.taskId === undefined) return { projectId: undefined };
+  const movesToTask = typeof data.taskId === 'string';
+  const target = await resolveEntryTarget(c, {
+    projectId: data.projectId ?? (movesToTask ? null : existing.projectId),
+    taskId: data.taskId === undefined ? existing.taskId : data.taskId,
+  });
+  if (target instanceof Response) return target;
+  return { projectId: target.projectId };
+}
+
+/**
+ * Moving an entry to another day or lengthening it can both break the 24h/day
+ * cap, so re-check whenever either changes.
+ */
+async function patchDailyLimitViolation(
+  db: Database,
+  data: TimeEntryPatch,
+  existing: typeof t.$inferSelect,
+): Promise<string | null> {
+  const changesDay = data.date !== undefined && data.date !== existing.date;
+  if (data.duration === undefined && !changesDay) return null;
+  return dailyLimitViolation(db, {
+    userId: existing.userId,
+    date: data.date ?? existing.date,
+    minutes: data.duration ?? existing.duration,
+    excludeId: existing.id,
+  });
+}
+
+/** Cost carried on the update event: the recomputed one, else the stored one. */
+function costForEvent(updated: unknown, stored: unknown): number | undefined {
+  if (updated != null) return Number(updated);
+  return stored != null ? Number(stored) : undefined;
+}
+
 app.patch(
   '/:id',
   requirePermission('time:update'),
@@ -890,34 +982,19 @@ app.patch(
       if (existing.status === 'approved') return error.conflict(c, APPROVED_LOCKED);
 
       // Re-pointing the entry at another project or task needs write access there.
-      if (data.projectId !== undefined || data.taskId !== undefined) {
-        const target = await resolveEntryTarget(c, {
-          projectId: data.projectId ?? (data.taskId === undefined ? existing.projectId : null),
-          taskId: data.taskId ?? existing.taskId,
-        });
-        if (target instanceof Response) return target;
-        data.projectId = target.projectId ?? undefined;
-      }
+      const resolved = await resolvePatchProject(c, data, existing);
+      if (resolved instanceof Response) return resolved;
+      const resolvedProjectId = resolved.projectId;
 
-      // Moving an entry to another day or lengthening it can both break the
-      // 24h/day cap, so re-check whenever either changes.
-      if (data.duration !== undefined || (data.date !== undefined && data.date !== existing.date)) {
-        const violation = await dailyLimitViolation(db, {
-          userId: existing.userId,
-          date: data.date ?? existing.date,
-          minutes: data.duration ?? existing.duration,
-          excludeId: id,
-        });
-        if (violation) return error.badRequest(c, violation);
-      }
+      const violation = await patchDailyLimitViolation(db, data, existing);
+      if (violation) return error.badRequest(c, violation);
 
       const update = buildTimeEntryUpdate(data, existing);
+      if (resolvedProjectId !== undefined) update.projectId = resolvedProjectId;
 
       await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
-      let eventCost: number | undefined;
-      if (update.cost != null) eventCost = Number(update.cost);
-      else if (existing.cost != null) eventCost = Number(existing.cost);
+      const eventCost = costForEvent(update.cost, existing.cost);
 
       publishEntityEvent({
         c,
@@ -927,8 +1004,8 @@ app.patch(
         data: {
           ...timeEntryAnalyticsPayload({
             id,
-            projectId: (data.projectId ?? existing.projectId) ?? null,
-            taskId: (data.taskId ?? existing.taskId) ?? null,
+            projectId: resolvedProjectId === undefined ? existing.projectId ?? null : resolvedProjectId,
+            taskId: data.taskId === undefined ? existing.taskId ?? null : data.taskId,
             userId: existing.userId,
             durationMinutes: Number(data.duration ?? existing.duration),
             billable: (data.billable ?? existing.billable) as boolean,

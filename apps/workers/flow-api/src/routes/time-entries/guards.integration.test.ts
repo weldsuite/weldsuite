@@ -235,6 +235,34 @@ describe('logging against a project or task', () => {
     expect((await entryRow(data.id))?.projectId).toBe(PROJECT);
   });
 
+  it('moving an entry to a personal task takes it off its old project', async () => {
+    const created = await create(as(MEMBER), { projectId: PROJECT, taskId: 'task_te_in_project', date: '2026-06-04' });
+    const { data } = (await created.json()) as { data: { id: string } };
+    expect((await entryRow(data.id))?.projectId).toBe(PROJECT);
+
+    const res = await as(MEMBER)(`/api/time-entries/${data.id}`, json('PATCH', { taskId: 'task_te_personal' }));
+
+    expect(res.status).toBe(200);
+    const row = await entryRow(data.id);
+    expect(row?.taskId).toBe('task_te_personal');
+    expect(row?.projectId).toBeNull();
+  });
+
+  it('clears the task with taskId null (keeping the project), so the entry can move to another project', async () => {
+    const created = await create(as(MEMBER), { projectId: PROJECT, taskId: 'task_te_in_project', date: '2026-06-05' });
+    const { data } = (await created.json()) as { data: { id: string } };
+
+    const cleared = await as(MEMBER)(`/api/time-entries/${data.id}`, json('PATCH', { taskId: null }));
+    expect(cleared.status).toBe(200);
+    const row = await entryRow(data.id);
+    expect(row?.taskId).toBeNull();
+    expect(row?.projectId).toBe(PROJECT);
+
+    // Without a task the entry is no longer pinned to its old project.
+    const moved = await as(MEMBER)(`/api/time-entries/${data.id}`, json('PATCH', { projectId: OTHER_PROJECT }));
+    expect(moved.status).toBe(403); // not writable by MEMBER, but not a "task does not belong" 400
+  });
+
   it('checks access when a timer starts', async () => {
     expect((await as(OUTSIDER)('/api/time-entries/timer/start', json('POST', { projectId: PROJECT }))).status).toBe(403);
   });
@@ -273,6 +301,71 @@ describe('POST /timer/stop', () => {
     const res = await as(user)('/api/time-entries/timer/stop', json('POST', { timeZone: 'Europe/Amsterdam' }));
     expect(res.status).toBe(201);
     expect((await entriesOf(user))[0]?.date).toBe('2026-10-16');
+  });
+
+  it('still stops when the stored task was deleted, keeping the project and the time', async () => {
+    const user = 'user_te_taskgone';
+    await seedProject('prj_te_taskgone', user);
+    await seedTask('task_te_gone', 'prj_te_taskgone');
+    await startTimerAt(user, new Date(Date.now() - 10 * 60_000), { projectId: 'prj_te_taskgone', taskId: 'task_te_gone' });
+    await db.update(schema.tasks).set({ deletedAt: new Date() }).where(eq(schema.tasks.id, 'task_te_gone'));
+
+    const res = await as(user)('/api/time-entries/timer/stop', json('POST', {}));
+
+    expect(res.status).toBe(201);
+    const [entry] = await entriesOf(user);
+    expect(entry?.taskId).toBeNull();
+    expect(entry?.projectId).toBe('prj_te_taskgone');
+    expect(Number(entry?.duration)).toBeGreaterThanOrEqual(9);
+    expect(await db.select().from(schema.activeTimers).where(eq(schema.activeTimers.userId, user))).toHaveLength(0);
+  });
+
+  it('still stops when write access to the stored project was lost, saving the time without the project', async () => {
+    const user = 'user_te_lostaccess';
+    await seedProject('prj_te_lostaccess', 'someone_else');
+    await seedMember('prj_te_lostaccess', user, 'member');
+    await seedTask('task_te_lostaccess', 'prj_te_lostaccess');
+    await startTimerAt(user, new Date(Date.now() - 10 * 60_000), {
+      projectId: 'prj_te_lostaccess',
+      taskId: 'task_te_lostaccess',
+    });
+    await db
+      .update(schema.projectMembers)
+      .set({ isActive: false })
+      .where(eq(schema.projectMembers.id, `pm_prj_te_lostaccess_${user}`));
+
+    const res = await as(user)('/api/time-entries/timer/stop', json('POST', {}));
+
+    expect(res.status).toBe(201);
+    const [entry] = await entriesOf(user);
+    expect(entry?.projectId).toBeNull();
+    expect(entry?.taskId).toBeNull();
+  });
+
+  it('keeps the stored task and project when they are still fine', async () => {
+    const user = 'user_te_fine';
+    await seedMember(PROJECT, user, 'member');
+    await startTimerAt(user, new Date(Date.now() - 5 * 60_000), { taskId: 'task_te_in_project' });
+
+    const res = await as(user)('/api/time-entries/timer/stop', json('POST', {}));
+
+    expect(res.status).toBe(201);
+    const [entry] = await entriesOf(user);
+    expect(entry?.taskId).toBe('task_te_in_project');
+    expect(entry?.projectId).toBe(PROJECT);
+  });
+
+  it('is strict about what the client sends on stop', async () => {
+    const user = 'user_te_override';
+    await startTimerAt(user, new Date(Date.now() - 5 * 60_000));
+    const stop = (body: Record<string, unknown>) => as(user)('/api/time-entries/timer/stop', json('POST', body));
+
+    expect((await stop({ taskId: 'task_te_missing' })).status).toBe(404);
+    expect((await stop({ projectId: OTHER_PROJECT })).status).toBe(403);
+    expect((await stop({ taskId: 'task_te_in_other' })).status).toBe(403);
+    // Every refusal leaves the timer running; a clean stop still works.
+    expect(await db.select().from(schema.activeTimers).where(eq(schema.activeTimers.userId, user))).toHaveLength(1);
+    expect((await stop({})).status).toBe(201);
   });
 
   it('falls back to the UTC date without a time zone and rejects an unknown one', async () => {
