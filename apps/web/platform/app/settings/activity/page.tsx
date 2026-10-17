@@ -25,7 +25,7 @@ import { asText } from '@weldsuite/text';
 
 const ENTITY_TYPE_VALUES = [
   'all', 'contact', 'customer', 'product', 'order', 'invoice', 'bill',
-  'helpdesk_conversation', 'helpdesk_ticket', 'project', 'personal_task',
+  'helpdesk_conversation', 'helpdesk_ticket', 'project', 'project_task',
   'parcel', 'shipment', 'lead', 'opportunity', 'journal_entry', 'payment', 'account',
 ] as const;
 
@@ -104,7 +104,7 @@ export default function ActivitySettingsPage() {
       helpdesk_conversation: ts.entityTypes.conversation,
       helpdesk_ticket: ts.entityTypes.ticket,
       project: ts.entityTypes.project,
-      personal_task: ts.entityTypes.task,
+      project_task: ts.entityTypes.task,
       parcel: ts.entityTypes.parcel,
       shipment: ts.entityTypes.shipment,
       lead: ts.entityTypes.lead,

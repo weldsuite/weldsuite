@@ -1869,8 +1869,10 @@ export function TaskDetailContent({
       {/* History Tab */}
       {activeTab === 'history' && taskId && (
         <div className="-mx-4">
+          {/* flow-api `/tasks` audits every task as `project_task`, with or
+              without a project (CRM and personal tasks included). */}
           <EntityAuditPanel
-            entityType={projectId ? 'project_task' : 'personal_task'}
+            entityType="project_task"
             entityId={taskId}
             alwaysShowChanges
           />
