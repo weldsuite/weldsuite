@@ -102,6 +102,20 @@ describe('teardownRtkMeeting', () => {
     );
   });
 
+  it("only empties a DM's persistent room: the meeting stays active and its mapping stays", async () => {
+    const kv = { ...fakeKv(), get: async (key: string) => (key === 'chat-dm-room:org_1:ch_dm' ? 'rtk_room' : null) };
+    await teardownRtkMeeting({ WORKSPACE_CACHE: kv }, 'rtk_room', { callId: 'call_5', orgId: 'org_1', channelId: 'ch_dm' });
+    expect(rtk.calls).toEqual(['kick:rtk_room']);
+    expect(kv.deleted).toEqual([]);
+  });
+
+  it('ends a room that is not (or no longer) the DM room', async () => {
+    const kv = { ...fakeKv(), get: async () => 'rtk_newer_room' };
+    await teardownRtkMeeting({ WORKSPACE_CACHE: kv }, 'rtk_old', { callId: 'call_6', orgId: 'org_1', channelId: 'ch_dm' });
+    expect(rtk.calls).toEqual(['kick:rtk_old', 'end:rtk_old']);
+    expect(kv.deleted).toEqual(['rtk-meeting:rtk_old']);
+  });
+
   it('works without a KV binding', async () => {
     await expect(teardownRtkMeeting({}, 'rtk_4', { callId: 'call_4' })).resolves.toBeUndefined();
     expect(rtk.calls).toEqual(['kick:rtk_4', 'end:rtk_4']);

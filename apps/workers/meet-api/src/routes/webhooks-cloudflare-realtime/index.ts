@@ -186,7 +186,7 @@ app.post('/', async (c) => {
 
     switch (eventType) {
       case 'meeting.ended':
-        await handleMeetingEnded(c.env, raw, rtkMeetingId);
+        await handleMeetingEnded(c.env, raw, rtkMeetingId, event.meeting);
         break;
 
       case 'meeting.participantJoined':

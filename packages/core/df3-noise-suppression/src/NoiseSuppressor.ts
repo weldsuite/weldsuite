@@ -17,13 +17,27 @@ class SuppressionPipeline {
   private rtfWindow: number[] = [];
   private inputTracks: MediaStreamTrack[] = [];
   private disposed = false;
+  private preparing: Promise<void> | null = null;
+  /** Rejects the wait for the worker's `ready`, which never comes once it is terminated. */
+  private abortBuild: ((err: Error) => void) | null = null;
 
   constructor(
     private readonly options: SuppressorOptions,
     private readonly logRtf: boolean,
   ) {}
 
-  async start(inputStream: MediaStream, bypass: boolean): Promise<MediaStream> {
+  /**
+   * Builds everything that does not need the microphone: the AudioContext,
+   * the worklet module and the worker with its wasm. This is most of the
+   * pipeline's start-up time, so it can run ahead (see `NoiseSuppressor.warm`)
+   * while the mic is still being opened. Idempotent.
+   */
+  prepare(): Promise<void> {
+    this.preparing ??= this.build();
+    return this.preparing;
+  }
+
+  private async build(): Promise<void> {
     this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
     if (this.audioContext.sampleRate !== SAMPLE_RATE) {
       // eslint-disable-next-line no-console
@@ -33,9 +47,12 @@ class SuppressionPipeline {
       );
     }
     await this.audioContext.audioWorklet.addModule(this.options.workletUrl);
+    // Disposed while warming up (the call never started): build nothing more.
+    if (this.disposed) throw new Error('[noise] pipeline disposed while preparing');
 
     this.worker = new Worker(this.options.workerUrl, { type: 'module' });
     const ready = new Promise<void>((resolve, reject) => {
+      this.abortBuild = reject;
       const onMsg = (ev: MessageEvent<WorkerEvent>) => {
         if (ev.data.type === 'ready') {
           this.worker?.removeEventListener('message', onMsg);
@@ -48,7 +65,20 @@ class SuppressionPipeline {
       this.worker?.addEventListener('message', onMsg);
     });
     this.worker.postMessage({ type: 'init' });
-    await ready;
+    try {
+      await ready;
+    } finally {
+      this.abortBuild = null;
+    }
+  }
+
+  async start(inputStream: MediaStream, bypass: boolean): Promise<MediaStream> {
+    await this.prepare();
+    if (this.disposed || !this.audioContext || !this.worker) {
+      throw new Error('[noise] pipeline was disposed before it started');
+    }
+    // A context built ahead of the user's click may have started suspended.
+    if (this.audioContext.state === 'suspended') void this.audioContext.resume().catch(() => undefined);
 
     this.sourceNode = this.audioContext.createMediaStreamSource(inputStream);
     this.workletNode = new AudioWorkletNode(this.audioContext, 'df3-processor', {
@@ -104,6 +134,7 @@ class SuppressionPipeline {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.abortBuild?.(new Error('[noise] pipeline disposed while preparing'));
     this.workletNode?.port.close();
     try {
       this.sourceNode?.disconnect();
@@ -152,6 +183,8 @@ class SuppressionPipeline {
  */
 export class NoiseSuppressor {
   private readonly pipelines = new Set<SuppressionPipeline>();
+  /** Built ahead by `warm()`, handed to the next `process()`. Not in `pipelines` until then. */
+  private warmPipeline: SuppressionPipeline | null = null;
   private bypass: boolean;
   private readonly logRtf: boolean;
 
@@ -160,9 +193,29 @@ export class NoiseSuppressor {
     this.logRtf = options.logRtf ?? false;
   }
 
+  /**
+   * Start building the next pipeline now, so the first `process()` (RTK opening
+   * the mic as it joins) only has to connect the stream instead of loading the
+   * worklet and the RNNoise worker first. Call it from the user's click, not
+   * before: it creates an AudioContext. A failed warm-up is dropped and
+   * `process()` builds a pipeline the usual way.
+   */
+  warm(): void {
+    if (this.warmPipeline) return;
+    const pipeline = new SuppressionPipeline(this.options, this.logRtf);
+    this.warmPipeline = pipeline;
+    pipeline.prepare().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[noise] warm-up failed, the mic will build its own pipeline:', err);
+      if (this.warmPipeline === pipeline) this.warmPipeline = null;
+      pipeline.dispose().catch(() => undefined);
+    });
+  }
+
   /** Processes the stream's audio tracks; video tracks are ignored. */
   async process(inputStream: MediaStream): Promise<MediaStream> {
-    const pipeline = new SuppressionPipeline(this.options, this.logRtf);
+    const pipeline = this.warmPipeline ?? new SuppressionPipeline(this.options, this.logRtf);
+    this.warmPipeline = null;
     this.pipelines.add(pipeline);
     let output: MediaStream;
     try {
@@ -214,6 +267,8 @@ export class NoiseSuppressor {
 
   async dispose(): Promise<void> {
     const pipelines = [...this.pipelines];
+    if (this.warmPipeline) pipelines.push(this.warmPipeline);
+    this.warmPipeline = null;
     this.pipelines.clear();
     await Promise.all(pipelines.map((pipeline) => pipeline.dispose()));
   }

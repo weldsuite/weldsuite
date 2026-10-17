@@ -99,7 +99,7 @@ vi.mock('@cloudflare/realtimekit', () => ({
 }));
 
 vi.mock('@weldsuite/df3-noise-suppression', () => ({
-  createRnnoiseSuppressor: () => ({ dispose: async () => undefined }),
+  createRnnoiseSuppressor: () => ({ dispose: async () => undefined, warm: () => undefined }),
   installGetUserMediaPatch: () => () => undefined,
 }));
 vi.mock('@weldsuite/df3-noise-suppression/rnnoise-worker?worker&url', () => ({ default: 'rnnoise-worker.js' }));
@@ -118,6 +118,7 @@ vi.mock('@/lib/i18n', () => ({
       reconnecting: 'Connection lost. Reconnecting…',
       reconnected: 'You are back in the call',
       connectionLost: "Couldn't reconnect to the call. Call again to continue.",
+      joinFailed: "Couldn't join the call. It may have ended already.",
       supersededByOtherCall: 'You left this call because you joined another call or meeting.',
     },
     switchCallDialog: {
@@ -483,6 +484,81 @@ describe('WeldChatCallProvider · an incoming call', () => {
 
     expect(call.status).toBe('idle');
     expect(call.incomingCall).toMatchObject(incomingCall('call_2'));
+  });
+});
+
+describe('WeldChatCallProvider · answering fast', () => {
+  /** prepare → tok_prepared, join → tok_join, everything else as usual. */
+  function preparedTokens(join?: () => Promise<unknown>) {
+    api.post.mockImplementation(async (path: string) => {
+      rtk.log.push(`api:${path}`);
+      if (path.endsWith('/prepare')) return { data: { callId: 'call_2', channelId: 'ch_2', callType: 'voice', authToken: 'tok_prepared' } };
+      if (path.endsWith('/join') && join) return join();
+      return { data: { callId: 'call_2', authToken: 'tok_join', participants: [] } };
+    });
+  }
+
+  it('asks for a token as soon as the call rings', async () => {
+    preparedTokens();
+    mountChat();
+
+    publish('call_incoming', incomingCall('call_2'));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/chat-calls/call_2/prepare', {}));
+  });
+
+  it('connects with the prepared token on accept, without fetching the call first', async () => {
+    preparedTokens();
+    mountChat({ coordinator: true });
+    publish('call_incoming', incomingCall('call_2'));
+
+    await act(async () => {
+      await call.acceptIncomingCall();
+    });
+
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    expect(RTK.init).toHaveBeenCalledWith(expect.objectContaining({ authToken: 'tok_prepared' }));
+    expect(api.post).toHaveBeenCalledWith('/chat-calls/call_2/join', {});
+    expect(api.get).not.toHaveBeenCalled();
+    expect(call.callId).toBe('call_2');
+    expect(call.channelId).toBe('ch_2');
+  });
+
+  it('joins the usual way when preparing failed', async () => {
+    api.post.mockImplementation(async (path: string) => {
+      if (path.endsWith('/prepare')) throw new Error('500');
+      return { data: { callId: 'call_2', authToken: 'tok_join', participants: [] } };
+    });
+    mountChat({ coordinator: true });
+    publish('call_incoming', incomingCall('call_2'));
+
+    await act(async () => {
+      await call.acceptIncomingCall();
+    });
+
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    expect(RTK.init).toHaveBeenCalledWith(expect.objectContaining({ authToken: 'tok_join' }));
+  });
+
+  it('backs out of the room when the call ended while it rang', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    preparedTokens(async () => {
+      throw new Error('Call is not joinable');
+    });
+    mountChat({ coordinator: true });
+    publish('call_incoming', incomingCall('call_2'));
+
+    await act(async () => {
+      await expect(call.acceptIncomingCall()).rejects.toThrow('Call is not joinable');
+    });
+
+    await waitFor(() => expect(call.status).toBe('idle'));
+    expect(rtk.log).toContain('rtk:leave');
+    expect(call.callId).toBeNull();
+    expect(toast.error).toHaveBeenCalledWith("Couldn't join the call. It may have ended already.");
+    // The answer never counted, so there is nothing to leave on the server.
+    expect(rtk.log).not.toContain('api:/chat-calls/call_2/leave');
+    expect(leaveBeacons()).toHaveLength(0);
   });
 });
 

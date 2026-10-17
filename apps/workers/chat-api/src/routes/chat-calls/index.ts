@@ -44,6 +44,7 @@ import {
   wasAnswered,
   type EndIfEmptyOutcome,
 } from '@weldsuite/chat-domain/call-lifecycle';
+import { getDmCallRoom, rememberDmCallRoom } from '@weldsuite/chat-domain/dm-call-room';
 import { canAccessChannel } from '../../services/chat/channel-access';
 import {
   dedupeParticipants,
@@ -53,6 +54,7 @@ import {
   isAbandonedCall,
 } from '../../services/chat/call-participants';
 import { leaveOtherLiveCalls } from '../../services/chat/leave-other-live-calls';
+import { consumePreparedJoin, readPreparedJoin, storePreparedJoin } from '../../services/chat/prepared-join';
 
 // ============================================================================
 // Schemas
@@ -442,8 +444,9 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
     const db = c.get('tenantDb');
     const { chatCalls, chatChannels, chatChannelMembers, chatMessages, workspaceMembers } = schema;
 
-    // Run membership check + channel permissions + active call check + user info in parallel
-    const [membershipResult, channelResult, activeCallResult, authorResult] = await Promise.all([
+    // Run membership check + channel permissions + active call check + user info
+    // + the DM's persistent room in parallel
+    const [membershipResult, channelResult, activeCallResult, authorResult, dmRoomId] = await Promise.all([
       db
         .select({ channelId: chatChannelMembers.channelId })
         .from(chatChannelMembers)
@@ -464,6 +467,8 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
         .from(workspaceMembers)
         .where(eq(workspaceMembers.userId, userId))
         .limit(1),
+      // Read for every channel (it is one KV get); only a DM uses it.
+      getDmCallRoom(c.env.WORKSPACE_CACHE, orgId, data.channelId),
     ]);
 
     if (!membershipResult[0]) {
@@ -474,9 +479,9 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
     const disabledMessage = disabledCallMessage(data.callType, channel);
     if (disabledMessage) return error.forbidden(c, disabledMessage);
 
+    const isDm = channel?.type === 'dm';
     const existingCall = activeCallResult[0];
     if (existingCall) {
-      const isDm = channel?.type === 'dm';
       // A call that looks abandoned is ended so the new one can start (and
       // ring), unless RealtimeKit still has people in it: then it is live
       // after all and the caller joins it like any other ongoing call. If
@@ -512,16 +517,25 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
     const callId = generateId('call');
     const now = new Date();
     const initiatorName = author?.name ?? 'Unknown';
+    const initiatorPicture = author?.picture ?? undefined;
     const callLabel = data.callType === 'video' ? 'video call' : 'voice call';
+    const waitUntil = c.executionCtx.waitUntil.bind(c.executionCtx);
 
-    // Create RTK meeting — this is the main latency source
-    const rtkMeeting = await createMeeting(c.env, `${initiatorName}'s ${callLabel}`);
+    // A DM reuses its persistent room, so the usual call skips createMeeting
+    // (a Cloudflare API round-trip) entirely. Other channels get a fresh room.
+    const reusedRoom = isDm && !!dmRoomId;
+    const meetingId = reusedRoom && dmRoomId
+      ? dmRoomId
+      : (await createMeeting(c.env, `${initiatorName}'s ${callLabel}`)).id;
+    if (isDm) {
+      // Store a new room, or refresh the TTL of the one just used.
+      waitUntil(rememberDmCallRoom(c.env.WORKSPACE_CACHE, orgId, data.channelId, meetingId));
+    }
 
-    // Now add participant to get auth token, while also writing to DB in parallel
     const participant: ChatCallParticipant = {
       userId,
       userName: initiatorName,
-      userAvatar: author?.picture ?? undefined,
+      userAvatar: initiatorPicture,
       joinedAt: now.toISOString(),
       cfSessionId: '', // filled after addParticipant
       hasAudio: false,
@@ -530,54 +544,123 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
     };
 
     const msgId = generateId('msg');
+    const mapMeeting = (id: string) =>
+      c.env.WORKSPACE_CACHE.put(
+        `rtk-meeting:${id}`,
+        JSON.stringify({ orgId, type: 'call', callId, channelId: data.channelId }),
+        { expirationTtl: 86400 },
+      );
 
-    const [rtkParticipant] = await Promise.all([
-      // Get participant auth token from Cloudflare
-      addParticipant(c.env, rtkMeeting.id, {
-        name: initiatorName,
-        customParticipantId: userId,
-        picture: author?.picture ?? undefined,
+    // Call record + system message + KV mapping, in parallel with the caller's
+    // addParticipant below.
+    const persisted = Promise.all([
+      db.insert(chatCalls).values({
+        id: callId,
+        channelId: data.channelId,
+        callType: data.callType,
+        status: 'active',
+        cfAppId: meetingId,
+        initiatorId: userId,
+        initiatorName,
+        participants: [participant],
+        maxParticipants: 1,
+        startedAt: now,
+        createdAt: now,
+        updatedAt: now,
       }),
-      // Insert call record + system message + KV mapping in parallel with addParticipant
-      (async () => {
-        await Promise.all([
-          db.insert(chatCalls).values({
-            id: callId,
-            channelId: data.channelId,
-            callType: data.callType,
-            status: 'active',
-            cfAppId: rtkMeeting.id,
-            initiatorId: userId,
-            initiatorName,
-            participants: [participant],
-            maxParticipants: 1,
-            startedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          }),
-          db.insert(chatMessages).values({
-            id: msgId,
-            channelId: data.channelId,
-            authorId: userId,
-            authorName: initiatorName,
-            authorAvatar: author?.picture ?? null,
-            content: `${initiatorName} started a ${callLabel}`,
-            type: 'system',
-            createdAt: now,
-            updatedAt: now,
-          }),
-          c.env.WORKSPACE_CACHE.put(
-            `rtk-meeting:${rtkMeeting.id}`,
-            JSON.stringify({ orgId, type: 'call', callId, channelId: data.channelId }),
-            { expirationTtl: 86400 },
-          ),
-        ]);
-      })(),
+      db.insert(chatMessages).values({
+        id: msgId,
+        channelId: data.channelId,
+        authorId: userId,
+        authorName: initiatorName,
+        authorAvatar: initiatorPicture ?? null,
+        content: `${initiatorName} started a ${callLabel}`,
+        type: 'system',
+        createdAt: now,
+        updatedAt: now,
+      }),
+      mapMeeting(meetingId),
     ]);
+
+    // Ring as soon as the call row exists (the callee's prepare / join reads
+    // it), without waiting for the caller's own token: the other side starts
+    // ringing while the caller is still being added to the room.
+    if (isDm) {
+      const ringParams: IncomingCallParams = {
+        db,
+        env: c.env,
+        orgId,
+        userId,
+        channelId: data.channelId,
+        callType: data.callType,
+        callId,
+        initiatorName,
+        initiatorPicture,
+      };
+      waitUntil(
+        persisted
+          .then(async () => {
+            const members = await db
+              .select({ userId: chatChannelMembers.userId })
+              .from(chatChannelMembers)
+              .where(eq(chatChannelMembers.channelId, data.channelId));
+            await Promise.all(
+              members.filter((m) => m.userId !== userId).map((m) => ringDmMember(ringParams, m.userId)),
+            );
+            scheduleRingTimeout(waitUntil, db, c.env, orgId, callId);
+          })
+          .catch((e) => console.error('[Chat:Calls] Incoming-call ring failed:', e)),
+      );
+    }
+
+    const callerParams = { name: initiatorName, customParticipantId: userId, picture: initiatorPicture };
+    const addCaller = async (): Promise<{ id: string; token: string }> => {
+      try {
+        return await addParticipant(c.env, meetingId, callerParams);
+      } catch (err) {
+        if (!reusedRoom) throw err;
+        // The stored room is gone (deleted, deactivated elsewhere): give the DM
+        // a new one and move this call into it.
+        console.warn('[Chat:Calls] Persistent DM room unusable, replacing it:', err);
+        const fresh = await createMeeting(c.env, `${initiatorName}'s ${callLabel}`);
+        await persisted;
+        await Promise.all([
+          db.update(chatCalls).set({ cfAppId: fresh.id }).where(eq(chatCalls.id, callId)),
+          mapMeeting(fresh.id),
+          rememberDmCallRoom(c.env.WORKSPACE_CACHE, orgId, data.channelId, fresh.id),
+        ]);
+        return addParticipant(c.env, fresh.id, callerParams);
+      }
+    };
+
+    let rtkParticipant: { id: string; token: string };
+    try {
+      [rtkParticipant] = await Promise.all([addCaller(), persisted]);
+    } catch (err) {
+      // The ring may already be out: end the call rather than leave it ringing
+      // for a caller who never got in.
+      waitUntil(
+        persisted
+          .then(() =>
+            endChatCall(db, c.env, orgId, callId, {
+              startedAt: now,
+              cfAppId: null,
+              channelId: data.channelId,
+              initiatorId: userId,
+              initiatorName,
+              status: 'active',
+              callType: data.callType,
+              participants: [participant],
+            }, userId, { sendMissedIfUnanswered: false }),
+          )
+          .catch((e) => console.error('[Chat:Calls] Ending the failed call failed:', e)),
+      );
+      throw err;
+    }
 
     // Update the participant's cfSessionId and link the system message (non-blocking)
     participant.cfSessionId = rtkParticipant.id;
-    c.executionCtx.waitUntil(
+    waitUntil(
       Promise.all([
         // Re-read before writing so a racing /join isn't clobbered, then upsert
         // self (idempotent on userId). Also enforce one-call-at-a-time.
@@ -606,44 +689,9 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
           callId,
           userId,
           userName: initiatorName,
-          userAvatar: author?.picture ?? undefined,
+          userAvatar: initiatorPicture,
           cfSessionId: rtkParticipant.id,
         }).catch(() => {}),
-        // DM incoming call notifications (realtime + push)
-        (async () => {
-          if (channel?.type === 'dm') {
-            const members = await db
-              .select({ userId: chatChannelMembers.userId })
-              .from(chatChannelMembers)
-              .where(eq(chatChannelMembers.channelId, data.channelId));
-            await Promise.all(
-              members
-                .filter((m) => m.userId !== userId)
-                .flatMap((m) => [
-                  publishChatCallIncoming(c.env, orgId, m.userId, {
-                    callId,
-                    channelId: data.channelId,
-                    callType: data.callType,
-                    callerName: initiatorName,
-                    callerAvatar: author?.picture ?? undefined,
-                  }).catch(() => {}),
-                  sendIncomingCallNotification({
-                    db,
-                    env: c.env,
-                    workspaceId: orgId,
-                    recipientUserId: m.userId,
-                    callerUserId: userId,
-                    callerName: initiatorName,
-                    callerAvatar: author?.picture ?? undefined,
-                    channelId: data.channelId,
-                    callId,
-                    callType: data.callType,
-                  }).catch(() => {}),
-                ]),
-            );
-            scheduleRingTimeout(c.executionCtx.waitUntil.bind(c.executionCtx), db, c.env, orgId, callId);
-          }
-        })(),
       ]).catch((e) => console.error('[Chat:Calls] Background tasks failed:', e)),
     );
 
@@ -656,6 +704,72 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
   } catch (err) {
     console.error('[Chat:Calls] Failed to start-and-join call:', err);
     return error.internal(c, 'Failed to start call');
+  }
+});
+
+/**
+ * POST /:callId/prepare - Get a RealtimeKit token for a call that is ringing
+ * for you, before you answer it.
+ *
+ * The callee's client calls this when the ring arrives, so accepting no longer
+ * waits for Cloudflare to add a participant: it connects with this token at
+ * once while POST /:callId/join records the answer (and reuses this same
+ * participant, see services/chat/prepared-join.ts). Records nothing on the
+ * call itself: preparing is not answering, and a declined or missed call
+ * leaves only an unused participant behind.
+ */
+app.post('/:callId/prepare', requirePermission('channels:read'), async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const userId = c.get('userId');
+  const callId = c.req.param('callId');
+
+  try {
+    const db = c.get('tenantDb');
+    const { chatCalls, workspaceMembers } = schema;
+
+    const [callResult, authorResult, prepared] = await Promise.all([
+      db.select().from(chatCalls).where(eq(chatCalls.id, callId)).limit(1),
+      db.select({ name: workspaceMembers.name, picture: workspaceMembers.picture }).from(workspaceMembers).where(eq(workspaceMembers.userId, userId)).limit(1),
+      readPreparedJoin(c.env.WORKSPACE_CACHE, callId, userId),
+    ]);
+
+    const [call] = callResult;
+    if (!call) return error.notFound(c, 'Call', callId);
+    // Same boundary as /join: a token is as good as joining.
+    if (!(await canAccessChannel(db, call.channelId, userId))) {
+      return error.forbidden(c, 'You do not have access to this call');
+    }
+    if (call.status !== 'ringing' && call.status !== 'active') {
+      return error.badRequest(c, 'Call is not joinable');
+    }
+    if (!call.cfAppId) {
+      return error.internal(c, 'Call has no meeting ID');
+    }
+
+    // A second ring delivery or another tab gets the participant already parked.
+    let ready = prepared?.meetingId === call.cfAppId ? prepared : null;
+    if (!ready) {
+      const author = authorResult[0];
+      const rtkParticipant = await addParticipant(c.env, call.cfAppId, {
+        name: author?.name ?? 'Unknown',
+        customParticipantId: userId,
+        picture: author?.picture ?? undefined,
+      });
+      ready = { meetingId: call.cfAppId, participantId: rtkParticipant.id, token: rtkParticipant.token };
+      await storePreparedJoin(c.env.WORKSPACE_CACHE, callId, userId, ready);
+    }
+
+    return success(c, {
+      callId,
+      channelId: call.channelId,
+      callType: call.callType,
+      authToken: ready.token,
+    });
+  } catch (err) {
+    console.error('[Chat:Calls] Failed to prepare call join:', err);
+    return error.internal(c, 'Failed to prepare call');
   }
 });
 
@@ -674,10 +788,11 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
     const db = c.get('tenantDb');
     const { chatCalls, workspaceMembers } = schema;
 
-    // Fetch call + user info in parallel
-    const [callResult, authorResult] = await Promise.all([
+    // Fetch call + user info + a participant prepared while it rang, in parallel
+    const [callResult, authorResult, prepared] = await Promise.all([
       db.select().from(chatCalls).where(eq(chatCalls.id, callId)).limit(1),
       db.select({ name: workspaceMembers.name, picture: workspaceMembers.picture }).from(workspaceMembers).where(eq(workspaceMembers.userId, userId)).limit(1),
+      readPreparedJoin(c.env.WORKSPACE_CACHE, callId, userId),
     ]);
 
     const [call] = callResult;
@@ -698,12 +813,19 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
     const author = authorResult[0];
     const userName = author?.name ?? 'Unknown';
 
-    // Add participant to RealtimeKit meeting → get auth token
-    const rtkParticipant = await addParticipant(c.env, call.cfAppId, {
-      name: userName,
-      customParticipantId: userId,
-      picture: author?.picture ?? undefined,
-    });
+    // The participant POST /prepare added while it rang (the client is already
+    // connecting with its token), else add one now → auth token.
+    const reusable = prepared?.meetingId === call.cfAppId ? prepared : null;
+    const rtkParticipant = reusable
+      ? { id: reusable.participantId, token: reusable.token }
+      : await addParticipant(c.env, call.cfAppId, {
+          name: userName,
+          customParticipantId: userId,
+          picture: author?.picture ?? undefined,
+        });
+    if (prepared) {
+      c.executionCtx.waitUntil(consumePreparedJoin(c.env.WORKSPACE_CACHE, callId, userId));
+    }
 
     const participant: ChatCallParticipant = {
       userId,
@@ -882,7 +1004,7 @@ app.post('/:callId/decline', requirePermission('channels:read'), async (c) => {
 
     // Kick the caller out of the room, end the RTK meeting, drop the KV mapping
     if (call.cfAppId) {
-      await teardownRtkMeeting(c.env, call.cfAppId, { callId });
+      await teardownRtkMeeting(c.env, call.cfAppId, { callId, orgId, channelId: call.channelId });
     }
 
     const msgId = generateId('msg');

@@ -153,7 +153,7 @@ describe('POST /api/webhooks/cloudflare-realtime', () => {
     const res = await post(ENDED, { 'rtk-signature': await sign(ENDED), 'rtk-uuid': 'delivery-1' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(handleMeetingEnded).toHaveBeenCalledWith(expect.anything(), MAPPING, 'rtk-meeting-1');
+    expect(handleMeetingEnded).toHaveBeenCalledWith(expect.anything(), MAPPING, 'rtk-meeting-1', expect.anything());
   });
 
   it('still reads the legacy flat meetingId', async () => {

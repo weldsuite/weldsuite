@@ -35,6 +35,7 @@ import {
   broadcastChatCallToMembers,
   type WeldChatCallPublisherEnv,
 } from './realtime/weldchat-call-publisher';
+import { isDmCallRoom } from './dm-call-room';
 
 /**
  * The bindings the call lifecycle reads: the RealtimeKit credentials, the
@@ -74,18 +75,30 @@ export function wasAnswered(call: {
  * truth): a failing kick never skips the end, a failing end never skips the KV
  * cleanup. Failures are logged with the call id and RTK meeting id. A kick on
  * an empty or already-inactive room may be rejected, which is expected.
+ *
+ * A DM's persistent room (see `dm-call-room.ts`) is only emptied: the meeting
+ * stays active for the next call and the mapping is left for that call to
+ * overwrite, so a teardown that lands late cannot unmap a call already live
+ * in the same room. Pass `orgId` and `channelId` so it can tell.
  */
 export async function teardownRtkMeeting(
   env: Omit<CloudflareRealtimeEnv, 'WORKSPACE_CACHE'> & {
     WORKSPACE_CACHE?: RealtimeKvNamespace & { delete(key: string): Promise<unknown> };
   },
   cfAppId: string,
-  logCtx: { callId: string },
+  logCtx: { callId: string; orgId?: string; channelId?: string },
 ): Promise<void> {
   try {
     await kickAllRtkParticipants(env, cfAppId);
   } catch (err) {
     console.error('[CallLifecycle] RTK kick-all failed', { callId: logCtx.callId, cfAppId, err });
+  }
+  if (
+    logCtx.orgId &&
+    logCtx.channelId &&
+    (await isDmCallRoom(env.WORKSPACE_CACHE, logCtx.orgId, logCtx.channelId, cfAppId))
+  ) {
+    return;
   }
   try {
     await endRtkMeeting(env, cfAppId);
@@ -136,7 +149,7 @@ export async function endChatCall(
 
   // Kick everyone, end the RTK meeting, clean up the KV mapping (all best effort)
   if (call.cfAppId) {
-    await teardownRtkMeeting(env, call.cfAppId, { callId });
+    await teardownRtkMeeting(env, call.cfAppId, { callId, orgId, channelId: call.channelId });
   }
 
   // Post system message

@@ -137,6 +137,47 @@ describe('meeting.ended for a call', () => {
     expect(kickAllParticipants).not.toHaveBeenCalled();
   });
 
+  // A DM keeps one RealtimeKit room for all its calls, so by the time the
+  // previous call's session ends the mapping already points at the next call.
+  describe("a DM room's earlier session", () => {
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    // Explicit: the column has no time zone, and pglite's now() is local time.
+    async function seedCall(key: string, participants: ChatCallParticipant[]) {
+      const seeded = await seed(key, participants);
+      await state.db
+        .update(schema.chatCalls)
+        .set({ createdAt: new Date(Date.now() - 5_000) })
+        .where(eq(schema.chatCalls.id, seeded.callId));
+      return seeded;
+    }
+
+    it('ignores a session that ended before this call was created', async () => {
+      const { callId, cfAppId, mapping } = await seedCall('earlier_ended', [participant(ALICE)]);
+
+      await handleMeetingEnded(env, mapping, cfAppId, { startedAt: ago(10 * 60_000), endedAt: ago(60 * 60_000) });
+
+      expect((await readCall(callId)).status).toBe('active');
+      expect(getLiveParticipantCount).not.toHaveBeenCalled();
+    });
+
+    it('ignores an earlier session ending while this call still rings, before the caller got in', async () => {
+      const { callId, cfAppId, mapping } = await seedCall('earlier_ringing', [participant(ALICE)]);
+
+      await handleMeetingEnded(env, mapping, cfAppId, { startedAt: ago(60 * 60_000), endedAt: new Date(Date.now() + 1_000).toISOString() });
+
+      expect((await readCall(callId)).status).toBe('active');
+      expect(kickAllParticipants).not.toHaveBeenCalled();
+    });
+
+    it('ends an answered call whose people stayed on in a session that began earlier', async () => {
+      const { callId, cfAppId, mapping } = await seedCall('earlier_continued', [participant(ALICE), participant(BOB)]);
+
+      await handleMeetingEnded(env, mapping, cfAppId, { startedAt: ago(60 * 60_000), endedAt: new Date(Date.now() + 1_000).toISOString() });
+
+      expect((await readCall(callId)).status).toBe('ended');
+    });
+  });
+
   it('still ends the call when RealtimeKit cannot be asked: it reported the end itself', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.mocked(getLiveParticipantCount).mockRejectedValue(new Error('RTK 503'));
