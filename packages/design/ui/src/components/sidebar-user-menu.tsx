@@ -174,9 +174,9 @@ export function SidebarUserMenu({
             {statusOptions.map((status) => (
               <DropdownMenuItem
                 key={status}
-                onClick={() =>
-                  setMyStatus(status, myStatus?.statusText, myStatus?.statusEmoji)
-                }
+                // No custom-status editor here any more, so a pick also clears
+                // any custom text/emoji left on the row.
+                onClick={() => setMyStatus(status)}
                 className="gap-2"
               >
                 <span className="flex size-4 items-center justify-center">
