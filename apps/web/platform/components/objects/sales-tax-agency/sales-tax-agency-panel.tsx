@@ -52,6 +52,7 @@ import {
   PanelRow,
   PanelNotice,
   PanelSection,
+  RecordLoadFailed,
   useCopyPanelLink,
 } from '@/components/objects/_shared/record-panel-parts';
 import { SalesTaxPanelGate } from '@/components/objects/_shared/sales-tax-panel-gate';
@@ -317,6 +318,29 @@ function AgencyDetailsTab({ agency, canUpdate }: Readonly<{ agency: SalesTaxAgen
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
+function AgencyTabBody({
+  agency,
+  activeTab,
+  access,
+}: Readonly<{
+  agency: SalesTaxAgency;
+  activeTab: SalesTaxAgencyTab['id'];
+  access: { canCreate: boolean; canUpdate: boolean; canDelete: boolean };
+}>) {
+  switch (activeTab) {
+    case 'jurisdictions':
+      return <AgencyJurisdictionsTab agency={agency} access={access} />;
+    case 'zones':
+      return <AgencyZonesTab agency={agency} access={access} />;
+    case 'rules':
+      return <AgencyRulesTab agency={agency} access={access} />;
+    case 'history':
+      return <EntityAuditPanel entityType={AGENCY_TYPE} entityId={agency.id} />;
+    default:
+      return <AgencyDetailsTab agency={agency} canUpdate={access.canUpdate} />;
+  }
+}
+
 function AgencyPanelContent(props: Readonly<ObjectPanelComponentProps>) {
   const { id, onClose, initialTab } = props;
   const { t } = useSetupTexts();
@@ -379,27 +403,15 @@ function AgencyPanelContent(props: Readonly<ObjectPanelComponentProps>) {
   let body = null;
   if (agencyQuery.isError || (!agencyQuery.isLoading && !agency)) {
     body = (
-      <div className="space-y-3 p-4">
-        <p className={notFound ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'} role={notFound ? undefined : 'alert'}>
-          {notFound ? ta.notFound : ta.loadError}
-        </p>
-        {notFound ? null : (
-          <Button type="button" variant="outline" size="sm" onClick={() => void agencyQuery.refetch()}>
-            {t.common.retry}
-          </Button>
-        )}
-      </div>
+      <RecordLoadFailed
+        notFound={notFound}
+        message={notFound ? ta.notFound : ta.loadError}
+        retryLabel={t.common.retry}
+        onRetry={() => void agencyQuery.refetch()}
+      />
     );
-  } else if (agency && activeTab === 'overview') {
-    body = <AgencyDetailsTab agency={agency} canUpdate={access.canUpdate} />;
-  } else if (agency && activeTab === 'jurisdictions') {
-    body = <AgencyJurisdictionsTab agency={agency} access={tabAccess} />;
-  } else if (agency && activeTab === 'zones') {
-    body = <AgencyZonesTab agency={agency} access={tabAccess} />;
-  } else if (agency && activeTab === 'rules') {
-    body = <AgencyRulesTab agency={agency} access={tabAccess} />;
-  } else if (agency && activeTab === 'history') {
-    body = <EntityAuditPanel entityType={AGENCY_TYPE} entityId={agency.id} />;
+  } else if (agency) {
+    body = <AgencyTabBody agency={agency} activeTab={activeTab} access={tabAccess} />;
   }
 
   return (

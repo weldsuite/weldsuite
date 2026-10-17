@@ -242,6 +242,35 @@ function InvoiceTemplateSelect({ entityId, value, onChange }: Readonly<InvoiceTe
   );
 }
 
+type PreviewCustomer = { name: string; email: string } | null;
+
+/** The customer the preview prints: the picked one's name and email; null until one is picked. */
+function previewCustomerOf(
+  contactId: string,
+  data: { name?: string | null; email?: string | null } | undefined,
+  label: string,
+  listEmail: string | null | undefined,
+): PreviewCustomer {
+  if (!contactId) return null;
+  return { name: data?.name || label, email: data?.email || listEmail || '' };
+}
+
+/** "Create and send": held back while the picked customer has no email address to send to. */
+function createAndSendAction(
+  customer: PreviewCustomer,
+  texts: { label: string; pendingText: string; noEmail: string; pending: boolean; onClick: () => void },
+) {
+  const noEmail = customer !== null && !customer.email;
+  return {
+    label: texts.label,
+    pendingText: texts.pendingText,
+    pending: texts.pending,
+    disabled: noEmail,
+    title: noEmail ? texts.noEmail : undefined,
+    onClick: texts.onClick,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -478,6 +507,24 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   // Submit
   // ---------------------------------------------------------------------------
 
+  /** Saves a new invoice, sends it when asked, and opens it on the list the way a row click shows it. */
+  const createInvoice = async (payload: Record<string, unknown>, intent: 'save' | 'send') => {
+    const created = await createMutation.mutateAsync(payload);
+    const createdId = created?.data?.id;
+    if (intent === 'send' && createdId) {
+      // Sending a draft finalizes it on the server first. A refusal leaves the draft saved.
+      try {
+        await sendMutation.mutateAsync(createdId);
+        toast.success(t.accounting.sendInvoice.sent);
+      } catch (sendError) {
+        toast.error(tf.createdNotSent, { description: describeError(sendError) });
+      }
+    } else {
+      toast.success(tf.invoiceCreated);
+    }
+    router.push(createdId ? `/weldbooks/invoices?stack=invoice:${createdId}` : '/weldbooks/invoices');
+  };
+
   const onSubmit = (values: InvoiceFormValues, intent: 'save' | 'send' = 'save') => {
     setSending(intent === 'send');
     startTransition(async () => {
@@ -495,27 +542,12 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
         // Only a changed choice is sent; null means the company's default template (and clears an earlier choice).
         if (values.templateId !== (invoice?.templateId ?? null)) payload.templateId = values.templateId;
 
-        if (mode === 'edit' && invoice) {
-          await updateMutation.mutateAsync({ id: invoice.id, data: payload });
-          toast.success(isCreditMemo ? td.form.creditMemoUpdated : tf.invoiceUpdated);
-        } else {
-          const created = await createMutation.mutateAsync(payload);
-          const createdId = created?.data?.id;
-          if (intent === 'send' && createdId) {
-            // Sending a draft finalizes it on the server first. A refusal leaves the draft saved.
-            try {
-              await sendMutation.mutateAsync(createdId);
-              toast.success(t.accounting.sendInvoice.sent);
-            } catch (sendError) {
-              toast.error(tf.createdNotSent, { description: describeError(sendError) });
-            }
-          } else {
-            toast.success(tf.invoiceCreated);
-          }
-          // Land on the list with the new invoice open, the way a row click shows it.
-          router.push(createdId ? `/weldbooks/invoices?stack=invoice:${createdId}` : '/weldbooks/invoices');
+        if (mode !== 'edit' || !invoice) {
+          await createInvoice(payload, intent);
           return;
         }
+        await updateMutation.mutateAsync({ id: invoice.id, data: payload });
+        toast.success(isCreditMemo ? td.form.creditMemoUpdated : tf.invoiceUpdated);
 
         setTimeout(() => {
           router.push(isCreditMemo && invoice ? `/weldbooks/invoices/${invoice.id}` : '/weldbooks/invoices');
@@ -941,13 +973,24 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     creditNoteName: labels.creditNote,
   });
 
-  const customerData = selectedContactData?.data as { name?: string | null; email?: string | null } | undefined;
-  const previewCustomer = watchedContactId
-    ? { name: customerData?.name || contactLabel, email: customerData?.email || selectedContact?.email || '' }
-    : null;
+  const previewCustomer = previewCustomerOf(
+    watchedContactId,
+    selectedContactData?.data as { name?: string | null; email?: string | null } | undefined,
+    contactLabel,
+    selectedContact?.email,
+  );
 
   // A new invoice is saved as a draft, or saved and sent in one go.
   const canCreateAndSend = mode === 'add' && !isCreditMemo;
+  const sendAction = canCreateAndSend
+    ? createAndSendAction(previewCustomer, {
+        label: tf.createAndSend,
+        pendingText: t.accounting.sendInvoice.sending,
+        noEmail: tf.customerHasNoEmail,
+        pending: isPending && sending,
+        onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),
+      })
+    : undefined;
 
   return (
     <InvoiceEditorLayout
@@ -988,18 +1031,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       onSubmit={form.handleSubmit((values) => onSubmit(values, 'save'))}
       isPending={isPending}
       submitText={canCreateAndSend ? tf.createDraft : submitText}
-      primaryAction={
-        canCreateAndSend
-          ? {
-              label: tf.createAndSend,
-              pendingText: t.accounting.sendInvoice.sending,
-              pending: isPending && sending,
-              disabled: Boolean(previewCustomer) && !previewCustomer?.email,
-              title: previewCustomer && !previewCustomer.email ? tf.customerHasNoEmail : undefined,
-              onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),
-            }
-          : undefined
-      }
+      primaryAction={sendAction}
       backLink="/weldbooks/invoices"
       backText={tf.backToInvoices}
     />

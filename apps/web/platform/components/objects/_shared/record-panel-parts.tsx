@@ -7,12 +7,14 @@
  *   - `PanelRow`: a read-only line of the Details tab;
  *   - `PanelSection`: a titled block of the Details tab;
  *   - `PanelNotice`: a muted one-line note under the properties;
+ *   - `RecordLoadFailed`: the body of a record that could not be read;
  *   - `PanelAvatar`: the rounded-square avatar next to the title.
  */
 
 import { useCallback, type ComponentType, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { Button } from '@weldsuite/ui/components/button';
 import { PropertyRow, type PropertyRowProps } from '@/components/objects/_shared/property-row';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import { cn } from '@/lib/utils';
@@ -74,6 +76,27 @@ export function PanelAvatar({
   return (
     <div className={cn('flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg', className)}>
       <Icon className="h-3.5 w-3.5" />
+    </div>
+  );
+}
+
+/** A record that could not be read: gone for good (no retry), or a failure worth another try. */
+export function RecordLoadFailed({
+  notFound,
+  message,
+  retryLabel,
+  onRetry,
+}: Readonly<{ notFound: boolean; message: string; retryLabel: string; onRetry: () => void }>) {
+  return (
+    <div className="space-y-3 p-4">
+      <p className={notFound ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'} role={notFound ? undefined : 'alert'}>
+        {message}
+      </p>
+      {notFound ? null : (
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          {retryLabel}
+        </Button>
+      )}
     </div>
   );
 }

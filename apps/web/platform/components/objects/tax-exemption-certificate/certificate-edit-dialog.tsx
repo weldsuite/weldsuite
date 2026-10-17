@@ -14,6 +14,11 @@ import { CustomerName } from '@/app/weldbooks/sales-tax/setup/customer-picker';
 import { useSetupTexts } from '@/app/weldbooks/sales-tax/setup/setup-texts';
 
 /** Edit what was recorded on a certificate. The customer never changes. */
+/** The server's reason a save failed, else the generic message. */
+function saveErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export function CertificateEditDialog({
   certificate,
   open,
@@ -43,13 +48,7 @@ export function CertificateEditDialog({
           initial={certificateToForm(certificate)}
           lockCustomer
           submitting={update.isPending}
-          submitError={
-            update.isError
-              ? update.error instanceof Error && update.error.message
-                ? update.error.message
-                : t.certificates.form.saveError
-              : null
-          }
+          submitError={update.isError ? saveErrorMessage(update.error, t.certificates.form.saveError) : null}
           onCancel={close}
           onSubmit={async (values) => {
             try {

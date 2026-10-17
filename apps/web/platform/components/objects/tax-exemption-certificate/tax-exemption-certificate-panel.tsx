@@ -50,6 +50,7 @@ import {
   PanelAvatar,
   PanelRow,
   PanelSection,
+  RecordLoadFailed,
   useCopyPanelLink,
 } from '@/components/objects/_shared/record-panel-parts';
 import { SalesTaxPanelGate } from '@/components/objects/_shared/sales-tax-panel-gate';
@@ -163,18 +164,17 @@ function CertificateActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {canUpdate ? (
-            certificate.storedStatus === 'revoked' ? (
-              <DropdownMenuItem onClick={onRestore} disabled={restoring}>
-                <BadgeCheck />
-                {td.restore}
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onClick={onRevoke}>
-                <ShieldOff />
-                {td.revoke}
-              </DropdownMenuItem>
-            )
+          {canUpdate && certificate.storedStatus === 'revoked' ? (
+            <DropdownMenuItem onClick={onRestore} disabled={restoring}>
+              <BadgeCheck />
+              {td.restore}
+            </DropdownMenuItem>
+          ) : null}
+          {canUpdate && certificate.storedStatus !== 'revoked' ? (
+            <DropdownMenuItem onClick={onRevoke}>
+              <ShieldOff />
+              {td.revoke}
+            </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem onClick={() => void copyLink()}>
             <LinkIcon />
@@ -333,6 +333,15 @@ function CertificateStatesTab({ certificate }: Readonly<{ certificate: Exemption
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
+function CertificateTabBody({
+  certificate,
+  activeTab,
+}: Readonly<{ certificate: ExemptionCertificate; activeTab: TaxExemptionCertificateTab['id'] }>) {
+  if (activeTab === 'states') return <CertificateStatesTab certificate={certificate} />;
+  if (activeTab === 'history') return <EntityAuditPanel entityType={CERTIFICATE_AUDIT_ENTITY} entityId={certificate.id} />;
+  return <CertificateDetailsTab certificate={certificate} />;
+}
+
 function CertificatePanelContent(props: Readonly<ObjectPanelComponentProps>) {
   const { id, onClose, initialTab } = props;
   const { t } = useSetupTexts();
@@ -399,23 +408,15 @@ function CertificatePanelContent(props: Readonly<ObjectPanelComponentProps>) {
   let body = null;
   if (query.isError || (!query.isLoading && !certificate)) {
     body = (
-      <div className="space-y-3 p-4">
-        <p className={notFound ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'} role={notFound ? undefined : 'alert'}>
-          {notFound ? td.notFound : td.loadError}
-        </p>
-        {notFound ? null : (
-          <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
-            {t.common.retry}
-          </Button>
-        )}
-      </div>
+      <RecordLoadFailed
+        notFound={notFound}
+        message={notFound ? td.notFound : td.loadError}
+        retryLabel={t.common.retry}
+        onRetry={() => void query.refetch()}
+      />
     );
-  } else if (certificate && activeTab === 'overview') {
-    body = <CertificateDetailsTab certificate={certificate} />;
-  } else if (certificate && activeTab === 'states') {
-    body = <CertificateStatesTab certificate={certificate} />;
-  } else if (certificate && activeTab === 'history') {
-    body = <EntityAuditPanel entityType={CERTIFICATE_AUDIT_ENTITY} entityId={certificate.id} />;
+  } else if (certificate) {
+    body = <CertificateTabBody certificate={certificate} activeTab={activeTab} />;
   }
 
   return (

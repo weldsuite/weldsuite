@@ -47,6 +47,13 @@ function MoneyRow({
   );
 }
 
+/** "Operating ····1234": the account a run pays from, with the last digits when known. */
+function bankAccountLabel(account: PaymentRunDetail['bankAccount']): string | null {
+  if (!account) return null;
+  const last4 = account.accountNumberLast4;
+  return last4 ? `${account.name} ····${last4}` : account.name;
+}
+
 /** The facts of a run: how, from where, when, how much, and what is left out. */
 function RunProperties({ run }: Readonly<{ run: PaymentRunDetail }>) {
   const { t } = useI18n();
@@ -56,9 +63,7 @@ function RunProperties({ run }: Readonly<{ run: PaymentRunDetail }>) {
   const held = Number.parseFloat(run.heldAmount) > 0;
   const withheld = Number.parseFloat(run.withheldAmount) > 0;
   const MethodIcon = run.method === 'check' ? FileText : Banknote;
-  const bankAccount = run.bankAccount
-    ? `${run.bankAccount.name}${run.bankAccount.accountNumberLast4 ? ` ····${run.bankAccount.accountNumberLast4}` : ''}`
-    : null;
+  const bankAccount = bankAccountLabel(run.bankAccount);
 
   return (
     <div className="space-y-1">

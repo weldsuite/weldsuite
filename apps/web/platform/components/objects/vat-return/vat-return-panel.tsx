@@ -359,6 +359,24 @@ function VatReturnBoxesTab({ vr, t }: Readonly<{ vr: VatReturn; t: Translations 
   );
 }
 
+function VatReturnTabBody({
+  vr,
+  activeTab,
+  filedNotice,
+  filingError,
+  t,
+}: Readonly<{
+  vr: Parameters<typeof VatReturnBoxesTab>[0]['vr'];
+  activeTab: VatReturnTab['id'];
+  filedNotice: boolean;
+  filingError: string | null;
+  t: Translations;
+}>) {
+  if (activeTab === 'boxes') return <VatReturnBoxesTab vr={vr} t={t} />;
+  if (activeTab === 'history') return <EntityAuditPanel entityType={VAT_RETURN_TYPE} entityId={vr.id} />;
+  return <VatReturnDetailsTab vr={vr} filedNotice={filedNotice} filingError={filingError} t={t} />;
+}
+
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
 export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
@@ -451,14 +469,16 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
     body = <div className="p-4 text-sm text-destructive">{st('sweep.entities.failedToLoad')}</div>;
   } else if (!vatQuery.isLoading && !vr) {
     body = <div className="p-6 text-center text-sm text-muted-foreground">{tv.vatNotFound}</div>;
-  } else if (vr && activeTab === 'overview') {
+  } else if (vr) {
     body = (
-      <VatReturnDetailsTab vr={vr} filedNotice={fileMutation.isSuccess} filingError={filingError} t={t} />
+      <VatReturnTabBody
+        vr={vr}
+        activeTab={activeTab}
+        filedNotice={fileMutation.isSuccess}
+        filingError={filingError}
+        t={t}
+      />
     );
-  } else if (vr && activeTab === 'boxes') {
-    body = <VatReturnBoxesTab vr={vr} t={t} />;
-  } else if (vr && activeTab === 'history') {
-    body = <EntityAuditPanel entityType={VAT_RETURN_TYPE} entityId={vr.id} />;
   }
 
   return (

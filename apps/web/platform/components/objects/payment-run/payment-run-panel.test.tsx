@@ -203,7 +203,7 @@ describe('PaymentRunPanel', () => {
 
     await openTab('History');
     expect(screen.getByText('Run created')).toBeInTheDocument();
-    expect(screen.getAllByText(/Maya Maker · at:/).length).toBe(2);
+    expect(screen.getAllByText(/Maya Maker · at:/)).toHaveLength(2);
   });
 
   it('lists the vendors of the run with what each is paid, and the bills behind the amounts', async () => {

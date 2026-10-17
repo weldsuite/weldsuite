@@ -258,6 +258,46 @@ function BankAccountTabsBar({
 
 // ─── Details tab ───────────────────────────────────────────────────────────
 
+/** The US account facts: its type, routing and account (or card) number, and next check number. */
+function UsAccountRows({ account, t }: Readonly<{ account: UsBankAccount; t: Translations }>) {
+  const tb = t.weldbooksUs.banking;
+  const td = tb.accountDetails;
+  const typeLabel = account.accountType ? tb.accountTypes[account.accountType] : null;
+  const isCard = account.accountType === 'credit_card';
+  return (
+    <>
+      <PropertyRow icon={Wallet} label={td.accountType} value={typeLabel} readOnly />
+      {isCard ? null : (
+        <PropertyRow
+          icon={Hash}
+          label={td.routingNumber}
+          value={account.routingNumber}
+          readOnly
+          renderValue={(value) => <span className="font-mono">{value}</span>}
+        />
+      )}
+      <PropertyRow
+        icon={CreditCard}
+        label={isCard ? td.cardNumber : td.accountNumber}
+        value={account.hasAccountNumber ? (account.accountNumberLast4 ?? '') : null}
+        placeholder={td.notSet}
+        readOnly
+        renderValue={() => (
+          <RevealAccountNumber bankAccountId={account.id} last4={account.accountNumberLast4} />
+        )}
+      />
+      {isCard ? null : (
+        <PropertyRow
+          icon={Hash}
+          label={td.nextCheckNumber}
+          value={account.nextCheckNumber == null ? null : String(account.nextCheckNumber)}
+          readOnly
+        />
+      )}
+    </>
+  );
+}
+
 function BankAccountDetailsTab({
   account,
   isUs,
@@ -277,9 +317,7 @@ function BankAccountDetailsTab({
   const tp = tb.panel;
   const td = tb.accountDetails;
   const liability = isLiabilityAccountType(account.accountType);
-  const typeLabel = account.accountType ? tb.accountTypes[account.accountType] : null;
   const currency = account.currency ?? entityCurrency;
-  const isCard = account.accountType === 'credit_card';
 
   return (
     <div className="@container p-4 space-y-4">
@@ -321,36 +359,7 @@ function BankAccountDetailsTab({
         />
         <PropertyRow icon={Building2} label={tp.bankName} value={account.bankName} readOnly />
         {isUs ? (
-          <>
-            <PropertyRow icon={Wallet} label={td.accountType} value={typeLabel} readOnly />
-            {isCard ? null : (
-              <PropertyRow
-                icon={Hash}
-                label={td.routingNumber}
-                value={account.routingNumber}
-                readOnly
-                renderValue={(value) => <span className="font-mono">{value}</span>}
-              />
-            )}
-            <PropertyRow
-              icon={CreditCard}
-              label={isCard ? td.cardNumber : td.accountNumber}
-              value={account.hasAccountNumber ? (account.accountNumberLast4 ?? '') : null}
-              placeholder={td.notSet}
-              readOnly
-              renderValue={() => (
-                <RevealAccountNumber bankAccountId={account.id} last4={account.accountNumberLast4} />
-              )}
-            />
-            {isCard ? null : (
-              <PropertyRow
-                icon={Hash}
-                label={td.nextCheckNumber}
-                value={account.nextCheckNumber == null ? null : String(account.nextCheckNumber)}
-                readOnly
-              />
-            )}
-          </>
+          <UsAccountRows account={account} t={t} />
         ) : (
           <>
             <PropertyRow
