@@ -15,7 +15,7 @@ import type { Dashboard, DashboardAgingBucket } from '@/lib/api/domains/weldbook
 import { useI18n } from '@/lib/i18n/provider';
 import { BreakdownList, type BreakdownItem } from './breakdown-list';
 import { ComparisonLineChart } from './comparison-line-chart';
-import { percentChange, rangeSeries, trendMonths, type Compare, type Metric, type TrendMonth } from './dashboard-series';
+import { dashboardTrend, percentChange, rangeSeries, type Compare, type Metric, type TrendMonth } from './dashboard-series';
 import { FilterPill } from './filter-pill';
 import { OverviewCard } from './overview-card';
 import { useChartFormat } from './use-chart-format';
@@ -39,7 +39,7 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
   const [range, setRange] = useState<Range>('12');
   const [compareChoice, setCompareChoice] = useState<Compare | 'off'>('previousPeriod');
   const compare = compareChoice === 'off' ? null : compareChoice;
-  const months = useMemo(() => trendMonths(dashboard), [dashboard]);
+  const { months } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
 
   const rangeOptions = [
     { value: '3' as const, label: tc.last3Months },
@@ -113,13 +113,13 @@ function MetricCard({
   return (
     <OverviewCard title={titles[metric]} info={infos[metric]} to="/weldbooks/reports/profit-loss">
       <div className="flex items-baseline gap-2">
-        <span className={`text-xl font-semibold tabular-nums ${total < 0 ? 'text-destructive' : ''}`}>{format.formatMoney(total)}</span>
+        <span className={`text-xl tabular-nums ${total < 0 ? 'text-destructive' : ''}`}>{format.formatMoney(total)}</span>
         {change !== null && (
-          <span className={`text-sm font-medium tabular-nums ${changeTone(metric, change)}`}>{format.percent(change)}</span>
+          <span className={`text-sm tabular-nums ${changeTone(metric, change)}`}>{format.percent(change)}</span>
         )}
       </div>
       {compare && (
-        <p className="mt-0.5 text-sm text-muted-foreground">
+        <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
           {series.compareTotal === null ? tc.noComparison : compareText.replace('{amount}', format.formatMoney(series.compareTotal))}
         </p>
       )}
@@ -129,7 +129,7 @@ function MetricCard({
         label={titles[metric]}
         compareLabel={compare === 'previousYear' ? tc.previousYear : tc.previousPeriod}
         formatTick={format.monthYear}
-        className="mt-4 aspect-auto h-[160px] w-full"
+        className="mt-4 aspect-auto h-[250px] w-full"
       />
     </OverviewCard>
   );

@@ -19,7 +19,7 @@ import {
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { ComparisonLineChart } from './comparison-line-chart';
-import { trendMonths, yearToDateSeries, type Metric } from './dashboard-series';
+import { dashboardTrend, yearToDateSeries, type Metric } from './dashboard-series';
 import { useChartFormat } from './use-chart-format';
 
 export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
@@ -28,8 +28,9 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
   const format = useChartFormat();
   const [metric, setMetric] = useState<Metric>('revenue');
 
-  const months = useMemo(() => trendMonths(dashboard), [dashboard]);
-  const hasTrend = Boolean(dashboard.monthlyTrend?.length);
+  const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
+  // The sample trend has all three metrics; an older API only returns revenue.
+  const hasTrend = sample || Boolean(dashboard.monthlyTrend?.length);
   const activeMetric: Metric = hasTrend ? metric : 'revenue';
   const ytd = useMemo(() => yearToDateSeries(months, activeMetric), [months, activeMetric]);
 

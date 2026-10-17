@@ -1,6 +1,6 @@
 /**
  * One block of "Your overview", bare on the page (no border, background or
- * footer): a bold title that links to the full report or list and explains
+ * footer): a title, in the figures' regular weight, that links to the full report or list and explains
  * the figure in a tooltip on hover, then the body.
  */
 
@@ -16,7 +16,7 @@ export function OverviewCard({
 }: Readonly<{ title: string; info: string; to: LinkProps['to']; children: ReactNode }>) {
   return (
     <div className="flex min-w-0 flex-col">
-      <h3 className="text-sm font-semibold">
+      <h3 className="text-sm">
         <Tooltip>
           <TooltipTrigger asChild>
             <Link to={to} className="hover:underline">

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { percentChange, rangeSeries, trendMonths, yearToDateSeries, type TrendMonth } from './dashboard-series';
+import {
+  dashboardTrend,
+  isEmptyTrend,
+  niceTicks,
+  percentChange,
+  rangeSeries,
+  sampleTrend,
+  trendMonths,
+  yearToDateSeries,
+  type TrendMonth,
+} from './dashboard-series';
 
 /** 24 months ending October 2026, revenue = month index + 1, expenses = 1 each month. */
 const months: TrendMonth[] = Array.from({ length: 24 }, (_, i) => {
@@ -56,6 +66,68 @@ describe('yearToDateSeries', () => {
 
   it('has no comparison without last year in the data', () => {
     expect(yearToDateSeries(months.slice(-12), 'revenue').compareTotal).toBeNull();
+  });
+});
+
+describe('dashboardTrend', () => {
+  const zero = months.map((m) => ({ month: m.month, revenue: '0.00', expenses: '0.00', profit: '0.00' }));
+
+  it('keeps the ledger trend once anything is booked', () => {
+    const booked = zero.map((m, i) => (i === 5 ? { ...m, expenses: '12.50', profit: '-12.50' } : m));
+    expect(isEmptyTrend(trendMonths({ monthlyTrend: booked, monthlyRevenue: [] }))).toBe(false);
+    expect(dashboardTrend({ monthlyTrend: booked, monthlyRevenue: [] }).sample).toBe(false);
+  });
+
+  it('shows the sample trend over the same months while nothing is booked', () => {
+    const trend = dashboardTrend({ monthlyTrend: zero, monthlyRevenue: [] });
+    expect(trend.sample).toBe(true);
+    expect(trend.months.map((m) => m.month)).toEqual(months.map((m) => m.month));
+  });
+
+  it('ends the sample trend at this month when the API returns no months', () => {
+    const trend = dashboardTrend({ monthlyTrend: [], monthlyRevenue: [] }, new Date(2026, 0, 15));
+    expect(trend.sample).toBe(true);
+    expect(trend.months[0].month).toBe('2024-02');
+    expect(trend.months[23].month).toBe('2026-01');
+  });
+});
+
+describe('sampleTrend', () => {
+  const sample = sampleTrend('2026-10');
+
+  it('is the same every time, with every metric filled in and profit adding up', () => {
+    expect(sampleTrend('2026-10')).toEqual(sample);
+    expect(sample).toHaveLength(24);
+    for (const m of sample) {
+      expect(m.revenue).toBeGreaterThan(0);
+      expect(m.expenses).toBeGreaterThan(0);
+      expect(m.profit).toBeCloseTo(m.revenue - (m.expenses ?? 0), 2);
+    }
+  });
+
+  it('grows year on year, so the comparisons have something to show', () => {
+    const lastYear = rangeSeries(sample, 'revenue', 12, 'previousYear');
+    expect(lastYear.total).toBeGreaterThan(lastYear.compareTotal ?? Infinity);
+  });
+});
+
+describe('niceTicks', () => {
+  it('puts round values over the data, from zero', () => {
+    expect(niceTicks(0, 26_100)).toEqual([0, 10_000, 20_000, 30_000]);
+    expect(niceTicks(0, 11_900)).toEqual([0, 5_000, 10_000, 15_000]);
+    expect(niceTicks(0, 218_208)).toEqual([0, 100_000, 200_000, 300_000]);
+    expect(niceTicks(0, 0.8)).toEqual([0, 0.2, 0.4, 0.6, 0.8]);
+  });
+
+  it('reaches below zero for a loss, with zero still a tick', () => {
+    const ticks = niceTicks(-4_000, 11_000);
+    expect(ticks[0]).toBeLessThanOrEqual(-4_000);
+    expect(ticks[ticks.length - 1]).toBeGreaterThanOrEqual(11_000);
+    expect(ticks).toContain(0);
+  });
+
+  it('is just the zero line when there is nothing', () => {
+    expect(niceTicks(0, 0)).toEqual([0]);
   });
 });
 
