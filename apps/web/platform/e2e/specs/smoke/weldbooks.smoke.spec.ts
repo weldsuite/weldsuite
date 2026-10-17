@@ -4,7 +4,7 @@
  * leave no unexpected console errors.
  */
 
-import { test } from '../../fixtures';
+import { test, expect } from '../../fixtures';
 import { smokeRoute } from '../../helpers/smoke';
 
 const routes = [
@@ -54,5 +54,6 @@ test.describe('WeldBooks · smoke', () => {
       path: '/weldbooks/settings',
       expectedUrl: /\/settings\/entities\/[^/]+\/edit\?tab=weldbooks$/,
     });
+    await expect(page.getByRole('tab', { name: /^weldbooks$/i })).toHaveAttribute('aria-selected', 'true');
   });
 });
