@@ -69,6 +69,19 @@ export const weldbooksUsBanking = {
     revealFailed: 'The account number could not be revealed.',
   },
 
+  panel: {
+    transactionsTab: 'Transactions',
+    bankFeedTab: 'Bank feed',
+    bankName: 'Bank',
+    status: 'Status',
+    active: 'Active',
+    autoReconcile: 'Auto-reconcile',
+    on: 'On',
+    off: 'Off',
+    deleted: 'Bank account deleted',
+    deleteFailed: 'The bank account could not be deleted.',
+  },
+
   undepositedCallout: {
     messageOne: '{count} payment ({total}) is waiting in Undeposited Funds.',
     messageMany: '{count} payments ({total}) are waiting in Undeposited Funds.',

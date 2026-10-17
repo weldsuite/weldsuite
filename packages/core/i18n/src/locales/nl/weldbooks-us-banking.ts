@@ -70,6 +70,19 @@ export const weldbooksUsBanking = {
     revealFailed: 'Het rekeningnummer kon niet worden getoond.',
   },
 
+  panel: {
+    transactionsTab: 'Transacties',
+    bankFeedTab: 'Bankkoppeling',
+    bankName: 'Bank',
+    status: 'Status',
+    active: 'Actief',
+    autoReconcile: 'Automatisch afstemmen',
+    on: 'Aan',
+    off: 'Uit',
+    deleted: 'Bankrekening verwijderd',
+    deleteFailed: 'De bankrekening kon niet worden verwijderd.',
+  },
+
   undepositedCallout: {
     messageOne: '{count} betaling ({total}) wacht in Nog niet gestorte ontvangsten.',
     messageMany: '{count} betalingen ({total}) wachten in Nog niet gestorte ontvangsten.',

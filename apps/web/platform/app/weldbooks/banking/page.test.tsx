@@ -26,7 +26,11 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
-  useNavigate: () => vi.fn(),
+}));
+const panel = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('@/components/object-panel', () => ({
+  useObjectPanel: () => ({ open: panel.open }),
+  useObjectPanelUrlSync: vi.fn(),
 }));
 vi.mock('./components/undeposited-funds-callout', () => ({ UndepositedFundsCallout: () => null }));
 vi.mock('./components/bank-account-form-dialog', () => ({
@@ -115,5 +119,13 @@ describe('BankAccountsPage', () => {
     const strip = await screen.findByRole('region', { name: 'Bank feeds' });
     expect(strip).toHaveTextContent('Connect your bank and new transactions arrive on their own.');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Connect bank' })).toBeEnabled());
+  });
+
+  it('opens an account in the bank account record panel', async () => {
+    routes({ accounts: [makeBankAccount({ accountType: 'checking', accountNumberLast4: '7890' })] });
+    renderWithProviders(<BankAccountsPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Operating' }));
+    expect(panel.open).toHaveBeenCalledWith({ type: 'bank_account', id: expect.any(String) });
   });
 });

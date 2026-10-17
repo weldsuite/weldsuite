@@ -9,6 +9,8 @@ const env = vi.hoisted(() => ({
   salesTax: true,
   updateMutate: vi.fn(),
   createMutate: vi.fn(),
+  sendMutate: vi.fn(),
+  customerEmail: null as string | null,
   previewState: null as unknown,
   requests: [] as unknown[],
   taxRates: [
@@ -18,6 +20,8 @@ const env = vi.hoisted(() => ({
   ] as Array<{ id: string; name: string; rate: string; type: string }>,
 }));
 
+// The live PDF preview has its own data and is not what these tests cover.
+vi.mock('./invoice-preview', () => ({ InvoicePreview: () => null }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/router', async () => {
   const { HrefLink } = await import('./test-utils');
@@ -29,9 +33,10 @@ vi.mock('@tanstack/react-router', async () => {
 });
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useCreateInvoice: () => ({ mutateAsync: env.createMutate }),
+  useSendInvoice: () => ({ mutateAsync: env.sendMutate }),
   useUpdateInvoice: () => ({ mutateAsync: env.updateMutate }),
   useAccountingCustomer: () => ({
-    data: { data: { id: 'cus_1', name: 'Globex', paymentTermsDays: 30, taxUse: 'personal', billingAddress: null, shippingAddress: null } },
+    data: { data: { id: 'cus_1', name: 'Globex', email: env.customerEmail, paymentTermsDays: 30, taxUse: 'personal', billingAddress: null, shippingAddress: null } },
   }),
   useAccountingCustomers: () => ({ data: { data: [{ id: 'cus_1', name: 'Globex' }] } }),
   useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
@@ -147,6 +152,8 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
     env.salesTax = true;
     env.updateMutate.mockReset().mockResolvedValue({});
     env.createMutate.mockReset().mockResolvedValue({});
+    env.sendMutate.mockReset().mockResolvedValue({});
+    env.customerEmail = null;
     env.previewState = previewState();
     env.requests = [];
   });
@@ -419,6 +426,44 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       const { data } = env.updateMutate.mock.calls[0][0];
       expect(data.currency).toBe('USD');
       expect(data).not.toHaveProperty('exchangeRate');
+    });
+  });
+  describe('a new invoice', () => {
+    async function fillIn(user: ReturnType<typeof userEvent.setup>) {
+      renderWithProviders(<InvoiceForm mode="add" />);
+      await user.click(screen.getByRole('combobox', { name: 'Customer' }));
+      await user.click(await screen.findByRole('option', { name: 'Globex' }));
+      await user.type(screen.getByLabelText('Description'), 'Consulting');
+    }
+
+    it('saves a draft and sends nothing', async () => {
+      const user = userEvent.setup();
+      env.createMutate.mockResolvedValue({ data: { id: 'inv_new' } });
+      await fillIn(user);
+
+      await submit(user, 'Create draft');
+
+      await waitFor(() => expect(env.createMutate).toHaveBeenCalledTimes(1));
+      expect(env.sendMutate).not.toHaveBeenCalled();
+    });
+
+    it('saves and sends the invoice to a customer with an email address', async () => {
+      const user = userEvent.setup();
+      env.customerEmail = 'ap@globex.test';
+      env.createMutate.mockResolvedValue({ data: { id: 'inv_new' } });
+      await fillIn(user);
+
+      await submit(user, 'Create and send');
+
+      await waitFor(() => expect(env.sendMutate).toHaveBeenCalledWith('inv_new'));
+      expect(env.createMutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('cannot send to a customer without an email address', async () => {
+      const user = userEvent.setup();
+      await fillIn(user);
+      expect(screen.getByRole('button', { name: 'Create and send' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Create draft' })).toBeEnabled();
     });
   });
 });

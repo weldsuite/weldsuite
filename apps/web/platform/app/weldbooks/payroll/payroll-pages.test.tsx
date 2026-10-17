@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { PayrollConnection, PayrollImport, PayrollImportDetail, PayrollImportFilters } from '@/lib/api/domains/weldbooks-assets';
+import type { PayrollConnection, PayrollImport, PayrollImportFilters } from '@/lib/api/domains/weldbooks-assets';
 
 const navigate = vi.fn();
 const reverseAsync = vi.fn();
@@ -11,13 +11,16 @@ const mappingAsync = vi.fn();
 const permissions = new Set(['journal:read', 'journal:create', 'journal:update', 'journal:delete']);
 let imports: PayrollImport[] = [];
 let connections: PayrollConnection[] = [];
-let detail: PayrollImportDetail | undefined;
 const importFilters: PayrollImportFilters[] = [];
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => navigate,
-  useParams: () => ({ id: 'pri_1' }),
+}));
+const panel = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('@/components/object-panel', () => ({
+  useObjectPanel: () => ({ open: panel.open }),
+  useObjectPanelUrlSync: vi.fn(),
 }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
@@ -52,7 +55,6 @@ vi.mock('@/hooks/queries/use-weldbooks-assets-queries', () => ({
     };
   },
   useReversePayrollImport: () => ({ mutateAsync: reverseAsync, isPending: false }),
-  usePayrollImport: () => ({ data: detail, isLoading: false, isError: false, refetch: vi.fn() }),
   usePayrollConnections: () => ({ data: connections, isLoading: false, isError: false, refetch: vi.fn() }),
   useCreateGustoConnection: () => ({ mutateAsync: createAsync, isPending: false }),
   useSetPayrollConnectionMapping: () => ({ mutateAsync: mappingAsync, isPending: false }),
@@ -63,7 +65,6 @@ vi.mock('@/hooks/queries/use-weldbooks-assets-queries', () => ({
 
 import PayrollImportsPage from './page';
 import PayrollConnectionsPage from './connections/page';
-import PayrollImportDetailPage from './[id]/page';
 import { polyfillRadixSelect, renderWithProviders } from '../fixed-assets/test-utils';
 
 /** The list row (a `group` div of the standard list) that shows `text`. */
@@ -109,6 +110,7 @@ describe('Payroll imports page', () => {
   beforeAll(polyfillRadixSelect);
   beforeEach(() => {
     navigate.mockReset();
+    panel.open.mockReset();
     reverseAsync.mockReset().mockResolvedValue({});
     importFilters.length = 0;
     permissions.clear();
@@ -146,7 +148,7 @@ describe('Payroll imports page', () => {
 
     await waitFor(() => expect(reverseAsync).toHaveBeenCalledWith({ id: 'pri_1', date: '2026-02-01' }));
     // Opening the dialog did not open the payroll behind it.
-    expect(navigate).not.toHaveBeenCalled();
+    expect(panel.open).not.toHaveBeenCalled();
   });
 
   it('shows why a reversal failed and keeps the dialog open', async () => {
@@ -159,11 +161,12 @@ describe('Payroll imports page', () => {
     expect(await screen.findByTestId('reverse-error')).toHaveTextContent('The period is locked');
   });
 
-  it('opens a payroll by its row, and filters by status', async () => {
+  it('opens a payroll in its record panel by its row, and filters by status', async () => {
     const user = userEvent.setup();
     renderWithProviders(<PayrollImportsPage />);
     await user.click(within(rowWith('january.csv')).getByRole('button', { name: '2026-01-15' }));
-    expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/payroll/$id', params: { id: 'pri_1' } });
+    expect(panel.open).toHaveBeenCalledWith({ type: 'payroll_run', id: 'pri_1' });
+    expect(navigate).not.toHaveBeenCalled();
 
     await addIsFilter(user, 'Status', 'Reversed');
     await waitFor(() => expect(importFilters.at(-1)).toMatchObject({ status: 'reversed' }));
@@ -319,51 +322,5 @@ describe('Gusto connections page', () => {
     renderWithProviders(<PayrollConnectionsPage />);
     expect(screen.queryByTestId('gusto-connect-form')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sync-open')).not.toBeInTheDocument();
-  });
-});
-
-describe('Payroll import detail page', () => {
-  beforeEach(() => {
-    reverseAsync.mockReset().mockResolvedValue({});
-    permissions.clear();
-    ['journal:read', 'journal:create', 'journal:update', 'journal:delete'].forEach((permission) => permissions.add(permission));
-    detail = {
-      ...payroll('pri_1'),
-      lines: [
-        { accountId: 'acc_wages', accountCode: '6000', accountName: 'Wages', debit: '10000.00', credit: null, description: 'Payroll 2026-01-15: Gross wages' },
-        { accountId: 'acc_bank', accountCode: '1000', accountName: 'Checking', debit: null, credit: '10000.00', description: 'Payroll 2026-01-15: Net pay' },
-      ],
-    };
-  });
-
-  it('shows the totals, the journal entry lines and where it came from', () => {
-    renderWithProviders(<PayrollImportDetailPage />);
-    expect(screen.getByRole('heading', { name: 'Payroll of 2026-01-15' })).toBeInTheDocument();
-    expect(screen.getByText('Gross wages').nextElementSibling).toHaveTextContent('$10000.00');
-    expect(screen.getByText('6000 — Wages')).toBeInTheDocument();
-    expect(screen.getByText('1000 — Checking')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View journal entry' })).toHaveAttribute('href', '/weldbooks/journal/$id');
-    expect(screen.getByText(/january.csv/)).toBeInTheDocument();
-  });
-
-  it('reverses a posted payroll from its page', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<PayrollImportDetailPage />);
-    await user.click(screen.getByTestId('reverse-open'));
-    await user.click(await screen.findByTestId('reverse-submit'));
-    await waitFor(() => expect(reverseAsync).toHaveBeenCalledWith({ id: 'pri_1', date: '2026-01-15' }));
-  });
-
-  it('offers no reversal for a payroll that was already reversed', () => {
-    detail = { ...detail!, status: 'reversed' };
-    renderWithProviders(<PayrollImportDetailPage />);
-    expect(screen.queryByTestId('reverse-open')).not.toBeInTheDocument();
-    expect(screen.getByText(/This payroll was reversed/)).toBeInTheDocument();
-  });
-
-  it('says so when the payroll does not exist', () => {
-    detail = undefined;
-    renderWithProviders(<PayrollImportDetailPage />);
-    expect(screen.getByText('This payroll import does not exist.')).toBeInTheDocument();
   });
 });

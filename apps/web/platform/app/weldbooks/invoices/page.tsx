@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
 import { ReceiptText } from 'lucide-react';
+import { useRouter } from '@/lib/router';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
-import { InvoiceDialog } from './components/invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
@@ -23,9 +23,14 @@ interface InvoiceRow {
 
 export default function InvoicesPage() {
   const [search, setSearch] = useState('');
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const router = useRouter();
+  // A new invoice is written on its own page, next to a live preview of the PDF.
+  const newInvoice = () => router.push('/weldbooks/invoices/add');
   const { data, isLoading } = useAccountingInvoices({ search });
-  const navigate = useNavigate();
+  // Each invoice opens in the shared object panel (type 'invoice'), the same
+  // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/invoices');
   const { t } = useI18n();
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const tip = t.accounting.invoicesPage;
@@ -92,14 +97,15 @@ export default function InvoicesPage() {
         isLoading={isLoading}
         columns={columns}
         groups={groups}
-        onRowClick={(inv) => navigate({ to: '/weldbooks/invoices/$id', params: { id: inv.id } })}
+        onRowClick={(inv) => openPanel({ type: 'invoice', id: inv.id })}
+        getRowLabel={(inv) => inv.invoiceNumber ?? tip.colNumber}
         filters={[]}
         searchQuery={search}
         onSearchChange={setSearch}
         searchPlaceholder={tip.searchPlaceholder}
         createButton={{
           label: tip.newInvoice,
-          onClick: () => setDialogOpen(true),
+          onClick: newInvoice,
         }}
         emptyState={{
           icon: (
@@ -111,15 +117,9 @@ export default function InvoicesPage() {
           description: tip.searchPlaceholder,
           action: {
             label: tip.newInvoice,
-            onClick: () => setDialogOpen(true),
+            onClick: newInvoice,
           },
         }}
-      />
-
-      <InvoiceDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onCreated={(inv) => navigate({ to: '/weldbooks/invoices/$id', params: { id: inv.id } })}
       />
     </>
   );
