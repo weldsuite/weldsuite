@@ -1,6 +1,6 @@
 /**
  * Task digest (TASK-776): which tasks the per-user digest lists, and how the
- * hourly sweep retries a workspace after a failed pass.
+ * hourly sweep retries only the workspaces whose pass failed.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -8,7 +8,14 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { dayBoundsInTimezone } from '@weldsuite/flow-domain/day-boundaries';
 import { queryDigestTasks } from '@weldsuite/flow-domain/workflows/send-digest';
-import { CATCH_UP_HOURS, dispatchMemberDigest, isDue } from './digest-sweep';
+import {
+  RETRY_KEY_PREFIX,
+  clearRetry,
+  dispatchMemberDigest,
+  isDue,
+  listRetries,
+  recordRetry,
+} from './digest-sweep';
 
 let db: Database;
 
@@ -95,16 +102,71 @@ describe('queryDigestTasks', () => {
 });
 
 describe('sweep window', () => {
-  it('is due at the send hour and through the catch-up window, never before or past it', () => {
+  it('is due only in the send hour itself (ADR FLOW-007: only those tenants are opened)', () => {
     expect(isDue(7, 8)).toBe(false);
     expect(isDue(8, 8)).toBe(true);
-    expect(isDue(8 + CATCH_UP_HOURS - 1, 8)).toBe(true);
-    expect(isDue(8 + CATCH_UP_HOURS, 8)).toBe(false);
+    expect(isDue(9, 8)).toBe(false);
+    expect(isDue(0, 23)).toBe(false);
+  });
+});
+
+/** In-memory KV with the slice the retry list uses: put / get / delete / list by prefix. */
+function createRetryKv() {
+  const store = new Map<string, string>();
+  const kv = {
+    async put(key: string, value: string) {
+      store.set(key, value);
+    },
+    async get(key: string, type?: string) {
+      const value = store.get(key) ?? null;
+      return type === 'json' && value ? JSON.parse(value) : value;
+    },
+    async delete(key: string) {
+      store.delete(key);
+    },
+    async list({ prefix = '' }: { prefix?: string } = {}) {
+      return { keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })) };
+    },
+  };
+  return { kv: kv as unknown as KVNamespace, store };
+}
+
+describe('digest retries', () => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(
+    new Date(),
+  );
+  const schedules = new Map([
+    ['ws_failed', { workspaceId: 'ws_failed', timezone: 'UTC' }],
+    ['ws_stale', { workspaceId: 'ws_stale', timezone: 'UTC' }],
+  ]);
+
+  it('retries only the workspaces whose pass failed earlier on the same local day', async () => {
+    const { kv, store } = createRetryKv();
+    await recordRetry(kv, 'ws_failed', { timezone: 'UTC', date: today });
+    await recordRetry(kv, 'ws_stale', { timezone: 'UTC', date: '2020-01-01' });
+    await recordRetry(kv, 'ws_disabled', { timezone: 'UTC', date: today });
+
+    const retries = await listRetries(kv, schedules);
+
+    expect(retries).toEqual([{ workspaceId: 'ws_failed', timezone: 'UTC' }]);
+    // A day-old record and one whose schedule is gone are dropped, not kept for later.
+    expect([...store.keys()]).toEqual([`${RETRY_KEY_PREFIX}ws_failed`]);
   });
 
-  it('does not wrap past midnight into the next day’s date', () => {
-    expect(isDue(0, 23)).toBe(false);
-    expect(isDue(1, 23)).toBe(false);
+  it('forgets a workspace once its retry succeeded', async () => {
+    const { kv } = createRetryKv();
+    await recordRetry(kv, 'ws_failed', { timezone: 'UTC', date: today });
+    await clearRetry(kv, 'ws_failed');
+    expect(await listRetries(kv, schedules)).toEqual([]);
+  });
+
+  it('retries nothing, and opens no extra tenant, when KV cannot be read', async () => {
+    const broken = {
+      list: async () => {
+        throw new Error('kv down');
+      },
+    } as unknown as KVNamespace;
+    expect(await listRetries(broken, schedules)).toEqual([]);
   });
 });
 
@@ -145,6 +207,12 @@ describe('dispatchMemberDigest', () => {
     await expect(
       dispatchMemberDigest(rejecting('network down'), undefined, 'org_1', member, 'UTC', '2031-07-10'),
     ).rejects.toThrow('network down');
+  });
+
+  it('does not mistake a missing workflow for an already-sent digest', async () => {
+    await expect(
+      dispatchMemberDigest(rejecting('Workflow send-digest does not exist'), undefined, 'org_1', member, 'UTC', '2031-07-10'),
+    ).rejects.toThrow('does not exist');
   });
 
   it('skips members without an email or who opted out', async () => {
