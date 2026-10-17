@@ -12,6 +12,8 @@ import {
   type TemplateField,
   type UpdateInvoiceTemplateInput,
 } from '@weldsuite/books-domain/invoice-template/schema';
+import { Cuboid, Layers2 } from 'lucide-react';
+import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useUpdateAccountingEntity } from '@/hooks/queries/use-accounting-queries';
@@ -23,6 +25,7 @@ import { DesignerCanvas, type CanvasApi } from './canvas';
 import { DesignerProvider } from './context';
 import { useElementWidth, useMatchMedia } from './hooks';
 import { LayersPanel } from './layers-panel';
+import { SquareDimensions } from './block-icons';
 import { BlockInspector } from './inspector/block-inspector';
 import { DocumentInspector } from './inspector/document-inspector';
 import type { EntityBranding } from './inspector/branding-section';
@@ -37,11 +40,13 @@ import {
 import { canRedo, canUndo, editorReducer, initialEditorState, type EditorAction, type EditorState } from './model/editor-reducer';
 import { BlockPalette } from './palette';
 import { PdfPreviewDialog } from './pdf-preview-dialog';
-import { DesignerTopBar, ZOOM_STEPS } from './top-bar';
+import { MobilePreview } from './mobile-preview';
+import { DesignerTopBar, type DesignerView } from './top-bar';
 import { useTemplateImageUpload } from './use-image-upload';
+import { PX_PER_PT, scaleOf } from './model/zoom';
+import { useCanvasZoom } from './use-canvas-zoom';
+import { ZoomControls } from './zoom-controls';
 
-/** 96 dpi screen pixels per PDF point: a 100% zoom shows the page at its printed size. */
-const PX_PER_PT = 96 / 72;
 const CANVAS_PADDING = 80;
 
 type BrandingDraft = EntityBranding;
@@ -129,15 +134,17 @@ function handleSelectionShortcut(e: KeyboardEvent, mod: boolean, key: string, { 
   }
 }
 
+type SidebarTab = 'properties' | 'blocks' | 'layers';
+
 interface InvoiceTemplateDesignerProps {
   template: InvoiceTemplate;
   entity: AccountingEntity | undefined;
 }
 
 /**
- * The invoice designer: block palette and layers on the left, the page on a
- * canvas in the middle, the inspector on the right. Everything on the page is
- * the real output of the layout engine, with interaction boxes on top.
+ * The invoice designer: the page on a canvas, and one sidebar on the right with
+ * tabs for the inspector, the block palette and the layers. Everything on the
+ * page is the real output of the layout engine, with interaction boxes on top.
  */
 export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTemplateDesignerProps>) {
   const { t } = useI18n();
@@ -149,12 +156,14 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
 
   const [state, dispatch] = useReducer(editorReducer, template.document, initialEditorState);
   const { doc } = state;
-  const [meta, setMeta] = useState({ name: template.name, isDefault: template.isDefault });
-  const [savedMeta, setSavedMeta] = useState({ name: template.name, isDefault: template.isDefault });
+  // The default template is chosen on the templates list, not here.
+  const [meta, setMeta] = useState({ name: template.name });
+  const [savedMeta, setSavedMeta] = useState({ name: template.name });
   const [sampleRows, setSampleRows] = useState(3);
-  const [zoom, setZoom] = useState<'fit' | number>('fit');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('properties');
+  const [view, setView] = useState<DesignerView>('desktop');
 
   const updateTemplate = useUpdateInvoiceTemplate();
   const updateEntity = useUpdateAccountingEntity();
@@ -180,12 +189,17 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
   // Derived
   // ---------------------------------------------------------------------------
   const paper = PAPER_SIZES[doc.paperSize];
-  const fitScale = hostWidth > 0 ? Math.max(0.3, (hostWidth - CANVAS_PADDING) / paper.width) : PX_PER_PT;
-  const scale = zoom === 'fit' ? fitScale : (zoom / 100) * PX_PER_PT;
-  const zoomPercent = Math.round((scale / PX_PER_PT) * 100);
+  // Fit the page to the canvas width, but never past its printed size: on a wide screen 100% reads best.
+  const fitPercent = hostWidth > 0 ? Math.min(100, Math.max(20, ((hostWidth - CANVAS_PADDING) / paper.width / PX_PER_PT) * 100)) : 100;
+  const canvasElements = useMemo(
+    () => ({ scroller: () => canvasApi.current?.scroller() ?? null, page: () => canvasApi.current?.page() ?? null }),
+    [],
+  );
+  const zoom = useCanvasZoom(fitPercent, canvasElements);
+  const scale = scaleOf(zoom.shownPercent);
 
   const docDirty = state.doc !== state.saved;
-  const metaDirty = meta.name.trim() !== savedMeta.name || meta.isDefault !== savedMeta.isDefault;
+  const metaDirty = meta.name.trim() !== savedMeta.name;
   const dirty = docDirty || metaDirty;
   const anyUnsaved = dirty || brandingDirty;
 
@@ -242,7 +256,6 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
     const data: UpdateInvoiceTemplateInput = {};
     if (docDirty) data.document = parsed.data;
     if (name !== savedMeta.name) data.name = name;
-    if (meta.isDefault !== savedMeta.isDefault) data.isDefault = meta.isDefault;
 
     setSaving(true);
     try {
@@ -250,7 +263,7 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
       // Only what was sent is saved: edits made while the request ran stay unsaved.
       dispatch({ type: 'markSaved', doc });
       setMeta((m) => (m.name === meta.name ? { ...m, name } : m));
-      setSavedMeta({ name, isDefault: meta.isDefault });
+      setSavedMeta({ name });
       toast.success(ti.designer.saved);
     } catch (err) {
       toast.error(ti.designer.saveFailed, { description: err instanceof Error ? err.message : undefined });
@@ -275,25 +288,15 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
     }
   }, [brandingDraft, canEditEntity, entity, ti.inspector.branding, updateEntity]);
 
-  const stepZoom = useCallback(
-    (direction: 1 | -1) => {
-      const current = zoomPercent;
-      const next =
-        direction === 1 ? ZOOM_STEPS.find((s) => s > current + 0.5) : [...ZOOM_STEPS].reverse().find((s) => s < current - 0.5);
-      if (next) setZoom(next);
-    },
-    [zoomPercent],
-  );
-
   // ---------------------------------------------------------------------------
   // Keyboard
   // ---------------------------------------------------------------------------
-  const live = useRef({ state, save, readOnly });
-  live.current = { state, save, readOnly };
+  const live = useRef({ state, save, readOnly, zoom });
+  live.current = { state, save, readOnly, zoom };
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const { state: s, save: doSave, readOnly: ro } = live.current;
+      const { state: s, save: doSave, readOnly: ro, zoom: z } = live.current;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
 
@@ -301,6 +304,14 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
       if (mod && key === 's') {
         e.preventDefault();
         void doSave();
+        return;
+      }
+      // Zoom the page, not the browser: Cmd/Ctrl + plus, minus, and 0 to fit.
+      if (mod && !e.altKey && (key === '=' || key === '+' || key === '-' || key === '0')) {
+        e.preventDefault();
+        if (key === '-') z.zoomOut();
+        else if (key === '0') z.zoomToFit();
+        else z.zoomIn();
         return;
       }
       if (shortcutsSuspended(e.target)) return;
@@ -335,19 +346,14 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
             name={meta.name}
             onNameChange={(name) => setMeta((m) => ({ ...m, name }))}
             onNameBlur={() => setMeta((m) => (m.name.trim() === '' ? { ...m, name: savedMeta.name } : m))}
-            isDefault={meta.isDefault}
-            onDefaultChange={(isDefault) => setMeta((m) => ({ ...m, isDefault }))}
             paperSize={doc.paperSize}
             onPaperSizeChange={setPaperSize}
             canUndo={canUndo(state)}
             canRedo={canRedo(state)}
             onUndo={() => dispatch({ type: 'undo' })}
             onRedo={() => dispatch({ type: 'redo' })}
-            zoomPercent={zoomPercent}
-            fit={zoom === 'fit'}
-            onFit={() => setZoom('fit')}
-            onZoomPercent={setZoom}
-            onZoomStep={stepZoom}
+            view={view}
+            onViewChange={setView}
             sampleRows={sampleRows}
             onSampleRows={setSampleRows}
             onPreview={() => setPreviewOpen(true)}
@@ -364,48 +370,86 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
           {!wide ? <p className="border-b border-border bg-muted/50 px-4 py-2 text-xs text-muted-foreground">{ti.designer.narrow}</p> : null}
 
           <div className="flex min-h-0 flex-1">
-            <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-background lg:flex">
-              <div className="max-h-[58%] shrink-0 overflow-y-auto border-b border-border">
-                <BlockPalette doc={doc} readOnly={readOnly} onAdd={(type) => addBlock(type)} />
-              </div>
-              <LayersPanel blocks={doc.blocks} selection={state.selection} readOnly={readOnly} fieldNames={fieldNames} dispatch={dispatch} />
-            </aside>
-
-            <main ref={hostRef} className="flex min-w-0 flex-1 flex-col">
-              <DesignerCanvas
-                doc={doc}
-                layout={layout}
-                selection={state.selection}
-                scale={scale}
-                readOnly={readOnly}
-                dispatch={dispatch}
-                apiRef={canvasApi}
-                onDropBlock={addBlock}
-                onWheelZoom={stepZoom}
-              />
-              <p className="border-t border-border bg-background px-3 py-1.5 text-[11px] text-muted-foreground">{ti.designer.sampleNotice}</p>
+            <main ref={hostRef} className="relative flex min-w-0 flex-1 flex-col">
+              {view === 'mobile' ? (
+                <MobilePreview doc={doc} data={preview.data} selection={state.selection} dispatch={dispatch} />
+              ) : (
+                <>
+                  <DesignerCanvas
+                    doc={doc}
+                    layout={layout}
+                    selection={state.selection}
+                    scale={scale}
+                    readOnly={readOnly}
+                    dispatch={dispatch}
+                    apiRef={canvasApi}
+                    onDropBlock={addBlock}
+                    onWheelZoom={zoom.zoomWithWheel}
+                  />
+                  <ZoomControls
+                    onZoomIn={zoom.zoomIn}
+                    onZoomOut={zoom.zoomOut}
+                    onFit={zoom.zoomToFit}
+                    canZoomIn={zoom.canZoomIn}
+                    canZoomOut={zoom.canZoomOut}
+                  />
+                </>
+              )}
             </main>
 
-            <aside className="hidden w-80 shrink-0 border-l border-border bg-background lg:block">
-              <div className="h-full overflow-y-auto">
-                {selectedBlocks.length > 0 ? (
-                  <BlockInspector blocks={selectedBlocks} dispatch={dispatch} />
-                ) : (
-                  <DocumentInspector
-                    doc={doc}
-                    dispatch={dispatch}
-                    branding={{
-                      value: branding,
-                      dirty: brandingDirty,
-                      saving: brandingSaving,
-                      canEdit: canEditEntity && Boolean(entity),
-                      onChange: (patch) => setBrandingDraft((d) => cleanPatch({ ...(d ?? storedBranding), ...patch })),
-                      onSave: () => void saveBranding(),
-                      onDiscard: () => setBrandingDraft(null),
-                    }}
-                  />
-                )}
-              </div>
+            <aside className="hidden w-[399px] shrink-0 flex-col border-l border-border bg-background lg:flex">
+              {selectedBlocks.length > 0 ? (
+                // A selected block takes the whole sidebar: no tabs while editing it; the back arrow (or Escape,
+                // or a click on empty canvas) returns to the tab you were on.
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <BlockInspector blocks={selectedBlocks} dispatch={dispatch} onBack={() => dispatch({ type: 'select', ids: [] })} />
+                </div>
+              ) : (
+                <>
+                  {/* The same underlined tabs as the other detail panels (task details and friends), in a 50px row;
+                      each tab's icon and label sit 1px higher, the underline stays on the line. */}
+                  <div className="flex h-[50px] shrink-0 flex-col justify-end [&_[role=tab]>span:first-child]:-translate-y-px">
+                    <PageTabs
+                      tabs={[
+                        { id: 'properties', label: ti.designer.propertiesTab, icon: SquareDimensions },
+                        { id: 'blocks', label: ti.palette.title, icon: Cuboid },
+                        { id: 'layers', label: ti.layers.title, icon: Layers2 },
+                      ]}
+                      activeTab={sidebarTab}
+                      onTabChange={(id) => setSidebarTab(id as SidebarTab)}
+                      className="border-border"
+                      innerClassName="px-4"
+                    />
+                  </div>
+                  {sidebarTab === 'properties' ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                      <DocumentInspector
+                        doc={doc}
+                        dispatch={dispatch}
+                        branding={{
+                          value: branding,
+                          dirty: brandingDirty,
+                          saving: brandingSaving,
+                          canEdit: canEditEntity && Boolean(entity),
+                          onChange: (patch) => setBrandingDraft((d) => cleanPatch({ ...(d ?? storedBranding), ...patch })),
+                          onSave: () => void saveBranding(),
+                          onDiscard: () => setBrandingDraft(null),
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                  {sidebarTab === 'blocks' ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                      <BlockPalette doc={doc} readOnly={readOnly} onAdd={(type) => addBlock(type)} />
+                    </div>
+                  ) : null}
+                  {sidebarTab === 'layers' ? (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <LayersPanel blocks={doc.blocks} selection={state.selection} readOnly={readOnly} fieldNames={fieldNames} dispatch={dispatch} />
+                    </div>
+                  ) : null}
+                </>
+              )}
             </aside>
           </div>
         </div>

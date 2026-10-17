@@ -21,6 +21,7 @@
  *   requires are added to the table.
  */
 import type { Align, InvoiceDocumentData, PartyData, TotalsRowData } from './data';
+import { legible } from './colors';
 import { ascentRatio, normalizeText, textWidth, wrapText, type FontFace } from './fonts';
 import {
   PAPER_SIZES,
@@ -206,9 +207,37 @@ const FIELD_NAMES = new Set<string>(TEMPLATE_FIELDS);
 
 /** `{{invoiceNumber}}` placeholders; a field without a value prints nothing, unknown names stay as written. */
 export function fillPlaceholders(text: string, data: InvoiceDocumentData): string {
-  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key: string) =>
-    FIELD_NAMES.has(key) ? fieldValue(data, key as TemplateField) : match,
-  );
+  return text
+    .split('\n')
+    .map((line) => fillLine(line, data))
+    .filter((line): line is string => line !== null)
+    .join('\n');
+}
+
+/** A static piece that only separates two values (" · ", " | ", ", "). */
+const SEPARATOR = /^\s*[·•|,–—/]\s*$/;
+
+/**
+ * One line with its placeholders filled. A line whose placeholders all print nothing ("Tel. {{sellerPhone}}"
+ * without a phone number) is left out (null); a separator next to an empty value goes with it.
+ */
+function fillLine(line: string, data: InvoiceDocumentData): string | null {
+  // Odd entries are placeholder names, even entries the static text around them.
+  const parts = line.split(/\{\{\s*(\w+)\s*\}\}/);
+  if (parts.length === 1) return line;
+  const values = parts.map((part, i) => {
+    if (i % 2 === 0) return part;
+    return FIELD_NAMES.has(part) ? fieldValue(data, part as TemplateField) : `{{${part}}}`;
+  });
+  const empty = (i: number) => i % 2 === 1 && values[i] === '';
+  if (values.every((value, i) => i % 2 === 0 || empty(i))) return null;
+  values.forEach((_, i) => {
+    if (!empty(i)) return;
+    // Drop the separator before the empty value, or after it when it leads the line.
+    if (i - 1 > 0 && SEPARATOR.test(values[i - 1])) values[i - 1] = '';
+    else if (i + 1 < values.length - 1 && SEPARATOR.test(values[i + 1])) values[i + 1] = '';
+  });
+  return values.join('');
 }
 
 /** Stacks text pieces top to bottom with small gaps; empty pieces are skipped. */
@@ -359,7 +388,9 @@ function totalsRowStyle(row: TotalsRowData, base: ResolvedText, block: BlockOf<'
       return { label: s, value: s };
     }
     case 'balance': {
-      const s: ResolvedText = { ...base, face: { ...base.face, bold: true }, color: ctx.theme.accent };
+      // The accent, darkened as far as a pale one (yellow, mint) needs to stay readable on the block.
+      const background = block.box?.background ? color(block.box.background, ctx, 'accent') : '#ffffff';
+      const s: ResolvedText = { ...base, face: { ...base.face, bold: true }, color: legible(ctx.theme.accent, background) };
       return { label: s, value: s };
     }
     default:
@@ -705,13 +736,17 @@ interface Band {
   bottom: number;
 }
 
-/** The body of a page: margins, and the header and footer bands repeating blocks keep free. */
-function bodyBand(template: InvoiceTemplateDocument, repeating: TemplateBlock[]): Band {
+/**
+ * The body of a page: margins, and the header and footer bands repeating blocks keep free. Only blocks
+ * above or under the table count: a side panel beside it, or a frame across the middle of the page, does not.
+ */
+function bodyBand(template: InvoiceTemplateDocument, repeating: TemplateBlock[], table: TemplateBlock): Band {
   const { height } = PAPER_SIZES[template.paperSize];
+  const bands = repeating.filter((b) => overlapsHorizontally(b, table) && (b.y >= height / 2 || b.y + b.h <= height / 2));
   const inTopHalf = (b: TemplateBlock) => b.y + b.h / 2 < height / 2;
   return {
-    top: Math.max(template.margins.top, ...repeating.filter(inTopHalf).map((b) => b.y + b.h + 8)),
-    bottom: Math.min(height - template.margins.bottom, ...repeating.filter((b) => !inTopHalf(b)).map((b) => b.y - 8)),
+    top: Math.max(template.margins.top, ...bands.filter(inTopHalf).map((b) => b.y + b.h + 8)),
+    bottom: Math.min(height - template.margins.bottom, ...bands.filter((b) => !inTopHalf(b)).map((b) => b.y - 8)),
   };
 }
 
@@ -829,7 +864,7 @@ export function layoutInvoice(template: InvoiceTemplateDocument, data: InvoiceDo
   let currentPage = { page: 1, total: 1 };
   const pageInfo = () => currentPage;
   const repeating = visible.filter((b) => b.everyPage && b.type !== 'lineItems');
-  const band = bodyBand(template, repeating);
+  const band = bodyBand(template, repeating, table);
   const flowing = visible.filter((b) => !b.everyPage && b.type !== 'lineItems');
   const blocks = [...flowing, ...implicitBlocks(flowing, table, data)];
   const tableBottom = table.y + table.h;
@@ -840,7 +875,10 @@ export function layoutInvoice(template: InvoiceTemplateDocument, data: InvoiceDo
     list.map((block) => {
       const pad = block.box?.padding ?? 0;
       const measured = measureBlock(block, ctx, Math.max(1, block.w - 2 * pad), pageInfo);
-      const contentH = measured.fixed ? block.h : measured.height + 2 * pad;
+      // An empty block (no ship-to address, no notes) keeps its designed size: its padding has nothing to wrap.
+      let contentH = measured.height + 2 * pad;
+      if (measured.fixed) contentH = block.h;
+      else if (measured.empty) contentH = 0;
       return { block, measured, x: block.x, w: block.w, top: block.y, minH: block.h, h: Math.max(block.h, contentH) };
     });
 

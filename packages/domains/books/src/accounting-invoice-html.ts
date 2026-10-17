@@ -17,6 +17,7 @@ import { gstStateName } from './jurisdictions/in/states';
 import { pixQrMatrix, pixQrSvg } from './jurisdictions/br/pix';
 import type { InvoiceDocumentData, TotalsRowData } from './invoice-template/data';
 import { layoutInvoice } from './invoice-template/layout';
+import { renderMobileInvoice } from './invoice-template/mobile';
 import type { InvoiceTemplateDocument } from './invoice-template/schema';
 import { renderInvoiceHtmlDocument } from './invoice-template/svg';
 
@@ -1103,7 +1104,7 @@ export function invoiceTemplateData(invoice: InvoiceRenderData, entity: Entity):
       invoiceNumber: labels.invoiceNumber,
       issueDate: labels.date,
       dueDate: labels.dueDate,
-      reference: 'Reference',
+      reference: labels.reference ?? 'Reference',
       placeOfSupply: labels.placeOfSupply ?? 'Place of supply',
       total: labels.total,
       balanceDue: labels.balanceDue,
@@ -1117,8 +1118,8 @@ export function invoiceTemplateData(invoice: InvoiceRenderData, entity: Entity):
       billTo: labels.billTo,
       shipTo: labels.shipTo,
       payment: labels.paymentInstructions,
-      notes: 'Notes',
-      terms: 'Terms',
+      notes: labels.notes ?? 'Notes',
+      terms: labels.terms ?? 'Terms',
       page: '{page} / {total}',
     },
     logoUrl: safeImageUrl(branding.logoUrl),
@@ -1136,8 +1137,14 @@ export function invoiceTemplateData(invoice: InvoiceRenderData, entity: Entity):
 /** The printable HTML of an invoice laid out with a designed template. */
 export function generateTemplatedInvoiceHtml(template: InvoiceTemplateDocument, invoice: InvoiceRenderData, entity: Entity): string {
   const labels = getAdapter(entity.jurisdictionCode).getInvoiceRequirements(entity.locale || 'en-US').labels;
-  const layout = layoutInvoice(template, invoiceTemplateData(invoice, entity));
+  const data = invoiceTemplateData(invoice, entity);
+  const layout = layoutInvoice(template, data);
   const typeLabel = invoice.type === 'credit_note' ? labels.creditNote : labels.invoice;
   const draftPrefix = invoice.draft ? `${labels.draftNotice} · ` : '';
-  return renderInvoiceHtmlDocument(layout, { title: `${draftPrefix}${typeLabel} ${invoice.invoiceNumber}`, lang: entity.locale || 'en-US' });
+  return renderInvoiceHtmlDocument(layout, {
+    title: `${draftPrefix}${typeLabel} ${invoice.invoiceNumber}`,
+    lang: entity.locale || 'en-US',
+    // Phones get the template's single-column layout instead of a shrunken A4 page.
+    mobile: renderMobileInvoice(template, data),
+  });
 }

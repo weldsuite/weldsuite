@@ -161,6 +161,10 @@ export interface InvoiceLabels {
   registrationLabel: string;
   /** Banner on a draft's preview, so it can't pass for the finalized document. */
   draftNotice: string;
+  /** Captions of the customer's reference, the invoice notes and the terms (English when omitted). */
+  reference?: string;
+  notes?: string;
+  terms?: string;
   /** India GST tax invoice labels (English fallbacks when a jurisdiction omits them). */
   hsnSac?: string;
   placeOfSupply?: string;

@@ -47,11 +47,6 @@ export function DocumentInspector({ doc, dispatch, branding }: Readonly<Document
 
   return (
     <div>
-      <div className="space-y-1 border-b border-border px-4 py-4">
-        <h2 className="text-sm font-semibold">{tn.document}</h2>
-        <p className="text-xs text-muted-foreground">{tn.noSelection}</p>
-      </div>
-
       <InspectorSection title={tn.theme}>
         <Field label={tn.font}>
           <Select value={doc.theme.font} disabled={readOnly} onValueChange={(font) => setTheme({ font: font as TemplateFont }, 'font')}>

@@ -1,5 +1,5 @@
 import { useMemo, useReducer, createRef } from 'react';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import type { InvoiceDocumentData } from '@weldsuite/books-domain/invoice-template/data';
 import { layoutInvoice } from '@weldsuite/books-domain/invoice-template/layout';
@@ -156,9 +156,9 @@ describe('DesignerCanvas', () => {
 
   it('selects the blocks a marquee touches', () => {
     const { container } = renderWithProviders(<Harness initial={initial()} />);
-    const backdrop = container.firstElementChild as HTMLElement;
-    // The logo sits at 48,44 (160 x 48); start the marquee on empty canvas beside the page's top-left.
-    drag(backdrop, { x: 0, y: 0 }, { x: 120, y: 80 });
+    const page = container.querySelector<HTMLElement>('[data-canvas-page]')!;
+    // The logo sits at 48,44 (160 x 48); start the marquee on empty page above and left of it.
+    drag(page, { x: 0, y: 0 }, { x: 120, y: 80 });
     expect(read().selection).toContain('logo');
     expect(read().selection).not.toContain('items');
   });
@@ -172,5 +172,80 @@ describe('DesignerCanvas', () => {
     fireEvent.pointerDown(backdrop, { button: 0, clientX: 590, clientY: 830, pointerId: 1 });
     fireEvent.pointerUp(window, { pointerId: 1 });
     expect(read().selection).toEqual([]);
+  });
+
+  describe('panning', () => {
+    // jsdom does not scroll: keep the offsets a pan writes, like a browser with room to scroll would.
+    let scroll: { left: number; top: number };
+    beforeAll(() => {
+      Object.defineProperty(HTMLElement.prototype, 'scrollLeft', {
+        configurable: true,
+        get: () => scroll.left,
+        set: (v: number) => {
+          scroll.left = v;
+        },
+      });
+      Object.defineProperty(HTMLElement.prototype, 'scrollTop', {
+        configurable: true,
+        get: () => scroll.top,
+        set: (v: number) => {
+          scroll.top = v;
+        },
+      });
+    });
+    afterAll(() => {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollLeft;
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTop;
+    });
+
+    it('drags the view from the grey area around the page, without selecting or clearing', () => {
+      scroll = { left: 300, top: 400 };
+      const { container } = renderWithProviders(<Harness initial={initial()} />);
+      fireEvent.pointerDown(box(container, 'logo'), { button: 0, clientX: 100, clientY: 60, pointerId: 1 });
+      fireEvent.pointerUp(window, { pointerId: 1 });
+      const backdrop = container.firstElementChild as HTMLElement;
+      drag(backdrop, { x: 900, y: 900 }, { x: 860, y: 780 });
+      expect(scroll).toEqual({ left: 340, top: 520 });
+      expect(read().selection).toEqual(['logo']);
+    });
+
+    it('pans with Space + drag over a block instead of moving it', () => {
+      scroll = { left: 0, top: 0 };
+      const { container } = renderWithProviders(<Harness initial={initial()} />);
+      const before = read().blocks.logo;
+      fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+      drag(box(container, 'logo'), { x: 100, y: 200 }, { x: 80, y: 120 });
+      fireEvent.keyUp(window, { key: ' ', code: 'Space' });
+      expect(scroll).toEqual({ left: 20, top: 80 });
+      expect(read().blocks.logo).toEqual(before);
+      expect(read().past).toBe(0);
+
+      // Space released: dragging the block moves it again.
+      drag(box(container, 'logo'), { x: 100, y: 60 }, { x: 140, y: 60 });
+      expect(read().blocks.logo.x).toBeGreaterThan(before.x);
+    });
+
+    it('pans with the middle mouse button', () => {
+      scroll = { left: 50, top: 50 };
+      const { container } = renderWithProviders(<Harness initial={initial()} />);
+      drag(box(container, 'title'), { x: 300, y: 300 }, { x: 290, y: 250 }, { button: 1 });
+      expect(scroll).toEqual({ left: 60, top: 100 });
+      expect(read().selection).toEqual([]);
+    });
+
+    it('leaves Space alone while typing', () => {
+      scroll = { left: 0, top: 0 };
+      const { container } = renderWithProviders(
+        <>
+          <input aria-label="note" />
+          <Harness initial={initial()} />
+        </>,
+      );
+      const input = screen.getByLabelText('note');
+      const event = fireEvent.keyDown(input, { key: ' ', code: 'Space' });
+      expect(event).toBe(true); // not prevented: the space is typed
+      drag(box(container, 'logo'), { x: 100, y: 60 }, { x: 140, y: 60 });
+      expect(scroll).toEqual({ left: 0, top: 0 });
+    });
   });
 });

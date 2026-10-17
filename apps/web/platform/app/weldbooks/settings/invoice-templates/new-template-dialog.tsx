@@ -11,7 +11,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -100,11 +99,11 @@ export function NewTemplateDialog({ open, onOpenChange, entityId, defaultPaperSi
 
   return (
     <Dialog open={open} onOpenChange={pending ? undefined : onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      {/* No description line: the title says it all; aria-describedby is cleared so Radix does not ask for one. */}
+      <DialogContent className="sm:max-w-3xl" aria-describedby={undefined}>
         <form onSubmit={form.handleSubmit(submit)} className="space-y-5" noValidate>
           <DialogHeader>
             <DialogTitle>{tn.title}</DialogTitle>
-            <DialogDescription>{tn.description}</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 sm:grid-cols-[1fr_9rem_11rem]">
@@ -150,7 +149,12 @@ export function NewTemplateDialog({ open, onOpenChange, entityId, defaultPaperSi
 
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">{tn.startingPoint}</legend>
-            <div role="radiogroup" aria-label={tn.startingPoint} className="grid grid-cols-3 gap-3">
+            {/* Eleven designs: the grid scrolls inside the dialog; the padding keeps focus rings and the selection ring unclipped. */}
+            <div
+              role="radiogroup"
+              aria-label={tn.startingPoint}
+              className="-mx-1 grid max-h-[min(56vh,520px)] grid-cols-2 gap-3 overflow-y-auto p-1 sm:grid-cols-4"
+            >
               {presets.map(({ preset, document }) => {
                 const selected = selectedPreset === preset;
                 const info = tn.presets[preset as TemplatePreset];
@@ -175,7 +179,7 @@ export function NewTemplateDialog({ open, onOpenChange, entityId, defaultPaperSi
                     />
                     <span className="px-0.5">
                       <span className="block text-sm font-medium">{info.name}</span>
-                      <span className="block text-xs text-muted-foreground line-clamp-2">{info.description}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{info.description}</span>
                     </span>
                   </button>
                 );
