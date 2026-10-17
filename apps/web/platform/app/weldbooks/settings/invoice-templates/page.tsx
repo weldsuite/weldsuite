@@ -22,10 +22,11 @@ import {
   useInvoiceTemplates,
   useUpdateInvoiceTemplate,
 } from '@/hooks/queries/use-invoice-template-queries';
-import { useCurrentAccountingEntityRow } from '@/hooks/use-current-entity-currency';
 import { useI18n } from '@/lib/i18n/provider';
+import { useParams } from '@/lib/router';
 import { invoicePaperSize } from '@/lib/weldbooks/invoice-pdf';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { WeldbooksEntityScope } from '../entity-scope';
 import { NewTemplateDialog } from './new-template-dialog';
 import { applyTemplateFilters } from './template-filters';
 import { TemplateThumbnail } from './template-thumbnail';
@@ -59,8 +60,8 @@ function TemplateCard({ template, data, canUpdate, canCreate, canDelete, busy, o
   return (
     <Card className="group gap-0 overflow-hidden p-0 transition-shadow hover:shadow-md">
       <Link
-        to="/weldbooks/settings/invoice-templates/$id"
-        params={{ id: template.id }}
+        to="/settings/entities/$id/invoice-templates/$templateId"
+        params={{ id: template.entityId, templateId: template.id }}
         className="block bg-muted/40 px-6 pt-6 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         aria-label={`${tl.edit}: ${template.name}`}
       >
@@ -98,7 +99,10 @@ function TemplateCard({ template, data, canUpdate, canCreate, canDelete, busy, o
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem asChild>
-              <Link to="/weldbooks/settings/invoice-templates/$id" params={{ id: template.id }}>
+              <Link
+                to="/settings/entities/$id/invoice-templates/$templateId"
+                params={{ id: template.entityId, templateId: template.id }}
+              >
                 <Pencil className="mr-2 h-4 w-4" aria-hidden />
                 {tl.edit}
               </Link>
@@ -132,21 +136,29 @@ function TemplateCard({ template, data, canUpdate, canCreate, canDelete, busy, o
 }
 
 /**
- * Invoice templates of the current company (settings): a grid of live
- * thumbnails with edit, default, duplicate and delete. Without any template
- * invoices print with the built-in layout.
+ * `/settings/entities/:id/invoice-templates`: the invoice templates of an
+ * entity, a grid of live thumbnails with edit, default, duplicate and delete.
+ * Without any template invoices print with the built-in layout.
  */
 export default function InvoiceTemplatesPage() {
+  const { id } = useParams<{ id: string }>();
+  return (
+    <WeldbooksEntityScope entityId={id}>
+      <InvoiceTemplates entityId={id} />
+    </WeldbooksEntityScope>
+  );
+}
+
+function InvoiceTemplates({ entityId }: Readonly<{ entityId: string }>) {
   const { t } = useI18n();
   const tl = t.accounting.invoiceTemplates.list;
   const canCreate = useCan('accounts:create');
   const canUpdate = useCan('accounts:update');
   const canDelete = useCan('accounts:delete');
 
-  const { entity: row } = useCurrentAccountingEntityRow();
-  const { data: entity } = useAccountingEntity(row?.id);
-  const templates = useInvoiceTemplates(row?.id);
-  const { data } = usePreviewData(entity ?? row, 3);
+  const { data: entity } = useAccountingEntity(entityId);
+  const templates = useInvoiceTemplates(entityId);
+  const { data } = usePreviewData(entity, 3);
 
   const updateTemplate = useUpdateInvoiceTemplate();
   const duplicateTemplate = useDuplicateInvoiceTemplate();
@@ -226,7 +238,7 @@ export default function InvoiceTemplatesPage() {
         // the templates themselves stay cards, laid out as a grid instead of rows.
         <EntityList<InvoiceTemplate>
           items={list}
-          isLoading={templates.isLoading || !row}
+          isLoading={templates.isLoading}
           filters={filterConfigs}
           applyFilters={applyTemplateFilters}
           searchFields={['name']}
@@ -262,12 +274,12 @@ export default function InvoiceTemplatesPage() {
         />
       )}
 
-      {row ? (
+      {entity ? (
         <NewTemplateDialog
           open={creating}
           onOpenChange={setCreating}
-          entityId={row.id}
-          defaultPaperSize={invoicePaperSize({ jurisdictionCode: entity?.jurisdictionCode ?? row.jurisdictionCode, address: entity?.address ?? row.address })}
+          entityId={entityId}
+          defaultPaperSize={invoicePaperSize({ jurisdictionCode: entity.jurisdictionCode, address: entity.address })}
           defaultAccent={brandingAccent}
           previewData={data}
         />

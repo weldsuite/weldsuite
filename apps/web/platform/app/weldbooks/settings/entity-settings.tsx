@@ -1,11 +1,10 @@
 /**
  * The WeldBooks settings of one entity: the WeldBooks tab of Settings →
- * Entities → (entity). The cards and the pages they open (dimensions, invoice
- * templates) work on the entity selected in WeldBooks, so opening the tab
- * selects this entity there.
+ * Entities → (entity). The cards and the pages they open work on the entity
+ * selected in WeldBooks, so opening the tab selects this entity there.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { LayoutTemplate, Ungroup } from 'lucide-react';
@@ -14,15 +13,14 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
 import { PageLoader } from '@/components/page-loader';
-import { resetEntityScopedAccountingQueries, useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
-import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
 import { useAccountingEntities } from '@/hooks/use-current-entity-currency';
-import { setWeldbooksEntityId } from '@/lib/api/weldbooks-client';
 import { accountingApi, type AccountingEntity } from '@/lib/api/domains/weldbooks';
 import type { JurisdictionFeatures } from '@/lib/weldbooks/jurisdiction';
 import { useI18n } from '@/lib/i18n/provider';
 import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
 import { FiscalSettingsCard } from './components/fiscal-settings-card';
+import { useSelectWeldbooksEntity } from './entity-scope';
 import { EcdExportDialog } from '../vat/components/ecd-export-dialog';
 
 interface AccountingEmailSettings {
@@ -30,39 +28,12 @@ interface AccountingEmailSettings {
   autoScanEnabled?: boolean;
 }
 
-/**
- * Selects the entity in WeldBooks (the `X-Accounting-Entity-Id` of every
- * accounting request) and drops the previous entity's results, as the entity
- * switcher does. True once the entity is the selected one.
- */
-function useSelectWeldbooksEntity(entityId: string): boolean {
-  const { entityId: selected, setEntityId } = useCurrentAccountingEntity();
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (selected === entityId) return;
-    setWeldbooksEntityId(entityId);
-    setEntityId(entityId);
-    void resetEntityScopedAccountingQueries(queryClient);
-  }, [selected, entityId, setEntityId, queryClient]);
-
-  return selected === entityId;
-}
-
-/** A card that opens another WeldBooks settings page. */
+/** A card that opens another WeldBooks settings page through `link`. */
 function LinkCard({
   title,
   description,
-  to,
-  icon: Icon,
-  action,
-}: Readonly<{
-  title: string;
-  description: string;
-  to: '/weldbooks/settings/dimensions' | '/weldbooks/settings/invoice-templates';
-  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
-  action: string;
-}>) {
+  link,
+}: Readonly<{ title: string; description: string; link: React.ReactNode }>) {
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
@@ -71,10 +42,7 @@ function LinkCard({
           <CardDescription>{description}</CardDescription>
         </div>
         <Button variant="outline" size="sm" asChild>
-          <Link to={to}>
-            <Icon className="h-4 w-4 mr-1" aria-hidden />
-            {action}
-          </Link>
+          {link}
         </Button>
       </CardHeader>
     </Card>
@@ -279,17 +247,23 @@ export function WeldbooksEntitySettings({
       <LinkCard
         title={tu.dimensions.settingsCardTitle}
         description={tu.dimensions.settingsCardDescription}
-        to="/weldbooks/settings/dimensions"
-        icon={Ungroup}
-        action={tu.dimensions.settingsCardAction}
+        link={
+          <Link to="/weldbooks/settings/dimensions">
+            <Ungroup className="h-4 w-4 mr-1" aria-hidden />
+            {tu.dimensions.settingsCardAction}
+          </Link>
+        }
       />
 
       <LinkCard
         title={tit.title}
         description={tit.description}
-        to="/weldbooks/settings/invoice-templates"
-        icon={LayoutTemplate}
-        action={tit.action}
+        link={
+          <Link to="/settings/entities/$id/invoice-templates" params={{ id: entity.id }}>
+            <LayoutTemplate className="h-4 w-4 mr-1" aria-hidden />
+            {tit.action}
+          </Link>
+        }
       />
 
       <LedgerCatchUpCard />

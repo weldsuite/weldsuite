@@ -22,7 +22,10 @@ vi.mock('@tanstack/react-router', async () => {
   const { RouteLink } = await import('@/app/weldbooks/invoices/components/test-utils');
   return { Link: RouteLink };
 });
-vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: env.push }) }));
+vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: env.push }), useParams: () => ({ id: 'ent_1' }) }));
+vi.mock('../entity-scope', () => ({
+  WeldbooksEntityScope: ({ children }: { children: React.ReactNode }) => children,
+}));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => env.can }));
 vi.mock('@/hooks/use-current-entity-currency', () => ({
   useCurrentAccountingEntityRow: () => ({ entity: { id: 'ent_1', baseCurrency: 'EUR', jurisdictionCode: env.jurisdiction }, entities: [] }),
@@ -126,7 +129,7 @@ describe('InvoiceTemplatesPage', { timeout: 30_000 }, () => {
     expect(screen.queryByText('Default')).toBeNull();
     expect(screen.getAllByText(/A4 · Updated on 2026-03-02/)).toHaveLength(2);
     expect(screen.getByRole('img', { name: 'Preview of Standard' }).querySelector('svg')).not.toBeNull();
-    expect(screen.getByRole('link', { name: 'Edit: Letterhead' })).toHaveAttribute('href', '/weldbooks/settings/invoice-templates/itpl_2');
+    expect(screen.getByRole('link', { name: 'Edit: Letterhead' })).toHaveAttribute('href', '/settings/entities/ent_1/invoice-templates/itpl_2');
   });
 
   it('sets another template as default, duplicates, and deletes after a confirmation that names the fallback', async () => {
@@ -181,7 +184,7 @@ describe('InvoiceTemplatesPage', { timeout: 30_000 }, () => {
     expect(input.document.paperSize).toBe('a4');
     expect(input.document.theme.accent).toBe('#0f766e');
     expect(invoiceTemplateDocumentSchema.safeParse(input.document).success).toBe(true);
-    await waitFor(() => expect(env.push).toHaveBeenCalledWith('/weldbooks/settings/invoice-templates/itpl_new'));
+    await waitFor(() => expect(env.push).toHaveBeenCalledWith('/settings/entities/ent_1/invoice-templates/itpl_new'));
   });
 
   it('starts a US company on Letter paper', async () => {

@@ -33,6 +33,8 @@ export const settings = {
       entities: 'Entities',
       newEntity: 'New entity',
       editEntity: 'Edit entity',
+      invoiceTemplates: 'Invoice templates',
+      editInvoiceTemplate: 'Edit template',
 
       // Security section
       security: 'Security',
