@@ -77,7 +77,6 @@ import {
   Wallet,
   FileSpreadsheet,
   CalendarRange,
-  Layers,
   ListChecks,
   Palmtree,
   Target,
