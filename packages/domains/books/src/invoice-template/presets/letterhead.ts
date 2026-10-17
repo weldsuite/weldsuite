@@ -22,7 +22,8 @@ export default function letterhead(paperSize: PaperSize, accent?: string | null)
   // it). A brand that had to be deepened keeps its own colour in the rules only while it reads as a line (3:1);
   // a pale one meets the deepened ink halfway, so rules and text stay one hue.
   const ink = legible(raw);
-  const rule = ink === raw ? 'accent' : contrast(raw, '#ffffff') >= 3 ? raw : mix(raw, ink, 0.5);
+  let rule = 'accent';
+  if (ink !== raw) rule = contrast(raw, '#ffffff') >= 3 ? raw : mix(raw, ink, 0.5);
   const a4 = paperSize === 'a4';
 
   // Sheet geometry. A4: DIN 5008 form B, text at 25 mm (5 mm inside the address field at 20 mm). Letter: #10 window

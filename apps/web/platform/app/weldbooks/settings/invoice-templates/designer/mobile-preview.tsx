@@ -181,6 +181,7 @@ export function MobilePreview({ doc, data, selection, dispatch }: Readonly<Mobil
   // Outline the selected blocks' sections; hover shows what a click would select.
   const selectionCss = useMemo(() => {
     const selected = selection.map((id) => `.wim-designer ${idSelector(id)}`).join(',');
+    const selectedCss = selected ? `${selected}{outline:2px solid var(--primary)}` : '';
     // devices.css sets every element inside the phone to display:block; style tags must stay hidden.
     // A phone shows no scrollbar track.
     return `.wim-designer style{display:none}
@@ -188,7 +189,7 @@ export function MobilePreview({ doc, data, selection, dispatch }: Readonly<Mobil
 .wim-designer::-webkit-scrollbar{display:none}
 .wim-designer [data-block-id]{cursor:pointer;border-radius:4px;outline-offset:3px}
 .wim-designer [data-block-id]:hover{outline:1px solid color-mix(in oklab, var(--primary) 60%, transparent)}
-${selected ? `${selected}{outline:2px solid var(--primary)}` : ''}`;
+${selectedCss}`;
   }, [selection]);
 
   const onClick = (e: MouseEvent<HTMLDivElement>) => {

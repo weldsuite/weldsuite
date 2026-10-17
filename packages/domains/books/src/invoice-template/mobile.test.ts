@@ -97,14 +97,14 @@ describe('renderMobileInvoice', () => {
     expect(band).toContain('€1.367,30');
     expect(band).toContain('#ffffff');
     // And only there: they are not repeated outside it.
-    expect(html.split('INV-0042').length).toBe(2);
+    expect(html.split('INV-0042')).toHaveLength(2);
   });
 
   it('shows a field the page repeats in its running footer once', () => {
     const template = presetTemplate('classic', 'a4');
     template.blocks.push(block({ id: 'footerNumber', type: 'field', field: 'invoiceNumber', y: 800, everyPage: true } as Partial<TemplateBlock> & { id: string; type: 'field' }));
     const html = renderMobileInvoice(template, data(), { blockIds: true });
-    expect(html.split('INV-0042').length).toBe(2);
+    expect(html.split('INV-0042')).toHaveLength(2);
     expect(html).not.toContain('data-block-id="footerNumber"');
   });
 

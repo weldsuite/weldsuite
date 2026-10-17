@@ -56,6 +56,9 @@ export function canZoomOut(percent: number, bounds: ZoomBounds): boolean {
 /** Largest wheel movement, in pixels, that one event counts for: a fast flick of a mouse wheel stays one smooth step. */
 const MAX_WHEEL_PX = 50;
 
+/** Pixels per wheel delta unit by `deltaMode`: 1 counts lines, 2 pages (0, pixels, is 1:1). */
+const WHEEL_UNIT_PX: Record<number, number> = { 1: 16, 2: 800 };
+
 /**
  * Zoom multiplier for one Ctrl/Cmd + wheel event (or trackpad pinch, which the
  * browser reports the same way). Small pinch deltas give small, smooth changes;
@@ -63,7 +66,7 @@ const MAX_WHEEL_PX = 50;
  */
 export function wheelZoomFactor(deltaY: number, deltaMode = 0): number {
   // deltaMode 1 counts lines and 2 pages; turn both into pixels.
-  const px = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 800 : deltaY;
+  const px = deltaY * (WHEEL_UNIT_PX[deltaMode] ?? 1);
   const clamped = Math.max(-MAX_WHEEL_PX, Math.min(MAX_WHEEL_PX, px));
   return 2 ** (-clamped * 0.0075);
 }

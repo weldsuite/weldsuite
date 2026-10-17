@@ -97,7 +97,13 @@ function section(block: TemplateBlock, inner: string, ctx: Ctx, cls = ''): strin
   if (!inner) return '';
   const attr = ctx.blockIds ? ` data-block-id="${esc(block.id)}"` : '';
   const style = boxCss(block.box, ctx);
-  return `<section class="wim-section${cls ? ` ${cls}` : ''}"${attr}${style ? ` style="${style}"` : ''}>${inner}</section>`;
+  const classes = cls ? `wim-section ${cls}` : 'wim-section';
+  const styleAttr = style ? ` style="${style}"` : '';
+  return `<section class="${classes}"${attr}${styleAttr}>${inner}</section>`;
+}
+
+function linesHtml(lines: string[]): string {
+  return lines.map((l) => `<div>${text(l)}</div>`).join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -106,12 +112,15 @@ function section(block: TemplateBlock, inner: string, ctx: Ctx, cls = ''): strin
 
 function partyHtml(block: BlockOf<'seller'> | BlockOf<'billTo'> | BlockOf<'shipTo'>, party: PartyData | null | undefined, label: string, ctx: Ctx): string {
   if (!party || (!party.name && party.lines.length === 0)) return '';
-  const showContact = block.type === 'seller' ? block.showContact !== false : block.type === 'billTo' ? block.showEmail !== false : false;
+  let showContact = false;
+  if (block.type === 'seller') showContact = block.showContact !== false;
+  else if (block.type === 'billTo') showContact = block.showEmail !== false;
   const showTaxIds = block.type === 'seller' ? block.showTaxIds !== false : true;
   const body = textCss(block.style, ctx);
   const lines = [...party.lines, ...(showContact ? (party.contactLines ?? []) : []), ...(showTaxIds ? (party.taxIdLines ?? []) : [])].filter(Boolean);
-  const name = party.name ? `<div class="wim-name"${block.boldName === false ? ' style="font-weight:400"' : ''}>${text(party.name)}</div>` : '';
-  return `${labelHtml(block.label, label, ctx)}<div style="${body}">${name}${lines.map((l) => `<div>${text(l)}</div>`).join('')}</div>`;
+  const nameStyle = block.boldName === false ? ' style="font-weight:400"' : '';
+  const name = party.name ? `<div class="wim-name"${nameStyle}>${text(party.name)}</div>` : '';
+  return `${labelHtml(block.label, label, ctx)}<div style="${body}">${name}${linesHtml(lines)}</div>`;
 }
 
 /** A field as a label / value row; a field without a label (the title) as a heading-like value. */
@@ -123,7 +132,9 @@ function fieldHtml(block: BlockOf<'field'>, ctx: Ctx): { row?: string; standalon
   if (valueOnly) return { standalone: `<div style="${textCss(block.style, ctx)}">${text(value)}</div>` };
   const labelStyle = `color:${color(block.label?.color, ctx, 'muted')}`;
   const valueStyle = textCss({ ...block.style, align: undefined }, ctx);
-  return { row: `<div class="wim-kv"><span style="${labelStyle}">${text(label)}</span><span style="${valueStyle}">${text(value)}</span></div>` };
+  // A field row carries its own id so a click selects that field.
+  const attr = ctx.blockIds ? ` data-block-id="${esc(block.id)}"` : '';
+  return { row: `<div class="wim-kv"${attr}><span style="${labelStyle}">${text(label)}</span><span style="${valueStyle}">${text(value)}</span></div>` };
 }
 
 function logoHtml(block: BlockOf<'logo'>, ctx: Ctx): string {
@@ -157,9 +168,9 @@ function itemsHtml(block: BlockOf<'lineItems'>, ctx: Ctx): string {
       .join(' · ');
     const sub = (row.subLines ?? []).map((l) => `<div class="wim-muted">${text(l)}</div>`).join('');
     const zebra = block.zebra && i % 2 === 1 ? ` style="background:${color(block.zebra, ctx, 'muted')}"` : '';
-    return `<div class="wim-item"${zebra}><div class="wim-item-top"><div class="wim-item-desc">${text(description)}</div>${
-      amount ? `<div class="wim-item-amount">${text(amount)}</div>` : ''
-    }</div>${sub}${details ? `<div class="wim-muted">${details}</div>` : ''}</div>`;
+    const amountHtml = amount ? `<div class="wim-item-amount">${text(amount)}</div>` : '';
+    const detailsHtml = details ? `<div class="wim-muted">${details}</div>` : '';
+    return `<div class="wim-item"${zebra}><div class="wim-item-top"><div class="wim-item-desc">${text(description)}</div>${amountHtml}</div>${sub}${detailsHtml}</div>`;
   });
   if (rows.length === 0) return '';
   return `<div class="wim-items" style="border-top:2px solid ${rule};--wim-row-rule:${rowRule}33">${rows.join('')}</div>`;
@@ -194,9 +205,8 @@ function paymentHtml(block: BlockOf<'payment'>, ctx: Ctx): string {
   const lines = block.showBank === false ? [] : ctx.data.payment.bankLines;
   const notes = block.showInstructions === false ? '' : (ctx.data.payment.instructions ?? '');
   if (lines.length === 0 && !notes) return '';
-  return `${labelHtml(block.label, ctx.data.labels.payment, ctx)}<div style="${textCss(block.style, ctx)}">${lines.map((l) => `<div>${text(l)}</div>`).join('')}${
-    notes ? `<p>${text(notes)}</p>` : ''
-  }</div>`;
+  const notesHtml = notes ? `<p>${text(notes)}</p>` : '';
+  return `${labelHtml(block.label, ctx.data.labels.payment, ctx)}<div style="${textCss(block.style, ctx)}">${linesHtml(lines)}${notesHtml}</div>`;
 }
 
 function labeledTextHtml(block: BlockOf<'notes'> | BlockOf<'terms'>, value: string | null | undefined, label: string, ctx: Ctx): string {
@@ -307,8 +317,7 @@ function renderBlocks(order: TemplateBlock[], bands: Map<string, Band>, ctx: Ctx
     if (block.type === 'field') {
       const { row, standalone } = fieldHtml(block, ctx);
       if (row) {
-        // A field row carries its own id so a click selects that field.
-        fieldRows.push(ctx.blockIds ? row.replace('<div class="wim-kv"', `<div class="wim-kv" data-block-id="${esc(block.id)}"`) : row);
+        fieldRows.push(row);
         fieldIds.push(block.id);
         continue;
       }
@@ -317,64 +326,61 @@ function renderBlocks(order: TemplateBlock[], bands: Map<string, Band>, ctx: Ctx
       continue;
     }
     flushFields();
-    switch (block.type) {
-      case 'rect': {
-        const band = bands.get(block.id);
-        if (!band) break;
-        const inner = renderBlocks(readingOrder(band.members), bands, ctx, page, true).join('');
-        if (!inner) break;
-        // A band across the page runs edge to edge on the phone too; one at the top meets the top.
-        const fullWidth = block.x <= 8 && block.x + block.w >= page.width - 8;
-        const classes = ['wim-section', 'wim-band', fullWidth ? 'wim-bleed' : '', fullWidth && block.y <= 8 ? 'wim-bleed-top' : ''].filter(Boolean).join(' ');
-        const attr = ctx.blockIds ? ` data-block-id="${esc(block.id)}"` : '';
-        // Only the colour carries over: the band's padding and corners suit a phone, not the page's.
-        out.push(`<section class="${classes}"${attr} style="background:${color(block.box?.background, ctx, 'accent')}">${inner}</section>`);
-        break;
-      }
-      case 'text':
-        out.push(section(block, textBlockHtml(block, ctx), ctx));
-        break;
-      case 'logo':
-        out.push(section(block, logoHtml(block, ctx), ctx));
-        break;
-      case 'image':
-        out.push(section(block, imageHtml(block), ctx));
-        break;
-      case 'seller':
-        out.push(section(block, partyHtml(block, ctx.data.seller, ctx.data.labels.from, ctx), ctx));
-        break;
-      case 'billTo':
-        out.push(section(block, partyHtml(block, ctx.data.billTo, ctx.data.labels.billTo, ctx), ctx));
-        break;
-      case 'shipTo':
-        out.push(section(block, partyHtml(block, ctx.data.shipTo, ctx.data.labels.shipTo, ctx), ctx));
-        break;
-      case 'lineItems':
-        out.push(section(block, itemsHtml(block, ctx), ctx, 'wim-section-items'));
-        // A template without a totals block still shows the totals right under the items, as the page does.
-        if (!hasTotals) out.push(`<section class="wim-section">${totalsHtml(IMPLICIT_TOTALS, ctx)}</section>`);
-        break;
-      case 'totals':
-        out.push(section(block, totalsHtml(block, ctx), ctx));
-        break;
-      case 'payment':
-        out.push(section(block, paymentHtml(block, ctx), ctx));
-        break;
-      case 'notes':
-        out.push(section(block, labeledTextHtml(block, ctx.data.notes, ctx.data.labels.notes, ctx), ctx));
-        break;
-      case 'terms':
-        out.push(section(block, labeledTextHtml(block, block.text ?? ctx.data.terms, ctx.data.labels.terms, ctx), ctx));
-        break;
-      case 'legal':
-        out.push(section(block, legalHtml(block, ctx), ctx));
-        break;
-      default:
-        break;
-    }
+    out.push(...blockSections(block, bands, ctx, page, hasTotals));
   }
   flushFields();
   return out.filter(Boolean);
+}
+
+/** A filled rectangle as a coloured band around the blocks drawn on it. */
+function bandHtml(block: BlockOf<'rect'>, bands: Map<string, Band>, ctx: Ctx, page: { width: number }): string {
+  const band = bands.get(block.id);
+  if (!band) return '';
+  const inner = renderBlocks(readingOrder(band.members), bands, ctx, page, true).join('');
+  if (!inner) return '';
+  // A band across the page runs edge to edge on the phone too; one at the top meets the top.
+  const fullWidth = block.x <= 8 && block.x + block.w >= page.width - 8;
+  const classes = ['wim-section', 'wim-band', fullWidth ? 'wim-bleed' : '', fullWidth && block.y <= 8 ? 'wim-bleed-top' : ''].filter(Boolean).join(' ');
+  const attr = ctx.blockIds ? ` data-block-id="${esc(block.id)}"` : '';
+  // Only the colour carries over: the band's padding and corners suit a phone, not the page's.
+  return `<section class="${classes}"${attr} style="background:${color(block.box?.background, ctx, 'accent')}">${inner}</section>`;
+}
+
+/** The section(s) for one non-field block. */
+function blockSections(block: TemplateBlock, bands: Map<string, Band>, ctx: Ctx, page: { width: number }, hasTotals: boolean): string[] {
+  switch (block.type) {
+    case 'rect':
+      return [bandHtml(block, bands, ctx, page)];
+    case 'text':
+      return [section(block, textBlockHtml(block, ctx), ctx)];
+    case 'logo':
+      return [section(block, logoHtml(block, ctx), ctx)];
+    case 'image':
+      return [section(block, imageHtml(block), ctx)];
+    case 'seller':
+      return [section(block, partyHtml(block, ctx.data.seller, ctx.data.labels.from, ctx), ctx)];
+    case 'billTo':
+      return [section(block, partyHtml(block, ctx.data.billTo, ctx.data.labels.billTo, ctx), ctx)];
+    case 'shipTo':
+      return [section(block, partyHtml(block, ctx.data.shipTo, ctx.data.labels.shipTo, ctx), ctx)];
+    case 'lineItems': {
+      const items = section(block, itemsHtml(block, ctx), ctx, 'wim-section-items');
+      // A template without a totals block still shows the totals right under the items, as the page does.
+      return hasTotals ? [items] : [items, `<section class="wim-section">${totalsHtml(IMPLICIT_TOTALS, ctx)}</section>`];
+    }
+    case 'totals':
+      return [section(block, totalsHtml(block, ctx), ctx)];
+    case 'payment':
+      return [section(block, paymentHtml(block, ctx), ctx)];
+    case 'notes':
+      return [section(block, labeledTextHtml(block, ctx.data.notes, ctx.data.labels.notes, ctx), ctx)];
+    case 'terms':
+      return [section(block, labeledTextHtml(block, block.text ?? ctx.data.terms, ctx.data.labels.terms, ctx), ctx)];
+    case 'legal':
+      return [section(block, legalHtml(block, ctx), ctx)];
+    default:
+      return [];
+  }
 }
 
 /**

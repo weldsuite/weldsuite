@@ -296,6 +296,11 @@ const ENTITY_NARROW_DUE = '@max-[560px]:w-[68px]';
 const ENTITY_NARROW_ACTIONS = '@max-[560px]:w-[28px]';
 const ENTITY_NARROW_GAP = '@max-[560px]:gap-2';
 
+/** An entity-mode container-query class, or none outside entity mode. */
+function entityOnly(isEntityMode: boolean, cls: string): string | undefined {
+  return isEntityMode ? cls : undefined;
+}
+
 /** Makes the board a size container in entity mode; a no-op wrapper elsewhere. */
 function EntityContainerScope({ enabled, children }: Readonly<{ enabled: boolean; children: React.ReactNode }>) {
   return enabled ? <div className="@container min-w-0 w-full">{children}</div> : <>{children}</>;
@@ -524,6 +529,151 @@ function TaskAssigneeTriggerContent({ task, projectMembers }: Readonly<{ task: T
         {task.assignee.split(' ')[0]}
       </span>
     </div>
+  );
+}
+
+/** A task row's attachment and subtask counts, each shown only when non-zero. */
+function TaskCountBadges({ task }: Readonly<{ task: Task }>) {
+  return (
+    <>
+      {(task.attachmentCount ?? 0) > 0 && (
+        <span className="inline-flex h-[18px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
+          <Paperclip className="h-2.5 w-2.5 shrink-0" />
+          {task.attachmentCount}
+        </span>
+      )}
+      {(task.subtaskCount ?? 0) > 0 && (
+        <span className="inline-flex h-[18px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
+          <ListTodo className="h-2.5 w-2.5 shrink-0" />
+          {task.completedSubtaskCount}/{task.subtaskCount}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** The status picker's options: the project's stages, or the built-in statuses when it has none. */
+function TaskStatusOptions({
+  task,
+  currentStageId,
+  projectStages,
+  statusConfig,
+  onSelect,
+}: Readonly<{
+  task: Task;
+  currentStageId: string | null;
+  projectStages: Array<{ id: string; name: string; color: string; systemStatus: string }>;
+  statusConfig: Record<string, { label: string }>;
+  onSelect: (taskId: string, stageId: string) => unknown;
+}>) {
+  const stageLabel = useStageLabel();
+  if (projectStages.length === 0) {
+    return (
+      <>
+        {Object.entries(statusConfig).map(([key, config]) => (
+          <Button
+            key={key}
+            variant="ghost"
+            onClick={() => onSelect(task.id, key)}
+            className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
+          >
+            <span>{config.label}</span>
+            {task.status === key && <Check className="h-3.5 w-3.5 text-primary" />}
+          </Button>
+        ))}
+      </>
+    );
+  }
+  return (
+    <>
+      {projectStages.map(s => (
+        <Button
+          key={s.id}
+          variant="ghost"
+          onClick={() => onSelect(task.id, s.id)}
+          className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
+        >
+          <span className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
+            <span>{stageLabel(s.name, s.systemStatus)}</span>
+          </span>
+          {currentStageId === s.id && <Check className="h-3.5 w-3.5 text-primary" />}
+        </Button>
+      ))}
+    </>
+  );
+}
+
+/** The assignee picker's options: toggle each project member, or clear them all. */
+function TaskAssigneeOptions({
+  task,
+  projectMembers,
+  clearLabel,
+  onUpdate,
+}: Readonly<{
+  task: Task;
+  projectMembers: ProjectMember[];
+  clearLabel: string;
+  onUpdate: (taskId: string, data: Partial<Task>) => Promise<unknown>;
+}>) {
+  const currentAssignees = task.assignees ?? [];
+  return (
+    <>
+      {projectMembers.filter(m => m.user?.name).map((member) => {
+        const isSelected = currentAssignees.some((a) => a.id === member.userId);
+        return (
+          <Button
+            key={member.userId}
+            variant="ghost"
+            onClick={() => {
+              const nextAssignees = isSelected
+                ? currentAssignees.filter((a) => a.id !== member.userId)
+                : [
+                    ...currentAssignees,
+                    { id: member.userId, name: member.user!.name, avatar: member.user?.avatar },
+                  ];
+              const primary = nextAssignees[0];
+              void onUpdate(task.id, {
+                assigneeId: primary?.id ?? null,
+                assignee: primary?.name,
+                assignees: nextAssignees,
+              });
+            }}
+            className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
+          >
+            <span className="flex items-center gap-2">
+              <Avatar className="h-5 w-5 !rounded-[7px]">
+                {member.user?.avatar && (
+                  <AvatarImage
+                    src={member.user.avatar}
+                    alt={member.user!.name}
+                    className="!rounded-[7px]"
+                  />
+                )}
+                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                  {member.user!.name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <span>{member.user!.name}</span>
+            </span>
+            {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+          </Button>
+        );
+      })}
+      {(task.assignee || currentAssignees.length > 0) && (
+        <>
+          <div className="h-px bg-border my-1" />
+          <Button
+            variant="ghost"
+            onClick={() => onUpdate(task.id, { assigneeId: null, assignee: undefined, assignees: [] })}
+            className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-2" />
+            <span>{clearLabel}</span>
+          </Button>
+        </>
+      )}
+    </>
   );
 }
 
@@ -1556,11 +1706,11 @@ export function TasksClient({
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'checkbox', header: t.projects.tasks.headerTask, width: 'w-4 flex-shrink-0' },
-    { id: 'task', header: '', width: cn('min-w-[200px] flex-1', isEntityMode && ENTITY_NARROW_TITLE) },
-    { id: 'status', header: t.projects.tasks.headerStatus, width: cn('w-[120px]', isEntityMode && ENTITY_HIDE_WHEN_COMPACT), sortable: true },
-    { id: 'priority', header: t.projects.tasks.headerPriority, width: cn('w-[100px]', isEntityMode && ENTITY_NARROW_PRIORITY), sortable: true },
-    { id: 'dueDate', header: t.projects.tasks.headerDue, width: cn('w-[100px]', isEntityMode && ENTITY_NARROW_DUE), sortable: true },
-    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', isEntityMode && ENTITY_HIDE_WHEN_NARROW), sortable: true },
+    { id: 'task', header: '', width: cn('min-w-[200px] flex-1', entityOnly(isEntityMode, ENTITY_NARROW_TITLE)) },
+    { id: 'status', header: t.projects.tasks.headerStatus, width: cn('w-[120px]', entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT)), sortable: true },
+    { id: 'priority', header: t.projects.tasks.headerPriority, width: cn('w-[100px]', entityOnly(isEntityMode, ENTITY_NARROW_PRIORITY)), sortable: true },
+    { id: 'dueDate', header: t.projects.tasks.headerDue, width: cn('w-[100px]', entityOnly(isEntityMode, ENTITY_NARROW_DUE)), sortable: true },
+    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', entityOnly(isEntityMode, ENTITY_HIDE_WHEN_NARROW)), sortable: true },
   ], [t, isEntityMode]);
 
   // Render a single task row (reused for top-level and subtask rows). `depth`
@@ -1584,7 +1734,7 @@ export function TasksClient({
           // Phones: let the metadata columns wrap under the title instead of
           // running past the viewport edge (the list container clips overflow).
           "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1.5",
-          isEntityMode && ENTITY_NARROW_GAP,
+          entityOnly(isEntityMode, ENTITY_NARROW_GAP),
           !isSubtask && "border-b border-gray-200/70 dark:border-border",
           isVisuallyDone && !isCompleting && "opacity-50",
           isCompleting && "task-completing-inner"
@@ -1612,7 +1762,7 @@ export function TasksClient({
         </div>
 
         {/* Task Title */}
-        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", isEntityMode && ENTITY_NARROW_TITLE)}>
+        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", entityOnly(isEntityMode, ENTITY_NARROW_TITLE))}>
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="h-[18px] flex-shrink-0 py-0" />
           )}
@@ -1648,23 +1798,12 @@ export function TasksClient({
         </div>
 
         {/* Attachments & Subtask count */}
-        <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
-          {(task.attachmentCount ?? 0) > 0 && (
-            <span className="inline-flex h-[18px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
-              <Paperclip className="h-2.5 w-2.5 shrink-0" />
-              {task.attachmentCount}
-            </span>
-          )}
-          {(task.subtaskCount ?? 0) > 0 && (
-            <span className="inline-flex h-[18px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
-              <ListTodo className="h-2.5 w-2.5 shrink-0" />
-              {task.completedSubtaskCount}/{task.subtaskCount}
-            </span>
-          )}
+        <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT))}>
+          <TaskCountBadges task={task} />
         </div>
 
         {/* Status */}
-        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1672,40 +1811,19 @@ export function TasksClient({
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
-              {projectStages.length > 0 ? (
-                projectStages.map(s => (
-                  <Button
-                    key={s.id}
-                    variant="ghost"
-                    onClick={() => handleStageChange(task.id, s.id)}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-                      <span>{stageLabel(s.name, s.systemStatus)}</span>
-                    </span>
-                    {(stage?.id ?? null) === s.id && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                ))
-              ) : (
-                Object.entries(statusConfig).map(([key, config]) => (
-                  <Button
-                    key={key}
-                    variant="ghost"
-                    onClick={() => handleStageChange(task.id, key)}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
-                  >
-                    <span>{config.label}</span>
-                    {task.status === key && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                ))
-              )}
+              <TaskStatusOptions
+                task={task}
+                currentStageId={stage?.id ?? null}
+                projectStages={projectStages}
+                statusConfig={statusConfig}
+                onSelect={handleStageChange}
+              />
             </PopoverContent>
           </Popover>
         </div>
 
         {/* Priority */}
-        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", isEntityMode && ENTITY_NARROW_PRIORITY)}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_NARROW_PRIORITY))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1729,7 +1847,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", isEntityMode && ENTITY_NARROW_DUE)}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_NARROW_DUE))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1764,7 +1882,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", isEntityMode && ENTITY_HIDE_WHEN_NARROW)}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_NARROW))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1779,67 +1897,18 @@ export function TasksClient({
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
-              {projectMembers.filter(m => m.user?.name).map((member) => {
-                const currentAssignees = task.assignees ?? [];
-                const isSelected = currentAssignees.some((a) => a.id === member.userId);
-                return (
-                  <Button
-                    key={member.userId}
-                    variant="ghost"
-                    onClick={() => {
-                      const nextAssignees = isSelected
-                        ? currentAssignees.filter((a) => a.id !== member.userId)
-                        : [
-                            ...currentAssignees,
-                            { id: member.userId, name: member.user!.name, avatar: member.user?.avatar },
-                          ];
-                      const primary = nextAssignees[0];
-                      void updateTaskInline(task.id, {
-                        assigneeId: primary?.id ?? null,
-                        assignee: primary?.name,
-                        assignees: nextAssignees,
-                      });
-                    }}
-                    className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5 !rounded-[7px]">
-                        {member.user?.avatar && (
-                          <AvatarImage
-                            src={member.user.avatar}
-                            alt={member.user!.name}
-                            className="!rounded-[7px]"
-                          />
-                        )}
-                        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                          {member.user!.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span>{member.user!.name}</span>
-                    </span>
-                    {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                );
-              })}
-              {(task.assignee || (task.assignees && task.assignees.length > 0)) && (
-                <>
-                  <div className="h-px bg-border my-1" />
-                  <Button
-                    variant="ghost"
-                    onClick={() => updateTaskInline(task.id, { assigneeId: null, assignee: undefined, assignees: [] })}
-                    className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-2" />
-                    <span>{t.projects.tasks.clearAssignee}</span>
-                  </Button>
-                </>
-              )}
+              <TaskAssigneeOptions
+                task={task}
+                projectMembers={projectMembers}
+                clearLabel={t.projects.tasks.clearAssignee}
+                onUpdate={updateTaskInline}
+              />
             </PopoverContent>
           </Popover>
         </div>
 
         {/* Actions - only show for users with write permission */}
-        <div className={cn("relative z-[1] w-[40px] flex justify-end", isEntityMode && ENTITY_NARROW_ACTIONS)}>
+        <div className={cn("relative z-[1] w-[40px] flex justify-end", entityOnly(isEntityMode, ENTITY_NARROW_ACTIONS))}>
           {canWrite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
