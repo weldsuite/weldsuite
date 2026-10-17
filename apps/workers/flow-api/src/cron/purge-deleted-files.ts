@@ -14,18 +14,39 @@
  *
  * An R2 object is only deleted when no remaining row still points at its key, and
  * rows are only deleted after their objects, so a failed run leaves a retriable
- * state rather than a dangling pointer. Runs weekly (see `[triggers]` in
- * wrangler.toml); each run handles up to `MAX_BATCHES` batches per table and
- * workspace and picks up the rest next week.
+ * state rather than a dangling pointer.
+ *
+ * Scheduling follows ADR DATA-008 (nothing opens tenant databases on a timer):
+ * the delete routes mark their workspace due in the schedule-index D1
+ * (`workspace_due_index`, kind `file_purge`, see lib/file-purge.ts) at the end
+ * of the retention window. The daily sweep (see `[triggers]` in wrangler.toml)
+ * reads only that index, opens just the due workspaces, purges up to
+ * `MAX_BATCHES` batches per table and stores when the next soft-deleted row
+ * comes due (or drops the row). A one-time, KV-guarded seed marks every active
+ * workspace due once, so files deleted before the index existed are picked up.
  */
 
-import { and, eq, inArray, isNotNull, lt, notInArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, min, notInArray, or } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema, schema } from '@weldsuite/worker-kit/db';
+import { runDueIndexSweep, type DueIndexSweepResult } from '@weldsuite/worker-kit/due-index';
 import type { Env } from '../types';
+import { purgeDueAt, RETENTION_DAYS } from '../lib/file-purge';
 
-/** How long a soft-deleted file stays restorable before it is purged for good. */
-export const RETENTION_DAYS = 30;
+export { RETENTION_DAYS };
+
+/** The cron expression that runs this sweep; keep in step with wrangler.toml. */
+export const FILE_PURGE_CRONS = ['30 3 * * *'] as const;
+
+export function isFilePurgeCron(cron: string): boolean {
+  return (FILE_PURGE_CRONS as readonly string[]).includes(cron);
+}
+
+/** KV flag: active workspaces were seeded into the due index. Bump to reseed. */
+export const FILE_PURGE_SEED_KEY = 'flow:file-purge-index:seed:v1';
+
+/** A workspace that failed (Neon hiccup, broken tenant) is retried after this. */
+const RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
 const BATCH_SIZE = 200;
 const MAX_BATCHES = 5;
 /** R2 `delete()` accepts up to 1000 keys per call. */
@@ -157,31 +178,70 @@ export async function purgeDeletedFiles(db: Database, store: ObjectStore, cutoff
   return total;
 }
 
-/** Weekly sweep over every active workspace. */
-export async function runDeletedFilesPurge(env: Env, now: Date = new Date()): Promise<PurgeResult> {
-  if (!env.STORAGE) {
-    console.warn('[FilePurge] STORAGE binding missing — skipping sweep');
-    return { rows: 0, objects: 0 };
-  }
-  const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const masterDb = getMasterDb(env);
-  const workspaces = await masterDb
+/**
+ * When the workspace next has a soft-deleted file reach the end of retention
+ * (null: nothing soft-deleted is left). Re-derived from the tenant after every
+ * purge, so the index never drifts from what is actually waiting.
+ */
+export async function nextPurgeDueAt(db: Database): Promise<Date | null> {
+  const [fromProjectFiles] = await db
+    .select({ at: min(projectFiles.deletedAt) })
+    .from(projectFiles)
+    .where(isNotNull(projectFiles.deletedAt));
+  const [fromFiles] = await db
+    .select({ at: min(files.deletedAt) })
+    .from(files)
+    .where(and(isNotNull(files.deletedAt), inArray(files.entityType, ['project', 'task'])));
+  const earliest = [fromProjectFiles?.at, fromFiles?.at]
+    .filter((at): at is Date => at instanceof Date)
+    .sort((a, b) => a.getTime() - b.getTime())[0];
+  return earliest ? purgeDueAt(earliest) : null;
+}
+
+/** The Clerk org ids of every active workspace (the one-time seed only). */
+async function listActiveWorkspaceOrgIds(env: Env): Promise<string[]> {
+  const rows = await getMasterDb(env)
     .select({ clerkOrgId: masterSchema.workspaces.clerkOrgId })
     .from(masterSchema.workspaces)
     .where(and(eq(masterSchema.workspaces.isActive, true), isNotNull(masterSchema.workspaces.clerkOrgId)));
+  return rows.map((r) => r.clerkOrgId).filter((id): id is string => !!id);
+}
 
+/**
+ * Daily purge tick: opens only the workspaces the `file_purge` due index lists
+ * as due, never a tenant that is not listed.
+ */
+export async function runDeletedFilesPurge(
+  env: Env,
+  now: Date = new Date(),
+): Promise<DueIndexSweepResult & PurgeResult> {
   const total: PurgeResult = { rows: 0, objects: 0 };
-  for (const { clerkOrgId } of workspaces) {
-    if (!clerkOrgId) continue;
-    try {
-      const db = await getTenantDbForWorkspace(env, clerkOrgId);
-      const done = await purgeDeletedFiles(db as unknown as Database, env.STORAGE, cutoff);
+  if (!env.STORAGE) {
+    console.warn('[FilePurge] STORAGE binding missing — skipping sweep');
+    return { due: 0, processed: 0, failed: 0, seeded: 0, ...total };
+  }
+  const store = env.STORAGE;
+  const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const result = await runDueIndexSweep({
+    d1: env.SCHEDULE_INDEX,
+    kv: env.WORKSPACE_CACHE,
+    kind: 'file_purge',
+    label: '[FilePurge]',
+    seed: { key: FILE_PURGE_SEED_KEY, listWorkspaces: () => listActiveWorkspaceOrgIds(env) },
+    retryAfterMs: RETRY_AFTER_MS,
+    now: now.getTime(),
+    process: async (orgId) => {
+      const db = (await getTenantDbForWorkspace(env, orgId)) as unknown as Database;
+      const done = await purgeDeletedFiles(db, store, cutoff);
       total.rows += done.rows;
       total.objects += done.objects;
-    } catch (err) {
-      console.error(`[FilePurge] Failed workspace ${clerkOrgId}:`, err instanceof Error ? err.message : err);
-    }
+      return nextPurgeDueAt(db);
+    },
+  });
+  if (result.due > 0 || result.failed > 0) {
+    console.log(
+      `[FilePurge] due=${result.due} processed=${result.processed} failed=${result.failed}: ${total.rows} rows, ${total.objects} objects purged`,
+    );
   }
-  console.log(`[FilePurge] Completed: ${total.rows} rows, ${total.objects} objects purged`);
-  return total;
+  return { ...result, ...total };
 }

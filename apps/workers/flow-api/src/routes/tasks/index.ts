@@ -74,6 +74,7 @@ import { createNextOccurrence, isCompletion, type RecurringSource } from '@welds
 import { changedTaskReferences, findInvalidTaskReference } from '@weldsuite/flow-domain/task-relations';
 import { dayBoundsInTimezone, workspaceDayBounds, type DayBounds } from '@weldsuite/flow-domain/day-boundaries';
 import { containsPattern, queryBoolean } from '../../lib/query-params';
+import { markFilePurgeDue } from '../../lib/file-purge';
 import { taskInLiveProject } from '../../lib/task-scope';
 
 // ============================================================================
@@ -1935,10 +1936,12 @@ app.delete('/:id/attachments/:fileId', requirePermission('tasks:update'), async 
       )
       .limit(1);
     if (!existing) return error.notFound(c, 'Attachment', fileId);
+    const deletedAt = new Date();
     await db
       .update(schema.files)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .set({ deletedAt, updatedAt: deletedAt })
       .where(eq(schema.files.id, fileId));
+    markFilePurgeDue(c, deletedAt);
     return noContent(c);
   } catch (err) {
     console.error('[app-api/tasks] remove attachment failed:', err);
@@ -2707,6 +2710,8 @@ app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
   try {
     const removed = await softDeleteTaskTree(db, id);
     if (!removed) return error.notFound(c, 'Task', id);
+    // Deleting a task soft-deletes its attachments with it.
+    markFilePurgeDue(c);
 
     for (const row of removed) {
       publishEntityEvent({

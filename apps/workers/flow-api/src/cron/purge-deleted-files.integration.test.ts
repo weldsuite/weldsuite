@@ -1,5 +1,5 @@
 /**
- * TASK-854: the weekly purge removes R2 objects and rows of project files, task
+ * TASK-854: the daily purge removes R2 objects and rows of project files, task
  * attachments and project documents that were soft-deleted past the retention
  * window, and nothing else.
  */
@@ -8,7 +8,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { purgeDeletedFiles, RETENTION_DAYS, type ObjectStore } from './purge-deleted-files';
+import { purgeDueAt } from '../lib/file-purge';
+import { nextPurgeDueAt, purgeDeletedFiles, RETENTION_DAYS, type ObjectStore } from './purge-deleted-files';
 
 let db: Database;
 
@@ -90,6 +91,32 @@ describe('purgeDeletedFiles', () => {
     expect(deleted).not.toContain('k/shared');
     const rows = await db.select().from(schema.projectFiles).where(eq(schema.projectFiles.id, 'pf_shared_old'));
     expect(rows).toHaveLength(0);
+  });
+
+  it('derives when the next soft-deleted file leaves retention, or null when none is left', async () => {
+    // Start from an empty slate: the rows the other tests left are not part of this one.
+    await db.delete(schema.projectFiles);
+    await db.delete(schema.files);
+    expect(await nextPurgeDueAt(db)).toBeNull();
+
+    const insert = (id: string, deletedAt: Date | null, entityType: string | null = null) =>
+      db.insert(schema.files).values({
+        id,
+        fileName: id,
+        mimeType: 'text/plain',
+        fileSize: 1,
+        storagePath: id,
+        fileKey: id,
+        deletedAt,
+        entityType,
+        entityId: 'prj_x',
+      });
+    const early = new Date(now.getTime() - 10 * DAY);
+    await insert('f_live', null, 'task');
+    await insert('f_drive', new Date(now.getTime() - 25 * DAY), null); // not purged here: ignored
+    await insert('f_late', new Date(now.getTime() - 3 * DAY), 'project');
+    await insert('f_early', early, 'task');
+    expect((await nextPurgeDueAt(db))?.getTime()).toBe(purgeDueAt(early).getTime());
   });
 
   it('purges project and task files with their document rows, but not other drive files', async () => {
