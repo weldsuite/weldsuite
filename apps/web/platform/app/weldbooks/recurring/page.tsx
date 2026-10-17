@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useAccountingContactNames, useAccountingRecurringInvoices } from '@/hooks/queries/use-accounting-queries';
 import { Repeat } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowChip, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
@@ -46,6 +47,10 @@ export default function RecurringInvoicesPage() {
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const trp = t.accounting.recurringPage;
   const navigate = useNavigate();
+  // Each template opens in the shared object panel (type 'recurring_invoice'),
+  // synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/recurring');
 
   const { data, isLoading } = useAccountingRecurringInvoices();
   const raw = useMemo(() => (data?.data ?? []) as unknown as RecurringInvoice[], [data]);
@@ -130,7 +135,8 @@ export default function RecurringInvoicesPage() {
       isLoading={isLoading}
       columns={columns}
       groups={groups}
-      onRowClick={(item) => navigate({ to: '/weldbooks/recurring/$id', params: { id: item.id } })}
+      onRowClick={(item) => openPanel({ type: 'recurring_invoice', id: item.id })}
+      getRowLabel={(item) => item.title}
       filters={[]}
       searchFields={['title', 'contactName', 'frequencyLabel']}
       createButton={{

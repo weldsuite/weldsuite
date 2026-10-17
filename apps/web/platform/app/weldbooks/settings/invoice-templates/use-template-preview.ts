@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import type { InvoiceDocumentData } from '@weldsuite/books-domain/invoice-template/data';
 import { layoutInvoice, type InvoiceLayout } from '@weldsuite/books-domain/invoice-template/layout';
 import type { InvoiceTemplateDocument } from '@weldsuite/books-domain/invoice-template/schema';
-import { useCountryLabel } from '@/app/weldbooks/invoices/[id]/invoice-detail-sections';
+import { useCountryLabel } from '@/lib/weldbooks/use-country-label';
 import { useI18n } from '@/lib/i18n/provider';
 import type { InvoicePdfEntity } from '@/lib/weldbooks/invoice-pdf';
 import { buildInvoiceDocumentData, sampleInvoice } from '@/lib/weldbooks/invoice-template-data';

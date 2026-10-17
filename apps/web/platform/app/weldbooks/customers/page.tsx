@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useAccountingCustomers } from '@/hooks/queries/use-accounting-queries';
 import { Users } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAvatar, RowChip, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { EmptyStateIllustration, type ColumnDef, type FilterConfig, type ActiveFilter } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import type { ContactKind, ContactPerson } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from './components/contact-list-cells';
+import { QuickAddContactDialog } from './components/quick-add-contact-dialog';
 
 interface CustomerRow {
   id: string;
@@ -24,7 +25,12 @@ interface CustomerRow {
 export default function AccountingCustomersPage() {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
-  const navigate = useNavigate();
+  // A new contact is added in a popup, like WeldCRM's add company / person.
+  const [addOpen, setAddOpen] = useState(false);
+  // Each contact opens in the shared object panel (type 'weldbooks_contact'),
+  // the same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/customers');
   const { t } = useI18n();
   const tcp = t.accounting.customersPage;
   const { labels } = useJurisdictionLabels();
@@ -106,34 +112,45 @@ export default function AccountingCustomersPage() {
   ];
 
   return (
-    <WeldbooksEntityList<CustomerRow>
-      items={customers}
-      isLoading={isLoading}
-      columns={columns}
-      onRowClick={(c) => navigate({ to: '/weldbooks/customers/$id', params: { id: c.id } })}
-      filters={filterConfigs}
-      searchQuery={search}
-      onSearchChange={setSearch}
-      activeFilters={filters}
-      onFiltersChange={setFilters}
-      searchPlaceholder={tcp.searchPlaceholder}
-      createButton={{
-        label: tcp.newCustomer,
-        onClick: () => navigate({ to: '/weldbooks/customers/add' }),
-      }}
-      emptyState={{
-        icon: (
-          <EmptyStateIllustration>
-            <Users className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
-          </EmptyStateIllustration>
-        ),
-        title: tcp.noCustomers,
-        description: tcp.emptyDescription,
-        action: {
+    <>
+      <WeldbooksEntityList<CustomerRow>
+        items={customers}
+        isLoading={isLoading}
+        columns={columns}
+        onRowClick={(c) => openPanel({ type: 'weldbooks_contact', id: c.id })}
+        getRowLabel={(c) => c.name}
+        filters={filterConfigs}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        activeFilters={filters}
+        onFiltersChange={setFilters}
+        searchPlaceholder={tcp.searchPlaceholder}
+        createButton={{
           label: tcp.newCustomer,
-          onClick: () => navigate({ to: '/weldbooks/customers/add' }),
-        },
-      }}
-    />
+          onClick: () => setAddOpen(true),
+        }}
+        emptyState={{
+          icon: (
+            <EmptyStateIllustration>
+              <Users className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            </EmptyStateIllustration>
+          ),
+          title: tcp.noCustomers,
+          description: tcp.emptyDescription,
+          action: {
+            label: tcp.newCustomer,
+            onClick: () => setAddOpen(true),
+          },
+        }}
+      />
+
+      <QuickAddContactDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        role="customer"
+        onCreated={(id) => id && openPanel({ type: 'weldbooks_contact', id })}
+        onOpenExisting={(id) => openPanel({ type: 'weldbooks_contact', id })}
+      />
+    </>
   );
 }

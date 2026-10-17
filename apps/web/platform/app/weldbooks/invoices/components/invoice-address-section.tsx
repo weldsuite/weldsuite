@@ -76,7 +76,6 @@ export function InvoiceAddressSection({
       {notice}
       <div className="space-y-2">
         <p className="text-sm font-medium">{ta.billingAddress}</p>
-        <p className="text-xs text-muted-foreground">{ta.billingAddressHelp}</p>
         <AddressFields
           idPrefix={`${idPrefix}-billing`}
           value={billingAddress}

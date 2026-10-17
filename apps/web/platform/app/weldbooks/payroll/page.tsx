@@ -12,6 +12,7 @@ import {
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAmount, RowChip, RowDate, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { usePayrollImports } from '@/hooks/queries/use-weldbooks-assets-queries';
 import type { PayrollImport } from '@/lib/api/domains/weldbooks-assets';
 import { useI18n } from '@/lib/i18n/provider';
@@ -36,6 +37,10 @@ export default function PayrollImportsPage() {
   const tl = tp.list;
   const common = t.weldbooksUs.assets.common;
   const navigate = useNavigate();
+  // Each payroll opens in the shared object panel (type 'payroll_run'), the
+  // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/payroll');
   const { can } = usePermissions();
   const { formatMoney, formatDate } = useWeldbooksFormat();
 
@@ -169,7 +174,7 @@ export default function PayrollImportsPage() {
         isLoading={list.isLoading}
         columns={columns}
         getRowClassName={(row) => (row.status === 'reversed' ? 'opacity-60' : '')}
-        onRowClick={(row) => void navigate({ to: '/weldbooks/payroll/$id', params: { id: row.id } })}
+        onRowClick={(row) => openPanel({ type: 'payroll_run', id: row.id })}
         getRowLabel={(row) => formatDate(row.payDate)}
         renderRowMenu={renderRowMenu}
         filters={filterConfigs}

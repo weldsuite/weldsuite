@@ -47,7 +47,7 @@ The Gusto connection is in beta: it has been tested against recorded Gusto data 
 
 ## Reverse a payroll
 
-If a payroll was imported wrongly, open it and click **Reverse payroll**. WeldBooks posts a reversing entry, dated the pay date by default so it nets out in the same period. The import stays on the list as reversed. To import the same payroll again, give it a different **Batch label** on the review step.
+If a payroll was imported wrongly, open it, open its **⋮** menu and click **Reverse payroll**. WeldBooks posts a reversing entry, dated the pay date by default so it nets out in the same period. The import stays on the list as reversed. To import the same payroll again, give it a different **Batch label** on the review step.
 
 ---
 

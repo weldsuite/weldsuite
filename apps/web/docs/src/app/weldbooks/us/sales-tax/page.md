@@ -103,7 +103,7 @@ A jurisdiction is a taxing authority: the state, a county, a city or a special d
 2. Give it a name, and if you have them, its FIPS or Streamlined Sales Tax **Code** and the **Reporting code** the state return asks for.
 3. Enter the **First rate** and the day it starts. Start it on the day your registration begins, so invoices dated back to then are taxed correctly.
 
-Rates are dated. When a rate changes, click **Add rate** and enter the new rate with its start date; tick **End the current rate the day before this one starts** so the two don't overlap. **Show rate history** lists every rate with its status.
+Rates are dated. When a rate changes, open the jurisdiction's **⋮** menu, click **Add rate** and enter the new rate with its start date; tick **End the current rate the day before this one starts** so the two don't overlap. Click a jurisdiction to show its rate history: every rate with its status.
 
 ### Zones
 

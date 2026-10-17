@@ -5,6 +5,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   RowAmount,
@@ -46,6 +47,10 @@ export default function FixedAssetsPage() {
   const tl = fa.list;
   const common = t.weldbooksUs.assets.common;
   const navigate = useNavigate();
+  // Each asset opens in the shared object panel (type 'fixed_asset'), the same
+  // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/fixed-assets');
   const { can } = usePermissions();
   const { code } = useCurrentJurisdiction();
   const isUs = isUsJurisdictionCode(code);
@@ -84,7 +89,7 @@ export default function FixedAssetsPage() {
   const register = useFixedAssetRegister({ asOf, book: 'book' });
   const totals = register.data?.totals;
 
-  const openAsset = (id: string) => void navigate({ to: '/weldbooks/fixed-assets/$id', params: { id } });
+  const openAsset = (id: string) => openPanel({ type: 'fixed_asset', id });
 
   const columns: ColumnDef<FixedAssetListItem>[] = [
     {

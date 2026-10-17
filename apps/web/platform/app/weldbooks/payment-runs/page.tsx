@@ -5,6 +5,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { RowAmount, RowChip, RowText, RowTitle } from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -23,6 +24,10 @@ export default function PaymentRunsPage() {
   const tp = t.weldbooksUs.payments;
   const tl = tp.list;
   const navigate = useNavigate();
+  // Each run opens in the shared object panel (type 'payment_run'), the same
+  // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/payment-runs');
   const { can } = usePermissions();
   const { formatMoney, formatDate } = useWeldbooksFormat();
 
@@ -146,7 +151,8 @@ export default function PaymentRunsPage() {
         isLoading={list.isLoading}
         columns={columns}
         getRowClassName={(run) => (run.status === 'cancelled' ? 'opacity-60' : '')}
-        onRowClick={(run) => navigate({ to: '/weldbooks/payment-runs/$id', params: { id: run.id } })}
+        onRowClick={(run) => openPanel({ type: 'payment_run', id: run.id })}
+        getRowLabel={(run) => formatDate(run.paymentDate)}
         filters={filterConfigs}
         activeFilters={activeFilters}
         onFiltersChange={(next) => {

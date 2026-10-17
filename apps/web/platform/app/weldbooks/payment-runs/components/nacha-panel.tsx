@@ -139,7 +139,7 @@ export function NachaPanel({ run, canManage }: Readonly<NachaPanelProps>) {
 
         {summary ? (
           <div className="space-y-3">
-            <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm @lg:grid-cols-2 @3xl:grid-cols-4">
               <div>
                 <dt className="text-muted-foreground">{tn.summary.fileName}</dt>
                 <dd className="break-all font-medium">{summary.fileName}</dd>

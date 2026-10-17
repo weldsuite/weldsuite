@@ -59,14 +59,14 @@ describe('CustomerExemptionsTab', () => {
     ]);
     renderWithProviders(<CustomerExemptionsTab partyId="prt_1" taxUse="business" />);
 
-    const rows = await screen.findAllByRole('row');
-    const first = within(rows[1]);
+    const firstOverlay = await screen.findByRole('button', { name: '32-123' });
+    const first = within(firstOverlay.parentElement as HTMLElement);
     expect(first.getByText('TX')).toBeInTheDocument();
     expect(first.getByText('OK')).toBeInTheDocument();
-    expect(first.getByText('32-123')).toBeInTheDocument();
+    expect(first.getByText(/32-123/)).toBeInTheDocument();
     expect(first.getByText('Valid')).toBeInTheDocument();
     expect(first.getByText(/Expires date:2027-01-14/)).toHaveTextContent('(in 98 days)');
-    const second = within(rows[2]);
+    const second = within(screen.getByRole('button', { name: 'Nonprofit' }).parentElement as HTMLElement);
     expect(second.getByText('Expired')).toBeInTheDocument();
     expect(second.getByText('Expired date:2026-09-30')).toBeInTheDocument();
     expect(second.getByText('Nonprofit')).toBeInTheDocument();
@@ -76,11 +76,11 @@ describe('CustomerExemptionsTab', () => {
     expect(api.get.mock.calls[0][0]).toContain('partyId=prt_1');
   });
 
-  it('leaves the customer column out, since every row is the same customer', async () => {
+  it('leaves the customer out, since every row is the same customer', async () => {
     serve([makeCertificate()]);
     renderWithProviders(<CustomerExemptionsTab partyId="prt_1" />);
-    await screen.findByText('32-123');
-    expect(screen.queryByRole('columnheader', { name: tc.columns.customer })).not.toBeInTheDocument();
+    await screen.findByRole('button', { name: '32-123' });
+    expect(screen.queryByText(tc.columns.customer)).not.toBeInTheDocument();
   });
 
   it('shows the default use the contact form sets', async () => {
@@ -120,7 +120,7 @@ describe('CustomerExemptionsTab', () => {
     expect(await screen.findByText(te.loadError)).toBeInTheDocument();
     serve([makeCertificate()]);
     await user.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText('32-123')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '32-123' })).toBeInTheDocument();
   });
 
   it('opens a certificate from its row', async () => {
@@ -128,7 +128,7 @@ describe('CustomerExemptionsTab', () => {
     serve([makeCertificate({ id: 'exc_7' })]);
     renderWithProviders(<CustomerExemptionsTab partyId="prt_1" />);
 
-    await user.click(await screen.findByText('32-123'));
+    await user.click(await screen.findByRole('button', { name: '32-123' }));
     expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/sales-tax/certificates/$id', params: { id: 'exc_7' } });
   });
 
