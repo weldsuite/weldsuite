@@ -5,7 +5,7 @@
  * the invoice-template designer shows a template.
  */
 
-import { memo, useDeferredValue, useMemo } from 'react';
+import { memo, useDeferredValue, useMemo, useRef } from 'react';
 import { layoutInvoice } from '@weldsuite/books-domain/invoice-template/layout';
 import { presetTemplate } from '@weldsuite/books-domain/invoice-template/presets';
 import { renderPageSvg } from '@weldsuite/books-domain/invoice-template/svg';
@@ -139,6 +139,18 @@ function draftInvoice(
   } as unknown as InvoiceWithTax;
 }
 
+/**
+ * The previous reference while the value serialises the same. The form hands
+ * over fresh objects on every keystroke; this keeps the layout below from
+ * rerunning unless something it prints changed.
+ */
+function useStableValue<T>(value: T): T {
+  const ref = useRef<{ json: string; value: T } | null>(null);
+  const json = JSON.stringify(value);
+  if (ref.current?.json !== json) ref.current = { json, value };
+  return ref.current.value;
+}
+
 /** One sheet of paper: the painted SVG of a page. The SVG is escaped by the painter. */
 const PreviewPage = memo(function PreviewPage({ svg, aspect }: Readonly<{ svg: string; aspect: string }>) {
   return (
@@ -158,7 +170,9 @@ export function InvoicePreview(props: Readonly<InvoicePreviewProps>) {
   const countryName = useCountryLabel();
 
   // Typing stays responsive: the preview catches up once React has a moment.
-  const deferred = useDeferredValue(props);
+  const { values, invoice, customer, calculation, numberPlaceholder } = props;
+  const input = useStableValue({ values, invoice, customer, calculation, numberPlaceholder });
+  const deferred = useDeferredValue(input);
   const pdfEntity = entity as InvoicePdfEntity | undefined;
 
   const document = useMemo(() => {
@@ -188,7 +202,7 @@ export function InvoicePreview(props: Readonly<InvoicePreviewProps>) {
     } catch {
       return [];
     }
-    // The label objects are rebuilt every render; the deferred props and the template drive the preview.
+    // The label objects are rebuilt every render; the stable input and the template drive the preview.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deferred, document, pdfEntity]);
 

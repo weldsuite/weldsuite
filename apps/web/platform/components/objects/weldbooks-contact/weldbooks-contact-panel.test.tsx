@@ -117,7 +117,7 @@ describe('WeldBooks contact panel: editing the details in place', () => {
 
   it('fills in an empty field and saves just that field', async () => {
     const user = userEvent.setup();
-    permissions.allowed.add('customers:update');
+    permissions.allowed.add('invoices:update');
     serve(company);
     renderPanel();
 
@@ -130,7 +130,7 @@ describe('WeldBooks contact panel: editing the details in place', () => {
 
   it('keeps the name on invoices in step with a renamed company', async () => {
     const user = userEvent.setup();
-    permissions.allowed.add('customers:update');
+    permissions.allowed.add('invoices:update');
     serve(company);
     renderPanel();
 
@@ -142,6 +142,44 @@ describe('WeldBooks contact panel: editing the details in place', () => {
       companyName: 'Acme Holding',
       name: 'Acme Holding',
     });
+  });
+
+  it('saves a same-as-billing shipping address along with the billing address', async () => {
+    const user = userEvent.setup();
+    permissions.allowed.add('invoices:update');
+    serve(company);
+    renderPanel();
+
+    await screen.findByText('ap@acme.test');
+    await user.click(screen.getByRole('button', { name: tc.billingAddress }));
+    await user.type(await screen.findByLabelText(/Address line 1/), 'Main Street 1');
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    const [, body] = api.patch.mock.calls.at(-1) as [string, Record<string, unknown>];
+    expect(body.billingAddress).toEqual(body.shippingAddress);
+    expect(body.billingAddress).toMatchObject({ line1: 'Main Street 1' });
+  });
+
+  it('does not save an emptied name of a person', async () => {
+    const user = userEvent.setup();
+    permissions.allowed.add('invoices:update');
+    serve({ ...customer, kind: 'person', firstName: 'Jane', lastName: 'Doe', name: 'Jane Doe' });
+    renderPanel();
+
+    await screen.findByText('ap@acme.test');
+    await user.click(screen.getByRole('button', { name: tc.firstName }));
+    await user.keyboard('{Control>}a{/Control}{Backspace}{Enter}');
+
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the fields read-only for a member who may archive contacts but not edit them', async () => {
+    permissions.allowed.add('customers:update');
+    serve(company);
+    renderPanel();
+
+    await screen.findByText('ap@acme.test');
+    expect(screen.queryByRole('button', { name: tc.phone })).not.toBeInTheDocument();
   });
 
   it('only shows the details to a member who may not edit contacts', async () => {

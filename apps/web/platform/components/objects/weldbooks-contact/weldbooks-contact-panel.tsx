@@ -57,6 +57,7 @@ import {
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
 } from '@/components/object-panel';
+import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
@@ -592,21 +593,18 @@ function GeneralSection({ contact, t }: Readonly<{ contact: Customer; t: Transla
       <RoleRow contact={contact} t={t} />
       {isPerson ? (
         <>
+          {/* The server keeps a name it is sent blank, so an emptied name is not saved. */}
           <FieldRow
             icon={User}
             label={tc.firstName}
             value={contact.firstName}
-            toPatch={(next) =>
-              next || contact.lastName ? { firstName: next, name: personName(next, contact.lastName) } : null
-            }
+            toPatch={(next) => (next ? { firstName: next, name: personName(next, contact.lastName) } : null)}
           />
           <FieldRow
             icon={User}
             label={tc.lastName}
             value={contact.lastName}
-            toPatch={(next) =>
-              next || contact.firstName ? { lastName: next, name: personName(contact.firstName, next) } : null
-            }
+            toPatch={(next) => (next ? { lastName: next, name: personName(contact.firstName, next) } : null)}
           />
         </>
       ) : (
@@ -690,7 +688,14 @@ function AddressesSection({ contact, t }: Readonly<{ contact: Customer; t: Trans
           label={tc.billingAddress}
           value={billing}
           placeholder={st('sweep.entities.setFieldPlaceholder', { label: tc.billingAddress })}
-          onSave={(next) => save({ billingAddress: next ?? {} })}
+          // "Same as billing" is a copy, not a flag: keep the copy in step, as the full form does.
+          onSave={(next) =>
+            save(
+              shipsElsewhere
+                ? { billingAddress: next ?? {} }
+                : { billingAddress: next ?? {}, shippingAddress: next ?? {} },
+            )
+          }
         />
         <AddressPropertyRow
           icon={Truck}
@@ -868,6 +873,8 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
 
   const canDelete = can('customers:delete') || can('suppliers:delete');
   const canArchive = can('customers:update') || can('suppliers:update');
+  // The fields save through PATCH /accounting-contacts/:id, which takes invoices:update.
+  const canEdit = can('invoices:update');
   const actions = useContactActions(contact, canArchive, onClose);
 
   const shell = useObjectPanelShell({
@@ -891,11 +898,8 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
     [st, t, showExemptions],
   );
 
-  const initial = useMemo<WeldbooksContactTab['id']>(() => {
-    const match = tabs.find((tab) => tab.id === initialTab);
-    return match?.id ?? 'overview';
-  }, [initialTab, tabs]);
-  const [activeTab, setActiveTab] = useState<WeldbooksContactTab['id']>(initial);
+  // A deep-linked tab that only appears once the record is loaded is applied when it does.
+  const [activeTab, setActiveTab] = usePanelInitialTab<WeldbooksContactTab['id']>(tabs, initialTab, 'overview');
 
   return (
     <>
@@ -925,7 +929,7 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
         )}
 
         {contact && activeTab === 'overview' && (
-          <WeldbooksContactDetailsTab contact={contact} canEdit={canArchive} t={t} />
+          <WeldbooksContactDetailsTab contact={contact} canEdit={canEdit} t={t} />
         )}
         {contact && activeTab === 'exemptions' && (
           <div className="p-4">

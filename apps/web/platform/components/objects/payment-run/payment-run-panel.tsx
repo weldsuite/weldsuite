@@ -14,7 +14,7 @@
  * print checks) and the ACH file.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { EllipsisVertical, Link as LinkIcon, ReceiptText } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { PanelAvatar, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { RunStatusChip } from '@/app/weldbooks/payment-runs/components/run-badges';
@@ -145,11 +146,8 @@ export function PaymentRunPanel(props: Readonly<ObjectPanelComponentProps>) {
     [st, tp, run?.vendors.length, run?.items.length, run?.holds.length],
   );
 
-  const initial = useMemo<PaymentRunTab['id']>(() => {
-    const match = tabs.find((tab) => tab.id === initialTab);
-    return match?.id ?? 'overview';
-  }, [initialTab, tabs]);
-  const [activeTab, setActiveTab] = useState<PaymentRunTab['id']>(initial);
+  // A deep-linked tab that only appears once the record is loaded is applied when it does.
+  const [activeTab, setActiveTab] = usePanelInitialTab<PaymentRunTab['id']>(tabs, initialTab, 'overview');
 
   return (
     <>

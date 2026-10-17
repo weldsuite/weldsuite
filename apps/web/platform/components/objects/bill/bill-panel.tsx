@@ -15,7 +15,7 @@
  * that waits for approval sits under the header, whichever tab is open.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from '@tanstack/react-router';
 import { EllipsisVertical, Link as LinkIcon, Pencil, Receipt } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
@@ -151,11 +152,8 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
     [st, tb, bill?.items?.length, showTax],
   );
 
-  const initial = useMemo<BillTab['id']>(() => {
-    const match = tabs.find((tab) => tab.id === initialTab);
-    return match?.id ?? 'overview';
-  }, [initialTab, tabs]);
-  const [activeTab, setActiveTab] = useState<BillTab['id']>(initial);
+  // A deep-linked tab that only appears once the record is loaded is applied when it does.
+  const [activeTab, setActiveTab] = usePanelInitialTab<BillTab['id']>(tabs, initialTab, 'overview');
 
   return (
     <>
