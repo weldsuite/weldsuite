@@ -61,7 +61,7 @@ export function InviteMemberButton({ collapsed = false }: Readonly<InviteMemberB
       <Button
         variant="ghost"
         onClick={() => setDialogOpen(true)}
-        className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-muted-foreground/30 px-3 py-[7px] mb-2 text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors"
+        className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-muted-foreground/30 px-3 py-[7px] mb-px text-sm text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground transition-colors"
       >
         <UserPlus className="h-4 w-4" />
         <span>{t.common.inviteMember.inviteMembers}</span>
