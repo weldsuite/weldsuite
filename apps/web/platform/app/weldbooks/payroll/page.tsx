@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { EllipsisVertical, Plug, Undo2, Users } from 'lucide-react';
+import { EllipsisVertical, HandCoins, Plug, Undo2 } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -193,7 +193,7 @@ export default function PayrollImportsPage() {
         emptyState={{
           icon: (
             <EmptyStateIllustration>
-              <Users className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+              <HandCoins className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
             </EmptyStateIllustration>
           ),
           title: tl.emptyTitle,
