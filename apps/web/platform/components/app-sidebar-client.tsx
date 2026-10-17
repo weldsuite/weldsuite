@@ -139,7 +139,7 @@ function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverE
           onMouseLeave={onHoverEnd}
           onFocus={onHover}
           className={cn(
-            'group relative h-12 w-12 flex items-center justify-center rounded-lg transition-colors cursor-grab overflow-visible',
+            'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors cursor-grab overflow-visible',
             isHomePage
               ? 'text-white/70 hover:text-white hover:bg-white/10'
               : 'hover:bg-accent hover:text-accent-foreground',
@@ -273,7 +273,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
       <div
         data-testid="app-sidebar"
         className={cn(
-        'fixed left-0 top-0 h-full w-16 flex flex-col items-center py-[7px] gap-2 z-40 overflow-visible',
+        'fixed left-0 top-0 h-full w-15 flex flex-col items-center py-[7px] gap-2 z-40 overflow-visible',
         // Transparent so the shell "chrome" backdrop shows through the rail.
         'bg-transparent'
       )}>
@@ -284,7 +284,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               href="/"
               data-testid="app-nav-home"
               className={cn(
-                'group relative h-12 w-12 flex items-center justify-center rounded-lg transition-colors',
+                'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10'
                   : 'hover:bg-accent hover:text-accent-foreground',
@@ -351,7 +351,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
 
             <DragOverlay>
               {activeApp && (
-                <div className="h-12 w-12 flex items-center justify-center rounded-lg bg-gray-200/60 dark:bg-accent/60 shadow-lg">
+                <div className="h-11.5 w-11.5 flex items-center justify-center rounded-lg bg-gray-200/60 dark:bg-accent/60 shadow-lg">
                   <SidebarAppIcon appCode={activeApp.appCode} name={activeApp.name} imgSize={56} icon={activeApp.icon} appType={activeApp.appType} />
                 </div>
               )}
@@ -377,7 +377,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
                       onMouseLeave={() => cancelPrefetch(app.appCode)}
                       onFocus={() => prefetchApp(app.appCode)}
                       className={cn(
-                        'group relative h-12 w-12 flex items-center justify-center rounded-lg transition-colors overflow-visible',
+                        'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors overflow-visible',
                         isHomePage
                           ? 'text-white/70 hover:text-white hover:bg-white/10'
                           : 'hover:bg-accent hover:text-accent-foreground',
@@ -410,7 +410,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               onMouseEnter={() => router.prefetch('/agents')}
               onFocus={() => router.prefetch('/agents')}
               className={cn(
-                'relative h-12 w-12 flex items-center justify-center rounded-lg transition-colors',
+                'relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10'
                   : 'hover:bg-accent hover:text-accent-foreground',
@@ -438,7 +438,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               href="/appstore"
               data-testid="app-nav-appstore"
               className={cn(
-                'h-12 w-12 flex items-center justify-center rounded-md transition-colors border border-dashed',
+                'h-11.5 w-11.5 flex items-center justify-center rounded-md transition-colors border border-dashed',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10 border-white/30'
                   : 'hover:bg-accent hover:text-accent-foreground border-gray-300 dark:border-border',
