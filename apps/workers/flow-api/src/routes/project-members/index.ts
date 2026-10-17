@@ -27,7 +27,7 @@ import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import { schema } from '@weldsuite/worker-kit/db';
-import { canManageProject, mayAccess, resolveProjectAccess } from '../../lib/project-access';
+import { canChangeOwners, canManageProject, mayAccess, resolveProjectAccess } from '../../lib/project-access';
 
 const MANAGE_MEMBERS_DENIED = 'You must be a project owner, admin, or manager to manage its members';
 const PROJECT_DENIED = 'You are not a member of this project';
@@ -88,7 +88,8 @@ async function getActiveMemberIds(db: TenantDb, projectId: string): Promise<stri
 
 /** Entity-event payload without the pay data: events fan out to every project member. */
 function withoutRate<T extends { hourlyRate?: unknown }>(data: T): Omit<T, 'hourlyRate'> {
-  const { hourlyRate: _hourlyRate, ...rest } = data;
+  const rest = { ...data };
+  delete rest.hourlyRate;
   return rest;
 }
 
@@ -104,12 +105,6 @@ function redactRate<T extends { userId: string; hourlyRate: unknown }>(
   viewer: { userId: string | undefined; isAdmin: boolean },
 ): T {
   return viewer.isAdmin || row.userId === viewer.userId ? row : { ...row, hourlyRate: null };
-}
-
-/** May the caller grant / revoke the owner role on this project? */
-async function canChangeOwners(c: MemberCtx, projectId: string): Promise<boolean> {
-  const access = await resolveProjectAccess(c, projectId);
-  return !access.deleted && (access.scopeAll || access.isManager || access.role === 'owner');
 }
 
 /**
@@ -430,8 +425,12 @@ app.patch(
       // last owner cannot be demoted or deactivated.
       const currentRole = existing.role.toLowerCase();
       const nextRole = data.role ?? currentRole;
-      const grantsOwner = nextRole === 'owner' && currentRole !== 'owner';
-      const revokesOwner = currentRole === 'owner' && (nextRole !== 'owner' || data.isActive === false);
+      // An inactive owner row holds no ownership: reactivating it is a grant, and
+      // demoting, deactivating or removing it is not a revoke.
+      const reactivatesOwner = !existing.isActive && data.isActive === true && nextRole === 'owner';
+      const grantsOwner = nextRole === 'owner' && (currentRole !== 'owner' || reactivatesOwner);
+      const revokesOwner =
+        existing.isActive && currentRole === 'owner' && (nextRole !== 'owner' || data.isActive === false);
       if ((grantsOwner || revokesOwner) && !(await canChangeOwners(c, projectId))) {
         return error.forbidden(c, OWNER_CHANGE_DENIED);
       }
@@ -480,7 +479,7 @@ app.delete('/by-user/:projectId/:userId', requirePermission('projects:delete'), 
       .limit(1);
     if (!existing) return error.notFound(c, 'Project member', `${projectId}/${userId}`);
 
-    if (existing.role.toLowerCase() === 'owner') {
+    if (existing.isActive && existing.role.toLowerCase() === 'owner') {
       if (!(await canChangeOwners(c, projectId))) return error.forbidden(c, OWNER_CHANGE_DENIED);
       if (!(await hasOtherOwner(db, projectId, userId))) return error.conflict(c, LAST_OWNER);
     }

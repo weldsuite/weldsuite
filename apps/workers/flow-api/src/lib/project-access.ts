@@ -20,7 +20,7 @@
  */
 
 import type { Context } from 'hono';
-import { and, eq, isNull, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { hasContextPermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../types';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -83,6 +83,17 @@ export async function canManageProject(c: Ctx, projectId: string): Promise<boole
   return (await resolveProjectAccess(c, projectId)).isAdmin;
 }
 
+/**
+ * May the caller grant / revoke the owner role on this project, or hand over its
+ * manager seat? The project manager resolves to the owner role, so changing who
+ * manages a project is an owner-level change. True for scope:all holders, the
+ * project manager and active owner members; plain project admins cannot.
+ */
+export async function canChangeOwners(c: Ctx, projectId: string): Promise<boolean> {
+  const access = await resolveProjectAccess(c, projectId);
+  return !access.deleted && (access.scopeAll || access.isManager || access.role === 'owner');
+}
+
 async function findTaskProject(
   c: Ctx,
   taskId: string,
@@ -142,6 +153,16 @@ export function projectNotDeleted(projectIdColumn: AnyColumn): SQL {
     SELECT 1 FROM ${schema.projects}
     WHERE ${schema.projects.id} = ${projectIdColumn} AND ${schema.projects.deletedAt} IS NOT NULL
   ))`;
+}
+
+/**
+ * SQL condition that constrains a list query to the result of `accessibleProjectIds`:
+ * no membership limit for scope:all holders (`null`, deleted projects still hidden),
+ * otherwise only the caller's projects (an empty list matches nothing).
+ */
+export function inAccessibleProjects(projectIdColumn: AnyColumn, accessible: string[] | null): SQL {
+  if (accessible === null) return projectNotDeleted(projectIdColumn);
+  return inArray(projectIdColumn, accessible.length ? accessible : ['']);
 }
 
 /**

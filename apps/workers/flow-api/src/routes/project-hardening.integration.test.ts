@@ -455,6 +455,39 @@ describe('project members (TASK-773)', () => {
     expect((await send('DELETE', `/project-members/by-user/${SOLO}/${OWNER}`)).status).toBe(409);
   });
 
+  it('reactivating an inactive owner is a grant: an admin cannot, an owner can', async () => {
+    const P = 'prj_hard_reactivate';
+    await seedProject(P, MANAGER);
+    await seedMember(P, OWNER, 'owner');
+    await seedMember(P, ADMIN, 'admin');
+    await seedMember(P, NEWBIE, 'owner', { isActive: false });
+    const path = `/project-members/by-user/${P}/${NEWBIE}`;
+
+    expect((await as(ADMIN)('PATCH', path, { isActive: true })).status).toBe(403);
+    const [stillInactive] = await db
+      .select({ isActive: schema.projectMembers.isActive })
+      .from(schema.projectMembers)
+      .where(eq(schema.projectMembers.id, `pm_${P}_${NEWBIE}`));
+    expect(stillInactive?.isActive).toBe(false);
+
+    expect((await as(OWNER)('PATCH', path, { isActive: true })).status).toBe(200);
+  });
+
+  it('an owner who is already inactive is not an owner: demoting or removing them never needs owner rights or trips the last-owner rule', async () => {
+    const P = 'prj_hard_inactive_owner';
+    // No manager and no other active owner: only the inactive owner row is left.
+    await seedProject(P, 'user_h_somebody_else');
+    await db.update(schema.projects).set({ projectManagerId: null }).where(eq(schema.projects.id, P));
+    await seedMember(P, ADMIN, 'admin');
+    await seedMember(P, NEWBIE, 'owner', { isActive: false });
+    await seedMember(P, VIEWER, 'owner', { isActive: false });
+    const send = as(ADMIN, ['projects:delete']);
+
+    expect((await send('PATCH', `/project-members/by-user/${P}/${NEWBIE}`, { isActive: false })).status).toBe(200);
+    expect((await send('PATCH', `/project-members/by-user/${P}/${NEWBIE}`, { role: 'member' })).status).toBe(200);
+    expect((await send('DELETE', `/project-members/by-user/${P}/${VIEWER}`)).status).toBe(204);
+  });
+
   it('hides the hourly rate from everyone but project admins and the member themselves', async () => {
     await db
       .update(schema.projectMembers)
@@ -483,6 +516,37 @@ describe('project members (TASK-773)', () => {
     await as(ADMIN)('PATCH', `/project-members/by-user/${P1}/${MEMBER}`, { hourlyRate: 90 });
     const call = vi.mocked(publishEntityEvent).mock.calls.map(([arg]) => arg).find((a) => a.entityType === 'project_member');
     expect(call?.data).not.toHaveProperty('hourlyRate');
+  });
+});
+
+describe('project manager changes are owner-level', () => {
+  const P = 'prj_hard_manager_change';
+  const managerOf = async () =>
+    (await db.select({ id: schema.projects.projectManagerId }).from(schema.projects).where(eq(schema.projects.id, P)))[0]
+      ?.id;
+
+  beforeAll(async () => {
+    await seedProject(P, MANAGER);
+    await seedMember(P, OWNER, 'owner');
+    await seedMember(P, ADMIN, 'admin');
+  });
+
+  it('a project admin cannot make themselves the manager (which would make them the owner)', async () => {
+    expect((await as(ADMIN)('PATCH', `/projects/${P}`, { projectManagerId: ADMIN })).status).toBe(403);
+    expect(await managerOf()).toBe(MANAGER);
+  });
+
+  it('a project admin can still edit the project and resend the current manager', async () => {
+    expect((await as(ADMIN)('PATCH', `/projects/${P}`, { name: 'Renamed', projectManagerId: MANAGER })).status).toBe(200);
+    expect(await managerOf()).toBe(MANAGER);
+  });
+
+  it('an owner, the manager and a scope:all admin can hand the seat over', async () => {
+    expect((await as(OWNER)('PATCH', `/projects/${P}`, { projectManagerId: OWNER })).status).toBe(200);
+    expect(await managerOf()).toBe(OWNER);
+    expect((await asScopeAll()('PATCH', `/projects/${P}`, { projectManagerId: MANAGER })).status).toBe(200);
+    expect((await as(MANAGER)('PATCH', `/projects/${P}`, { projectManagerId: ADMIN })).status).toBe(200);
+    expect(await managerOf()).toBe(ADMIN);
   });
 });
 
@@ -524,7 +588,7 @@ describe('project documents (TASK-766, TASK-864, TASK-854)', () => {
     const before = await json<{ data: unknown[] }>(await send('GET', `/documents/${fileId}/versions`));
     expect((await send('POST', `/documents/${fileId}/versions/${versionId}/restore`)).status).toBe(200);
     const after = await json<{ data: Array<{ id: string }> }>(await send('GET', `/documents/${fileId}/versions`));
-    expect(after.data.length).toBe(before.data.length + 1);
+    expect(after.data).toHaveLength(before.data.length + 1);
 
     // The overwritten content is recoverable from the new snapshot.
     const rows = await db.select().from(schema.documentVersions).where(eq(schema.documentVersions.fileId, fileId));

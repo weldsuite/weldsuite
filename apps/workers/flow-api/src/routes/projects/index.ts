@@ -19,6 +19,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import {
   accessibleProjectIds,
   canAccessProject,
+  canChangeOwners,
   canManageProject,
   canWriteProject,
   resolveProjectAccess,
@@ -124,30 +125,33 @@ function ownerCondition(ownerId: string): SQL {
   )!;
 }
 
+const isPresent = (value: string | undefined): value is string => value !== undefined && value !== '';
+
+/** Condition for the `status` list filter: a derived status, or a stored one. */
+function statusCondition(status: string): SQL {
+  if (DERIVED_STATUSES.has(status)) return sql`${DERIVED_STATUS_SQL} = ${status}`;
+  // Rows written before statuses were normalised may be lowercase or snake_case
+  // ("planning", "on_hold"), so compare on a spelling-insensitive key.
+  const key = normalizeProjectStatus(status).toLowerCase().replace(/[\s_-]+/g, '');
+  return sql`lower(regexp_replace(${t.status}, '[\\s_-]+', '', 'g')) = ${key}`;
+}
+
+/** Condition for the `priority` list filter; an unset priority counts as "medium". */
+function priorityCondition(value: string): SQL {
+  const priority = value.trim().toLowerCase();
+  return priority === 'medium'
+    ? sql`lower(coalesce(nullif(btrim(${t.priority}), ''), 'medium')) = 'medium'`
+    : sql`lower(btrim(${t.priority})) = ${priority}`;
+}
+
 /** Filters derived from the list query string. */
 function buildProjectFilters(q: Record<string, string>): SQL[] {
   const conditions: SQL[] = [];
-  if (q.status !== undefined && q.status !== '') {
-    if (DERIVED_STATUSES.has(q.status)) {
-      conditions.push(sql`${DERIVED_STATUS_SQL} = ${q.status}`);
-    } else {
-      // Rows written before statuses were normalised may be lowercase or snake_case
-      // ("planning", "on_hold"), so compare on a spelling-insensitive key.
-      const key = normalizeProjectStatus(q.status).toLowerCase().replace(/[\s_-]+/g, '');
-      conditions.push(sql`lower(regexp_replace(${t.status}, '[\\s_-]+', '', 'g')) = ${key}`);
-    }
-  }
-  if (q.priority !== undefined && q.priority !== '') {
-    const priority = q.priority.trim().toLowerCase();
-    conditions.push(
-      priority === 'medium'
-        ? sql`lower(coalesce(nullif(btrim(${t.priority}), ''), 'medium')) = 'medium'`
-        : sql`lower(btrim(${t.priority})) = ${priority}`,
-    );
-  }
-  if (q.ownerId !== undefined && q.ownerId !== '') conditions.push(ownerCondition(q.ownerId));
-  if (q.customerId !== undefined && q.customerId !== '') conditions.push(eq(t.customerId, q.customerId));
-  if (q.isActive !== undefined && q.isActive !== '') {
+  if (isPresent(q.status)) conditions.push(statusCondition(q.status));
+  if (isPresent(q.priority)) conditions.push(priorityCondition(q.priority));
+  if (isPresent(q.ownerId)) conditions.push(ownerCondition(q.ownerId));
+  if (isPresent(q.customerId)) conditions.push(eq(t.customerId, q.customerId));
+  if (isPresent(q.isActive)) {
     // Accept the truthy strings the WeldFlow UI sends (`?isActive=true`).
     conditions.push(eq(t.isActive, q.isActive === 'true' || q.isActive === '1'));
   }
@@ -760,6 +764,12 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project', id);
+    // The project manager resolves to the owner role, so handing the seat to someone
+    // else (or taking it) is an owner-level change, same rule as granting owner.
+    const nextManagerId = data.projectManagerId as string | null | undefined;
+    if (nextManagerId !== undefined && nextManagerId !== existing.projectManagerId && !(await canChangeOwners(c, id))) {
+      return error.forbidden(c, 'Only a project owner can change the project manager');
+    }
     const update = { ...data, updatedAt: new Date() } as Partial<typeof t.$inferInsert>;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
