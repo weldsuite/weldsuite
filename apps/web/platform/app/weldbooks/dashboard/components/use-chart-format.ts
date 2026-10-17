@@ -16,7 +16,6 @@ export function useChartFormat() {
     const short = new Intl.DateTimeFormat(dateLocale, { month: 'short', timeZone: 'UTC' });
     const long = new Intl.DateTimeFormat(dateLocale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
     const shortYear = new Intl.DateTimeFormat(dateLocale, { month: 'short', year: 'numeric', timeZone: 'UTC' });
-    const dayMonth = new Intl.DateTimeFormat(dateLocale, { day: 'numeric', month: 'short', timeZone: 'UTC' });
     const compact = new Intl.NumberFormat(dateLocale, {
       style: 'currency',
       currency: currency || 'EUR',
@@ -30,11 +29,6 @@ export function useChartFormat() {
       monthShort: (key: string) => short.format(monthDate(key)),
       monthLong: (key: string) => long.format(monthDate(key)),
       monthYear: (key: string) => shortYear.format(monthDate(key)),
-      /** "17 Oct" for a list row, from an ISO date or timestamp (its calendar day). */
-      dayMonth: (value: string) => {
-        const [y, m, d] = value.slice(0, 10).split('-').map(Number);
-        return dayMonth.format(new Date(Date.UTC(y, m - 1, d)));
-      },
       compactMoney: (value: number) => compact.format(value),
       percent: (value: number) => percent.format(value / 100),
     };
