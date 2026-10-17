@@ -3612,6 +3612,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      devices.css:
+        specifier: 0.2.0
+        version: 0.2.0
       dompurify:
         specifier: ^3.4.16
         version: 3.4.16
@@ -17945,6 +17948,9 @@ packages:
 
   devalue@5.6.1:
     resolution: {integrity: sha512-jDwizj+IlEZBunHcOuuFVBnIMPAEHvTsJj0BcIp94xYguLRVBcXO853px/MyIJvbVzWdsGvrRweIUWJw8hBP7A==}
+
+  devices.css@0.2.0:
+    resolution: {integrity: sha512-CE59M+4PuH87+A4clpC1xA/lkfCSGFWfeFx5sNadDdy1kXUqJ28SdTp+tBlwkHfI7G+h/Wf4Ddt9QGPLLlky3Q==}
 
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
@@ -39766,6 +39772,8 @@ snapshots:
     optional: true
 
   devalue@5.6.1: {}
+
+  devices.css@0.2.0: {}
 
   devlop@1.1.0:
     dependencies:
