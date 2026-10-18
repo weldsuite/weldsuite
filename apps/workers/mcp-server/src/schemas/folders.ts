@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { driveNameSchema } from './files';
 
 export const listFoldersQuery = z.object({
   parentId: z.string().optional(),
@@ -14,14 +15,14 @@ export const listFoldersQuery = z.object({
 });
 
 export const createFolderSchema = z.object({
-  name: z.string().min(1).max(500),
+  name: driveNameSchema,
   parentId: z.string().nullish(),
   color: z.string().optional(),
   icon: z.string().optional(),
 });
 
 export const updateFolderSchema = z.object({
-  name: z.string().min(1).max(500).optional(),
+  name: driveNameSchema.optional(),
   parentId: z.string().nullable().optional(),
   color: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),

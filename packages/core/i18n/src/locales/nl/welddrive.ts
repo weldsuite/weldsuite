@@ -83,6 +83,7 @@ export const welddrive = {
       source: 'Bron',
       size: 'Grootte',
       modified: 'Gewijzigd',
+      deletesIn: 'Verwijderd over',
     },
 
     filters: {
@@ -181,6 +182,7 @@ export const welddrive = {
       move: 'Verplaatsen',
       delete: 'Verwijderen',
       star: 'Ster',
+      share: 'Delen',
     },
 
     selection: {
@@ -191,6 +193,7 @@ export const welddrive = {
       star: 'Ster',
       move: 'Verplaatsen',
       delete: 'Verwijderen',
+      share: 'Delen',
     },
 
     trash: {
@@ -209,6 +212,7 @@ export const welddrive = {
     cancel: 'Annuleren',
     create: 'Aanmaken',
     creating: 'Aanmaken...',
+    failed: 'De map kon niet worden gemaakt. Probeer het opnieuw.',
   },
 
   moveToFolder: {
@@ -264,6 +268,7 @@ export const welddrive = {
       duplicate: 'Dupliceren',
       delete: 'Verwijderen',
       close: 'Sluiten',
+      share: 'Delen',
     },
   },
 
@@ -297,11 +302,13 @@ export const welddrive = {
       moveToFolder: 'Naar map verplaatsen',
       copyLink: 'Link kopiëren',
       delete: 'Verwijderen',
+      share: 'Delen',
     },
     unsupported: {
       fileLabel: '{fileType}-bestand',
       download: 'Downloaden',
     },
+    textTruncated: 'Alleen het begin van dit bestand wordt getoond. Download het om alles te zien.',
   },
 
   folderActions: {
@@ -313,14 +320,32 @@ export const welddrive = {
     myDrive: 'Mijn Drive',
   },
 
+  share: {
+    title: '"{name}" delen',
+    description: 'Stuur teamgenoten de link naar dit bestand.',
+    generalAccessTitle: 'Iedereen in deze workspace met toegang tot WeldDrive',
+    generalAccessDescription: 'Bestanden in WeldDrive staan open voor de hele workspace. Iedereen met de link en toegang tot WeldDrive kan het openen.',
+    linkLabel: 'Link',
+    copyLink: 'Link kopiëren',
+    done: 'Klaar',
+  },
+
+  rename: {
+    nameLabel: 'Naam',
+    invalidCharacters: 'Een naam mag geen {chars} bevatten',
+    nameTaken: 'Er staat al een bestand met deze naam in deze map',
+    failed: 'Naam wijzigen is mislukt. Probeer het opnieuw.',
+    willBeSavedAs: 'Wordt opgeslagen als {name}',
+    cancel: 'Annuleren',
+    rename: 'Naam wijzigen',
+  },
+
   toasts: {
     noSavedContent: 'Dit document heeft nog geen opgeslagen inhoud. Open het, maak een wijziging en probeer het opnieuw.',
     failedToDownloadFile: 'Downloaden van bestand mislukt',
     fileHasNoDownloadUrl: 'Bestand heeft geen download-URL',
     failedToCreateDocument: 'Kan document niet aanmaken',
-    uploading: '{count} bestand{plural} uploaden...',
     uploadFailed: 'Uploaden van {name} mislukt',
-    uploadSuccess: '{count} bestand{plural} geüpload',
     movedToMyDrive: 'Verplaatst naar Mijn Drive',
     failedToMoveFile: 'Verplaatsen van bestand mislukt',
     movedToFolder: 'Verplaatst naar {folderName}',
@@ -330,7 +355,6 @@ export const welddrive = {
     failedToUpdateStar: 'Bijwerken van ster mislukt',
     onlyDriveFilesRenamed: 'Alleen Drive-bestanden kunnen worden hernoemd',
     fileRenamed: 'Bestand hernoemd',
-    failedToRenameFile: 'Hernoemen van bestand mislukt',
     onlyDriveFilesMoved: 'Alleen Drive-bestanden kunnen worden verplaatst',
     linkCopied: 'Link gekopieerd naar klembord',
     failedToCopyLink: 'Kopiëren van link mislukt',
@@ -355,9 +379,20 @@ export const welddrive = {
     fileMoved: 'Bestand verplaatst',
     failedToMoveFileMutation: 'Verplaatsen van bestand mislukt',
     folderRenamed: 'Map hernoemd',
-    failedToRenameFolder: 'Hernoemen van map mislukt',
     noDownloadUrl: 'Geen downloadbare bestands-URL voor het geselecteerde bestand(en)',
     someFilesNoUrl: '{count} geselecteerde bestand(en) hebben geen download-URL en zijn overgeslagen',
+    uploadingOne: '1 bestand uploaden...',
+    uploadingMany: '{count} bestanden uploaden...',
+    uploadedOne: '1 bestand geüpload',
+    uploadedMany: '{count} bestanden geüpload',
+    folderMoved: 'Map verplaatst',
+    failedToMoveFolder: 'Map verplaatsen mislukt',
+    failedToSaveDescription: 'Beschrijving opslaan mislukt',
+    linkedFileNotFound: 'Dit bestand bestaat niet meer of staat in de prullenbak',
+    itemRestored: '1 item hersteld',
+    itemsRestored: '{count} items hersteld',
+    itemPermanentlyDeleted: '1 item definitief verwijderd',
+    itemsPermanentlyDeleted: '{count} items definitief verwijderd',
   },
 
   confirmDialog: {
@@ -371,6 +406,12 @@ export const welddrive = {
     },
     renameFolder: {
       title: 'Map hernoemen',
+    },
+    deletePermanently: {
+      title: 'Definitief verwijderen',
+      descriptionOne: 'Het geselecteerde item wordt definitief verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      descriptionMany: 'De {count} geselecteerde items worden definitief verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      confirmLabel: 'Definitief verwijderen',
     },
   },
 };

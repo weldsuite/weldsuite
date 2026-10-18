@@ -13,6 +13,7 @@ import {
   createFolderSchema,
   updateFolderSchema,
 } from '@weldsuite/core-api-client/schemas/folders';
+import { checkFolderParent, FOLDER_PARENT_ERRORS } from '@weldsuite/core-domain/folders';
 
 const table = schema.folders;
 const app = new Hono<HonoEnv>();
@@ -41,6 +42,8 @@ app.get('/:id', requireScope('folders:read'), async (c) => {
 app.post('/', requireScope('folders:write'), zValidator('json', createFolderSchema), async (c) => {
   const db = c.get('tenantDb');
   const body = c.req.valid('json');
+  const parentCheck = await checkFolderParent(db, null, body.parentId);
+  if (parentCheck !== 'ok') return error.badRequest(c, FOLDER_PARENT_ERRORS[parentCheck]);
   const now = new Date();
   const id = generateId('fld');
   const values = { ...(body as Record<string, unknown>), id, createdAt: now, updatedAt: now };
@@ -60,6 +63,9 @@ app.patch('/:id', requireScope('folders:write'), zValidator('json', updateFolder
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const body = c.req.valid('json');
+  // A parent inside the folder would cut it and its contents off from the tree.
+  const parentCheck = await checkFolderParent(db, id, body.parentId);
+  if (parentCheck !== 'ok') return error.badRequest(c, FOLDER_PARENT_ERRORS[parentCheck]);
   const [row] = await db
     .update(table)
     .set({ ...(body as Record<string, unknown>), updatedAt: new Date() })

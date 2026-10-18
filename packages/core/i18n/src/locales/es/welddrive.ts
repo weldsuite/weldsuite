@@ -83,6 +83,7 @@ export const welddrive = {
       source: 'Origen',
       size: 'Tamaño',
       modified: 'Modificado',
+      deletesIn: 'Se elimina en',
     },
 
     filters: {
@@ -179,6 +180,7 @@ export const welddrive = {
       move: 'Mover',
       delete: 'Eliminar',
       star: 'Destacar',
+      share: 'Compartir',
     },
 
     selection: {
@@ -189,6 +191,7 @@ export const welddrive = {
       star: 'Destacar',
       move: 'Mover',
       delete: 'Eliminar',
+      share: 'Compartir',
     },
 
     trash: {
@@ -207,6 +210,7 @@ export const welddrive = {
     cancel: 'Cancelar',
     create: 'Crear',
     creating: 'Creando...',
+    failed: 'No se pudo crear la carpeta. Inténtalo de nuevo.',
   },
 
   moveToFolder: {
@@ -262,6 +266,7 @@ export const welddrive = {
       duplicate: 'Duplicar',
       delete: 'Eliminar',
       close: 'Cerrar',
+      share: 'Compartir',
     },
   },
 
@@ -295,11 +300,13 @@ export const welddrive = {
       moveToFolder: 'Mover a carpeta',
       copyLink: 'Copiar enlace',
       delete: 'Eliminar',
+      share: 'Compartir',
     },
     unsupported: {
       fileLabel: 'Archivo {fileType}',
       download: 'Descargar',
     },
+    textTruncated: 'Solo se muestra el principio de este archivo. Descárgalo para verlo entero.',
   },
 
   folderActions: {
@@ -311,14 +318,32 @@ export const welddrive = {
     myDrive: 'Mi Drive',
   },
 
+  share: {
+    title: 'Compartir "{name}"',
+    description: 'Envía a tus compañeros el enlace a este archivo.',
+    generalAccessTitle: 'Todos en este espacio de trabajo con acceso a WeldDrive',
+    generalAccessDescription: 'Los archivos de WeldDrive están abiertos a todo el espacio de trabajo. Cualquiera con el enlace y acceso a WeldDrive puede abrirlo.',
+    linkLabel: 'Enlace',
+    copyLink: 'Copiar enlace',
+    done: 'Listo',
+  },
+
+  rename: {
+    nameLabel: 'Nombre',
+    invalidCharacters: 'Un nombre no puede contener {chars}',
+    nameTaken: 'Ya existe un archivo con este nombre en esta carpeta',
+    failed: 'No se pudo cambiar el nombre. Inténtalo de nuevo.',
+    willBeSavedAs: 'Se guardará como {name}',
+    cancel: 'Cancelar',
+    rename: 'Cambiar nombre',
+  },
+
   toasts: {
     noSavedContent: 'Este documento aún no tiene contenido guardado. Ábrelo, haz un cambio y vuelve a intentarlo.',
     failedToDownloadFile: 'No se pudo descargar el archivo',
     fileHasNoDownloadUrl: 'El archivo no tiene URL de descarga',
     failedToCreateDocument: 'No se pudo crear el documento',
-    uploading: 'Subiendo {count} archivo{plural}...',
     uploadFailed: 'No se pudo subir {name}',
-    uploadSuccess: 'Subida completada: {count} archivo{plural}',
     movedToMyDrive: 'Movido a Mi Drive',
     failedToMoveFile: 'No se pudo mover el archivo',
     movedToFolder: 'Movido a {folderName}',
@@ -328,7 +353,6 @@ export const welddrive = {
     failedToUpdateStar: 'No se pudo actualizar el destacado',
     onlyDriveFilesRenamed: 'Solo se pueden renombrar archivos de Drive',
     fileRenamed: 'Archivo renombrado',
-    failedToRenameFile: 'No se pudo renombrar el archivo',
     onlyDriveFilesMoved: 'Solo se pueden mover archivos de Drive',
     linkCopied: 'Enlace copiado al portapapeles',
     failedToCopyLink: 'No se pudo copiar el enlace',
@@ -353,9 +377,20 @@ export const welddrive = {
     fileMoved: 'Archivo movido',
     failedToMoveFileMutation: 'No se pudo mover el archivo',
     folderRenamed: 'Carpeta renombrada',
-    failedToRenameFolder: 'No se pudo renombrar la carpeta',
     noDownloadUrl: 'No hay URL de descarga para el/los archivo(s) seleccionado(s)',
     someFilesNoUrl: '{count} archivo(s) seleccionado(s) no tienen URL de descarga y fueron omitidos',
+    uploadingOne: 'Subiendo 1 archivo...',
+    uploadingMany: 'Subiendo {count} archivos...',
+    uploadedOne: '1 archivo subido',
+    uploadedMany: '{count} archivos subidos',
+    folderMoved: 'Carpeta movida',
+    failedToMoveFolder: 'No se pudo mover la carpeta',
+    failedToSaveDescription: 'No se pudo guardar la descripción',
+    linkedFileNotFound: 'Este archivo ya no existe o está en la papelera',
+    itemRestored: '1 elemento restaurado',
+    itemsRestored: '{count} elementos restaurados',
+    itemPermanentlyDeleted: '1 elemento eliminado definitivamente',
+    itemsPermanentlyDeleted: '{count} elementos eliminados definitivamente',
   },
 
   confirmDialog: {
@@ -369,6 +404,12 @@ export const welddrive = {
     },
     renameFolder: {
       title: 'Renombrar carpeta',
+    },
+    deletePermanently: {
+      title: 'Eliminar definitivamente',
+      descriptionOne: 'El elemento seleccionado se eliminará para siempre. No se puede deshacer.',
+      descriptionMany: 'Los {count} elementos seleccionados se eliminarán para siempre. No se puede deshacer.',
+      confirmLabel: 'Eliminar definitivamente',
     },
   },
 };

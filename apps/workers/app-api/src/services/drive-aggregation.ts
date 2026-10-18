@@ -15,6 +15,7 @@ import { and, eq, getTableColumns, isNotNull, isNull, ne, sql, type SQL } from '
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
 import { asText } from '@weldsuite/text';
+import { fileDescription } from '@weldsuite/core-domain/files';
 import { buildResultUrl } from './search';
 
 const {
@@ -53,7 +54,14 @@ export interface UnifiedFile {
   uploadedById: string | null;
   /** True when this drive file is a native WeldDoc (opens in the documents editor). */
   isWeldDoc?: boolean;
+  /** Drive files only: the record the file belongs to (e.g. `project`), null for plain uploads. */
+  entityType?: string | null;
+  /** Drive files only: the Details panel description (HTML). */
+  description?: string | null;
 }
+
+/** Drive files a module stores for one of its records (WeldFlow sheets and documents). */
+const PROJECT_ENTITY_TYPES = new Set(['project', 'project_document']);
 
 function buildNavigateUrl(
   entityType: string | null,
@@ -121,8 +129,10 @@ export function normalizeGenericFiles(
     fileSize: r.fileSize,
     url: r.url ?? (base && r.fileKey ? `${base}/${r.fileKey}` : null),
     thumbnailUrl: r.thumbnailUrl,
+    // Still `drive` (it lives in the files table and supports every Drive
+    // action), but a WeldFlow sheet or document is labelled as the project's.
     source: 'drive',
-    sourceLabel: 'My Drive',
+    sourceLabel: r.entityType && PROJECT_ENTITY_TYPES.has(r.entityType) ? 'Projects' : 'My Drive',
     navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id),
     folderId: r.folderId,
     isStarred: r.isStarred,
@@ -130,6 +140,8 @@ export function normalizeGenericFiles(
     updatedAt: r.updatedAt?.toISOString() ?? null,
     uploadedById: r.uploadedById,
     isWeldDoc: r.metadata?.welddoc === true,
+    entityType: r.entityType,
+    description: fileDescription(r),
   }));
 }
 

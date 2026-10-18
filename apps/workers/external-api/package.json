@@ -22,6 +22,7 @@
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",

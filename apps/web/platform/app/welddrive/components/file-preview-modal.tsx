@@ -16,6 +16,8 @@ import {
   MoreVertical,
   ChevronLeft,
   ChevronRight,
+  Loader2,
+  UserPlus,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -31,11 +33,62 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile } from './drive-file-card';
+import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile, fetchDriveFileContent } from './drive-file-card';
+import { driveSourceKey, driveSourceLabel, fileKindLabel, isTextPreviewable } from './drive-utils';
 import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { copyText } from '@/lib/clipboard';
+
+/** Text files bigger than this are not read for the preview. */
+const TEXT_PREVIEW_MAX_FILE_SIZE = 5 * 1024 * 1024;
+/** How much of a text file the preview shows. */
+const TEXT_PREVIEW_LIMIT = 512 * 1024;
+
+type TextPreviewState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; text: string; truncated: boolean };
+
+/** A plain-text file read through the content endpoint; `fallback` when it can't be read. */
+function TextPreview({ file, fallback }: Readonly<{ file: UnifiedFile; fallback: React.ReactNode }>) {
+  const { t } = useI18n();
+  const [state, setState] = useState<TextPreviewState>({ status: 'loading' });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: 'loading' });
+    fetchDriveFileContent(file.id, controller.signal)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const bytes = await res.arrayBuffer();
+        const truncated = bytes.byteLength > TEXT_PREVIEW_LIMIT;
+        const text = new TextDecoder().decode(truncated ? bytes.slice(0, TEXT_PREVIEW_LIMIT) : bytes);
+        setState({ status: 'ready', text, truncated });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState({ status: 'error' });
+      });
+    return () => controller.abort();
+  }, [file.id]);
+
+  if (state.status === 'error') return <>{fallback}</>;
+  if (state.status === 'loading') {
+    return <Loader2 className="h-6 w-6 animate-spin text-white/60" />;
+  }
+  return (
+    <div className="pointer-events-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-background text-foreground shadow-[0_8px_36px_rgba(0,0,0,0.14)]">
+      <pre className="flex-1 overflow-auto whitespace-pre-wrap break-words p-6 font-mono text-[13px] leading-relaxed">
+        {state.text}
+      </pre>
+      {state.truncated && (
+        <p className="border-t border-border px-6 py-2 text-xs text-muted-foreground">
+          {t.welddrive.filePreview.textTruncated}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function PreviewTooltip({ label, children, side = 'top' }: Readonly<{ label: string; children: React.ReactNode; side?: 'top' | 'bottom' }>) {
   const [show, setShow] = useState(false);
@@ -116,9 +169,10 @@ interface FilePreviewModalProps {
   onRename?: (file: UnifiedFile) => void;
   onCopyLink?: (file: UnifiedFile) => void;
   onDelete?: (file: UnifiedFile) => void;
+  onShare?: (file: UnifiedFile) => void;
 }
 
-export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onToggleStar, onMoveToFolder, onRename, onCopyLink, onDelete }: Readonly<FilePreviewModalProps>) {
+export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onToggleStar, onMoveToFolder, onRename, onCopyLink, onDelete, onShare }: Readonly<FilePreviewModalProps>) {
   const { t } = useI18n();
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -136,10 +190,12 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // If a popover or dropdown is open, let it handle Escape first
-        const openOverlay = document.querySelector('[data-radix-popper-content-wrapper]');
-        if (openOverlay) return;
+        // A menu, popover or dialog on top (the preview's own menus, Rename,
+        // Move to trash) closes first: Radix marks the Escape it handled.
+        if (e.defaultPrevented) return;
+        if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"]')) return;
         onClose();
+        return;
       }
       if (e.key === 'ArrowRight' && onNext) onNext();
       if (e.key === 'ArrowLeft' && onPrevious) onPrevious();
@@ -179,16 +235,41 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
 
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;
-  const badgeClass = sourceBadgeStyles[file.source] || sourceBadgeStyles.drive;
+  const badgeClass = sourceBadgeStyles[driveSourceKey(file)] || sourceBadgeStyles.drive;
 
   const isImage = file.fileType === 'image' && file.url;
   const isVideo = (file.fileType === 'video' || (file.fileType === 'recording' && file.mimeType?.startsWith('video/'))) && file.url;
   const isAudio = (file.fileType === 'audio' || (file.fileType === 'recording' && !file.mimeType?.startsWith('video/'))) && file.url;
   const isPdf = file.fileType === 'pdf' && file.url;
+  const isText = !isImage && !isVideo && !isAudio && !isPdf
+    && isTextPreviewable(file) && (file.fileSize ?? 0) <= TEXT_PREVIEW_MAX_FILE_SIZE;
 
   const zoomPercent = Math.round(zoom * 100);
 
-  return (
+  const unsupportedPreview = (
+    <div className="pointer-events-auto flex flex-col items-center gap-4 text-center">
+      <div className="w-24 h-24 rounded-2xl bg-white/10 flex items-center justify-center">
+        <Icon className={cn('h-12 w-12', typeConfig.color)} />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-white">{file.name}</p>
+        <p className="text-xs text-white/50 mt-1">{fileKindLabel(file, t)}</p>
+        {file.fileSize !== null && (
+          <p className="text-xs text-white/50 mt-0.5">{formatFileSize(file.fileSize)}</p>
+        )}
+      </div>
+      {(file.source === 'drive' || file.url) && (
+        <Button size="sm" variant="secondary" className="mt-2" onClick={() => downloadFile(file)}>
+          <Download className="h-4 w-4 mr-1.5" />
+          {t.welddrive.filePreview.unsupported.download}
+        </Button>
+      )}
+    </div>
+  );
+
+  // Rendered on <body>: inside the page it sat under the app rail, whose
+  // home link then took the clicks meant for the close button.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col">
       {/* Backdrop */}
       <div aria-hidden="true" className="absolute inset-0 bg-black/80" onClick={onClose} />
@@ -253,7 +334,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                 <div className="flex items-center justify-between px-2 py-1.5 text-sm">
                   <span className="text-muted-foreground">{t.welddrive.filePreview.details.source}</span>
                   <span className={cn(driveLabelClass, badgeClass)}>
-                    {file.sourceLabel}
+                    {driveSourceLabel(file, t)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between px-2 py-1.5 text-sm">
@@ -340,6 +421,12 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                   <Link className="h-4 w-4 mr-0.5" />
                   {t.welddrive.filePreview.actions.copyLink}
                 </DropdownMenuItem>
+                {onShare && (
+                  <DropdownMenuItem onClick={() => onShare(file)}>
+                    <UserPlus className="h-4 w-4 mr-0.5" />
+                    {t.welddrive.filePreview.actions.share}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
@@ -431,26 +518,9 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                 />
               )}
 
-              {!isImage && !isVideo && !isAudio && !isPdf && (
-                <div className="pointer-events-auto flex flex-col items-center gap-4 text-center">
-                  <div className="w-24 h-24 rounded-2xl bg-white/10 flex items-center justify-center">
-                    <Icon className={cn('h-12 w-12', typeConfig.color)} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">{file.name}</p>
-                    <p className="text-xs text-white/50 mt-1 capitalize">{t.welddrive.filePreview.unsupported.fileLabel.replace('{fileType}', file.fileType)}</p>
-                    {file.fileSize !== null && (
-                      <p className="text-xs text-white/50 mt-0.5">{formatFileSize(file.fileSize)}</p>
-                    )}
-                  </div>
-                  {(file.source === 'drive' || file.url) && (
-                    <Button size="sm" variant="secondary" className="mt-2" onClick={() => downloadFile(file)}>
-                      <Download className="h-4 w-4 mr-1.5" />
-                      {t.welddrive.filePreview.unsupported.download}
-                    </Button>
-                  )}
-                </div>
-              )}
+              {isText && <TextPreview key={file.id} file={file} fallback={unsupportedPreview} />}
+
+              {!isImage && !isVideo && !isAudio && !isPdf && !isText && unsupportedPreview}
             </div>
           </div>
         </div>
@@ -508,7 +578,8 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
