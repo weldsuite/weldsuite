@@ -47,6 +47,12 @@ import {
   type RoleNameProblem,
 } from '@/components/settings/role-name';
 
+/** A reserved name typed into the editor; the role's own saved name is never a problem. */
+function editedNameProblem(role: RoleDetail | null, name: string, roleId: string): RoleNameProblem | null {
+  if (!role || name.trim() === role.name) return null;
+  return roleNameProblem(name, [], roleId);
+}
+
 // ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
@@ -118,8 +124,7 @@ export default function RoleDetailPage() {
 
   // Reserved names are caught before saving; a duplicate is only known once
   // the server answers.
-  const nameProblem =
-    serverNameProblem ?? (role && name.trim() !== role.name ? roleNameProblem(name, [], roleId) : null);
+  const nameProblem = serverNameProblem ?? editedNameProblem(role, name, roleId);
   const nameError = nameProblem ? t(roleNameProblemKey(nameProblem), { name: name.trim() }) : null;
 
   const handleSave = async () => {

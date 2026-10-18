@@ -59,6 +59,67 @@ function getAppCodeFromPathname(pathname: string): string | null {
   return segments[0];
 }
 
+type InstalledAppList = NonNullable<ReturnType<typeof useInstalledApps>['data']>;
+type Permissions = ReturnType<typeof usePermissionsMaybe>;
+
+/** Where to send the member instead, and the app that isn't installed (for the toast). */
+interface AccessRedirect {
+  to: string;
+  notInstalledApp?: string;
+}
+
+/**
+ * Guest gate: redirect to /weldchat for any path outside the guest allowlist.
+ * Root path "/" is also redirected so guests land directly in chat instead of
+ * an empty dashboard.
+ */
+function guestRedirect(pathname: string): AccessRedirect | null {
+  if (matchesPrefix(pathname, GUEST_ALLOWED_PREFIXES) || pathname === GUEST_FALLBACK_PATH) return null;
+  return { to: GUEST_FALLBACK_PATH };
+}
+
+/**
+ * EMPLOYEE members: My HR + WeldChat only; "/" lands them in My HR (or chat,
+ * should WeldHR have been uninstalled).
+ */
+function employeeRedirect(pathname: string, installedApps: InstalledAppList): AccessRedirect | null {
+  const allowed = EMPLOYEE_ALLOWED_PATHS.includes(pathname) || matchesPrefix(pathname, EMPLOYEE_ALLOWED_PREFIXES);
+  const fallback = installedApps.some((app) => app.appCode === 'weldhr') ? EMPLOYEE_FALLBACK_PATH : GUEST_FALLBACK_PATH;
+  return allowed || pathname === fallback ? null : { to: fallback };
+}
+
+/** Members: the app behind the path must be installed and readable. */
+function memberRedirect(pathname: string, installedApps: InstalledAppList, perms: Permissions): AccessRedirect | null {
+  // Always allow root and system paths
+  if (pathname === '/' || matchesPrefix(pathname, ALWAYS_ALLOWED_PREFIXES)) return null;
+
+  // WeldObjects live at `/objects/{slug}`. The slug is the object's code in
+  // the installed-app list, which only holds active objects the member may
+  // read, so being listed is the whole check.
+  const [firstSegment, objectSlug] = pathname.split('/').filter(Boolean);
+  if (firstSegment === 'objects') {
+    const isListed = installedApps.some((app) => app.appType === 'object' && app.appCode === objectSlug);
+    return isListed ? null : { to: '/' };
+  }
+
+  const appCode = getAppCodeFromPathname(pathname);
+  if (!appCode) return null;
+
+  // Check 1: Is the app installed for this workspace?
+  if (!installedApps.some((app) => app.appCode === appCode)) return { to: '/', notInstalledApp: appCode };
+
+  // Check 2: Does the user have any permission for this app?
+  // Uses the platform-level APP_PERMISSION_OBJECTS map, which covers both
+  // legacy apps (auto-derived from the migration map) and apps introduced
+  // after the permissions refactor (e.g. weldcall). Checked in THIS app:
+  // `companies` granted only in WeldCRM does not open WeldDesk.
+  if (perms && !perms.isOwner) {
+    const objects = getAppPermissionObjects(appCode);
+    if (objects.length === 0 || !perms.hasAnyObject(objects, appCode)) return { to: '/' };
+  }
+  return null;
+}
+
 export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
   const router = useRouter();
@@ -76,81 +137,23 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
     // here would falsely trip the "app not installed" redirect.
     if (!installedApps) return;
 
-    // Guest gate runs first — redirect to /weldchat for any path outside
-    // the guest allowlist. Root path "/" is also redirected so guests
-    // land directly in chat instead of an empty dashboard.
-    if (isGuest) {
-      if (!matchesPrefix(pathname, GUEST_ALLOWED_PREFIXES) && pathname !== GUEST_FALLBACK_PATH) {
-        router.replace(GUEST_FALLBACK_PATH);
-      }
-      return;
-    }
+    let redirect: AccessRedirect | null;
+    if (isGuest) redirect = guestRedirect(pathname);
+    else if (isEmployeeMember) redirect = employeeRedirect(pathname, installedApps);
+    else redirect = memberRedirect(pathname, installedApps, perms);
+    if (!redirect) return;
 
-    // EMPLOYEE members: My HR + WeldChat only; "/" lands them in My HR
-    // (or chat, should WeldHR have been uninstalled).
-    if (isEmployeeMember) {
-      const allowed =
-        EMPLOYEE_ALLOWED_PATHS.includes(pathname) || matchesPrefix(pathname, EMPLOYEE_ALLOWED_PREFIXES);
-      const fallback = installedApps.some((app) => app.appCode === 'weldhr')
-        ? EMPLOYEE_FALLBACK_PATH
-        : GUEST_FALLBACK_PATH;
-      if (!allowed && pathname !== fallback) {
-        router.replace(fallback);
-      }
-      return;
+    // Say why the page didn't open, for a first-party app (an unknown first
+    // segment is just a bad URL and keeps the silent redirect).
+    const appName = redirect.notInstalledApp ? getFirstPartyAppName(redirect.notInstalledApp) : null;
+    if (appName) {
+      toast.info(t('common.empty.appNotInstalledNamed', { app: appName }), {
+        id: `app-not-installed-${redirect.notInstalledApp}`,
+        description: t('common.empty.appNotInstalledHint'),
+        action: { label: t('common.empty.openAppStore'), onClick: () => router.push('/appstore') },
+      });
     }
-
-    // Always allow root and system paths
-    if (
-      pathname === '/' ||
-      ALWAYS_ALLOWED_PREFIXES.some(
-        (prefix) => pathname === prefix || pathname.startsWith(prefix + '/')
-      )
-    ) {
-      return;
-    }
-
-    // WeldObjects live at `/objects/{slug}`. The slug is the object's code in
-    // the installed-app list, which only holds active objects the member may
-    // read, so being listed is the whole check.
-    const [firstSegment, objectSlug] = pathname.split('/').filter(Boolean);
-    if (firstSegment === 'objects') {
-      const isListed = installedApps.some((app) => app.appType === 'object' && app.appCode === objectSlug);
-      if (!isListed) router.replace('/');
-      return;
-    }
-
-    const appCode = getAppCodeFromPathname(pathname);
-    if (!appCode) return;
-
-    // Check 1: Is the app installed for this workspace?
-    const isInstalled = installedApps.some((app) => app.appCode === appCode);
-    if (!isInstalled) {
-      // Say why the page didn't open, for a first-party app (an unknown first
-      // segment is just a bad URL and keeps the silent redirect).
-      const appName = getFirstPartyAppName(appCode);
-      if (appName) {
-        toast.info(t('common.empty.appNotInstalledNamed', { app: appName }), {
-          id: `app-not-installed-${appCode}`,
-          description: t('common.empty.appNotInstalledHint'),
-          action: { label: t('common.empty.openAppStore'), onClick: () => router.push('/appstore') },
-        });
-      }
-      router.replace('/');
-      return;
-    }
-
-    // Check 2: Does the user have any permission for this app?
-    // Uses the platform-level APP_PERMISSION_OBJECTS map, which covers both
-    // legacy apps (auto-derived from the migration map) and apps introduced
-    // after the permissions refactor (e.g. weldcall). Checked in THIS app:
-    // `companies` granted only in WeldCRM does not open WeldDesk.
-    if (perms && !perms.isOwner) {
-      const objects = getAppPermissionObjects(appCode);
-      if (objects.length === 0 || !perms.hasAnyObject(objects, appCode)) {
-        router.replace('/');
-      }
-    }
+    router.replace(redirect.to);
   }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t]);
 
   return <>{children}</>;

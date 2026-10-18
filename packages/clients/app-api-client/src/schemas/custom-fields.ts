@@ -76,9 +76,11 @@ export function slugifyCustomFieldName(name: string, maxLength = 100): string {
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+/, '')
+    .split('_')
+    .filter(Boolean)
+    .join('_')
     .slice(0, maxLength)
-    .replace(/_+$/, '');
+    .replace(/_$/, '');
 }
 
 export const createCustomFieldSchema = z.object({

@@ -56,6 +56,40 @@ function majorVersion(version: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Native HTTP clients (no UI of their own, so "the Android app"). */
+function nativeClient(browser: string): SessionDeviceInfo | null {
+  if (/^okhttp$|^dalvik$/i.test(browser)) return { kind: 'android-app' };
+  if (/^cfnetwork$|^darwin$/i.test(browser)) return { kind: 'ios-app' };
+  return null;
+}
+
+/** Weld* mobile apps: WeldMail, WeldChat, WeldDesk, ... */
+function weldApp(browser: string): SessionDeviceInfo | null {
+  const weld = /^(weld[a-z]+)$/i.exec(browser);
+  if (!weld?.[1]) return null;
+  const rest = weld[1].slice(4).toLowerCase();
+  return { kind: 'weld-app', appName: `Weld${rest.charAt(0).toUpperCase()}${rest.slice(1)}` };
+}
+
+/** The WeldSuite desktop app, including Chromium-shell UAs Clerk reads as an ancient Safari. */
+function isDesktopApp(browser: string, os: string | null, isMobile: boolean, major: number | null): boolean {
+  if (/electron|webview2/i.test(browser)) return true;
+  if (isMobile) return false;
+  if (/^weldsuite$/i.test(browser)) return true;
+  if (!/^safari$/i.test(browser)) return false;
+  const nonAppleDesktop = os === 'Windows' || os === 'Linux';
+  const impossiblyOld = major !== null && major < 10;
+  return nonAppleDesktop || impossiblyOld;
+}
+
+/** Our own clients, which Clerk's parser misreads; null for an ordinary browser. */
+function ownClient(browser: string, os: string | null, isMobile: boolean, major: number | null): SessionDeviceInfo | null {
+  const native = nativeClient(browser);
+  if (native) return native;
+  if (isDesktopApp(browser, os, isMobile, major)) return { kind: 'desktop-app', os };
+  return weldApp(browser);
+}
+
 export function parseSessionDevice(activity: SessionActivityLike | null | undefined): SessionDeviceInfo {
   if (!activity) return { kind: 'unknown' };
 
@@ -65,29 +99,8 @@ export function parseSessionDevice(activity: SessionActivityLike | null | undefi
   const os = osFromDevice(deviceType);
   const major = majorVersion(activity.browserVersion);
 
-  if (browser) {
-    // Native HTTP clients (no UI of their own, so "the Android app").
-    if (/^okhttp$|^dalvik$/i.test(browser)) return { kind: 'android-app' };
-    if (/^cfnetwork$|^darwin$/i.test(browser)) return { kind: 'ios-app' };
-
-    // WeldSuite desktop app.
-    if (/^weldsuite$/i.test(browser) && !isMobile) return { kind: 'desktop-app', os };
-    if (/electron|webview2/i.test(browser)) return { kind: 'desktop-app', os };
-
-    // Weld* mobile apps: WeldMail, WeldChat, WeldDesk, ...
-    const weld = /^(weld[a-z]+)$/i.exec(browser);
-    if (weld?.[1]) {
-      const rest = weld[1].slice(4).toLowerCase();
-      return { kind: 'weld-app', appName: `Weld${rest.charAt(0).toUpperCase()}${rest.slice(1)}` };
-    }
-
-    // Chromium-shell UAs that Clerk reads as an ancient Safari on a desktop OS.
-    if (/^safari$/i.test(browser)) {
-      const nonAppleDesktop = os === 'Windows' || os === 'Linux';
-      const impossiblyOld = major !== null && major < 10;
-      if (!isMobile && (nonAppleDesktop || impossiblyOld)) return { kind: 'desktop-app', os };
-    }
-  }
+  const own = browser ? ownClient(browser, os, isMobile, major) : null;
+  if (own) return own;
 
   if (!browser && !deviceType) return { kind: 'unknown' };
 

@@ -1,7 +1,7 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
-import { useEffect, useState, memo } from 'react';
+import { useEffect, useState, memo, type ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -777,24 +777,26 @@ function PlanCardPrice({
 }>) {
   const t = useTranslations();
   const { t: i18n } = useI18n();
+  let price: ReactNode;
+  if (isFreePlan(plan)) {
+    price = i18n.settings.billingComparison.planCard.free;
+  } else if (hasNoPublicPrice(plan)) {
+    price = t('sweep.settings.billing.onRequest');
+  } else {
+    price = (
+      <NumberFlow
+        value={isAnnual
+          ? Math.round(yearlyPriceOf(plan) / 12) / 100
+          : plan.monthlyPrice / 100}
+        format={{ style: 'currency', currency: planCurrency(plan), currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 2 }}
+        transformTiming={{ duration: 400, easing: 'ease-out' }}
+      />
+    );
+  }
   return (
     <div className="mb-1">
       <div className="flex items-center gap-2">
-        <span className="text-3xl font-semibold">
-          {isFreePlan(plan)
-            ? i18n.settings.billingComparison.planCard.free
-            : hasNoPublicPrice(plan)
-            ? t('sweep.settings.billing.onRequest')
-            : (
-              <NumberFlow
-                value={isAnnual
-                  ? Math.round(yearlyPriceOf(plan) / 12) / 100
-                  : plan.monthlyPrice / 100}
-                format={{ style: 'currency', currency: planCurrency(plan), currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 2 }}
-                transformTiming={{ duration: 400, easing: 'ease-out' }}
-              />
-            )}
-        </span>
+        <span className="text-3xl font-semibold">{price}</span>
         {!hasNoPublicPrice(plan) && isAnnual && annualSavingPercent(plan) > 0 && (
           <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
             {t('sweep.settings.billing.savePercent', { percent: annualSavingPercent(plan) })}
