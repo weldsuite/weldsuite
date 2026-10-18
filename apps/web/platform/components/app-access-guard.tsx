@@ -6,6 +6,7 @@ import { getFirstPartyAppName, useInstalledApps } from '@/hooks/use-installed-ap
 import { useIsEmployeeMember, useIsGuest } from '@/hooks/use-current-member';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getAppPermissionObjects } from '@/lib/apps/app-permission-objects';
+import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
 
 // `/documents` is the shared full-screen document editor — an app-agnostic
 // surface keyed by file id, reachable from WeldFlow, WeldDrive, etc. Its first
@@ -120,6 +121,36 @@ function memberRedirect(pathname: string, installedApps: InstalledAppList, perms
   return null;
 }
 
+/**
+ * Say why a first-party app's page didn't open (an unknown first segment is
+ * just a bad URL and keeps the silent redirect). A member's installed-app list
+ * only holds the apps their role grants, so "not installed" plus the App Store
+ * link is only said to someone who manages apps, whose list is the full set;
+ * everyone else gets wording that covers both "not installed" and "no access".
+ */
+function notifyUnavailableApp(
+  appCode: string,
+  canManageApps: boolean,
+  t: ReturnType<typeof useTranslations>,
+  openAppStore: () => void,
+): void {
+  const app = getFirstPartyAppName(appCode);
+  if (!app) return;
+  const id = `app-not-installed-${appCode}`;
+  if (canManageApps) {
+    toast.info(t('common.empty.appNotInstalledNamed', { app }), {
+      id,
+      description: t('common.empty.appNotInstalledHint'),
+      action: { label: t('common.empty.openAppStore'), onClick: openAppStore },
+    });
+  } else {
+    toast.info(t('common.empty.appUnavailableNamed', { app }), {
+      id,
+      description: t('common.empty.appUnavailableHint'),
+    });
+  }
+}
+
 export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
   const router = useRouter();
@@ -128,6 +159,7 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
   const isGuest = useIsGuest();
   const isEmployeeMember = useIsEmployeeMember();
   const t = useTranslations();
+  const { data: canManageApps } = useCanManageApps();
 
   useEffect(() => {
     if (isLoading || perms?.isLoading) return;
@@ -143,18 +175,11 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
     else redirect = memberRedirect(pathname, installedApps, perms);
     if (!redirect) return;
 
-    // Say why the page didn't open, for a first-party app (an unknown first
-    // segment is just a bad URL and keeps the silent redirect).
-    const appName = redirect.notInstalledApp ? getFirstPartyAppName(redirect.notInstalledApp) : null;
-    if (appName) {
-      toast.info(t('common.empty.appNotInstalledNamed', { app: appName }), {
-        id: `app-not-installed-${redirect.notInstalledApp}`,
-        description: t('common.empty.appNotInstalledHint'),
-        action: { label: t('common.empty.openAppStore'), onClick: () => router.push('/appstore') },
-      });
+    if (redirect.notInstalledApp) {
+      notifyUnavailableApp(redirect.notInstalledApp, canManageApps === true, t, () => router.push('/appstore'));
     }
     router.replace(redirect.to);
-  }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t]);
+  }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t, canManageApps]);
 
   return <>{children}</>;
 }

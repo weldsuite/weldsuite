@@ -118,7 +118,7 @@ export function DepartmentsTab() {
     {
       id: 'head',
       header: t('weldhr.settings.departments.head'),
-      width: 'hidden @3xl:block w-[140px]',
+      width: 'hidden @xl:block w-[140px]',
       render: (dept) => (
         <span className="text-muted-foreground">
           {dept.headEmployeeId ? t('weldhr.settings.departments.headAssigned') : '—'}
