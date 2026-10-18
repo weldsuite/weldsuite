@@ -443,17 +443,55 @@ export async function resolveEmployeeRefs(db: Database, refs: string[]) {
   return out;
 }
 
+interface AttendanceImportRow {
+  employee: string;
+  date: string;
+  clockIn?: string | null;
+  clockOut?: string | null;
+  breakMinutes?: number;
+  status?: string;
+  notes?: string | null;
+}
+
+/**
+ * Import one row for a resolved employee: upsert the imported record of that
+ * day (re-importing updates instead of duplicating). With `dryRun` it only
+ * checks the times and says what it would do. Throws what the row cannot be.
+ */
+async function importAttendanceRow(
+  db: Database,
+  employeeId: string,
+  row: AttendanceImportRow,
+  createdBy: string,
+  dryRun: boolean,
+): Promise<'created' | 'updated'> {
+  const [existing] = await db
+    .select({ id: att.id })
+    .from(att)
+    .where(and(eq(att.employeeId, employeeId), eq(att.date, row.date), eq(att.source, 'import')))
+    .limit(1);
+  if (dryRun) {
+    assertAttendanceTimes(row.clockIn ? new Date(row.clockIn) : null, row.clockOut ? new Date(row.clockOut) : null, row.breakMinutes ?? 0);
+    return existing ? 'updated' : 'created';
+  }
+  const write = {
+    clockIn: row.clockIn ?? null,
+    clockOut: row.clockOut ?? null,
+    breakMinutes: row.breakMinutes,
+    status: row.status,
+    notes: row.notes ?? null,
+  };
+  if (existing) {
+    await updateAttendance(db, existing.id, write);
+    return 'updated';
+  }
+  await createAttendance(db, { employeeId, date: row.date, ...write }, { createdBy, source: 'import' });
+  return 'created';
+}
+
 export async function importAttendance(
   db: Database,
-  rows: Array<{
-    employee: string;
-    date: string;
-    clockIn?: string | null;
-    clockOut?: string | null;
-    breakMinutes?: number;
-    status?: string;
-    notes?: string | null;
-  }>,
+  rows: AttendanceImportRow[],
   createdBy: string,
   /** Validate every row (and count what would be created / updated) without writing. */
   opts: { dryRun?: boolean } = {},
@@ -468,31 +506,7 @@ export async function importAttendance(
       continue;
     }
     try {
-      const [existing] = await db
-        .select({ id: att.id })
-        .from(att)
-        .where(and(eq(att.employeeId, employeeId), eq(att.date, row.date), eq(att.source, 'import')))
-        .limit(1);
-      if (opts.dryRun) {
-        assertAttendanceTimes(row.clockIn ? new Date(row.clockIn) : null, row.clockOut ? new Date(row.clockOut) : null, row.breakMinutes ?? 0);
-        if (existing) result.updated += 1;
-        else result.created += 1;
-        continue;
-      }
-      const write = {
-        clockIn: row.clockIn ?? null,
-        clockOut: row.clockOut ?? null,
-        breakMinutes: row.breakMinutes,
-        status: row.status,
-        notes: row.notes ?? null,
-      };
-      if (existing) {
-        await updateAttendance(db, existing.id, write);
-        result.updated += 1;
-      } else {
-        await createAttendance(db, { employeeId, date: row.date, ...write }, { createdBy, source: 'import' });
-        result.created += 1;
-      }
+      result[await importAttendanceRow(db, employeeId, row, createdBy, Boolean(opts.dryRun))] += 1;
     } catch (err) {
       result.errors.push({ row: index + 1, reason: err instanceof Error ? err.message : 'Could not import row' });
     }
@@ -611,6 +625,7 @@ type LeaveTypeInput = {
   isPaid?: boolean;
   requiresApproval?: boolean;
   defaultAllowanceDays?: number | null;
+  overAllowance?: 'allow' | 'block';
   isActive?: boolean;
 };
 
@@ -708,6 +723,7 @@ export async function leaveBalances(db: Database, employeeId: string, year: numb
       name: type.name,
       color: type.color,
       isPaid: type.isPaid,
+      overAllowance: type.overAllowance,
       allowance,
       fullAllowance,
       prorated,
@@ -721,6 +737,30 @@ export async function leaveBalances(db: Database, employeeId: string, year: numb
 // ---------------------------------------------------------------------------
 // Leave requests
 // ---------------------------------------------------------------------------
+
+/**
+ * For a leave type set to `block`: refuse `days` that do not fit in what is
+ * left of the employee's allowance for the year the leave starts in.
+ * `pendingCounts` is true when filing a request (other pending requests are
+ * already promised) and false when approving one (the request being approved
+ * is itself pending). Types set to `allow`, and unlimited ones, pass.
+ */
+async function assertWithinAllowance(
+  db: Database,
+  request: { employeeId: string; leaveTypeId: string; startDate: string; days: number },
+  pendingCounts: boolean,
+) {
+  const balance = (await leaveBalances(db, request.employeeId, yearOf(request.startDate))).find(
+    (b) => b.leaveTypeId === request.leaveTypeId,
+  );
+  if (!balance || balance.overAllowance !== 'block' || balance.remaining === null) return;
+  const available = Math.round((balance.remaining - (pendingCounts ? balance.pending : 0)) * 10) / 10;
+  if (request.days > available) {
+    throw new HrConflictError(
+      `This request is ${request.days} days, but only ${Math.max(available, 0)} days of ${balance.name} are left, and ${balance.name} cannot go over the allowance`,
+    );
+  }
+}
 
 export async function requireLeaveRequest(db: Database, id: string) {
   const [row] = await db.select().from(lr).where(eq(lr.id, id)).limit(1);
@@ -793,6 +833,7 @@ export async function createLeaveRequest(
 
   const days = input.days ?? workingDaysBetween(input.startDate, input.endDate);
   if (days <= 0) throw new HrValidationError('The selected dates contain no working days');
+  await assertWithinAllowance(db, { ...input, days }, true);
 
   const autoApprove = !type.requiresApproval;
   const now = new Date();
@@ -824,6 +865,7 @@ export async function reviewLeaveRequest(
   if (existing.status !== 'pending') {
     throw new HrConflictError(`This request is already ${existing.status}`);
   }
+  if (input.decision === 'approved') await assertWithinAllowance(db, existing, false);
   const [row] = await db
     .update(lr)
     .set({ status: input.decision, reviewNote: input.note ?? null, reviewedBy, reviewedAt: new Date(), updatedAt: new Date() })

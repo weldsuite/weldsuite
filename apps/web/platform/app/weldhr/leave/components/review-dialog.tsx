@@ -38,6 +38,8 @@ export function LeaveReviewDialog({
   // `remaining` is allowance minus approved days; this request is still pending, so it is not in there yet.
   const balance = balances?.find((b) => b.leaveTypeId === request.leaveTypeId);
   const shortfall = balance && balance.remaining !== null ? Math.round((request.days - balance.remaining) * 10) / 10 : 0;
+  // A leave type set to block cannot be approved past the allowance; the server refuses it too.
+  const blocked = decision === 'approved' && shortfall > 0 && balance?.overAllowance === 'block';
 
   async function submit() {
     setFailure(null);
@@ -62,7 +64,16 @@ export function LeaveReviewDialog({
 
         <div className="space-y-3">
           <ErrorBanner error={failure} />
-          {balance && shortfall > 0 && (
+          {blocked && balance && (
+            <ErrorBanner
+              error={t('weldhr.leave.requests.overAllowanceBlockedOnApprove', {
+                days: request.days,
+                remaining: Math.max(balance.remaining ?? 0, 0),
+                type: balance.name,
+              })}
+            />
+          )}
+          {balance && shortfall > 0 && !blocked && (
             <WarningNote>
               {t('weldhr.leave.requests.overAllowanceOnApprove', {
                 days: request.days,
@@ -90,7 +101,7 @@ export function LeaveReviewDialog({
           </Button>
           <Button
             onClick={() => void submit()}
-            disabled={review.isPending}
+            disabled={review.isPending || blocked}
             className={cn(decision === 'rejected' && buttonVariants({ variant: 'destructive' }))}
           >
             {review.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

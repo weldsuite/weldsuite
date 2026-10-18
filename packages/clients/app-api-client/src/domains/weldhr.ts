@@ -314,14 +314,19 @@ export interface HrLeaveType {
   isPaid: boolean;
   requiresApproval: boolean;
   defaultAllowanceDays: number | null;
+  /** A request longer than what is left of the allowance: `allow` with a warning, or `block`. */
+  overAllowance: HrLeaveOverAllowance;
   isActive: boolean;
 }
+
+export type HrLeaveOverAllowance = 'allow' | 'block';
 
 export interface HrLeaveBalance {
   leaveTypeId: string;
   name: string;
   color: string | null;
   isPaid: boolean;
+  overAllowance: HrLeaveOverAllowance;
   allowance: number | null;
   /** The leave type's yearly default before pro-rating; equals `allowance` unless `prorated`. */
   fullAllowance: number | null;

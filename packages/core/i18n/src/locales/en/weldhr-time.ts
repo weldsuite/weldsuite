@@ -299,6 +299,8 @@ export const weldhrTime = {
       reject: 'Reject',
       cancel: 'Cancel request',
       keepRequest: 'Keep request',
+      overAllowanceBlockedOnApprove:
+        'This request is {days} days, but only {remaining} days of {type} are left, and {type} cannot go over the allowance. Reject it, or raise the allowance under Balances first.',
       overAllowanceOnApprove:
         'This request is {days} days, but only {remaining} days of {type} are left. Approving it puts the employee {over} days over their allowance.',
       delete: 'Delete',
@@ -335,6 +337,8 @@ export const weldhrTime = {
         overAllowance:
           'This request is {days} days, but only {available} of the {allowance} days of {type} are still free (pending requests included). You can still submit it.',
         beforeStartDate: "This leave starts before the employee's start date ({date}).",
+        overAllowanceBlocked:
+          'This request is {days} days, but only {available} days of {type} are left, and {type} cannot go over the allowance.',
       },
     },
     calendar: {

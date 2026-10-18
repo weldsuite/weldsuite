@@ -42,6 +42,10 @@ export const weldhrAdmin = {
       requiresApproval: 'Requires approval',
       allowance: 'Default allowance',
       allowanceHint: 'Leave empty for an unlimited allowance.',
+      blockOverAllowance: 'Block requests over the allowance',
+      blockOverAllowanceHint:
+        'When on, a request longer than what is left of the allowance cannot be submitted or approved. When off, HR and the employee only see a warning.',
+      blocksOverAllowance: 'No going over',
       unlimited: 'Unlimited',
       daysPerYear: '{count} day/year',
       daysPerYearPlural: '{count} days/year',

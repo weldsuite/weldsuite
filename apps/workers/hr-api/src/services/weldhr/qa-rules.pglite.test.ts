@@ -11,7 +11,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { createAssignment, listAssignments, listClientAccounts, requireCompany } from './assignments';
 import { createDepartment, createEmployee, deleteDepartment, requireEmployee, updateDepartment } from './employees';
-import { deleteChecklist, ensureDefaultTemplates, listTemplates, startChecklist } from './lifecycle';
+import { cancelChecklist, deleteChecklist, ensureDefaultTemplates, listTemplates, settleChecklist, startChecklist } from './lifecycle';
 import {
   createCoachingLog,
   createEvaluation,
@@ -21,7 +21,17 @@ import {
   updateMilestone,
 } from './performance';
 import { HrConflictError, HrNotFoundError, HrValidationError, addDays, todayIso } from './shared';
-import { createAttendance, createShift, importAttendance, leaveBalances, updateShift } from './time';
+import {
+  createAttendance,
+  createLeaveRequest,
+  createShift,
+  importAttendance,
+  leaveBalances,
+  listLeaveRequests,
+  reviewLeaveRequest,
+  setAllowance,
+  updateShift,
+} from './time';
 
 let db: Database;
 let evaId: string;
@@ -127,6 +137,38 @@ describe('leave balances', () => {
   });
 });
 
+describe('leave over the allowance', () => {
+  // A 10-day allowance; 2027 so nothing above (shifts, attendance) gets in the way.
+  const request = (startDate: string, endDate: string, leaveTypeId: string) =>
+    createLeaveRequest(db, { employeeId: evaId, leaveTypeId, startDate, endDate }, 'user_hr');
+
+  beforeAll(async () => {
+    await db.insert(schema.hrLeaveTypes).values([
+      { id: 'hrlvt_strict', name: 'Strict leave', defaultAllowanceDays: 10, overAllowance: 'block' },
+      { id: 'hrlvt_lenient', name: 'Lenient leave', defaultAllowanceDays: 10 },
+    ]);
+  });
+
+  it('lets a type set to allow go over (the dialogs only warn)', async () => {
+    await expect(request('2027-03-01', '2027-03-19', 'hrlvt_lenient')).resolves.toMatchObject({ days: 15, status: 'pending' });
+  });
+
+  it('refuses a request that does not fit, counting pending requests', async () => {
+    const first = await request('2027-01-04', '2027-01-08', 'hrlvt_strict'); // 5 days, pending
+    await expect(request('2027-02-01', '2027-02-08', 'hrlvt_strict')).rejects.toThrow('only 5 days of Strict leave are left');
+    await expect(request('2027-02-01', '2027-02-05', 'hrlvt_strict')).resolves.toMatchObject({ days: 5 });
+    await reviewLeaveRequest(db, first.id, { decision: 'approved' }, 'user_hr');
+  });
+
+  it('refuses to approve past the allowance, e.g. after the allowance was lowered', async () => {
+    const pending = (await listLeaveRequests(db, { employeeId: evaId, status: 'pending' })).find((r) => r.leaveTypeId === 'hrlvt_strict')!;
+    await setAllowance(db, { employeeId: evaId, leaveTypeId: 'hrlvt_strict', year: 2027, days: 7 });
+    await expect(reviewLeaveRequest(db, pending.id, { decision: 'approved' }, 'user_hr')).rejects.toBeInstanceOf(HrConflictError);
+    // Rejecting is always possible.
+    await expect(reviewLeaveRequest(db, pending.id, { decision: 'rejected' }, 'user_hr')).resolves.toMatchObject({ status: 'rejected' });
+  });
+});
+
 describe('client assignments', () => {
   it('refuses a second running assignment to the same client', async () => {
     await db.insert(schema.companies).values({ id: 'cmp_beta', name: 'Import Beta BV', displayName: 'Import Beta BV' });
@@ -168,15 +210,26 @@ describe('offboarding', () => {
     await expect(startChecklist(db, futureStarterId, { templateId, force: true }, 'user_hr')).rejects.toBeInstanceOf(HrValidationError);
   });
 
-  it('records the last working day and restores the status when the checklist is deleted', async () => {
+  it('keeps the last working day on the checklist; cancelling leaves the employee as they were', async () => {
     const lastDay = addDays(TODAY, 60);
     const checklist = await startChecklist(db, futureStarterId, { templateId, anchorDate: lastDay, force: true }, 'user_hr');
-    expect(await requireEmployee(db, futureStarterId)).toMatchObject({ status: 'offboarding', endDate: lastDay });
+    expect(checklist.anchorDate).toBe(lastDay);
+    // The end date is only written when the offboarding completes.
+    expect(await requireEmployee(db, futureStarterId)).toMatchObject({ status: 'offboarding', endDate: null });
     const tasks = await db.select().from(schema.hrChecklistTasks).where(eq(schema.hrChecklistTasks.checklistId, checklist.id));
     expect(tasks.every((task) => task.dueDate !== null && task.dueDate >= TODAY)).toBe(true);
 
+    await cancelChecklist(db, checklist.id);
+    expect(await requireEmployee(db, futureStarterId)).toMatchObject({ status: 'onboarding', endDate: null });
     await deleteChecklist(db, checklist.id);
-    expect((await requireEmployee(db, futureStarterId)).status).toBe('onboarding');
+  });
+
+  it('writes the last working day as the end date when the offboarding completes', async () => {
+    const lastDay = addDays(TODAY, 45);
+    const checklist = await startChecklist(db, futureStarterId, { templateId, anchorDate: lastDay, force: true }, 'user_hr');
+    await db.update(schema.hrChecklistTasks).set({ completedAt: new Date() }).where(eq(schema.hrChecklistTasks.checklistId, checklist.id));
+    await settleChecklist(db, checklist.id);
+    expect(await requireEmployee(db, futureStarterId)).toMatchObject({ status: 'terminated', endDate: lastDay });
   });
 });
 

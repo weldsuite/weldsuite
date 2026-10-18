@@ -43,6 +43,10 @@ export const weldhrAdmin = {
       requiresApproval: 'Goedkeuring vereist',
       allowance: 'Standaard tegoed',
       allowanceHint: 'Laat leeg voor een onbeperkt tegoed.',
+      blockOverAllowance: 'Aanvragen boven het tegoed blokkeren',
+      blockOverAllowanceHint:
+        'Als dit aan staat, kan een aanvraag die langer is dan het resterende tegoed niet worden ingediend of goedgekeurd. Staat het uit, dan zien HR en de medewerker alleen een waarschuwing.',
+      blocksOverAllowance: 'Niet overschrijden',
       unlimited: 'Onbeperkt',
       daysPerYear: '{count} dag/jaar',
       daysPerYearPlural: '{count} dagen/jaar',

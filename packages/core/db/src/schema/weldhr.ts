@@ -257,6 +257,12 @@ export const hrChecklists = pgTable('hr_checklists', {
   kind: varchar('kind', { length: 20 }).notNull(),
   name: varchar('name', { length: 160 }).notNull(),
   status: varchar('status', { length: 20 }).notNull().default('in_progress'),
+  /**
+   * The date task due dates count from: the start date (onboarding) or the
+   * last working day (offboarding). An offboarding writes it to the
+   * employee's end date only when it completes, so a cancelled one leaves no trace.
+   */
+  anchorDate: date('anchor_date'),
   startedBy: varchar('started_by', { length: 255 }),
   startedAt: timestamp('started_at').notNull().defaultNow(),
   completedAt: timestamp('completed_at'),
@@ -347,6 +353,11 @@ export const hrLeaveTypes = pgTable('hr_leave_types', {
   requiresApproval: boolean('requires_approval').notNull().default(true),
   /** Days per calendar year. Null = unlimited (e.g. unpaid leave). */
   defaultAllowanceDays: doublePrecision('default_allowance_days'),
+  /**
+   * A request longer than what is left of the allowance: `allow` (HR and the
+   * employee see a warning) or `block` (refused on request and on approval).
+   */
+  overAllowance: varchar('over_allowance', { length: 10 }).$type<'allow' | 'block'>().notNull().default('allow'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),

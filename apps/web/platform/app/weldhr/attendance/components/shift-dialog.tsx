@@ -29,6 +29,26 @@ function timeOf(iso: string): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/**
+ * A shift's times as entered ("HH:mm"). An end at or before the start is the
+ * next morning: 22:00 → 06:00 is an eight-hour night shift. A break is
+ * optional, but needs both ends and has to sit inside the shift.
+ */
+function shiftWindow(start: string, end: string, breakStart: string, breakEnd: string) {
+  const shiftMinutes = start && end ? minutesAfter(start, end) : 0;
+  /** Minutes from the shift start to `time`, on the shift's own clock (past midnight for a night shift). */
+  const offset = (time: string) => (time === start ? 0 : minutesAfter(start, time));
+  const hasBreak = Boolean(breakStart || breakEnd);
+  const breakInside = Boolean(breakStart && breakEnd) && offset(breakStart) < offset(breakEnd) && offset(breakEnd) <= shiftMinutes;
+  return {
+    shiftMinutes,
+    endsNextDay: Boolean(start && end && end <= start),
+    offset,
+    hasBreak,
+    breakValid: !hasBreak || breakInside,
+  };
+}
+
 export function ShiftDialog({
   defaultEmployeeId,
   defaultEmployeeName,
@@ -68,16 +88,7 @@ export function ShiftDialog({
   const [failure, setFailure] = useState<string | null>(null);
 
   const pending = createShift.isPending || updateShift.isPending;
-  // An end at or before the start is the next morning: 22:00 → 06:00 is an eight-hour night shift.
-  const shiftMinutes = start && end ? minutesAfter(start, end) : 0;
-  const endsNextDay = Boolean(start && end && end <= start);
-  /** Minutes from the shift start to `time`, on the shift's own clock (past midnight for a night shift). */
-  const offset = (time: string) => (time === start ? 0 : minutesAfter(start, time));
-  // A break is optional, but needs both ends and has to sit inside the shift.
-  const hasBreak = Boolean(breakStart || breakEnd);
-  const breakValid =
-    !hasBreak ||
-    (Boolean(breakStart && breakEnd) && offset(breakStart) < offset(breakEnd) && offset(breakEnd) <= shiftMinutes);
+  const { shiftMinutes, endsNextDay, offset, hasBreak, breakValid } = shiftWindow(start, end, breakStart, breakEnd);
   const canSubmit = Boolean(employeeId && date && start && end) && breakValid && !pending;
 
   let submitLabel: string;

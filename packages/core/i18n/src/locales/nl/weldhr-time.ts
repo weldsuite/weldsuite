@@ -299,6 +299,8 @@ export const weldhrTime = {
       reject: 'Afwijzen',
       cancel: 'Aanvraag annuleren',
       keepRequest: 'Aanvraag behouden',
+      overAllowanceBlockedOnApprove:
+        'Deze aanvraag is {days} dagen, maar er zijn nog maar {remaining} dagen {type} over, en {type} mag het tegoed niet overschrijden. Wijs de aanvraag af, of verhoog eerst het tegoed onder Saldi.',
       overAllowanceOnApprove:
         'Deze aanvraag is {days} dagen, maar er zijn nog maar {remaining} dagen {type} over. Na goedkeuring zit de medewerker {over} dagen boven het tegoed.',
       delete: 'Verwijderen',
@@ -335,6 +337,8 @@ export const weldhrTime = {
         overAllowance:
           'Deze aanvraag is {days} dagen, maar van de {allowance} dagen {type} zijn er nog maar {available} vrij (lopende aanvragen meegerekend). Je kunt de aanvraag toch indienen.',
         beforeStartDate: 'Dit verlof begint voor de startdatum van de medewerker ({date}).',
+        overAllowanceBlocked:
+          'Deze aanvraag is {days} dagen, maar er zijn nog maar {available} dagen {type} over, en {type} mag het tegoed niet overschrijden.',
       },
     },
     calendar: {

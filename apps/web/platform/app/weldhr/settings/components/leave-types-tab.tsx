@@ -36,6 +36,7 @@ interface FormState {
   isPaid: boolean;
   requiresApproval: boolean;
   defaultAllowanceDays: string;
+  blockOverAllowance: boolean;
   isActive: boolean;
 }
 
@@ -46,6 +47,7 @@ const EMPTY_FORM: FormState = {
   isPaid: true,
   requiresApproval: true,
   defaultAllowanceDays: '',
+  blockOverAllowance: false,
   isActive: true,
 };
 
@@ -118,6 +120,9 @@ export function LeaveTypesTab() {
       render: (leaveType) => (
         <span className="tabular-nums">
           {formatAllowance(leaveType.defaultAllowanceDays)}
+          {leaveType.overAllowance === 'block' && leaveType.defaultAllowanceDays !== null && (
+            <span className="block text-xs text-muted-foreground">{t('weldhr.settings.leaveTypes.blocksOverAllowance')}</span>
+          )}
         </span>
       ),
     },
@@ -141,6 +146,7 @@ export function LeaveTypesTab() {
                   isPaid: leaveType.isPaid,
                   requiresApproval: leaveType.requiresApproval,
                   defaultAllowanceDays: leaveType.defaultAllowanceDays?.toString() ?? '',
+                  blockOverAllowance: leaveType.overAllowance === 'block',
                   isActive: leaveType.isActive,
                 })
             : undefined
@@ -192,6 +198,7 @@ function LeaveTypeDialog({ form, onClose }: Readonly<{ form: FormState; onClose:
       isPaid: state.isPaid,
       requiresApproval: state.requiresApproval,
       defaultAllowanceDays: allowance === '' ? null : Number(allowance),
+      overAllowance: state.blockOverAllowance ? ('block' as const) : ('allow' as const),
       isActive: state.isActive,
     };
     try {
@@ -243,6 +250,21 @@ function LeaveTypeDialog({ form, onClose }: Readonly<{ form: FormState; onClose:
             />
             <p className="text-xs text-muted-foreground">{t('weldhr.settings.leaveTypes.allowanceHint')}</p>
           </div>
+
+          {/* Only meaningful with an allowance: unlimited types never run out. */}
+          {state.defaultAllowanceDays.trim() !== '' && (
+            <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+              <div className="space-y-1">
+                <Label htmlFor="leave-block">{t('weldhr.settings.leaveTypes.blockOverAllowance')}</Label>
+                <p className="text-xs text-muted-foreground">{t('weldhr.settings.leaveTypes.blockOverAllowanceHint')}</p>
+              </div>
+              <Switch
+                id="leave-block"
+                checked={state.blockOverAllowance}
+                onCheckedChange={(checked) => setState({ ...state, blockOverAllowance: checked })}
+              />
+            </div>
+          )}
 
           <div className="flex items-center justify-between gap-4 rounded-md border p-3">
             <Label htmlFor="leave-paid">{t('weldhr.settings.leaveTypes.paid')}</Label>

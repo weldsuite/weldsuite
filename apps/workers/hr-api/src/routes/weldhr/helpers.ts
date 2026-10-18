@@ -111,25 +111,40 @@ function fieldLabel(path: ReadonlyArray<string | number>): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function describeTooSmall(field: string, issue: Extract<ZodIssue, { code: 'too_small' }>): string {
+  if (issue.type === 'string') {
+    return Number(issue.minimum) <= 1 ? `${field} is required` : `${field} needs at least ${issue.minimum} characters`;
+  }
+  if (issue.type === 'array') return `${field} needs at least ${issue.minimum} item(s)`;
+  return `${field} must be ${issue.inclusive ? 'at least' : 'more than'} ${issue.minimum}`;
+}
+
+function describeTooBig(field: string, issue: Extract<ZodIssue, { code: 'too_big' }>): string {
+  if (issue.type === 'string') return `${field} can be at most ${issue.maximum} characters`;
+  if (issue.type === 'array') return `${field} can have at most ${issue.maximum} item(s)`;
+  return `${field} must be ${issue.inclusive ? 'at most' : 'less than'} ${issue.maximum}`;
+}
+
+const STRING_FORMATS: Record<string, string> = {
+  email: 'a valid email address',
+  url: 'a valid URL',
+  datetime: 'a date and time',
+};
+
 /** One readable sentence per Zod issue, instead of Zod's "Number must be greater than or equal to 0". */
 export function describeIssue(issue: ZodIssue): string {
   const field = issue.path.length ? fieldLabel(issue.path) : 'Value';
   switch (issue.code) {
     case 'too_small':
-      if (issue.type === 'string') return Number(issue.minimum) <= 1 ? `${field} is required` : `${field} needs at least ${issue.minimum} characters`;
-      if (issue.type === 'array') return `${field} needs at least ${issue.minimum} item(s)`;
-      return `${field} must be ${issue.inclusive ? 'at least' : 'more than'} ${issue.minimum}`;
+      return describeTooSmall(field, issue);
     case 'too_big':
-      if (issue.type === 'string') return `${field} can be at most ${issue.maximum} characters`;
-      if (issue.type === 'array') return `${field} can have at most ${issue.maximum} item(s)`;
-      return `${field} must be ${issue.inclusive ? 'at most' : 'less than'} ${issue.maximum}`;
+      return describeTooBig(field, issue);
     case 'invalid_type':
       return issue.received === 'undefined' ? `${field} is required` : `${field} has the wrong type`;
-    case 'invalid_string':
-      if (issue.validation === 'email') return `${field} must be a valid email address`;
-      if (issue.validation === 'url') return `${field} must be a valid URL`;
-      if (issue.validation === 'datetime') return `${field} must be a date and time`;
-      return `${field}: ${issue.message}`;
+    case 'invalid_string': {
+      const format = typeof issue.validation === 'string' ? STRING_FORMATS[issue.validation] : undefined;
+      return format ? `${field} must be ${format}` : `${field}: ${issue.message}`;
+    }
     case 'invalid_enum_value':
       return `${field} must be one of ${issue.options.join(', ')}`;
     default:

@@ -17,6 +17,7 @@ export const hrChecklistKindSchema = z.enum(['onboarding', 'offboarding']);
 export const hrAssigneeRoleSchema = z.enum(['hr', 'manager', 'it', 'employee', 'other']);
 export const hrAttendanceStatusSchema = z.enum(['present', 'late', 'absent', 'excused', 'remote', 'half_day']);
 export const hrLeaveStatusSchema = z.enum(['pending', 'approved', 'rejected', 'cancelled']);
+export const hrLeaveOverAllowanceSchema = z.enum(['allow', 'block']);
 export const hrDeclarationCategorySchema = z.enum(['travel', 'meals', 'accommodation', 'equipment', 'training', 'other']);
 export const hrDeclarationStatusSchema = z.enum(['pending', 'approved', 'rejected', 'paid', 'cancelled']);
 export const hrCoachingCategorySchema = z.enum([
@@ -255,6 +256,8 @@ export const createHrLeaveTypeSchema = z.object({
   isPaid: z.boolean().optional(),
   requiresApproval: z.boolean().optional(),
   defaultAllowanceDays: z.number().min(0).max(366).nullable().optional(),
+  /** A request longer than what is left: `allow` with a warning (default) or `block`. */
+  overAllowance: hrLeaveOverAllowanceSchema.optional(),
   isActive: z.boolean().optional(),
 });
 export const updateHrLeaveTypeSchema = createHrLeaveTypeSchema.partial();
