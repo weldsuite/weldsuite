@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Bookmark, Check, Hash, MessageSquare, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
+import { useUser } from '@clerk/clerk-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -18,6 +19,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import {
   useBookmarks,
   useDeleteBookmark,
+  useDmChannels,
   useWorkspaceMembers,
   type ChatBookmark,
 } from '@/hooks/queries/use-weldchat-queries';
@@ -54,9 +56,13 @@ function formatRelative(
 
 const isDirectMessage = (bk: ChatBookmark) => bk.channelType === 'dm' || bk.channelType === 'group';
 
-/** A channel is `#name`; a DM goes by the people in it, without a `#`. */
-function conversationLabel(bk: ChatBookmark, directMessage: string): string {
-  if (isDirectMessage(bk)) return bk.channelName || directMessage;
+/**
+ * A channel is `#name`; a DM goes by the people in it, without a `#`. A DM's
+ * stored name is fixed at creation (the other members as its creator saw
+ * them), so DMs are labelled from `dmLabels` (current members), never from it.
+ */
+function conversationLabel(bk: ChatBookmark, dmLabels: Map<string, string>, directMessage: string): string {
+  if (isDirectMessage(bk)) return dmLabels.get(bk.channelId) || directMessage;
   return bk.channelName ? `#${bk.channelName}` : directMessage;
 }
 
@@ -87,14 +93,31 @@ export default function BookmarksPage() {
   const bookmarks: ChatBookmark[] = useMemo(() => data?.data ?? [], [data]);
   const page = t.weldchat.bookmarksPage;
 
+  // DM labels from each DM's current other members, like the sidebar rows.
+  const { user } = useUser();
+  const { data: dmsData } = useDmChannels();
+  const dmLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const dm of dmsData?.data ?? []) {
+      const others = (dm.otherMembers ?? []).filter((m) => m?.userId);
+      const label = others.length > 0
+        ? others.map((m) => m.name || m.email).filter(Boolean).join(', ')
+        : user?.fullName
+          ? st('sweep.weldchat.sidebar.selfDmLabel', { name: user.fullName })
+          : st('sweep.weldchat.sidebar.selfDmFallback');
+      if (label) map.set(dm.id, label);
+    }
+    return map;
+  }, [dmsData, user?.fullName, st]);
+
   // Conversations in first-saved order, for the filter and the groups.
   const conversations = useMemo(() => {
     const seen = new Map<string, string>();
     for (const bk of bookmarks) {
-      if (bk.channelId && !seen.has(bk.channelId)) seen.set(bk.channelId, conversationLabel(bk, page.directMessage));
+      if (bk.channelId && !seen.has(bk.channelId)) seen.set(bk.channelId, conversationLabel(bk, dmLabels, page.directMessage));
     }
     return Array.from(seen, ([id, label]) => ({ id, label }));
-  }, [bookmarks, page.directMessage]);
+  }, [bookmarks, dmLabels, page.directMessage]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => (
     conversations.length === 0 ? [] : [{
@@ -204,7 +227,7 @@ export default function BookmarksPage() {
 
           <span className="w-[200px] flex-shrink-0 flex items-center gap-1.5 min-w-0 text-sm text-gray-600 dark:text-muted-foreground">
             <ConversationIcon className="h-3.5 w-3.5 flex-shrink-0" />
-            <span className="truncate">{conversationLabel(bk, page.directMessage)}</span>
+            <span className="truncate">{conversationLabel(bk, dmLabels, page.directMessage)}</span>
           </span>
 
           <span className="w-[120px] flex-shrink-0 text-sm text-gray-600 dark:text-muted-foreground">
@@ -225,7 +248,7 @@ export default function BookmarksPage() {
         </div>
       </div>
     );
-  }, [openMessage, memberNames, page, st, t]);
+  }, [openMessage, memberNames, dmLabels, page, st, t]);
 
   return (
     <>
