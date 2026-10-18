@@ -1495,6 +1495,7 @@ export const projects = {
       savingChanges: 'Opslaan…',
       changesSaved: 'Alle wijzigingen opgeslagen',
       autoSaveHint: 'Wijzigingen worden automatisch opgeslagen.',
+      customFieldsLabel: 'Aangepaste velden',
       changeColorTitle: 'Kleur wijzigen',
       changeIconTitle: 'Pictogram wijzigen',
       // Status options

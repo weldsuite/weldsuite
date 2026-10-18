@@ -27,6 +27,7 @@ export {
   hydrateCustomFields,
   hydrateCustomFieldsOne,
   deleteValuesForEntity,
+  assertValidCustomFieldValues,
   CustomFieldValidationError,
 } from '@weldsuite/db/lib/custom-field-values';
 export type { CustomFieldMap, CustomFieldDefinitionRow };

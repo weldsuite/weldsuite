@@ -56,6 +56,8 @@ export interface ApiProject {
   isAdmin?: boolean;
   /** Linked customer/client display name, when the project is tied to a CRM record. */
   clientName?: string | null;
+  /** Project custom field values (`{ [slug]: value }`); absent when none are set. */
+  customFields?: Record<string, unknown> | null;
 }
 
 /** `/tasks` responses also carry `duration`/`repeat`/`customFields` (and,
@@ -682,6 +684,8 @@ export const projectsApi = {
       icon?: string;
       startDate?: string | null;
       endDate?: string | null;
+      /** The full set: a field left out is cleared. */
+      customFields?: Record<string, unknown> | null;
     },
   ) => appApiPatch<ApiProject>(`/projects/${projectId}`, data),
 

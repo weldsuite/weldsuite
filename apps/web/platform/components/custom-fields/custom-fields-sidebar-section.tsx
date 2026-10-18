@@ -61,6 +61,8 @@ interface CustomFieldsSidebarSectionProps {
    * read as part of the standard fields rather than a separate category.
    */
   layout?: 'stacked' | 'row';
+  /** Show the values without letting the viewer change them. */
+  readOnly?: boolean;
 }
 
 export function CustomFieldsSidebarSection({
@@ -70,6 +72,7 @@ export function CustomFieldsSidebarSection({
   onSaved,
   hideHeader,
   layout = 'stacked',
+  readOnly = false,
 }: Readonly<CustomFieldsSidebarSectionProps>) {
   const t = useTranslations();
   // Shared react-query cache (same key as the list grids' custom columns), so a
@@ -109,6 +112,7 @@ export function CustomFieldsSidebarSection({
             def={def}
             value={values?.[def.slug]}
             onUpdate={handleUpdateField}
+            readOnly={readOnly}
             layout="row"
           />
         ))}
@@ -128,6 +132,7 @@ export function CustomFieldsSidebarSection({
               def={def}
               value={values?.[def.slug]}
               onUpdate={handleUpdateField}
+            readOnly={readOnly}
             />
           ))}
         </div>
@@ -142,6 +147,7 @@ export function CustomFieldsSidebarSection({
               def={def}
               value={values?.[def.slug]}
               onUpdate={handleUpdateField}
+            readOnly={readOnly}
             />
           ))}
         </div>
@@ -196,11 +202,13 @@ function EditableCustomField({
   value,
   onUpdate,
   layout = 'stacked',
+  readOnly = false,
 }: Readonly<{
   def: CustomFieldDefinition;
   value: unknown;
   onUpdate: (slug: string, value: unknown) => Promise<void>;
   layout?: 'stacked' | 'row';
+  readOnly?: boolean;
 }>) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState<string>('');
@@ -255,14 +263,15 @@ function EditableCustomField({
     def,
     value,
     hasValue: value != null && value !== '' && !(Array.isArray(value) && value.length === 0),
-    isSaving,
+    // Read-only reuses the controls' disabled state and never enters edit mode.
+    isSaving: isSaving || readOnly,
     isEditing,
     editValue,
     inputRef,
     onEditValueChange: setEditValue,
     onSave: handleSave,
     onCancel: handleCancel,
-    onStartEdit: handleStartEdit,
+    onStartEdit: readOnly ? () => {} : handleStartEdit,
     onImmediateSave: handleImmediateSave,
   };
 

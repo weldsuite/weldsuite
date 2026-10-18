@@ -98,6 +98,7 @@ export {
   setValues,
   deleteValuesForEntity,
   syncValuesForEntity,
+  assertValidCustomFieldValues,
   CustomFieldValidationError,
   type CustomFieldMap,
   type CustomFieldDefinitionRow,
