@@ -23,12 +23,11 @@ import {
   useSaveKnowledgePageContent,
   useUpdateKnowledgePageMeta,
 } from '@/hooks/queries/use-knowledge-queries';
+import { DEFAULT_PAGE_TITLE } from './default-title';
 
 const AUTOSAVE_DELAY_MS = 1500;
 /** How many of this editor's own saves to remember when recognising their echo. */
 const SENT_CONTENT_HISTORY = 10;
-/** The title know-api stores for a page created without one. */
-const SERVER_DEFAULT_TITLE = 'Untitled';
 
 /** Stringify with sorted object keys, so equal content matches whatever key order the server returns. */
 function contentFingerprint(content: unknown): string {
@@ -102,7 +101,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   // placeholder, so typing replaces it instead of landing inside the word.
   const editableTitle = useCallback(
     (stored: string | null | undefined) =>
-      !stored || stored === SERVER_DEFAULT_TITLE || stored === t.page.untitled ? '' : stored,
+      !stored || stored === DEFAULT_PAGE_TITLE || stored === t.page.untitled ? '' : stored,
     [t],
   );
 
@@ -188,7 +187,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
       if (nextTitle.trim() === savedTitleRef.current.trim()) return;
       savedTitleRef.current = nextTitle;
       updateMeta.mutate(
-        { id: pageId, data: { title: nextTitle.trim() || t.page.untitled } },
+        { id: pageId, data: { title: nextTitle.trim() || DEFAULT_PAGE_TITLE } },
         { onError: () => toast.error(t.page.updateError) },
       );
     },

@@ -108,6 +108,18 @@ describe('WeldKnow page title', () => {
     );
   });
 
+  it('clearing a title saves the untranslated default, not the locale placeholder', () => {
+    page.title = 'Onboarding Guide';
+    render(<PageView pageId="kpag_1" />);
+    fireEvent.change(titleField(), { target: { value: '   ' } });
+    fireEvent.blur(titleField());
+
+    expect(updateMetaMutate).toHaveBeenCalledWith(
+      { id: 'kpag_1', data: { title: 'Untitled' } },
+      expect.anything(),
+    );
+  });
+
   it('saves nothing when the title is left unchanged', () => {
     render(<PageView pageId="kpag_1" />);
     fireEvent.blur(titleField());
