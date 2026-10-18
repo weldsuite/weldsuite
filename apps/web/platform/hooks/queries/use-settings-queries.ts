@@ -1044,6 +1044,8 @@ export const preferencesKey = [...settingsKeys.all, 'preferences'] as const;
 
 // Optimistically patch the cached uiPreferences so landing prefs feel instant;
 // rolls back on error and, with `resync`, re-reads the server copy on settle.
+// Without `resync` it still re-reads when it cancelled a fetch in flight (e.g.
+// the first preferences load on a cold start), or that fetch would be lost.
 function useLandingPreferenceMutation(
   key: 'mailDefaultAccountId' | 'mailLastAccountId' | 'weldchatLastPath',
   { resync = true }: { resync?: boolean } = {},
@@ -1058,6 +1060,7 @@ function useLandingPreferenceMutation(
       });
     },
     onMutate: async (value) => {
+      const interruptedFetch = qc.isFetching({ queryKey: preferencesKey }) > 0;
       await qc.cancelQueries({ queryKey: preferencesKey });
       const previous = qc.getQueryData<UserPreferences>(preferencesKey);
       if (previous) {
@@ -1066,13 +1069,13 @@ function useLandingPreferenceMutation(
           uiPreferences: { ...previous.uiPreferences, [key]: value },
         });
       }
-      return { previous };
+      return { previous, interruptedFetch };
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(preferencesKey, ctx.previous);
     },
-    onSettled: () => {
-      if (resync) qc.invalidateQueries({ queryKey: preferencesKey });
+    onSettled: (_data, _err, _vars, ctx) => {
+      if (resync || ctx?.interruptedFetch) qc.invalidateQueries({ queryKey: preferencesKey });
     },
   });
 }
