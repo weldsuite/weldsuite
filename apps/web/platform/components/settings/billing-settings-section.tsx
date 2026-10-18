@@ -1,7 +1,7 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
-import { useEffect, useState, memo } from 'react';
+import { useEffect, useState, memo, type ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -29,7 +29,17 @@ import {
   useSeatPrice,
 } from '@/hooks/queries/use-billing-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { formatPlanFeatures, resolvePlanKey } from './plan-features';
+import {
+  annualSavingPercent,
+  annualSavingSummary,
+  fillTemplate,
+  planCardFeatures,
+  planSeatCell,
+  resolvePlanKey,
+  yearlyPriceOf,
+} from './plan-features';
+import { useAvailableApps } from '@/hooks/queries/use-settings-queries';
+import { AppIcon } from '@/components/app-icon';
 import type { BillingInvoiceResponse } from '@/lib/api/domains/billing';
 import type { PartnerPublicInfo, PartnerTerritoryErrorDetails } from '@weldsuite/app-api-client/schemas/partners';
 import { PartnerContactLinks, PartnerLogo } from '@/components/partner/partner-contact';
@@ -55,18 +65,21 @@ function formatPlanPrice(cents: number, currency: string = 'USD'): string {
 // Prices come in the caller's country currency (see plans-page in app-api).
 const planCurrency = (plan: Billing.BillingPlan) => plan.currency || 'USD';
 
-/** Per seat per year; plans without a yearly price fall back to ten months. */
-const yearlyPriceOf = (plan: Billing.BillingPlan) => plan.yearlyPrice || Math.round(plan.monthlyPrice * 10);
-
-/** Whole-percent saving of annual over monthly billing, 0 when there is none. */
-function annualSavingPercent(plan: Billing.BillingPlan): number {
-  if (plan.priceOnRequest || !plan.monthlyPrice) return 0;
-  return Math.max(0, Math.round((1 - yearlyPriceOf(plan) / (plan.monthlyPrice * 12)) * 100));
+/**
+ * The billing-cycle toggle label, from the real plan prices: "Save 14%" when
+ * every discounted plan saves the same, "Save up to 14%" when they differ.
+ */
+function annualSavingLabel(
+  plans: Billing.BillingPlan[],
+  t: (key: string, values?: Record<string, string | number>) => string,
+  upToTemplate: string,
+): string | null {
+  const { percent, isRange } = annualSavingSummary(plans);
+  if (percent <= 0) return null;
+  return isRange
+    ? fillTemplate(upToTemplate, { percent })
+    : t('sweep.settings.billing.savePercent', { percent });
 }
-
-/** Largest annual saving across the plans, for the billing-cycle toggle label. */
-const maxAnnualSavingPercent = (plans: Billing.BillingPlan[]) =>
-  plans.reduce((max, plan) => Math.max(max, annualSavingPercent(plan)), 0);
 
 // Monthly email credit options
 const EMAIL_CREDIT_OPTIONS = [
@@ -101,7 +114,7 @@ const getEmailPrice = (_planName: string, creditCount: number, currency: string)
 // Feature comparison table data (matching weldsuite.org/pricing). Labels live in
 // the settings locale under `billingComparison`; a string value that is one of
 // COMPARISON_VALUE_TOKENS is resolved there too, any other string (`3–25`, `25MB`) is shown as is.
-const COMPARISON_VALUE_TOKENS = ['unlimited', 'custom', 'upTo2', 'days7', 'days30', 'days90'] as const;
+const COMPARISON_VALUE_TOKENS = ['unlimited', 'custom', 'days7', 'days30', 'days90'] as const;
 type ComparisonValueToken = (typeof COMPARISON_VALUE_TOKENS)[number];
 const isComparisonValueToken = (val: string): val is ComparisonValueToken =>
   (COMPARISON_VALUE_TOKENS as readonly string[]).includes(val);
@@ -116,15 +129,18 @@ type ComparisonSectionKey =
   | 'taskAutomation'
   | 'host'
   | 'mobileApp'
-  | 'communication';
-type ComparisonRow = { key: string; indent?: boolean; values: Record<string, string | boolean> };
+  | 'communication'
+  | 'moreApps';
+// `derived` rows are computed from the plan itself instead of listed per slug.
+type ComparisonRow = { key: string; indent?: boolean; derived?: 'seatLimit'; values: Record<string, string | boolean> };
 type ComparisonSection = { key: ComparisonSectionKey; rows: ComparisonRow[] };
 
 const COMPARISON_SECTIONS: ComparisonSection[] = [
   {
     key: 'platform',
     rows: [
-      { key: 'seatLimit', values: { free: 'upTo2', business: '3–25', scale: 'unlimited', enterprise: 'custom' } },
+      // Derived from the plan's enforced member cap (`plans.max_users`).
+      { key: 'seatLimit', derived: 'seatLimit', values: {} },
       { key: 'removeBranding', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { key: 'prioritySupport', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
       { key: 'dedicatedSupport', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
@@ -133,7 +149,7 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
       { key: 'customIntegrations', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { key: 'rolesAndPermissions', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { key: 'activityLog', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
-      { key: 'twoFactorAuthentication', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'passkeys', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
   {
@@ -267,16 +283,22 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
       { key: 'pushNotifications', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
     ],
   },
-];
-
-// WeldSuite apps included in plans (same logos/sizes as global sidebar)
-const includedApps = [
-  { id: 'crm', name: 'WeldCRM', logo: '/assets/images/weldcrm/logo-light.png', logoClass: 'h-4 w-4' },
-  { id: 'mail', name: 'WeldMail', logo: '/assets/images/weldmail/logo-light.png', logoClass: 'h-4 w-4' },
-  { id: 'helpdesk', name: 'WeldDesk', logo: '/assets/images/welddesk/logo-light.png', logoClass: 'h-4 w-4' },
-  { id: 'projects', name: 'WeldFlow', logo: '/assets/images/weldflow/logo-light.png', logoClass: 'h-[18px] w-[18px]' },
-  { id: 'task', name: 'WeldConnect', logo: '/assets/images/weldconnect/logo-light.png', logoClass: 'h-[17px] w-[17px]' },
-  { id: 'host', name: 'WeldHost', logo: '/assets/images/weldhost/logo-light.png', logoClass: 'h-[17px] w-[17px]' },
+  // Apps the sections above do not cover. Every app is on every plan; Calls
+  // additionally needs a (separately billed) phone number.
+  {
+    key: 'moreApps',
+    rows: [
+      { key: 'chat', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'drive', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'calendar', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'meet', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'calls', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'hr', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'knowledge', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'secrets', values: { free: true, business: true, scale: true, enterprise: true } },
+      { key: 'accounting', values: { free: true, business: true, scale: true, enterprise: true } },
+    ],
+  },
 ];
 
 // Extracted checkout dialog to prevent re-renders of the massive comparison table
@@ -643,49 +665,57 @@ function InvoiceStatusBadge({ status }: Readonly<{ status: string }>) {
 
 }
 
+/**
+ * The apps every plan includes, from the app catalog (the same list as the App
+ * Store) with the registry's icons. Apps that are on request only are left out.
+ */
+function IncludedApps() {
+  const t = useTranslations();
+  const { data: apps = [] } = useAvailableApps();
+  const included = apps.filter((app) => !app.requiresApproval);
+  if (included.length === 0) return null;
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+      <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.appsIncluded')}</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {included.map((app) => (
+          <div key={app.code} className="relative group">
+            <div className="w-8 h-8 flex items-center justify-center border rounded-[10px] bg-card hover:border-muted-foreground/30 transition-colors cursor-default">
+              <AppIcon icon={app.code} className="h-4 w-4 object-contain" />
+            </div>
+            {/* Tooltip */}
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-10 pointer-events-none">
+              <div className="bg-foreground text-background text-xs rounded-lg py-2 px-3 whitespace-nowrap">
+                <div className="font-medium">{app.name}</div>
+              </div>
+              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PlansHeaderBar({
   isAnnual,
   onToggleAnnual,
-  annualSaving,
+  annualSavingText,
 }: Readonly<{
   isAnnual: boolean;
   onToggleAnnual: () => void;
-  /** Largest annual saving across the plans; 0 hides the label. */
-  annualSaving: number;
+  /** "Save 14%" / "Save up to 14%" from the real prices; null hides the label. */
+  annualSavingText: string | null;
 }>) {
   const t = useTranslations();
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 mb-[18px] h-[53px] px-4 md:px-5 bg-card rounded-2xl border">
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 mb-[18px] min-h-[53px] px-4 py-2.5 md:px-5 bg-card rounded-2xl border">
       {/* App icons */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.appsIncluded')}</span>
-        <div className="flex items-center gap-1.5">
-          {includedApps.map((app) => (
-            <div
-              key={app.id}
-              className="relative group"
-            >
-              <div className="w-8 h-8 flex items-center justify-center border rounded-[10px] bg-card hover:border-muted-foreground/30 transition-colors cursor-pointer">
-                <img
-                  src={app.logo}
-                  alt={app.name}
-                  className={`${app.logoClass} object-contain`}
-                />
-              </div>
-              {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-10">
-                <div className="bg-foreground text-background text-xs rounded-lg py-2 px-3 whitespace-nowrap">
-                  <div className="font-medium">{app.name}</div>
-                </div>
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-foreground" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <IncludedApps />
 
       {/* Annual/Monthly toggle */}
-      <div className="flex items-center gap-3 w-full md:w-auto">
+      <div className="ml-auto flex shrink-0 items-center gap-3">
         <span className={cn('text-sm font-medium', isAnnual && 'text-muted-foreground')}>{t('sweep.settings.billing.monthly')}</span>
         <Button
           variant="ghost"
@@ -702,10 +732,10 @@ function PlansHeaderBar({
         </Button>
         <span className={cn('text-sm font-medium', !isAnnual && 'text-muted-foreground')}>
           {t('sweep.settings.billing.annual')}
-          {annualSaving > 0 && (
+          {annualSavingText && (
             <>
               {' '}
-              <span className="text-green-600">({t('sweep.settings.billing.savePercent', { percent: annualSaving })})</span>
+              <span className="text-green-600">({annualSavingText})</span>
             </>
           )}
         </span>
@@ -746,22 +776,27 @@ function PlanCardPrice({
   isAnnual: boolean;
 }>) {
   const t = useTranslations();
+  const { t: i18n } = useI18n();
+  let price: ReactNode;
+  if (isFreePlan(plan)) {
+    price = i18n.settings.billingComparison.planCard.free;
+  } else if (hasNoPublicPrice(plan)) {
+    price = t('sweep.settings.billing.onRequest');
+  } else {
+    price = (
+      <NumberFlow
+        value={isAnnual
+          ? Math.round(yearlyPriceOf(plan) / 12) / 100
+          : plan.monthlyPrice / 100}
+        format={{ style: 'currency', currency: planCurrency(plan), currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 2 }}
+        transformTiming={{ duration: 400, easing: 'ease-out' }}
+      />
+    );
+  }
   return (
     <div className="mb-1">
       <div className="flex items-center gap-2">
-        <span className="text-3xl font-semibold">
-          {hasNoPublicPrice(plan)
-            ? t('sweep.settings.billing.onRequest')
-            : (
-              <NumberFlow
-                value={isAnnual
-                  ? Math.round(yearlyPriceOf(plan) / 12) / 100
-                  : plan.monthlyPrice / 100}
-                format={{ style: 'currency', currency: planCurrency(plan), currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 2 }}
-                transformTiming={{ duration: 400, easing: 'ease-out' }}
-              />
-            )}
-        </span>
+        <span className="text-3xl font-semibold">{price}</span>
         {!hasNoPublicPrice(plan) && isAnnual && annualSavingPercent(plan) > 0 && (
           <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
             {t('sweep.settings.billing.savePercent', { percent: annualSavingPercent(plan) })}
@@ -834,9 +869,12 @@ function PlanPricingCard({
   onSelect: (plan: Billing.BillingPlan) => void;
 }>) {
   const t = useTranslations();
-  const features = formatPlanFeatures(plan);
+  const { t: i18n } = useI18n();
+  const features = planCardFeatures(plan, i18n.settings.billingComparison.planCard);
   let priceSubtitle: string;
-  if (plan.slug === 'enterprise') priceSubtitle = t('sweep.settings.billing.billedAnnually');
+  // Free has no price and so no billing period: keep the line's height only.
+  if (isFreePlan(plan)) priceSubtitle = ' ';
+  else if (plan.slug === 'enterprise') priceSubtitle = t('sweep.settings.billing.billedAnnually');
   else if (hasNoPublicPrice(plan)) priceSubtitle = t('sweep.settings.billing.perUserMonth');
   else if (isAnnual) priceSubtitle = t('sweep.settings.billing.perUserMonthBilledAnnually');
   else priceSubtitle = t('sweep.settings.billing.perUserMonth');
@@ -907,6 +945,7 @@ function ComparisonPlanColumn({
   onSelect: (plan: Billing.BillingPlan) => void;
 }>) {
   const t = useTranslations();
+  const { t: i18n } = useI18n();
   return (
     <div className={isLast ? 'pl-4 pr-0' : 'px-4'}>
       <div className="flex items-center gap-2">
@@ -924,7 +963,8 @@ function ComparisonPlanColumn({
         {hasNoPublicPrice(plan) && plan.slug !== 'enterprise' && (
           <>{t('sweep.settings.billing.onRequestLine1')}<br />{t('sweep.settings.billing.onRequestLine2')}</>
         )}
-        {!hasNoPublicPrice(plan) && (
+        {isFreePlan(plan) && i18n.settings.billingComparison.planCard.free}
+        {!isFreePlan(plan) && !hasNoPublicPrice(plan) && (
           <>
             {formatPlanPrice(isAnnual ? Math.round(yearlyPriceOf(plan) / 12) : plan.monthlyPrice, planCurrency(plan))} {t('sweep.settings.billing.perUserMonthComma')}<br />
             {isAnnual ? t('sweep.settings.billing.billedAnnuallyLower') : t('sweep.settings.billing.billedMonthlyLower')}
@@ -970,6 +1010,13 @@ function ComparisonSectionBlock({
   const { t } = useI18n();
   const copy = t.settings.billingComparison.sections[section.key];
   const rowLabels: Record<string, string> = copy.rows;
+  const comparison = t.settings.billingComparison;
+  const seatCopy = {
+    seatsOne: comparison.values.seatsOne,
+    seatsUpTo: comparison.values.seatsUpTo,
+    unlimited: comparison.values.unlimited,
+    custom: comparison.values.custom,
+  };
   return (
     <div className="mt-10">
       <h4 className="text-lg font-semibold pb-4 border-b border-border/50">{copy.title}</h4>
@@ -977,7 +1024,9 @@ function ComparisonSectionBlock({
         <div key={row.key} className="grid gap-0 py-4 border-b border-border/50" style={{ gridTemplateColumns: `1fr repeat(${plans.length}, 1fr)` }}>
           <div className={`flex items-center gap-2 text-sm ${row.indent ? 'text-muted-foreground pl-4' : 'font-medium'}`}>{rowLabels[row.key]}</div>
           {plans.map((plan, index) => {
-            const val = row.values[resolvePlanKey(plan, row.values)] ?? '';
+            const val = row.derived === 'seatLimit'
+              ? planSeatCell(plan, seatCopy)
+              : row.values[resolvePlanKey(plan, row.values)] ?? '';
             return (
               <div
                 key={plan.id}
@@ -1011,6 +1060,8 @@ function PlanComparisonTable({
   onSelect: (plan: Billing.BillingPlan) => void;
 }>) {
   const t = useTranslations();
+  const { t: i18n } = useI18n();
+  const annualSavingText = annualSavingLabel(plans, t, i18n.settings.billingComparison.planCard.saveUpTo);
   return (
     <div className="hidden md:block mt-52">
       {/* Sticky Table Header */}
@@ -1020,8 +1071,8 @@ function PlanComparisonTable({
           <div className="flex flex-col justify-end">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.annual')}</span>
-              {maxAnnualSavingPercent(plans) > 0 && (
-                <span className="text-sm font-medium text-green-600">({t('sweep.settings.billing.savePercent', { percent: maxAnnualSavingPercent(plans) })})</span>
+              {annualSavingText && (
+                <span className="text-sm font-medium text-green-600">({annualSavingText})</span>
               )}
               <Button
                 variant="ghost"
@@ -1091,8 +1142,10 @@ function PlansView({
   onSelectPlan: (plan: Billing.BillingPlan) => void;
 }>) {
   const t = useTranslations();
+  const { t: i18n } = useI18n();
   const currentApiPlan = plans.find(p => p.id === subscription?.planId);
   const minSeats = Math.max(1, planLimits?.currentUsage.memberCount || 1);
+  const annualSavingText = annualSavingLabel(plans, t, i18n.settings.billingComparison.planCard.saveUpTo);
 
   return (
     <div className="max-w-5xl mx-auto overflow-visible space-y-8">
@@ -1136,7 +1189,7 @@ function PlansView({
       )}
 
       {/* Pricing Header Bar */}
-      <PlansHeaderBar isAnnual={isAnnual} onToggleAnnual={onToggleAnnual} annualSaving={maxAnnualSavingPercent(plans)} />
+      <PlansHeaderBar isAnnual={isAnnual} onToggleAnnual={onToggleAnnual} annualSavingText={annualSavingText} />
 
       {/* Pricing Cards with decorative lines */}
       <div className="relative overflow-visible">

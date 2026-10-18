@@ -456,6 +456,11 @@ export const common = {
       noItems: 'Nog geen items',
       getStarted: 'Begin door uw eerste item aan te maken',
       appNotInstalled: 'App niet geïnstalleerd',
+      appNotInstalledNamed: '{app} is niet geïnstalleerd in deze workspace',
+      appNotInstalledHint: 'Installeer de app via de App Store om hem te openen.',
+      openAppStore: 'App Store openen',
+      appUnavailableNamed: '{app} is niet voor je beschikbaar in deze workspace',
+      appUnavailableHint: 'Vraag een workspace-beheerder om de app te installeren of je toegang te geven.',
     },
     time: {
       justNow: 'Zojuist',

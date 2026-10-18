@@ -230,6 +230,8 @@ export interface Opportunity {
   winLossReason?: string;
   lostReason?: string;
   tags?: string[];
+  /** Custom field values keyed by field slug (Settings › Custom Fields, entity type `opportunity`). */
+  customFields?: Record<string, unknown> | null;
   contact?: { id?: string; name?: string };
   company?: { id?: string; name?: string };
   owner?: { id?: string; name?: string };

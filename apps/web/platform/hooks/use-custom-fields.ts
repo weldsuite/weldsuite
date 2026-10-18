@@ -5,7 +5,8 @@ import type { CustomFieldDefinition } from '@/lib/api/domains/settings';
 
 export type { CustomFieldDefinition } from '@/lib/api/domains/settings';
 
-const customFieldKeys = {
+/** Exported so the Settings › Custom Fields mutations can invalidate it. */
+export const customFieldKeys = {
   all: ['custom-fields'] as const,
   list: (entityType?: string) => [...customFieldKeys.all, 'list', entityType] as const,
 };

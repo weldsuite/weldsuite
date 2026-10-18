@@ -24,8 +24,10 @@ function getContentWrapperClassName(pathname: string): string {
   // Plans page - allow internal width control
   if (pathname === '/settings/plans') return PAGE_PADDING_CLASS;
   // Every other settings page: one fixed column width. `w-full` matters, the
-  // wrapper is a flex item and would otherwise shrink to its content.
-  return `${PAGE_PADDING_CLASS} w-full max-w-[715px] mx-auto`;
+  // wrapper is a flex item and would otherwise shrink to its content;
+  // `min-w-0` keeps a wide child (table, chart, preview) from pushing it past
+  // the column, so the page clips or scrolls inside its own boxes instead.
+  return `${PAGE_PADDING_CLASS} w-full min-w-0 max-w-[715px] mx-auto`;
 }
 
 /**

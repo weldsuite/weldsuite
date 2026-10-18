@@ -47,14 +47,22 @@ import { useWorkspaceSettings, useUpdateWorkspaceSettings } from '@/hooks/querie
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { COUNTRIES } from '@/lib/constants/countries';
+import { CountrySelect } from '@/components/settings/country-select';
+import { checkVatNumber, vatPlaceholderForCountry } from '@weldsuite/app-api-client/schemas/vat-number';
 import { WorkspaceSlugCard } from './workspace-slug-card';
 import { WorkspaceNameSection } from './workspace-name-section';
 import { DeleteWorkspaceSection } from './delete-workspace-section';
 import { useCurrentMember } from '@/hooks/use-current-member';
 import { getLogoInitial } from './logo-initial';
 
-function getBusinessSettingsSchema(st: ReturnType<typeof useTranslations>) {
+interface VatMessages {
+  /** Shown with `{country}` / `{example}` filled in when the number does not fit an EU/GB format. */
+  vatInvalid: (country: string, example: string) => string;
+  /** Shown when a tax ID of a country without a VAT pattern is not letters and digits. */
+  taxIdInvalid: string;
+}
+
+function getBusinessSettingsSchema(st: ReturnType<typeof useTranslations>, vat: VatMessages) {
   return z.object({
     timezone: z.string().optional(),
     legalName: z.string().optional(),
@@ -71,6 +79,15 @@ function getBusinessSettingsSchema(st: ReturnType<typeof useTranslations>) {
     countryCode: z.string().min(2, st('sweep.settings.business.validation.countryRequired')).max(2),
     taxId: z.string().optional(),
     registrationNumber: z.string().optional(),
+  }).superRefine((data, ctx) => {
+    // Same check the API runs (`@weldsuite/app-api-client/schemas/vat-number`); empty stays allowed.
+    const check = checkVatNumber(data.taxId, data.countryCode);
+    if (check.valid) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['taxId'],
+      message: check.prefix && check.example ? vat.vatInvalid(check.prefix, check.example) : vat.taxIdInvalid,
+    });
   });
 }
 
@@ -237,7 +254,7 @@ interface WorkspaceBusinessSettingsData {
 }
 
 export function BusinessSettingsForm() {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const st = useTranslations();
   const ts = t.settings.generalSettings;
   const { data: settingsData, isLoading } = useWorkspaceSettings();
@@ -246,11 +263,15 @@ export function BusinessSettingsForm() {
   const updateMutation = useUpdateWorkspaceSettings();
   const isSaving = updateMutation.isPending;
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [countryOpen, setCountryOpen] = useState(false);
   const [timezoneOpen, setTimezoneOpen] = useState(false);
 
   const form = useForm<BusinessSettingsValues>({
-    resolver: zodResolver(getBusinessSettingsSchema(st)),
+    resolver: zodResolver(
+      getBusinessSettingsSchema(st, {
+        vatInvalid: (country, example) => format(ts.validation.vatInvalid, { country, example }),
+        taxIdInvalid: ts.validation.taxIdInvalid,
+      }),
+    ),
     defaultValues: {
       timezone: 'Europe/Amsterdam',
       legalName: '',
@@ -531,7 +552,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.vatTaxId}</FormLabel>
                     <FormControl>
-                      <Input placeholder="NL123456789B01" {...field} />
+                      <Input placeholder={vatPlaceholderForCountry(form.watch('countryCode'))} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -696,89 +717,20 @@ export function BusinessSettingsForm() {
               <FormField
                 control={form.control}
                 name="countryCode"
-                render={({ field }) => {
-                  const selected = COUNTRIES.find((c) => c.code === field.value);
-                  return (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>{ts.country}</FormLabel>
-                      <Popover open={countryOpen} onOpenChange={setCountryOpen}>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={countryOpen}
-                              className={cn(
-                                'w-full justify-between font-normal',
-                                !selected && 'text-muted-foreground'
-                              )}
-                            >
-                              {selected ? selected.name : ts.selectCountry}
-                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] p-0"
-                          align="start"
-                          onOpenAutoFocus={() => {
-                            requestAnimationFrame(() => {
-                              const list = document.querySelector<HTMLDivElement>(
-                                '[data-business-country-list]'
-                              );
-                              if (!list) return;
-                              const item = list.querySelector<HTMLElement>(
-                                '[cmdk-item][data-selected="true"]'
-                              );
-                              if (!item) return;
-                              const offset = item.offsetTop - list.clientHeight * 0.6 + item.clientHeight / 2;
-                              list.scrollTop = Math.max(0, offset);
-                            });
-                          }}
-                        >
-                          <Command defaultValue={selected?.name}>
-                            <CommandInput placeholder={st('sweep.settings.business.searchCountryPlaceholder')} />
-                            <CommandList
-                              data-business-country-list
-                              className="max-h-[240px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent"
-                            >
-                              <CommandEmpty>{st('sweep.settings.business.noCountryFound')}</CommandEmpty>
-                              <CommandGroup className="pr-0">
-                                {COUNTRIES.map((country) => {
-                                  const isCurrent = field.value === country.code;
-                                  return (
-                                  <CommandItem
-                                    key={country.code}
-                                    value={country.name}
-                                    onSelect={() => {
-                                      field.onChange(country.code);
-                                      setCountryOpen(false);
-                                    }}
-                                    className={cn(
-                                      'flex justify-between',
-                                      isCurrent && 'bg-accent text-accent-foreground'
-                                    )}
-                                  >
-                                    {country.name}
-                                    <Check
-                                      className={cn(
-                                        'h-4 w-4',
-                                        field.value === country.code ? 'opacity-100' : 'opacity-0'
-                                      )}
-                                    />
-                                  </CommandItem>
-                                  );
-                                })}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>{ts.country}</FormLabel>
+                    <FormControl>
+                      <CountrySelect
+                        value={field.value}
+                        onChange={(code) => field.onChange(code)}
+                        onBlur={field.onBlur}
+                        placeholder={ts.selectCountry}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
             </div>
           </div>

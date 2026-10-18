@@ -23,6 +23,8 @@ import { createCustomerStatusSchema } from '@weldsuite/core-api-client/schemas/c
 import type { CustomerStatus } from '@weldsuite/core-api-client/schemas/customer-statuses';
 import { COLOR_OPTIONS, COLOR_SWATCH_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import { useI18n } from '@/lib/i18n/provider';
+import { isApiError } from '@weldsuite/api-client';
+import { CUSTOMER_STATUS_OPTIONS } from './constants';
 
 type CreateValues = z.infer<typeof createCustomerStatusSchema>;
 
@@ -30,7 +32,11 @@ interface StatusFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   status?: CustomerStatus;
-  onSubmit: (values: CreateValues) => void;
+  /**
+   * Persist the status. When it rejects with a slug conflict (409) the dialog
+   * shows the reason on the Slug field.
+   */
+  onSubmit: (values: CreateValues) => void | Promise<void>;
   isPending: boolean;
 }
 
@@ -40,6 +46,14 @@ function trimUnderscores(value: string): string {
   while (start < end && value[start] === '_') start++;
   while (end > start && value[end - 1] === '_') end--;
   return value.slice(start, end);
+}
+
+/** Slugs of the built-in statuses; the API refuses them for a custom status (409). */
+const BUILTIN_SLUGS = new Set(CUSTOMER_STATUS_OPTIONS.map((o) => o.value));
+
+/** The API answers 409 when a slug is reserved or already used by another status. */
+export function isSlugConflict(err: unknown): boolean {
+  return isApiError(err) && err.status === 409;
 }
 
 function slugify(name: string): string {
@@ -89,8 +103,22 @@ export function StatusFormDialog({
     }
   }, [nameValue, isEdit, form]);
 
-  const handleSubmit = form.handleSubmit((values) => {
-    onSubmit(values);
+  const slugConflictMessage = (slug: string) =>
+    (BUILTIN_SLUGS.has(slug) ? ts.form.slugReserved : ts.form.slugTaken).replace('{slug}', slug);
+
+  const handleSubmit = form.handleSubmit(async (values) => {
+    // Refuse a built-in slug up front, without a round trip (TASK-1031).
+    if (BUILTIN_SLUGS.has(values.slug) && values.slug !== status?.slug) {
+      form.setError('slug', { type: 'validate', message: slugConflictMessage(values.slug) }, { shouldFocus: true });
+      return;
+    }
+    try {
+      await onSubmit(values);
+    } catch (err) {
+      if (isSlugConflict(err)) {
+        form.setError('slug', { type: 'server', message: slugConflictMessage(values.slug) }, { shouldFocus: true });
+      }
+    }
   });
 
   return (

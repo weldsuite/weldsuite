@@ -1,11 +1,11 @@
-
 import { useEffect } from "react";
+import { HOTKEYS, matchesHotkey } from "@/lib/hotkeys/registry";
 
 export function useSettingsHotkey(onOpen: () => void) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Ctrl+, (Windows/Linux) or Cmd+, (Mac) to open settings
-      if ((event.ctrlKey || event.metaKey) && event.key === ",") {
+      // Cmd+, (Mac) or Ctrl+, (Windows/Linux) to open settings
+      if (matchesHotkey(event, HOTKEYS.openSettings)) {
         event.preventDefault();
         onOpen();
       }

@@ -24,6 +24,12 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Role } from '@/lib/api/types/rbac.types';
+import {
+  roleNameProblem,
+  roleNameProblemFromError,
+  roleNameProblemKey,
+  type RoleNameProblem,
+} from '@/components/settings/role-name';
 
 interface CreateRoleDialogProps {
   open: boolean;
@@ -43,7 +49,12 @@ export function CreateRoleDialog({
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [copyFromRoleId, setCopyFromRoleId] = React.useState<string | undefined>(undefined);
+  // Set by a rejected submit; cleared as soon as the name is edited.
+  const [serverNameProblem, setServerNameProblem] = React.useState<RoleNameProblem | null>(null);
   const { getClient } = useAppApiClient();
+
+  const nameProblem = serverNameProblem ?? roleNameProblem(name, roles);
+  const nameError = nameProblem ? t(roleNameProblemKey(nameProblem), { name: name.trim() }) : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +63,7 @@ export function CreateRoleDialog({
       toast.error(t('sweep.settings.createRole.nameRequired'));
       return;
     }
+    if (nameProblem) return;
 
     setLoading(true);
     try {
@@ -69,6 +81,11 @@ export function CreateRoleDialog({
       setCopyFromRoleId(undefined);
       onRoleCreated();
     } catch (error) {
+      const problem = roleNameProblemFromError(error);
+      if (problem) {
+        setServerNameProblem(problem);
+        return;
+      }
       console.error('Failed to create role:', error);
       toast.error(error instanceof Error ? error.message : t('sweep.settings.createRole.createFailed'));
     } finally {
@@ -82,6 +99,7 @@ export function CreateRoleDialog({
         setName('');
         setDescription('');
         setCopyFromRoleId(undefined);
+        setServerNameProblem(null);
       }
       onOpenChange(isOpen);
     }
@@ -109,9 +127,19 @@ export function CreateRoleDialog({
                 id="name"
                 placeholder={t('sweep.settings.createRole.roleNamePlaceholder')}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setServerNameProblem(null);
+                }}
                 disabled={loading}
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? 'create-role-name-error' : undefined}
               />
+              {nameError && (
+                <p id="create-role-name-error" className="text-xs text-destructive">
+                  {nameError}
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="description">{t('sweep.settings.createRole.descriptionLabel')}</Label>
@@ -154,7 +182,7 @@ export function CreateRoleDialog({
             >
               {t('sweep.settings.createRole.cancel')}
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || Boolean(nameProblem)}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('sweep.settings.createRole.createButton')}
             </Button>

@@ -35,6 +35,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { collectWorkspaceMemberPages } from './workspace-member-pages';
 import type { WorkspaceApiKey } from '@/components/settings/api-keys-section';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { customFieldKeys } from '@/hooks/use-custom-fields';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
 import { teamKeys } from '@/hooks/queries/use-team-queries';
 import { asText } from '@weldsuite/text';
@@ -647,6 +648,8 @@ export function useCreateCustomField() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: settingsKeys.customFields() });
       qc.invalidateQueries({ queryKey: settingsKeys.customFieldsAll() });
+      // Record panels + list grids read definitions through hooks/use-custom-fields.
+      qc.invalidateQueries({ queryKey: customFieldKeys.all });
     },
   });
 }
@@ -662,6 +665,8 @@ export function useUpdateCustomField() {
     onSuccess: (_d, variables) => {
       qc.invalidateQueries({ queryKey: settingsKeys.customFields() });
       qc.invalidateQueries({ queryKey: settingsKeys.customFieldsAll() });
+      // Record panels + list grids read definitions through hooks/use-custom-fields.
+      qc.invalidateQueries({ queryKey: customFieldKeys.all });
       qc.invalidateQueries({ queryKey: settingsKeys.customField(variables.id) });
     },
   });
@@ -679,6 +684,8 @@ export function useDeleteCustomField() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: settingsKeys.customFields() });
       qc.invalidateQueries({ queryKey: settingsKeys.customFieldsAll() });
+      // Record panels + list grids read definitions through hooks/use-custom-fields.
+      qc.invalidateQueries({ queryKey: customFieldKeys.all });
     },
   });
 }// =============================================================================

@@ -486,6 +486,12 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   }, [updateMutation, t]);
 
+  // The section hands back the full map, so keys without a definition (the
+  // legacy `attachments` blob) survive the save.
+  const handleSaveCustomFields = useCallback(async (next: Record<string, unknown>) => {
+    await updateMutation.mutateAsync({ customFields: next });
+  }, [updateMutation]);
+
   const handleToggle = useCallback(() => {
     toggleMutation.mutate();
   }, [toggleMutation]);
@@ -776,6 +782,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             allProjectTasks={projectId ? allProjectTasksForDeps : undefined}
             onAddDependency={projectId ? handleAddDependency : undefined}
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
+            onSaveCustomFields={handleSaveCustomFields}
           />
       )}
       {task && (

@@ -1742,6 +1742,8 @@ export const crm = {
           slug: 'Slug',
           slugPlaceholder: 'e.g. on_hold',
           slugHint: 'Lowercase letters, numbers and underscores only.',
+          slugReserved: "'{slug}' is reserved for a built-in status. Choose a different slug.",
+          slugTaken: "'{slug}' is already used by another status. Choose a different slug.",
           color: 'Color',
           cancel: 'Cancel',
           save: 'Save changes',

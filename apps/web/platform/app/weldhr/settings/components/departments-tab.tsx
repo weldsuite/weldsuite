@@ -118,15 +118,16 @@ export function DepartmentsTab() {
     {
       id: 'parent',
       header: t('weldhr.settings.departments.parent'),
-      width: cn(HR_COL.fixed, HR_COL.hideMd, 'w-[160px]'),
+      width: cn(HR_COL.fixed, HR_COL.hideMd, 'w-[140px]'),
       render: (dept) => (
-        <span className="text-muted-foreground">{dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}</span>
+        <span className="block truncate text-muted-foreground">{dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}</span>
       ),
     },
     {
       id: 'head',
       header: t('weldhr.settings.departments.head'),
-      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[120px]'),
+      // Shown from ~576px of list width, so it fits the narrow settings column.
+      width: cn(HR_COL.fixed, 'hidden @xl:block w-[120px]'),
       render: (dept) => (
         <span className="text-muted-foreground">
           {dept.headEmployeeId ? t('weldhr.settings.departments.headAssigned') : '—'}

@@ -18,6 +18,7 @@ import {
 } from "@weldsuite/ui/components/command"
 import { TIMEZONES } from "@/lib/timezones"
 import { cn } from "@/lib/utils"
+import { hasProfileErrors, validateProfile } from "@/lib/profile-validation"
 
 export interface ProfileData {
   name: string
@@ -54,6 +55,12 @@ export function ProfileSection({
   const t = useTranslations()
   const [timezoneOpen, setTimezoneOpen] = React.useState(false)
   const selectedTz = TIMEZONES.find((tz) => tz.id === profileData.timezone)
+  // Only flag problems once the person has edited something (Save is hidden until then).
+  const errors = profileChanged ? validateProfile(profileData) : { name: null, phone: null }
+  let nameError: string | null = null
+  if (errors.name === 'nameRequired') nameError = t('sweep.settings.profile.nameRequired')
+  else if (errors.name === 'nameTooLong') nameError = t('sweep.settings.profile.nameTooLong')
+  const phoneError = errors.phone ? t('sweep.settings.profile.phoneInvalid') : null
   return (
     <div className="space-y-8">
       {/* Page Header */}
@@ -113,7 +120,16 @@ export function ProfileSection({
                 value={profileData.name}
                 onChange={(e) => onProfileChange('name', e.target.value)}
                 className="mt-1.5 shadow-none"
+                required
+                aria-required="true"
+                aria-invalid={nameError ? true : undefined}
+                aria-describedby={nameError ? 'profile-name-error' : undefined}
               />
+              {nameError && (
+                <p id="profile-name-error" role="alert" className="text-xs text-destructive mt-1">
+                  {nameError}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="profile-email">{t('sweep.settings.profile.emailLabel')}</Label>
@@ -131,11 +147,21 @@ export function ProfileSection({
             <Label htmlFor="profile-phone">{t('sweep.settings.profile.phoneLabel')}</Label>
             <Input
               id="profile-phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
               placeholder="+1 (555) 123-4567"
               value={profileData.phone}
               onChange={(e) => onProfileChange('phone', e.target.value)}
               className="mt-1.5 shadow-none"
+              aria-invalid={phoneError ? true : undefined}
+              aria-describedby={phoneError ? 'profile-phone-error' : undefined}
             />
+            {phoneError && (
+              <p id="profile-phone-error" role="alert" className="text-xs text-destructive mt-1">
+                {phoneError}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="profile-job-title">{t('sweep.settings.profile.jobTitleLabel')}</Label>
@@ -249,7 +275,7 @@ export function ProfileSection({
                 size="sm"
                 className="shadow-none"
                 onClick={onProfileSave}
-                disabled={loading}
+                disabled={loading || hasProfileErrors(errors)}
               >
                 {loading ? (
                   <>

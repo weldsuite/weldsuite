@@ -1743,6 +1743,8 @@ export const crm = {
           slug: 'Slug',
           slugPlaceholder: 'bijv. in_de_wacht',
           slugHint: 'Alleen kleine letters, cijfers en underscores.',
+          slugReserved: "'{slug}' is gereserveerd voor een standaardstatus. Kies een andere slug.",
+          slugTaken: "'{slug}' wordt al gebruikt door een andere status. Kies een andere slug.",
           color: 'Kleur',
           cancel: 'Annuleren',
           save: 'Wijzigingen opslaan',

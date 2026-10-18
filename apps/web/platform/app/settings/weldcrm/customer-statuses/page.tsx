@@ -34,7 +34,7 @@ import {
 } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import type { CustomerStatus, CreateCustomerStatusInput } from '@weldsuite/core-api-client/schemas/customer-statuses';
 import { StatusRow } from './status-row';
-import { StatusFormDialog } from './status-form-dialog';
+import { StatusFormDialog, isSlugConflict } from './status-form-dialog';
 
 const TH_CLASS =
   'h-[42px] px-3 text-left font-medium text-[13.5px] text-foreground bg-white dark:bg-background';
@@ -73,27 +73,29 @@ export default function CustomerStatusesPage() {
     reorderMutation.mutate(reordered.map((s) => s.id));
   }
 
-  function handleFormSubmit(values: CreateCustomerStatusInput) {
+  // A slug conflict (409: reserved for a built-in status, or already used) is
+  // re-thrown so the dialog shows the reason on the Slug field; any other
+  // failure is a toast.
+  async function handleFormSubmit(values: CreateCustomerStatusInput) {
     if (editingStatus) {
-      updateMutation.mutate(
-        { id: editingStatus.id, data: values },
-        {
-          onSuccess: () => {
-            toast.success(ts.messages.updated);
-            setFormOpen(false);
-            setEditingStatus(undefined);
-          },
-          onError: () => toast.error(ts.messages.updateError),
-        }
-      );
-    } else {
-      createMutation.mutate(values, {
-        onSuccess: () => {
-          toast.success(ts.messages.created);
-          setFormOpen(false);
-        },
-        onError: () => toast.error(ts.messages.createError),
-      });
+      try {
+        await updateMutation.mutateAsync({ id: editingStatus.id, data: values });
+        toast.success(ts.messages.updated);
+        setFormOpen(false);
+        setEditingStatus(undefined);
+      } catch (err) {
+        if (isSlugConflict(err)) throw err;
+        toast.error(ts.messages.updateError);
+      }
+      return;
+    }
+    try {
+      await createMutation.mutateAsync(values);
+      toast.success(ts.messages.created);
+      setFormOpen(false);
+    } catch (err) {
+      if (isSlugConflict(err)) throw err;
+      toast.error(ts.messages.createError);
     }
   }
 

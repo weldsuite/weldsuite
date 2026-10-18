@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -27,32 +27,46 @@ import { Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FIELD_TYPES, getEntityTypeConfig, ENTITY_TYPES } from './entity-types';
 import type { CustomFieldDefinition, UpdateCustomFieldData } from '@/lib/api/domains/settings';
+import { hasUsableSelectOptions, slugifyCustomFieldName } from '@weldsuite/app-api-client/schemas/custom-fields';
+import { isApiError } from '@weldsuite/api-client';
 
-const selectOptionSchema = z.object({
-  label: z.string().min(1, 'Label is required'),
-  value: z.string().min(1, 'Value is required'),
-  color: z.string().optional(),
-});
+type ValidationMessages = ReturnType<typeof useI18n>['t']['settings']['customFields']['validation'];
 
-const fieldSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100),
-  slug: z.string().min(1, 'Slug is required').max(100).regex(/^[a-z0-9_]+$/, 'Must be lowercase alphanumeric with underscores'),
-  description: z.string().max(500).optional(),
-  fieldType: z.string().min(1, 'Field type is required'),
-  required: z.boolean().optional(),
-  group: z.string().max(100).optional(),
-  options: z.array(selectOptionSchema).optional(),
-  config: z.object({
-    min: z.number().optional(),
-    max: z.number().optional(),
-    step: z.number().optional(),
-    currency: z.string().optional(),
-    maxRating: z.number().optional(),
-    entityType: z.string().optional(),
-  }).optional(),
-});
+export function buildFieldSchema(v: ValidationMessages) {
+  const selectOptionSchema = z.object({
+    label: z.string().trim().min(1, v.optionLabelRequired),
+    value: z.string().trim().min(1, v.optionValueRequired),
+    color: z.string().optional(),
+  });
 
-type FieldFormValues = z.infer<typeof fieldSchema>;
+  return z
+    .object({
+      name: z.string().min(1, v.nameRequired).max(100),
+      slug: z.string().min(1, v.slugRequired).max(100).regex(/^[a-z0-9_]+$/, v.slugFormat),
+      description: z.string().max(500).optional(),
+      fieldType: z.string().min(1, v.fieldTypeRequired),
+      required: z.boolean().optional(),
+      group: z.string().max(100).optional(),
+      options: z.array(selectOptionSchema).optional(),
+      config: z.object({
+        min: z.number().optional(),
+        max: z.number().optional(),
+        step: z.number().optional(),
+        currency: z.string().optional(),
+        maxRating: z.number().optional(),
+        entityType: z.string().optional(),
+      }).optional(),
+    })
+    // A select field without options can never hold a value (TASK-1049); the
+    // API refuses it too.
+    .superRefine((data, ctx) => {
+      if (!hasUsableSelectOptions(data.fieldType, data.options)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options'], message: v.optionsRequired });
+      }
+    });
+}
+
+type FieldFormValues = z.infer<ReturnType<typeof buildFieldSchema>>;
 
 interface FieldDefinitionDialogProps {
   open: boolean;
@@ -60,18 +74,15 @@ interface FieldDefinitionDialogProps {
   /** Default object type — also the fixed type when editing. */
   entityType: string;
   field: CustomFieldDefinition | null;
-  onSubmit: (data: UpdateCustomFieldData & { slug?: string; entityType?: string }) => void;
+  /**
+   * Persist the field. May return a promise: when it rejects with a 409 (slug
+   * already taken) the dialog shows that on the Slug field; any other failure
+   * is the caller's to report.
+   */
+  onSubmit: (data: UpdateCustomFieldData & { slug?: string; entityType?: string }) => void | Promise<void>;
   isPending: boolean;
   /** When creating, let the user choose the object type (the "All" view). */
   selectableEntity?: boolean;
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '')
-    .substring(0, 100);
 }
 
 export function FieldDefinitionDialog({
@@ -97,6 +108,7 @@ export function FieldDefinitionDialog({
     submitLabel = ts.updateField;
   }
 
+  const fieldSchema = useMemo(() => buildFieldSchema(ts.validation), [ts.validation]);
   const form = useForm<FieldFormValues>({
     resolver: zodResolver(fieldSchema),
     defaultValues: {
@@ -122,7 +134,7 @@ export function FieldDefinitionDialog({
   // Auto-generate slug from name when creating
   useEffect(() => {
     if (!isEditing && watchName) {
-      form.setValue('slug', slugify(watchName), { shouldValidate: false });
+      form.setValue('slug', slugifyCustomFieldName(watchName), { shouldValidate: false });
     }
   }, [watchName, isEditing, form]);
 
@@ -157,12 +169,16 @@ export function FieldDefinitionDialog({
   }, [open, field, form, entityType]);
 
   const showOptionsEditor = watchFieldType === 'single_select' || watchFieldType === 'multi_select';
+  // A select field needs at least one option before it can be saved.
+  const missingOptions = showOptionsEditor && optionFields.length === 0;
+  // zodResolver files the "needs an option" issue (path ['options']) here.
+  const optionsError = form.formState.errors.options?.message;
   const showNumberConfig = watchFieldType === 'number';
   const showCurrencyConfig = watchFieldType === 'currency';
   const showRatingConfig = watchFieldType === 'rating';
   const showEntityRefConfig = watchFieldType === 'entity_ref';
 
-  const handleSubmit = form.handleSubmit((data) => {
+  const handleSubmit = form.handleSubmit(async (data) => {
     const submitData: UpdateCustomFieldData & { slug?: string; entityType?: string } = {
       name: data.name,
       description: data.description || undefined,
@@ -184,7 +200,14 @@ export function FieldDefinitionDialog({
       submitData.config = data.config as Record<string, unknown>;
     }
 
-    onSubmit(submitData);
+    try {
+      await onSubmit(submitData);
+    } catch (err) {
+      // The API answers 409 when the slug is already used on this object type.
+      if (!isEditing && isApiError(err) && err.status === 409) {
+        form.setError('slug', { type: 'server', message: ts.validation.slugTaken }, { shouldFocus: true });
+      }
+    }
   });
 
   const entityConfig = getEntityTypeConfig(selectedType);
@@ -348,7 +371,10 @@ export function FieldDefinitionDialog({
                 </Button>
               </div>
               {optionFields.length === 0 && (
-                <p className="text-xs text-muted-foreground">{ts.noOptions}</p>
+                <p className="text-xs text-destructive">{ts.noOptions}</p>
+              )}
+              {optionFields.length > 0 && optionsError && (
+                <p className="text-xs text-destructive">{optionsError}</p>
               )}
               {optionFields.map((optField, index) => (
                 <div key={optField.id} className="flex items-start gap-2">
@@ -357,14 +383,22 @@ export function FieldDefinitionDialog({
                       {...form.register(`options.${index}.label`)}
                       placeholder={ts.label}
                       className="h-8 text-sm"
+                      aria-invalid={!!form.formState.errors.options?.[index]?.label}
                     />
+                    {form.formState.errors.options?.[index]?.label && (
+                      <p className="text-xs text-destructive">{form.formState.errors.options[index]?.label?.message}</p>
+                    )}
                   </div>
                   <div className="flex-1 space-y-1">
                     <Input
                       {...form.register(`options.${index}.value`)}
                       placeholder={ts.value}
                       className="h-8 text-sm"
+                      aria-invalid={!!form.formState.errors.options?.[index]?.value}
                     />
+                    {form.formState.errors.options?.[index]?.value && (
+                      <p className="text-xs text-destructive">{form.formState.errors.options[index]?.value?.message}</p>
+                    )}
                   </div>
                   <div className="w-16">
                     <Input
@@ -464,7 +498,7 @@ export function FieldDefinitionDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t.common.actions.cancel}
             </Button>
-            <Button type="submit" disabled={isPending || (isEditing && !form.formState.isDirty)}>
+            <Button type="submit" disabled={isPending || missingOptions || (isEditing && !form.formState.isDirty)}>
               {submitLabel}
             </Button>
           </DialogFooter>
