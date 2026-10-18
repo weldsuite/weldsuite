@@ -3,6 +3,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useAppAccess } from '@/hooks/use-app-access';
 import { useWeldChatUserEvents } from '@/hooks/weldchat/use-weldchat-realtime';
 import { ChatLayoutClient } from './components/chat-layout-client';
+import { useRememberWeldChatPage } from './hooks/use-last-weldchat-page';
 import { PageLoader } from '@/components/page-loader';
 import { ensureNotificationPermission } from '@/lib/desktop-notifications';
 
@@ -15,6 +16,7 @@ export default function ChatLayout({ children }: Readonly<{ children: React.Reac
   const { t } = useI18n();
   const { isInstalled, isLoading } = useAppAccess('weldchat');
   useWeldChatUserEvents();
+  useRememberWeldChatPage(isInstalled);
 
   // Request browser notification permission (no-op in the desktop shell).
   useEffect(() => {
