@@ -20,8 +20,12 @@ interface NavigatorWithUAData {
 }
 
 /** True on macOS and iOS/iPadOS (where hardware keyboards use Command). */
+function currentNavigator(): NavigatorWithUAData | null {
+  return typeof navigator === 'undefined' ? null : (navigator as NavigatorWithUAData);
+}
+
 export function isMacPlatform(nav?: NavigatorWithUAData | null): boolean {
-  const source = nav === undefined ? (typeof navigator === 'undefined' ? null : (navigator as NavigatorWithUAData)) : nav;
+  const source = nav === undefined ? currentNavigator() : nav;
   if (!source) return false;
   const platform = source.userAgentData?.platform || source.platform || source.userAgent || '';
   return MAC_PATTERN.test(platform);

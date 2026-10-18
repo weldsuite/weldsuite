@@ -98,31 +98,37 @@ const DATE_FILTERS = [
   { param: 'endDate', apply: (d: Date) => lte(t.createdAt, d) },
 ] as const;
 
-/** Build the list filter conditions, or the 400 message for an invalid date. */
-function buildListFilters(q: Record<string, string>): { conditions: SQL[] } | { errorMessage: string } {
+/** Equality filters (comma lists allowed), and their `<param>Not` exclusions. */
+function equalityConditions(q: Record<string, string>): SQL[] {
   const conditions: SQL[] = [];
   for (const [param, column] of EQUALITY_FILTERS) {
-    const value = q[param];
-    if (!hasValue(value)) continue;
-    const values = splitList(value);
+    const values = hasValue(q[param]) ? splitList(q[param]) : [];
     if (values.length === 1) conditions.push(eq(column, values[0]));
     else if (values.length > 1) conditions.push(inArray(column, values));
-  }
-  // `<param>Not` excludes instead (the filter pills' "is not").
-  for (const [param, column] of EQUALITY_FILTERS) {
-    const value = q[`${param}Not`];
-    if (!hasValue(value)) continue;
-    const values = splitList(value);
+    // `<param>Not` excludes instead (the filter pills' "is not").
+    const excluded = hasValue(q[`${param}Not`]) ? splitList(q[`${param}Not`]) : [];
     // NULL NOT IN (...) is not true, so rows without the column stay explicitly.
-    if (values.length > 0) conditions.push(or(isNull(column), notInArray(column, values))!);
+    if (excluded.length > 0) conditions.push(or(isNull(column), notInArray(column, excluded))!);
   }
+  return conditions;
+}
+
+/**
+ * Free-text search over the description (which carries the record name) and
+ * the entity id, so a pasted id still finds its rows.
+ */
+function searchCondition(search: string | undefined): SQL | null {
+  if (!hasValue(search) || !search.trim()) return null;
+  const pattern = `%${escapeLike(search.trim())}%`;
+  return or(ilike(t.description, pattern), ilike(t.entityId, pattern))!;
+}
+
+/** Build the list filter conditions, or the 400 message for an invalid date. */
+function buildListFilters(q: Record<string, string>): { conditions: SQL[] } | { errorMessage: string } {
+  const conditions = equalityConditions(q);
   if (!hasValue(q.entityType)) conditions.push(notInArray(t.entityType, HIDDEN_ACTIVITY_ENTITY_TYPES));
-  // Free-text search over the description (which carries the record name) and
-  // the entity id, so a pasted id still finds its rows.
-  if (hasValue(q.search) && q.search.trim()) {
-    const pattern = `%${escapeLike(q.search.trim())}%`;
-    conditions.push(or(ilike(t.description, pattern), ilike(t.entityId, pattern))!);
-  }
+  const search = searchCondition(q.search);
+  if (search) conditions.push(search);
   for (const { param, apply } of DATE_FILTERS) {
     const value = q[param];
     if (!hasValue(value)) continue;

@@ -98,32 +98,39 @@ function DataSnapshot({ data, label }: Readonly<{ data: Record<string, unknown>;
   );
 }
 
+/** The select filters: the pill field, its query param, and the "is not" param. */
+const SELECT_FILTER_PARAMS = {
+  entityType: ['entityType', 'entityTypeNot'],
+  action: ['action', 'actionNot'],
+  performedBy: ['performedBy', 'performedByNot'],
+} as const satisfies Record<string, readonly [keyof AuditLogFilters, keyof AuditLogFilters]>;
+
+/** Apply a date pill ("is" / "before" / "after" a local day) to the query. */
+function applyDateFilter(next: AuditLogFilters, operator: string | undefined, value: string): void {
+  const bounds = dayBounds(value);
+  if (!bounds) return;
+  if (operator === 'before') next.endDate = bounds.start;
+  else if (operator === 'after') next.startDate = bounds.end;
+  else {
+    next.startDate = bounds.start;
+    next.endDate = bounds.end;
+  }
+}
+
 /** Translate the active filter pills into list query params. */
 function toQueryFilters(filters: ActiveFilter[], searchQuery: string, page: number): AuditLogFilters {
   const next: AuditLogFilters = { page, limit: 50 };
   if (searchQuery.trim()) next.search = searchQuery.trim();
   for (const f of filters) {
     if (!f.value) continue;
-    const exclude = f.operator === 'is not';
-    if (f.field === 'entityType') {
-      if (exclude) next.entityTypeNot = f.value;
-      else next.entityType = f.value;
-    } else if (f.field === 'action') {
-      if (exclude) next.actionNot = f.value;
-      else next.action = f.value;
-    } else if (f.field === 'performedBy') {
-      if (exclude) next.performedByNot = f.value;
-      else next.performedBy = f.value;
-    } else if (f.field === 'date') {
-      const bounds = dayBounds(f.value);
-      if (!bounds) continue;
-      if (f.operator === 'before') next.endDate = bounds.start;
-      else if (f.operator === 'after') next.startDate = bounds.end;
-      else {
-        next.startDate = bounds.start;
-        next.endDate = bounds.end;
-      }
+    if (f.field === 'date') {
+      applyDateFilter(next, f.operator, f.value);
+      continue;
     }
+    const params = SELECT_FILTER_PARAMS[f.field as keyof typeof SELECT_FILTER_PARAMS];
+    if (!params) continue;
+    const [include, exclude] = params;
+    next[f.operator === 'is not' ? exclude : include] = f.value;
   }
   return next;
 }

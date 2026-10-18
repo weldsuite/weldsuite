@@ -182,13 +182,13 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
 
   // Every app code shown this session, uninstalled ones included, so a
   // reinstalled app returns to its old slot rather than the bottom.
-  const knownOrderRef = useRef<string[] | null>(null);
-  if (knownOrderRef.current === null) {
-    knownOrderRef.current = rememberAppCodes(initialAppOrder, installedApps.map((a) => a.appCode));
-  }
+  const [initialKnownOrder] = useState(() =>
+    rememberAppCodes(initialAppOrder, installedApps.map((a) => a.appCode))
+  );
+  const knownOrderRef = useRef<string[]>(initialKnownOrder);
 
   const [orderedApps, setOrderedApps] = useState<InstalledApp[]>(() =>
-    sortByAppOrder(installedApps, knownOrderRef.current ?? [])
+    sortByAppOrder(installedApps, initialKnownOrder)
   );
   const [activeApp, setActiveApp] = useState<InstalledApp | null>(null);
 
@@ -199,7 +199,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
 
   // Update when installedApps changes (e.g., new app installed)
   useEffect(() => {
-    const known = rememberAppCodes(knownOrderRef.current ?? [], installedApps.map((a) => a.appCode));
+    const known = rememberAppCodes(knownOrderRef.current, installedApps.map((a) => a.appCode));
     knownOrderRef.current = known;
     setOrderedApps(sortByAppOrder(installedApps, known));
   }, [installedApps]);
@@ -227,7 +227,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
     const newOrder = arrayMove(orderedApps, oldIndex, newIndex);
 
     setOrderedApps(newOrder);
-    knownOrderRef.current = applyVisibleOrder(knownOrderRef.current ?? [], newOrder.map((a) => a.appCode));
+    knownOrderRef.current = applyVisibleOrder(knownOrderRef.current, newOrder.map((a) => a.appCode));
 
     // Persist to backend (fire and forget) — app-api PUT /api/user-preferences
     // (was api-worker PUT /settings/preferences).

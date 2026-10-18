@@ -459,6 +459,8 @@ export const common = {
       appNotInstalledNamed: '{app} is not installed in this workspace',
       appNotInstalledHint: 'Install it from the App Store to open it.',
       openAppStore: 'Open App Store',
+      appUnavailableNamed: "{app} isn't available to you in this workspace",
+      appUnavailableHint: 'Ask a workspace admin to install it or give you access.',
     },
     time: {
       justNow: 'Just now',

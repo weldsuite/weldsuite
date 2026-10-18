@@ -274,7 +274,11 @@ export function humanizeAction(action: string): string {
 
 /** "scope:all" / "invite_external" / "edit-self" → `scopeAll` / `inviteExternal` / `editSelf`. */
 function actionKey(action: string): string {
-  return action.replace(/[-:_]+(\w)/g, (_, c: string) => c.toUpperCase());
+  return action
+    .split(/[-:_]/)
+    .filter(Boolean)
+    .map((word, i) => (i === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join('');
 }
 
 /**
