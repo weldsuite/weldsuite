@@ -34,4 +34,6 @@ export async function driveAccess(c: DriveContext): Promise<DriveAccessIndex> {
 }
 
 export const DRIVE_VIEW_ONLY = 'You can view this item but not change it';
-export const DRIVE_MODULE_FILE = 'This file belongs to a record in another module, which decides who can open it';
+export const DRIVE_FOLDER_HOLDS_LOCKED_FILES =
+  'This folder holds files you cannot change, so it cannot be deleted permanently. Their owners can move or delete them first';
+export const DRIVE_MODULE_FILE ='This file belongs to a record in another module, which decides who can open it';

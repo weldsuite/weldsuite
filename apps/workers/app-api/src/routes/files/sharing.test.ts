@@ -254,6 +254,26 @@ describe('sharing a folder', () => {
     expect((await carol().post(`/api/files/${inside.id}/move`, { folderId: null })).status).toBe(403);
   });
 
+  it('will not purge a folder that holds a file the caller cannot change', async () => {
+    // Ann's workspace folder; Carol restricts a file she puts in it; Bob
+    // edits the folder through general access but cannot see the file.
+    const res = await ann().post('/api/folders', { name: 'Team' });
+    const team = await json<{ id: string }>(res);
+    const secret = await upload(carol(), 'carol-secret.txt', team.id);
+    expect((await carol().patch(`/api/files/${secret.id}`, { generalAccess: 'restricted' })).status).toBe(200);
+    expect((await bob().get(`/api/files/${secret.id}`)).status).toBe(404);
+
+    expect((await bob().delete(`/api/folders/${team.id}`)).status).toBe(200);
+    expect((await bob().delete(`/api/drive/trash/folder/${team.id}`)).status).toBe(403);
+    expect((await bob().delete('/api/drive/trash/empty')).status).toBe(200);
+
+    expect((await carol().get(`/api/files/${secret.id}`)).status).toBe(200);
+    const annTrash = await json<{ folders: { id: string }[] }>(await ann().get('/api/drive/trash'));
+    expect(annTrash.folders.map((f) => f.id)).toContain(team.id);
+    // The folder's owner edits everything in it, so Ann can purge it.
+    expect((await ann().delete(`/api/drive/trash/folder/${team.id}`)).status).toBe(200);
+  });
+
   it('keeps the trash to what the caller may see', async () => {
     const trashed = await upload(ann(), 'old-contract.txt', folder.id);
     expect((await ann().delete(`/api/files/${trashed.id}`)).status).toBe(200);

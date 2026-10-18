@@ -41,7 +41,7 @@ import {
   withFolderAccess,
 } from '@weldsuite/core-domain/drive-access';
 import * as foldersService from '../../services/folders';
-import { DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
+import { DRIVE_FOLDER_HOLDS_LOCKED_FILES, DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -262,9 +262,16 @@ app.delete('/trash/folder/:id', requirePermission('folders:delete'), async (c) =
     const db = c.get('tenantDb');
     const loaded = await foldersService.loadFolderFilesForPurge(db, id);
     if (!loaded) return error.notFound(c, 'Folder', id);
-    const role = folderRole(await driveAccess(c), loaded.folder);
+    const access = await driveAccess(c);
+    const role = folderRole(access, loaded.folder);
     if (!role) return error.notFound(c, 'Folder', id);
     if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
+    // The purge takes every file in the folder for good, so it may not take
+    // one the caller could not delete on its own (a restricted file another
+    // member put in a folder the caller edits through general access).
+    if (loaded.folderFiles.some((f) => !canEdit(fileRole(access, f)))) {
+      return error.forbidden(c, DRIVE_FOLDER_HOLDS_LOCKED_FILES);
+    }
 
     if (c.env.STORAGE) {
       await Promise.all(
@@ -302,9 +309,17 @@ app.delete('/trash/empty', requirePermission('files:delete'), async (c) => {
       foldersService.listTrashedFolders(db),
       driveAccess(c),
     ]);
+    const editableFolderIds = trashedFolders.filter((f) => canEdit(folderRole(access, f))).map((f) => f.id);
+    // A folder goes with its files, so one holding a file the caller may not
+    // change stays in the trash (see DELETE /trash/folder/:id).
+    const locked = new Set(
+      (await foldersService.listFilesInFolders(db, editableFolderIds))
+        .filter((f) => !canEdit(fileRole(access, f)))
+        .map((f) => f.folderId),
+    );
     const ids = {
       fileIds: trashedFiles.filter((f) => canEdit(fileRole(access, f))).map((f) => f.id),
-      folderIds: trashedFolders.filter((f) => canEdit(folderRole(access, f))).map((f) => f.id),
+      folderIds: editableFolderIds.filter((id) => !locked.has(id)),
     };
     if (c.env.STORAGE) {
       const keys = await listPurgedFileKeys(db, ids);
