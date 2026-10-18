@@ -13,10 +13,10 @@ WeldDrive is file storage for your workspace — upload, organize, share, and re
 ## What you can do
 
 - **My Drive** — your files and folders
-- **Shared with me** — items teammates shared
+- **Shared with me** — files your teammates added
 - **Recent** and **Starred** — quick access
-- **Uploads** — track large uploads in progress
-- **Trash** — restore or permanently delete
+- **Uploads** — files uploaded to WeldDrive itself (not the sheets and documents a project keeps here)
+- **Trash** — restore or permanently delete; items are deleted for good after 30 days
 
 Open files in preview or linked editors (documents open in the document editor when supported).
 
@@ -25,17 +25,21 @@ Open files in preview or linked editors (documents open in the document editor w
 ## Upload and organize
 
 1. Open **WeldDrive**.
-2. Click **Upload** or drag files into the window.
-3. Create **folders** and move items to stay organized.
+2. Click **New** → **File upload**, or drag files into the window.
+3. Create **folders** and use **Move to folder** on files and folders to stay organized.
 4. **Star** important files for the sidebar shortcut.
+
+Right-click any file or folder for its actions. File and folder names can't contain `/ \ : * ? " < > |`, and two files in one folder can't share a name, whatever the capitals.
 
 ---
 
 ## Share with teammates
 
-1. Right-click a file or folder → **Share**.
-2. Pick workspace members and permission (view or edit).
-3. Save — the item appears under **Shared with me** for them.
+Files in WeldDrive are open to everyone in your workspace who has WeldDrive access, so sharing a file means sending the link.
+
+1. Right-click a file → **Share** (or **Copy link**).
+2. Copy the link and send it to your teammate.
+3. The link opens the file in WeldDrive for them.
 
 ---
 

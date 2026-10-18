@@ -7,7 +7,7 @@ import type { ClientApi, DataResponse } from '../types';
 import type {
   ListFilesQuery,
   CreateFileInput,
-  UpdateFileInput,
+  UpdateDriveFileInput,
   MoveFileInput,
   DriveFile,
   FilesListResponse,
@@ -25,7 +25,7 @@ export function createFilesApi(api: ClientApi) {
     create(input: CreateFileInput): Promise<DataResponse<DriveFile>> {
       return api.post<DataResponse<DriveFile>>('/files', input);
     },
-    update(id: string, input: UpdateFileInput): Promise<DataResponse<DriveFile>> {
+    update(id: string, input: UpdateDriveFileInput): Promise<DataResponse<DriveFile>> {
       return api.patch<DataResponse<DriveFile>>(`/files/${id}`, input);
     },
     delete(id: string): Promise<DataResponse<{ deleted: boolean }>> {

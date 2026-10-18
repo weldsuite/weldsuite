@@ -83,6 +83,7 @@ export const welddrive = {
       source: 'Source',
       size: 'Size',
       modified: 'Modified',
+      deletesIn: 'Deletes in',
     },
 
     filters: {
@@ -181,6 +182,7 @@ export const welddrive = {
       move: 'Move',
       delete: 'Delete',
       star: 'Star',
+      share: 'Share',
     },
 
     selection: {
@@ -191,6 +193,7 @@ export const welddrive = {
       star: 'Star',
       move: 'Move',
       delete: 'Delete',
+      share: 'Share',
     },
 
     trash: {
@@ -209,6 +212,7 @@ export const welddrive = {
     cancel: 'Cancel',
     create: 'Create',
     creating: 'Creating...',
+    failed: "Couldn't create the folder. Try again.",
   },
 
   moveToFolder: {
@@ -264,6 +268,7 @@ export const welddrive = {
       duplicate: 'Duplicate',
       delete: 'Delete',
       close: 'Close',
+      share: 'Share',
     },
   },
 
@@ -297,11 +302,13 @@ export const welddrive = {
       moveToFolder: 'Move to folder',
       copyLink: 'Copy link',
       delete: 'Delete',
+      share: 'Share',
     },
     unsupported: {
       fileLabel: '{fileType} file',
       download: 'Download',
     },
+    textTruncated: 'Only the start of this file is shown. Download it to see everything.',
   },
 
   folderActions: {
@@ -313,14 +320,32 @@ export const welddrive = {
     myDrive: 'My Drive',
   },
 
+  share: {
+    title: 'Share "{name}"',
+    description: 'Send teammates the link to this file.',
+    generalAccessTitle: 'Everyone in this workspace with WeldDrive access',
+    generalAccessDescription: 'Files in WeldDrive are open to the whole workspace. Anyone with the link who has WeldDrive access can open it.',
+    linkLabel: 'Link',
+    copyLink: 'Copy link',
+    done: 'Done',
+  },
+
+  rename: {
+    nameLabel: 'Name',
+    invalidCharacters: "A name can't contain {chars}",
+    nameTaken: 'A file with this name already exists in this folder',
+    failed: "Couldn't rename. Try again.",
+    willBeSavedAs: 'Will be saved as {name}',
+    cancel: 'Cancel',
+    rename: 'Rename',
+  },
+
   toasts: {
     noSavedContent: 'This document has no saved content yet. Open it, make a change, then try again.',
     failedToDownloadFile: 'Failed to download file',
     fileHasNoDownloadUrl: 'File has no download URL',
     failedToCreateDocument: 'Failed to create document',
-    uploading: 'Uploading {count} file{plural}...',
     uploadFailed: 'Failed to upload {name}',
-    uploadSuccess: '{count} file{plural} uploaded',
     movedToMyDrive: 'Moved to My Drive',
     failedToMoveFile: 'Failed to move file',
     movedToFolder: 'Moved to {folderName}',
@@ -330,7 +355,6 @@ export const welddrive = {
     failedToUpdateStar: 'Failed to update star',
     onlyDriveFilesRenamed: 'Only Drive files can be renamed',
     fileRenamed: 'File renamed',
-    failedToRenameFile: 'Failed to rename file',
     onlyDriveFilesMoved: 'Only Drive files can be moved',
     linkCopied: 'Link copied to clipboard',
     failedToCopyLink: 'Failed to copy link',
@@ -355,9 +379,20 @@ export const welddrive = {
     fileMoved: 'File moved',
     failedToMoveFileMutation: 'Failed to move file',
     folderRenamed: 'Folder renamed',
-    failedToRenameFolder: 'Failed to rename folder',
     noDownloadUrl: 'No downloadable file URL for the selected file(s)',
     someFilesNoUrl: '{count} selected file(s) have no download URL and were skipped',
+    uploadingOne: 'Uploading 1 file...',
+    uploadingMany: 'Uploading {count} files...',
+    uploadedOne: '1 file uploaded',
+    uploadedMany: '{count} files uploaded',
+    folderMoved: 'Folder moved',
+    failedToMoveFolder: 'Failed to move folder',
+    failedToSaveDescription: 'Failed to save the description',
+    linkedFileNotFound: "This file doesn't exist anymore or was moved to the trash",
+    itemRestored: '1 item restored',
+    itemsRestored: '{count} items restored',
+    itemPermanentlyDeleted: '1 item permanently deleted',
+    itemsPermanentlyDeleted: '{count} items permanently deleted',
   },
 
   confirmDialog: {
@@ -371,6 +406,12 @@ export const welddrive = {
     },
     renameFolder: {
       title: 'Rename folder',
+    },
+    deletePermanently: {
+      title: 'Delete permanently',
+      descriptionOne: 'The selected item will be deleted for good. This cannot be undone.',
+      descriptionMany: 'The {count} selected items will be deleted for good. This cannot be undone.',
+      confirmLabel: 'Delete permanently',
     },
   },
 };

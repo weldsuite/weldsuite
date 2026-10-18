@@ -19,6 +19,7 @@ import {
   Link,
   Trash2,
   Info,
+  UserPlus,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -54,6 +55,15 @@ async function getClerkToken(): Promise<string | null> {
   const clerk = (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } }).Clerk;
   if (clerk?.session) return clerk.session.getToken();
   return null;
+}
+
+/** Read a drive file's bytes through the authenticated /api/files/:id/content endpoint. */
+export async function fetchDriveFileContent(id: string, signal?: AbortSignal): Promise<Response> {
+  const token = await getClerkToken();
+  return fetch(apiUrl(`/api/files/${id}/content`), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    signal,
+  });
 }
 
 /**
@@ -123,6 +133,7 @@ interface DriveFileCardProps {
   onCopyLink?: (file: UnifiedFile) => void;
   onDelete?: (file: UnifiedFile) => void;
   onDetails?: (file: UnifiedFile) => void;
+  onShare?: (file: UnifiedFile) => void;
 }
 
 const fileTypeIcons: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string }> = {
@@ -168,7 +179,7 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onToggleStar, onRename, onMoveToFolder, onCopyLink, onDelete, onDetails }: Readonly<DriveFileCardProps>) {
+export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onToggleStar, onRename, onMoveToFolder, onCopyLink, onDelete, onDetails, onShare }: Readonly<DriveFileCardProps>) {
   const { t } = useI18n();
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;
@@ -234,6 +245,12 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                 <Info className="h-4 w-4 mr-0.5" />
                 {t.welddrive.page.actions.details}
               </DropdownMenuItem>
+              {onShare && (
+                <DropdownMenuItem onClick={() => onShare(file)}>
+                  <UserPlus className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.share}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
                 <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />

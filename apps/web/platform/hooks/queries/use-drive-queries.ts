@@ -37,6 +37,17 @@ export function useDriveFiles(params?: DriveFilesParams) {
     }>,
   });
 }
+
+/** One drive file row by id (a shared `/welddrive?file=` link). */
+export function useDriveFile(id: string | null | undefined) {
+  const { files } = useAppApi();
+  return useQuery({
+    queryKey: driveKeys.file(id ?? ''),
+    queryFn: () => files.get(id!) as unknown as Promise<{ success: boolean; data: DriveFile }>,
+    enabled: !!id,
+    retry: false,
+  });
+}
 // ── Folder Queries ──────────────────────────────────────────────────────
 
 export function useDriveFolders(parentId?: string | null) {
@@ -105,6 +116,7 @@ export function useUpdateDriveFile() {
       folderId?: string | null;
       isStarred?: boolean;
       isPublic?: boolean;
+      description?: string | null;
     }) => files.update(id, data) as unknown as Promise<{ success: boolean; data: DriveFile }>,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: driveKeys.all });
@@ -123,13 +135,35 @@ export function useDeleteDriveFile() {
   });
 }
 
+/** `old` with the file `id` starred or unstarred, for any cached `{ data: [...] }` drive list. */
+function withStarToggled(old: unknown, id: string): unknown {
+  if (!old || typeof old !== 'object' || !('data' in old) || !Array.isArray(old.data)) return old;
+  const rows = old.data as Array<{ id?: string; isStarred?: unknown }>;
+  if (!rows.some((row) => row?.id === id && typeof row.isStarred === 'boolean')) return old;
+  return {
+    ...old,
+    data: rows.map((row) => (row?.id === id ? { ...row, isStarred: !row.isStarred } : row)),
+  };
+}
+
 export function useStarDriveFile() {
   const queryClient = useQueryClient();
   const { files } = useAppApi();
   return useMutation({
     mutationFn: (id: string) =>
       files.star(id) as unknown as Promise<{ success: boolean; data: { isStarred: boolean } }>,
-    onSuccess: () => {
+    // Flip the star in every cached list right away, so the row shows it
+    // without waiting for the refetch.
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: driveKeys.all });
+      const snapshots = queryClient.getQueriesData({ queryKey: driveKeys.all });
+      queryClient.setQueriesData({ queryKey: driveKeys.all }, (old: unknown) => withStarToggled(old, id));
+      return { snapshots };
+    },
+    onError: (_err, _id, context) => {
+      context?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: driveKeys.all });
     },
   });

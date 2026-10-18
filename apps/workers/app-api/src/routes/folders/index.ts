@@ -16,6 +16,7 @@ import {
 } from '@weldsuite/core-api-client/schemas/folders';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { checkFolderParent, FOLDER_PARENT_ERRORS } from '@weldsuite/core-domain/folders';
 import * as foldersService from '../../services/folders';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -48,9 +49,13 @@ app.get('/:id', requirePermission('folders:read'), async (c) => {
 
 app.post('/', requirePermission('folders:create'), zValidator('json', createFolderSchema), async (c) => {
   const userId = c.get('userId') ?? null;
+  const body = c.req.valid('json');
   try {
-    const row = await foldersService.createFolder(c.get('tenantDb'), {
-      ...c.req.valid('json'),
+    const db = c.get('tenantDb');
+    const parentCheck = await checkFolderParent(db, null, body.parentId);
+    if (parentCheck !== 'ok') return error.badRequest(c, FOLDER_PARENT_ERRORS[parentCheck]);
+    const row = await foldersService.createFolder(db, {
+      ...body,
       createdById: userId,
     });
     publishEntityEvent({
@@ -69,8 +74,13 @@ app.post('/', requirePermission('folders:create'), zValidator('json', createFold
 
 app.patch('/:id', requirePermission('folders:update'), zValidator('json', updateFolderSchema), async (c) => {
   const id = c.req.param('id');
+  const body = c.req.valid('json');
   try {
-    const row = await foldersService.updateFolder(c.get('tenantDb'), id, c.req.valid('json'));
+    const db = c.get('tenantDb');
+    // A parent inside the folder would cut it and its contents off from My Drive.
+    const parentCheck = await checkFolderParent(db, id, body.parentId);
+    if (parentCheck !== 'ok') return error.badRequest(c, FOLDER_PARENT_ERRORS[parentCheck]);
+    const row = await foldersService.updateFolder(db, id, body);
     if (!row) return error.notFound(c, 'Folder', id);
     publishEntityEvent({
       c,

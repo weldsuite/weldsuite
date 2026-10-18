@@ -8,19 +8,36 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { publishEntityEvent } from '@weldsuite/entity-events';
+import { computeChanges, publishEntityEvent } from '@weldsuite/entity-events';
 import {
   listFilesQuery,
   createFileSchema,
-  updateFileSchema,
+  updateDriveFileSchema,
   moveFileSchema,
 } from '@weldsuite/core-api-client/schemas/files';
+import { tagsToSpaces } from '@weldsuite/text';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import * as filesService from '@weldsuite/core-domain/files';
 import { normalizeGenericFiles, queryArray, type UnifiedFile } from '../../services/drive-aggregation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type FileRow = NonNullable<Awaited<ReturnType<typeof filesService.getFile>>>;
+
+/**
+ * The fields a file's activity shows as "from → to". The description is
+ * rich text, so it goes in as a short plain-text excerpt.
+ */
+function trackedFileFields(row: FileRow): Record<string, unknown> {
+  const description = filesService.fileDescription(row);
+  return {
+    name: row.fileName,
+    isStarred: row.isStarred,
+    isPublic: row.isPublic,
+    description: description ? tagsToSpaces(description).replaceAll(/\s+/g, ' ').trim().slice(0, 200) : null,
+  };
+}
 
 // ============================================================================
 // GET / — list files in the drive store (with in-memory pagination over the
@@ -109,7 +126,7 @@ app.post('/', requirePermission('files:create'), zValidator('json', createFileSc
 // PATCH /:id
 // ============================================================================
 
-app.patch('/:id', requirePermission('files:update'), zValidator('json', updateFileSchema), async (c) => {
+app.patch('/:id', requirePermission('files:update'), zValidator('json', updateDriveFileSchema), async (c) => {
   const id = c.req.param('id');
   try {
     const result = await filesService.updateFile(c.get('tenantDb'), id, c.req.valid('json'));
@@ -134,6 +151,8 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updateFi
           fileType: result.row.fileType,
           fileSize: result.row.fileSize,
         },
+        // e.g. name 'E2E image.png' → 'E2E renamed', shown in the file's activity
+        changes: computeChanges(trackedFileFields(result.previous), trackedFileFields(result.row)),
       });
       return success(c, result.row);
     }

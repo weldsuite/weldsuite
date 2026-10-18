@@ -16,6 +16,7 @@ import {
   HardDrive,
   FileText,
   Copy,
+  UserPlus,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -28,23 +29,16 @@ import {
 import { cn } from '@/lib/utils';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile } from './drive-file-card';
+import { DriveAccessList } from './drive-access-list';
+import { driveSourceKey, driveSourceLabel } from './drive-utils';
 import { CommentsList, DescriptionField, type TaskComment } from '@/components/task-detail/task-detail-content';
-import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
-import { useUser } from '@clerk/clerk-react';
+import { AuditTimeline, AuditTimelineSkeleton } from '@/components/audit-timeline';
+import { useEntityAuditLogs } from '@/hooks/queries/use-audit-log-queries';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { copyText } from '@/lib/clipboard';
 
 // ---------- Types ----------
-
-// Shape of a `/team-members` row as consumed here — see `useWorkspaceMembers`
-// for the full (visibility-projected) field set; only what this panel reads.
-interface DriveAccessMember {
-  id?: string;
-  userId: string;
-  name: string;
-  picture?: string | null;
-}
 
 interface FileDetailPanelProps {
   file: UnifiedFile | null;
@@ -56,7 +50,9 @@ interface FileDetailPanelProps {
   onCopyLink?: (file: UnifiedFile) => void;
   onDelete?: (file: UnifiedFile) => void;
   onPreview?: (file: UnifiedFile) => void;
+  onShare?: (file: UnifiedFile) => void;
   description?: string;
+  /** Saves the description; without it (files from other modules) none is shown. */
   onDescriptionChange?: (description: string) => void;
   comments?: TaskComment[];
   onAddComment?: (content: string) => void;
@@ -84,6 +80,62 @@ function formatActivityDate(dateStr: string, justNowLabel: string, minutesAgoTem
   return formatDate(dateStr);
 }
 
+/**
+ * A drive file's history from the audit log: who uploaded, renamed or
+ * described it, with the old and new values. Files from other modules, and
+ * files without recorded history, fall back to what the row itself tells.
+ */
+function FileActivity({ file }: Readonly<{ file: UnifiedFile }>) {
+  const { t } = useI18n();
+  const isDriveFile = file.source === 'drive';
+  const { data, isLoading } = useEntityAuditLogs(isDriveFile ? 'file' : '', file.id);
+
+  if (isDriveFile && isLoading) return <AuditTimelineSkeleton />;
+
+  const logs = (data?.data ?? []).map((log) => ({
+    id: log.id,
+    action: log.action,
+    description: log.description,
+    changes: log.changes,
+    performedBy: log.performedBy,
+    performedByName: log.performedByName,
+    createdAt: log.createdAt,
+  }));
+  if (logs.length > 0) return <AuditTimeline logs={logs} alwaysShowChanges />;
+
+  const activityItems = [
+    ...(file.updatedAt && file.updatedAt !== file.createdAt
+      ? [{ id: 'updated', icon: Edit, text: t.welddrive.fileDetail.activity.fileModified, date: file.updatedAt }]
+      : []),
+    { id: 'created', icon: Upload, text: t.welddrive.fileDetail.activity.fileUploaded, date: file.createdAt },
+  ];
+
+  return (
+    <div>
+      {activityItems.map((item, index) => {
+        const ActivityIcon = item.icon;
+        const isLast = index === activityItems.length - 1;
+        return (
+          <div key={item.id} className="flex">
+            <div className="relative shrink-0" style={{ width: 20 }}>
+              <div className="relative z-10 w-5 h-5 rounded-md flex items-center justify-center bg-muted" style={{ marginTop: 3 }}>
+                <ActivityIcon className="w-2.5 h-2.5 text-muted-foreground" />
+              </div>
+              {!isLast && <div className="absolute bg-border" style={{ left: 9, top: 28, bottom: 5, width: 1 }} />}
+            </div>
+            <div className={cn("flex-1 min-w-0 pl-2.5", !isLast && "pb-7")}>
+              <div className="flex items-start pt-0.5">
+                <p className="flex-1 text-[14px] text-muted-foreground">{item.text}</p>
+                <span className="text-[12px] text-muted-foreground/60 shrink-0 ml-3">{formatActivityDate(item.date, t.welddrive.fileDetail.activity.justNow, t.welddrive.fileDetail.timeAgo.minutesAgo, t.welddrive.fileDetail.timeAgo.hoursAgo, t.welddrive.fileDetail.timeAgo.daysAgo)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---------- Component ----------
 
 export function FileDetailPanel({
@@ -96,6 +148,7 @@ export function FileDetailPanel({
   onCopyLink,
   onDelete,
   onPreview,
+  onShare,
   description,
   onDescriptionChange,
   comments,
@@ -108,8 +161,6 @@ export function FileDetailPanel({
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState('overview');
   const widthNum = Number.parseInt(width, 10) || 500;
-  const { user } = useUser();
-  const { data: membersData } = useWorkspaceMembers();
 
   const panelTabs: PageTab[] = [
     { id: 'overview', label: t.welddrive.fileDetail.tabs.overview, icon: LayoutGrid },
@@ -159,24 +210,17 @@ export function FileDetailPanel({
 
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;
-  const badgeClass = sourceBadgeStyles[file.source] || sourceBadgeStyles.drive;
+  const badgeClass = sourceBadgeStyles[driveSourceKey(file)] || sourceBadgeStyles.drive;
   const isImage = file.fileType === 'image' && (file.url || file.thumbnailUrl);
 
   const detailFields = [
     { icon: typeConfig.icon, label: t.welddrive.fileDetail.fields.type, value: <span className="capitalize">{file.fileType}</span> },
     { icon: HardDrive, label: t.welddrive.fileDetail.fields.size, value: file.fileSize !== null ? formatFileSize(file.fileSize) : '--' },
-    { icon: HardDrive, label: t.welddrive.fileDetail.fields.source, value: <span className={cn(driveLabelClass, badgeClass)}>{file.sourceLabel}</span> },
+    { icon: HardDrive, label: t.welddrive.fileDetail.fields.source, value: <span className={cn(driveLabelClass, badgeClass)}>{driveSourceLabel(file, t)}</span> },
     { icon: FileText, label: t.welddrive.fileDetail.fields.created, value: formatDate(file.createdAt) },
   ];
   if (file.updatedAt) detailFields.push({ icon: FileText, label: t.welddrive.fileDetail.fields.updated, value: formatDate(file.updatedAt) });
   if (file.mimeType) detailFields.push({ icon: FileText, label: t.welddrive.fileDetail.fields.mime, value: <span className="text-xs font-mono text-muted-foreground">{file.mimeType}</span> });
-
-  const activityItems = [
-    ...(file.updatedAt && file.updatedAt !== file.createdAt
-      ? [{ id: 'updated', icon: Edit, text: t.welddrive.fileDetail.activity.fileModified, date: file.updatedAt }]
-      : []),
-    { id: 'created', icon: Upload, text: t.welddrive.fileDetail.activity.fileUploaded, date: file.createdAt },
-  ];
 
   return (
     <div
@@ -226,6 +270,12 @@ export function FileDetailPanel({
                 <Link className="h-4 w-4 mr-0.5" />
                 {t.welddrive.fileDetail.actions.copyLink}
               </DropdownMenuItem>
+              {onShare && (
+                <DropdownMenuItem onClick={() => onShare(file)}>
+                  <UserPlus className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.fileDetail.actions.share}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
                 <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />
@@ -256,14 +306,17 @@ export function FileDetailPanel({
         </div>
       </div>
 
-      {/* Description under title */}
-      <div className="px-1 md:px-2 -mt-2 pb-3">
-        <DescriptionField
-          taskId={file.id}
-          description={description}
-          onUpdate={(_id, data) => onDescriptionChange?.(data.description || '')}
-        />
-      </div>
+      {/* Description under title, saved on blur */}
+      {onDescriptionChange && (
+        <div className="px-1 md:px-2 -mt-2 pb-3">
+          <DescriptionField
+            key={file.id}
+            taskId={file.id}
+            description={description}
+            onUpdate={(_id, data) => onDescriptionChange(data.description || '')}
+          />
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="relative z-10 px-4">
@@ -300,81 +353,18 @@ export function FileDetailPanel({
               )}
 
               {/* Who has access */}
-              {(() => {
-                const members = (membersData?.data || []) as DriveAccessMember[];
-                const owner = file.uploadedById
-                  ? members.find((m) => m.userId === file.uploadedById) || null
-                  : null;
-
-                return (
-                  <div className="mt-4 border-t border-border/50 pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-foreground">{t.welddrive.fileDetail.whoHasAccess}</span>
-                    </div>
-                    <div className="space-y-2.5">
-                      {owner && (
-                        <div className="flex items-center gap-2.5">
-                          {owner.picture ? (
-                            <img src={owner.picture} alt={owner.name} className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />
-                          ) : (
-                            <div className="w-[22px] h-[22px] rounded-[8px] bg-primary flex items-center justify-center shrink-0">
-                              <span className="text-[10px] font-semibold text-primary-foreground">
-                                {(owner.name || '?').split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
-                              </span>
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm text-foreground truncate block">{owner.name}</span>
-                          </div>
-                          <span className={cn(driveLabelClass, 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950')}>{t.welddrive.fileDetail.accessRoles.owner}</span>
-                        </div>
-                      )}
-                      {user && owner?.userId !== user.id && (
-                        <div className="flex items-center gap-2.5">
-                          {user.imageUrl ? (
-                            <img src={user.imageUrl} alt={user.fullName || ''} className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />
-                          ) : (
-                            <div className="w-[22px] h-[22px] rounded-[8px] bg-emerald-500 flex items-center justify-center shrink-0">
-                              <span className="text-[10px] font-semibold text-white">
-                                {(user.fullName || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
-                              </span>
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm text-foreground truncate block">{user.fullName || t.welddrive.fileDetail.you}</span>
-                          </div>
-                          <span className={cn(driveLabelClass, 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950')}>{t.welddrive.fileDetail.accessRoles.canEdit}</span>
-                        </div>
-                      )}
-                      {members
-                        .filter((m) => m.userId !== file.uploadedById && m.userId !== user?.id)
-                        .slice(0, 5)
-                        .map((m) => (
-                          <div key={m.userId || m.id} className="flex items-center gap-2.5">
-                            {m.picture ? (
-                              <img src={m.picture} alt={m.name} className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />
-                            ) : (
-                              <div className="w-[22px] h-[22px] rounded-[8px] bg-muted flex items-center justify-center shrink-0">
-                                <span className="text-[10px] font-medium text-muted-foreground">
-                                  {(m.name || '?').split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
-                                </span>
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <span className="text-sm text-foreground truncate block">{m.name}</span>
-                            </div>
-                            <span className={cn(driveLabelClass, 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary')}>{t.welddrive.fileDetail.accessRoles.canView}</span>
-                          </div>
-                        ))}
-                      {members.filter((m) => m.userId !== file.uploadedById && m.userId !== user?.id).length > 5 && (
-                        <span className="text-xs text-muted-foreground pl-8">
-                          {t.welddrive.fileDetail.moreMembers.replace('{count}', String(members.filter((m) => m.userId !== file.uploadedById && m.userId !== user?.id).length - 5))}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
+              <div className="mt-4 border-t border-border/50 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-foreground">{t.welddrive.fileDetail.whoHasAccess}</span>
+                  {onShare && (
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => onShare(file)}>
+                      <UserPlus className="h-3.5 w-3.5 mr-1" />
+                      {t.welddrive.fileDetail.actions.share}
+                    </Button>
+                  )}
+                </div>
+                <DriveAccessList file={file} />
+              </div>
 
             </div>
           )}
@@ -382,35 +372,7 @@ export function FileDetailPanel({
           {/* Activity Tab */}
           {activeTab === 'activity' && (
             <div className="px-4 pb-4 mt-4">
-              {activityItems.length === 0 ? (
-                <div className="py-12 text-center">
-                  <History className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">{t.welddrive.fileDetail.activity.noActivity}</p>
-                </div>
-              ) : (
-                <div>
-                  {activityItems.map((item, index) => {
-                    const ActivityIcon = item.icon;
-                    const isLast = index === activityItems.length - 1;
-                    return (
-                      <div key={item.id} className="flex">
-                        <div className="relative shrink-0" style={{ width: 20 }}>
-                          <div className="relative z-10 w-5 h-5 rounded-md flex items-center justify-center bg-muted" style={{ marginTop: 3 }}>
-                            <ActivityIcon className="w-2.5 h-2.5 text-muted-foreground" />
-                          </div>
-                          {!isLast && <div className="absolute bg-border" style={{ left: 9, top: 28, bottom: 5, width: 1 }} />}
-                        </div>
-                        <div className={cn("flex-1 min-w-0 pl-2.5", !isLast && "pb-7")}>
-                          <div className="flex items-start pt-0.5">
-                            <p className="flex-1 text-[14px] text-muted-foreground">{item.text}</p>
-                            <span className="text-[12px] text-muted-foreground/60 shrink-0 ml-3">{formatActivityDate(item.date, t.welddrive.fileDetail.activity.justNow, t.welddrive.fileDetail.timeAgo.minutesAgo, t.welddrive.fileDetail.timeAgo.hoursAgo, t.welddrive.fileDetail.timeAgo.daysAgo)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <FileActivity file={file} />
             </div>
           )}
         </div>
