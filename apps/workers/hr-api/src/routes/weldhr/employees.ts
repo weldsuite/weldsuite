@@ -37,7 +37,7 @@ import {
 } from '../../services/weldhr/employees';
 import { startChecklist } from '../../services/weldhr/lifecycle';
 import { recordHrAudit } from '../../services/weldhr/shared';
-import { actor, clientIp, db, emit, param } from './helpers';
+import { actor, hrJson, clientIp, db, emit, param } from './helpers';
 
 export const employeesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -58,7 +58,7 @@ employeesRoutes.get('/:employeeId', requirePermission('employees:read'), async (
   return success(c, await getEmployeeDetail(db(c), param(c, 'employeeId')));
 });
 
-employeesRoutes.post('/', requirePermission('employees:create'), zValidator('json', createHrEmployeeSchema), async (c) => {
+employeesRoutes.post('/', requirePermission('employees:create'), hrJson(createHrEmployeeSchema), async (c) => {
   const { sensitive, onboardingTemplateId, ...input } = c.req.valid('json');
   const database = db(c);
 
@@ -94,7 +94,7 @@ employeesRoutes.post('/', requirePermission('employees:create'), zValidator('jso
 employeesRoutes.post(
   '/from-member',
   requirePermission('employees:create'),
-  zValidator('json', createHrEmployeeFromMemberSchema),
+  hrJson(createHrEmployeeFromMemberSchema),
   async (c) => {
     const { sensitive, onboardingTemplateId, ...input } = c.req.valid('json');
     const database = db(c);
@@ -129,7 +129,7 @@ employeesRoutes.post(
   },
 );
 
-employeesRoutes.patch('/:employeeId', requirePermission('employees:update'), zValidator('json', updateHrEmployeeSchema), async (c) => {
+employeesRoutes.patch('/:employeeId', requirePermission('employees:update'), hrJson(updateHrEmployeeSchema), async (c) => {
   const { sensitive, ...input } = c.req.valid('json');
   if (sensitive) {
     return error.badRequest(c, 'Update sensitive data through PUT /employees/:employeeId/sensitive');
@@ -159,7 +159,7 @@ employeesRoutes.get('/:employeeId/sensitive', requirePermission('employees:sensi
 employeesRoutes.put(
   '/:employeeId/sensitive',
   requirePermission('employees:sensitive'),
-  zValidator('json', hrEmployeeSensitiveSchema),
+  hrJson(hrEmployeeSensitiveSchema),
   async (c) => {
     const id = param(c, 'employeeId');
     const database = db(c);
@@ -188,11 +188,11 @@ export const departmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables 
 
 departmentsRoutes.get('/', requirePermission('employees:read'), async (c) => success(c, await listDepartments(db(c))));
 
-departmentsRoutes.post('/', requirePermission('employees:manage'), zValidator('json', createHrDepartmentSchema), async (c) => {
+departmentsRoutes.post('/', requirePermission('employees:manage'), hrJson(createHrDepartmentSchema), async (c) => {
   return success(c, await createDepartment(db(c), c.req.valid('json')), 201);
 });
 
-departmentsRoutes.patch('/:departmentId', requirePermission('employees:manage'), zValidator('json', updateHrDepartmentSchema), async (c) => {
+departmentsRoutes.patch('/:departmentId', requirePermission('employees:manage'), hrJson(updateHrDepartmentSchema), async (c) => {
   return success(c, await updateDepartment(db(c), param(c, 'departmentId'), c.req.valid('json')));
 });
 

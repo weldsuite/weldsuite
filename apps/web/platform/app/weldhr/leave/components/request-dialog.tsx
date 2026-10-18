@@ -15,8 +15,16 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useCreateHrLeaveRequest, useHrLeaveTypes } from '@/hooks/queries/use-weldhr-queries';
-import { EmployeePicker, ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { useCreateHrLeaveRequest, useHrEmployee, useHrLeaveBalances, useHrLeaveTypes } from '@/hooks/queries/use-weldhr-queries';
+import {
+  EmployeePicker,
+  ErrorBanner,
+  WarningNote,
+  errorMessage,
+  formatDate,
+  todayIso,
+  workingDaysBetween,
+} from '../../components/shared';
 
 export function LeaveRequestDialog({
   fixedEmployeeId,
@@ -40,7 +48,19 @@ export function LeaveRequestDialog({
   const [reason, setReason] = useState('');
   const [failure, setFailure] = useState<string | null>(null);
 
-  const canSubmit = Boolean(employeeId && leaveTypeId && startDate && endDate) && !createRequest.isPending;
+  // Heads-ups, not blockers: HR may grant leave beyond the allowance or before day one on purpose,
+  // unless the leave type is set to block requests over the allowance.
+  const { data: employee } = useHrEmployee(employeeId ?? undefined);
+  const { data: balances } = useHrLeaveBalances(employeeId ?? undefined, Number(startDate.slice(0, 4)) || new Date().getFullYear());
+  const days = daysOverride ? Number(daysOverride) : workingDaysBetween(startDate, endDate);
+  const balance = balances?.find((b) => b.leaveTypeId === leaveTypeId);
+  const available = balance && balance.remaining !== null ? Math.round((balance.remaining - balance.pending) * 10) / 10 : null;
+  const overAllowance = available !== null && days > available;
+  const employeeStart = employee?.startDate ?? null;
+  const beforeStart = Boolean(employeeStart && startDate && startDate < employeeStart);
+  const blocked = overAllowance && balance?.overAllowance === 'block';
+
+  const canSubmit = Boolean(employeeId && leaveTypeId && startDate && endDate) && !blocked && !createRequest.isPending;
 
   async function submit() {
     if (!employeeId || !leaveTypeId) return;
@@ -124,6 +144,29 @@ export function LeaveRequestDialog({
             />
             <p className="text-xs text-muted-foreground">{t('weldhr.leave.requests.form.daysHint')}</p>
           </div>
+
+          {overAllowance && balance && !blocked && (
+            <WarningNote>
+              {t('weldhr.leave.requests.form.overAllowance', {
+                days,
+                available: Math.max(available ?? 0, 0),
+                allowance: balance.allowance ?? 0,
+                type: balance.name,
+              })}
+            </WarningNote>
+          )}
+          {blocked && balance && (
+            <ErrorBanner
+              error={t('weldhr.leave.requests.form.overAllowanceBlocked', {
+                days,
+                available: Math.max(available ?? 0, 0),
+                type: balance.name,
+              })}
+            />
+          )}
+          {beforeStart && employeeStart && (
+            <WarningNote>{t('weldhr.leave.requests.form.beforeStartDate', { date: formatDate(employeeStart) })}</WarningNote>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="hr-leave-reason">{t('weldhr.leave.requests.form.reason')}</Label>

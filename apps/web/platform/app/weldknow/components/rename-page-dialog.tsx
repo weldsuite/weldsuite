@@ -11,6 +11,7 @@ import {
 import { Input } from '@weldsuite/ui/components/input';
 import { getTranslations } from '@/lib/i18n';
 import { useUpdateKnowledgePageMeta } from '@/hooks/queries/use-knowledge-queries';
+import { DEFAULT_PAGE_TITLE } from '../page/default-title';
 
 interface RenamePageDialogProps {
   pageId: string;
@@ -30,7 +31,7 @@ export function RenamePageDialog({ pageId, initialTitle, open, onOpenChange }: R
 
   const handleSubmit = async () => {
     try {
-      await updatePage.mutateAsync({ id: pageId, data: { title: title.trim() || t.page.untitled } });
+      await updatePage.mutateAsync({ id: pageId, data: { title: title.trim() || DEFAULT_PAGE_TITLE } });
       onOpenChange(false);
     } catch {
       toast.error(t.page.updateError);

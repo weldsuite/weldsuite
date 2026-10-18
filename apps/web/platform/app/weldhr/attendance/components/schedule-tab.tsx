@@ -25,8 +25,9 @@ import { EmployeeAvatar, ErrorBanner, errorMessage, shiftIsoDate, todayIso } fro
 import { ShiftDialog } from './shift-dialog';
 
 /** Width of the leading employee column. */
-const EMPLOYEE_COLUMN_WIDTH = 232;
-const DAY_COLUMN_MIN_WIDTH = 140;
+const EMPLOYEE_COLUMN_WIDTH = 200;
+/** As narrow as a shift's time range allows, so a week needs little sideways scrolling in a ~960px window. */
+const DAY_COLUMN_MIN_WIDTH = 112;
 
 /** Shifts without a client account use WeldCalendar's default blue. */
 const DEFAULT_SHIFT_COLOR = '#3b82f6';

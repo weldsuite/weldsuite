@@ -19,8 +19,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrAttendanceRecord, HrAttendanceStatus } from '@weldsuite/app-api-client/domains/weldhr';
-import { useCreateHrAttendance, useUpdateHrAttendance } from '@/hooks/queries/use-weldhr-queries';
-import { EmployeePicker, ErrorBanner, errorMessage, todayIso } from '../../components/shared';
+import { useCreateHrAttendance, useHrEmployee, useUpdateHrAttendance } from '@/hooks/queries/use-weldhr-queries';
+import {
+  EmployeePicker,
+  ErrorBanner,
+  WarningNote,
+  errorMessage,
+  formatDate,
+  instantAt,
+  minutesAfter,
+  todayIso,
+} from '../../components/shared';
 
 const STATUSES: HrAttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'remote', 'half_day'];
 
@@ -32,7 +41,7 @@ function timeOf(iso: string | null): string {
 
 function combine(date: string, time: string): string | null {
   if (!time) return null;
-  return new Date(`${date}T${time}`).toISOString();
+  return instantAt(date, time);
 }
 
 export function AttendanceRecordDialog({
@@ -61,16 +70,28 @@ export function AttendanceRecordDialog({
   const [failure, setFailure] = useState<string | null>(null);
 
   const pending = createAttendance.isPending || updateAttendance.isPending;
-  const canSubmit = Boolean(employeeId && date) && !pending;
+
+  // A clock-out at or before the clock-in is the next morning (a night shift).
+  const spanMinutes = clockIn && clockOut ? minutesAfter(clockIn, clockOut) : null;
+  const endsNextDay = Boolean(clockIn && clockOut && clockOut <= clockIn);
+  const breakValue = breakMinutes.trim() === '' ? 0 : Number(breakMinutes);
+  let breakError: string | null = null;
+  if (!Number.isInteger(breakValue) || breakValue < 0 || breakValue > 1440) breakError = t('weldhr.attendance.records.form.breakInvalid');
+  else if (spanMinutes !== null && breakValue >= spanMinutes) breakError = t('weldhr.attendance.records.form.breakTooLong');
+
+  const { data: employee } = useHrEmployee(employeeId ?? undefined);
+  const beforeStart = Boolean(employee?.startDate && date && date < employee.startDate);
+
+  const canSubmit = Boolean(employeeId && date) && !breakError && !pending;
 
   async function submit() {
-    if (!employeeId || !date) return;
+    if (!employeeId || !date || breakError) return;
     setFailure(null);
     const payload = {
       date,
       clockIn: combine(date, clockIn),
-      clockOut: combine(date, clockOut),
-      breakMinutes: Number(breakMinutes) || 0,
+      clockOut: clockIn && clockOut && spanMinutes !== null ? instantAt(date, clockIn, spanMinutes) : combine(date, clockOut),
+      breakMinutes: breakValue,
       status: status === 'auto' ? undefined : status,
       notes: notes.trim() || null,
     };
@@ -120,30 +141,38 @@ export function AttendanceRecordDialog({
             <Input id="hr-att-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
 
+          {beforeStart && employee?.startDate && (
+            <WarningNote>{t('weldhr.attendance.records.form.beforeStartDate', { date: formatDate(employee.startDate) })}</WarningNote>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="hr-att-in">{t('weldhr.attendance.records.form.clockIn')}</Label>
               <Input id="hr-att-in" type="time" value={clockIn} onChange={(e) => setClockIn(e.target.value)} />
             </div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="hr-att-out">{t('weldhr.attendance.records.form.clockOut')}</Label>
               <Input id="hr-att-out" type="time" value={clockOut} onChange={(e) => setClockOut(e.target.value)} />
+              {endsNextDay && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.records.form.nextDay')}</p>}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="hr-att-break">{t('weldhr.attendance.records.form.breakMinutes')}</Label>
               <Input
                 id="hr-att-break"
                 type="number"
                 min={0}
                 max={1440}
+                step={1}
                 value={breakMinutes}
+                aria-invalid={Boolean(breakError)}
                 onChange={(e) => setBreakMinutes(e.target.value)}
               />
+              {breakError && <p className="text-xs text-destructive">{breakError}</p>}
             </div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label>{t('weldhr.attendance.records.form.status')}</Label>
               <Select value={status} onValueChange={(v) => setStatus(v as HrAttendanceStatus | 'auto')}>
                 <SelectTrigger className="w-full">

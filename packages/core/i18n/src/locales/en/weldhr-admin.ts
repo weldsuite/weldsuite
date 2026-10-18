@@ -26,6 +26,9 @@ export const weldhrAdmin = {
       emptyDescription: 'Add your first department to start organising the directory.',
       deleteTitle: 'Delete department?',
       deleteDescription: 'Delete "{name}"? Employees in this department keep their assignment but lose the department link.',
+      deleteMovesChildren: 'Its sub-departments ({count}) move under "{parent}".',
+      deleteMovesChildrenTop: 'Its sub-departments ({count}) become top-level departments.',
+      nameTaken: 'A department with this name already exists.',
     },
 
     leaveTypes: {
@@ -39,6 +42,10 @@ export const weldhrAdmin = {
       requiresApproval: 'Requires approval',
       allowance: 'Default allowance',
       allowanceHint: 'Leave empty for an unlimited allowance.',
+      blockOverAllowance: 'Block requests over the allowance',
+      blockOverAllowanceHint:
+        'When on, a request longer than what is left of the allowance cannot be submitted or approved. When off, HR and the employee only see a warning.',
+      blocksOverAllowance: 'No going over',
       unlimited: 'Unlimited',
       daysPerYear: '{count} day/year',
       daysPerYearPlural: '{count} days/year',

@@ -79,9 +79,14 @@ jobs:
             packages/domains/*/tsconfig.tsbuildinfo
             packages/core/api-modules/tsconfig.tsbuildinfo
             packages/core/worker-*/tsconfig.tsbuildinfo
-          key: tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          # The Drizzle schema is in the key: an incremental re-check of
+          # `typeof schema` consumers against a .tsbuildinfo built for an older
+          # schema reports TS2589 ("excessively deep") in packages/core/db/src/lib
+          # that a clean check does not (see 56f93e0af). A schema change starts
+          # from a clean build instead.
+          key: tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/core/db/src/schema/**') }}-${{ github.sha }}
           restore-keys: |
-            tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            tsc-api-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/core/db/src/schema/**') }}-
       - name: Type-check app-api packages
         run: |
           set -euo pipefail
