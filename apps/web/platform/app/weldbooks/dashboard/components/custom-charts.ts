@@ -73,7 +73,7 @@ export function chartTypesFor(source: ChartSource): ChartType[] {
 
 export function newDashboardChart(): DashboardChart {
   return {
-    id: `chart_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+    id: `chart_${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`,
     title: '',
     description: '',
     source: 'revenue',

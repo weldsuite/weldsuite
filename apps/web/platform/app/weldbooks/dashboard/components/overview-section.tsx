@@ -54,7 +54,7 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
   const [compareChoice, setCompareChoice] = useState<Compare | 'off'>('previousPeriod');
   const compare = compareChoice === 'off' ? null : compareChoice;
   const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
-  const { charts, removeChart, setCharts, isSaving } = useDashboardCharts();
+  const { charts, removeChart, setCharts, restoreChart, isSaving } = useDashboardCharts();
   const filter = useMemo(() => ({ size: Number(range), compare }), [range, compare]);
   /** The layout being edited; `null` while the overview is not being edited. */
   const [draft, setDraft] = useState<DashboardChart[] | null>(null);
@@ -77,9 +77,12 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
   const addChart = () => router.push(CHART_BUILDER_PATH);
 
   const remove = (id: string) => {
-    const previous = charts;
+    const index = charts.findIndex((c) => c.id === id);
+    const removed = charts[index];
+    if (!removed) return;
+    const undo = () => restoreChart(removed, index).catch(() => toast.error(tb.saveFailed));
     removeChart(id).then(
-      () => toast.success(tb.chartRemoved, { action: { label: tb.undo, onClick: () => void setCharts(previous) } }),
+      () => toast.success(tb.chartRemoved, { action: { label: tb.undo, onClick: undo } }),
       () => toast.error(tb.saveFailed),
     );
   };

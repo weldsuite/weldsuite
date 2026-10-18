@@ -61,6 +61,22 @@ export function useDashboardCharts() {
   const removeChart = useCallback((id: string) => mutateAsync(charts.filter((c) => c.id !== id)), [charts, mutateAsync]);
   /** Replaces the whole list: a new order, or several removals at once. */
   const setCharts = useCallback((next: DashboardChart[]) => mutateAsync(next), [mutateAsync]);
+  /**
+   * Undoes a removal: puts `chart` back at `index` in the list as it is now
+   * (read from the cache, not this render), so charts removed or changed since
+   * stay as they are. A no-op when the chart is already back.
+   */
+  const restoreChart = useCallback(
+    (chart: DashboardChart, index: number) => {
+      const current = parseDashboardCharts(
+        qc.getQueryData<UserPreferences>(preferencesKey)?.uiPreferences?.weldbooksOverviewCharts,
+      );
+      if (current.some((c) => c.id === chart.id)) return Promise.resolve();
+      const at = Math.min(index, current.length);
+      return mutateAsync([...current.slice(0, at), chart, ...current.slice(at)]);
+    },
+    [qc, mutateAsync],
+  );
 
-  return { charts, isLoading, saveChart, removeChart, setCharts, isSaving: mutation.isPending };
+  return { charts, isLoading, saveChart, removeChart, setCharts, restoreChart, isSaving: mutation.isPending };
 }
