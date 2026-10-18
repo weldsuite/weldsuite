@@ -597,16 +597,6 @@ export const weldchat = {
     thread: {
       title: 'Thread',
     },
-    search: {
-      placeholder: 'Search messages...',
-      searchTip: 'Type at least 2 characters to search',
-      searching: 'Searching...',
-      noResults: 'No messages found',
-      hasFile: 'Has file',
-      pinned: 'Pinned',
-      date: 'Date',
-      afterDate: 'After date (YYYY-MM-DD):',
-    },
     inviteAgent: {
       title: 'Invite agent to channel',
       selectAgents: 'Select agents…',
@@ -778,8 +768,8 @@ export const weldchat = {
     },
     pipCallWidget: {
       call: 'Call',
-      expand: 'Expand',
-      popOut: 'Pop out',
+      openCall: 'Open call',
+      leaveCall: 'Leave call',
     },
     clipPlayer: {
       transcriptGenerated: 'Transcript generated',
@@ -814,6 +804,17 @@ export const weldchat = {
     bookmarksGroupBy: {
       channel: 'Channel',
       none: 'None',
+    },
+    bookmarksPage: {
+      fromHeader: 'From',
+      messageHeader: 'Message',
+      conversationHeader: 'Conversation',
+      sentHeader: 'Sent',
+      directMessage: 'Direct message',
+      noContent: 'No text',
+      searchPlaceholder: 'Search saved items...',
+      noResultsTitle: 'No saved items found',
+      noResultsDescription: 'Try a different search or filter',
     },
     switchCallDialog: {
       title: 'Switch call?',

@@ -1,0 +1,1238 @@
+/**
+ * Minimized call widget, shared by WeldMeet meetings and WeldChat calls.
+ *
+ * Google-Meet–style picture-in-picture panel: one edge-to-edge video tile
+ * (active speaker / self) with hover-revealed hide / pop-out / open buttons,
+ * above the call controls. It is purely presentational over a RealtimeKit
+ * client; each module feeds it from its own call context:
+ *   - app/weldmeet/components/meeting-pip-widget.tsx  (useWeldMeetCall)
+ *   - app/weldchat/components/pip-call-widget.tsx     (useWeldChatCall)
+ */
+
+import { useEffect, useRef, useState, useCallback, useReducer } from 'react';
+import { createPortal } from 'react-dom';
+import { usePathname } from '@/lib/router';
+import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, Minus, PictureInPicture2, Copy } from 'lucide-react';
+import type RealtimeKitClient from '@cloudflare/realtimekit';
+import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
+import { ParticipantAvatar, getPersonTheme, getInitials, useSpeakerOutput, useBreakoutParticipants } from '@weldsuite/weldmeet-ui';
+import { Button } from '@weldsuite/ui/components/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
+import { cn } from '@/lib/utils';
+import { usePipCornerDrag } from './use-pip-corner-drag';
+
+// Chrome-only Document Picture-in-Picture API — not yet in standard DOM lib types.
+interface DocumentPictureInPictureAPI {
+  requestWindow(options?: { width?: number; height?: number }): Promise<Window>;
+}
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = (seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+/**
+ * Width occupied by ANY open right-side panel, so the widget slides left and
+ * sits next to it instead of being covered. Rather than wiring every panel's
+ * own signal (notifications, calendar, WeldAgent, object/detail panels, …),
+ * we measure the one thing they all affect: every module layout shrinks its
+ * `[data-module-content]` wrapper from the right by the combined panel width.
+ * So `viewport.right - content.right` IS the reserved width — one signal that
+ * captures all current and future panels. Re-measured live via ResizeObserver
+ * so the widget tracks the layout's width transition in lockstep.
+ */
+function usePanelWidth(pathname: string): number {
+  const [panelWidth, setPanelWidth] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    let observed: Element | null = null;
+    // Frames left to wait for the new module's content to mount after a
+    // navigation (the old one may still be detaching, or lazily loading).
+    let retries = 60;
+    const ro = new ResizeObserver(() => schedule());
+    const measure = () => {
+      const el = document.querySelector('[data-module-content]');
+      const rect = el?.isConnected ? el.getBoundingClientRect() : null;
+      if (!el || !rect || rect.width === 0) {
+        // Detached or not laid out yet: its right edge (0) would read as a
+        // full-width panel and push the widget off-screen. Try again shortly.
+        setPanelWidth(0);
+        if (retries-- > 0) schedule();
+        return;
+      }
+      retries = 60;
+      // Follow the content element across navigations: a module swap replaces it.
+      if (el !== observed) {
+        if (observed) ro.unobserve(observed);
+        ro.observe(el);
+        observed = el;
+      }
+      const reserved = Math.round(window.innerWidth - rect.right);
+      // Ignore sub-panel noise (scrollbars etc.); real panels are ≥ ~480px.
+      setPanelWidth(reserved > 24 ? reserved : 0);
+    };
+    function schedule() {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    }
+    schedule();
+    window.addEventListener('resize', schedule);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', schedule);
+      cancelAnimationFrame(raf);
+    };
+  }, [pathname]);
+  return panelWidth;
+}
+
+/** Re-render the widget whenever the participant list or self media changes. */
+function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: () => void) {
+  useEffect(() => {
+    if (!meeting) return;
+    const tick = () => forceUpdate();
+    meeting.participants?.joined?.on?.('participantJoined', tick);
+    meeting.participants?.joined?.on?.('participantLeft', tick);
+    meeting.participants?.joined?.on?.('participantsCleared', tick);
+    // Remote mic / camera changes too (e.g. the host muting the focused peer),
+    // otherwise the muted indicator waits for an unrelated re-render.
+    meeting.participants?.joined?.on?.('audioUpdate', tick);
+    meeting.participants?.joined?.on?.('videoUpdate', tick);
+    // A remote presenter's shared (tab / system) audio comes and goes with the share.
+    meeting.participants?.joined?.on?.('screenShareUpdate', tick);
+    meeting.self?.on?.('videoUpdate', tick);
+    meeting.self?.on?.('audioUpdate', tick);
+    return () => {
+      try {
+        meeting.participants?.joined?.removeListener?.('participantJoined', tick);
+        meeting.participants?.joined?.removeListener?.('participantLeft', tick);
+        meeting.participants?.joined?.removeListener?.('participantsCleared', tick);
+        meeting.participants?.joined?.removeListener?.('audioUpdate', tick);
+        meeting.participants?.joined?.removeListener?.('videoUpdate', tick);
+        meeting.participants?.joined?.removeListener?.('screenShareUpdate', tick);
+        meeting.self?.removeListener?.('videoUpdate', tick);
+        meeting.self?.removeListener?.('audioUpdate', tick);
+      } catch { /* ignore */ }
+    };
+  }, [meeting, forceUpdate]);
+}
+
+/**
+ * Hidden playback of one remote audio track (a participant's mic, or the audio
+ * they share alongside their screen).
+ *
+ * Remote sound normally comes from the <audio> elements in the room view's
+ * tiles. Those only exist while the room is mounted (the /room page or the
+ * fullscreen overlay); anywhere else in the app this widget is the only thing
+ * left that can play the call.
+ */
+function RemoteAudioSink({ track }: Readonly<{ track: MediaStreamTrack }>) {
+  const ref = useRef<HTMLAudioElement>(null);
+  // Play through the speaker picked in the call's device settings.
+  useSpeakerOutput(ref);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = new MediaStream([track]);
+    // autoPlay only starts the element's first stream; play() covers remounts.
+    el.play().catch(() => { /* autoplay blocked / already playing */ });
+    return () => { el.srcObject = null; };
+  }, [track]);
+  return <audio ref={ref} autoPlay />;
+}
+
+/**
+ * Every remote participant's mic and shared-screen audio, while the room view
+ * (which plays them itself) is not mounted. Rendered in the main document, not
+ * in the Document PiP popup, so opening or closing the popup never cuts the
+ * sound. `remotes` is already narrowed to the user's breakout room: people in
+ * another room must stay silent here too.
+ */
+function RemoteAudio({ remotes }: Readonly<{ remotes: RTKParticipant[] }>) {
+  return (
+    <>
+      {remotes.map((p) => {
+        const mic = p.audioEnabled ? p.audioTrack : null;
+        const share = p.screenShareEnabled ? p.screenShareTracks?.audio : null;
+        return (
+          <span key={p.id} hidden>
+            {mic && <RemoteAudioSink track={mic} />}
+            {share && <RemoteAudioSink track={share} />}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+/** Continuously-redrawn placeholder canvas stream; returns the stream and a stop function. */
+function createPlaceholderStream(meetingTitle: string): { stream: MediaStream; stop: () => void } {
+  // Continuously-redrawn canvas at 30fps. captureStream(1) produces a
+  // single static frame, which Chrome's auto-PiP heuristic treats as
+  // "not actively playing" — the tab-switch trigger then never fires
+  // until something else (a real track or a user gesture) wakes the
+  // video up.
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 180;
+  const ctx = canvas.getContext('2d')!;
+  const draw = () => {
+    ctx.fillStyle = '#0b0b0e';
+    ctx.fillRect(0, 0, 320, 180);
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(meetingTitle || 'Meeting', 160, 95);
+  };
+  draw();
+  const redrawTimer = setInterval(draw, 1000);
+  return { stream: canvas.captureStream(30), stop: () => clearInterval(redrawTimer) };
+}
+
+/**
+ * Keep the hidden video continuously playing on the highest-fidelity stream we
+ * have (a live/pre-warmed track, else a placeholder canvas).
+ */
+function useHiddenPipStream(
+  pipVideoRef: React.RefObject<HTMLVideoElement | null>,
+  activeRealTrack: MediaStreamTrack | null,
+  meetingTitle: string,
+  enabled: boolean,
+) {
+  useEffect(() => {
+    const video = pipVideoRef.current;
+    if (!video || !enabled) return;
+
+    let stopPlaceholder: (() => void) | null = null;
+    let playRetryTimer: ReturnType<typeof setInterval> | null = null;
+
+    if (activeRealTrack) {
+      video.srcObject = new MediaStream([activeRealTrack]);
+    } else {
+      const placeholder = createPlaceholderStream(meetingTitle);
+      stopPlaceholder = placeholder.stop;
+      video.srcObject = placeholder.stream;
+    }
+
+    // Some autoplay paths (off-screen muted video, no recent gesture) leave
+    // the video paused. Retry until it actually plays, then keep nudging it
+    // back if Chrome later pauses it (notably right after exiting PiP). The
+    // 250ms cadence is what guarantees the video is unpaused before the user
+    // can switch tabs again — at 1s, fast back-and-forth tab switches catch
+    // the video paused and Chrome then skips auto-PiP.
+    const tryPlay = () => video.play().catch(() => {});
+    void tryPlay();
+    playRetryTimer = setInterval(() => {
+      if (video.paused) void tryPlay();
+    }, 250);
+
+    return () => {
+      if (stopPlaceholder) stopPlaceholder();
+      if (playRetryTimer) clearInterval(playRetryTimer);
+    };
+  }, [activeRealTrack, meetingTitle, pipVideoRef, enabled]);
+}
+
+/** Run `fn`, ignoring any error (unsupported browser API). */
+function tryIgnore(fn: () => void): void {
+  try { fn(); } catch { /* ignore */ }
+}
+
+/**
+ * Register MediaSession action handlers ONCE on mount (not gated on
+ * status). Reason: the click that starts an instant meeting → immediate
+ * tab switch happens BEFORE `status` reaches 'connected' (RTK takes
+ * ~1–3 s to negotiate). Chrome only fires `enterpictureinpicture` on
+ * tab switch when the action handler is already wired up at the moment
+ * the tab loses visibility. The handler reads the LATEST enterNativePiP
+ * via a ref, so closure staleness doesn't matter.
+ */
+function useMediaSessionActionHandlers(enterNativePiP: () => Promise<void> | void, enabled: boolean, appName: string) {
+  const enterPipForActionRef = useRef(enterNativePiP);
+  useEffect(() => { enterPipForActionRef.current = enterNativePiP; }, [enterNativePiP]);
+
+  useEffect(() => {
+    if (!enabled || !('mediaSession' in navigator)) return;
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: appName,
+      artist: appName,
+    });
+    const handleEnterPiP = () => { void enterPipForActionRef.current(); };
+    try {
+      // @ts-expect-error -- 'enterpictureinpicture' is a Chrome MediaSessionAction not in standard lib types
+      navigator.mediaSession.setActionHandler('enterpictureinpicture', handleEnterPiP);
+    } catch { /* unsupported */ }
+    // Other handlers Chrome expects on a "real" media session — without these
+    // some Chrome builds silently downgrade the session and skip auto-PiP.
+    const noop = () => {};
+    tryIgnore(() => navigator.mediaSession.setActionHandler('play', noop));
+    tryIgnore(() => navigator.mediaSession.setActionHandler('pause', noop));
+
+    return () => {
+      try {
+        // @ts-expect-error -- see above
+        navigator.mediaSession.setActionHandler('enterpictureinpicture', null);
+      } catch { /* ignore */ }
+      tryIgnore(() => navigator.mediaSession.setActionHandler('play', null));
+      tryIgnore(() => navigator.mediaSession.setActionHandler('pause', null));
+      navigator.mediaSession.metadata = null;
+    };
+  }, [enabled, appName]);
+}
+
+/**
+ * Flip playbackState to 'playing' as soon as a meeting starts negotiating
+ * (`connecting`), not just after `connected`. RTK takes ~1–3 s to fully
+ * connect, and a user who immediately switches tabs after clicking
+ * "Instant Meeting" otherwise hits a window where no MediaSession is
+ * active → Chrome skips auto-PiP. Reset to 'none' when the meeting ends
+ * so a later random tab-switch doesn't auto-PiP a stale placeholder.
+ */
+function useMediaSessionPlaybackState(status: string, meetingTitle: string, enabled: boolean, appName: string) {
+  useEffect(() => {
+    if (!enabled || !('mediaSession' in navigator)) return;
+    if (status === 'connected' || status === 'connecting' || status === 'preview') {
+      tryIgnore(() => { navigator.mediaSession.playbackState = 'playing'; });
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: meetingTitle || appName,
+        artist: appName,
+      });
+    } else if (status === 'idle' || status === 'ended') {
+      tryIgnore(() => { navigator.mediaSession.playbackState = 'none'; });
+    }
+  }, [status, meetingTitle, enabled, appName]);
+}
+
+/**
+ * Enter native PiP when the tab is hidden and exit when it is shown again;
+ * re-prime the video when PiP closes. Registers ONCE per connected session.
+ */
+function usePipVisibilityListeners(
+  status: string,
+  autoPictureInPicture: boolean,
+  pipVideoRef: React.RefObject<HTMLVideoElement | null>,
+  pipWindowRef: React.RefObject<Window | null>,
+  enterNativePipRef: React.RefObject<() => Promise<void> | void>,
+  exitNativePipRef: React.RefObject<() => void>,
+) {
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const onVisChange = () => {
+      if (!autoPictureInPicture) return;
+      // Don't fire native PiP while Document PiP popup is already open
+      if (pipWindowRef.current) return;
+      if (document.hidden) void enterNativePipRef.current();
+      else exitNativePipRef.current();
+    };
+    // When PiP closes (user clicks the close button or returns to the tab),
+    // re-prime the video AND media session right away so the next tab
+    // switch is again eligible for auto-PiP. Without this, Chrome leaves the
+    // session in a state where the second `enterpictureinpicture` action
+    // never fires.
+    const onPiPLeave = () => { exitNativePipRef.current(); };
+    const videoEl = pipVideoRef.current;
+
+    document.addEventListener('visibilitychange', onVisChange);
+    videoEl?.addEventListener('leavepictureinpicture', onPiPLeave);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisChange);
+      videoEl?.removeEventListener('leavepictureinpicture', onPiPLeave);
+      exitNativePipRef.current();
+    };
+  }, [status, autoPictureInPicture, pipVideoRef, pipWindowRef, enterNativePipRef, exitNativePipRef]);
+}
+
+/**
+ * Capture user gestures globally and ALWAYS — not gated on status — so the
+ * very click that starts the instant meeting is what promotes the hidden
+ * video to "user-initiated playback". Chrome only fires auto-PiP on tab
+ * switch when the active media session was started under a user gesture;
+ * programmatic play() from setInterval doesn't qualify. The widget mounts
+ * in the app shell, so registering at mount means the "Instant Meeting"
+ * click in another component is observed in the capture phase before any
+ * navigation, and its activation is bound to play() of the hidden video.
+ *
+ * For the click that STARTS a meeting (status is still 'idle' until RTK
+ * reaches 'connecting' a moment later), we gate by pathname: any click
+ * while on a `contextPathPrefix` URL (e.g. `/weldmeet`) is treated as
+ * meeting-context, so we both
+ * play() the video AND mark MediaSession 'playing' immediately. Without
+ * this, the tab-switch happening before `status` flips finds the session
+ * inactive and Chrome skips auto-PiP. Random clicks elsewhere on the
+ * platform skip the playbackState change so they don't leave a stale
+ * session that would auto-PiP a placeholder canvas later.
+ */
+function useGestureMediaSessionPromotion(
+  pipVideoRef: React.RefObject<HTMLVideoElement | null>,
+  statusRef: React.RefObject<string>,
+  enabled: boolean,
+  contextPathPrefix: string | undefined,
+) {
+  useEffect(() => {
+    if (!enabled) return;
+    const isMeetingContext = () =>
+      statusRef.current === 'connecting' ||
+      statusRef.current === 'connected' ||
+      statusRef.current === 'preview' ||
+      (!!contextPathPrefix && typeof window !== 'undefined' && window.location.pathname.startsWith(contextPathPrefix));
+    const onUserGesture = () => {
+      const v = pipVideoRef.current;
+      if (v?.paused) v.play().catch(() => {});
+      if (isMeetingContext() && 'mediaSession' in navigator) {
+        tryIgnore(() => { navigator.mediaSession.playbackState = 'playing'; });
+      }
+    };
+    document.addEventListener('pointerdown', onUserGesture, { capture: true });
+    document.addEventListener('keydown', onUserGesture, { capture: true });
+    return () => {
+      document.removeEventListener('pointerdown', onUserGesture, { capture: true });
+      document.removeEventListener('keydown', onUserGesture, { capture: true });
+    };
+  }, [pipVideoRef, statusRef, enabled, contextPathPrefix]);
+}
+
+/** Every string the widget shows; each module passes its own wording. */
+export interface MinimizedCallWidgetLabels {
+  turnOnMicrophone: string;
+  turnOffMicrophone: string;
+  turnOnCamera: string;
+  turnOffCamera: string;
+  stopSharing: string;
+  shareScreen: string;
+  lowerHand: string;
+  raiseHand: string;
+  moreOptions: string;
+  /** "Open meeting" / "Open call": back to the full call view. */
+  open: string;
+  copyJoiningInfo: string;
+  popOut: string;
+  hide: string;
+  /** "Leave meeting" / "Leave call": the hangup button. */
+  leave: string;
+  you: string;
+  participant: string;
+}
+
+/**
+ * Pick the most relevant participant — first remote (active speaker proxy)
+ * or fall back to self — and derive everything the tile needs to render.
+ */
+function deriveFocusedParticipant(
+  meeting: RealtimeKitClient | null,
+  remoteParticipants: RTKParticipant[],
+  t: MinimizedCallWidgetLabels,
+) {
+  const focused = remoteParticipants[0] ?? meeting?.self ?? null;
+  const focusedIsSelf = !remoteParticipants[0];
+  const focusedName = focused?.name || (focusedIsSelf ? t.you : t.participant);
+  const focusedHasVideo = !!(focused?.videoEnabled && focused?.videoTrack);
+  const focusedTrack = focusedHasVideo ? focused.videoTrack : null;
+
+  // Camera-off appearance — the same ParticipantAvatar as the maximized
+  // ParticipantTile, on a neutral tile. Seed mirrors the tile's
+  // (customParticipantId → userId → id → name) so avatar colors agree.
+  const focusedTheme = getPersonTheme(
+    String(focused?.customParticipantId ?? focused?.userId ?? focused?.id ?? focusedName),
+  );
+  const focusedInitials = getInitials(focusedName);
+
+  return { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials };
+}
+
+type FocusedParticipant = ReturnType<typeof deriveFocusedParticipant>;
+
+function widgetClassName({
+  isInPipWindow,
+  isDragging,
+  shouldShow,
+  hasAnimated,
+}: {
+  isInPipWindow: boolean;
+  isDragging: boolean;
+  shouldShow: boolean;
+  hasAnimated: boolean;
+}): string {
+  const visibilityClass = shouldShow ? 'opacity-100' : 'opacity-0 pointer-events-none sr-only';
+  return cn(
+    'group/pip bg-card overflow-hidden',
+    isInPipWindow
+      ? 'w-screen h-screen flex flex-col'
+      : cn(
+          // z-50 at the body level (see the portal below): above the app rail
+          // and module sidebar, below dialogs and menus opened afterwards.
+          'fixed z-50 w-[290px] rounded-[12px] shadow-2xl ring-1 ring-border cursor-grab [&_img]:select-none',
+          isDragging && 'cursor-grabbing select-none',
+          visibilityClass,
+          !hasAnimated && shouldShow && !isDragging && 'animate-in slide-in-from-bottom-4 fade-in duration-300',
+        ),
+  );
+}
+
+interface PipVideoAreaProps {
+  t: MinimizedCallWidgetLabels;
+  focus: FocusedParticipant;
+  isMuted: boolean;
+  isInPipWindow: boolean;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  onExpand: () => void;
+  onPopOut: () => void;
+  onHide: () => void;
+}
+
+const QUICK_ACTION_CLASS =
+  'flex h-7 w-7 items-center justify-center rounded-md bg-black/60 hover:bg-black/75 text-white transition-colors';
+
+/** Video / avatar area — runs edge to edge at the top of the panel. */
+function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, onPopOut, onHide }: Readonly<PipVideoAreaProps>) {
+  const { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials } = focus;
+  const showMutedIcon = focusedIsSelf ? isMuted : !focused?.audioEnabled;
+  return (
+    <div
+      className={cn(
+        'relative w-full cursor-pointer overflow-hidden bg-muted dark:bg-background',
+        isInPipWindow ? 'flex-1 min-h-0' : 'h-[180px]',
+      )}
+    >
+      {focusedTrack ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          // Fed a video-only stream (the focused participant's camera track);
+          // remote audio plays through RemoteAudioSink instead.
+          muted
+          className={cn('absolute inset-0 w-full h-full object-cover', focusedIsSelf && '-scale-x-100')}
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <ParticipantAvatar
+            initials={focusedInitials}
+            color={focusedTheme.avatar}
+            picture={focused?.picture}
+            className="h-12 w-12 !rounded-[30%] text-base"
+          />
+        </div>
+      )}
+
+      {/* Bottom-left: name tag — matches ParticipantTile's design in the expanded meeting view */}
+      <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/60 text-white text-xs px-2 py-1 rounded-[6px] max-w-[70%]">
+        {showMutedIcon && <MicOff className="h-3 w-3 shrink-0" />}
+        <span className="truncate">{focusedIsSelf ? t.you : focusedName}</span>
+      </div>
+
+      {/* Top-right: hover-revealed quick actions */}
+      <div className="absolute top-2 right-2 z-[1] flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
+        {/* Hide the widget — the Document PiP popup has its own window controls. */}
+        {!isInPipWindow && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => { e.stopPropagation(); onHide(); }}
+            title={t.hide}
+            className={QUICK_ACTION_CLASS}
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => { e.stopPropagation(); onPopOut(); }}
+          title={t.popOut}
+          className={QUICK_ACTION_CLASS}
+        >
+          <PictureInPicture2 className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={(e) => { e.stopPropagation(); onExpand(); }}
+          title={t.open}
+          className={QUICK_ACTION_CLASS}
+        >
+          <Maximize className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Click-to-expand surface covering the whole tile. It is a real button (keyboard and
+          screen-reader friendly); data-drag-surface lets it still start a corner drag. */}
+      <button
+        type="button"
+        data-drag-surface
+        aria-label={t.open}
+        onClick={onExpand}
+        className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      />
+    </div>
+  );
+}
+
+const OFF_BUTTON_CLASS =
+  'bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400';
+const NEUTRAL_BUTTON_CLASS = '[&]:hover:brightness-95 dark:[&]:hover:brightness-110';
+
+function MicControl({ t, isMuted, onToggle }: Readonly<{ t: MinimizedCallWidgetLabels; isMuted: boolean; onToggle: () => void }>) {
+  return (
+    <div className={cn('rounded-[12px]', !isMuted && 'ring-1 ring-border')}>
+      <Button
+        variant="secondary"
+        size="icon"
+        className={cn(
+          'h-10 w-10 rounded-[12px] border-0 transition-all',
+          isMuted ? OFF_BUTTON_CLASS : NEUTRAL_BUTTON_CLASS,
+        )}
+        onClick={onToggle}
+        title={isMuted ? t.turnOnMicrophone : t.turnOffMicrophone}
+      >
+        {isMuted ? <MicOff className="size-[17px]" /> : <Mic className="size-[17px]" />}
+      </Button>
+    </div>
+  );
+}
+
+function CameraControl({ t, isVideoOff, onToggle }: Readonly<{ t: MinimizedCallWidgetLabels; isVideoOff: boolean; onToggle: () => void }>) {
+  return (
+    <div className={cn('relative rounded-[12px]', !isVideoOff && 'ring-1 ring-border')}>
+      <Button
+        variant="secondary"
+        size="icon"
+        className={cn(
+          'h-10 w-10 rounded-[12px] border-0 transition-all',
+          isVideoOff ? OFF_BUTTON_CLASS : NEUTRAL_BUTTON_CLASS,
+        )}
+        onClick={onToggle}
+        title={isVideoOff ? t.turnOnCamera : t.turnOffCamera}
+      >
+        {isVideoOff ? (
+          <VideoOff className="size-[18px]" />
+        ) : (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="size-5"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+            />
+          </svg>
+        )}
+      </Button>
+      {isVideoOff && (
+        <span className="pointer-events-none absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-amber-400 ring-2 ring-card flex items-center justify-center">
+          <span className="text-[8px] font-bold text-amber-900 leading-none">!</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ScreenShareControl({
+  t,
+  isScreenSharing,
+  onToggle,
+}: Readonly<{
+  t: MinimizedCallWidgetLabels;
+  isScreenSharing: boolean;
+  onToggle: () => void;
+}>) {
+  return (
+    <div className="rounded-[12px] ring-1 ring-border">
+      <Button
+        variant={isScreenSharing ? 'default' : 'secondary'}
+        size="icon"
+        className="h-10 w-10 rounded-[12px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110"
+        onClick={onToggle}
+        title={isScreenSharing ? t.stopSharing : t.shareScreen}
+      >
+        <MonitorUp className="size-[17px]" />
+      </Button>
+    </div>
+  );
+}
+
+function MoreControl({
+  t,
+  handRaised,
+  onToggleHandRaise,
+  onExpand,
+  onCopyJoiningInfo,
+}: Readonly<{
+  t: MinimizedCallWidgetLabels;
+  handRaised: boolean;
+  onToggleHandRaise: () => void;
+  onExpand: () => void;
+  onCopyJoiningInfo?: () => void;
+}>) {
+  return (
+    <div className="rounded-[12px] ring-1 ring-border">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-10 w-10 rounded-[12px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110"
+            title={t.moreOptions}
+          >
+            <MoreVertical className="size-[17px]" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="end" sideOffset={6} className="w-48 z-[10000]">
+          <DropdownMenuItem onClick={onToggleHandRaise}>
+            <Hand className={cn('h-4 w-4 mr-0.5', handRaised && 'text-primary')} />
+            {handRaised ? t.lowerHand : t.raiseHand}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onExpand}>
+            <Maximize className="h-4 w-4 mr-0.5" />
+            {t.open}
+          </DropdownMenuItem>
+          {onCopyJoiningInfo && (
+            <DropdownMenuItem onClick={onCopyJoiningInfo}>
+              <Copy className="h-4 w-4 mr-0.5" />
+              {t.copyJoiningInfo}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+interface PipControlsBarProps {
+  t: MinimizedCallWidgetLabels;
+  isMuted: boolean;
+  isVideoOff: boolean;
+  isScreenSharing: boolean;
+  handRaised: boolean;
+  onToggleMute: () => void;
+  onToggleVideo: () => void;
+  onScreenShare: () => void;
+  onToggleHandRaise: () => void;
+  onExpand: () => void;
+  onCopyJoiningInfo?: () => void;
+  onLeave: () => void;
+}
+
+/** Controls bar — same button style as the main CallControlsBar; hangup sits on the right. */
+function PipControlsBar({
+  t,
+  isMuted,
+  isVideoOff,
+  isScreenSharing,
+  handRaised,
+  onToggleMute,
+  onToggleVideo,
+  onScreenShare,
+  onToggleHandRaise,
+  onExpand,
+  onCopyJoiningInfo,
+  onLeave,
+}: Readonly<PipControlsBarProps>) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 px-3 pt-[9px] pb-2.5">
+      <MicControl t={t} isMuted={isMuted} onToggle={onToggleMute} />
+      <CameraControl t={t} isVideoOff={isVideoOff} onToggle={onToggleVideo} />
+      <ScreenShareControl t={t} isScreenSharing={isScreenSharing} onToggle={onScreenShare} />
+      <MoreControl
+        t={t}
+        handRaised={handRaised}
+        onToggleHandRaise={onToggleHandRaise}
+        onExpand={onExpand}
+        onCopyJoiningInfo={onCopyJoiningInfo}
+      />
+
+      {/* Hangup — same destructive pill + rotated phone icon as the
+          maximized meeting's CallControlsBar leave button. It only ever
+          leaves, for the host too: the meeting carries on for the others. */}
+      <Button
+        variant="destructive"
+        size="icon"
+        className="ml-auto h-10 w-[52px] rounded-[12px] transition-all [&]:hover:brightness-90"
+        onClick={onLeave}
+        title={t.leave}
+        aria-label={t.leave}
+      >
+        <Phone className="!h-[18px] !w-[18px] rotate-[135deg] fill-current" />
+      </Button>
+    </div>
+  );
+}
+
+export interface MinimizedCallWidgetProps {
+  /** Call lifecycle; the widget is live only while `'connected'`. */
+  status: string;
+  meeting: RealtimeKitClient | null;
+  /** Shown on the pop-out placeholder and the OS media session. */
+  title: string;
+  /** App name for the OS media session (e.g. "WeldMeet"). */
+  appName: string;
+  duration: number;
+  isMuted: boolean;
+  isVideoOff: boolean;
+  isScreenSharing: boolean;
+  handRaised: boolean;
+  /** Whether the widget is due: connected, and the full call view is not on screen. */
+  shouldShow: boolean;
+  /** Play remote audio here (true whenever no room view is mounted to play it). */
+  playsRemoteAudio: boolean;
+  labels: MinimizedCallWidgetLabels;
+  toggleMute: () => void;
+  toggleVideo: () => void;
+  startScreenShare: (constraints?: DisplayMediaStreamOptions) => Promise<void>;
+  stopScreenShare: () => void;
+  toggleHandRaise: () => void;
+  onLeave: () => void;
+  /** Back to the full call view (tile click, "Open" button / menu item). */
+  onExpand: () => void;
+  /** The Document PiP pop-out window was closed by the user. */
+  onPopOutClosed: () => void;
+  /** Adds "Copy joining info" to the More menu. */
+  onCopyJoiningInfo?: () => void;
+  /** Hands the pop-out opener to the call context (in-call menus can trigger it). */
+  registerPopOut?: (fn: () => void) => void;
+  /**
+   * Pop the call into a native browser PiP window on tab switch (WeldMeet).
+   * Off: the pop-out only opens from its button.
+   */
+  autoPictureInPicture?: boolean;
+  /** With auto-PiP: a click on a URL under this prefix counts as starting a call. */
+  autoPictureInPicturePathPrefix?: string;
+  /** Pre-acquired camera track that keeps the hidden PiP video live before joining. */
+  prewarmedVideoTrack?: MediaStreamTrack | null;
+}
+
+/**
+ * Shown bottom-right when the user navigates away from the call (or explicitly
+ * minimizes). The underlying RTK call client lives on the module's call
+ * provider at the app-shell level, so the call stays alive across navigation.
+ */
+export function MinimizedCallWidget({
+  status,
+  meeting,
+  title: meetingTitle,
+  appName,
+  duration,
+  isMuted,
+  isVideoOff,
+  isScreenSharing,
+  handRaised,
+  shouldShow,
+  playsRemoteAudio,
+  labels: t,
+  toggleMute,
+  toggleVideo,
+  startScreenShare,
+  stopScreenShare,
+  toggleHandRaise,
+  onLeave,
+  onExpand,
+  onPopOutClosed,
+  onCopyJoiningInfo,
+  registerPopOut,
+  autoPictureInPicture = false,
+  autoPictureInPicturePathPrefix,
+  prewarmedVideoTrack = null,
+}: Readonly<MinimizedCallWidgetProps>) {
+  const pathname = usePathname();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
+  const pipActiveRef = useRef(false);
+  const hasAnimatedRef = useRef(false);
+  const [, forceUpdate] = useReducer((n: number) => n + 1, 0);
+  const [pipWindow, setPipWindow] = useState<Window | null>(null);
+  // Hidden via the widget's minus button — the call itself keeps running.
+  const [hidden, setHidden] = useState(false);
+  const panelWidth = usePanelWidth(pathname);
+
+  // Drag-to-corner for the in-page minimized widget (disabled in the Document
+  // PiP popup, which fills its own OS window).
+  const widgetRef = useRef<HTMLDivElement>(null);
+
+  // Hiding lasts until the widget would go away anyway (back on the call
+  // page, or the call ended) — the next time it is due, it shows again.
+  useEffect(() => {
+    if (!shouldShow) setHidden(false);
+  }, [shouldShow]);
+  // The Document PiP popup is never hidden; it has its own window controls.
+  const isVisible = shouldShow && (!hidden || !!pipWindow);
+  const pipDrag = usePipCornerDrag(widgetRef, { panelWidth, enabled: !pipWindow && isVisible });
+
+  useMeetingRenderTick(meeting, forceUpdate);
+
+  // While breakout rooms are open, only people from the user's own room may
+  // be shown and heard here; the first entry is the local participant.
+  const roomParticipants = useBreakoutParticipants(meeting, [
+    ...(meeting ? [meeting.self as RTKSelf | RTKParticipant] : []),
+    ...(meeting?.participants?.joined?.toArray?.() ?? []),
+  ]);
+  const remoteParticipants = roomParticipants.slice(1) as RTKParticipant[];
+  const focus = deriveFocusedParticipant(meeting, remoteParticipants, t);
+  const { focusedTrack } = focus;
+
+  // Attach video to the visible tile.
+  // NOTE: `pipWindow` MUST be a dep — when Document PiP opens, createPortal
+  // mounts a new <video> element in the popup document, so we have to re-bind
+  // the MediaStream to the new element. Without this, the popup renders blank.
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (focusedTrack) {
+      videoRef.current.srcObject = new MediaStream([focusedTrack]);
+      videoRef.current.play().catch(() => { /* autoplay blocked or already playing */ });
+    } else {
+      videoRef.current.srcObject = null;
+    }
+  }, [focusedTrack, pipWindow]);
+
+  // ─── Native browser PiP (auto on tab switch) ─────────────────────────────
+  // Do NOT touch srcObject here — the dedicated effect below owns the stream
+  // (a continuous 30fps canvas or the focused track) and clobbering it with
+  // a fresh static captureStream(1) leaves the video with a single-frame
+  // stream after PiP exits, which then disqualifies it from Chrome's
+  // auto-PiP heuristic on subsequent tab switches. That's exactly the
+  // "works once, then breaks" pattern.
+  const enterNativePiP = useCallback((): Promise<void> | void => {
+    const video = pipVideoRef.current;
+    if (!video || pipActiveRef.current) return;
+    if (!document.pictureInPictureEnabled) return;
+    // Don't double-PiP if Document PiP is already open
+    if (pipWindow) return;
+
+    // CRITICAL: when this is invoked from the MediaSession action handler
+    // (Chrome's auto-PiP path on tab switch), the activation token Chrome
+    // grants is consumed by the FIRST relevant API call AND does NOT
+    // survive `await`s across microtasks. So:
+    //   - DO NOT `await video.play()` — that consumes the activation
+    //     before requestPictureInPicture sees it. Call play() in a
+    //     fire-and-forget way so the video is primed but the next
+    //     statement runs synchronously.
+    //   - DO NOT wait for `onloadeddata` — keep the video continuously
+    //     primed externally so readyState >= 2 by the time we get here.
+    //   - Call requestPictureInPicture SYNCHRONOUSLY in the same task as
+    //     the action handler invocation.
+    if (video.paused) video.play().catch(() => {});
+    const p = video.requestPictureInPicture();
+    return p
+      .then(() => { pipActiveRef.current = true; })
+      .catch((err: unknown) => {
+        // NotAllowedError is expected on visibilitychange-triggered calls
+        // when the user hasn't recently clicked — Chrome requires user
+        // activation for `requestPictureInPicture` outside the MediaSession
+        // action callback. Silently swallow that specific case so the
+        // console isn't spammed; log everything else.
+        const name = (err as { name?: string } | null)?.name;
+        if (name !== 'NotAllowedError') {
+          console.error('[MinimizedCall] requestPictureInPicture failed:', err);
+        }
+      });
+  }, [pipWindow]);
+
+  const exitNativePiP = useCallback(() => {
+    if (document.pictureInPictureElement && pipActiveRef.current) {
+      document.exitPictureInPicture().catch(() => {});
+    }
+    pipActiveRef.current = false;
+    // Re-prime the video and media session so the NEXT tab switch is also
+    // eligible for auto-PiP. Chrome briefly pauses the off-screen video on
+    // PiP exit and may downgrade the media session — we restore both.
+    const video = pipVideoRef.current;
+    if (video?.paused) video.play().catch(() => {});
+    if (autoPictureInPicture && 'mediaSession' in navigator) {
+      try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+    }
+  }, [autoPictureInPicture]);
+
+  // ─── Document Picture-in-Picture (Chromium 116+) — full DOM popup ────────
+  // Lets us render the same React widget into a real popup window, so the
+  // pop-out has the EXACT same design (Tailwind classes, theme tokens, all
+  // interactive controls work).
+  const openDocumentPip = useCallback(async () => {
+    const dpip = (window as Window & { documentPictureInPicture?: DocumentPictureInPictureAPI }).documentPictureInPicture;
+    if (!dpip) {
+      // Fallback: legacy native video PiP (just a video tile, no UI)
+      return enterNativePiP();
+    }
+    if (pipWindow) return;
+    try {
+      const w: Window = await dpip.requestWindow({ width: 360, height: 380 });
+
+      // Clone every stylesheet from the host document so Tailwind v4 utilities
+      // and CSS custom properties (--background, --card, --border, etc.) work.
+      Array.from(document.styleSheets).forEach((sheet) => {
+        try {
+          const rules = Array.from(sheet.cssRules ?? [])
+            .map((r) => r.cssText)
+            .join('\n');
+          const style = w.document.createElement('style');
+          style.textContent = rules;
+          w.document.head.appendChild(style);
+        } catch {
+          // CORS-restricted — re-link by URL
+          if (sheet.href) {
+            const link = w.document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = sheet.href;
+            w.document.head.appendChild(link);
+          }
+        }
+      });
+
+      // Mirror dark/light theme onto the popup
+      if (document.documentElement.classList.contains('dark')) {
+        w.document.documentElement.classList.add('dark');
+      }
+      w.document.body.style.margin = '0';
+      w.document.body.style.background = 'transparent';
+
+      // Closing the pop-out window must also clear the minimized (isPiP) state.
+      // Otherwise `shouldShow` stays true and the widget re-renders inline,
+      // overlaying the full meeting page. Clearing it returns to the full
+      // meeting when on the meeting page; off-page the widget still shows via
+      // `!isOnMeetingPage`.
+      w.addEventListener('pagehide', () => {
+        setPipWindow(null);
+        onPopOutClosed();
+      });
+      setPipWindow(w);
+    } catch (err) {
+      console.error('[MinimizedCall] Document PiP failed:', err);
+    }
+  }, [enterNativePiP, pipWindow, onPopOutClosed]);
+
+  // Single entry point: prefer Document PiP, fall back to legacy native PiP
+  const openPopOut = useCallback(() => {
+    if ('documentPictureInPicture' in window) {
+      void openDocumentPip();
+    } else {
+      void enterNativePiP();
+    }
+  }, [openDocumentPip, enterNativePiP]);
+
+  // Expose the pop-out opener to the call context so the in-meeting 3-dots menu
+  // can trigger the out-of-browser PiP window (not just the in-app widget).
+  useEffect(() => {
+    registerPopOut?.(openPopOut);
+  }, [registerPopOut, openPopOut]);
+
+  // Close the document PiP when the meeting ends
+  useEffect(() => {
+    if (status !== 'connected' && pipWindow) {
+      try { pipWindow.close(); } catch { /* ignore */ }
+      setPipWindow(null);
+    }
+  }, [status, pipWindow]);
+
+  // Cleanup the popup if the component unmounts mid-call
+  useEffect(() => {
+    return () => {
+      if (pipWindowRef.current) {
+        try { pipWindowRef.current.close(); } catch { /* ignore */ }
+      }
+    };
+  }, []);
+
+  // Pick the highest-fidelity stream we have available to keep the hidden
+  // video continuously playing. Priority:
+  //   1. focusedTrack — live meeting (active speaker / self), once connected.
+  //   2. prewarmedVideoTrack — RTK SelfMedia from `RealtimeKitClient.initMedia`,
+  //      acquired by WeldMeetCallProvider while the user is on /weldmeet/new.
+  //      This is what gives the click that starts an instant meeting an
+  //      already-active real-media session on the origin so Chrome fires
+  //      auto-PiP immediately on tab switch — and the same SelfMedia is
+  //      handed off to RealtimeKitClient.init via `defaults.mediaHandler`,
+  //      so RTK reuses these tracks without re-acquiring the device (no
+  //      permission re-prompt, no camera-light flicker on join).
+  //   3. canvas — placeholder when there's neither a meeting nor a pre-warm.
+  const activeRealTrack = focusedTrack ?? prewarmedVideoTrack;
+
+  // Without auto-PiP the hidden video only backs the pop-out fallback, so it
+  // is fed only during a call.
+  useHiddenPipStream(pipVideoRef, activeRealTrack, meetingTitle, autoPictureInPicture || status === 'connected');
+
+  // The OS media session belongs to one call surface: only the auto-PiP widget
+  // claims it (both widgets are mounted in the shell at once).
+  useMediaSessionActionHandlers(enterNativePiP, autoPictureInPicture, appName);
+
+  useMediaSessionPlaybackState(status, meetingTitle, autoPictureInPicture, appName);
+
+  // Always-current status, so the gesture listener (registered once at
+  // mount with []-deps) can decide whether to promote MediaSession without
+  // tearing down and re-attaching on every status flip.
+  const statusRef = useRef(status);
+  useEffect(() => { statusRef.current = status; }, [status]);
+
+  // Stable refs to the latest enter/exit fns + pipWindow flag, so the
+  // visibilitychange listener registers ONCE per connected session.
+  // Previously the listener re-registered on every focusedTrack/meetingTitle
+  // change, leaving brief windows where tab-switches were missed.
+  const enterNativePipRef = useRef(enterNativePiP);
+  const exitNativePipRef = useRef(exitNativePiP);
+  const pipWindowRef = useRef(pipWindow);
+  useEffect(() => { enterNativePipRef.current = enterNativePiP; }, [enterNativePiP]);
+  useEffect(() => { exitNativePipRef.current = exitNativePiP; }, [exitNativePiP]);
+  useEffect(() => { pipWindowRef.current = pipWindow; }, [pipWindow]);
+
+  usePipVisibilityListeners(status, autoPictureInPicture, pipVideoRef, pipWindowRef, enterNativePipRef, exitNativePipRef);
+
+  useGestureMediaSessionPromotion(pipVideoRef, statusRef, autoPictureInPicture, autoPictureInPicturePathPrefix);
+
+  useEffect(() => {
+    if (status !== 'connected') exitNativePiP();
+  }, [status, exitNativePiP]);
+
+  // ─── Actions ───────────────────────────────────────────────────────────────
+  const handleExpand = useCallback(() => {
+    // Ignore the click that fires at the end of a drag.
+    if (pipDrag.didDragRef.current) return;
+    onExpand();
+  }, [onExpand, pipDrag.didDragRef]);
+
+  const handleScreenShare = useCallback(() => {
+    if (isScreenSharing) stopScreenShare();
+    else {
+      startScreenShare({
+        video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 15 } },
+        audio: false,
+      }).catch(() => { /* user cancelled */ });
+    }
+  }, [isScreenSharing, startScreenShare, stopScreenShare]);
+
+  if (shouldShow && !hasAnimatedRef.current) hasAnimatedRef.current = true;
+  if (status !== 'connected') hasAnimatedRef.current = false;
+
+  // Hidden video element for native browser PiP — must always be in the DOM.
+  //
+  // CRITICAL POSITIONING NOTES:
+  // - `muted` is REQUIRED for unattended autoplay in Chromium.
+  // - The participant tiles in the meeting overlay deliberately do NOT have
+  //   `autopictureinpicture`, so this hidden video is the SOLE candidate
+  //   Chrome can auto-PiP on tab switch.
+  // - The element must be IN THE VIEWPORT for Chrome's auto-PiP heuristic
+  //   to consider it eligible. Chrome prunes:
+  //     * `display: none` / `visibility: hidden` videos
+  //     * `opacity: 0` videos
+  //     * videos whose bounding box doesn't intersect the viewport (e.g.
+  //       positioned at `top: -9999px`)
+  //   So we render it ON-SCREEN at 1×1 px with opacity 0.01 — visually
+  //   undetectable to the user, but a real, in-viewport, "playing" video
+  //   that satisfies the heuristic.
+  // React 19 doesn't always pass through the lowercase `autopictureinpicture`
+  // HTML attribute reliably — it's a Chrome vendor-specific attribute that
+  // isn't in React's known-attribute list. Set BOTH the JSX attribute (as a
+  // hint) AND the DOM property imperatively to be sure Chrome sees it.
+  const setHiddenPipRef = useCallback((el: HTMLVideoElement | null) => {
+    pipVideoRef.current = el;
+    if (el && autoPictureInPicture) {
+      try {
+        // The DOM property is the source of truth Chrome reads.
+        (el as HTMLVideoElement & { autoPictureInPicture?: boolean }).autoPictureInPicture = true;
+        // Belt-and-suspenders: also set the HTML attribute explicitly.
+        el.setAttribute('autopictureinpicture', '');
+      } catch { /* property unsupported in this browser — silently degrade */ }
+    }
+  }, [autoPictureInPicture]);
+
+  const hiddenPipElement = (
+    <video
+      ref={setHiddenPipRef}
+      autoPlay
+      muted
+      playsInline
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        right: 0,
+        width: 1,
+        height: 1,
+        opacity: 0.01,
+        pointerEvents: 'none',
+        zIndex: -1,
+      }}
+    />
+  );
+
+  const isInPipWindow = !!pipWindow;
+
+  // The in-page widget is draggable; the Document PiP popup fills its own OS window.
+  const interactiveProps = isInPipWindow
+    ? {}
+    : {
+        ref: widgetRef,
+        onPointerDown: pipDrag.handlers.onPointerDown,
+        onPointerMove: pipDrag.handlers.onPointerMove,
+        onPointerUp: pipDrag.handlers.onPointerUp,
+        onPointerCancel: pipDrag.handlers.onPointerCancel,
+        // Block the browser's native image/text drag so grabbing the avatar (or
+        // any image) drags the whole widget instead of starting a ghost-image drag.
+        onDragStart: (e: React.DragEvent) => e.preventDefault(),
+        style: pipDrag.style,
+      };
+
+  const widget = (
+    <div
+      {...interactiveProps}
+      // Out of sight means out of the tab order too — an invisible hangup
+      // button must not be reachable from the keyboard.
+      inert={!isInPipWindow && !isVisible}
+      className={widgetClassName({
+        isInPipWindow,
+        isDragging: pipDrag.isDragging,
+        shouldShow: isVisible,
+        hasAnimated: hasAnimatedRef.current,
+      })}
+    >
+      {/* Video / avatar area. Fixed height in the in-page widget; flexes to
+          fill the popup window in Document PiP mode. */}
+      <PipVideoArea
+        t={t}
+        focus={focus}
+        isMuted={isMuted}
+        isInPipWindow={isInPipWindow}
+        videoRef={videoRef}
+        onExpand={handleExpand}
+        onPopOut={openPopOut}
+        onHide={() => setHidden(true)}
+      />
+
+      <PipControlsBar
+        t={t}
+        isMuted={isMuted}
+        isVideoOff={isVideoOff}
+        isScreenSharing={isScreenSharing}
+        handRaised={handRaised}
+        onToggleMute={toggleMute}
+        onToggleVideo={toggleVideo}
+        onScreenShare={handleScreenShare}
+        onToggleHandRaise={toggleHandRaise}
+        onExpand={handleExpand}
+        onCopyJoiningInfo={onCopyJoiningInfo}
+        onLeave={onLeave}
+      />
+
+      {/* Hidden duration tracker — exposed for screen readers; not shown in this design */}
+      <span className="sr-only">{formatDuration(duration)}</span>
+    </div>
+  );
+
+  return (
+    <>
+      {hiddenPipElement}
+      {playsRemoteAudio && <RemoteAudio remotes={remoteParticipants} />}
+      {/* In-page, portal to <body>: the shell's content card is its own
+          stacking context, so rendered inline the widget sits under the app
+          rail and module sidebar when dragged to a left corner. */}
+      {createPortal(widget, isInPipWindow ? pipWindow!.document.body : document.body)}
+    </>
+  );
+}

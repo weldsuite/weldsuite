@@ -553,7 +553,6 @@ export const sweep = {
       "removeFromSection": "Uit sectie verwijderen",
       "rename": "Naam wijzigen",
       "savedItems": "Opgeslagen items",
-      "search": "Zoeken",
       "selfDmFallback": "Jij",
       "selfDmLabel": "{name} (jij)",
       "settings": "Instellingen",
