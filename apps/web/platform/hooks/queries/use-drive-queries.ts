@@ -11,6 +11,12 @@ import type {
   CreateFileInput,
   PaginationMeta,
 } from '@/lib/api/domains/welddrive';
+import type {
+  DriveGeneralAccess,
+  DriveItemSharing,
+  DriveShareRole,
+  SharedWithMe,
+} from '@weldsuite/core-api-client/schemas/drive-shares';
 
 // ── Query Key Factories ─────────────────────────────────────────────────
 
@@ -22,7 +28,15 @@ const driveKeys = {
   aggregated: (params?: DriveFilesParams) => [...driveKeys.all, 'aggregated', params] as const,
   stats: () => [...driveKeys.all, 'stats'] as const,
   trash: () => [...driveKeys.all, 'trash'] as const,
+  shared: () => [...driveKeys.all, 'shared'] as const,
+  sharing: (item: DriveItemRef) => [...driveKeys.all, 'sharing', item.kind, item.id] as const,
 };
+
+/** A Drive file or folder, for the sharing hooks. */
+export interface DriveItemRef {
+  kind: 'file' | 'folder';
+  id: string;
+}
 
 // ── File Queries (Generic Store) ────────────────────────────────────────
 
@@ -220,6 +234,75 @@ export function useDeleteDriveFolder() {
   const { folders } = useAppApi();
   return useMutation({
     mutationFn: (id: string) => folders.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: driveKeys.all });
+    },
+  });
+}
+
+// ── Sharing ────────────────────────────────────────────────────────────
+
+/** Files and folders teammates shared with the current user (Shared with me). */
+export function useSharedWithMe(enabled = true) {
+  const { drive } = useAppApi();
+  return useQuery({
+    queryKey: driveKeys.shared(),
+    queryFn: async (): Promise<SharedWithMe> => (await drive.shared()).data,
+    enabled,
+  });
+}
+
+/** Who a file or folder is open to: owner, general access, the people it is shared with. */
+export function useDriveItemSharing(item: DriveItemRef | null) {
+  const { files, folders } = useAppApi();
+  return useQuery({
+    queryKey: driveKeys.sharing(item ?? { kind: 'file', id: '' }),
+    queryFn: async (): Promise<DriveItemSharing> => {
+      const api = item!.kind === 'file' ? files : folders;
+      return (await api.sharing(item!.id)).data;
+    },
+    enabled: !!item,
+    retry: false,
+  });
+}
+
+/** Share an item with a teammate, or change their role. */
+export function useShareDriveItem() {
+  const queryClient = useQueryClient();
+  const { files, folders } = useAppApi();
+  return useMutation({
+    mutationFn: ({ item, userId, role }: { item: DriveItemRef; userId: string; role: DriveShareRole }) =>
+      (item.kind === 'file' ? files : folders).share(item.id, userId, { role }),
+    onSuccess: (res, { item }) => {
+      queryClient.setQueryData(driveKeys.sharing(item), res.data);
+      queryClient.invalidateQueries({ queryKey: driveKeys.all });
+    },
+  });
+}
+
+/** Stop sharing an item with a teammate (yourself: leave it). */
+export function useUnshareDriveItem() {
+  const queryClient = useQueryClient();
+  const { files, folders } = useAppApi();
+  return useMutation({
+    mutationFn: ({ item, userId }: { item: DriveItemRef; userId: string }) =>
+      (item.kind === 'file' ? files : folders).unshare(item.id, userId),
+    onSuccess: (res, { item }) => {
+      if (res.data) queryClient.setQueryData(driveKeys.sharing(item), res.data);
+      queryClient.invalidateQueries({ queryKey: driveKeys.all });
+    },
+  });
+}
+
+/** Change who besides the people it is shared with may open an item. */
+export function useSetDriveGeneralAccess() {
+  const queryClient = useQueryClient();
+  const { files, folders } = useAppApi();
+  return useMutation({
+    mutationFn: async ({ item, generalAccess }: { item: DriveItemRef; generalAccess: DriveGeneralAccess }): Promise<void> => {
+      if (item.kind === 'file') await files.update(item.id, { generalAccess });
+      else await folders.update(item.id, { generalAccess });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: driveKeys.all });
     },

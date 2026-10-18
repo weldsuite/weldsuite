@@ -5,6 +5,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
+import type { DriveGeneralAccess } from './drive-shares';
 
 export const folders = pgTable('folders', {
   id: varchar('id', { length: 255 }).primaryKey(),
@@ -18,6 +19,13 @@ export const folders = pgTable('folders', {
   icon: varchar('icon', { length: 50 }),
 
   createdById: varchar('created_by_id', { length: 255 }),
+
+  // Who besides the owner and the people it is shared with (`drive_shares`)
+  // may open the folder and what is in it.
+  generalAccess: varchar('general_access', { length: 20 })
+    .$type<DriveGeneralAccess>()
+    .notNull()
+    .default('workspace_edit'),
 
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 }, (table) => [

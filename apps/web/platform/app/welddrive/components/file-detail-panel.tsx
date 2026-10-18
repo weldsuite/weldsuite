@@ -29,7 +29,7 @@ import {
 import { cn } from '@/lib/utils';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile } from './drive-file-card';
-import { DriveAccessList } from './drive-access-list';
+import { DriveFileAccess } from './drive-access-list';
 import { driveSourceKey, driveSourceLabel } from './drive-utils';
 import { CommentsList, DescriptionField, type TaskComment } from '@/components/task-detail/task-detail-content';
 import { AuditTimeline, AuditTimelineSkeleton } from '@/components/audit-timeline';
@@ -363,7 +363,7 @@ export function FileDetailPanel({
                     </Button>
                   )}
                 </div>
-                <DriveAccessList file={file} />
+                <DriveFileAccess file={file} />
               </div>
 
             </div>

@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { driveNameSchema } from './files';
+import { driveGeneralAccessSchema, type DriveAccessRole, type DriveGeneralAccess } from './drive-shares';
 
 export const listFoldersQuery = z.object({
   parentId: z.string().optional(),
@@ -24,9 +25,18 @@ export const updateFolderSchema = z.object({
   icon: z.string().nullable().optional(),
 });
 
+/**
+ * WeldDrive's own PATCH /api/folders/:id (app-api): the shared fields plus
+ * who besides the people it is shared with may open the folder.
+ */
+export const updateDriveFolderSchema = updateFolderSchema.extend({
+  generalAccess: driveGeneralAccessSchema.optional(),
+});
+
 export type ListFoldersQuery = z.input<typeof listFoldersQuery>;
 export type CreateFolderInput = z.infer<typeof createFolderSchema>;
 export type UpdateFolderInput = z.infer<typeof updateFolderSchema>;
+export type UpdateDriveFolderInput = z.infer<typeof updateDriveFolderSchema>;
 
 export interface DriveFolder {
   id: string;
@@ -35,8 +45,13 @@ export interface DriveFolder {
   color: string | null;
   icon: string | null;
   createdById: string | null;
+  generalAccess: DriveGeneralAccess;
   metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** The caller's role on the folder (app-api reads only). */
+  accessRole?: DriveAccessRole;
+  /** The general access in force, counting the folders above it (app-api reads only). */
+  effectiveAccess?: DriveGeneralAccess;
 }

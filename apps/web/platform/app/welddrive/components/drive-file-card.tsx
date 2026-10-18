@@ -20,6 +20,7 @@ import {
   Trash2,
   Info,
   UserPlus,
+  Lock,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -179,11 +180,23 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Marks an item only its owner and the people it is shared with can open. */
+export function DriveRestrictedIcon() {
+  const { t } = useI18n();
+  return (
+    <span title={t.welddrive.share.restrictedBadge} className="shrink-0 inline-flex">
+      <Lock className="h-3 w-3 text-muted-foreground" aria-label={t.welddrive.share.restrictedBadge} />
+    </span>
+  );
+}
+
 export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onToggleStar, onRename, onMoveToFolder, onCopyLink, onDelete, onDetails, onShare }: Readonly<DriveFileCardProps>) {
   const { t } = useI18n();
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;
   const isImage = file.fileType === 'image' && (file.thumbnailUrl || file.url);
+  // A viewer opens and downloads; changing the file is for its owner and editors.
+  const canChange = file.accessRole !== 'viewer';
 
   return (
     <Button
@@ -219,6 +232,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
       <div className="flex items-center gap-1.5 px-3 pt-1 pb-3">
         <Icon className={cn('h-3.5 w-3.5 shrink-0', typeConfig.color)} />
         <span className="text-[13px] font-medium text-foreground truncate min-w-0" title={file.name}>{file.name}</span>
+        {file.effectiveAccess === 'restricted' && <DriveRestrictedIcon />}
         <div className="shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -256,14 +270,18 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                 <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />
                 {file.isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onRename?.(file)}>
-                <Pencil className="h-4 w-4 mr-0.5" />
-                {t.welddrive.page.actions.rename}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onMoveToFolder?.(file)}>
-                <FolderInput className="h-4 w-4 mr-0.5" />
-                {t.welddrive.page.actions.moveToFolder}
-              </DropdownMenuItem>
+              {canChange && (
+                <DropdownMenuItem onClick={() => onRename?.(file)}>
+                  <Pencil className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.rename}
+                </DropdownMenuItem>
+              )}
+              {canChange && (
+                <DropdownMenuItem onClick={() => onMoveToFolder?.(file)}>
+                  <FolderInput className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.moveToFolder}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => {
                 if (onCopyLink) {
                   onCopyLink(file);
@@ -274,14 +292,18 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                 <Link className="h-4 w-4 mr-0.5" />
                 {t.welddrive.page.actions.copyLink}
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-                onClick={() => onDelete?.(file)}
-              >
-                <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-                {t.welddrive.page.actions.moveToTrash}
-              </DropdownMenuItem>
+              {canChange && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+                    onClick={() => onDelete?.(file)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+                    {t.welddrive.page.actions.moveToTrash}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

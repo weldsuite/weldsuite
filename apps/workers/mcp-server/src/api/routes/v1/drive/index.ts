@@ -1,12 +1,17 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { count, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, like, type SQL } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, list, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import {
+  loadDriveAccessForUser,
+  visibleFilesCondition,
+  visibleFolderIds,
+} from '@weldsuite/core-domain/drive-access';
 
 /**
  * READ-ONLY aggregation endpoints.
@@ -19,6 +24,9 @@ import { listWithCursor } from '../../../lib/list-helpers';
  * Exposed:
  *   GET /all    — paginated list of non-deleted files (metadata only)
  *   GET /stats  — per-fileType counts + total file count
+ *
+ * Both count only what the caller may open under the WeldDrive sharing rules
+ * (`@weldsuite/core-domain/drive-access`).
  */
 
 const listAllQuery = z.object({
@@ -40,7 +48,8 @@ app.get('/all', requireScope('drive:read'), zValidator('query', listAllQuery), a
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const table = schema.files;
-  const where: (SQL | undefined)[] = [isNull(table.deletedAt)];
+  const access = await loadDriveAccessForUser(db, c.get('apiSession').userId);
+  const where: (SQL | undefined)[] = [isNull(table.deletedAt), visibleFilesCondition(access)];
   if (q.search) where.push(like(table.fileName, `%${q.search}%`));
   if (q.type) where.push(eq(table.fileType, q.type));
   if (q.folderId) where.push(eq(table.folderId, q.folderId));
@@ -60,10 +69,11 @@ app.get('/stats', requireScope('drive:read'), async (c) => {
   const db = c.get('tenantDb');
   const table = schema.files;
   try {
+    const access = await loadDriveAccessForUser(db, c.get('apiSession').userId);
     const rows = await db
       .select({ fileType: table.fileType, total: count() })
       .from(table)
-      .where(isNull(table.deletedAt))
+      .where(and(isNull(table.deletedAt), visibleFilesCondition(access)))
       .groupBy(table.fileType);
 
     const byType: Record<string, number> = {};
@@ -73,10 +83,13 @@ app.get('/stats', requireScope('drive:read'), async (c) => {
       totalFiles += Number(row.total);
     }
 
-    const [folderRow] = await db
-      .select({ total: count() })
-      .from(schema.folders)
-      .where(isNull(schema.folders.deletedAt));
+    const visibleFolders = visibleFolderIds(access);
+    const [folderRow] = visibleFolders.length > 0
+      ? await db
+          .select({ total: count() })
+          .from(schema.folders)
+          .where(and(isNull(schema.folders.deletedAt), inArray(schema.folders.id, visibleFolders)))
+      : [{ total: 0 }];
     const totalFolders = Number(folderRow?.total ?? 0);
 
     return success(c, { totalFiles, totalFolders, byType });

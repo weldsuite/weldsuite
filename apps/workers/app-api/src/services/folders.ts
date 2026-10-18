@@ -5,6 +5,7 @@
 import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { DriveGeneralAccess } from '@weldsuite/core-domain/drive-access';
 
 const { folders, files } = schema;
 
@@ -70,6 +71,7 @@ export interface UpdateFolderParams {
   parentId?: string | null;
   color?: string | null;
   icon?: string | null;
+  generalAccess?: DriveGeneralAccess;
 }
 
 export async function updateFolder(db: Database, id: string, params: UpdateFolderParams) {
@@ -84,6 +86,7 @@ export async function updateFolder(db: Database, id: string, params: UpdateFolde
   if (params.parentId !== undefined) updates.parentId = params.parentId;
   if (params.color !== undefined) updates.color = params.color;
   if (params.icon !== undefined) updates.icon = params.icon;
+  if (params.generalAccess !== undefined) updates.generalAccess = params.generalAccess;
   await db.update(folders).set(updates).where(eq(folders.id, id));
   const [row] = await db.select().from(folders).where(eq(folders.id, id)).limit(1);
   return row!;
@@ -104,6 +107,15 @@ export async function softDeleteFolder(db: Database, id: string) {
 // ============================================================================
 // Trash
 // ============================================================================
+
+export async function getTrashedFolder(db: Database, id: string) {
+  const [row] = await db
+    .select()
+    .from(folders)
+    .where(and(eq(folders.id, id), isNotNull(folders.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
 
 export function listTrashedFolders(db: Database) {
   return Promise.resolve(

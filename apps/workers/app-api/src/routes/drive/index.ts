@@ -4,12 +4,15 @@
  * Views that span multiple modules:
  *   - GET  /all       cross-source unified file feed
  *   - GET  /stats     per-source counts
+ *   - GET  /shared    files and folders teammates shared with the caller
  *   - GET  /trash     combined trashed files + folders
  *   - POST /trash/restore/file/:id, POST /trash/restore/folder/:id
  *   - DELETE /trash/file/:id, /trash/folder/:id, /trash/empty
  *
  * Permissions: `files:read` (views), `files:update | files:delete` (trash actions),
- * `folders:update | folders:delete` (folder trash actions).
+ * `folders:update | folders:delete` (folder trash actions). Drive files and
+ * folders only show to, and only change for, callers the WeldDrive sharing
+ * rules allow (`@weldsuite/core-domain/drive-access`).
  */
 
 import { Hono } from 'hono';
@@ -22,13 +25,23 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import {
   aggregateAllFiles,
   aggregateStats,
-  emptyTrash as emptyTrashAggregator,
-  listAllTrashedFileKeysForR2,
+  listPurgedFileKeys,
+  normalizeGenericFiles,
+  purgeTrashed,
   queryArray,
   type UnifiedFile,
 } from '../../services/drive-aggregation';
 import * as filesService from '@weldsuite/core-domain/files';
+import {
+  canEdit,
+  fileRole,
+  folderRole,
+  listSharedWithUser,
+  withFileAccess,
+  withFolderAccess,
+} from '@weldsuite/core-domain/drive-access';
 import * as foldersService from '../../services/folders';
+import { DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -43,6 +56,7 @@ app.get('/all', requirePermission('files:read'), zValidator('query', listAllFile
       userId: c.get('userId'),
       source: q.source,
       r2PublicUrl: c.env.R2_PUBLIC_URL,
+      driveAccess: await driveAccess(c),
     });
 
     const filters: Record<string, unknown> = {};
@@ -83,7 +97,7 @@ app.get('/all', requirePermission('files:read'), zValidator('query', listAllFile
 
 app.get('/stats', requirePermission('files:read'), async (c) => {
   try {
-    const stats = await aggregateStats(c.get('tenantDb'), c.get('userId'));
+    const stats = await aggregateStats(c.get('tenantDb'), c.get('userId'), await driveAccess(c));
     return success(c, stats);
   } catch (err) {
     console.error('[app-api/drive] /stats failed:', err);
@@ -92,17 +106,53 @@ app.get('/stats', requirePermission('files:read'), async (c) => {
 });
 
 // ============================================================================
-// GET /trash — combined trashed files + folders
+// GET /shared — what teammates shared with the caller (Shared with me)
+// ============================================================================
+
+app.get('/shared', requirePermission('files:read'), async (c) => {
+  const userId = c.get('userId');
+  if (!userId) return error.unauthorized(c);
+  try {
+    const db = c.get('tenantDb');
+    const [shared, access] = await Promise.all([listSharedWithUser(db, userId), driveAccess(c)]);
+    const fileShares = new Map(shared.files.map((s) => [s.file.id, s]));
+    const folderShares = new Map(shared.folders.map((s) => [s.folder.id, s]));
+    const shareFields = (s: { role: string; sharedBy: string; sharedAt: Date }) => ({
+      sharedRole: s.role,
+      sharedBy: s.sharedBy,
+      sharedAt: s.sharedAt.toISOString(),
+    });
+    const files = normalizeGenericFiles(
+      withFileAccess(access, shared.files.map((s) => s.file)),
+      c.env.R2_PUBLIC_URL,
+    ).map((f) => ({ ...f, ...shareFields(fileShares.get(f.id)!) }));
+    const folders = withFolderAccess(access, shared.folders.map((s) => s.folder)).map((f) => ({
+      ...f,
+      ...shareFields(folderShares.get(f.id)!),
+    }));
+    return success(c, { files, folders });
+  } catch (err) {
+    console.error('[app-api/drive] /shared failed:', err);
+    return error.internal(c, 'Failed to list shared items');
+  }
+});
+
+// ============================================================================
+// GET /trash — combined trashed files + folders the caller may see
 // ============================================================================
 
 app.get('/trash', requirePermission('files:read'), async (c) => {
   try {
     const db = c.get('tenantDb');
-    const [trashedFiles, trashedFolders] = await Promise.all([
+    const [trashedFiles, trashedFolders, access] = await Promise.all([
       filesService.listTrashedFiles(db),
       foldersService.listTrashedFolders(db),
+      driveAccess(c),
     ]);
-    return success(c, { files: trashedFiles, folders: trashedFolders });
+    return success(c, {
+      files: withFileAccess(access, trashedFiles),
+      folders: withFolderAccess(access, trashedFolders),
+    });
   } catch (err) {
     console.error('[app-api/drive] /trash failed:', err);
     return error.internal(c, 'Failed to list trash');
@@ -116,7 +166,13 @@ app.get('/trash', requirePermission('files:read'), async (c) => {
 app.post('/trash/restore/file/:id', requirePermission('files:update'), async (c) => {
   const id = c.req.param('id');
   try {
-    const row = await filesService.restoreFile(c.get('tenantDb'), id);
+    const db = c.get('tenantDb');
+    const trashed = await filesService.getTrashedFile(db, id);
+    if (!trashed) return error.notFound(c, 'File', id);
+    const role = fileRole(await driveAccess(c), trashed);
+    if (!role) return error.notFound(c, 'File', id);
+    if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
+    const row = await filesService.restoreFile(db, id);
     if (!row) return error.notFound(c, 'File', id);
     publishEntityEvent({
       c,
@@ -139,7 +195,13 @@ app.post('/trash/restore/file/:id', requirePermission('files:update'), async (c)
 app.post('/trash/restore/folder/:id', requirePermission('folders:update'), async (c) => {
   const id = c.req.param('id');
   try {
-    const row = await foldersService.restoreFolder(c.get('tenantDb'), id);
+    const db = c.get('tenantDb');
+    const trashed = await foldersService.getTrashedFolder(db, id);
+    if (!trashed) return error.notFound(c, 'Folder', id);
+    const role = folderRole(await driveAccess(c), trashed);
+    if (!role) return error.notFound(c, 'Folder', id);
+    if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
+    const row = await foldersService.restoreFolder(db, id);
     if (!row) return error.notFound(c, 'Folder', id);
     publishEntityEvent({
       c,
@@ -162,7 +224,13 @@ app.post('/trash/restore/folder/:id', requirePermission('folders:update'), async
 app.delete('/trash/file/:id', requirePermission('files:delete'), async (c) => {
   const id = c.req.param('id');
   try {
-    const row = await filesService.purgeFile(c.get('tenantDb'), id);
+    const db = c.get('tenantDb');
+    const trashed = await filesService.getTrashedFile(db, id);
+    if (!trashed) return error.notFound(c, 'File', id);
+    const role = fileRole(await driveAccess(c), trashed);
+    if (!role) return error.notFound(c, 'File', id);
+    if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
+    const row = await filesService.purgeFile(db, id);
     if (!row) return error.notFound(c, 'File', id);
 
     const r2Key = row.fileKey || row.storagePath;
@@ -194,6 +262,9 @@ app.delete('/trash/folder/:id', requirePermission('folders:delete'), async (c) =
     const db = c.get('tenantDb');
     const loaded = await foldersService.loadFolderFilesForPurge(db, id);
     if (!loaded) return error.notFound(c, 'Folder', id);
+    const role = folderRole(await driveAccess(c), loaded.folder);
+    if (!role) return error.notFound(c, 'Folder', id);
+    if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
 
     if (c.env.STORAGE) {
       await Promise.all(
@@ -220,17 +291,26 @@ app.delete('/trash/folder/:id', requirePermission('folders:delete'), async (c) =
 });
 
 // ============================================================================
-// DELETE /trash/empty
+// DELETE /trash/empty — purge every trashed item the caller may change
 // ============================================================================
 
 app.delete('/trash/empty', requirePermission('files:delete'), async (c) => {
   try {
     const db = c.get('tenantDb');
+    const [trashedFiles, trashedFolders, access] = await Promise.all([
+      filesService.listTrashedFiles(db),
+      foldersService.listTrashedFolders(db),
+      driveAccess(c),
+    ]);
+    const ids = {
+      fileIds: trashedFiles.filter((f) => canEdit(fileRole(access, f))).map((f) => f.id),
+      folderIds: trashedFolders.filter((f) => canEdit(folderRole(access, f))).map((f) => f.id),
+    };
     if (c.env.STORAGE) {
-      const keys = await listAllTrashedFileKeysForR2(db);
+      const keys = await listPurgedFileKeys(db, ids);
       await Promise.all(keys.map((k) => c.env.STORAGE!.delete(k).catch(() => {})));
     }
-    await emptyTrashAggregator(db);
+    await purgeTrashed(db, ids);
     return success(c, { emptied: true });
   } catch (err) {
     console.error('[app-api/drive] empty trash failed:', err);

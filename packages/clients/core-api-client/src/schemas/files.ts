@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { driveGeneralAccessSchema, type DriveAccessRole, type DriveGeneralAccess } from './drive-shares';
 
 // ============================================================================
 // Shared enums
@@ -122,10 +123,12 @@ export const updateFileSchema = z.object({
 
 /**
  * WeldDrive's own PATCH /api/files/:id (app-api): the shared fields plus the
- * description shown in the Details panel, kept in `files.metadata`.
+ * description shown in the Details panel, kept in `files.metadata`, and who
+ * besides the people it is shared with may open the file.
  */
 export const updateDriveFileSchema = updateFileSchema.extend({
   description: z.string().max(20000).nullable().optional(),
+  generalAccess: driveGeneralAccessSchema.optional(),
 });
 
 export const moveFileSchema = z.object({
@@ -159,12 +162,17 @@ export interface DriveFile {
   uploadedById: string | null;
   isPublic: boolean;
   isStarred: boolean;
+  generalAccess: DriveGeneralAccess;
   entityType: string | null;
   entityId: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** The caller's role on the file (app-api reads only). */
+  accessRole?: DriveAccessRole;
+  /** The general access in force, counting the folders above the file (app-api reads only). */
+  effectiveAccess?: DriveGeneralAccess;
 }
 
 export interface UnifiedFile {
@@ -190,6 +198,10 @@ export interface UnifiedFile {
   entityType?: string | null;
   /** Drive files only: the Details panel description (HTML). */
   description?: string | null;
+  /** Drive files only: the caller's role on the file. */
+  accessRole?: DriveAccessRole;
+  /** Drive files only: the general access in force, counting the folders above the file. */
+  effectiveAccess?: DriveGeneralAccess;
 }
 
 export interface PaginationMeta {
