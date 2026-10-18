@@ -1876,26 +1876,24 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       />
 
       {/* Selection action bar */}
-      {/* Hidden under the preview; moved left of the Details panel */}
-      {!previewFile && (
-        <DriveSelectionBar
-          selectedCount={selectedIds.size}
-          selectedFiles={selectedFiles}
-          selectedFolders={selectedFolders}
-          isTrashView={isTrashView}
-          reservedRight={detailFile ? DETAIL_PANEL_WIDTH : 0}
-          onRename={handleRename}
-          onDetails={setDetailFile}
-          onShare={setShareFile}
-          onDownload={handleBulkDownload}
-          onStar={handleBulkStar}
-          onMove={handleMoveToFolder}
-          onDelete={handleBulkDelete}
-          onRestore={handleBulkRestore}
-          onDeletePermanently={() => setConfirmPurgeSelection(true)}
-          onClear={clearSelection}
-        />
-      )}
+      <DriveSelectionBar
+        selectedCount={selectedIds.size}
+        selectedFiles={selectedFiles}
+        selectedFolders={selectedFolders}
+        isTrashView={isTrashView}
+        previewOpen={!!previewFile}
+        detailPanelOpen={!!detailFile}
+        onRename={handleRename}
+        onDetails={setDetailFile}
+        onShare={setShareFile}
+        onDownload={handleBulkDownload}
+        onStar={handleBulkStar}
+        onMove={handleMoveToFolder}
+        onDelete={handleBulkDelete}
+        onRestore={handleBulkRestore}
+        onDeletePermanently={() => setConfirmPurgeSelection(true)}
+        onClear={clearSelection}
+      />
     </div>
   );
 }
@@ -1906,7 +1904,8 @@ function DriveSelectionBar({
   selectedFiles,
   selectedFolders,
   isTrashView,
-  reservedRight,
+  previewOpen,
+  detailPanelOpen,
   onRename,
   onDetails,
   onShare,
@@ -1922,8 +1921,10 @@ function DriveSelectionBar({
   selectedFiles: UnifiedFile[];
   selectedFolders: DriveFolder[];
   isTrashView: boolean;
-  /** Width covered on the right (the Details panel); the bar centres in what is left. */
-  reservedRight: number;
+  /** The bar would sit on top of the preview: hidden while it is open. */
+  previewOpen: boolean;
+  /** The bar centres in the space left of the Details panel while it is open. */
+  detailPanelOpen: boolean;
   onRename: (file: UnifiedFile) => void;
   onDetails: (file: UnifiedFile) => void;
   onShare: (file: UnifiedFile) => void;
@@ -1936,14 +1937,15 @@ function DriveSelectionBar({
   onClear: () => void;
 }>) {
   const { t } = useI18n();
-  if (selectedCount === 0) return null;
+  if (selectedCount === 0 || previewOpen) return null;
+  const reservedRight = detailPanelOpen ? DETAIL_PANEL_WIDTH : 0;
 
   return (
     <div
       className={cn(
         'absolute bottom-6 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-200',
         // On phones the Details panel covers the page: no bar on top of it.
-        reservedRight > 0 && 'max-md:hidden',
+        detailPanelOpen && 'max-md:hidden',
       )}
       style={{
         left: reservedRight > 0 ? `calc((100% - ${reservedRight}px) / 2)` : '50%',

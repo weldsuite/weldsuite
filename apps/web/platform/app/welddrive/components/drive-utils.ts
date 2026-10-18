@@ -32,17 +32,18 @@ export function isDriveUpload(file: Pick<UnifiedFile, 'source' | 'entityType'>):
 }
 
 /**
- * The in-app link to an item, for "Copy link" and Share: it opens the file in
- * WeldDrive (or its own editor) for anyone in the workspace, instead of
- * handing out the raw storage URL.
+ * The in-app link to an item, for "Copy link" and Share: it opens the file
+ * where clicking it in the list does (its editor or module page, else the
+ * WeldDrive preview), instead of handing out the raw storage URL.
  */
 export function driveItemLink(
   file: Pick<UnifiedFile, 'id' | 'source' | 'isWeldDoc' | 'navigateTo' | 'url'>,
 ): string | null {
   const origin = window.location.origin;
   if (file.isWeldDoc) return `${origin}/documents/${encodeURIComponent(file.id)}`;
-  if (file.source === 'drive') return `${origin}/welddrive?file=${encodeURIComponent(file.id)}`;
+  // A drive file with a module route (a WeldFlow sheet) opens there, not in the preview.
   if (file.navigateTo) return `${origin}${file.navigateTo}`;
+  if (file.source === 'drive') return `${origin}/welddrive?file=${encodeURIComponent(file.id)}`;
   return file.url;
 }
 

@@ -111,6 +111,15 @@ describe('driveItemLink', () => {
       `${origin}/weldmail/unified/inbox/msg_1`,
     );
   });
+
+  it('sends a drive file with a module route (a WeldFlow sheet) to that route', () => {
+    const sheet = file({
+      entityType: 'project',
+      fileType: 'spreadsheet',
+      navigateTo: '/weldflow/project/prj_1/table/fil_1',
+    });
+    expect(driveItemLink(sheet)).toBe(`${window.location.origin}/weldflow/project/prj_1/table/fil_1`);
+  });
 });
 
 describe('isTextPreviewable', () => {

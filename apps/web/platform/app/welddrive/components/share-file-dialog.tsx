@@ -41,8 +41,13 @@ export function ShareFileDialog({ file, onOpenChange }: Readonly<ShareFileDialog
     });
   };
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) setCopied(false);
+    onOpenChange(open);
+  };
+
   return (
-    <Dialog open={!!file} onOpenChange={(open) => { if (!open) setCopied(false); onOpenChange(open); }}>
+    <Dialog open={!!file} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="truncate pr-6">
