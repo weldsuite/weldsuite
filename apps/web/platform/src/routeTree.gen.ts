@@ -354,6 +354,7 @@ import { Route as WeldbooksFixedAssetsIdIndexRouteImport } from './routes/weldbo
 import { Route as WeldbooksEntitiesAddIndexRouteImport } from './routes/weldbooks/entities/add/index'
 import { Route as WeldbooksDepositsNewIndexRouteImport } from './routes/weldbooks/deposits/new/index'
 import { Route as WeldbooksDepositsIdIndexRouteImport } from './routes/weldbooks/deposits/$id/index'
+import { Route as WeldbooksDashboardBuilderIndexRouteImport } from './routes/weldbooks/dashboard/builder/index'
 import { Route as WeldbooksCustomersAddIndexRouteImport } from './routes/weldbooks/customers/add/index'
 import { Route as WeldbooksCustomersIdIndexRouteImport } from './routes/weldbooks/customers/$id/index'
 import { Route as WeldbooksBillsAddIndexRouteImport } from './routes/weldbooks/bills/add/index'
@@ -2317,6 +2318,12 @@ const WeldbooksDepositsIdIndexRoute =
     path: '/deposits/$id/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
+const WeldbooksDashboardBuilderIndexRoute =
+  WeldbooksDashboardBuilderIndexRouteImport.update({
+    id: '/dashboard/builder/',
+    path: '/dashboard/builder/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksCustomersAddIndexRoute =
   WeldbooksCustomersAddIndexRouteImport.update({
     id: '/customers/add/',
@@ -3423,6 +3430,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/bills/add/': typeof WeldbooksBillsAddIndexRoute
   '/weldbooks/customers/$id/': typeof WeldbooksCustomersIdIndexRoute
   '/weldbooks/customers/add/': typeof WeldbooksCustomersAddIndexRoute
+  '/weldbooks/dashboard/builder/': typeof WeldbooksDashboardBuilderIndexRoute
   '/weldbooks/deposits/$id/': typeof WeldbooksDepositsIdIndexRoute
   '/weldbooks/deposits/new/': typeof WeldbooksDepositsNewIndexRoute
   '/weldbooks/entities/add/': typeof WeldbooksEntitiesAddIndexRoute
@@ -3863,6 +3871,7 @@ export interface FileRoutesByTo {
   '/weldbooks/bills/add': typeof WeldbooksBillsAddIndexRoute
   '/weldbooks/customers/$id': typeof WeldbooksCustomersIdIndexRoute
   '/weldbooks/customers/add': typeof WeldbooksCustomersAddIndexRoute
+  '/weldbooks/dashboard/builder': typeof WeldbooksDashboardBuilderIndexRoute
   '/weldbooks/deposits/$id': typeof WeldbooksDepositsIdIndexRoute
   '/weldbooks/deposits/new': typeof WeldbooksDepositsNewIndexRoute
   '/weldbooks/entities/add': typeof WeldbooksEntitiesAddIndexRoute
@@ -4344,6 +4353,7 @@ export interface FileRoutesById {
   '/weldbooks/bills/add/': typeof WeldbooksBillsAddIndexRoute
   '/weldbooks/customers/$id/': typeof WeldbooksCustomersIdIndexRoute
   '/weldbooks/customers/add/': typeof WeldbooksCustomersAddIndexRoute
+  '/weldbooks/dashboard/builder/': typeof WeldbooksDashboardBuilderIndexRoute
   '/weldbooks/deposits/$id/': typeof WeldbooksDepositsIdIndexRoute
   '/weldbooks/deposits/new/': typeof WeldbooksDepositsNewIndexRoute
   '/weldbooks/entities/add/': typeof WeldbooksEntitiesAddIndexRoute
@@ -4826,6 +4836,7 @@ export interface FileRouteTypes {
     | '/weldbooks/bills/add/'
     | '/weldbooks/customers/$id/'
     | '/weldbooks/customers/add/'
+    | '/weldbooks/dashboard/builder/'
     | '/weldbooks/deposits/$id/'
     | '/weldbooks/deposits/new/'
     | '/weldbooks/entities/add/'
@@ -5266,6 +5277,7 @@ export interface FileRouteTypes {
     | '/weldbooks/bills/add'
     | '/weldbooks/customers/$id'
     | '/weldbooks/customers/add'
+    | '/weldbooks/dashboard/builder'
     | '/weldbooks/deposits/$id'
     | '/weldbooks/deposits/new'
     | '/weldbooks/entities/add'
@@ -5746,6 +5758,7 @@ export interface FileRouteTypes {
     | '/weldbooks/bills/add/'
     | '/weldbooks/customers/$id/'
     | '/weldbooks/customers/add/'
+    | '/weldbooks/dashboard/builder/'
     | '/weldbooks/deposits/$id/'
     | '/weldbooks/deposits/new/'
     | '/weldbooks/entities/add/'
@@ -8387,6 +8400,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksDepositsIdIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/dashboard/builder/': {
+      id: '/weldbooks/dashboard/builder/'
+      path: '/dashboard/builder'
+      fullPath: '/weldbooks/dashboard/builder/'
+      preLoaderRoute: typeof WeldbooksDashboardBuilderIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/customers/add/': {
       id: '/weldbooks/customers/add/'
       path: '/customers/add'
@@ -9606,6 +9626,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksBillsAddIndexRoute: typeof WeldbooksBillsAddIndexRoute
   WeldbooksCustomersIdIndexRoute: typeof WeldbooksCustomersIdIndexRoute
   WeldbooksCustomersAddIndexRoute: typeof WeldbooksCustomersAddIndexRoute
+  WeldbooksDashboardBuilderIndexRoute: typeof WeldbooksDashboardBuilderIndexRoute
   WeldbooksDepositsIdIndexRoute: typeof WeldbooksDepositsIdIndexRoute
   WeldbooksDepositsNewIndexRoute: typeof WeldbooksDepositsNewIndexRoute
   WeldbooksEntitiesAddIndexRoute: typeof WeldbooksEntitiesAddIndexRoute
@@ -9708,6 +9729,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksBillsAddIndexRoute: WeldbooksBillsAddIndexRoute,
   WeldbooksCustomersIdIndexRoute: WeldbooksCustomersIdIndexRoute,
   WeldbooksCustomersAddIndexRoute: WeldbooksCustomersAddIndexRoute,
+  WeldbooksDashboardBuilderIndexRoute: WeldbooksDashboardBuilderIndexRoute,
   WeldbooksDepositsIdIndexRoute: WeldbooksDepositsIdIndexRoute,
   WeldbooksDepositsNewIndexRoute: WeldbooksDepositsNewIndexRoute,
   WeldbooksEntitiesAddIndexRoute: WeldbooksEntitiesAddIndexRoute,
