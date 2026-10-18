@@ -29,28 +29,9 @@ import {
   updateSelfAvatar,
   updateSelfProfile,
 } from '../../services/settings-profile';
+import { updateProfileSchema } from '../../services/settings-profile-schema';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-/**
- * Mirrors legacy `updateProfileSchema` (Zod v3), plus `timezone`.
- *
- * `timezone` is the one field legacy omitted, which made the Timezone picker a
- * no-op: the UI enabled Save and toasted success, but the value was never sent
- * and would have been stripped here anyway. It is accepted now and written to
- * the EXISTING `user_preferences.timezone` column (`varchar(100)`, notNull,
- * default 'UTC') that `composeProfile` already reads — no schema change.
- * The `.max(100)` cap matches that column so an oversized value 400s instead of
- * overflowing the write.
- */
-const updateProfileSchema = z.object({
-  name: z.string().optional(),
-  nickname: z.string().optional(),
-  phone: z.string().optional(),
-  jobTitle: z.string().optional(),
-  bio: z.string().optional(),
-  timezone: z.string().min(1).max(100).optional(),
-});
 
 const avatarSchema = z.object({
   /** A `data:<mime>;base64,<payload>` URL, as produced by FileReader.readAsDataURL. */

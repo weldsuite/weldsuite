@@ -19,10 +19,17 @@ export interface AuditLogRecord {
 }
 
 export interface AuditLogFilters {
+  /** One entity type or a comma list (`company,customer`). */
   entityType?: string;
+  /** Comma list of entity types to leave out. */
+  entityTypeNot?: string;
   entityId?: string;
   action?: string;
+  actionNot?: string;
   performedBy?: string;
+  performedByNot?: string;
+  /** Free text over the description (record name included) and the entity id. */
+  search?: string;
   startDate?: string;
   endDate?: string;
   page?: number;

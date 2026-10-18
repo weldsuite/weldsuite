@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createAuditLogSchema, updateAuditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
 import type { Env, Variables } from '../../types';
@@ -65,7 +65,24 @@ function parseListPaging(q: Record<string, string>): ListPaging {
   return { limit, page, pageSize, useCursor };
 }
 
-/** Query params that filter by exact column equality. */
+/**
+ * Entity types left out of the list unless asked for by `entityType`: internal
+ * WeldMeet bookkeeping (a row per call session and per in-call chat message)
+ * that buried the changes people make. Still written, still in entity history.
+ */
+export const HIDDEN_ACTIVITY_ENTITY_TYPES = ['meeting_session', 'meeting_message', 'meeting_bot_session'];
+
+/** `a,b` → ['a', 'b'] — every equality filter takes one value or a comma list. */
+function splitList(value: string): string[] {
+  return value.split(',').map((v) => v.trim()).filter(Boolean);
+}
+
+/** Escape LIKE wildcards so a search for "50%" matches the literal text. */
+function escapeLike(value: string): string {
+  return value.replaceAll(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/** Query params that filter by exact column equality (one value or a comma list). */
 const EQUALITY_FILTERS = [
   ['action', t.action],
   ['entityType', t.entityType],
@@ -86,7 +103,25 @@ function buildListFilters(q: Record<string, string>): { conditions: SQL[] } | { 
   const conditions: SQL[] = [];
   for (const [param, column] of EQUALITY_FILTERS) {
     const value = q[param];
-    if (hasValue(value)) conditions.push(eq(column, value));
+    if (!hasValue(value)) continue;
+    const values = splitList(value);
+    if (values.length === 1) conditions.push(eq(column, values[0]));
+    else if (values.length > 1) conditions.push(inArray(column, values));
+  }
+  // `<param>Not` excludes instead (the filter pills' "is not").
+  for (const [param, column] of EQUALITY_FILTERS) {
+    const value = q[`${param}Not`];
+    if (!hasValue(value)) continue;
+    const values = splitList(value);
+    // NULL NOT IN (...) is not true, so rows without the column stay explicitly.
+    if (values.length > 0) conditions.push(or(isNull(column), notInArray(column, values))!);
+  }
+  if (!hasValue(q.entityType)) conditions.push(notInArray(t.entityType, HIDDEN_ACTIVITY_ENTITY_TYPES));
+  // Free-text search over the description (which carries the record name) and
+  // the entity id, so a pasted id still finds its rows.
+  if (hasValue(q.search) && q.search.trim()) {
+    const pattern = `%${escapeLike(q.search.trim())}%`;
+    conditions.push(or(ilike(t.description, pattern), ilike(t.entityId, pattern))!);
   }
   for (const { param, apply } of DATE_FILTERS) {
     const value = q[param];

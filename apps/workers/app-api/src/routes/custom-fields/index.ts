@@ -17,6 +17,7 @@ import {
   createCustomFieldSchema,
   updateCustomFieldSchema,
   reorderCustomFieldsSchema,
+  hasUsableSelectOptions,
 } from '@weldsuite/app-api-client/schemas/custom-fields';
 import { isReservedFieldSlug } from '@weldsuite/app-api-client/schemas/custom-objects';
 import { z } from 'zod';
@@ -125,6 +126,11 @@ app.post('/', requirePermission('settings:manage'), zValidator('json', createCus
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
 
+  // A select field without a single option can never hold a value.
+  if (!hasUsableSelectOptions(data.fieldType, data.options)) {
+    return error.badRequest(c, `A ${data.fieldType} field needs at least one option`);
+  }
+
   try {
     // Custom OBJECT fields have a smaller usable slug space than fields on
     // built-in entities: the generated MCP tools flatten the record id and the
@@ -210,6 +216,17 @@ app.put('/:id', requirePermission('settings:manage'), zValidator('json', updateC
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Custom field definition', id);
+
+    // Judge the field as it will be after the update: switching a field to a
+    // select type, or emptying a select field's options, must leave an option.
+    // Only when the update touches the type or the options, so renaming a
+    // legacy option-less field keeps working.
+    const nextFieldType = data.fieldType ?? existing.fieldType;
+    const nextOptions = data.options ?? existing.options;
+    const touchesOptions = data.fieldType !== undefined || data.options !== undefined;
+    if (touchesOptions && !hasUsableSelectOptions(nextFieldType, nextOptions)) {
+      return error.badRequest(c, `A ${nextFieldType} field needs at least one option`);
+    }
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (data.name !== undefined) updateData.name = data.name;

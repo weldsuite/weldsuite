@@ -63,3 +63,25 @@ describe('GET /api/dashboard/installed-apps', () => {
     expect(await installedApps('user_employee')).toEqual(['weldchat', 'weldhr']);
   });
 });
+
+describe('GET /api/dashboard/installed-apps · order', () => {
+  it('keeps a reinstalled app in its display order instead of moving it last', async () => {
+    const { eq } = await import('drizzle-orm');
+    const { listMemberAppCodes } = await import('../../services/member-apps');
+    const before = await listMemberAppCodes(db, 'user_admin');
+
+    // Uninstall then reinstall the first app the way app-catalog does (row
+    // updated in place, display_order untouched).
+    const first = before[0];
+    await db
+      .update(workspaceInstalledApps)
+      .set({ isActive: false, deletedAt: new Date() })
+      .where(eq(workspaceInstalledApps.appCode, first));
+    await db
+      .update(workspaceInstalledApps)
+      .set({ isActive: true, deletedAt: null, installedAt: new Date(), updatedAt: new Date() })
+      .where(eq(workspaceInstalledApps.appCode, first));
+
+    expect(await listMemberAppCodes(db, 'user_admin')).toEqual(before);
+  });
+});

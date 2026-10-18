@@ -32,7 +32,7 @@ import {
   Braces,
   type LucideIcon,
 } from 'lucide-react';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useCustomFields } from '@/hooks/use-custom-fields';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
@@ -72,29 +72,12 @@ export function CustomFieldsSidebarSection({
   layout = 'stacked',
 }: Readonly<CustomFieldsSidebarSectionProps>) {
   const t = useTranslations();
-  const { getClient } = useAppApiClient();
-  const [fieldDefs, setFieldDefs] = useState<CustomFieldDefinition[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    setIsLoading(true);
-    void (async () => {
-      try {
-        const client = await getClient();
-        const query = entityType ? `?entityType=${encodeURIComponent(entityType)}` : '';
-        // app-api GET /api/custom-fields (was api-worker GET /settings/custom-fields).
-        const result = await client.get<{ data?: CustomFieldDefinition[] }>(`/custom-fields${query}`);
-        if (mounted && result.data) {
-          setFieldDefs(result.data);
-        }
-      } catch {
-        // Ignore errors loading custom fields
-      }
-      if (mounted) setIsLoading(false);
-    })();
-    return () => { mounted = false; };
-  }, [entityType, getClient]);
+  // Shared react-query cache (same key as the list grids' custom columns), so a
+  // field added or changed in Settings › Custom Fields shows up in an open
+  // record panel too: the settings mutations invalidate this key. The old
+  // mount-once fetch kept a panel on the definitions it first saw.
+  const { data: fieldDefsData, isLoading } = useCustomFields(entityType, !!entityType);
+  const fieldDefs: CustomFieldDefinition[] = fieldDefsData ?? [];
 
   const handleUpdateField = useCallback(async (slug: string, newValue: unknown) => {
     try {

@@ -110,15 +110,15 @@ export function DepartmentsTab() {
     {
       id: 'parent',
       header: t('weldhr.settings.departments.parent'),
-      width: 'w-[180px]',
+      width: 'w-[140px]',
       render: (dept) => (
-        <span className="text-muted-foreground">{dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}</span>
+        <span className="block truncate text-muted-foreground">{dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}</span>
       ),
     },
     {
       id: 'head',
       header: t('weldhr.settings.departments.head'),
-      width: 'w-[140px]',
+      width: 'hidden @3xl:block w-[140px]',
       render: (dept) => (
         <span className="text-muted-foreground">
           {dept.headEmployeeId ? t('weldhr.settings.departments.headAssigned') : '—'}
@@ -128,7 +128,7 @@ export function DepartmentsTab() {
     {
       id: 'employeeCount',
       header: t('weldhr.settings.departments.employeeCount'),
-      width: 'w-[110px]',
+      width: 'w-[90px]',
       render: (dept) => <span className="tabular-nums">{dept.employeeCount}</span>,
     },
   ];

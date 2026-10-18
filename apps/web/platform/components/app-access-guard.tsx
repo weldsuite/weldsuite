@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
+import { toast } from 'sonner';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { usePathname, useRouter } from '@/lib/router';
-import { useInstalledApps } from '@/hooks/use-installed-apps';
+import { getFirstPartyAppName, useInstalledApps } from '@/hooks/use-installed-apps';
 import { useIsEmployeeMember, useIsGuest } from '@/hooks/use-current-member';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getAppPermissionObjects } from '@/lib/apps/app-permission-objects';
@@ -64,6 +66,7 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
   const perms = usePermissionsMaybe();
   const isGuest = useIsGuest();
   const isEmployeeMember = useIsEmployeeMember();
+  const t = useTranslations();
 
   useEffect(() => {
     if (isLoading || perms?.isLoading) return;
@@ -123,6 +126,16 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
     // Check 1: Is the app installed for this workspace?
     const isInstalled = installedApps.some((app) => app.appCode === appCode);
     if (!isInstalled) {
+      // Say why the page didn't open, for a first-party app (an unknown first
+      // segment is just a bad URL and keeps the silent redirect).
+      const appName = getFirstPartyAppName(appCode);
+      if (appName) {
+        toast.info(t('common.empty.appNotInstalledNamed', { app: appName }), {
+          id: `app-not-installed-${appCode}`,
+          description: t('common.empty.appNotInstalledHint'),
+          action: { label: t('common.empty.openAppStore'), onClick: () => router.push('/appstore') },
+        });
+      }
       router.replace('/');
       return;
     }
@@ -138,7 +151,7 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
         router.replace('/');
       }
     }
-  }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember]);
+  }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t]);
 
   return <>{children}</>;
 }

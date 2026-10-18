@@ -24,6 +24,11 @@ vi.mock('@/hooks/queries/use-pipelines-queries', () => ({
   usePipelineStages: (pipelineId?: string) => usePipelineStages(pipelineId),
 }));
 
+const useCustomFields = vi.fn();
+vi.mock('@/hooks/use-custom-fields', () => ({
+  useCustomFields: (entityType?: string) => useCustomFields(entityType),
+}));
+
 import { OpportunityDetailsTab } from './opportunity-panel';
 import type { Opportunity } from './use-opportunity-data';
 
@@ -45,6 +50,8 @@ describe('OpportunityDetailsTab stage and pipeline rows', () => {
   beforeEach(() => {
     usePipelineStages.mockReset();
     usePipelineStages.mockReturnValue({ data: { data: stagesFixture } });
+    useCustomFields.mockReset();
+    useCustomFields.mockReturnValue({ data: [], isLoading: false });
   });
 
   it('shows the stage and pipeline names instead of raw ids', () => {
@@ -89,5 +96,39 @@ describe('OpportunityDetailsTab stage and pipeline rows', () => {
       />,
     );
     expect(screen.getByText('sweep.entities.stageProposal')).toBeInTheDocument();
+  });
+});
+
+describe('OpportunityDetailsTab custom fields (TASK-1049)', () => {
+  beforeEach(() => {
+    usePipelineStages.mockReturnValue({ data: { data: stagesFixture } });
+    useCustomFields.mockReset();
+    useCustomFields.mockReturnValue({
+      data: [{ id: 'cfld_1', entityType: 'opportunity', name: 'Contract term', slug: 'contract_term', fieldType: 'text' }],
+      isLoading: false,
+    });
+  });
+
+  it('lists the deal custom fields in Details and saves an edit as the full customFields map', async () => {
+    const user = userEvent.setup();
+    const onUpdateFieldAsync = vi.fn().mockResolvedValue(undefined);
+    render(
+      <OpportunityDetailsTab
+        opportunity={makeOpportunity({ customFields: { contract_term: '12 months', legacy: 'kept' } })}
+        onUpdateField={vi.fn()}
+        onUpdateFieldAsync={onUpdateFieldAsync}
+      />,
+    );
+
+    expect(useCustomFields).toHaveBeenCalledWith('opportunity');
+    expect(screen.getByText('Contract term')).toBeInTheDocument();
+    await user.click(screen.getByText('12 months'));
+    const input = screen.getByDisplayValue('12 months');
+    await user.clear(input);
+    await user.type(input, '24 months{Enter}');
+
+    expect(onUpdateFieldAsync).toHaveBeenCalledWith({
+      customFields: { contract_term: '24 months', legacy: 'kept' },
+    });
   });
 });

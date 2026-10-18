@@ -84,3 +84,42 @@ describe('writeAuditLogFromEvent Phase 2 idempotency', () => {
     expect(row.metadata.eventId).toBe('evt_new01');
   });
 });
+
+describe('audit log descriptions', () => {
+  it('phrases non-CRUD actions instead of appending "ed"', async () => {
+    const { buildDescription } = await import('./audit-log-writer');
+    expect(buildDescription('stage_changed', 'opportunity', 'Zeta renewal deal', 'Jane', null)).toBe(
+      "'Zeta renewal deal' was moved to another stage by Jane",
+    );
+    expect(buildDescription('won', 'opportunity', 'Zeta renewal deal', 'Jane', null)).toBe(
+      "'Zeta renewal deal' was marked as won by Jane",
+    );
+    expect(buildDescription('lost', 'opportunity', 'Zeta', null, null)).toBe("'Zeta' was marked as lost by System");
+    expect(buildDescription('some_new_thing', 'opportunity', 'Zeta', 'Jane', null)).toBe(
+      "'Zeta' was some new thing by Jane",
+    );
+  });
+});
+
+describe('getEntityDisplayName', () => {
+  it('finds a name for entity types without their own field list', async () => {
+    const { getEntityDisplayName } = await import('./audit-log-writer');
+    expect(getEntityDisplayName('pipeline_stage', { name: 'Negotiation' })).toBe('Negotiation');
+    expect(getEntityDisplayName('chat_channel', { name: 'general' })).toBe('general');
+    expect(getEntityDisplayName('meeting', { title: 'Weekly sync' })).toBe('Weekly sync');
+    expect(getEntityDisplayName('vat_return', { periodLabel: 'Q3 2026', status: 'draft' })).toBe('Q3 2026');
+    expect(getEntityDisplayName('accounting_contact', { companyName: 'Acme BV' })).toBe('Acme BV');
+  });
+
+  it('joins first and last name', async () => {
+    const { getEntityDisplayName } = await import('./audit-log-writer');
+    expect(getEntityDisplayName('contact', { firstName: 'Jane', lastName: 'Doe' })).toBe('Jane Doe');
+    expect(getEntityDisplayName('person', { displayName: 'J. Doe', firstName: 'Jane' })).toBe('J. Doe');
+  });
+
+  it('returns null when nothing usable is there', async () => {
+    const { getEntityDisplayName } = await import('./audit-log-writer');
+    expect(getEntityDisplayName('vat_return', { id: 'vat_1', status: 'draft' })).toBeNull();
+    expect(getEntityDisplayName('company', null)).toBeNull();
+  });
+});

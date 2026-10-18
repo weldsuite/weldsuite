@@ -89,14 +89,14 @@ export function LeaveTypesTab() {
             className="h-2.5 w-2.5 shrink-0 rounded-full border"
             style={{ backgroundColor: leaveType.color ?? undefined }}
           />
-          <span className="font-medium">{leaveType.name}</span>
+          <span className="min-w-0 truncate font-medium">{leaveType.name}</span>
         </div>
       ),
     },
     {
       id: 'paid',
       header: t('weldhr.settings.leaveTypes.paid'),
-      width: 'w-[90px]',
+      width: 'w-[70px]',
       render: (leaveType) => (
         <span className="text-muted-foreground">{leaveType.isPaid ? t('weldhr.common.yes') : t('weldhr.common.no')}</span>
       ),
@@ -104,7 +104,7 @@ export function LeaveTypesTab() {
     {
       id: 'approval',
       header: t('weldhr.settings.leaveTypes.requiresApproval'),
-      width: 'w-[140px]',
+      width: 'w-[110px]',
       render: (leaveType) => (
         <span className="text-muted-foreground">
           {leaveType.requiresApproval ? t('weldhr.common.yes') : t('weldhr.common.no')}
@@ -114,7 +114,7 @@ export function LeaveTypesTab() {
     {
       id: 'allowance',
       header: t('weldhr.settings.leaveTypes.allowance'),
-      width: 'w-[140px]',
+      width: 'w-[100px]',
       render: (leaveType) => (
         <span className="tabular-nums">
           {formatAllowance(leaveType.defaultAllowanceDays)}

@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ColumnDef,
   flexRender,
@@ -40,6 +40,11 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 import { DeleteAccountSection } from './delete-account-section';
 import { PasskeysSection } from './passkeys-section';
+import { parseSessionDevice } from './session-device';
+
+const SESSIONS_PAGE_SIZE = 10;
+
+type SecurityStrings = ReturnType<typeof useI18n>['t']['settings']['security'];
 
 // Get the appropriate icon based on device type
 function getDeviceIcon(deviceType?: string, isMobile?: boolean) {
@@ -50,19 +55,41 @@ function getDeviceIcon(deviceType?: string, isMobile?: boolean) {
   return Globe;
 }
 
-// Format the device and browser info
-function formatDeviceInfo(
-  session: SessionWithActivitiesResource,
-  labels: { unknownDevice: string; unknownBrowser: string; mobile: string; desktop: string },
-): string {
-  const activity = session.latestActivity;
-  if (!activity) return labels.unknownDevice;
+type DeviceLabels = Pick<
+  SecurityStrings,
+  'unknownDevice' | 'unknownBrowser' | 'mobile' | 'desktop' | 'desktopApp' | 'appLabel' | 'androidApp' | 'iosApp'
+>;
 
-  const browser = activity.browserName || labels.unknownBrowser;
-  const version = activity.browserVersion ? ` ${activity.browserVersion.split('.')[0]}` : '';
-  const device = activity.deviceType || (activity.isMobile ? labels.mobile : labels.desktop);
+// Format the device and browser info. Clerk's own parsing mislabels our
+// desktop and mobile apps (see session-device.ts), so classify first.
+function formatDeviceInfo(session: SessionWithActivitiesResource, labels: DeviceLabels): string {
+  const info = parseSessionDevice(session.latestActivity);
 
-  return `${device}, ${browser}${version}`;
+  switch (info.kind) {
+    case 'unknown':
+      return labels.unknownDevice;
+    case 'desktop-app':
+      return info.os ? `${labels.desktopApp} · ${info.os}` : labels.desktopApp;
+    case 'weld-app':
+      return `${labels.appLabel.replace('{name}', info.appName)} · ${labels.mobile}`;
+    case 'android-app':
+      return labels.androidApp;
+    case 'ios-app':
+      return labels.iosApp;
+    case 'browser': {
+      const browser = info.browser || labels.unknownBrowser;
+      const version = info.version ? ` ${info.version}` : '';
+      const device = info.device || (info.isMobile ? labels.mobile : labels.desktop);
+      return `${device}, ${browser}${version}`;
+    }
+  }
+}
+
+function getSessionIcon(session: SessionWithActivitiesResource) {
+  const info = parseSessionDevice(session.latestActivity);
+  if (info.kind === 'desktop-app') return Monitor;
+  if (info.kind === 'weld-app' || info.kind === 'android-app' || info.kind === 'ios-app') return Smartphone;
+  return getDeviceIcon(session.latestActivity?.deviceType, session.latestActivity?.isMobile);
 }
 
 // Format the location info
@@ -80,8 +107,6 @@ function formatLocationInfo(session: SessionWithActivitiesResource): string {
 
   return parts.join(', ');
 }
-
-type SecurityStrings = ReturnType<typeof useI18n>['t']['settings']['security'];
 
 interface SessionColumnsContext {
   ts: SecurityStrings;
@@ -102,17 +127,15 @@ function buildSessionColumns({
     {
       id: 'device',
       header: ts.device,
-      size: 500,
+      size: 38,
       cell: ({ row }) => {
         const session = row.original;
-        const DeviceIcon = getDeviceIcon(
-          session.latestActivity?.deviceType,
-          session.latestActivity?.isMobile
-        );
+        const DeviceIcon = getSessionIcon(session);
+        const label = formatDeviceInfo(session, ts);
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <DeviceIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-            <span className="font-medium">{formatDeviceInfo(session, { unknownDevice: ts.unknownDevice, unknownBrowser: ts.unknownBrowser, mobile: ts.mobile, desktop: ts.desktop })}</span>
+            <span className="truncate font-medium" title={label}>{label}</span>
           </div>
         );
       },
@@ -120,31 +143,34 @@ function buildSessionColumns({
     {
       id: 'location',
       header: ts.location,
-      size: 600,
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {formatLocationInfo(row.original) || '—'}
-        </span>
-      ),
+      size: 30,
+      cell: ({ row }) => {
+        const location = formatLocationInfo(row.original) || '—';
+        return (
+          <span className="block truncate text-sm text-muted-foreground" title={location}>
+            {location}
+          </span>
+        );
+      },
     },
     {
       id: 'lastActive',
       header: ts.lastActive,
-      size: 140,
+      size: 22,
       cell: ({ row }) => {
         const session = row.original;
         const isCurrentSession = session.id === currentSessionId;
 
         if (isCurrentSession) {
           return (
-            <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+            <span className="inline-flex items-center whitespace-nowrap h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
               {ts.current}
             </span>
           );
         }
 
         return (
-          <span className="text-sm text-muted-foreground font-mono">
+          <span className="whitespace-nowrap text-sm text-muted-foreground font-mono">
             {session.lastActiveAt
               ? formatDistanceToNow(session.lastActiveAt, { addSuffix: true })
               : ts.unknown}
@@ -155,6 +181,7 @@ function buildSessionColumns({
     {
       id: 'actions',
       header: '',
+      size: 10,
       cell: ({ row }) => {
         const session = row.original;
         const isCurrentSession = session.id === currentSessionId;
@@ -203,6 +230,7 @@ export default function SecuritySettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
   const [isRevokingAll, setIsRevokingAll] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(SESSIONS_PAGE_SIZE);
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
   const { getClient } = useAppApiClient();
   const { t } = useI18n();
@@ -214,7 +242,7 @@ export default function SecuritySettingsPage() {
 
     try {
       const userSessions = await user.getSessions();
-      // Sort by lastActiveAt, most recent first
+      // Most recent first (the current session is pinned to the top at render time).
       const sorted = [...userSessions].sort((a, b) => {
         const aTime = a.lastActiveAt?.getTime() || 0;
         const bTime = b.lastActiveAt?.getTime() || 0;
@@ -305,8 +333,17 @@ export default function SecuritySettingsPage() {
     onRevoke: handleRevokeSession,
   });
 
+  // Current session first, then most recently active; shown SESSIONS_PAGE_SIZE at a time.
+  const orderedSessions = useMemo(() => {
+    const current = sessions.filter((s) => s.id === currentSession?.id);
+    const others = sessions.filter((s) => s.id !== currentSession?.id);
+    return [...current, ...others];
+  }, [sessions, currentSession?.id]);
+  const visibleSessions = orderedSessions.slice(0, visibleCount);
+  const hiddenCount = orderedSessions.length - visibleSessions.length;
+
   const table = useReactTable({
-    data: sessions,
+    data: visibleSessions,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -330,7 +367,7 @@ export default function SecuritySettingsPage() {
           <div className="space-y-3">
             {isLoading ? (
               <div className="overflow-hidden rounded-md border">
-                <Table>
+                <Table className="min-w-[640px] table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-[13.5px]">{ts.device}</TableHead>
@@ -364,12 +401,12 @@ export default function SecuritySettingsPage() {
               </div>
             ) : (
               <div className="overflow-hidden rounded-md border">
-                <Table>
+                <Table className="min-w-[640px] table-fixed">
                   <TableHeader>
                     {table.getHeaderGroups().map((headerGroup) => (
                       <TableRow key={headerGroup.id}>
                         {headerGroup.headers.map((header) => (
-                          <TableHead key={header.id} className="text-[13.5px]" style={{ width: header.getSize() }}>
+                          <TableHead key={header.id} className="text-[13.5px]" style={{ width: `${header.getSize()}%` }}>
                             {header.isPlaceholder
                               ? null
                               : flexRender(
@@ -386,7 +423,7 @@ export default function SecuritySettingsPage() {
                       table.getRowModel().rows.map((row) => (
                         <TableRow key={row.id} className="group">
                           {row.getVisibleCells().map((cell) => (
-                            <TableCell key={cell.id} className="h-[42px] py-0 px-3" style={{ width: cell.column.getSize() }}>
+                            <TableCell key={cell.id} className="h-[42px] py-0 px-3" style={{ width: `${cell.column.getSize()}%` }}>
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableCell>
                           ))}
@@ -404,6 +441,19 @@ export default function SecuritySettingsPage() {
               </div>
             )}
           </div>
+
+          {hiddenCount > 0 && (
+            <div className="flex justify-center mt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shadow-none"
+                onClick={() => setVisibleCount((n) => n + SESSIONS_PAGE_SIZE)}
+              >
+                {ts.showMore.replace('{count}', String(hiddenCount))}
+              </Button>
+            </div>
+          )}
 
           {otherSessionsCount > 0 && (
             <div className="flex justify-end mt-4">

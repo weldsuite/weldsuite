@@ -45,7 +45,7 @@ export default function WeldHrSettingsPage() {
       {canManage ? (
         <>
           <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={setTab} overflow="dropdown" />
-          <div className="mt-6">
+          <div className="@container mt-6">
             {activeTab === 'departments' && <DepartmentsTab />}
             {activeTab === 'leave-types' && <LeaveTypesTab />}
           </div>

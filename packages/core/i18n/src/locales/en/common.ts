@@ -456,6 +456,9 @@ export const common = {
       noItems: 'No items yet',
       getStarted: 'Get started by creating your first item',
       appNotInstalled: 'App not installed',
+      appNotInstalledNamed: '{app} is not installed in this workspace',
+      appNotInstalledHint: 'Install it from the App Store to open it.',
+      openAppStore: 'Open App Store',
     },
     time: {
       justNow: 'Just now',

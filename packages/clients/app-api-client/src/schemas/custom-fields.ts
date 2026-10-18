@@ -23,6 +23,64 @@ export const selectOptionSchema = z.object({
   color: z.string().optional(),
 });
 
+/** Field types whose value is picked from the definition's `options`. */
+export const SELECT_FIELD_TYPES = ['single_select', 'multi_select'] as const;
+
+export function isSelectFieldType(fieldType: string | null | undefined): boolean {
+  return (SELECT_FIELD_TYPES as readonly string[]).includes(fieldType ?? '');
+}
+
+/**
+ * True when a select field (single/multi) has at least one usable option, i.e.
+ * one with a non-blank label and value. Always true for non-select types. A
+ * select field without options can never hold a value, so creating one is
+ * refused on both the form and the API (TASK-1049).
+ */
+export function hasUsableSelectOptions(
+  fieldType: string | null | undefined,
+  options: ReadonlyArray<{ label?: string | null; value?: string | null }> | null | undefined,
+): boolean {
+  if (!isSelectFieldType(fieldType)) return true;
+  return (options ?? []).some((o) => (o.label ?? '').trim() !== '' && (o.value ?? '').trim() !== '');
+}
+
+// Letters NFKD can't decompose into "base letter + accent" get an explicit
+// ASCII spelling, so "Größe" becomes "grosse" rather than "gr_e".
+const SLUG_TRANSLITERATIONS: Record<string, string> = {
+  ß: 'ss',
+  æ: 'ae',
+  œ: 'oe',
+  ø: 'o',
+  đ: 'd',
+  ð: 'd',
+  þ: 'th',
+  ł: 'l',
+  ı: 'i',
+  ħ: 'h',
+  ŧ: 't',
+  ŋ: 'n',
+};
+const SLUG_TRANSLITERATION_RE = new RegExp(`[${Object.keys(SLUG_TRANSLITERATIONS).join('')}]`, 'g');
+
+/**
+ * Derive a custom field slug (`^[a-z0-9_]+$`) from a display name.
+ * Accented letters are transliterated (é → e, ö → o, ß → ss, æ → ae, ø → o),
+ * every run of other characters collapses to one underscore, and leading and
+ * trailing underscores are trimmed: "Contract Größe & Type!" → "contract_grosse_type".
+ * Returns '' when the name has no Latin letters or digits.
+ */
+export function slugifyCustomFieldName(name: string, maxLength = 100): string {
+  return name
+    .toLowerCase()
+    .replace(SLUG_TRANSLITERATION_RE, (ch) => SLUG_TRANSLITERATIONS[ch] ?? ch)
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+/, '')
+    .slice(0, maxLength)
+    .replace(/_+$/, '');
+}
+
 export const createCustomFieldSchema = z.object({
   entityType: z.string().min(1).max(50),
   name: z.string().min(1).max(100),
