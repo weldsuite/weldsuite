@@ -560,10 +560,42 @@ export async function requireDepartment(db: Database, id: string) {
   return row;
 }
 
+/** Department names are unique (case-insensitive) among live departments, so pickers stay unambiguous. */
+async function assertUniqueDepartmentName(db: Database, name: string, exceptId?: string) {
+  const conditions: SQL[] = [isNull(d.deletedAt), sql`lower(${d.name}) = ${name.trim().toLowerCase()}`];
+  if (exceptId) conditions.push(sql`${d.id} <> ${exceptId}`);
+  const [clash] = await db.select({ id: d.id }).from(d).where(and(...conditions)).limit(1);
+  if (clash) throw new HrConflictError(`A department called "${name.trim()}" already exists`);
+}
+
+/**
+ * Ids of the department and everything below it. Walks the live tree from the
+ * full list (a workspace has tens of departments, not thousands), and stops
+ * on a cycle that bad data may already contain.
+ */
+export function departmentAndDescendants(departments: Array<{ id: string; parentId: string | null }>, rootId: string): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const dept of departments) {
+    if (!dept.parentId) continue;
+    children.set(dept.parentId, [...(children.get(dept.parentId) ?? []), dept.id]);
+  }
+  const out = new Set<string>([rootId]);
+  const queue = [rootId];
+  while (queue.length) {
+    for (const child of children.get(queue.shift()!) ?? []) {
+      if (out.has(child)) continue;
+      out.add(child);
+      queue.push(child);
+    }
+  }
+  return out;
+}
+
 export async function createDepartment(
   db: Database,
   input: { name: string; description?: string | null; parentId?: string | null; headEmployeeId?: string | null; color?: string | null },
 ) {
+  await assertUniqueDepartmentName(db, input.name);
   if (input.parentId) await requireDepartment(db, input.parentId);
   if (input.headEmployeeId) await requireEmployee(db, input.headEmployeeId);
   const [row] = await db.insert(d).values({ id: generateId('hrdep'), ...input }).returning();
@@ -576,18 +608,29 @@ export async function updateDepartment(
   input: { name?: string; description?: string | null; parentId?: string | null; headEmployeeId?: string | null; color?: string | null },
 ) {
   await requireDepartment(db, id);
+  if (input.name !== undefined) await assertUniqueDepartmentName(db, input.name, id);
   if (input.parentId === id) throw new HrValidationError('A department cannot be its own parent');
-  if (input.parentId) await requireDepartment(db, input.parentId);
+  if (input.parentId) {
+    await requireDepartment(db, input.parentId);
+    const live = await db.select({ id: d.id, parentId: d.parentId }).from(d).where(isNull(d.deletedAt));
+    if (departmentAndDescendants(live, id).has(input.parentId)) {
+      throw new HrValidationError('A department cannot be moved under one of its own sub-departments');
+    }
+  }
   if (input.headEmployeeId) await requireEmployee(db, input.headEmployeeId);
   const [row] = await db.update(d).set({ ...input, updatedAt: new Date() }).where(eq(d.id, id)).returning();
   return row!;
 }
 
-/** Soft delete; employees in it become department-less rather than pointing at a ghost. */
+/**
+ * Soft delete. Employees in it become department-less rather than pointing at
+ * a ghost; its sub-departments move up to its own parent, so the rest of the
+ * tree keeps its shape.
+ */
 export async function deleteDepartment(db: Database, id: string) {
-  await requireDepartment(db, id);
+  const department = await requireDepartment(db, id);
   const now = new Date();
   await db.update(d).set({ deletedAt: now, updatedAt: now }).where(eq(d.id, id));
   await db.update(t).set({ departmentId: null, updatedAt: now }).where(eq(t.departmentId, id));
-  await db.update(d).set({ parentId: null, updatedAt: now }).where(eq(d.parentId, id));
+  await db.update(d).set({ parentId: department.parentId, updatedAt: now }).where(eq(d.parentId, id));
 }

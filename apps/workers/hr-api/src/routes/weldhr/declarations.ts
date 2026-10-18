@@ -7,7 +7,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
   createHrDeclarationSchema,
@@ -30,7 +29,7 @@ import {
   toPublicDeclaration,
   updateDeclaration,
 } from '../../services/weldhr/declarations';
-import { actor, db, emit, param, receiptBucket, workspaceIdOf } from './helpers';
+import { actor, hrJson, db, emit, param, receiptBucket, workspaceIdOf } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -50,7 +49,7 @@ declarationsRoutes.get('/', requirePermission('declarations:read'), async (c) =>
   );
 });
 
-declarationsRoutes.post('/', requirePermission('declarations:create'), zValidator('json', createHrDeclarationSchema), async (c) => {
+declarationsRoutes.post('/', requirePermission('declarations:create'), hrJson(createHrDeclarationSchema), async (c) => {
   const row = await createDeclaration(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_declaration', 'created', row.id, { employeeId: row.employeeId, status: row.status });
   return success(c, toPublicDeclaration(row), 201);
@@ -59,7 +58,7 @@ declarationsRoutes.post('/', requirePermission('declarations:create'), zValidato
 declarationsRoutes.patch(
   '/:declarationId',
   requirePermission('declarations:update'),
-  zValidator('json', updateHrDeclarationSchema),
+  hrJson(updateHrDeclarationSchema),
   async (c) => {
     const row = await updateDeclaration(db(c), param(c, 'declarationId'), c.req.valid('json'));
     emit(c, 'hr_declaration', 'updated', row.id, { employeeId: row.employeeId, status: row.status });
@@ -70,7 +69,7 @@ declarationsRoutes.patch(
 declarationsRoutes.post(
   '/:declarationId/review',
   requirePermission('declarations:approve'),
-  zValidator('json', reviewHrDeclarationSchema),
+  hrJson(reviewHrDeclarationSchema),
   async (c) => {
     const row = await reviewDeclaration(db(c), param(c, 'declarationId'), c.req.valid('json'), actor(c));
     emit(c, 'hr_declaration', row.status === 'approved' ? 'approved' : 'rejected', row.id, {

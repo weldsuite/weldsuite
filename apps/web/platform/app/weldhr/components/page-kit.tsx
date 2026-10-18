@@ -48,6 +48,37 @@ export function useHrBreadcrumbs(...segments: Array<BreadcrumbSegment | null | u
 // Lists
 // ---------------------------------------------------------------------------
 
+/**
+ * Column widths for WeldHR lists that hold up in a narrow pane.
+ *
+ * EntityList rows are a flex row of fixed-width cells, so when the pane gets
+ * narrow (sidebar open, ~960px window, phone) the fixed cells shrink under
+ * their content and draw over each other, and the `flex-1` cell — usually the
+ * name — collapses to nothing. A list wrapped in `HrListContainer` measures
+ * its own width (a CSS container query), so these classes keep the main
+ * column readable, keep fixed cells at their size, and drop the secondary
+ * columns (header and cells alike) once the list is too narrow for them.
+ */
+export const HR_COL = {
+  /** The column that takes the remaining width; never narrower than a name. */
+  main: 'flex-1 min-w-[140px]',
+  /** A fixed width that does not shrink under its content: `${HR_COL.fixed} w-[120px]`. */
+  fixed: 'shrink-0',
+  /** Hidden below ~512px of list width (phones). */
+  hideSm: 'hidden @lg:block',
+  /** Hidden below ~672px. */
+  hideMd: 'hidden @2xl:block',
+  /** Hidden below ~896px. */
+  hideLg: 'hidden @4xl:block',
+  /** Hidden below ~1024px. */
+  hideXl: 'hidden @5xl:block',
+} as const;
+
+/** The size container for a list whose columns use `HR_COL`. */
+export function HrListContainer({ children }: Readonly<{ children: ReactNode }>) {
+  return <div className="@container min-w-0">{children}</div>;
+}
+
 /** The empty-state icon every EntityList page uses. */
 export function emptyIcon(Icon: ComponentType<{ className?: string; strokeWidth?: number }>) {
   return (

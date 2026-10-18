@@ -49,6 +49,13 @@ export const weldhrPeople = {
       title: 'Nog geen medewerkers',
       description: 'Voeg je eerste medewerker toe om het overzicht op te bouwen.',
     },
+    validation: {
+      firstNameRequired: 'Voornaam is verplicht',
+      lastNameRequired: 'Achternaam is verplicht',
+      emailRequired: 'E-mailadres is verplicht',
+      emailInvalid: 'Vul een geldig e-mailadres in',
+      phoneInvalid: 'Vul een telefoonnummer met alleen cijfers in, zoals +31 20 123 4567',
+    },
     create: {
       title: 'Nieuwe medewerker',
       member: 'Workspace-lid',

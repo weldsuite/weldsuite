@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { overallScore } from './performance';
-import { addDays, assertDateOrder, HrValidationError, workingDaysBetween } from './shared';
+import { addDays, assertDateOrder, employedShareOfYear, HrValidationError, workingDaysBetween } from './shared';
 import { lateMinutesFor, workedMinutes } from './time';
 
 describe('overallScore', () => {
@@ -93,5 +93,25 @@ describe('attendance minutes', () => {
 
   it('is never late without a shift', () => {
     expect(lateMinutesFor(at('11:00'), null)).toBe(0);
+  });
+});
+
+describe('employedShareOfYear', () => {
+  it('is the whole year when the employment covers it', () => {
+    expect(employedShareOfYear(2026, '2020-01-01', null)).toBe(1);
+    expect(employedShareOfYear(2026, null, null)).toBe(1);
+  });
+
+  it('counts the days from a start date inside the year', () => {
+    // 1 Oct – 31 Dec 2026 is 92 of 365 days.
+    expect(employedShareOfYear(2026, '2026-10-01', null)).toBeCloseTo(92 / 365);
+  });
+
+  it('counts the days up to an end date inside the year', () => {
+    expect(employedShareOfYear(2026, '2020-01-01', '2026-01-31')).toBeCloseTo(31 / 365);
+  });
+
+  it('is zero for a year outside the employment', () => {
+    expect(employedShareOfYear(2025, '2026-10-01', null)).toBe(0);
   });
 });

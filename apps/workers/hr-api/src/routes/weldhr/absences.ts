@@ -11,7 +11,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
   createHrAbsenceSchema,
@@ -28,7 +27,7 @@ import {
   requireAbsence,
   updateAbsence,
 } from '../../services/weldhr/absences';
-import { actor, db, emit, param } from './helpers';
+import { actor, hrJson, db, emit, param } from './helpers';
 
 export const absencesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -44,13 +43,13 @@ absencesRoutes.get('/', requirePermission('absences:read'), async (c) => {
   return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
-absencesRoutes.post('/', requirePermission('absences:create'), zValidator('json', createHrAbsenceSchema), async (c) => {
+absencesRoutes.post('/', requirePermission('absences:create'), hrJson(createHrAbsenceSchema), async (c) => {
   const row = await createAbsence(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_absence', 'created', row.id);
   return success(c, row, 201);
 });
 
-absencesRoutes.patch('/:absenceId', requirePermission('absences:update'), zValidator('json', updateHrAbsenceSchema), async (c) => {
+absencesRoutes.patch('/:absenceId', requirePermission('absences:update'), hrJson(updateHrAbsenceSchema), async (c) => {
   const row = await updateAbsence(db(c), param(c, 'absenceId'), c.req.valid('json'), actor(c));
   emit(c, 'hr_absence', 'updated', row.id);
   return success(c, row);
@@ -59,7 +58,7 @@ absencesRoutes.patch('/:absenceId', requirePermission('absences:update'), zValid
 absencesRoutes.post(
   '/:absenceId/recover',
   requirePermission('absences:update'),
-  zValidator('json', recoverHrAbsenceSchema),
+  hrJson(recoverHrAbsenceSchema),
   async (c) => {
     const row = await recoverAbsence(db(c), param(c, 'absenceId'), c.req.valid('json').endDate, actor(c));
     emit(c, 'hr_absence', 'recovered', row.id);

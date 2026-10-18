@@ -4,7 +4,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import type { HrSelfOverview } from '@weldsuite/app-api-client/domains/weldhr';
 import { EmptyText, SectionCard } from '../../components/page-kit';
-import { formatDateTime, formatTime } from '../../components/shared';
+import { formatDateTime, useFormatTime } from '../../components/shared';
 
 export function UpcomingShiftsCard({
   shifts,
@@ -22,6 +22,7 @@ export function UpcomingShiftsCard({
   onViewAll?: () => void;
 }>) {
   const t = useTranslations();
+  const formatTime = useFormatTime();
   const visible = limit === undefined ? shifts : shifts.slice(0, limit);
 
   return (

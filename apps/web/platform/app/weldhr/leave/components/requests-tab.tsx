@@ -10,7 +10,8 @@ import type { HrLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
 import { useCancelHrLeaveRequest, useDeleteHrLeaveRequest, useHrLeaveRequests } from '@/hooks/queries/use-weldhr-queries';
-import { emptyIcon } from '../../components/page-kit';
+import { cn } from '@/lib/utils';
+import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
 import { StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { LeaveRequestDialog } from './request-dialog';
 import { LeaveReviewDialog } from './review-dialog';
@@ -45,15 +46,29 @@ export function RequestsTab() {
     {
       id: 'employee',
       header: t('weldhr.leave.requests.table.employee'),
-      width: 'flex-1',
-      render: (r) => <span className="truncate font-medium">{r.employeeName}</span>,
+      width: HR_COL.main,
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{r.employeeName}</p>
+          {/* What the hidden columns would show, once the list is too narrow for them. */}
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground @4xl:hidden">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: r.leaveTypeColor ?? '#94a3b8' }} />
+            <span className="truncate">
+              {r.leaveTypeName ?? '—'} · {formatDate(r.startDate)} – {formatDate(r.endDate)} · {r.days}d
+            </span>
+          </p>
+          <div className="mt-1 @lg:hidden">
+            <StatusBadge group="leave" status={r.status} />
+          </div>
+        </div>
+      ),
     },
     {
       id: 'type',
       header: t('weldhr.leave.requests.table.type'),
-      width: 'w-[150px]',
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[140px]'),
       render: (r) => (
-        <span className="inline-flex items-center gap-1.5 truncate">
+        <span className="flex min-w-0 items-center gap-1.5">
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: r.leaveTypeColor ?? '#94a3b8' }} />
           <span className="truncate">{r.leaveTypeName ?? '—'}</span>
         </span>
@@ -62,9 +77,9 @@ export function RequestsTab() {
     {
       id: 'dates',
       header: t('weldhr.leave.requests.table.dates'),
-      width: 'w-[190px]',
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[190px]'),
       render: (r) => (
-        <span className="text-muted-foreground">
+        <span className="block truncate text-muted-foreground">
           {formatDate(r.startDate)} – {formatDate(r.endDate)}
         </span>
       ),
@@ -72,33 +87,34 @@ export function RequestsTab() {
     {
       id: 'days',
       header: t('weldhr.leave.requests.table.days'),
-      width: 'w-[70px]',
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[50px]'),
       render: (r) => <span>{r.days}</span>,
     },
     {
       id: 'reason',
       header: t('weldhr.leave.requests.table.reason'),
-      width: 'w-[180px]',
-      render: (r) => <span className="truncate text-muted-foreground">{r.reason ?? '—'}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[160px]'),
+      render: (r) => <span className="block truncate text-muted-foreground">{r.reason ?? '—'}</span>,
     },
     {
       id: 'status',
       header: t('weldhr.leave.requests.table.status'),
-      width: 'w-[110px]',
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[100px]'),
       render: (r) => <StatusBadge group="leave" status={r.status} />,
     },
     {
       id: 'reviewer',
       header: t('weldhr.leave.requests.table.reviewer'),
-      width: 'w-[130px]',
-      render: (r) => <span className="truncate text-muted-foreground">{r.reviewedByName ?? '—'}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[130px]'),
+      render: (r) => <span className="block truncate text-muted-foreground">{r.reviewedByName ?? '—'}</span>,
     },
     {
       id: 'actions',
       header: '',
-      width: 'w-[210px]',
+      // Narrow: the buttons wrap onto two lines rather than run under the other columns.
+      width: cn(HR_COL.fixed, 'w-[124px] @2xl:w-[210px]'),
       render: (r) => (
-        <div className="flex justify-end gap-1.5">
+        <div className="flex flex-wrap justify-end gap-1.5">
           {canApprove && r.status === 'pending' && (
             <>
               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={(e) => { e.stopPropagation(); setReview({ request: r, decision: 'approved' }); }}>
@@ -122,21 +138,23 @@ export function RequestsTab() {
 
   return (
     <>
-      <PanelEntityList<HrLeaveRequest>
-        items={requests ?? []}
-        isLoading={isLoading}
-        error={error}
-        columns={columns}
-        groups={groups}
-        filters={[]}
-        onDelete={canDelete ? (r) => setDeleteTarget(r) : undefined}
-        createButton={{ label: t('weldhr.leave.requests.newRequest'), onClick: () => setCreating(true) }}
-        emptyState={{
-          icon: emptyIcon(CalendarRange),
-          title: t('weldhr.leave.requests.empty.title'),
-          description: t('weldhr.leave.requests.empty.description'),
-        }}
-      />
+      <HrListContainer>
+        <PanelEntityList<HrLeaveRequest>
+          items={requests ?? []}
+          isLoading={isLoading}
+          error={error}
+          columns={columns}
+          groups={groups}
+          filters={[]}
+          onDelete={canDelete ? (r) => setDeleteTarget(r) : undefined}
+          createButton={{ label: t('weldhr.leave.requests.newRequest'), onClick: () => setCreating(true) }}
+          emptyState={{
+            icon: emptyIcon(CalendarRange),
+            title: t('weldhr.leave.requests.empty.title'),
+            description: t('weldhr.leave.requests.empty.description'),
+          }}
+        />
+      </HrListContainer>
 
       {creating && <LeaveRequestDialog onClose={() => setCreating(false)} />}
       {review && <LeaveReviewDialog request={review.request} decision={review.decision} onClose={() => setReview(null)} />}
@@ -146,6 +164,9 @@ export function RequestsTab() {
         onOpenChange={(open) => !open && setCancelTarget(null)}
         title={t('weldhr.leave.requests.cancelConfirmTitle')}
         description={t('weldhr.leave.requests.cancelConfirmDescription')}
+        // "Cancel" would be ambiguous here: it is the request that gets cancelled.
+        confirmLabel={t('weldhr.leave.requests.cancel')}
+        cancelLabel={t('weldhr.leave.requests.keepRequest')}
         onConfirm={async () => {
           if (!cancelTarget) return;
           try {

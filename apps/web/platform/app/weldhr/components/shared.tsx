@@ -1,7 +1,8 @@
 /** Small pieces shared across the WeldHR pages. */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { AlertTriangle, Check, ChevronDown, Loader2, X } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -16,6 +17,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrKpiUnit } from '@weldsuite/app-api-client/domains/weldhr';
+import { formatClock, useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useHrEmployees } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
@@ -26,12 +28,23 @@ export function ErrorBanner({ error, onDismiss }: Readonly<{ error: string | nul
   return (
     <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      <span className="flex-1 break-words">{error}</span>
+      {/* `overflow-wrap:anywhere`: a long unbroken message must wrap, not push the dialog wider. */}
+      <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{error}</span>
       {onDismiss && (
         <button onClick={onDismiss} aria-label={t('weldhr.common.dismiss')} className="shrink-0">
           <X className="h-4 w-4" />
         </button>
       )}
+    </div>
+  );
+}
+
+/** A heads-up that does not block the action (over allowance, before the start date…). */
+export function WarningNote({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-200">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{children}</span>
     </div>
   );
 }
@@ -51,9 +64,16 @@ export function formatDate(value: string | null | undefined): string {
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function formatTime(value: string | null | undefined): string {
+/** Clock time of an instant in the user's 12h/24h preference (the same one WeldCalendar and the roster use). */
+export function formatTime(value: string | null | undefined, timeFormat: TimeFormat): string {
   if (!value) return '—';
-  return new Date(value).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return formatClock(new Date(value), timeFormat);
+}
+
+/** `formatTime` bound to the signed-in user's clock preference. */
+export function useFormatTime(): (value: string | null | undefined) => string {
+  const timeFormat = useTimeFormat();
+  return (value) => formatTime(value, timeFormat);
 }
 
 export function formatDateTime(value: string | null | undefined): string {
@@ -106,6 +126,41 @@ export function shiftIsoDate(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T12:00:00`);
   d.setDate(d.getDate() + days);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Mon–Fri days in [start, end], inclusive: the same default length the server gives a leave request. */
+export function workingDaysBetween(start: string, end: string): number {
+  if (!start || !end || end < start) return 0;
+  let count = 0;
+  for (let cursor = start; cursor <= end; cursor = shiftIsoDate(cursor, 1)) {
+    const day = new Date(`${cursor}T12:00:00`).getDay();
+    if (day !== 0 && day !== 6) count += 1;
+    if (count > 400) break;
+  }
+  return count;
+}
+
+/** "HH:mm" → minutes after midnight. */
+export function minutesOfDay(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+/**
+ * Minutes from `start` to `time` on a clock that may pass midnight: an end
+ * time at or before the start time is read as the next day (a night shift,
+ * 22:00 → 06:00 is 480).
+ */
+export function minutesAfter(start: string, time: string): number {
+  const diff = minutesOfDay(time) - minutesOfDay(start);
+  return diff <= 0 ? diff + 24 * 60 : diff;
+}
+
+/** `date` + "HH:mm", moved `extraMinutes` later, as an ISO instant in the browser's zone. */
+export function instantAt(date: string, time: string, extraMinutes = 0): string {
+  const d = new Date(`${date}T${time}`);
+  d.setMinutes(d.getMinutes() + extraMinutes);
+  return d.toISOString();
 }
 
 export function initials(name: string): string {
@@ -217,6 +272,7 @@ function SearchPicker({
   onChange,
   placeholder,
   emptyLabel,
+  emptyHint,
   allowClear,
   disabled,
   className,
@@ -230,6 +286,8 @@ function SearchPicker({
   onChange: (id: string | null, option: PickerOption | null) => void;
   placeholder: string;
   emptyLabel: string;
+  /** Under the empty label, e.g. where to create the first record. */
+  emptyHint?: ReactNode;
   allowClear?: boolean;
   disabled?: boolean;
   className?: string;
@@ -260,7 +318,10 @@ function SearchPicker({
                 <Loader2 className="mx-auto h-4 w-4 animate-spin" />
               </div>
             ) : (
-              <CommandEmpty>{emptyLabel}</CommandEmpty>
+              <CommandEmpty>
+                {emptyLabel}
+                {emptyHint && <div className="mt-1 px-3 text-xs text-muted-foreground">{emptyHint}</div>}
+              </CommandEmpty>
             )}
             {allowClear && value && (
               <CommandItem
@@ -380,6 +441,15 @@ export function CompanyPicker({
     staleTime: 30_000,
   });
   const options = (data?.data ?? []).map((c) => ({ id: c.id, label: c.displayName || c.name || c.id, hint: c.domain ?? null }));
+  // Client accounts are WeldCRM companies: with none yet, say where to make one.
+  const emptyHint = search ? undefined : (
+    <>
+      {t('weldhr.common.noCompaniesHint')}{' '}
+      <Link to="/weldcrm/companies" className="font-medium text-foreground underline-offset-4 hover:underline">
+        {t('weldhr.common.openWeldCrm')}
+      </Link>
+    </>
+  );
   return (
     <SearchPicker
       value={value}
@@ -391,6 +461,7 @@ export function CompanyPicker({
       onChange={(id, option) => onChange(id, option?.label ?? null)}
       placeholder={placeholder ?? t('weldhr.common.selectClient')}
       emptyLabel={t('weldhr.common.noResults')}
+      emptyHint={emptyHint}
       allowClear={allowClear}
       disabled={disabled}
       className={className}

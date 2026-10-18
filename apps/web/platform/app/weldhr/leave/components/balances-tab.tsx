@@ -66,7 +66,41 @@ export function BalancesTab() {
       );
     }
     if (balance.allowance === null) return t('weldhr.leave.balances.unlimited');
+    if (balance.prorated) {
+      return (
+        <span>
+          {balance.allowance}
+          <span className="block text-xs text-muted-foreground">
+            {t('weldhr.leave.balances.prorated', { full: balance.fullAllowance ?? balance.allowance })}
+          </span>
+        </span>
+      );
+    }
     return balance.allowance;
+  }
+
+  /** Negative = over the allowance (red); pending requests that would not fit = amber. */
+  function renderRemaining(balance: HrLeaveBalance) {
+    if (balance.remaining === null) return '—';
+    if (balance.remaining < 0) {
+      return (
+        <span className="font-medium text-destructive">
+          {balance.remaining}
+          <span className="block text-xs font-normal">{t('weldhr.leave.balances.overBy', { days: -balance.remaining })}</span>
+        </span>
+      );
+    }
+    if (balance.pending > balance.remaining) {
+      return (
+        <span>
+          {balance.remaining}
+          <span className="block text-xs text-amber-700 dark:text-amber-400">
+            {t('weldhr.leave.balances.pendingExceeds', { days: Math.round((balance.pending - balance.remaining) * 10) / 10 })}
+          </span>
+        </span>
+      );
+    }
+    return balance.remaining;
   }
 
   function renderContent() {
@@ -110,7 +144,7 @@ export function BalancesTab() {
                 <TableCell>{renderAllowance(balance)}</TableCell>
                 <TableCell>{balance.used}</TableCell>
                 <TableCell>{balance.pending}</TableCell>
-                <TableCell>{balance.remaining ?? '—'}</TableCell>
+                <TableCell>{renderRemaining(balance)}</TableCell>
                 {canEdit && (
                   <TableCell>
                     {editingTypeId !== balance.leaveTypeId && (

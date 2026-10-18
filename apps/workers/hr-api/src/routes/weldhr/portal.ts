@@ -3,7 +3,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { inviteHrPortalAccessSchema, updateHrPortalSettingsSchema } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { Env, Variables } from '../../types';
@@ -19,7 +18,7 @@ import {
 } from '../../services/weldhr/portal';
 import { HostTakenError, claimPortalHost, sendHrPortalInviteEmail } from '../../services/weldhr/portal-mail';
 import { recordHrAudit } from '../../services/weldhr/shared';
-import { actor, clientIp, db, emitPortalConfig, param } from './helpers';
+import { actor, hrJson, clientIp, db, emitPortalConfig, param } from './helpers';
 
 export const portalRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -28,7 +27,7 @@ portalRoutes.get('/settings', requirePermission('employees:read'), async (c) => 
   return success(c, settings);
 });
 
-portalRoutes.put('/settings', requirePermission('employees:manage'), zValidator('json', updateHrPortalSettingsSchema), async (c) => {
+portalRoutes.put('/settings', requirePermission('employees:manage'), hrJson(updateHrPortalSettingsSchema), async (c) => {
   const input = c.req.valid('json');
   if (input.customDomain !== undefined) {
     const current = await loadPortalSettings(db(c));
@@ -62,7 +61,7 @@ portalRoutes.get('/access', requirePermission('employees:manage'), async (c) => 
   );
 });
 
-portalRoutes.post('/access', requirePermission('employees:manage'), zValidator('json', inviteHrPortalAccessSchema), async (c) => {
+portalRoutes.post('/access', requirePermission('employees:manage'), hrJson(inviteHrPortalAccessSchema), async (c) => {
   const database = db(c);
   const { access, created } = await invitePortalAccess(database, c.req.valid('json'), actor(c));
   await recordHrAudit(database, {

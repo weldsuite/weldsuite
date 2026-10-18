@@ -15,13 +15,14 @@ import {
   errorMessage,
   formatDate,
   formatMinutes,
-  formatTime,
+  useFormatTime,
   shiftIsoDate,
   todayIso,
 } from '../shared';
 
 export function EmployeeAttendanceTab({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
+  const formatTime = useFormatTime();
   const { can } = usePermissions();
   const canWrite = can('attendance:create');
 

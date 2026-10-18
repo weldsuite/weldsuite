@@ -5,7 +5,7 @@
  * Settings → Team first, as an Employee member when they only need My HR.
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -46,22 +46,22 @@ import {
   errorMessage,
   todayIso,
 } from '../../components/shared';
+import { employeeFieldRules } from './employee-field-rules';
 
-const formSchema = z.object({
-  firstName: z.string().trim().min(1),
-  lastName: z.string().trim().min(1),
-  preferredName: z.string().trim().optional(),
-  email: z.string().trim().email(),
-  phone: z.string().trim().optional(),
-  jobTitle: z.string().trim().optional(),
-  employmentType: hrEmploymentTypeSchema,
-  status: hrEmployeeStatusSchema,
-  startDate: z.string().optional(),
-  departmentId: z.string().optional(),
-  managerId: z.string().optional(),
-});
+function buildFormSchema(t: (path: string) => string) {
+  return z.object({
+    ...employeeFieldRules(t),
+    preferredName: z.string().trim().optional(),
+    jobTitle: z.string().trim().optional(),
+    employmentType: hrEmploymentTypeSchema,
+    status: hrEmployeeStatusSchema,
+    startDate: z.string().optional(),
+    departmentId: z.string().optional(),
+    managerId: z.string().optional(),
+  });
+}
 
-type FormValues = z.infer<typeof formSchema>;
+type FormValues = z.infer<ReturnType<typeof buildFormSchema>>;
 
 function splitName(name: string | null | undefined): { firstName: string; lastName: string } {
   const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
@@ -75,8 +75,19 @@ function memberLabel(member: HrAvailableMember): string {
   return member.email && member.name ? `${name} · ${member.email}` : name;
 }
 
-export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void }>) {
+export function CreateEmployeeDialog({
+  onClose,
+  defaultUserId,
+  onCreated,
+}: Readonly<{
+  onClose: () => void;
+  /** Preselect this workspace member (My HR's "add me as an employee"). */
+  defaultUserId?: string;
+  /** Replaces the default of opening the new employee's profile. */
+  onCreated?: (employeeId: string) => void;
+}>) {
   const t = useTranslations();
+  const formSchema = useMemo(() => buildFormSchema(t), [t]);
   const navigate = useNavigate();
   const { can } = usePermissions();
   const createFromMember = useCreateHrEmployeeFromMember();
@@ -106,6 +117,15 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
   });
 
   const isSubmitting = createFromMember.isPending;
+
+  // Preselect `defaultUserId` once the member list has it.
+  const [preselected, setPreselected] = useState(false);
+  useEffect(() => {
+    if (preselected || !defaultUserId || !members.some((m) => m.userId === defaultUserId)) return;
+    setPreselected(true);
+    selectMember(defaultUserId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectMember only reads `members`, already a dependency
+  }, [defaultUserId, members, preselected]);
 
   function selectMember(userId: string | undefined) {
     setSelectedUserId(userId);
@@ -143,7 +163,8 @@ export function CreateEmployeeDialog({ onClose }: Readonly<{ onClose: () => void
       });
 
       onClose();
-      void navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId: created.data.id } });
+      if (onCreated) onCreated(created.data.id);
+      else void navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId: created.data.id } });
     } catch (err) {
       setFailure(errorMessage(err, t('weldhr.employees.create.failed')));
     }
