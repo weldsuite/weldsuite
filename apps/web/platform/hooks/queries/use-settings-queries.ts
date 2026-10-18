@@ -958,6 +958,8 @@ export interface UserPreferences {
     mailDefaultAccountId?: string | null;
     /** WeldMail: last account/view the user opened (accountId or 'unified'). Fallback landing. */
     mailLastAccountId?: string | null;
+    /** WeldChat: path of the last page the user had open (`/weldchat/...`). `/weldchat` lands here. */
+    weldchatLastPath?: string | null;
     /** WeldFlow: place its tasks in free calendar slots. Absent = `autoScheduleTasks`, else true. */
     autoScheduleFlowTasks?: boolean;
     /** WeldCRM: place CRM-linked tasks in free calendar slots. Absent = `autoScheduleTasks`, else true. */
@@ -1040,25 +1042,28 @@ export function useUpdateFontSize() {
 }
 export const preferencesKey = [...settingsKeys.all, 'preferences'] as const;
 
-// Optimistically patch the cached uiPreferences so mail landing prefs feel
-// instant; rolls back on error and re-syncs from the server on settle.
-function useMailUiPreferenceMutation(key: 'mailDefaultAccountId' | 'mailLastAccountId') {
+// Optimistically patch the cached uiPreferences so landing prefs feel instant;
+// rolls back on error and, with `resync`, re-reads the server copy on settle.
+function useLandingPreferenceMutation(
+  key: 'mailDefaultAccountId' | 'mailLastAccountId' | 'weldchatLastPath',
+  { resync = true }: { resync?: boolean } = {},
+) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (accountId: string | null) => {
+    mutationFn: async (value: string | null) => {
       const client = await getClient();
       return client.put<{ data: UserPreferences }>('/user-preferences', {
-        uiPreferences: { [key]: accountId },
+        uiPreferences: { [key]: value },
       });
     },
-    onMutate: async (accountId) => {
+    onMutate: async (value) => {
       await qc.cancelQueries({ queryKey: preferencesKey });
       const previous = qc.getQueryData<UserPreferences>(preferencesKey);
       if (previous) {
         qc.setQueryData<UserPreferences>(preferencesKey, {
           ...previous,
-          uiPreferences: { ...previous.uiPreferences, [key]: accountId },
+          uiPreferences: { ...previous.uiPreferences, [key]: value },
         });
       }
       return { previous };
@@ -1067,19 +1072,28 @@ function useMailUiPreferenceMutation(key: 'mailDefaultAccountId' | 'mailLastAcco
       if (ctx?.previous) qc.setQueryData(preferencesKey, ctx.previous);
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: preferencesKey });
+      if (resync) qc.invalidateQueries({ queryKey: preferencesKey });
     },
   });
 }
 
 /** Pin (or clear, with `null`) the WeldMail account to open by default. */
 export function useUpdateMailDefaultAccount() {
-  return useMailUiPreferenceMutation('mailDefaultAccountId');
+  return useLandingPreferenceMutation('mailDefaultAccountId');
 }
 
 /** Record the last WeldMail account/view the user opened (landing fallback). */
 export function useUpdateMailLastAccount() {
-  return useMailUiPreferenceMutation('mailLastAccountId');
+  return useLandingPreferenceMutation('mailLastAccountId');
+}
+
+/**
+ * Record the last WeldChat page the user had open. Written on every page change
+ * inside WeldChat, so it skips the re-read: the optimistic value is what the
+ * server merges in.
+ */
+export function useUpdateWeldchatLastPath() {
+  return useLandingPreferenceMutation('weldchatLastPath', { resync: false });
 }
 
 // =============================================================================

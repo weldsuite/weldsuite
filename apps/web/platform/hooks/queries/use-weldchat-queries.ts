@@ -424,7 +424,19 @@ export function useChannels(enabled = true) {
   });
 }
 
-export function useChannel(channelId: string) {
+/**
+ * Options for a caller that must know whether a conversation still exists right
+ * now (the persisted cache can be a day old): it refetches on mount without
+ * retries, so `isFetchedAfterMount` settles quickly on a 404.
+ */
+export interface FreshCheckOptions {
+  fresh?: boolean;
+}
+
+const freshCheck = (fresh: boolean | undefined) =>
+  fresh ? { retry: false, refetchOnMount: 'always' as const } : {};
+
+export function useChannel(channelId: string, { fresh }: FreshCheckOptions = {}) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: weldchatKeys.channelDetail(channelId),
@@ -433,6 +445,7 @@ export function useChannel(channelId: string) {
       return client.get<{ data: ChatChannel }>(`/channels/${channelId}`);
     },
     enabled: !!channelId,
+    ...freshCheck(fresh),
   });
 }
 
@@ -1209,7 +1222,7 @@ export function useCreateDm() {
 /**
  * Resolve a target userId to a 1:1 DM channel (creates if needed).
  */
-export function useDmByUser(targetUserId: string) {
+export function useDmByUser(targetUserId: string, { fresh }: FreshCheckOptions = {}) {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
 
@@ -1220,6 +1233,7 @@ export function useDmByUser(targetUserId: string) {
       return client.get<{ data: ChatDm }>(`/chat-dm/${targetUserId}`);
     },
     enabled: !!targetUserId,
+    ...freshCheck(fresh),
   });
 
   // When the DM channel is resolved (possibly newly created), refresh the sidebar list
