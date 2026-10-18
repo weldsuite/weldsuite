@@ -25,6 +25,9 @@ function shiftMonth(anchor: string, delta: number): string {
 
 const WEEKDAY_LABELS_START = 1; // Monday-first grid
 
+/** Header dates for a Monday-first week: 1–7 January 2024 runs Monday to Sunday. */
+const WEEKDAY_HEADERS = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i));
+
 export function CalendarTab() {
   const t = useTranslations();
   const [anchor, setAnchor] = useState(() => todayIso().slice(0, 7));
@@ -74,9 +77,9 @@ export function CalendarTab() {
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="grid grid-cols-7 border-b bg-muted/50 text-xs font-medium text-muted-foreground">
-            {[1, 2, 3, 4, 5, 6, 0].map((weekday) => (
-              <div key={weekday} className="px-2 py-1.5">
-                {new Date(2024, 0, weekday + 1).toLocaleDateString(undefined, { weekday: 'short' })}
+            {WEEKDAY_HEADERS.map((date) => (
+              <div key={date.getDay()} className="px-2 py-1.5">
+                {date.toLocaleDateString(undefined, { weekday: 'short' })}
               </div>
             ))}
           </div>

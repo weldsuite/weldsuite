@@ -17,7 +17,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
   hrPortalAbsenceSchema,
@@ -56,7 +55,7 @@ import {
 } from '../../services/weldhr/portal-self-service';
 import { HrNotFoundError, addDays, todayIso } from '../../services/weldhr/shared';
 import { cancelLeaveRequest, clock, createLeaveRequest } from '../../services/weldhr/time';
-import { actor, db, emit, param, receiptBucket, workspaceIdOf, type HrContext } from './helpers';
+import { actor, hrJson, db, emit, param, receiptBucket, workspaceIdOf, type HrContext } from './helpers';
 import { requirePayrollFlag } from './payroll/flag';
 import { registerPayrollSelfService } from './payroll/self-service';
 
@@ -102,7 +101,7 @@ meRoutes.get('/attendance', async (c) => {
   return success(c, await employeeAttendance(db(c), employeeId, from, to));
 });
 
-meRoutes.post('/clock', zValidator('json', hrPortalClockSchema), async (c) => {
+meRoutes.post('/clock', hrJson(hrPortalClockSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   if (!(await features(c)).selfClockIn) return error.forbidden(c, 'Clocking in yourself is turned off');
   const { action } = c.req.valid('json');
@@ -121,7 +120,7 @@ meRoutes.post('/clock', zValidator('json', hrPortalClockSchema), async (c) => {
 
 meRoutes.get('/leave', async (c) => success(c, await employeeLeave(db(c), await selfEmployeeId(c))));
 
-meRoutes.post('/leave', zValidator('json', hrPortalLeaveRequestSchema), async (c) => {
+meRoutes.post('/leave', hrJson(hrPortalLeaveRequestSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   if (!(await features(c)).leaveRequests) return error.forbidden(c, 'Leave requests are turned off');
   const row = await createLeaveRequest(db(c), { ...c.req.valid('json'), employeeId }, actor(c));
@@ -138,7 +137,7 @@ meRoutes.post('/leave/:leaveRequestId/cancel', async (c) => {
 
 meRoutes.get('/declarations', async (c) => success(c, await employeeDeclarations(db(c), await selfEmployeeId(c))));
 
-meRoutes.post('/declarations', zValidator('json', hrPortalDeclarationSchema), async (c) => {
+meRoutes.post('/declarations', hrJson(hrPortalDeclarationSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   if (!(await features(c)).declarations) return error.forbidden(c, 'Expense declarations are turned off');
   const row = await createDeclaration(db(c), { ...c.req.valid('json'), employeeId }, actor(c));
@@ -172,14 +171,14 @@ meRoutes.get('/declarations/:declarationId/receipt', async (c) => {
 // has to be able to say so. The events carry the report id only (see routes/weldhr/absences.ts).
 meRoutes.get('/absences', async (c) => success(c, await employeeAbsences(db(c), await selfEmployeeId(c))));
 
-meRoutes.post('/absences', zValidator('json', hrPortalAbsenceSchema), async (c) => {
+meRoutes.post('/absences', hrJson(hrPortalAbsenceSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   const row = await reportSick(db(c), employeeId, c.req.valid('json'), actor(c));
   emit(c, 'hr_absence', 'created', row.id);
   return success(c, row, 201);
 });
 
-meRoutes.post('/absences/:absenceId/recover', zValidator('json', recoverHrAbsenceSchema), async (c) => {
+meRoutes.post('/absences/:absenceId/recover', hrJson(recoverHrAbsenceSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   const row = await recoverAbsence(db(c), param(c, 'absenceId'), c.req.valid('json').endDate, actor(c), employeeId);
   emit(c, 'hr_absence', 'recovered', row.id);
@@ -199,7 +198,7 @@ meRoutes.post('/tasks/:taskId/complete', async (c) => {
 
 meRoutes.get('/coaching', async (c) => success(c, await employeeCoaching(db(c), await selfEmployeeId(c))));
 
-meRoutes.post('/coaching/:coachingId/acknowledge', zValidator('json', hrPortalAcknowledgeSchema), async (c) => {
+meRoutes.post('/coaching/:coachingId/acknowledge', hrJson(hrPortalAcknowledgeSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   const row = await acknowledgeCoachingLog(db(c), param(c, 'coachingId'), employeeId, c.req.valid('json').comment);
   emit(c, 'hr_coaching_log', 'acknowledged', row.id, { employeeId, status: row.status });
@@ -208,7 +207,7 @@ meRoutes.post('/coaching/:coachingId/acknowledge', zValidator('json', hrPortalAc
 
 meRoutes.get('/evaluations', async (c) => success(c, await employeeEvaluations(db(c), await selfEmployeeId(c))));
 
-meRoutes.post('/evaluations/:evaluationId/acknowledge', zValidator('json', hrPortalAcknowledgeSchema), async (c) => {
+meRoutes.post('/evaluations/:evaluationId/acknowledge', hrJson(hrPortalAcknowledgeSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   const row = await acknowledgeEvaluation(db(c), param(c, 'evaluationId'), employeeId, c.req.valid('json').comment);
   emit(c, 'hr_evaluation', 'acknowledged', row.id, { employeeId, status: row.status });

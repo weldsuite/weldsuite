@@ -13,6 +13,9 @@ export const weldhrSelf = {
       title: 'Je HR-profiel is nog niet ingesteld',
       description:
         'Vraag je HR-team om je als medewerker toe te voegen. Daarna verschijnen je verlof, aanwezigheid, taken en beoordelingen hier.',
+      descriptionAdmin:
+        'Je bent nog geen medewerker in WeldHR. Voeg jezelf toe, dan verschijnen je verlof, aanwezigheid, taken en beoordelingen hier.',
+      addMe: 'Mezelf als medewerker toevoegen',
     },
     header: {
       noJobTitle: 'Geen functietitel',

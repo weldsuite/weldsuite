@@ -27,6 +27,9 @@ export const weldhrAdmin = {
       deleteTitle: 'Afdeling verwijderen?',
       deleteDescription:
         '"{name}" verwijderen? Medewerkers in deze afdeling behouden hun toewijzing, maar verliezen de koppeling met de afdeling.',
+      deleteMovesChildren: 'De subafdelingen ({count}) komen onder "{parent}" te vallen.',
+      deleteMovesChildrenTop: 'De subafdelingen ({count}) worden hoofdafdelingen.',
+      nameTaken: 'Er bestaat al een afdeling met deze naam.',
     },
 
     leaveTypes: {

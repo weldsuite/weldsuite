@@ -173,8 +173,14 @@ export const updateHrChecklistTemplateSchema = createHrChecklistTemplateSchema.p
 
 export const startHrChecklistSchema = z.object({
   templateId: id,
-  /** Anchor for due dates. Defaults to start date (onboarding) or end date / today (offboarding). */
+  /**
+   * Anchor for due dates. Defaults to the start date (onboarding) or the end
+   * date (offboarding). Offboarding needs one of the two: it is the last
+   * working day, and it becomes the employee's end date when none is set.
+   */
   anchorDate: isoDate.optional(),
+  /** Offboard someone who has not started yet (still onboarding, or a start date in the future). */
+  force: z.boolean().optional(),
 });
 
 export const createHrChecklistTaskSchema = z.object({
@@ -235,6 +241,8 @@ export const importHrAttendanceSchema = z.object({
     )
     .min(1)
     .max(5000),
+  /** Check every row (employee match, times, break) without writing anything. */
+  dryRun: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

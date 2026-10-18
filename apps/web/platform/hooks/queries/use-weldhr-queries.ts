@@ -263,6 +263,22 @@ export function useImportHrAttendance() {
   return useHrMutation((input: ImportHrAttendanceInput) => weldhr.importAttendance(input));
 }
 
+/**
+ * The server's verdict on import rows without importing them (`dryRun`):
+ * unknown employees, clock-out before clock-in, a break longer than the shift.
+ * Row numbers in `errors` are 1-based positions in `rows`.
+ */
+export function useHrAttendanceImportCheck(rows: ImportHrAttendanceInput['rows']) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: [...weldhrKeys.all, 'attendance-import-check', rows] as const,
+    queryFn: () => weldhr.importAttendance({ rows, dryRun: true }),
+    select: (r) => r.data,
+    enabled: rows.length > 0,
+    staleTime: 30_000,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Leave
 // ---------------------------------------------------------------------------

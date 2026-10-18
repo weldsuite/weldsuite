@@ -170,6 +170,8 @@ export interface HrAssignment {
   employeeId: string;
   companyId: string;
   companyName: string | null;
+  /** The company was deleted in WeldCRM: the assignment is kept as history but no longer active. */
+  companyDeleted: boolean;
   employeeName: string;
   employeeJobTitle: string | null;
   employeeAvatarUrl: string | null;
@@ -299,6 +301,7 @@ export interface HrAttendanceSummary {
 }
 
 export interface HrImportResult {
+  /** With `dryRun`: how many rows would be created / updated. */
   created: number;
   updated: number;
   errors: Array<{ row: number; reason: string }>;
@@ -320,6 +323,10 @@ export interface HrLeaveBalance {
   color: string | null;
   isPaid: boolean;
   allowance: number | null;
+  /** The leave type's yearly default before pro-rating; equals `allowance` unless `prorated`. */
+  fullAllowance: number | null;
+  /** The default allowance was cut to the part of the year the employee works (start or end date inside it). */
+  prorated: boolean;
   used: number;
   pending: number;
   remaining: number | null;

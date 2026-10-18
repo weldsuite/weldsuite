@@ -26,6 +26,9 @@ export const weldhrAdmin = {
       emptyDescription: 'Add your first department to start organising the directory.',
       deleteTitle: 'Delete department?',
       deleteDescription: 'Delete "{name}"? Employees in this department keep their assignment but lose the department link.',
+      deleteMovesChildren: 'Its sub-departments ({count}) move under "{parent}".',
+      deleteMovesChildrenTop: 'Its sub-departments ({count}) become top-level departments.',
+      nameTaken: 'A department with this name already exists.',
     },
 
     leaveTypes: {

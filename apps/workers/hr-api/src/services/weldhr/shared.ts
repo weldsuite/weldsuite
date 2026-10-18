@@ -9,8 +9,13 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
 export class HrNotFoundError extends Error {
-  constructor(readonly resource: string, readonly id: string) {
-    super(`${resource} ${id} not found`);
+  constructor(
+    readonly resource: string,
+    readonly id: string,
+    /** A message for people, used instead of the generic "<resource> with ID … not found". */
+    readonly userMessage?: string,
+  ) {
+    super(userMessage ?? `${resource} ${id} not found`);
     this.name = 'HrNotFoundError';
   }
 }
@@ -84,6 +89,21 @@ export function workingDaysBetween(start: string, end: string): number {
 
 export function yearOf(isoDate: string): number {
   return Number(isoDate.slice(0, 4));
+}
+
+/**
+ * The share of `year` (0–1, by calendar days) an employee with these start and
+ * end dates is employed. 1 when neither date falls inside the year; this is
+ * what a yearly leave allowance is pro-rated by.
+ */
+export function employedShareOfYear(year: number, startDate: string | null, endDate: string | null): number {
+  const first = `${year}-01-01`;
+  const last = `${year}-12-31`;
+  const from = startDate && startDate > first ? startDate : first;
+  const to = endDate && endDate < last ? endDate : last;
+  if (to < from) return 0;
+  const dayCount = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000) + 1;
+  return dayCount(from, to) / dayCount(first, last);
 }
 
 // ---------------------------------------------------------------------------

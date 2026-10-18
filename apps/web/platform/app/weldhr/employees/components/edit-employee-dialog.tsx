@@ -1,6 +1,6 @@
 /** Edit dialog for an employee's public profile fields. */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,32 +30,33 @@ import {
 import type { HrEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrDepartments, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
 import { EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
+import { employeeFieldRules } from './employee-field-rules';
 
-const formSchema = z.object({
-  employeeNumber: z.string().trim().optional(),
-  firstName: z.string().trim().min(1),
-  lastName: z.string().trim().min(1),
-  preferredName: z.string().trim().optional(),
-  pronouns: z.string().trim().optional(),
-  email: z.string().trim().email(),
-  phone: z.string().trim().optional(),
-  jobTitle: z.string().trim().optional(),
-  employmentType: hrEmploymentTypeSchema,
-  status: hrEmployeeStatusSchema,
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  probationEndDate: z.string().optional(),
-  location: z.string().trim().optional(),
-  timezone: z.string().trim().optional(),
-  weeklyHours: z.union([z.string(), z.number()]).optional(),
-  departmentId: z.string().optional(),
-  managerId: z.string().optional(),
-});
+function buildFormSchema(t: (path: string) => string) {
+  return z.object({
+    ...employeeFieldRules(t),
+    employeeNumber: z.string().trim().optional(),
+    preferredName: z.string().trim().optional(),
+    pronouns: z.string().trim().optional(),
+    jobTitle: z.string().trim().optional(),
+    employmentType: hrEmploymentTypeSchema,
+    status: hrEmployeeStatusSchema,
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    probationEndDate: z.string().optional(),
+    location: z.string().trim().optional(),
+    timezone: z.string().trim().optional(),
+    weeklyHours: z.union([z.string(), z.number()]).optional(),
+    departmentId: z.string().optional(),
+    managerId: z.string().optional(),
+  });
+}
 
-type FormValues = z.infer<typeof formSchema>;
+type FormValues = z.infer<ReturnType<typeof buildFormSchema>>;
 
 export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: HrEmployeeDetail; onClose: () => void }>) {
   const t = useTranslations();
+  const formSchema = useMemo(() => buildFormSchema(t), [t]);
   const updateEmployee = useUpdateHrEmployee();
   const { data: departments } = useHrDepartments();
   const [managerLabel, setManagerLabel] = useState<string | null>(employee.managerName);

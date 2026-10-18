@@ -7,7 +7,7 @@
  * the shift that covers that day, past a five-minute grace period.
  */
 
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt as lessThan, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { displayNameOf, requireEmployee } from './employees';
@@ -17,6 +17,7 @@ import {
   HrValidationError,
   assertDateOrder,
   companyNames,
+  employedShareOfYear,
   memberNames,
   todayIso,
   workingDaysBetween,
@@ -82,6 +83,14 @@ function assertShiftWindow(startsAt: Date, endsAt: Date) {
   }
 }
 
+/** One person works one shift at a time: a shift may touch another (17:00 end, 17:00 start) but not overlap it. */
+async function assertNoOverlappingShift(db: Database, employeeId: string, startsAt: Date, endsAt: Date, exceptId?: string) {
+  const conditions: SQL[] = [eq(sh.employeeId, employeeId), lessThan(sh.startsAt, endsAt), gt(sh.endsAt, startsAt)];
+  if (exceptId) conditions.push(ne(sh.id, exceptId));
+  const [clash] = await db.select({ id: sh.id }).from(sh).where(and(...conditions)).limit(1);
+  if (clash) throw new HrConflictError('This shift overlaps another shift of this employee');
+}
+
 /** A break is optional, but when set it has both ends and sits inside the shift. */
 function assertShiftBreak(startsAt: Date, endsAt: Date, breakStartsAt: Date | null, breakEndsAt: Date | null) {
   if (!breakStartsAt && !breakEndsAt) return;
@@ -116,6 +125,7 @@ export async function createShift(
   const breakStartsAt = resolveInstant(input.breakStartsAt, null);
   const breakEndsAt = resolveInstant(input.breakEndsAt, null);
   assertShiftBreak(startsAt, endsAt, breakStartsAt, breakEndsAt);
+  await assertNoOverlappingShift(db, input.employeeId, startsAt, endsAt);
   const [row] = await db
     .insert(sh)
     .values({
@@ -144,6 +154,7 @@ export async function updateShift(
   const breakStartsAt = resolveInstant(input.breakStartsAt, existing.breakStartsAt);
   const breakEndsAt = resolveInstant(input.breakEndsAt, existing.breakEndsAt);
   assertShiftBreak(startsAt, endsAt, breakStartsAt, breakEndsAt);
+  await assertNoOverlappingShift(db, existing.employeeId, startsAt, endsAt, id);
   const [row] = await db
     .update(sh)
     .set({
@@ -209,6 +220,21 @@ type AttendanceWrite = {
   notes?: string | null;
 };
 
+/**
+ * Clock times that make a record. A clock-out on the next calendar day is a
+ * night shift and fine; what is checked is the span: positive, at most a day,
+ * and longer than the break taken inside it.
+ */
+export function assertAttendanceTimes(clockIn: Date | null, clockOut: Date | null, breakMinutes: number) {
+  if (!clockIn || !clockOut) return;
+  if (clockOut <= clockIn) throw new HrValidationError('Clock-out must be after clock-in');
+  const spanMinutes = (clockOut.getTime() - clockIn.getTime()) / 60000;
+  if (spanMinutes > 24 * 60) throw new HrValidationError('A record cannot span more than 24 hours');
+  if (breakMinutes >= spanMinutes) {
+    throw new HrValidationError('The break must be shorter than the time between clock-in and clock-out');
+  }
+}
+
 /** Derive worked/late minutes and — when the caller did not pick one — the status. */
 async function derive(
   db: Database,
@@ -216,9 +242,7 @@ async function derive(
   merged: { date: string; clockIn: Date | null; clockOut: Date | null; breakMinutes: number; status?: string; shiftId?: string | null },
   explicitStatus: boolean,
 ) {
-  if (merged.clockIn && merged.clockOut && merged.clockOut <= merged.clockIn) {
-    throw new HrValidationError('Clock-out must be after clock-in');
-  }
+  assertAttendanceTimes(merged.clockIn, merged.clockOut, merged.breakMinutes);
   const shift = await shiftOn(db, employeeId, merged.date);
   const late = lateMinutesFor(merged.clockIn, shift?.startsAt ?? null);
   let status = merged.status ?? 'present';
@@ -431,6 +455,8 @@ export async function importAttendance(
     notes?: string | null;
   }>,
   createdBy: string,
+  /** Validate every row (and count what would be created / updated) without writing. */
+  opts: { dryRun?: boolean } = {},
 ) {
   const refs = await resolveEmployeeRefs(db, rows.map((r) => r.employee));
   const result = { created: 0, updated: 0, errors: [] as Array<{ row: number; reason: string }> };
@@ -447,6 +473,12 @@ export async function importAttendance(
         .from(att)
         .where(and(eq(att.employeeId, employeeId), eq(att.date, row.date), eq(att.source, 'import')))
         .limit(1);
+      if (opts.dryRun) {
+        assertAttendanceTimes(row.clockIn ? new Date(row.clockIn) : null, row.clockOut ? new Date(row.clockOut) : null, row.breakMinutes ?? 0);
+        if (existing) result.updated += 1;
+        else result.created += 1;
+        continue;
+      }
       const write = {
         clockIn: row.clockIn ?? null,
         clockOut: row.clockOut ?? null,
@@ -635,8 +667,15 @@ export async function setAllowance(
   return row!;
 }
 
-/** Per leave type: allowance (override or default), approved + pending days this year, remaining. */
+/**
+ * Per leave type: allowance, approved + pending days this year, remaining.
+ * The allowance is the employee's override for the year, else the type's
+ * default pro-rated to the part of the year they are employed (someone
+ * starting in October gets a quarter of it), rounded to half days.
+ */
 export async function leaveBalances(db: Database, employeeId: string, year: number) {
+  const employee = await requireEmployee(db, employeeId);
+  const share = employedShareOfYear(year, employee.startDate, employee.endDate);
   const [types, allowances, usage] = await Promise.all([
     listLeaveTypes(db),
     db.select().from(la).where(and(eq(la.employeeId, employeeId), eq(la.year, year))),
@@ -658,7 +697,10 @@ export async function leaveBalances(db: Database, employeeId: string, year: numb
   ]);
   const override = new Map(allowances.map((a) => [a.leaveTypeId, a.days]));
   return types.map((type) => {
-    const allowance = override.get(type.id) ?? type.defaultAllowanceDays ?? null;
+    const explicit = override.get(type.id);
+    const fullAllowance = explicit ?? type.defaultAllowanceDays ?? null;
+    const prorated = explicit === undefined && fullAllowance !== null && share < 1;
+    const allowance = prorated ? Math.round(fullAllowance * share * 2) / 2 : fullAllowance;
     const used = Number(usage.find((u) => u.leaveTypeId === type.id && u.status === 'approved')?.days ?? 0);
     const pending = Number(usage.find((u) => u.leaveTypeId === type.id && u.status === 'pending')?.days ?? 0);
     return {
@@ -667,6 +709,8 @@ export async function leaveBalances(db: Database, employeeId: string, year: numb
       color: type.color,
       isPaid: type.isPaid,
       allowance,
+      fullAllowance,
+      prorated,
       used,
       pending,
       remaining: allowance === null ? null : Math.round((allowance - used) * 10) / 10,

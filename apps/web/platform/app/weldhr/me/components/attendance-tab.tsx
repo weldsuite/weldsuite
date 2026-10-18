@@ -14,7 +14,7 @@ import {
   errorMessage,
   formatDate,
   formatMinutes,
-  formatTime,
+  useFormatTime,
   shiftIsoDate,
   todayIso,
 } from '../../components/shared';
@@ -26,6 +26,7 @@ const MAX_RANGE_DAYS = 92;
 
 export function MyAttendanceTab() {
   const t = useTranslations();
+  const formatTime = useFormatTime();
   const [from, setFrom] = useState(() => shiftIsoDate(todayIso(), -29));
   const [to, setTo] = useState(() => shiftIsoDate(todayIso(), 14));
   const validRange = Boolean(from && to && from <= to && shiftIsoDate(from, MAX_RANGE_DAYS) >= to);
