@@ -14,6 +14,13 @@ import {
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
+import { getBrowserTimezone } from '@/lib/timezones';
+import {
+  hasProfileErrors,
+  normalizePhone,
+  resolveProfileTimezone,
+  validateProfile,
+} from '@/lib/profile-validation';
 
 /** Shape returned by GET|PUT /api/settings/profile. */
 interface SelfProfileResponse {
@@ -57,6 +64,9 @@ export default function SettingsProfilePage() {
         // IS the success signal (there is no `success` flag to branch on).
         const { data } = await client.get<{ data: SelfProfileResponse }>('/settings/profile');
         if (data) {
+          // 'UTC' is the API's untouched default, not a choice: show the
+          // browser's zone instead (and offer Save, so it is persisted).
+          const tz = resolveProfileTimezone(data.timezone, getBrowserTimezone());
           setProfileData({
             name: data.name || '',
             email: data.email || '',
@@ -64,9 +74,10 @@ export default function SettingsProfilePage() {
             phone: data.phone || '',
             jobTitle: data.jobTitle || '',
             bio: data.bio || '',
-            timezone: data.timezone || 'UTC',
+            timezone: tz.timezone,
             avatar: data.picture || '',
           });
+          if (tz.prefilled) setProfileChanged(true);
         }
       } catch (error) {
         console.error('Failed to load profile:', error);
@@ -89,13 +100,14 @@ export default function SettingsProfilePage() {
   };
 
   const handleProfileSave = async () => {
+    if (hasProfileErrors(validateProfile(profileData))) return;
     setSaving(true);
     try {
       const client = await getClient();
       const updateData = {
-        name: profileData.name,
+        name: profileData.name.trim(),
         nickname: profileData.nickname,
-        phone: profileData.phone,
+        phone: normalizePhone(profileData.phone),
         jobTitle: profileData.jobTitle,
         bio: profileData.bio,
         // The Timezone picker enables Save, so it has to be sent — omitting it

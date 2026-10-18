@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createAuditLogSchema, updateAuditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
 import type { Env, Variables } from '../../types';
@@ -65,7 +65,24 @@ function parseListPaging(q: Record<string, string>): ListPaging {
   return { limit, page, pageSize, useCursor };
 }
 
-/** Query params that filter by exact column equality. */
+/**
+ * Entity types left out of the list unless asked for by `entityType`: internal
+ * WeldMeet bookkeeping (a row per call session and per in-call chat message)
+ * that buried the changes people make. Still written, still in entity history.
+ */
+export const HIDDEN_ACTIVITY_ENTITY_TYPES = ['meeting_session', 'meeting_message', 'meeting_bot_session'];
+
+/** `a,b` → ['a', 'b'] — every equality filter takes one value or a comma list. */
+function splitList(value: string): string[] {
+  return value.split(',').map((v) => v.trim()).filter(Boolean);
+}
+
+/** Escape LIKE wildcards so a search for "50%" matches the literal text. */
+function escapeLike(value: string): string {
+  return value.replaceAll(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/** Query params that filter by exact column equality (one value or a comma list). */
 const EQUALITY_FILTERS = [
   ['action', t.action],
   ['entityType', t.entityType],
@@ -81,13 +98,37 @@ const DATE_FILTERS = [
   { param: 'endDate', apply: (d: Date) => lte(t.createdAt, d) },
 ] as const;
 
-/** Build the list filter conditions, or the 400 message for an invalid date. */
-function buildListFilters(q: Record<string, string>): { conditions: SQL[] } | { errorMessage: string } {
+/** Equality filters (comma lists allowed), and their `<param>Not` exclusions. */
+function equalityConditions(q: Record<string, string>): SQL[] {
   const conditions: SQL[] = [];
   for (const [param, column] of EQUALITY_FILTERS) {
-    const value = q[param];
-    if (hasValue(value)) conditions.push(eq(column, value));
+    const values = hasValue(q[param]) ? splitList(q[param]) : [];
+    if (values.length === 1) conditions.push(eq(column, values[0]));
+    else if (values.length > 1) conditions.push(inArray(column, values));
+    // `<param>Not` excludes instead (the filter pills' "is not").
+    const excluded = hasValue(q[`${param}Not`]) ? splitList(q[`${param}Not`]) : [];
+    // NULL NOT IN (...) is not true, so rows without the column stay explicitly.
+    if (excluded.length > 0) conditions.push(or(isNull(column), notInArray(column, excluded))!);
   }
+  return conditions;
+}
+
+/**
+ * Free-text search over the description (which carries the record name) and
+ * the entity id, so a pasted id still finds its rows.
+ */
+function searchCondition(search: string | undefined): SQL | null {
+  if (!hasValue(search) || !search.trim()) return null;
+  const pattern = `%${escapeLike(search.trim())}%`;
+  return or(ilike(t.description, pattern), ilike(t.entityId, pattern))!;
+}
+
+/** Build the list filter conditions, or the 400 message for an invalid date. */
+function buildListFilters(q: Record<string, string>): { conditions: SQL[] } | { errorMessage: string } {
+  const conditions = equalityConditions(q);
+  if (!hasValue(q.entityType)) conditions.push(notInArray(t.entityType, HIDDEN_ACTIVITY_ENTITY_TYPES));
+  const search = searchCondition(q.search);
+  if (search) conditions.push(search);
   for (const { param, apply } of DATE_FILTERS) {
     const value = q[param];
     if (!hasValue(value)) continue;

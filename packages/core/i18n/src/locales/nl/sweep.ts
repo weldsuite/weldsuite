@@ -2137,6 +2137,9 @@ export const sweep = {
       "chooseFile": "Bestand kiezen",
       "nameLabel": "Naam",
       "namePlaceholder": "Uw naam",
+      "nameRequired": "Naam is verplicht",
+      "nameTooLong": "Naam mag maximaal 200 tekens bevatten",
+      "phoneInvalid": "Voer een geldig telefoonnummer in, bijvoorbeeld +31 6 12345678",
       "emailLabel": "E-mail",
       "emailCannotChange": "E-mailadres kan niet worden gewijzigd",
       "phoneLabel": "Telefoon",
@@ -2557,10 +2560,7 @@ export const sweep = {
       "description": "Bekijk en leer sneltoetsen om sneller te werken",
       "searchPlaceholder": "Sneltoetsen zoeken...",
       "noneFound": "Geen sneltoetsen gevonden",
-      "tryDifferentSearch": "Probeer een andere zoekterm",
-      "tipCmdCtrl": "Gebruik ⌘ op Mac of Ctrl op Windows/Linux",
-      "tipVaryByOs": "Sommige sneltoetsen kunnen verschillen per besturingssysteem",
-      "tipCustomize": "U kunt sneltoetsen aanpassen in uw browserinstellingen"
+      "tryDifferentSearch": "Probeer een andere zoekterm"
     },
     "helpdeskEmail": {
       "connected": "E-mailadres verbonden",

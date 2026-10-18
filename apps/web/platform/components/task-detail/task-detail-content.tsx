@@ -97,6 +97,7 @@ import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { useObjectPanelNavigationSource } from '@/components/object-panel/use-object-panel-navigation';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
+import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -585,6 +586,12 @@ export interface TaskDetailContentProps {
    * contexts (e.g. the CRM record link on a CRM task).
    */
   alwaysShowFields?: string[];
+  /**
+   * Persist the task's full customFields map. When given, the workspace's
+   * task custom fields (Settings › Custom Fields › Tasks) render as rows in
+   * the Details list.
+   */
+  onSaveCustomFields?: (next: Record<string, unknown>) => Promise<void>;
 }
 
 type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
@@ -1033,6 +1040,7 @@ export function TaskDetailContent({
   onRemoveDependency,
   hiddenFields,
   alwaysShowFields,
+  onSaveCustomFields,
 }: Readonly<TaskDetailContentProps>) {
 /* eslint-enable @typescript-eslint/no-unused-vars */
   const t = useTranslations();
@@ -1671,6 +1679,15 @@ export function TaskDetailContent({
           {/* GitHub issue badge */}
           {task.githubIssueNumber != null && task.githubRepoLinkId != null && (
             <GithubIssueBadge task={task} />
+          )}
+
+          {onSaveCustomFields && (
+            <CustomFieldsSidebarSection
+              entityType="task"
+              values={(task as { customFields?: Record<string, unknown> }).customFields}
+              onSave={onSaveCustomFields}
+              layout="row"
+            />
           )}
 
           </div>

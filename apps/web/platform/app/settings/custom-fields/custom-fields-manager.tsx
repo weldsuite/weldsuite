@@ -44,6 +44,7 @@ import {
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { toast } from 'sonner';
+import { isApiError } from '@weldsuite/api-client';
 import { ENTITY_TYPES, FIELD_TYPES, getFieldTypeLabel } from './entity-types';
 import { FieldDefinitionDialog } from './field-definition-dialog';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
@@ -307,7 +308,9 @@ export function CustomFieldsManager() {
       await createMutation.mutateAsync(data);
       toast.success(ts.messages.created);
       setDialogOpen(false);
-    } catch {
+    } catch (err) {
+      // A taken slug is shown on the dialog's Slug field instead of a toast.
+      if (isApiError(err) && err.status === 409) throw err;
       toast.error(ts.messages.createFailed);
     }
   }, [createMutation, ts]);
@@ -592,10 +595,9 @@ export function CustomFieldsManager() {
         selectableEntity={isAll}
         onSubmit={(data) => {
           if (editingField?.id) {
-            handleUpdate(editingField.id, data);
-          } else {
-            handleCreate({ ...data, entityType: data.entityType ?? createEntityType } as CreateCustomFieldData);
+            return handleUpdate(editingField.id, data);
           }
+          return handleCreate({ ...data, entityType: data.entityType ?? createEntityType } as CreateCustomFieldData);
         }}
         isPending={isPending}
       />

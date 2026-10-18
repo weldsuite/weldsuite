@@ -15,16 +15,19 @@ import { generateId } from '../lib/id';
 import type { EntityEventMessage } from '../lib/entity-events';
 import type { Database } from '../db';
 
-/** Maps entity types to the field(s) in event.data that contain a human-readable name. */
+/**
+ * Entity types whose display name sits in a field the generic list below would
+ * miss or reach too late. Every other entity type uses `GENERIC_NAME_FIELDS`.
+ */
 const ENTITY_NAME_FIELDS: Record<string, string[]> = {
   project_task: ['title'],
   personal_task: ['title'],
-  contact: ['fullName', 'firstName'],
+  contact: ['displayName', 'fullName'],
   customer: ['name', 'companyName'],
   commerce_customer: ['name', 'companyName'],
   // Identity layer — companies/people moved to app-api with these payloads.
   company: ['displayName', 'name', 'tradingName'],
-  person: ['displayName', 'fullName', 'firstName', 'email'],
+  person: ['displayName', 'fullName'],
   product: ['name'],
   order: ['orderNumber'],
   invoice: ['invoiceNumber'],
@@ -45,7 +48,42 @@ const ENTITY_NAME_FIELDS: Record<string, string[]> = {
   label: ['name'],
   template: ['name'],
   workflow: ['name'],
+  vat_return: ['periodLabel', 'name'],
+  tax_return: ['periodLabel', 'name'],
+  bill: ['billNumber', 'number', 'reference'],
+  accounting_contact: ['displayName', 'name', 'companyName'],
+  meeting: ['title', 'name', 'subject'],
+  meeting_session: ['title', 'name'],
+  calendar_event: ['title', 'summary'],
+  email: ['subject'],
+  helpdesk_ticket: ['subject', 'title'],
+  ticket: ['subject', 'title'],
 };
+
+/**
+ * Fields tried, in order, for any entity type, after its own fields. Payloads
+ * across modules name the same thing differently (contacts `firstName` +
+ * `lastName`, VAT returns `periodLabel`, documents `number`, …); without a
+ * fallback most rows had no record name at all.
+ */
+const GENERIC_NAME_FIELDS = [
+  'displayName',
+  'name',
+  'title',
+  'subject',
+  'fullName',
+  'companyName',
+  'label',
+  'periodLabel',
+  'invoiceNumber',
+  'orderNumber',
+  'billNumber',
+  'number',
+  'reference',
+  'trackingNumber',
+  'code',
+  'email',
+];
 
 /** Module prefixes to strip for cleaner display names. */
 const MODULE_PREFIXES = [
@@ -59,16 +97,29 @@ const MODULE_PREFIXES = [
   'wms_',
 ];
 
+function nonEmptyString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return null;
+}
+
 /** Extract a human-readable name from the entity's data payload. */
-function getEntityDisplayName(
+export function getEntityDisplayName(
   entityType: string,
-  data: Record<string, unknown>,
+  data: Record<string, unknown> | null | undefined,
 ): string | null {
-  const fields = ENTITY_NAME_FIELDS[entityType];
-  if (!fields) return null;
-  for (const field of fields) {
-    const value = data[field];
-    if (typeof value === 'string' && value.trim()) return value.trim();
+  if (!data || typeof data !== 'object') return null;
+  for (const field of ENTITY_NAME_FIELDS[entityType] ?? []) {
+    const value = nonEmptyString(data[field]);
+    if (value) return value;
+  }
+  // A person's name split over two fields.
+  const first = nonEmptyString(data.firstName);
+  const last = nonEmptyString(data.lastName);
+  if (first || last) return [first, last].filter(Boolean).join(' ');
+  for (const field of GENERIC_NAME_FIELDS) {
+    const value = nonEmptyString(data[field]);
+    if (value) return value;
   }
   return null;
 }
@@ -107,7 +158,7 @@ async function getUserName(
  * updated (with changes)   → "Jane Doe changed Status on 'Fix login bug'"
  * updated (multi)          → "Jane Doe changed Status and Priority on 'Fix login bug'"
  */
-function buildDescription(
+export function buildDescription(
   action: string,
   entityType: string,
   entityName: string | null,
@@ -128,8 +179,42 @@ function buildDescription(
     return `${actor} updated ${subject}`;
   }
 
-  const pastAction = toPastTense(action);
-  return `${subject} was ${pastAction} by ${actor}`;
+  return `${subject} was ${actionPhrase(action)} by ${actor}`;
+}
+
+/**
+ * How an action reads after "was". Physical actions other than the CRUD ones
+ * (stage_changed, won, …) used to be turned into "stage_changeded" / "woned".
+ */
+const ACTION_PHRASES: Record<string, string> = {
+  created: 'created',
+  updated: 'updated',
+  deleted: 'deleted',
+  archived: 'archived',
+  unarchived: 'restored',
+  restored: 'restored',
+  won: 'marked as won',
+  lost: 'marked as lost',
+  stage_changed: 'moved to another stage',
+  status_changed: 'given another status',
+  priority_changed: 'given another priority',
+  state_changed: 'given another state',
+  converted: 'converted',
+  qualified: 'qualified',
+  completed: 'completed',
+  assigned: 'assigned',
+  escalated: 'escalated',
+  resolved: 'resolved',
+  closed: 'closed',
+  tagged: 'tagged',
+  sent: 'sent',
+  paid: 'marked as paid',
+  moved: 'moved',
+};
+
+/** "stage_changed" → "moved to another stage"; unknown keys are humanised ("foo_bar" → "foo bar"). */
+export function actionPhrase(action: string): string {
+  return ACTION_PHRASES[action] ?? action.replaceAll(/[_-]+/g, ' ').trim();
 }
 
 /** "camelCase" / "snake_case" → "Camel Case" / "Snake Case" */
@@ -150,12 +235,6 @@ function formatFieldList(fields: string[]): string {
 
 function capitalise(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function toPastTense(action: string): string {
-  if (action.endsWith('ed')) return action;
-  if (action.endsWith('e')) return `${action}d`;
-  return `${action}ed`;
 }
 
 /**

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Button } from "./button";
+import { formatShortcut } from "../lib/shortcut";
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar";
 import {
   DropdownMenu,
@@ -361,7 +362,7 @@ export function SidebarUserMenu({
             <DropdownMenuItem onClick={onSettings}>
               <Settings className="h-4 w-4" />
               <span>Settings</span>
-              <span className="ml-auto text-xs text-muted-foreground">⌘,</span>
+              <span className="ml-auto text-xs text-muted-foreground">{formatShortcut(["mod", ","])}</span>
             </DropdownMenuItem>
           )}
           {onSignOut && (
@@ -545,7 +546,7 @@ export function SidebarUserMenu({
           <DropdownMenuItem onClick={onSettings}>
             <Settings className="h-4 w-4" />
             <span>Settings</span>
-            <span className="ml-auto text-xs text-muted-foreground">⌘,</span>
+            <span className="ml-auto text-xs text-muted-foreground">{formatShortcut(["mod", ","])}</span>
           </DropdownMenuItem>
         )}
         {onSignOut && (

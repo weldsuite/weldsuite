@@ -4,6 +4,7 @@ import { usePathname } from '@/lib/router';
 import { useMobileNav } from '@/contexts/mobile-nav-context';
 import { useWeldAgentSafe } from '@/components/weldagent-wrapper';
 import { loadWeldAgentPanel } from '@/components/weldagent/lazy-panel';
+import { HOTKEYS, matchesHotkey } from '@/lib/hotkeys/registry';
 
 // Lazy-loaded — the panel body (~140 KB of weldagent code) only ships when
 // the user opens the agent. The same shared loader (`loadWeldAgentPanel`) backs
@@ -72,12 +73,12 @@ export function GlobalAgentShortcut() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl + J to toggle agent
-      if (e.key === 'j' && (e.metaKey || e.ctrlKey)) {
+      if (matchesHotkey(e, HOTKEYS.toggleWeldAgent)) {
         e.preventDefault();
         toggleWeldAgent();
       }
       // Escape to close
-      if (e.key === 'Escape' && showWeldAgent) {
+      if (showWeldAgent && matchesHotkey(e, HOTKEYS.closeDialogPanel)) {
         setShowWeldAgent(false);
       }
     };

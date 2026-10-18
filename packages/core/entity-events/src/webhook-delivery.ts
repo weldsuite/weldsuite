@@ -18,9 +18,10 @@
  * backoff. After 20 consecutive failures a webhook is auto-disabled.
  */
 
-import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { externalWebhooks, webhookDeliveries } from '@weldsuite/db/schema';
 import type { TenantDb } from './internal-types';
+import { legacyWebhookEventNames, subscribedWebhookEventName } from './webhook-events';
 
 const DELIVERY_TIMEOUT_MS = 10_000;
 const AUTO_DISABLE_THRESHOLD = 20;
@@ -289,6 +290,9 @@ export async function dispatchWebhookDeliveries(
 ): Promise<DispatchWebhookDeliveriesResult> {
   const { db, workspaceId, entityType, action, eventId, data } = input;
   const eventType = `${entityType}.${action}`;
+  // Webhooks still subscribed under a legacy name (`customer.created` for
+  // `company.created`) match too; see ./webhook-events.
+  const subscribedNames = [eventType, ...legacyWebhookEventNames(eventType)];
 
   let matches: WebhookRow[];
   try {
@@ -299,7 +303,11 @@ export async function dispatchWebhookDeliveries(
         and(
           eq(externalWebhooks.status, 'active'),
           isNull(externalWebhooks.deletedAt),
-          sql`${externalWebhooks.events} @> ${JSON.stringify([eventType])}::jsonb`,
+          or(
+            ...subscribedNames.map(
+              (name) => sql`${externalWebhooks.events} @> ${JSON.stringify([name])}::jsonb`,
+            ),
+          ),
         ),
       );
   } catch (err) {
@@ -310,7 +318,15 @@ export async function dispatchWebhookDeliveries(
 
   const outcomes = await Promise.allSettled(
     matches.map((webhook) =>
-      deliverWebhookEvent({ db, webhook, eventId, eventType, workspaceId, data }),
+      deliverWebhookEvent({
+        db,
+        webhook,
+        eventId,
+        // Delivered under the name the webhook subscribed to.
+        eventType: subscribedWebhookEventName(webhook.events ?? [], eventType) ?? eventType,
+        workspaceId,
+        data,
+      }),
     ),
   );
 

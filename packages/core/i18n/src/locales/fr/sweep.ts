@@ -2440,10 +2440,7 @@ export const sweep = {
       "description": "View and learn keyboard shortcuts to work faster",
       "searchPlaceholder": "Search shortcuts...",
       "noneFound": "No shortcuts found",
-      "tryDifferentSearch": "Try a different search term",
-      "tipCmdCtrl": "Use ⌘ on Mac or Ctrl on Windows/Linux",
-      "tipVaryByOs": "Some shortcuts may vary based on your operating system",
-      "tipCustomize": "You can customize shortcuts in your browser settings"
+      "tryDifferentSearch": "Try a different search term"
     },
     "helpdeskEmail": {
       "connected": "Email address connected",

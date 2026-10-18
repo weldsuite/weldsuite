@@ -19,7 +19,7 @@
  * now live here (services/weldchat-role-links + services/realtime).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
@@ -33,6 +33,17 @@ import { cleanupRoleLinksOnRoleDelete } from '@weldsuite/chat-domain/weldchat-ro
 import { publishChatMemberLeft } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/**
+ * A rejected role name: 400 for a system role's name (Owner, Admin, Member,
+ * Viewer), 409 for a name another role already has. `details.reason` lets the
+ * UI show the matching inline error.
+ */
+function roleNameError(c: Context, reason: rolesService.RoleNameProblem) {
+  return reason === 'reserved'
+    ? error.badRequest(c, 'This name is reserved for a system role', { field: 'name', reason })
+    : error.conflict(c, 'A role with this name already exists', { field: 'name', reason });
+}
 
 // GET / — list roles (seeds system roles on first call)
 app.get('/', requirePermission('roles:read'), async (c) => {
@@ -140,8 +151,9 @@ app.get('/:roleId', requirePermission('roles:read'), async (c) => {
 app.post('/', requirePermission('roles:create'), zValidator('json', createRoleSchema), async (c) => {
   try {
     const db = c.get('tenantDb');
-    const role = await rolesService.createRole(db, c.req.valid('json'));
-    return success(c, role, 201);
+    const result = await rolesService.createRole(db, c.req.valid('json'));
+    if (!result.ok) return roleNameError(c, result.reason);
+    return success(c, result.role, 201);
   } catch (err) {
     console.error('[app-api/roles] create failed:', err);
     return error.internal(c, 'Failed to create role');
@@ -155,7 +167,8 @@ app.put('/:roleId', requirePermission('roles:update'), zValidator('json', update
     const result = await rolesService.updateRole(db, c.req.param('roleId'), c.req.valid('json'));
     if (!result.ok) {
       if (result.reason === 'not_found') return error.notFound(c, 'Role', c.req.param('roleId'));
-      return error.forbidden(c, 'Cannot modify system roles');
+      if (result.reason === 'system') return error.forbidden(c, 'Cannot modify system roles');
+      return roleNameError(c, result.reason);
     }
     return success(c, result.role);
   } catch (err) {

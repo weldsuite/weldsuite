@@ -57,6 +57,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { MemberPropertyRow, PropertyRow } from '@/components/objects/_shared/property-row';
+import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { ComingSoonTab } from '@/components/objects/_shared/coming-soon-tab';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -387,9 +388,15 @@ function formatDate(iso: string | undefined): string | null {
 export function OpportunityDetailsTab({
   opportunity,
   onUpdateField,
+  onUpdateFieldAsync,
 }: Readonly<{
   opportunity: Opportunity;
   onUpdateField: (patch: Partial<Opportunity>) => void;
+  /**
+   * Awaitable save, for the custom field rows (they report a failed save
+   * themselves). Custom fields render only when this is given.
+   */
+  onUpdateFieldAsync?: (patch: Partial<Opportunity>) => Promise<void>;
 }>) {
   const t = useTranslations();
   const statusOptions = useMemo(() => getStatusOptions(t), [t]);
@@ -560,6 +567,15 @@ export function OpportunityDetailsTab({
         value={opportunity.tags?.length ? opportunity.tags.join(', ') : null}
         readOnly
       />
+
+      {onUpdateFieldAsync && (
+        <CustomFieldsSidebarSection
+          entityType="opportunity"
+          values={opportunity.customFields}
+          onSave={(next) => onUpdateFieldAsync({ customFields: next })}
+          layout="row"
+        />
+      )}
     </div>
   );
 }
@@ -757,6 +773,15 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
     [opportunity, updateMut, t],
   );
 
+  // Custom fields: awaited, so the row can report a failed save itself.
+  const handleUpdateFieldAsync = useCallback(
+    async (patch: Partial<Opportunity>) => {
+      if (!opportunity) return;
+      await updateMut.mutateAsync({ id: opportunity.id, data: patch });
+    },
+    [opportunity, updateMut],
+  );
+
   const handleMarkWon = useCallback(() => {
     if (!opportunity) return;
     winMut.mutate(
@@ -827,6 +852,7 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
         <OpportunityDetailsTab
           opportunity={opportunity}
           onUpdateField={handleUpdateField}
+          onUpdateFieldAsync={handleUpdateFieldAsync}
         />
       )}
       {opportunity && activeTab === 'activity' && (

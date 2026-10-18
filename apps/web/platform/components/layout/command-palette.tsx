@@ -28,6 +28,8 @@ import { useObjectPanel } from '@/components/object-panel';
 import { QuickAddCompanyDialog } from '@/app/weldcrm/companies/components/quick-add-company-dialog';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 import { Kbd } from '@weldsuite/ui/components/kbd';
+import { shortcutKeyLabels } from '@weldsuite/ui/lib/shortcut';
+import { HOTKEYS, bindingKeys, matchesHotkey } from '@/lib/hotkeys/registry';
 import {
   Command,
   CommandEmpty,
@@ -113,8 +115,13 @@ export function CommandPaletteTrigger({ className }: { className?: string }) {
       <Search className="h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       <span className="flex items-center gap-0.5">
-        <Kbd className="text-base flex items-center justify-center pt-0.5">⌘</Kbd>
-        <Kbd className="text-[10px] flex items-center justify-center">K</Kbd>
+        {shortcutKeyLabels(bindingKeys(HOTKEYS.openCommandPalette.binding)).map((label) =>
+          label === '⌘' ? (
+            <Kbd key={label} className="text-base flex items-center justify-center pt-0.5">{label}</Kbd>
+          ) : (
+            <Kbd key={label} className="text-[10px] flex items-center justify-center">{label}</Kbd>
+          ),
+        )}
       </span>
     </button>
   );
@@ -165,7 +172,7 @@ export function CommandPalette() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'k' || !(event.metaKey || event.ctrlKey) || event.repeat) return;
+      if (event.repeat || !matchesHotkey(event, HOTKEYS.openCommandPalette)) return;
       event.preventDefault();
       toggleCommandPalette();
     };

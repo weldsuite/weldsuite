@@ -125,10 +125,45 @@ async function ensureSeeded(db: Database): Promise<(typeof roles.$inferSelect)[]
   return rolesData;
 }
 
-export async function listRoles(db: Database): Promise<RoleRow[]> {
-  const rolesData = await ensureSeeded(db);
+/**
+ * System roles in level order (highest first). The list returns the system
+ * roles in this order, then the custom roles alphabetically.
+ */
+const SYSTEM_ROLE_ORDER: readonly string[] = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'];
 
-  const memberCounts = await db
+/** Names a custom role may never take (compared trimmed, case-insensitively). */
+export const RESERVED_ROLE_NAMES: readonly string[] = SYSTEM_ROLE_ORDER;
+
+type RoleRecord = typeof roles.$inferSelect;
+
+function normaliseRoleName(name: string): string {
+  return name.trim().toUpperCase();
+}
+
+function systemRank(role: RoleRecord): number {
+  const idx = SYSTEM_ROLE_ORDER.indexOf(normaliseRoleName(role.name));
+  return idx === -1 ? SYSTEM_ROLE_ORDER.length : idx;
+}
+
+function compareRoles(a: RoleRecord, b: RoleRecord): number {
+  if (a.isSystem !== b.isSystem) return a.isSystem ? -1 : 1;
+  if (a.isSystem) {
+    const rank = systemRank(a) - systemRank(b);
+    if (rank !== 0) return rank;
+  }
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+}
+
+/**
+ * Active member counts keyed by role id.
+ *
+ * A member whose `roleId` points at a live role counts for that role only;
+ * every other member counts for the system role matching their tier (the
+ * `role` column). Custom roles are never matched by name: a custom role that
+ * shared a tier's name used to pick up every member of that tier.
+ */
+async function countMembersByRole(db: Database, liveRoles: RoleRecord[]): Promise<Map<string, number>> {
+  const groups = await db
     .select({
       role: workspaceMembers.role,
       roleId: workspaceMembers.roleId,
@@ -138,22 +173,27 @@ export async function listRoles(db: Database): Promise<RoleRow[]> {
     .where(and(eq(workspaceMembers.status, 'ACTIVE'), isNull(workspaceMembers.deletedAt)))
     .groupBy(workspaceMembers.role, workspaceMembers.roleId);
 
-  const countByRoleId = new Map<string, number>();
-  const countByRoleName = new Map<string, number>();
-  for (const mc of memberCounts) {
-    if (mc.roleId) countByRoleId.set(mc.roleId, mc.count);
-    if (mc.role) {
-      const key = mc.role.toUpperCase();
-      countByRoleName.set(key, (countByRoleName.get(key) || 0) + mc.count);
-    }
+  const liveIds = new Set(liveRoles.map((r) => r.id));
+  const systemIdByTier = new Map<string, string>();
+  for (const r of liveRoles) {
+    if (r.isSystem) systemIdByTier.set(normaliseRoleName(r.name), r.id);
   }
 
-  return rolesData.map((role) =>
-    toRoleRow(
-      role,
-      countByRoleId.get(role.id) || countByRoleName.get(role.name.toUpperCase()) || 0,
-    ),
-  );
+  const counts = new Map<string, number>();
+  const add = (id: string | undefined, n: number) => {
+    if (id) counts.set(id, (counts.get(id) || 0) + Number(n));
+  };
+  for (const g of groups) {
+    if (g.roleId && liveIds.has(g.roleId)) add(g.roleId, g.count);
+    else if (g.role) add(systemIdByTier.get(normaliseRoleName(g.role)), g.count);
+  }
+  return counts;
+}
+
+export async function listRoles(db: Database): Promise<RoleRow[]> {
+  const rolesData = [...(await ensureSeeded(db))].sort(compareRoles);
+  const counts = await countMembersByRole(db, rolesData);
+  return rolesData.map((role) => toRoleRow(role, counts.get(role.id) || 0));
 }
 
 export async function getRole(db: Database, roleId: string): Promise<RoleRow | null> {
@@ -165,20 +205,33 @@ export async function getRole(db: Database, roleId: string): Promise<RoleRow | n
 
   if (!role) return null;
 
-  const [memberCount] = await db
-    .select({ count: count() })
-    .from(workspaceMembers)
-    .where(
-      and(
-        eq(workspaceMembers.status, 'ACTIVE'),
-        isNull(workspaceMembers.deletedAt),
-        role.isSystem
-          ? eq(workspaceMembers.role, role.name.toUpperCase())
-          : eq(workspaceMembers.roleId, roleId),
-      ),
-    );
+  // Same attribution as the list, so the list and the detail page agree.
+  const liveRoles = await db.select().from(roles).where(isNull(roles.deletedAt));
+  const counts = await countMembersByRole(db, liveRoles);
+  return toRoleRow(role, counts.get(role.id) || 0);
+}
 
-  return toRoleRow(role, memberCount?.count || 0);
+export type RoleNameProblem = 'reserved' | 'duplicate';
+
+/**
+ * Why `name` cannot be used for a custom role, or null when it can. Reserved
+ * names are the system tiers; a duplicate is another live role with the same
+ * name. Both compare trimmed and case-insensitively. `exceptRoleId` skips the
+ * role being renamed.
+ */
+export async function checkRoleName(
+  db: Database,
+  name: string,
+  exceptRoleId?: string,
+): Promise<RoleNameProblem | null> {
+  const wanted = normaliseRoleName(name);
+  if (RESERVED_ROLE_NAMES.includes(wanted)) return 'reserved';
+  const live = await db
+    .select({ id: roles.id, name: roles.name })
+    .from(roles)
+    .where(isNull(roles.deletedAt));
+  const clash = live.some((r) => r.id !== exceptRoleId && normaliseRoleName(r.name) === wanted);
+  return clash ? 'duplicate' : null;
 }
 
 export interface CreateRoleArgs {
@@ -189,7 +242,15 @@ export interface CreateRoleArgs {
   copyFromRoleId?: string;
 }
 
-export async function createRole(db: Database, args: CreateRoleArgs): Promise<RoleRow | null> {
+export type CreateRoleResult =
+  | { ok: true; role: RoleRow }
+  | { ok: false; reason: RoleNameProblem };
+
+export async function createRole(db: Database, args: CreateRoleArgs): Promise<CreateRoleResult> {
+  const name = args.name.trim();
+  const problem = await checkRoleName(db, name);
+  if (problem) return { ok: false, reason: problem };
+
   let permissions = args.permissions || [];
   let apps = args.apps || [];
 
@@ -210,7 +271,7 @@ export async function createRole(db: Database, args: CreateRoleArgs): Promise<Ro
   const id = generateId('role');
   await db.insert(roles).values({
     id,
-    name: args.name,
+    name,
     description: args.description,
     permissions,
     apps,
@@ -219,7 +280,8 @@ export async function createRole(db: Database, args: CreateRoleArgs): Promise<Ro
     updatedAt: new Date(),
   });
 
-  return getRole(db, id);
+  const role = await getRole(db, id);
+  return { ok: true, role: role! };
 }
 
 export interface UpdateRoleArgs {
@@ -231,7 +293,7 @@ export interface UpdateRoleArgs {
 
 export type UpdateRoleResult =
   | { ok: true; role: RoleRow }
-  | { ok: false; reason: 'not_found' | 'system' };
+  | { ok: false; reason: 'not_found' | 'system' | RoleNameProblem };
 
 export async function updateRole(
   db: Database,
@@ -248,7 +310,12 @@ export async function updateRole(
   if (existing.isSystem) return { ok: false, reason: 'system' };
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
-  if (args.name !== undefined) updateData.name = args.name;
+  if (args.name !== undefined) {
+    const name = args.name.trim();
+    const problem = await checkRoleName(db, name, roleId);
+    if (problem) return { ok: false, reason: problem };
+    updateData.name = name;
+  }
   if (args.description !== undefined) updateData.description = args.description;
   if (args.permissions !== undefined) updateData.permissions = args.permissions;
   if (args.apps !== undefined) updateData.apps = args.apps;

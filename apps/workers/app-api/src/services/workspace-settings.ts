@@ -29,14 +29,11 @@ type WorkspaceSettingsRow = typeof workspaceSettings.$inferSelect;
 
 /**
  * Columns that may be written from the request body — the allowlist IS the
- * mapping. Anything the schema accepts but that is absent here (`name`,
- * `locale`, `logo`, `settings`) has no backing column and is dropped, exactly
- * as the legacy route's `...data` spread dropped it.
- *
- * `settings` in particular is NOT mapped onto `customSettings`: that column
- * holds the PrintNode integration config, and folding an arbitrary `settings`
- * bag into it would clobber it. See the schema's note in
- * packages/clients/app-api-client/src/schemas/workspace-settings.ts.
+ * mapping. The request schema is strict and lists exactly these keys, so an
+ * unknown key (the legacy `name`, `locale`, `logo`, `settings`) is a 400 at
+ * the validator instead of a 200 that stores nothing. Keep this list and
+ * `updateWorkspaceSettingsInput` in
+ * packages/clients/app-api-client/src/schemas/workspace-settings.ts in step.
  */
 const WRITABLE_BLOB_FIELDS = [
   'theme',
@@ -77,8 +74,8 @@ export async function getWorkspaceSettings(db: Database): Promise<WorkspaceSetti
 }
 
 /**
- * Project the validated body onto real columns, dropping the accepted-and-
- * ignored fields. `null` is a meaningful value here (clearing the logo), so
+ * Project the validated body onto real columns. `null` is a meaningful value
+ * here (clearing the logo), so
  * only `undefined` is skipped.
  */
 function toColumnValues(data: UpdateWorkspaceSettingsInput): Record<string, unknown> {

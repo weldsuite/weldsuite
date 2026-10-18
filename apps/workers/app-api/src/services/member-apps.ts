@@ -6,7 +6,7 @@
  * link a record into a module the member actually has.
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 /** The apps an EMPLOYEE member can open, whatever their assignments say. */
@@ -18,7 +18,17 @@ export async function listMemberAppCodes(db: Database, userId: string): Promise<
   const apps = await db
     .select({ appCode: workspaceInstalledApps.appCode })
     .from(workspaceInstalledApps)
-    .where(and(eq(workspaceInstalledApps.isActive, true), isNull(workspaceInstalledApps.deletedAt)));
+    .where(and(eq(workspaceInstalledApps.isActive, true), isNull(workspaceInstalledApps.deletedAt)))
+    // The app rail renders in this order. Without an ORDER BY Postgres returned
+    // rows in heap order, so an uninstalled-then-reinstalled app (its row
+    // updated, hence rewritten at the end of the heap) dropped to the bottom.
+    // Reinstalling keeps display_order and created_at, so the app returns to
+    // the place it had.
+    .orderBy(
+      asc(workspaceInstalledApps.displayOrder),
+      asc(workspaceInstalledApps.createdAt),
+      asc(workspaceInstalledApps.appCode),
+    );
 
   const allAppCodes = apps.map((a) => a.appCode);
 
@@ -76,5 +86,6 @@ export async function listMemberAppCodes(db: Database, userId: string): Promise<
     );
   for (const a of assignments) effective.add(a.appCode);
 
-  return Array.from(effective);
+  // In installed order, not role-first-then-assignment order.
+  return allAppCodes.filter((code) => effective.has(code));
 }

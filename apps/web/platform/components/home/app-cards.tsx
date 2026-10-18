@@ -176,9 +176,9 @@ export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
   );
 
   return (
-    <Card className="py-0">
-      <CardHeader className="flex flex-col items-stretch border-b p-0! sm:flex-row">
-        <div className="flex flex-1 flex-col justify-center gap-1 px-6 pt-4 pb-3 sm:py-0!">
+    <Card className="@container py-0">
+      <CardHeader className="flex flex-col items-stretch border-b p-0! @2xl:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 px-6 pt-4 pb-3 @2xl:py-0!">
           <CardTitle>{tc.analytics.title}</CardTitle>
           <CardDescription>
             {tc.analytics.description}
@@ -192,13 +192,13 @@ export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
                 key={chart}
                 variant="ghost"
                 data-active={activeChart === chart}
-                className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-t-0 sm:border-l sm:px-8 sm:py-6"
+                className="relative z-30 flex min-w-0 flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 @2xl:border-t-0 @2xl:border-l @2xl:px-8 @2xl:py-6"
                 onClick={() => setActiveChart(chart)}
               >
                 <span className="text-xs text-muted-foreground">
                   {chartConfig[chart].label}
                 </span>
-                <span className="text-lg leading-none font-bold sm:text-3xl">
+                <span className="max-w-full truncate text-lg leading-none font-bold @2xl:text-3xl">
                   {total[key as keyof typeof total].toLocaleString()}
                 </span>
               </Button>
@@ -1696,14 +1696,14 @@ export function PipelineCard({
   }
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
-      <div className="flex gap-3 p-3">
+      <div className="flex gap-3 overflow-x-auto p-3">
         {PIPELINE_STAGES.map((stage) => {
           const stageDeals = rows.filter((d) => d.stage === stage.id);
           const stageTotal = stageDeals.reduce((sum, d) => sum + d.value, 0);
           return (
             <div
               key={stage.id}
-              className="flex-1 min-w-[140px] flex flex-col gap-2 min-h-0"
+              className="flex-1 min-w-[100px] flex flex-col gap-2 min-h-0"
             >
               {/* Stage header */}
               <div className="flex items-center justify-between gap-2 shrink-0">
