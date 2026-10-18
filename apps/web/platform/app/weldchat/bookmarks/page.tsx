@@ -97,14 +97,16 @@ export default function BookmarksPage() {
   const { user } = useUser();
   const { data: dmsData } = useDmChannels();
   const dmLabels = useMemo(() => {
+    // A DM with no other member is the DM with yourself.
+    const selfLabel = user?.fullName
+      ? st('sweep.weldchat.sidebar.selfDmLabel', { name: user.fullName })
+      : st('sweep.weldchat.sidebar.selfDmFallback');
     const map = new Map<string, string>();
     for (const dm of dmsData?.data ?? []) {
       const others = (dm.otherMembers ?? []).filter((m) => m?.userId);
       const label = others.length > 0
         ? others.map((m) => m.name || m.email).filter(Boolean).join(', ')
-        : user?.fullName
-          ? st('sweep.weldchat.sidebar.selfDmLabel', { name: user.fullName })
-          : st('sweep.weldchat.sidebar.selfDmFallback');
+        : selfLabel;
       if (label) map.set(dm.id, label);
     }
     return map;
