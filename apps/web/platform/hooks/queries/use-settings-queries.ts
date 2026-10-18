@@ -972,6 +972,8 @@ export interface UserPreferences {
     weldflowSidebarProjectOrder?: string[];
     /** WeldCalendar: move unfinished auto-scheduled tasks forward each night. Absent = true. */
     autoRescheduleTasks?: boolean;
+    /** WeldBooks: the dashboard overview's charts, in display order; absent or null = the default overview. Read through `parseDashboardCharts`. */
+    weldbooksOverviewCharts?: unknown;
     homeWidgets?: {
       slots: [
         { widgetId: string; settings: Record<string, unknown> } | null,

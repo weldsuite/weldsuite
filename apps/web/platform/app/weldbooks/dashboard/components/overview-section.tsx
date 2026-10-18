@@ -1,45 +1,67 @@
 /**
  * Stripe's "Your overview": the heading with the date range and compare menus
- * on the same line, then a grid of blocks straight on the page, no backdrop or
+ * on the same line, then a grid of charts straight on the page, no backdrop or
  * borders.
  *
- * - Revenue, expenses and net profit are line cards over the chosen range:
+ * - Revenue, expenses and net profit are line charts over the chosen range:
  *   the total, its change against the comparison and the comparison's total,
- *   then the chart. The pills drive them.
- * - Receivables and payables by age and cash per account are breakdown cards,
- *   as of today, so the range does not change them.
+ *   then the chart. The pills drive every chart that follows the dashboard.
+ * - Receivables and payables by age and cash per account are breakdowns, as
+ *   of today, so the range does not change them.
+ *
+ * Those six are only the default: every chart is one entry of the user's list
+ * (`useDashboardCharts`). "Add chart" and a chart's "Edit" open the chart
+ * builder; "Edit" on the heading turns the grid into a draft whose charts can
+ * be dragged to a new place or taken off, then saved or cancelled.
  */
 
 import { useMemo, useState } from 'react';
-import type { Dashboard, DashboardAgingBucket } from '@/lib/api/domains/weldbooks';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { LayoutGrid, Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@weldsuite/ui/components/button';
+import { EmptyStateIllustration } from '@/components/entity-list';
+import type { Dashboard } from '@/lib/api/domains/weldbooks';
+import { useDashboardCharts } from '@/hooks/queries/use-weldbooks-dashboard-charts';
 import { useI18n } from '@/lib/i18n/provider';
-import { BreakdownList, type BreakdownItem } from './breakdown-list';
-import { ComparisonLineChart } from './comparison-line-chart';
-import { dashboardTrend, percentChange, rangeSeries, type Compare, type Metric, type TrendMonth } from './dashboard-series';
+import { useRouter } from '@/lib/router';
+import { CustomChartCard, SortableChartCard } from './custom-chart-card';
+import type { DashboardChart } from './custom-charts';
+import { dashboardTrend, type Compare } from './dashboard-series';
 import { FilterPill } from './filter-pill';
-import { OverviewCard } from './overview-card';
-import { useChartFormat } from './use-chart-format';
 
 type Range = '3' | '6' | '12';
 
-const BUCKETS: DashboardAgingBucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
-/** Not due in the chart colour, then Stripe's warning-to-danger ramp as invoices age. */
-const BUCKET_COLORS: Record<DashboardAgingBucket, string> = {
-  current: 'var(--chart-1)',
-  '1-30': '#f5b900',
-  '31-60': '#ed6704',
-  '61-90': '#df1b41',
-  '90+': '#a3123a',
-};
-const ACCOUNT_COLORS = ['var(--chart-1)', 'var(--chart-2)', '#00a2b8', '#8d7ffa', '#ed6704'];
+export const CHART_BUILDER_PATH = '/weldbooks/dashboard/builder';
+
+const GRID = 'grid gap-x-12 gap-y-14 md:grid-cols-2 lg:grid-cols-3';
 
 export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
   const { t } = useI18n();
   const tc = t.accounting.dashboard.charts;
+  const tb = t.accounting.dashboard.builder;
+  const router = useRouter();
   const [range, setRange] = useState<Range>('12');
   const [compareChoice, setCompareChoice] = useState<Compare | 'off'>('previousPeriod');
   const compare = compareChoice === 'off' ? null : compareChoice;
   const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
+  const { charts, removeChart, setCharts, restoreChart, isSaving } = useDashboardCharts();
+  const filter = useMemo(() => ({ size: Number(range), compare }), [range, compare]);
+  /** The layout being edited; `null` while the overview is not being edited. */
+  const [draft, setDraft] = useState<DashboardChart[] | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const rangeOptions = [
     { value: '3' as const, label: tc.last3Months },
@@ -51,180 +73,141 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
     { value: 'previousYear' as const, label: tc.previousYear, short: tc.vsPreviousYear },
     { value: 'off' as const, label: tc.compareOff, short: tc.noComparisonShort },
   ];
+  const body = { dashboard, months, sample, filter };
+  const addChart = () => router.push(CHART_BUILDER_PATH);
+
+  const remove = (id: string) => {
+    const index = charts.findIndex((c) => c.id === id);
+    const removed = charts[index];
+    if (!removed) return;
+    const undo = () => restoreChart(removed, index).catch(() => toast.error(tb.saveFailed));
+    removeChart(id).then(
+      () => toast.success(tb.chartRemoved, { action: { label: tb.undo, onClick: undo } }),
+      () => toast.error(tb.saveFailed),
+    );
+  };
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    setDraft((current) => {
+      if (!current) return current;
+      const from = current.findIndex((c) => c.id === active.id);
+      const to = current.findIndex((c) => c.id === over.id);
+      return from < 0 || to < 0 ? current : arrayMove(current, from, to);
+    });
+  };
+
+  const saveLayout = async () => {
+    if (!draft) return;
+    try {
+      await setCharts(draft);
+      setDraft(null);
+      toast.success(tb.layoutSaved);
+    } catch {
+      toast.error(tb.saveFailed);
+    }
+  };
 
   return (
     <section className="space-y-14 pt-10">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b pb-4">
         <h2 className="text-2xl font-medium leading-6">{tc.overview}</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterPill
-            label={tc.dateRange}
-            value={range}
-            options={rangeOptions}
-            onChange={setRange}
-          />
-          <FilterPill
-            label={tc.compare}
-            value={compareChoice}
-            options={compareOptions}
-            onChange={setCompareChoice}
-          />
-        </div>
+        {draft ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDraft(null)}>
+              {tb.cancel}
+            </Button>
+            <Button size="sm" onClick={saveLayout} disabled={isSaving}>
+              {tb.save}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterPill label={tc.dateRange} value={range} options={rangeOptions} onChange={setRange} />
+            <FilterPill label={tc.compare} value={compareChoice} options={compareOptions} onChange={setCompareChoice} />
+            <Button variant="outline" size="sm" onClick={addChart}>
+              <Plus className="size-3.5" aria-hidden />
+              {tb.addChart}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setDraft(charts)}>
+              <LayoutGrid className="size-3.5" aria-hidden />
+              {tb.editLayout}
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="grid gap-x-12 gap-y-14 md:grid-cols-2 lg:grid-cols-3">
-        {(['revenue', 'expenses', 'profit'] as const).map((metric) => (
-          <MetricCard
-            key={metric}
-            metric={metric}
-            months={months}
-            sample={sample}
-            size={Number(range)}
-            compare={compare}
-          />
-        ))}
-        <AgingCard side="receivables" dashboard={dashboard} />
-        <AgingCard side="payables" dashboard={dashboard} />
-        <CashCard dashboard={dashboard} />
-      </div>
+      {draft && (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={draft.map((c) => c.id)} strategy={rectSortingStrategy}>
+            {draft.length === 0 ? (
+              <p className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">{tb.editEmpty}</p>
+            ) : (
+              <div className={GRID}>
+                {draft.map((chart) => (
+                  <SortableChartCard
+                    key={chart.id}
+                    chart={chart}
+                    onRemove={() => setDraft((current) => current?.filter((c) => c.id !== chart.id) ?? current)}
+                    {...body}
+                  />
+                ))}
+              </div>
+            )}
+          </SortableContext>
+        </DndContext>
+      )}
+
+      {!draft && charts.length === 0 && (
+        <div className="flex flex-col items-center py-6 text-center">
+          <ChartsIllustration />
+          <h3 className="mb-1.5 text-[15px] font-semibold">{tb.emptyTitle}</h3>
+          <p className="mb-5 text-sm text-muted-foreground">{tb.emptyDescription}</p>
+          <Button size="sm" onClick={addChart}>
+            <Plus className="size-4" aria-hidden />
+            {tb.addChart}
+          </Button>
+        </div>
+      )}
+
+      {!draft && charts.length > 0 && (
+        <div className={GRID}>
+          {charts.map((chart) => (
+            <CustomChartCard
+              key={chart.id}
+              chart={chart}
+              onEdit={() => router.push(`${CHART_BUILDER_PATH}?chartId=${encodeURIComponent(chart.id)}`)}
+              onRemove={() => remove(chart.id)}
+              {...body}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function MetricCard({
-  metric,
-  months,
-  sample,
-  size,
-  compare,
-}: Readonly<{ metric: Metric; months: TrendMonth[]; sample: boolean; size: number; compare: Compare | null }>) {
-  const { t } = useI18n();
-  const tc = t.accounting.dashboard.charts;
-  const format = useChartFormat();
-  const series = useMemo(() => rangeSeries(months, metric, size, compare), [months, metric, size, compare]);
-  // A month the API has no figure for draws as zero, like a month with nothing booked: the card
-  // always shows a line, never an empty state. The sample trend only draws the lines: the figures
-  // stay the workspace's own, "—" while nothing is booked.
-  const total = sample ? null : (series.total ?? 0);
-  const compareTotal = sample ? null : series.compareTotal;
-  const points = useMemo(() => series.points.map((p) => ({ ...p, value: p.value ?? 0 })), [series.points]);
-
-  const titles: Record<Metric, string> = { revenue: tc.revenue, expenses: tc.expenses, profit: tc.netProfit };
-  const infos: Record<Metric, string> = { revenue: tc.info.revenue, expenses: tc.info.expenses, profit: tc.info.profit };
-  const change = percentChange(sample ? null : series.total, compareTotal);
-  const compareText = compare === 'previousYear' ? tc.previousYearValue : tc.previousPeriodValue;
-
+/** A small bar chart on the house dashed grid. */
+function ChartsIllustration() {
+  const bars = [34, 52, 42, 66, 58];
   return (
-    <OverviewCard title={titles[metric]} info={infos[metric]} to="/weldbooks/reports/profit-loss">
-      <div className="flex items-baseline gap-2">
-        <span className={`text-xl tabular-nums ${(total ?? 0) < 0 ? 'text-destructive' : ''}`}>
-          {total === null ? '—' : format.formatMoney(total)}
-        </span>
-        {change !== null && (
-          <span className={`text-sm tabular-nums ${changeTone(metric, change)}`}>{format.percent(change)}</span>
-        )}
-      </div>
-      {compare && (
-        <p className="mt-0.5 text-sm tabular-nums text-muted-foreground">
-          {compareTotal === null ? tc.noComparison : compareText.replace('{amount}', format.formatMoney(compareTotal))}
-        </p>
-      )}
-      <ComparisonLineChart
-        variant="card"
-        points={points}
-        label={titles[metric]}
-        compareLabel={compare === 'previousYear' ? tc.previousYear : tc.previousPeriod}
-        formatTick={format.monthYear}
-        className="mt-4 aspect-auto h-[250px] w-full"
-      />
-    </OverviewCard>
-  );
-}
-
-/** Up is good for revenue and profit and bad for expenses; no change stays muted. */
-function changeTone(metric: Metric, change: number): string {
-  if (change === 0) return 'text-muted-foreground';
-  const good = metric === 'expenses' ? change < 0 : change > 0;
-  return good ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive';
-}
-
-function AgingCard({
-  side,
-  dashboard,
-}: Readonly<{ side: 'receivables' | 'payables'; dashboard: Dashboard }>) {
-  const { t } = useI18n();
-  const tc = t.accounting.dashboard.charts;
-  const { formatMoney } = useChartFormat();
-  const summary = dashboard[side];
-
-  const items = useMemo<BreakdownItem[]>(() => {
-    const labels: Record<DashboardAgingBucket, string> = {
-      current: tc.aging.current,
-      '1-30': tc.aging.days.replace('{range}', '1–30'),
-      '31-60': tc.aging.days.replace('{range}', '31–60'),
-      '61-90': tc.aging.days.replace('{range}', '61–90'),
-      '90+': tc.aging.days.replace('{range}', '90+'),
-    };
-    const item = (key: string, label: string, amount: number, color: string) => ({
-      key,
-      label,
-      amount,
-      display: formatMoney(amount),
-      color,
-    });
-    if (summary?.aging) {
-      return BUCKETS.map((b) => item(b, labels[b], Number(summary.aging?.[b].total ?? 0), BUCKET_COLORS[b]));
-    }
-    // An API without buckets still has the outstanding and overdue totals.
-    const overdue = Number(summary?.overdue ?? 0);
-    return [
-      item('current', tc.aging.current, Number(summary?.outstanding ?? 0) - overdue, BUCKET_COLORS.current),
-      item('overdue', tc.aging.overdue, overdue, BUCKET_COLORS['61-90']),
-    ];
-  }, [summary, tc.aging, formatMoney]);
-
-  const receivables = side === 'receivables';
-  return (
-    <OverviewCard
-      title={receivables ? tc.receivablesByAge : tc.payablesByAge}
-      info={receivables ? tc.info.receivables : tc.info.payables}
-      to={receivables ? '/weldbooks/reports/aged-receivables' : '/weldbooks/reports/aged-payables'}
-    >
-      <BreakdownList items={items} />
-    </OverviewCard>
-  );
-}
-
-function CashCard({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
-  const { t } = useI18n();
-  const td = t.accounting.dashboard;
-  const { formatMoney } = useChartFormat();
-  const base = dashboard.currency;
-
-  // Balances are in each account's currency: only base-currency accounts share the bar.
-  const items = (dashboard.bankAccounts ?? []).map((account, index): BreakdownItem => {
-    const amount = Number(account.currentBalance ?? 0);
-    const inBase = !account.currency || !base || account.currency === base;
-    return {
-      key: account.id,
-      label: account.name,
-      amount: inBase ? amount : 0,
-      display: formatMoney(amount, account.currency ?? undefined),
-      color: inBase ? ACCOUNT_COLORS[index % ACCOUNT_COLORS.length] : 'var(--muted-foreground)',
-    };
-  });
-
-  return (
-    <OverviewCard
-      title={td.charts.cash}
-      info={td.charts.info.cash}
-      to="/weldbooks/banking"
-    >
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{td.noBankAccounts}</p>
-      ) : (
-        <BreakdownList items={items} />
-      )}
-    </OverviewCard>
+    <EmptyStateIllustration>
+      <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="14" y="18" width="92" height="84" rx="8" className="fill-white stroke-gray-200 dark:fill-white/[0.03] dark:stroke-white/15" strokeWidth="1" />
+        <rect x="24" y="28" width="34" height="4" rx="2" className="fill-gray-200 dark:fill-white/15" />
+        <path d="M24 90H96" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
+        {bars.map((height, i) => (
+          <rect
+            key={height}
+            x={28 + i * 14}
+            y={90 - height * 0.75}
+            width="8"
+            height={height * 0.75}
+            rx="2"
+            className={i === bars.length - 2 ? 'fill-primary/60' : 'fill-gray-200 dark:fill-white/15'}
+          />
+        ))}
+      </svg>
+    </EmptyStateIllustration>
   );
 }
