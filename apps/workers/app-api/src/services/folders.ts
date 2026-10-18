@@ -2,9 +2,10 @@
  * Folders service — pure functions backing /api/folders/*.
  */
 
-import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { DriveGeneralAccess } from '@weldsuite/core-domain/drive-access';
 
 const { folders, files } = schema;
 
@@ -70,6 +71,7 @@ export interface UpdateFolderParams {
   parentId?: string | null;
   color?: string | null;
   icon?: string | null;
+  generalAccess?: DriveGeneralAccess;
 }
 
 export async function updateFolder(db: Database, id: string, params: UpdateFolderParams) {
@@ -84,6 +86,7 @@ export async function updateFolder(db: Database, id: string, params: UpdateFolde
   if (params.parentId !== undefined) updates.parentId = params.parentId;
   if (params.color !== undefined) updates.color = params.color;
   if (params.icon !== undefined) updates.icon = params.icon;
+  if (params.generalAccess !== undefined) updates.generalAccess = params.generalAccess;
   await db.update(folders).set(updates).where(eq(folders.id, id));
   const [row] = await db.select().from(folders).where(eq(folders.id, id)).limit(1);
   return row!;
@@ -104,6 +107,15 @@ export async function softDeleteFolder(db: Database, id: string) {
 // ============================================================================
 // Trash
 // ============================================================================
+
+export async function getTrashedFolder(db: Database, id: string) {
+  const [row] = await db
+    .select()
+    .from(folders)
+    .where(and(eq(folders.id, id), isNotNull(folders.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
 
 export function listTrashedFolders(db: Database) {
   return Promise.resolve(
@@ -130,8 +142,33 @@ export async function restoreFolder(db: Database, id: string) {
 }
 
 /**
+ * Every file directly in the given folders, trashed or not: what a purge of
+ * those folders hard-deletes. Carries the fields the Drive sharing rules read,
+ * so the route can refuse a purge that would take files the caller may not
+ * change, and the R2 keys to clean up.
+ */
+export function listFilesInFolders(db: Database, folderIds: string[]) {
+  if (folderIds.length === 0) return Promise.resolve([]);
+  return Promise.resolve(
+    db
+      .select({
+        id: files.id,
+        uploadedById: files.uploadedById,
+        folderId: files.folderId,
+        generalAccess: files.generalAccess,
+        entityType: files.entityType,
+        fileKey: files.fileKey,
+        storagePath: files.storagePath,
+      })
+      .from(files)
+      .where(inArray(files.folderId, folderIds)),
+  );
+}
+
+/**
  * Hard delete a folder and every file inside it. Returns the folder row
- * and the file R2 keys so the route can clean up R2 before deleting rows.
+ * and its files so the route can check access and clean up R2 before
+ * deleting rows.
  */
 export async function loadFolderFilesForPurge(db: Database, folderId: string) {
   const [folder] = await db
@@ -140,10 +177,7 @@ export async function loadFolderFilesForPurge(db: Database, folderId: string) {
     .where(and(eq(folders.id, folderId), isNotNull(folders.deletedAt)))
     .limit(1);
   if (!folder) return null;
-  const folderFiles = await db
-    .select({ fileKey: files.fileKey, storagePath: files.storagePath })
-    .from(files)
-    .where(eq(files.folderId, folderId));
+  const folderFiles = await listFilesInFolders(db, [folderId]);
   return { folder, folderFiles };
 }
 

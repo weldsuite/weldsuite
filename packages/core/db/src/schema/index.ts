@@ -42,6 +42,7 @@ export * from './workflow-error-logs';
 export * from './pending-uploads';
 export * from './files';
 export * from './folders';
+export * from './drive-shares';
 export * from './sheets';
 export * from './docs';
 export * from './document-versions';

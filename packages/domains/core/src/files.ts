@@ -151,6 +151,8 @@ export interface UpdateFileParams {
   isPublic?: boolean;
   /** The Details panel description (HTML), kept in `metadata.description`; null or '' clears it. */
   description?: string | null;
+  /** Who besides the people it is shared with may open it (see `./drive-access`). */
+  generalAccess?: (typeof schema.files.$inferSelect)['generalAccess'];
 }
 
 /** The description a file row carries in its metadata, or null. */
@@ -194,6 +196,7 @@ export async function updateFile(
   if (params.folderId !== undefined) updates.folderId = params.folderId;
   if (params.isStarred !== undefined) updates.isStarred = params.isStarred;
   if (params.isPublic !== undefined) updates.isPublic = params.isPublic;
+  if (params.generalAccess !== undefined) updates.generalAccess = params.generalAccess;
   if (params.description !== undefined) {
     const metadata = { ...existing.metadata };
     delete metadata.description;
@@ -337,6 +340,15 @@ export function listTrashedFiles(db: Database) {
       .where(isNotNull(files.deletedAt))
       .orderBy(desc(files.deletedAt))
   );
+}
+
+export async function getTrashedFile(db: Database, id: string) {
+  const [row] = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, id), isNotNull(files.deletedAt)))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function restoreFile(db: Database, id: string) {

@@ -10,6 +10,7 @@ import type {
   DriveStatsResponse,
   DriveTrash,
 } from '../schemas/drive';
+import type { SharedWithMe } from '../schemas/drive-shares';
 
 export function createDriveApi(api: ClientApi) {
   return {
@@ -37,6 +38,10 @@ export function createDriveApi(api: ClientApi) {
     },
     emptyTrash(): Promise<DataResponse<{ emptied: boolean }>> {
       return api.delete<DataResponse<{ emptied: boolean }>>('/drive/trash/empty');
+    },
+    /** Files and folders teammates shared with the caller (Shared with me). */
+    shared(): Promise<DataResponse<SharedWithMe>> {
+      return api.get<DataResponse<SharedWithMe>>('/drive/shared');
     },
   };
 }

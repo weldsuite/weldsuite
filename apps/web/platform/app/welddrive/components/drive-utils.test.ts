@@ -49,6 +49,7 @@ function folder(id: string, name: string, parentId: string | null): DriveFolder 
     id,
     name,
     parentId,
+    generalAccess: 'workspace_edit',
     color: null,
     icon: null,
     createdById: null,

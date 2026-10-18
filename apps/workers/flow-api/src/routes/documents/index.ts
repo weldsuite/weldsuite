@@ -28,6 +28,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import * as documentsService from '../../services/documents';
 import * as documentVersionsService from '../../services/document-versions';
 import * as filesService from '@weldsuite/core-domain/files';
+import { canEdit, containerRole, fileRole, loadDriveAccessForUser } from '@weldsuite/core-domain/drive-access';
 import { buildEmptyDocx } from '../../lib/office-templates';
 import { canAccessProject, canWriteProject } from '../../lib/project-access';
 
@@ -37,23 +38,40 @@ type DocumentCtx = Context<{ Bindings: Env; Variables: Variables }>;
 
 const PROJECT_DENIED = 'You are not a member of this project';
 const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
+const DRIVE_VIEW_ONLY = 'You can view this item but not change it';
 
 /**
- * Project-membership gate for a document addressed by its backing file id.
- * Project documents are `files` rows with entityType 'project' (entityId = the
- * project), so the `files:*` permission alone would let any workspace user read
- * or overwrite them. Reads need project access, writes need write access
- * (viewers are read-only). Files that do not belong to a project (drive
- * documents) pass; null when the caller may proceed, else the error response.
+ * Access gate for a document addressed by its backing file id, so the
+ * `files:*` permission alone does not let any workspace user read or
+ * overwrite it:
+ *   - project documents (`files` rows with entityType 'project', entityId =
+ *     the project): reads need project access, writes need write access
+ *     (viewers are read-only);
+ *   - drive documents (no entityType): the WeldDrive sharing rules
+ *     (`@weldsuite/core-domain/drive-access`); a hidden document is a 404.
+ * Null when the caller may proceed, else the error response.
  */
-async function guardProjectDocument(c: DocumentCtx, fileId: string, mode: 'read' | 'write'): Promise<Response | null> {
-  const [file] = await c
-    .get('tenantDb')
-    .select({ entityType: schema.files.entityType, entityId: schema.files.entityId })
+async function guardDocument(c: DocumentCtx, fileId: string, mode: 'read' | 'write'): Promise<Response | null> {
+  const db = c.get('tenantDb');
+  const [file] = await db
+    .select({
+      id: schema.files.id,
+      entityType: schema.files.entityType,
+      entityId: schema.files.entityId,
+      uploadedById: schema.files.uploadedById,
+      folderId: schema.files.folderId,
+      generalAccess: schema.files.generalAccess,
+    })
     .from(schema.files)
     .where(eq(schema.files.id, fileId))
     .limit(1);
-  if (file?.entityType !== 'project' || !file.entityId) return null;
+  if (!file) return null;
+  if (!file.entityType) {
+    const role = fileRole(await loadDriveAccessForUser(db, c.get('userId') ?? null), file);
+    if (!role) return error.notFound(c, 'Document', fileId);
+    return mode === 'write' && !canEdit(role) ? error.forbidden(c, DRIVE_VIEW_ONLY) : null;
+  }
+  if (file.entityType !== 'project' || !file.entityId) return null;
   if (mode === 'write') {
     return (await canWriteProject(c, file.entityId)) ? null : error.forbidden(c, PROJECT_WRITE_DENIED);
   }
@@ -77,7 +95,7 @@ const createVersionSchema = z.object({
 
 app.get('/:fileId', requirePermission('files:read'), async (c) => {
   const fileId = c.req.param('fileId');
-  const denied = await guardProjectDocument(c, fileId, 'read');
+  const denied = await guardDocument(c, fileId, 'read');
   if (denied) return denied;
   try {
     const row = await documentsService.getDocByFileId(c.get('tenantDb'), fileId);
@@ -104,6 +122,13 @@ app.post('/', requirePermission('files:create'), zValidator('json', createDocume
   const r2PublicUrl = c.env.R2_PUBLIC_URL || 'https://weldsuite-storage-test.weldsuite.org';
   const publicUrl = `${r2PublicUrl}/${fileKey}`;
   const db = c.get('tenantDb');
+
+  if (folderId) {
+    // A new document goes where the caller may add files.
+    const role = containerRole(await loadDriveAccessForUser(db, userId), folderId);
+    if (!role) return error.notFound(c, 'Folder', folderId);
+    if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
+  }
 
   try {
     const emptyDocx = buildEmptyDocx();
@@ -165,7 +190,7 @@ app.put(
 
     const { content } = c.req.valid('json');
     const db = c.get('tenantDb');
-    const denied = await guardProjectDocument(c, fileId, 'write');
+    const denied = await guardDocument(c, fileId, 'write');
     if (denied) return denied;
 
     try {
@@ -206,7 +231,7 @@ app.put(
 
 app.get('/:fileId/versions', requirePermission('files:read'), async (c) => {
   const fileId = c.req.param('fileId');
-  const denied = await guardProjectDocument(c, fileId, 'read');
+  const denied = await guardDocument(c, fileId, 'read');
   if (denied) return denied;
   try {
     const rows = await documentVersionsService.listVersions(c.get('tenantDb'), fileId);
@@ -227,7 +252,7 @@ app.post(
     if (!userId) return error.unauthorized(c);
     const { label } = c.req.valid('json');
     const db = c.get('tenantDb');
-    const denied = await guardProjectDocument(c, fileId, 'write');
+    const denied = await guardDocument(c, fileId, 'write');
     if (denied) return denied;
 
     try {
@@ -251,7 +276,7 @@ app.post(
 app.get('/:fileId/versions/:versionId', requirePermission('files:read'), async (c) => {
   const fileId = c.req.param('fileId');
   const versionId = c.req.param('versionId');
-  const denied = await guardProjectDocument(c, fileId, 'read');
+  const denied = await guardDocument(c, fileId, 'read');
   if (denied) return denied;
   try {
     const row = await documentVersionsService.getVersion(c.get('tenantDb'), fileId, versionId);
@@ -272,7 +297,7 @@ app.post(
     const userId = c.get('userId');
     if (!userId) return error.unauthorized(c);
     const db = c.get('tenantDb');
-    const denied = await guardProjectDocument(c, fileId, 'write');
+    const denied = await guardDocument(c, fileId, 'write');
     if (denied) return denied;
 
     try {

@@ -1,7 +1,6 @@
 ﻿import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
-import { useUser } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   Upload,
@@ -41,9 +40,9 @@ import { DriveRenameDialog } from './drive-rename-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { MoveToFolderDialog } from './move-to-folder-dialog';
 import { FileDetailPanel } from './file-detail-panel';
-import { ShareFileDialog } from './share-file-dialog';
+import { ShareDialog, type DriveShareTarget } from './share-dialog';
 import type { TaskComment } from '@/components/task-detail/task-detail-content';
-import { DriveFileCard, downloadFile, fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate } from './drive-file-card';
+import { DriveFileCard, DriveRestrictedIcon, downloadFile, fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate } from './drive-file-card';
 import { driveFileToUnified, driveItemLink, driveSourceKey, driveSourceLabel, isDriveUpload } from './drive-utils';
 import { copyText } from '@/lib/clipboard';
 import {
@@ -54,7 +53,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { DriveFolderCard } from './drive-folder-card';
-import { useAllFiles, useDriveFile, useDriveFiles, useDriveFolders, useAllDriveFolders, useStarDriveFile, useUpdateDriveFile, useDeleteDriveFile, useMoveDriveFile, useCreateDriveFile, useCreateDriveFolder, useUpdateDriveFolder, useDeleteDriveFolder, useDriveTrash, useRestoreDriveFile, useRestoreDriveFolder, usePermanentDeleteDriveFile, usePermanentDeleteDriveFolder, useEmptyDriveTrash } from '@/hooks/queries/use-drive-queries';
+import { useAllFiles, useDriveFile, useDriveFiles, useDriveFolders, useAllDriveFolders, useStarDriveFile, useUpdateDriveFile, useDeleteDriveFile, useMoveDriveFile, useCreateDriveFile, useCreateDriveFolder, useUpdateDriveFolder, useDeleteDriveFolder, useDriveTrash, useRestoreDriveFile, useRestoreDriveFolder, usePermanentDeleteDriveFile, usePermanentDeleteDriveFolder, useEmptyDriveTrash, useSharedWithMe } from '@/hooks/queries/use-drive-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import type { UnifiedFile, DriveFolder, DriveFilesParams } from '@/lib/api/domains/welddrive';
@@ -265,6 +264,7 @@ interface DriveRowMenuActions {
   onDeleteFile: (file: UnifiedFile) => void;
   onDetails: (file: UnifiedFile) => void;
   onShare: (file: UnifiedFile) => void;
+  onShareFolder: (folder: DriveFolder) => void;
   onRenameFolder: (folder: DriveFolder) => void;
   onDuplicateFolder: (folder: DriveFolder) => void;
   onMoveFolder: (folder: DriveFolder) => void;
@@ -335,6 +335,8 @@ function FileRowMenuContent({ file, isStarred, actions, align }: Readonly<{
   align: 'start' | 'end';
 }>) {
   const { t } = useI18n();
+  // A viewer opens and downloads; changing the file is for its owner and editors.
+  const canChange = file.accessRole !== 'viewer';
   return (
     <DropdownMenuContent align={align} className="w-52" sideOffset={4}>
       {file.isWeldDoc && (
@@ -366,14 +368,18 @@ function FileRowMenuContent({ file, isStarred, actions, align }: Readonly<{
         <Star className={cn("h-4 w-4 mr-0.5", isStarred && "fill-yellow-400 text-yellow-400")} />
         {isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => actions.onRename(file)}>
-        <Pencil className="h-4 w-4 mr-0.5" />
-        {t.welddrive.page.actions.rename}
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => actions.onMoveToFolder(file)}>
-        <FolderInput className="h-4 w-4 mr-0.5" />
-        {t.welddrive.page.actions.moveToFolder}
-      </DropdownMenuItem>
+      {canChange && (
+        <DropdownMenuItem onClick={() => actions.onRename(file)}>
+          <Pencil className="h-4 w-4 mr-0.5" />
+          {t.welddrive.page.actions.rename}
+        </DropdownMenuItem>
+      )}
+      {canChange && (
+        <DropdownMenuItem onClick={() => actions.onMoveToFolder(file)}>
+          <FolderInput className="h-4 w-4 mr-0.5" />
+          {t.welddrive.page.actions.moveToFolder}
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem onClick={() => actions.onCopyLink(file)}>
         <Link className="h-4 w-4 mr-0.5" />
         {t.welddrive.page.actions.copyLink}
@@ -382,14 +388,18 @@ function FileRowMenuContent({ file, isStarred, actions, align }: Readonly<{
         <UserPlus className="h-4 w-4 mr-0.5" />
         {t.welddrive.page.actions.share}
       </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem
-        className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-        onClick={() => actions.onDeleteFile(file)}
-      >
-        <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-        {t.welddrive.page.actions.moveToTrash}
-      </DropdownMenuItem>
+      {canChange && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+            onClick={() => actions.onDeleteFile(file)}
+          >
+            <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+            {t.welddrive.page.actions.moveToTrash}
+          </DropdownMenuItem>
+        </>
+      )}
     </DropdownMenuContent>
   );
 }
@@ -400,28 +410,40 @@ function FolderRowMenuContent({ folder, actions, align }: Readonly<{
   align: 'start' | 'end';
 }>) {
   const { t } = useI18n();
+  // A viewer opens the folder; changing it is for its owner and editors.
+  const canChange = folder.accessRole !== 'viewer';
   return (
     <DropdownMenuContent align={align} className="w-48" sideOffset={4}>
-      <DropdownMenuItem onClick={() => actions.onRenameFolder(folder)}>
-        <Pencil className="h-4 w-4 mr-0.5" />
-        {t.welddrive.page.actions.rename}
+      <DropdownMenuItem onClick={() => actions.onShareFolder(folder)}>
+        <UserPlus className="h-4 w-4 mr-0.5" />
+        {t.welddrive.page.actions.share}
       </DropdownMenuItem>
+      {canChange && (
+        <DropdownMenuItem onClick={() => actions.onRenameFolder(folder)}>
+          <Pencil className="h-4 w-4 mr-0.5" />
+          {t.welddrive.page.actions.rename}
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem onClick={() => actions.onDuplicateFolder(folder)}>
         <Copy className="h-4 w-4 mr-0.5" />
         {t.welddrive.page.actions.duplicate}
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => actions.onMoveFolder(folder)}>
-        <FolderInput className="h-4 w-4 mr-0.5" />
-        {t.welddrive.page.actions.moveToFolder}
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem
-        className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-        onClick={() => actions.onDeleteFolder(folder)}
-      >
-        <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
-        {t.welddrive.page.actions.moveToTrash}
-      </DropdownMenuItem>
+      {canChange && (
+        <>
+          <DropdownMenuItem onClick={() => actions.onMoveFolder(folder)}>
+            <FolderInput className="h-4 w-4 mr-0.5" />
+            {t.welddrive.page.actions.moveToFolder}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+            onClick={() => actions.onDeleteFolder(folder)}
+          >
+            <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+            {t.welddrive.page.actions.moveToTrash}
+          </DropdownMenuItem>
+        </>
+      )}
     </DropdownMenuContent>
   );
 }
@@ -513,6 +535,12 @@ function DriveDropOverlay({ visible, hasCurrentFolder }: Readonly<{ visible: boo
 
 type DriveTranslations = ReturnType<typeof useI18n>['t'];
 
+/** Is the open view still loading? Trash renders from its own query; Shared with me from the shares. */
+function viewIsLoading(view: DriveView, filesLoading: boolean, sharedLoading: boolean): boolean {
+  if (view === 'trash') return false;
+  return view === 'shared' ? sharedLoading : filesLoading;
+}
+
 function getDriveEmptyState(
   t: DriveTranslations,
   view: DriveView,
@@ -539,6 +567,13 @@ function getDriveEmptyState(
       description: t.welddrive.page.emptyState.noStarredDescription,
     };
   }
+  if (view === 'shared') {
+    return {
+      icon: illustration(UserPlus),
+      title: t.welddrive.page.emptyState.nothingShared,
+      description: t.welddrive.page.emptyState.nothingSharedDescription,
+    };
+  }
   return {
     icon: illustration(Folder),
     title: t.welddrive.page.emptyState.noFilesYet,
@@ -553,7 +588,6 @@ function getDriveEmptyState(
 export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderId: initialFolderId, fileId: linkedFileId, onFileLinkClosed }: Readonly<DrivePageProps>) {
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { user } = useUser();
 
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const sortBy = 'createdAt';
@@ -575,7 +609,9 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
   const [renameFolder, setRenameFolder] = useState<DriveFolder | null>(null);
   const [deleteFolder, setDeleteFolder] = useState<DriveFolder | null>(null);
   const [moveFolder, setMoveFolder] = useState<DriveFolder | null>(null);
-  const [shareFile, setShareFile] = useState<UnifiedFile | null>(null);
+  const [shareTarget, setShareTarget] = useState<DriveShareTarget | null>(null);
+  const handleShareFile = useCallback((file: UnifiedFile) => setShareTarget({ kind: 'file', file }), []);
+  const handleShareFolder = useCallback((folder: DriveFolder) => setShareTarget({ kind: 'folder', folder }), []);
   const [contextMenu, setContextMenu] = useState<{ item: DriveItem; x: number; y: number } | null>(null);
   const [confirmPurgeSelection, setConfirmPurgeSelection] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -776,6 +812,8 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
   const driveFilesQuery = useDriveFiles(!useAggregated ? buildParams() : undefined);
   const foldersQuery = useDriveFolders(showFolders ? currentFolderId : undefined);
   const allFoldersQuery = useAllDriveFolders();
+  // Shared with me: what teammates shared with the current user (drive_shares).
+  const sharedQuery = useSharedWithMe(sidebarView === 'shared');
   const allFolders = useMemo(() => allFoldersQuery.data?.data || [], [allFoldersQuery.data]);
 
   const activeQuery = useAggregated ? allFilesQuery : driveFilesQuery;
@@ -784,11 +822,12 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     () => (showFolders ? foldersQuery.data?.data : []) || [],
     [showFolders, foldersQuery.data]
   );
-  const folders = useMemo(
-    () => (isTrashView ? (trashData?.folders || []) : nonTrashFolders),
-    [isTrashView, trashData, nonTrashFolders]
-  );
-  const isLoading = isTrashView ? false : activeQuery.isLoading;
+  const folders = useMemo(() => {
+    if (isTrashView) return trashData?.folders || [];
+    if (sidebarView === 'shared') return sharedQuery.data?.folders || [];
+    return nonTrashFolders;
+  }, [isTrashView, trashData, sidebarView, sharedQuery.data, nonTrashFolders]);
+  const isLoading = viewIsLoading(sidebarView, activeQuery.isLoading, sharedQuery.isLoading);
 
   // Apply client-side view filters
   const files = useMemo(() => {
@@ -806,9 +845,8 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     }
 
     if (sidebarView === 'shared') {
-      // Drive files open to the whole workspace (no per-file sharing yet), so
-      // "shared with me" is what teammates added.
-      result = result.filter(f => !!f.uploadedById && f.uploadedById !== user?.id);
+      // Newest share first, as the API orders them.
+      return sharedQuery.data?.files || [];
     }
 
     if (sidebarView === 'trash') {
@@ -817,7 +855,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     }
 
     return result;
-  }, [rawFiles, sidebarView, trashData, user?.id]);
+  }, [rawFiles, sidebarView, trashData, sharedQuery.data]);
 
   const query = searchQuery.trim().toLowerCase();
   const items = useMemo(() => {
@@ -846,6 +884,11 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
   const currentDetailFile = useMemo(() => latestFile(detailFile), [latestFile, detailFile]);
 
   const handleFolderOpen = (folderId: string) => {
+    // A shared folder opens in My Drive, where its contents are listed.
+    if (sidebarView === 'shared') {
+      navigate({ to: '/welddrive', search: { folderId } });
+      return;
+    }
     setCurrentFolderId(folderId);
     clearSelection();
     setPage(1);
@@ -966,12 +1009,14 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
   }, []);
 
   const handleItemDoubleClick = useCallback((item: DriveItem) => {
-    if (item.kind === 'folder' && item._folder) {
+    if (item.kind === 'folder' && item._folder && sidebarView === 'shared') {
+      navigate({ to: '/welddrive', search: { folderId: item._folder.id } });
+    } else if (item.kind === 'folder' && item._folder) {
       toggleFolderExpanded(item._folder.id);
     } else if (item._file) {
       handleFileClick(item._file);
     }
-  }, [toggleFolderExpanded, handleFileClick]);
+  }, [sidebarView, navigate, toggleFolderExpanded, handleFileClick]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -1249,7 +1294,8 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     onCopyLink: handleCopyLink,
     onDeleteFile: handleDeleteFile,
     onDetails: setDetailFile,
-    onShare: setShareFile,
+    onShare: handleShareFile,
+    onShareFolder: handleShareFolder,
     onRenameFolder: setRenameFolder,
     onDuplicateFolder: handleDuplicateFolder,
     onMoveFolder: setMoveFolder,
@@ -1265,6 +1311,8 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     handleMoveToFolder,
     handleCopyLink,
     handleDeleteFile,
+    handleShareFile,
+    handleShareFolder,
     handleDuplicateFolder,
   ]);
 
@@ -1407,8 +1455,11 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
           )}
           <FileIcon className={cn('h-4 w-4 shrink-0', isFolder ? 'text-blue-500' : typeConfig.color)} />
           <div className="flex min-w-0 flex-col">
-            <span className="text-sm font-medium truncate text-gray-900 dark:text-foreground">
-              {item.name}
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="text-sm font-medium truncate text-gray-900 dark:text-foreground">
+                {item.name}
+              </span>
+              {(item._file?.effectiveAccess ?? item._folder?.effectiveAccess) === 'restricted' && <DriveRestrictedIcon />}
             </span>
             {/* Phones: the Type/Source/Size/Modified columns are hidden, so the
                 essentials move to a second line under the name. */}
@@ -1683,7 +1734,8 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
           onCopyLink={handleCopyLink}
           onDelete={handleDeleteFile}
           onDetails={(file) => setDetailFile(file)}
-          onShare={setShareFile}
+          onShare={handleShareFile}
+          onShareFolder={handleShareFolder}
           onRenameFolder={(f) => setRenameFolder(f)}
           onDuplicateFolder={handleDuplicateFolder}
           onMoveFolder={setMoveFolder}
@@ -1709,7 +1761,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         onCopyLink={handleCopyLink}
         onDelete={handleDeleteFile}
         onPreview={(file) => setPreviewFile(file)}
-        onShare={setShareFile}
+        onShare={handleShareFile}
         description={currentDetailFile?.description ?? ''}
         onDescriptionChange={currentDetailFile?.source === 'drive' ? handleDescriptionChange : undefined}
         comments={detailFile ? (fileComments[detailFile.id] || []) : []}
@@ -1757,10 +1809,10 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         onMoveToFolder={handleMoveToFolder}
         onCopyLink={handleCopyLink}
         onDelete={handleDeleteFile}
-        onShare={setShareFile}
+        onShare={handleShareFile}
       />
 
-      <ShareFileDialog file={shareFile} onOpenChange={(open) => { if (!open) setShareFile(null); }} />
+      <ShareDialog target={shareTarget} onOpenChange={(open) => { if (!open) setShareTarget(null); }} />
 
       <DriveRenameDialog
         open={!!renameFile}
@@ -1885,7 +1937,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         detailPanelOpen={!!detailFile}
         onRename={handleRename}
         onDetails={setDetailFile}
-        onShare={setShareFile}
+        onShare={handleShareFile}
         onDownload={handleBulkDownload}
         onStar={handleBulkStar}
         onMove={handleMoveToFolder}
@@ -2084,6 +2136,7 @@ function DriveGridView({
   onDelete,
   onDetails,
   onShare,
+  onShareFolder,
   onRenameFolder,
   onDuplicateFolder,
   onMoveFolder,
@@ -2112,6 +2165,7 @@ function DriveGridView({
   onDelete: (file: UnifiedFile) => void;
   onDetails: (file: UnifiedFile) => void;
   onShare: (file: UnifiedFile) => void;
+  onShareFolder?: (folder: DriveFolder) => void;
   onRenameFolder?: (folder: DriveFolder) => void;
   onDuplicateFolder?: (folder: DriveFolder) => void;
   onMoveFolder?: (folder: DriveFolder) => void;
@@ -2261,6 +2315,7 @@ function DriveGridView({
                         onDuplicate={onDuplicateFolder}
                         onMove={onMoveFolder}
                         onDelete={onDeleteFolder}
+                        onShare={onShareFolder}
                       />
                     ))}
                   </div>

@@ -1,21 +1,42 @@
 import { useUser } from '@clerk/clerk-react';
-import { cn } from '@/lib/utils';
-import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import { Building2, Eye, Loader2, Lock } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
+import type {
+  DriveGeneralAccess,
+  DriveItemSharing,
+  DriveSharePerson,
+  DriveShareRole,
+} from '@weldsuite/core-api-client/schemas/drive-shares';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
+import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDriveItemSharing } from '@/hooks/queries/use-drive-queries';
 import { driveLabelClass } from './drive-file-card';
+import { isDriveUpload } from './drive-utils';
 
-// Shape of a `/team-members` row as consumed here — see `useWorkspaceMembers`
-// for the full (visibility-projected) field set; only what this list reads.
-interface DriveAccessMember {
-  id?: string;
-  userId: string;
-  name: string;
-  picture?: string | null;
-}
+const REMOVE = '__remove__';
 
-function initials(name: string | null | undefined): string {
-  return (name || '?')
+const ROLE_LABEL_CLASS: Record<'owner' | DriveShareRole, string> = {
+  owner: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950',
+  editor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950',
+  viewer: 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary',
+};
+
+export const GENERAL_ACCESS_ICON: Record<DriveGeneralAccess, typeof Lock> = {
+  workspace_edit: Building2,
+  workspace_view: Eye,
+  restricted: Lock,
+};
+
+function initials(name: string): string {
+  return name
     .split(' ')
     .map((n) => n[0])
     .join('')
@@ -23,63 +44,174 @@ function initials(name: string | null | undefined): string {
     .toUpperCase();
 }
 
-function Avatar({ picture, name, className }: Readonly<{ picture?: string | null; name: string; className: string }>) {
-  if (picture) {
-    return <img src={picture} alt={name} className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />;
+export function personLabel(person: Pick<DriveSharePerson, 'name' | 'email' | 'userId'>): string {
+  return person.name || person.email || person.userId;
+}
+
+export function PersonAvatar({ person, className }: Readonly<{ person: Pick<DriveSharePerson, 'picture' | 'name' | 'email' | 'userId'>; className?: string }>) {
+  const name = personLabel(person);
+  if (person.picture) {
+    return <img src={person.picture} alt="" className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />;
   }
   return (
-    <div className={cn('w-[22px] h-[22px] rounded-[8px] flex items-center justify-center shrink-0', className)}>
+    <div className={cn('w-[22px] h-[22px] rounded-[8px] flex items-center justify-center shrink-0 bg-muted text-muted-foreground', className)}>
       <span className="text-[10px] font-semibold">{initials(name)}</span>
     </div>
   );
 }
 
-/**
- * Who can open a Drive file. Drive has no per-file permissions: the uploader
- * owns it and every workspace member with WeldDrive access can open it.
- */
-export function DriveAccessList({ file, limit = 5 }: Readonly<{ file: Pick<UnifiedFile, 'uploadedById'>; limit?: number }>) {
+function RoleLabel({ role }: Readonly<{ role: 'owner' | DriveShareRole }>) {
+  const { t } = useI18n();
+  return <span className={cn(driveLabelClass, 'shrink-0', ROLE_LABEL_CLASS[role])}>{t.welddrive.share.roles[role]}</span>;
+}
+
+interface AccessRow {
+  person: DriveSharePerson;
+  role: 'owner' | DriveShareRole;
+  /** Set for access through a folder above the item. */
+  viaFolder?: string;
+  /** A direct share the caller may change or remove. */
+  direct: boolean;
+}
+
+/** One row per person: the owner, the direct shares, then whoever only reaches it through a folder. */
+function accessRows(sharing: DriveItemSharing): AccessRow[] {
+  const rows: AccessRow[] = [];
+  const seen = new Set<string>();
+  if (sharing.owner) {
+    rows.push({ person: sharing.owner, role: 'owner', direct: false });
+    seen.add(sharing.owner.userId);
+  }
+  for (const share of sharing.shares) {
+    if (seen.has(share.userId)) continue;
+    rows.push({ person: share, role: share.role, direct: true });
+    seen.add(share.userId);
+  }
+  // Nearest folder first, so the first entry per person is the one that counts.
+  for (const share of sharing.inherited) {
+    if (seen.has(share.userId)) continue;
+    rows.push({ person: share, role: share.role, viaFolder: share.folderName, direct: false });
+    seen.add(share.userId);
+  }
+  return rows;
+}
+
+interface DriveAccessListProps {
+  sharing: DriveItemSharing;
+  /** Show at most this many people (the Details panel); everyone when unset. */
+  limit?: number;
+  /** Role pickers and Remove on direct shares (the Share dialog, for owners and editors). */
+  editable?: boolean;
+  onRoleChange?: (person: DriveSharePerson, role: DriveShareRole) => void;
+  onRemove?: (person: DriveSharePerson) => void;
+  disabled?: boolean;
+}
+
+/** The people who can open a Drive file or folder, and their roles. */
+export function DriveAccessList({ sharing, limit, editable = false, onRoleChange, onRemove, disabled }: Readonly<DriveAccessListProps>) {
   const { t } = useI18n();
   const { user } = useUser();
-  const { data: membersData } = useWorkspaceMembers();
-  const members = (membersData?.data || []) as DriveAccessMember[];
-  const owner = file.uploadedById ? members.find((m) => m.userId === file.uploadedById) || null : null;
-  const others = members.filter((m) => m.userId !== file.uploadedById && m.userId !== user?.id);
+  const rows = accessRows(sharing);
+  const shown = limit === undefined ? rows : rows.slice(0, limit);
 
   return (
     <div className="space-y-2.5">
-      {owner && (
-        <div className="flex items-center gap-2.5">
-          <Avatar picture={owner.picture} name={owner.name} className="bg-primary text-primary-foreground" />
-          <span className="flex-1 min-w-0 text-sm text-foreground truncate">{owner.name}</span>
-          <span className={cn(driveLabelClass, 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950')}>
-            {t.welddrive.fileDetail.accessRoles.owner}
-          </span>
-        </div>
-      )}
-      {user && owner?.userId !== user.id && (
-        <div className="flex items-center gap-2.5">
-          <Avatar picture={user.imageUrl} name={user.fullName || ''} className="bg-emerald-500 text-white" />
-          <span className="flex-1 min-w-0 text-sm text-foreground truncate">{user.fullName || t.welddrive.fileDetail.you}</span>
-          <span className={cn(driveLabelClass, 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950')}>
-            {t.welddrive.fileDetail.accessRoles.canEdit}
-          </span>
-        </div>
-      )}
-      {others.slice(0, limit).map((m) => (
-        <div key={m.userId || m.id} className="flex items-center gap-2.5">
-          <Avatar picture={m.picture} name={m.name} className="bg-muted text-muted-foreground" />
-          <span className="flex-1 min-w-0 text-sm text-foreground truncate">{m.name}</span>
-          <span className={cn(driveLabelClass, 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary')}>
-            {t.welddrive.fileDetail.accessRoles.canView}
-          </span>
-        </div>
-      ))}
-      {others.length > limit && (
+      {shown.map((row) => {
+        const isSelf = row.person.userId === user?.id;
+        const name = personLabel(row.person);
+        return (
+          <div key={row.person.userId} className="flex items-center gap-2.5">
+            <PersonAvatar
+              person={row.person}
+              className={row.role === 'owner' ? 'bg-primary text-primary-foreground' : undefined}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-foreground truncate">
+                {name}
+                {isSelf && <span className="ml-1 text-xs text-muted-foreground">{t.welddrive.share.youSuffix}</span>}
+              </p>
+              {row.viaFolder && (
+                <p className="text-xs text-muted-foreground truncate">
+                  {t.welddrive.share.viaFolder.replace('{folder}', row.viaFolder)}
+                </p>
+              )}
+            </div>
+            {row.direct && row.role !== 'owner' && (editable || isSelf) && onRoleChange && onRemove ? (
+              <Select
+                value={row.role}
+                disabled={disabled}
+                onValueChange={(next) => {
+                  if (next === REMOVE) onRemove(row.person);
+                  else onRoleChange(row.person, next as DriveShareRole);
+                }}
+              >
+                <SelectTrigger className="h-7 w-auto gap-1.5 px-2 text-xs" aria-label={name}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {/* Your own role is not yours to change, only to give up. */}
+                  {editable && !isSelf ? (
+                    <>
+                      <SelectItem value="editor">{t.welddrive.share.roles.editor}</SelectItem>
+                      <SelectItem value="viewer">{t.welddrive.share.roles.viewer}</SelectItem>
+                    </>
+                  ) : (
+                    <SelectItem value={row.role}>{t.welddrive.share.roles[row.role]}</SelectItem>
+                  )}
+                  <SelectSeparator />
+                  <SelectItem value={REMOVE} className="text-red-600 focus:text-red-600">
+                    {isSelf ? t.welddrive.share.leave : t.welddrive.share.removeAccess}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <RoleLabel role={row.role} />
+            )}
+          </div>
+        );
+      })}
+      {limit !== undefined && rows.length > limit && (
         <span className="text-xs text-muted-foreground pl-8">
-          {t.welddrive.fileDetail.moreMembers.replace('{count}', String(others.length - limit))}
+          {t.welddrive.fileDetail.moreMembers.replace('{count}', String(rows.length - limit))}
         </span>
       )}
+    </div>
+  );
+}
+
+/** The item's general access, as one line with its icon. */
+export function DriveGeneralAccessLine({ access }: Readonly<{ access: DriveGeneralAccess }>) {
+  const { t } = useI18n();
+  const Icon = GENERAL_ACCESS_ICON[access];
+  return (
+    <div className="flex items-start gap-2.5">
+      <div className="w-[22px] h-[22px] rounded-[8px] flex items-center justify-center shrink-0 bg-muted text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm text-foreground">{t.welddrive.share.generalAccessOptions[access]}</p>
+        <p className="text-xs text-muted-foreground">{t.welddrive.share.generalAccessHints[access]}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Who has access" in the Details panel: the people and the general access
+ * for a Drive file, or a note that a module's file follows that module.
+ */
+export function DriveFileAccess({ file, limit = 5 }: Readonly<{ file: UnifiedFile; limit?: number }>) {
+  const { t } = useI18n();
+  const item = isDriveUpload(file) ? ({ kind: 'file', id: file.id } as const) : null;
+  const { data: sharing, isLoading } = useDriveItemSharing(item);
+  if (!item) return <p className="text-xs text-muted-foreground">{t.welddrive.share.moduleFile}</p>;
+  if (isLoading || !sharing) {
+    return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+  }
+  return (
+    <div className="space-y-3">
+      <DriveAccessList sharing={sharing} limit={limit} />
+      <DriveGeneralAccessLine access={sharing.effectiveGeneralAccess} />
     </div>
   );
 }
