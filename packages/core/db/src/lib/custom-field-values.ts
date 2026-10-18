@@ -296,6 +296,24 @@ function toValueColumns(
 export class CustomFieldValidationError extends Error {}
 
 /**
+ * Validate a `{ [slug]: value }` map against its definitions without writing
+ * anything, so a route can refuse a bad value (400) before it touches the
+ * entity row. Same rules as {@link setValues}: unknown slugs are ignored, and
+ * an empty value passes unless `enforceRequired` is set. Throws
+ * {@link CustomFieldValidationError} on the first invalid value.
+ */
+export function assertValidCustomFieldValues(
+  definitions: CustomFieldDefinitionRow[],
+  values: CustomFieldMap,
+  enforceRequired = false,
+): void {
+  for (const def of definitions) {
+    if (!Object.hasOwn(values, def.slug)) continue;
+    normalizeFieldValue(def, def.slug, values[def.slug], enforceRequired);
+  }
+}
+
+/**
  * Upsert the given `{ [slug]: value }` map for an entity. Unknown slugs are
  * ignored; a `null`/empty value clears (deletes) that field's row. Values are
  * validated/coerced against their definitions — throws

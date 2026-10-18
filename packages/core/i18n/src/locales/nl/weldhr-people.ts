@@ -127,6 +127,7 @@ export const weldhrPeople = {
         location: 'Locatie',
         timezone: 'Tijdzone',
         weeklyHours: 'Uren per week',
+        customFields: 'Aangepaste velden',
         directReports: {
           title: 'Directe rapportages',
           empty: 'Geen directe rapportages.',

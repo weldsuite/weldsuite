@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -14,6 +14,8 @@ import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel }
 import { projectsApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCustomFields } from '@/hooks/use-custom-fields';
+import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 
 interface GeneralSectionProps {
   projectId: string;
@@ -50,6 +52,9 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
   const [iconLabel, setIconLabel] = useState<string | undefined>(undefined);
   const [colorOpen, setColorOpen] = useState(false);
   const [iconOpen, setIconOpen] = useState(false);
+  const [customFields, setCustomFields] = useState<Record<string, unknown> | undefined>(undefined);
+  // Settings › Custom Fields › Projects; the block is hidden when there are none.
+  const { data: customFieldDefs } = useCustomFields('project');
   // A ref, not state: renaming must not re-run the autosave effect below.
   const originalNameRef = useRef('');
 
@@ -70,6 +75,7 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
         setDueDate(p.endDate ? new Date(p.endDate) : undefined);
         setColor(p.color || undefined);
         setIconLabel(p.icon || undefined);
+        setCustomFields(p.customFields ?? undefined);
       } else {
         toast.error(res.error || t.projects.settings.failedToLoadProject);
       }
@@ -135,6 +141,14 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
     // effect (and schedule a spurious save) on every locale switch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, description, status, priority, dueDate, color, iconLabel, loading, isAdmin, projectId]);
+
+  // Custom fields save on their own (each field commits when edited), outside
+  // the debounced autosave of the fields above. The section shows the error toast.
+  const handleSaveCustomFields = useCallback(async (next: Record<string, unknown>) => {
+    const result = await projectsApi.update(projectId, { customFields: next });
+    if (!result.success) throw new Error(result.error || t.projects.settings.failedToSaveChanges);
+    setCustomFields(next);
+  }, [projectId, t]);
 
   if (loading) return <PageLoader fullScreen={false} />;
 
@@ -293,6 +307,19 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
               </Popover>
             </div>
           </div>
+
+        {(customFieldDefs?.length ?? 0) > 0 && (
+          <div className="space-y-2">
+            <Label className="text-[13px]">{t.projects.settings.customFieldsLabel}</Label>
+            <CustomFieldsSidebarSection
+              entityType="project"
+              values={customFields}
+              onSave={handleSaveCustomFields}
+              readOnly={disabled}
+              hideHeader
+            />
+          </div>
+        )}
 
         {isAdmin && (
           <p className="text-xs text-muted-foreground" role="status" aria-live="polite">

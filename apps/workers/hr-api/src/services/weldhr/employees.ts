@@ -10,6 +10,14 @@
 import { and, asc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { escapeLikeTerm } from '@weldsuite/db/lib/custom-objects';
+import {
+  CustomFieldValidationError,
+  assertValidCustomFieldValues,
+  getDefinitionsForEntityType,
+  hydrateCustomFields,
+  syncValuesForEntity,
+  type CustomFieldDefinitionRow,
+} from '@weldsuite/db/lib/custom-field-values';
 import type {
   HrEmployee,
   HrEmployeeSensitive,
@@ -19,6 +27,9 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { HrConflictError, HrNotFoundError, HrValidationError, assertDateOrder, companyNames, todayIso } from './shared';
 
 const t = schema.hrEmployees;
+
+/** `custom_field_definitions.entity_type` for employees (Settings › Custom Fields › Employees). */
+export const EMPLOYEE_CUSTOM_FIELD_ENTITY = 'employee';
 
 export type PublicEmployee = Omit<HrEmployee, 'sensitiveEncrypted'> & {
   hasSensitive: boolean;
@@ -86,7 +97,9 @@ export async function activeClientsFor(db: Database, employeeIds: string[], on: 
   return out;
 }
 
-async function decorate(db: Database, rows: HrEmployee[]): Promise<EmployeeListItem[]> {
+async function decorate(db: Database, rawRows: HrEmployee[]): Promise<EmployeeListItem[]> {
+  // customFields is read from the typed values table, overlaid on the blob.
+  const rows = await hydrateCustomFields(db, EMPLOYEE_CUSTOM_FIELD_ENTITY, rawRows);
   const departmentIds = [...new Set(rows.map((r) => r.departmentId).filter((v): v is string => Boolean(v)))];
   const managerIds = [...new Set(rows.map((r) => r.managerId).filter((v): v is string => Boolean(v)))];
 
@@ -380,6 +393,27 @@ export type EmployeeWriteInput = {
 };
 
 /**
+ * Check `customFields` against the employee definitions before anything is
+ * written, so a bad value is a 400 rather than a blob the typed table refuses.
+ * Returns the definitions to reuse for the write, or null when the input does
+ * not touch custom fields.
+ */
+async function prepareCustomFields(
+  db: Database,
+  customFields: Record<string, unknown> | undefined,
+): Promise<CustomFieldDefinitionRow[] | null> {
+  if (customFields === undefined) return null;
+  const definitions = await getDefinitionsForEntityType(db, EMPLOYEE_CUSTOM_FIELD_ENTITY);
+  try {
+    assertValidCustomFieldValues(definitions, customFields);
+  } catch (err) {
+    if (err instanceof CustomFieldValidationError) throw new HrValidationError(err.message);
+    throw err;
+  }
+  return definitions;
+}
+
+/**
  * Every employee is a member of this workspace: `userId` must be an active
  * INTERNAL or EMPLOYEE member who isn't linked to another employee yet.
  * (Rows from before this rule may still have no `userId`; they keep working
@@ -399,6 +433,8 @@ export async function createEmployee(
   await assertEmailFree(db, input.email);
   await assertManager(db, input.managerId);
 
+  const definitions = await prepareCustomFields(db, input.customFields);
+
   const id = generateId('hremp');
   const sensitiveEncrypted =
     opts.sensitive && opts.keyring ? await encryptSensitive(opts.sensitive, opts.keyring) : null;
@@ -415,6 +451,7 @@ export async function createEmployee(
       createdBy: opts.createdBy,
     })
     .returning();
+  if (definitions) await syncValuesForEntity(db, EMPLOYEE_CUSTOM_FIELD_ENTITY, id, input.customFields, generateId, definitions);
   return row!;
 }
 
@@ -471,12 +508,16 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     await requireActiveWorkspaceMember(db, input.userId);
     await assertUserIdFree(db, input.userId, id);
   }
+  const definitions = await prepareCustomFields(db, input.customFields);
 
   const [row] = await db
     .update(t)
     .set({ ...input, updatedAt: new Date() })
     .where(eq(t.id, id))
     .returning();
+  // Dual-write: the blob above stays the source of truth; mirror it into the
+  // typed values table that reads are hydrated from (DATA-012).
+  if (definitions) await syncValuesForEntity(db, EMPLOYEE_CUSTOM_FIELD_ENTITY, id, input.customFields, generateId, definitions);
   return row!;
 }
 

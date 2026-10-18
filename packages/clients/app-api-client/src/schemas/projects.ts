@@ -33,6 +33,12 @@ export const createProjectSchema = z.object({
   color: z.string().max(50).optional(),
   icon: z.string().max(100).optional(),
   metadata: z.unknown().optional(),
+  /**
+   * `{ [slug]: value }` for the workspace's project custom fields (Settings ›
+   * Custom Fields › Projects). The full set: a field left out is cleared.
+   * Stored in `custom_field_values` only; `projects` has no blob column.
+   */
+  customFields: z.record(z.unknown()).nullable().optional(),
 }).passthrough();
 export const updateProjectSchema = createProjectSchema.partial();
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;

@@ -127,6 +127,7 @@ export const weldhrPeople = {
         location: 'Location',
         timezone: 'Timezone',
         weeklyHours: 'Weekly hours',
+        customFields: 'Custom fields',
         directReports: {
           title: 'Direct reports',
           empty: 'No direct reports.',

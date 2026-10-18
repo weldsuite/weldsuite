@@ -1495,6 +1495,7 @@ export const projects = {
       savingChanges: 'Saving…',
       changesSaved: 'All changes saved',
       autoSaveHint: 'Changes are saved automatically.',
+      customFieldsLabel: 'Custom fields',
       changeColorTitle: 'Change color',
       changeIconTitle: 'Change icon',
       // Status options
