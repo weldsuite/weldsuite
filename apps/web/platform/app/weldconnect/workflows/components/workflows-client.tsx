@@ -24,12 +24,17 @@ import {
   RotateCcw,
   PencilLine,
 } from 'lucide-react';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  WorkflowListRow,
-  type WorkflowListItem,
-  type WorkflowListAction,
-  type WorkflowTriggerVariant,
-} from '@weldsuite/ui/components/workflow-list';
+  ConnectListRow,
+  ConnectRowCell,
+  ConnectRowMenu,
+  DESTRUCTIVE_MENU_ITEM,
+  RowDate,
+  RowTitle,
+  StatusChip,
+  type ChipTone,
+} from '../../components/connect-list-row';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useDeleteWorkflow, useUpdateWorkflow, useUpdateWorkflowStatus, useDuplicateWorkflow, useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
@@ -98,12 +103,100 @@ interface WorkflowsClientProps {
 
 // Trigger type → shared-component color variant. Labels are resolved from
 // i18n inside the component (see `triggerLabels`).
-const triggerConfig: Record<string, { variant: WorkflowTriggerVariant }> = {
-  manual: { variant: 'manual' },
-  schedule: { variant: 'schedule' },
-  webhook: { variant: 'webhook' },
-  entity_event: { variant: 'event' },
+const triggerTones: Record<string, ChipTone> = {
+  manual: 'gray',
+  schedule: 'blue',
+  webhook: 'purple',
+  entity_event: 'indigo',
 };
+
+interface WorkflowRowAction {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  onSelect: () => void;
+  separatorBefore?: boolean;
+  destructive?: boolean;
+  hidden?: boolean;
+}
+
+/**
+ * One workflow row, in the WeldFlow task-row style: selection checkbox, a
+ * single-line title, a trigger chip, a status chip, a mono date and a hover
+ * three-dot menu, at the task row's fixed 53px height.
+ */
+function WorkflowRow({
+  name,
+  triggerLabel,
+  triggerTone,
+  status,
+  statusLabel,
+  lastModified,
+  selected,
+  selectLabel,
+  onSelectChange,
+  onOpen,
+  actions,
+  actionsLabel,
+}: Readonly<{
+  name: string;
+  triggerLabel: string;
+  triggerTone: ChipTone;
+  status: string;
+  statusLabel: string;
+  lastModified: string;
+  selected: boolean;
+  selectLabel: string;
+  onSelectChange: (checked: boolean) => void;
+  onOpen: () => void;
+  actions: WorkflowRowAction[];
+  actionsLabel: string;
+}>) {
+  return (
+    <ConnectListRow
+      label={name}
+      onOpen={onOpen}
+      selected={selected}
+      menu={
+        <ConnectRowMenu label={actionsLabel}>
+          {actions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <React.Fragment key={action.id}>
+                {action.separatorBefore && <DropdownMenuSeparator />}
+                <DropdownMenuItem onClick={action.onSelect} className={cn(action.destructive && DESTRUCTIVE_MENU_ITEM)}>
+                  <Icon className="mr-2 h-4 w-4" />
+                  {action.label}
+                </DropdownMenuItem>
+              </React.Fragment>
+            );
+          })}
+        </ConnectRowMenu>
+      }
+    >
+      <div className="relative z-[1] flex w-4 flex-shrink-0 items-center">
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(checked) => onSelectChange(checked === true)}
+          aria-label={selectLabel}
+          className="h-4 w-4"
+        />
+      </div>
+      <ConnectRowCell width="min-w-[250px] flex-1">
+        <RowTitle>{name}</RowTitle>
+      </ConnectRowCell>
+      <ConnectRowCell width="w-[150px]">
+        <StatusChip tone={triggerTone}>{triggerLabel}</StatusChip>
+      </ConnectRowCell>
+      <ConnectRowCell width="w-[110px]">
+        <StatusChip status={status}>{statusLabel}</StatusChip>
+      </ConnectRowCell>
+      <ConnectRowCell width="w-[120px]">
+        <RowDate>{lastModified}</RowDate>
+      </ConnectRowCell>
+    </ConnectListRow>
+  );
+}
 
 type WorkflowsClientCopy = ReturnType<typeof useI18n>['t']['weldconnect']['workflowsClient'];
 
@@ -608,41 +701,29 @@ export function WorkflowsClient({
     return result;
   }, []);
 
-  // Header columns. A leading empty cell keeps the header aligned with the
-  // per-row selection checkbox.
+  // Header columns. Like the task list, the first header starts at the left
+  // edge, above the row checkbox; the flex column absorbs the checkbox width.
   const headerColumns: HeaderColumn[] = useMemo(() => [
-    { id: 'select', header: '', width: 'w-4' },
     { id: 'name', header: entityLabel, width: 'flex-1 min-w-[250px]' },
-    { id: 'trigger', header: t.weldconnect.workflows.columns.trigger, width: 'w-[120px]' },
+    { id: 'trigger', header: t.weldconnect.workflows.columns.trigger, width: 'w-[150px]' },
     { id: 'status', header: t.weldconnect.workflows.columns.status, width: 'w-[110px]' },
     { id: 'lastModified', header: t.weldconnect.workflows.columns.lastModified, width: 'w-[120px]' },
   ], [entityLabel, t]);
 
   const rowOpenPath = useCallback((id: string) => `${basePath}/${id}/edit`, [basePath]);
 
-  // Render row — the visual shell comes from the shared @weldsuite/ui
-  // WorkflowListRow; this maps the domain Workflow onto its props.
+  // Render row — the task-row styled WorkflowRow above.
   const renderRow = useCallback((workflow: Workflow) => {
     const triggerKey = workflow.triggerType?.toLowerCase() || 'manual';
     // A workflow without a trigger yet is not a "Manual" one.
     const fallbackTriggerLabel = workflow.triggerType
       ? getTriggerLabel(t, triggerKey)
       : t.weldconnect.workflowsClient.noTrigger;
-    const item: WorkflowListItem = {
-      id: workflow.id,
-      name: workflow.name,
-      description: workflow.description,
-      status: workflow.status,
-      triggerLabel: triggerLabelFn ? triggerLabelFn(workflow.triggerType || '') : fallbackTriggerLabel,
-      // Custom trigger labels render in the teal "event" style, matching the
-      // previous design; otherwise use the per-type color.
-      triggerVariant: triggerLabelFn
-        ? 'event'
-        : triggerConfig[triggerKey]?.variant || 'manual',
-      lastActivityLabel: formatDate(workflow.updatedAt ?? null),
-    };
+    const triggerLabel = triggerLabelFn ? triggerLabelFn(workflow.triggerType || '') : fallbackTriggerLabel;
+    // Custom trigger labels keep the "event" tone; otherwise use the per-type tone.
+    const triggerTone: ChipTone = triggerLabelFn ? 'indigo' : triggerTones[triggerKey] ?? 'gray';
 
-    const actions: WorkflowListAction[] = [
+    const actions: WorkflowRowAction[] = [
       {
         id: 'open',
         label: category === 'workflow'
@@ -657,7 +738,7 @@ export function WorkflowsClient({
             label: t.weldconnect.workflows.actions.rename,
             icon: PencilLine,
             onSelect: () => setRenameTarget({ id: workflow.id, name: workflow.name }),
-          } satisfies WorkflowListAction]
+          } satisfies WorkflowRowAction]
         : []),
       {
         id: 'duplicate',
@@ -670,7 +751,7 @@ export function WorkflowsClient({
         label: t.weldconnect.workflows.actions.activate,
         icon: Play,
         separatorBefore: true,
-        hidden: () => workflow.status === 'active',
+        hidden: workflow.status === 'active',
         onSelect: () => handleActivate(workflow.id),
       },
       {
@@ -678,7 +759,7 @@ export function WorkflowsClient({
         label: t.weldconnect.workflows.actions.pause,
         icon: Pause,
         separatorBefore: true,
-        hidden: () => workflow.status !== 'active',
+        hidden: workflow.status !== 'active',
         onSelect: () => handlePause(workflow.id),
       },
       {
@@ -692,14 +773,20 @@ export function WorkflowsClient({
     ];
 
     return (
-      <WorkflowListRow
+      <WorkflowRow
         key={workflow.id}
-        item={item}
-        actions={actions}
-        onSelectItem={() => router.push(rowOpenPath(workflow.id))}
-        selectable
+        name={workflow.name}
+        triggerLabel={triggerLabel}
+        triggerTone={triggerTone}
+        status={workflow.status}
+        statusLabel={t.weldconnect.workflows.statuses[workflow.status] ?? workflow.status}
+        lastModified={formatDate(workflow.updatedAt ?? null)}
         selected={selectedIds.has(workflow.id)}
+        selectLabel={workflow.name}
         onSelectChange={(checked) => toggleSelect(workflow.id, checked)}
+        onOpen={() => router.push(rowOpenPath(workflow.id))}
+        actions={actions.filter((a) => !a.hidden)}
+        actionsLabel={t.common.actions.openMenu}
       />
     );
   }, [router, category, t, handleDelete, handleActivate, handlePause, handleDuplicate, triggerLabelFn, selectedIds, toggleSelect, formatDate, rowOpenPath]);

@@ -1,42 +1,42 @@
-import { Badge } from '@weldsuite/ui/components/badge';
 import { AlertCircle, Ban, CheckCircle2, Clock, Hourglass, Loader2, SkipForward, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { normalizeExecutionStatus } from '../execution-utils';
+import { StatusChip, type ChipTone } from '../../components/connect-list-row';
 
-const statusConfig: Record<string, { icon: React.ElementType; className: string }> = {
+const statusConfig: Record<string, { icon: React.ElementType; tone: ChipTone }> = {
   queued: {
     icon: Clock,
-    className: 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground',
+    tone: 'gray',
   },
   running: {
     icon: Loader2,
-    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+    tone: 'blue',
   },
   // Paused on an approval step until someone decides.
   waiting_for_input: {
     icon: Hourglass,
-    className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+    tone: 'amber',
   },
   completed: {
     icon: CheckCircle2,
-    className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+    tone: 'green',
   },
   failed: {
     icon: XCircle,
-    className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+    tone: 'red',
   },
   cancelled: {
     icon: Ban,
-    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+    tone: 'amber',
   },
   timeout: {
     icon: AlertCircle,
-    className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+    tone: 'red',
   },
   skipped: {
     icon: SkipForward,
-    className: 'bg-gray-100 text-gray-800 dark:bg-secondary dark:text-muted-foreground',
+    tone: 'gray',
   },
 };
 
@@ -45,7 +45,7 @@ interface ExecutionStatusBadgeProps {
   className?: string;
 }
 
-/** The run-status pill used by the executions list and the dashboard's recent activity. */
+/** The run-status chip (task-row style) used by the executions list and the dashboard's recent activity. */
 export function ExecutionStatusBadge({ status, className }: Readonly<ExecutionStatusBadgeProps>) {
   const { t } = useI18n();
   const normalized = normalizeExecutionStatus(status);
@@ -54,12 +54,11 @@ export function ExecutionStatusBadge({ status, className }: Readonly<ExecutionSt
   const label = (t.weldconnect.executions.statuses as Record<string, string>)[normalized] ?? normalized;
 
   return (
-    <Badge
-      variant="outline"
-      className={cn('text-xs font-medium rounded-md border-transparent inline-flex items-center', config.className, className)}
-    >
-      <Icon className={cn('h-3 w-3 mr-1', normalized === 'running' && 'animate-spin')} />
-      {label}
-    </Badge>
+    <span className={cn('inline-flex', className)}>
+      <StatusChip tone={config.tone}>
+        <Icon className={cn('h-3 w-3 mr-1', normalized === 'running' && 'animate-spin')} />
+        {label}
+      </StatusChip>
+    </span>
   );
 }
