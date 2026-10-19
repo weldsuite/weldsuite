@@ -29,20 +29,61 @@ async function getClerkClient() {
 
 // Billing is managed via billing-worker (Stripe)
 
+// ============ Tenant Pool Cache ============
+//
+// One WebSocket Pool per workspace, reused across requests. A pool is tied to
+// the connection it was opened for: when the workspace's database coordinates
+// or stored URL change (a database move, a password rotation), or the pool
+// gets old, it is closed and a new one is opened. Pool sessions survive a
+// password rotation on Neon, so without this a long-lived process would keep
+// writing to a database that was moved away (TASK-1150, ADR DATA-016).
+
+interface CachedTenantPool {
+  db: NeonDatabase<typeof tenantSchema>;
+  pool: Pool;
+  /** The workspace's connection coordinates when the pool was opened. */
+  fingerprint: string;
+  createdAt: number;
+}
+
+/** Recycle pools at the same pace the workspace info below refreshes. */
+const POOL_MAX_AGE_MS = 5 * 60 * 1000;
+
 // Global singleton to prevent connection leaks during hot reload in development
-const globalForDedicatedDb = globalThis as unknown as {
-  dedicatedDbCache: Map<string, NeonDatabase<typeof tenantSchema>> | undefined;
-  dedicatedPoolCache: Map<string, Pool> | undefined;
+const globalForTenantPools = globalThis as unknown as {
+  tenantPoolCache: Map<string, CachedTenantPool> | undefined;
 };
 
-// Cache for dedicated database connections (to avoid creating new connections per request)
-const dedicatedDbCache = globalForDedicatedDb.dedicatedDbCache ?? new Map<string, NeonDatabase<typeof tenantSchema>>();
-const dedicatedPoolCache = globalForDedicatedDb.dedicatedPoolCache ?? new Map<string, Pool>();
+const tenantPoolCache = globalForTenantPools.tenantPoolCache ?? new Map<string, CachedTenantPool>();
 
 if (process.env.NODE_ENV !== 'production') {
-  globalForDedicatedDb.dedicatedDbCache = dedicatedDbCache;
-  globalForDedicatedDb.dedicatedPoolCache = dedicatedPoolCache;
+  globalForTenantPools.tenantPoolCache = tenantPoolCache;
 }
+
+type WorkspaceConnection = Pick<
+  typeof workspaces.$inferSelect,
+  'id' | 'neonProjectId' | 'neonBranchId' | 'neonRoleName' | 'neonDatabaseName' | 'databaseUrl'
+>;
+
+/** Changes whenever the workspace points at another database or its stored URL changes. */
+function connectionFingerprint(workspace: WorkspaceConnection): string {
+  return [
+    workspace.neonProjectId,
+    workspace.neonBranchId,
+    workspace.neonRoleName,
+    workspace.neonDatabaseName ?? '',
+    workspace.databaseUrl ?? '',
+  ].join('|');
+}
+
+function closeTenantPool(entry: CachedTenantPool): void {
+  // In-flight queries finish; idle and released clients are closed.
+  entry.pool.end().catch((error: unknown) => {
+    console.warn('Closing a tenant pool failed:', error instanceof Error ? error.message : error);
+  });
+}
+
+// ============ End Tenant Pool Cache ============
 
 // ============ Workspace Info Cache ============
 
@@ -238,10 +279,57 @@ export async function getTenantInfo(clerkOrgId: string): Promise<TenantInfo | nu
   };
 }
 
-// Create a Neon Pool-backed tenant DB connection
-function createTenantPool(databaseUrl: string): NeonDatabase<typeof tenantSchema> {
+/**
+ * Return the workspace's pooled tenant DB, opening a new pool when there is
+ * none, when the workspace now points at another database or URL, or when the
+ * cached pool is older than {@link POOL_MAX_AGE_MS}.
+ */
+async function getOrCreateTenantPool(workspace: WorkspaceConnection): Promise<NeonDatabase<typeof tenantSchema>> {
+  const fingerprint = connectionFingerprint(workspace);
+  const existing = tenantPoolCache.get(workspace.id);
+  if (existing && existing.fingerprint === fingerprint && Date.now() - existing.createdAt < POOL_MAX_AGE_MS) {
+    return existing.db;
+  }
+  if (existing) {
+    tenantPoolCache.delete(workspace.id);
+    closeTenantPool(existing);
+  }
+
+  const { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: storedUrl } = workspace;
+  if (!neonProjectId || !neonBranchId || !neonRoleName) {
+    throw new Error('Workspace has no database configured');
+  }
+  const databaseUrl = await resolveDatabaseUrl(
+    process.env.NEON_API_KEY!,
+    { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: storedUrl },
+    { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
+  );
+
   const pool = new Pool({ connectionString: databaseUrl });
-  return drizzle({ client: pool, schema: tenantSchema });
+  // An idle client whose session is ended server-side (a terminated backend
+  // during a database move, a compute restart) emits 'error' on the pool.
+  // Unhandled, that event would crash the process.
+  pool.on('error', (error: Error) => {
+    console.warn(`Tenant pool for ${workspace.id} lost a client:`, error.message);
+  });
+  const db = drizzle({ client: pool, schema: tenantSchema });
+  tenantPoolCache.set(workspace.id, { db, pool, fingerprint, createdAt: Date.now() });
+  return db;
+}
+
+/**
+ * Close a workspace's pooled tenant DB and forget its cached workspace info,
+ * so the next call reads the master DB again and opens a fresh pool. Use it
+ * when a tenant query fails because the database moved or its password changed.
+ */
+export function evictTenantDb(workspaceId: string, clerkOrgId?: string | null): void {
+  const entry = tenantPoolCache.get(workspaceId);
+  if (entry) {
+    tenantPoolCache.delete(workspaceId);
+    closeTenantPool(entry);
+  }
+  workspaceInfoCache.delete(`ws:${workspaceId}`);
+  if (clerkOrgId) workspaceInfoCache.delete(`org:${clerkOrgId}`);
 }
 
 // Get the appropriate database for a tenant (with auto-provisioning)
@@ -293,27 +381,10 @@ export async function getTenantDb(clerkOrgId: string) {
   }
 
   // Every workspace must have its own database - no shared database fallback
-  const { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl } = workspace;
-  if (!neonProjectId || !neonBranchId || !neonRoleName) {
-    throw new Error('Workspace has no database configured');
-  }
-
-  // Get or create dedicated database connection
-  let dedicatedDb = dedicatedDbCache.get(workspace.id);
-
-  // Invalidate pool if workspace now has a databaseUrl but pool was created via Neon API fallback
-  if (!dedicatedDb) {
-    const databaseUrl = await resolveDatabaseUrl(
-      process.env.NEON_API_KEY!,
-      { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl },
-      { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
-    );
-    dedicatedDb = createTenantPool(databaseUrl);
-    dedicatedDbCache.set(workspace.id, dedicatedDb);
-  }
+  const db = await getOrCreateTenantPool(workspace);
 
   return {
-    db: dedicatedDb,
+    db,
     workspaceId: workspace.id,
     tier,
   };
@@ -349,26 +420,10 @@ export async function getTenantDbByWorkspaceId(workspaceId: string) {
     }
   }
 
-  const { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl } = workspace;
-  if (!neonProjectId || !neonBranchId || !neonRoleName) {
-    throw new Error('Workspace has no database configured');
-  }
-
-  // Get or create dedicated database connection
-  let dedicatedDb = dedicatedDbCache.get(workspaceId);
-
-  if (!dedicatedDb) {
-    const databaseUrl = await resolveDatabaseUrl(
-      process.env.NEON_API_KEY!,
-      { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl },
-      { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
-    );
-    dedicatedDb = createTenantPool(databaseUrl);
-    dedicatedDbCache.set(workspaceId, dedicatedDb);
-  }
+  const db = await getOrCreateTenantPool(workspace);
 
   return {
-    db: dedicatedDb,
+    db,
     workspaceId: workspace.id,
     tier,
   };

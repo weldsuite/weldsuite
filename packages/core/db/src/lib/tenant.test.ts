@@ -1,8 +1,34 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // The master DB is replaced by a chainable fake that resolves queued results.
 const queue: unknown[][] = [];
 const insertSpy = vi.fn();
+
+// Pools are fakes that record how they were opened and closed.
+const { pools } = vi.hoisted(() => ({
+  pools: [] as Array<{ connectionString: string; ended: boolean; events: string[] }>,
+}));
+
+vi.mock('@neondatabase/serverless', () => {
+  class Pool {
+    connectionString: string;
+    ended = false;
+    events: string[] = [];
+    constructor(options: { connectionString: string }) {
+      this.connectionString = options.connectionString;
+      pools.push(this);
+    }
+    on(event: string) {
+      this.events.push(event);
+      return this;
+    }
+    end() {
+      this.ended = true;
+      return Promise.resolve();
+    }
+  }
+  return { Pool, neonConfig: {} };
+});
 
 vi.mock('./master', () => {
   const chain = {
@@ -25,11 +51,23 @@ vi.mock('./neon-resolve', () => ({
   resolveDatabaseUrl: async () => 'postgres://fake',
 }));
 
-import { getExistingTenantDb, isTenantNotFoundError, TenantNotFoundError } from './tenant';
+import {
+  evictTenantDb,
+  getExistingTenantDb,
+  getTenantDb,
+  getTenantDbByWorkspaceId,
+  isTenantNotFoundError,
+  TenantNotFoundError,
+} from './tenant';
 
 beforeEach(() => {
   queue.length = 0;
   insertSpy.mockClear();
+  pools.length = 0;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('getExistingTenantDb', () => {
@@ -94,5 +132,73 @@ describe('getExistingTenantDb · workspace cache', () => {
     queue.push([], [{ workspace: phantom, plan: null }]);
     await expect(getExistingTenantDb('org_doesnotexist')).rejects.toSatisfy(isTenantNotFoundError);
     expect(insertSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('tenant pool cache', () => {
+  const workspace = (id: string, databaseUrl: string) => ({
+    id,
+    clerkOrgId: `org_${id}`,
+    isActive: true,
+    databaseUrl,
+    neonProjectId: 'p',
+    neonBranchId: 'b',
+    neonRoleName: 'r',
+    neonDatabaseName: 'd',
+  });
+
+  it('reuses one pool while the workspace connection is unchanged', async () => {
+    queue.push([{ workspace: workspace('ws_reuse', 'enc:1'), plan: null }]);
+    const first = await getTenantDbByWorkspaceId('ws_reuse');
+    const second = await getTenantDbByWorkspaceId('ws_reuse');
+    expect(second.db).toBe(first.db);
+    expect(pools).toHaveLength(1);
+    expect(pools[0]!.ended).toBe(false);
+  });
+
+  it('handles errors from idle pool clients instead of crashing', async () => {
+    queue.push([{ workspace: workspace('ws_errors', 'enc:1'), plan: null }]);
+    await getTenantDbByWorkspaceId('ws_errors');
+    expect(pools[0]!.events).toContain('error');
+  });
+
+  it('closes the old pool and opens a new one when the stored database URL changes', async () => {
+    // The workspace-id path caches enc:1; the org path then reads the master DB
+    // and finds the database moved (enc:2) for the same workspace.
+    queue.push([{ workspace: workspace('ws_moved', 'enc:1'), plan: null }]);
+    const before = await getTenantDbByWorkspaceId('ws_moved');
+    queue.push([{ workspace: workspace('ws_moved', 'enc:2'), plan: null }]);
+    const after = await getTenantDb('org_ws_moved');
+    expect(after.db).not.toBe(before.db);
+    expect(pools).toHaveLength(2);
+    expect(pools[0]!.ended).toBe(true);
+    expect(pools[1]!.ended).toBe(false);
+  });
+
+  it('recycles a pool older than five minutes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-19T10:00:00Z'));
+    queue.push([{ workspace: workspace('ws_old', 'enc:1'), plan: null }]);
+    const first = await getTenantDbByWorkspaceId('ws_old');
+
+    vi.setSystemTime(new Date('2026-10-19T10:06:00Z'));
+    // The workspace info expired too, so the master DB is read again (unchanged).
+    queue.push([{ workspace: workspace('ws_old', 'enc:1'), plan: null }]);
+    const second = await getTenantDbByWorkspaceId('ws_old');
+    expect(second.db).not.toBe(first.db);
+    expect(pools.map((p) => p.ended)).toEqual([true, false]);
+  });
+
+  it('evictTenantDb closes the pool and makes the next call read the master DB again', async () => {
+    queue.push([{ workspace: workspace('ws_evict', 'enc:1'), plan: null }]);
+    await getTenantDbByWorkspaceId('ws_evict');
+    evictTenantDb('ws_evict', 'org_ws_evict');
+    expect(pools[0]!.ended).toBe(true);
+
+    // Nothing cached any more: with an empty queue the master DB returns no row.
+    await expect(getTenantDbByWorkspaceId('ws_evict')).rejects.toThrow('Workspace not found or inactive');
+    queue.push([{ workspace: workspace('ws_evict', 'enc:2'), plan: null }]);
+    await getTenantDbByWorkspaceId('ws_evict');
+    expect(pools).toHaveLength(2);
   });
 });
