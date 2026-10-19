@@ -113,6 +113,8 @@ export interface WorkflowCanvasLabels {
   addStep?: string;
   /** Labels of the branch nodes under a condition or a loop. */
   branchLabels?: BranchLabels;
+  /** Summary on a locked trigger node (a CRM sequence's "person enrolled" start). */
+  lockedTriggerSummary?: string;
 }
 
 /** Labels of the branch nodes the canvas draws under a condition or a loop. */
@@ -185,4 +187,5 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
     conditionNotMet: 'Condition not met',
     forEachItem: 'For each item',
   },
+  lockedTriggerSummary: 'Person added to sequence',
 };

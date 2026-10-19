@@ -32,7 +32,7 @@ export function EditorWizardNav({
 
   return (
     <div className="bg-background border-b flex-shrink-0 relative z-10">
-      <div className="px-2 md:px-4 py-2.5">
+      <div className="@container px-2 md:px-4 py-2.5">
         <div className="flex items-center justify-between gap-2">
           {/*
            * The tabs give way first: at ~960px the editor's action buttons (Save,
@@ -65,8 +65,14 @@ export function EditorWizardNav({
                       )}
                     >
                       <StepIcon className="h-3.5 w-3.5" />
-                      {/* Below sm only the active tab keeps its text, so the editor's action buttons fit next to the tabs. */}
-                      <span className={cn(!isActive && 'hidden sm:inline')}>{step.label}</span>
+                      {/*
+                       * When the bar is narrower than 48rem only the active tab keeps
+                       * its text (the others show their icon, with the label as
+                       * tooltip), so the editor's action buttons fit next to the tabs.
+                       * Measured on the bar, not the viewport: the module sidebar
+                       * takes ~260px, so at a 960px window the bar is only ~650px.
+                       */}
+                      <span className={cn(!isActive && 'hidden @3xl:inline')}>{step.label}</span>
                     </Link>
                     <div
                       className={cn(

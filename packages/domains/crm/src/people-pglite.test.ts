@@ -74,6 +74,15 @@ describe('people service · pglite integration', () => {
     expect(first.id).toBe(second.id);
   });
 
+  it('listPeople sorts names case-insensitively', async () => {
+    await createPerson(db, { firstName: 'zoe', lastName: 'Casesort' });
+    await createPerson(db, { firstName: 'Bram', lastName: 'Casesort' });
+    await createPerson(db, { firstName: 'anna', lastName: 'Casesort' });
+
+    const asc = await listPeople(db, { search: 'Casesort', sort: 'name', sortDir: 'asc', limit: 50 });
+    expect(asc.data.map((r) => r.displayName)).toEqual(['anna Casesort', 'Bram Casesort', 'zoe Casesort']);
+  });
+
   it('deletePerson hides the row from getPerson + listPeople', async () => {
     const p = await createPerson(db, { firstName: 'Vanishing', lastName: 'P' });
     await deletePerson(db, p.id);
