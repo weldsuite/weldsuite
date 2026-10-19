@@ -82,6 +82,18 @@ describe('companies service · pglite integration', () => {
     expect(r2.data.find((r) => r.vatNumber === 'NL999')).toBeTruthy();
   });
 
+  it('listCompanies sorts names case-insensitively', async () => {
+    await createCompany(db, { name: 'zeta Casesort' });
+    await createCompany(db, { name: 'Beta Casesort' });
+    await createCompany(db, { name: 'alpha Casesort' });
+
+    const asc = await listCompanies(db, { search: 'Casesort', sort: 'name', sortDir: 'asc', limit: 50 });
+    expect(asc.data.map((r) => r.displayName)).toEqual(['alpha Casesort', 'Beta Casesort', 'zeta Casesort']);
+
+    const desc = await listCompanies(db, { search: 'Casesort', sort: 'name', sortDir: 'desc', limit: 50 });
+    expect(desc.data.map((r) => r.displayName)).toEqual(['zeta Casesort', 'Beta Casesort', 'alpha Casesort']);
+  });
+
   it('deleteCompany hides the row from getCompany + listCompanies', async () => {
     const c = await createCompany(db, { name: 'Vanishing Co' });
     await deleteCompany(db, c.id);

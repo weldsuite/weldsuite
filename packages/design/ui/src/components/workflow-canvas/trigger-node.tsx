@@ -110,7 +110,7 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   };
 
   const description = nodeData.locked
-    ? (desc?.sequenceAdded ?? 'Contact added to sequence')
+    ? (nodeData.lockedSummary ?? desc?.sequenceAdded ?? 'Person added to sequence')
     : getDescription();
 
   return (

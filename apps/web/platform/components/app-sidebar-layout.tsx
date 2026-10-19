@@ -1225,6 +1225,18 @@ export function AppSidebarLayout({
     }
   }, [hideScrollbar, menuItems, state])
 
+  // Keep the current page's item in view. On a short window the footer
+  // (credits, checklist, invite, user) leaves little room for the list, and an
+  // item added at the bottom (a new pipeline or list, which also becomes the
+  // current page) would otherwise sit below the fold until the user scrolls.
+  // `menuItems` is a dependency so the item is found once it has rendered.
+  React.useEffect(() => {
+    const el = scrollContentRef.current
+    if (!el) return
+    const active = el.querySelector<HTMLElement>('[data-active="true"]')
+    active?.scrollIntoView({ block: "nearest" })
+  }, [pathname, menuItems])
+
   // Drag-and-drop sensors for sidebar reordering
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })

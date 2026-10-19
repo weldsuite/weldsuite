@@ -302,9 +302,14 @@ function resolveBuiltInCompanySort(sort: string | undefined): AnyPgColumn | null
   }
 }
 
-/** `ORDER BY <column> ASC|DESC NULLS LAST` — blank cells always sort last. */
+/**
+ * `ORDER BY <column> ASC|DESC NULLS LAST` — blank cells always sort last.
+ * Text columns sort case-insensitively: the database compares bytes, which put
+ * every lowercase name ("acme") after every capitalised one ("Zeta").
+ */
 function orderByNullsLast(column: AnyPgColumn, direction: 'asc' | 'desc'): SQL {
-  return direction === 'asc' ? sql`${column} ASC NULLS LAST` : sql`${column} DESC NULLS LAST`;
+  const key = column.dataType === 'string' ? sql`lower(${column}::text)` : sql`${column}`;
+  return direction === 'asc' ? sql`${key} ASC NULLS LAST` : sql`${key} DESC NULLS LAST`;
 }
 
 export async function listCompanies(

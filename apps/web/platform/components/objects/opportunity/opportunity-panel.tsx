@@ -57,6 +57,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { MemberPropertyRow, PropertyRow } from '@/components/objects/_shared/property-row';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { ComingSoonTab } from '@/components/objects/_shared/coming-soon-tab';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -808,16 +809,22 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
     );
   }, [opportunity, loseMut, t]);
 
+  // Delete asks first, like notes, tasks and files: the kebab item only opens
+  // the confirmation, the dialog's button does the DELETE.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const handleDelete = useCallback(() => {
+    if (opportunity) setConfirmDeleteOpen(true);
+  }, [opportunity]);
+  const confirmDelete = useCallback(async () => {
     if (!opportunity) return;
-    deleteMut.mutate(opportunity.id, {
-      onSuccess: () => {
-        toast.success(t('sweep.entities.opportunityDeleted'));
-        onClose();
-      },
-      onError: (err: unknown) =>
-        toast.error(err instanceof Error ? err.message : t('sweep.entities.deleteFailed')),
-    });
+    try {
+      await deleteMut.mutateAsync(opportunity.id);
+      setConfirmDeleteOpen(false);
+      toast.success(t('sweep.entities.opportunityDeleted'));
+      onClose();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('sweep.entities.deleteFailed'));
+    }
   }, [opportunity, deleteMut, onClose, t]);
 
   const initial: OpportunityTab['id'] = useMemo(() => {
@@ -886,6 +893,17 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
             label={OPPORTUNITY_TABS.find((tab) => tab.id === activeTab)?.label ?? t('sweep.entities.comingSoon')}
           />
         )}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={t('sweep.entities.deleteDealTitle')}
+        description={t('sweep.entities.deleteDealDescription', { name: opportunity?.name ?? '' })}
+        variant="destructive"
+        confirmLabel={t('sweep.entities.delete')}
+        cancelLabel={t('sweep.entities.cancel')}
+        loading={deleteMut.isPending}
+        onConfirm={confirmDelete}
+      />
     </EntityDetailView>
   );
 }

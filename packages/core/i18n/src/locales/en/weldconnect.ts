@@ -2037,6 +2037,7 @@ export const weldconnect = {
     zoomOut: 'Zoom out',
     resetLayout: 'Reset layout',
     setupRequired: 'Setup required',
+    lockedTriggerSummary: 'Person added to sequence',
     selectTrigger: 'Select Trigger',
     triggerLabels: {
       trigger: 'Trigger',
