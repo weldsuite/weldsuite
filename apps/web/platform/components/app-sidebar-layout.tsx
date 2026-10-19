@@ -119,6 +119,8 @@ export interface MenuItemProps {
   activeCallId?: string;
   /** Callback when the active call icon is clicked */
   onJoinCall?: () => void;
+  /** The user is in this row's call: while its page is open, the row turns green. */
+  inCall?: boolean;
   /**
    * Optional permission key (format: `object:action`, e.g. `leads:read`), or a
    * list of keys where any one is enough. When set, the item is only shown to
@@ -755,7 +757,8 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
     <div
       className={cn(
         "group/item relative flex items-center justify-between rounded-md transition-colors hover:bg-accent",
-        item.activeCall && "bg-[linear-gradient(155deg,transparent_30%,rgb(74_222_128/0.04)_55%,rgb(74_222_128/0.10)_80%,rgb(74_222_128/0.18)_100%)] hover:bg-[linear-gradient(155deg,transparent_25%,rgb(74_222_128/0.06)_55%,rgb(74_222_128/0.14)_80%,rgb(74_222_128/0.22)_100%)]"
+        item.inCall && isActive && "bg-green-400/[0.03] hover:bg-green-400/[0.05] dark:bg-green-400/[0.04] dark:hover:bg-green-400/[0.06]",
+        item.activeCall && !(item.inCall && isActive) && "bg-[linear-gradient(155deg,transparent_30%,rgb(74_222_128/0.04)_55%,rgb(74_222_128/0.10)_80%,rgb(74_222_128/0.18)_100%)] hover:bg-[linear-gradient(155deg,transparent_25%,rgb(74_222_128/0.06)_55%,rgb(74_222_128/0.14)_80%,rgb(74_222_128/0.22)_100%)]"
       )}
     >
       <SidebarMenuButton
@@ -763,6 +766,8 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
         isActive={isActive}
         className={cn(
           "flex-1 hover:bg-transparent",
+          // On the open page of the call you're in, green replaces the grey active fill.
+          item.inCall && isActive && "data-[active=true]:bg-green-400/[0.04] data-[active=true]:text-green-700 dark:data-[active=true]:bg-green-400/[0.05] dark:data-[active=true]:text-[color-mix(in_oklab,var(--color-green-400),var(--color-green-500))]",
           // Discord-style: shrink the title's available width while
           // the absolute-positioned dots button is on screen, so a
           // long channel name gets truncated earlier instead of
@@ -786,7 +791,7 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
           ) : (
             <Icon className="h-4 w-4" />
           )}
-          <span className={cn("truncate min-w-0", item.bold ? "font-semibold text-foreground" : "text-muted-foreground")}>{item.title}</span>
+          <span className={cn("truncate min-w-0", item.bold ? "font-semibold text-foreground" : "text-muted-foreground", item.inCall && isActive && "text-green-700 dark:text-[color-mix(in_oklab,var(--color-green-400),var(--color-green-500))]")}>{item.title}</span>
           {item.activeCall && (
             <Tooltip delayDuration={1000}>
               <TooltipTrigger asChild>

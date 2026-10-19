@@ -8,7 +8,6 @@ const routes = [
   '/weldchat/directories',
   '/weldchat/dm',
   '/weldchat/drafts',
-  '/weldchat/search',
 ];
 
 test.describe('WeldChat · smoke', () => {

@@ -597,16 +597,6 @@ export const weldchat = {
     thread: {
       title: 'Thread',
     },
-    search: {
-      placeholder: 'Berichten zoeken...',
-      searchTip: 'Typ minimaal 2 tekens om te zoeken',
-      searching: 'Zoeken...',
-      noResults: 'Geen berichten gevonden',
-      hasFile: 'Heeft bestand',
-      pinned: 'Vastgezet',
-      date: 'Datum',
-      afterDate: 'Na datum (JJJJ-MM-DD):',
-    },
     inviteAgent: {
       title: 'Agent uitnodigen voor kanaal',
       selectAgents: 'Agents selecteren…',
@@ -778,8 +768,8 @@ export const weldchat = {
     },
     pipCallWidget: {
       call: 'Gesprek',
-      expand: 'Uitvouwen',
-      popOut: 'Uitklappen',
+      openCall: 'Gesprek openen',
+      leaveCall: 'Gesprek verlaten',
     },
     clipPlayer: {
       transcriptGenerated: 'Transcript gegenereerd',
@@ -814,6 +804,17 @@ export const weldchat = {
     bookmarksGroupBy: {
       channel: 'Kanaal',
       none: 'Geen',
+    },
+    bookmarksPage: {
+      fromHeader: 'Van',
+      messageHeader: 'Bericht',
+      conversationHeader: 'Gesprek',
+      sentHeader: 'Verstuurd',
+      directMessage: 'Direct bericht',
+      noContent: 'Geen tekst',
+      searchPlaceholder: 'Opgeslagen items zoeken...',
+      noResultsTitle: 'Geen opgeslagen items gevonden',
+      noResultsDescription: 'Probeer een andere zoekopdracht of filter',
     },
     switchCallDialog: {
       title: 'Van gesprek wisselen?',

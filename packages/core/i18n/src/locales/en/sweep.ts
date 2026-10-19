@@ -553,7 +553,6 @@ export const sweep = {
       "removeFromSection": "Remove from section",
       "rename": "Rename",
       "savedItems": "Saved items",
-      "search": "Search",
       "selfDmFallback": "You",
       "selfDmLabel": "{name} (you)",
       "settings": "Settings",

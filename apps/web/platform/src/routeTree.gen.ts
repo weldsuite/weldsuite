@@ -161,7 +161,6 @@ import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcomm
 import { Route as WeldcommerceOrdersIndexRouteImport } from './routes/weldcommerce/orders/index'
 import { Route as WeldcommerceCustomersIndexRouteImport } from './routes/weldcommerce/customers/index'
 import { Route as WeldcommerceCategoriesIndexRouteImport } from './routes/weldcommerce/categories/index'
-import { Route as WeldchatSearchIndexRouteImport } from './routes/weldchat/search/index'
 import { Route as WeldchatDmIndexRouteImport } from './routes/weldchat/dm/index'
 import { Route as WeldchatBookmarksIndexRouteImport } from './routes/weldchat/bookmarks/index'
 import { Route as WeldchatChannelIdIndexRouteImport } from './routes/weldchat/$channelId/index'
@@ -1265,11 +1264,6 @@ const WeldcommerceCategoriesIndexRoute =
     path: '/categories/',
     getParentRoute: () => WeldcommerceRouteRoute,
   } as any)
-const WeldchatSearchIndexRoute = WeldchatSearchIndexRouteImport.update({
-  id: '/search/',
-  path: '/search/',
-  getParentRoute: () => WeldchatRouteRoute,
-} as any)
 const WeldchatDmIndexRoute = WeldchatDmIndexRouteImport.update({
   id: '/dm/',
   path: '/dm/',
@@ -3304,7 +3298,6 @@ export interface FileRoutesByFullPath {
   '/weldchat/$channelId/': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
-  '/weldchat/search/': typeof WeldchatSearchIndexRoute
   '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/customers/': typeof WeldcommerceCustomersIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
@@ -3747,7 +3740,6 @@ export interface FileRoutesByTo {
   '/weldchat/$channelId': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm': typeof WeldchatDmIndexRoute
-  '/weldchat/search': typeof WeldchatSearchIndexRoute
   '/weldcommerce/categories': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/customers': typeof WeldcommerceCustomersIndexRoute
   '/weldcommerce/orders': typeof WeldcommerceOrdersIndexRoute
@@ -4227,7 +4219,6 @@ export interface FileRoutesById {
   '/weldchat/$channelId/': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
-  '/weldchat/search/': typeof WeldchatSearchIndexRoute
   '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/customers/': typeof WeldcommerceCustomersIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
@@ -4710,7 +4701,6 @@ export interface FileRouteTypes {
     | '/weldchat/$channelId/'
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
-    | '/weldchat/search/'
     | '/weldcommerce/categories/'
     | '/weldcommerce/customers/'
     | '/weldcommerce/orders/'
@@ -5153,7 +5143,6 @@ export interface FileRouteTypes {
     | '/weldchat/$channelId'
     | '/weldchat/bookmarks'
     | '/weldchat/dm'
-    | '/weldchat/search'
     | '/weldcommerce/categories'
     | '/weldcommerce/customers'
     | '/weldcommerce/orders'
@@ -5632,7 +5621,6 @@ export interface FileRouteTypes {
     | '/weldchat/$channelId/'
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
-    | '/weldchat/search/'
     | '/weldcommerce/categories/'
     | '/weldcommerce/customers/'
     | '/weldcommerce/orders/'
@@ -7048,13 +7036,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldcommerce/categories/'
       preLoaderRoute: typeof WeldcommerceCategoriesIndexRouteImport
       parentRoute: typeof WeldcommerceRouteRoute
-    }
-    '/weldchat/search/': {
-      id: '/weldchat/search/'
-      path: '/search'
-      fullPath: '/weldchat/search/'
-      preLoaderRoute: typeof WeldchatSearchIndexRouteImport
-      parentRoute: typeof WeldchatRouteRoute
     }
     '/weldchat/dm/': {
       id: '/weldchat/dm/'
@@ -9873,7 +9854,6 @@ interface WeldchatRouteRouteChildren {
   WeldchatChannelIdIndexRoute: typeof WeldchatChannelIdIndexRoute
   WeldchatBookmarksIndexRoute: typeof WeldchatBookmarksIndexRoute
   WeldchatDmIndexRoute: typeof WeldchatDmIndexRoute
-  WeldchatSearchIndexRoute: typeof WeldchatSearchIndexRoute
   WeldchatChannelIdThreadMessageIdRoute: typeof WeldchatChannelIdThreadMessageIdRoute
   WeldchatDmGroupChannelIdRoute: typeof WeldchatDmGroupChannelIdRoute
 }
@@ -9887,7 +9867,6 @@ const WeldchatRouteRouteChildren: WeldchatRouteRouteChildren = {
   WeldchatChannelIdIndexRoute: WeldchatChannelIdIndexRoute,
   WeldchatBookmarksIndexRoute: WeldchatBookmarksIndexRoute,
   WeldchatDmIndexRoute: WeldchatDmIndexRoute,
-  WeldchatSearchIndexRoute: WeldchatSearchIndexRoute,
   WeldchatChannelIdThreadMessageIdRoute: WeldchatChannelIdThreadMessageIdRoute,
   WeldchatDmGroupChannelIdRoute: WeldchatDmGroupChannelIdRoute,
 }
