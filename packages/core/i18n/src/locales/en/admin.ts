@@ -11,6 +11,9 @@ export const admin = {
     newPlan: 'New plan',
     auditGroup: 'Audit',
     activity: 'Activity log',
+    databases: 'Databases',
+    databasesGroup: 'Infrastructure',
+    databasesOverview: 'Overview',
   },
 
   common: {
@@ -30,6 +33,7 @@ export const admin = {
     billing: 'Billing',
     members: 'Members',
     activity: 'Activity',
+    database: 'Database',
   },
 
   status: {
@@ -395,5 +399,192 @@ export const admin = {
       synced: 'Synced to Stripe',
     },
     history: 'History',
+  },
+
+  // Where workspace databases live (task 1150, phase 1: read-only). Placeholders
+  // like {count} are filled with `fill()`.
+  databases: {
+    title: 'Databases',
+    description:
+      'Where workspace databases live: the shared shards, the dedicated Neon projects and the warm pool. This screen only reads. Nothing here changes a workspace.',
+    back: 'All databases',
+
+    summary: {
+      shards: 'Shared shards',
+      capacity: 'Shard capacity used',
+      dedicated: 'Dedicated projects',
+      warmShared: 'Warm shared slots',
+      warmDedicated: 'Warm dedicated slots',
+      withoutDatabase: 'Without a database',
+      withoutDatabaseFailed: '{count} failed',
+      withoutDatabaseNoneFailed: 'None failed',
+    },
+
+    placement: {
+      shared: 'Shared',
+      dedicated: 'Dedicated',
+      none: 'None',
+    },
+
+    fillLevel: {
+      ok: 'OK',
+      warning: 'Filling up',
+      full: 'Full',
+    },
+    fillAria: '{count} of {max} databases reserved',
+
+    provisioning: {
+      pending: 'Pending',
+      provisioning: 'Provisioning',
+      ready: 'Ready',
+      failed: 'Failed',
+    },
+
+    workspaceState: {
+      active: 'Active',
+      scheduled: 'Scheduled for deletion',
+      inactive: 'Inactive',
+    },
+
+    drift: {
+      badge: 'Count mismatch',
+      badgeRecent: 'Changing',
+      title: 'Counter mismatch',
+      breakdown: '{workspaces} workspaces, {teardown} awaiting teardown, {slots} warm slots',
+      higher:
+        'The shard counts {actual} databases, but only {expected} can be accounted for ({breakdown}). A reservation may have leaked, or a database exists that the master database does not know about.',
+      lower:
+        'The shard counts {actual} databases, but {expected} can be accounted for ({breakdown}). The counter is too low, so the shard may accept more databases than it should.',
+      recent:
+        'The shard counts {actual} databases and {expected} can be accounted for ({breakdown}). The shard changed in the last 15 minutes, so a database may still be provisioning.',
+    },
+
+    shards: {
+      title: 'Shared shards',
+      description:
+        'Neon projects that each hold many workspace databases. A workspace is on a shard when its Neon project is one of these.',
+      empty: 'There are no shared shards yet.',
+      columns: {
+        shard: 'Shard',
+        region: 'Region',
+        status: 'Status',
+        fill: 'Fill',
+        workspaces: 'Workspaces',
+        warmSlots: 'Warm slots',
+        created: 'Created',
+      },
+      status: {
+        active: 'Active',
+        full: 'Full',
+        disabled: 'Disabled',
+      },
+    },
+
+    dedicated: {
+      title: 'Dedicated projects',
+      description: 'Workspaces whose database sits in a Neon project of its own.',
+      empty: 'No workspace has a dedicated project.',
+      columns: {
+        workspace: 'Workspace',
+        project: 'Neon project',
+        region: 'Region',
+        provisioned: 'Provisioned',
+        status: 'Status',
+      },
+      shardLinkDrift: 'Shard link set',
+      truncated: 'Showing the first {shown} of {total} workspaces.',
+    },
+
+    pool: {
+      title: 'Warm pool',
+      description:
+        'Databases that are created and migrated ahead of time, ready to hand to a new workspace. A slot that was handed out stays here as assigned until its workspace is torn down.',
+      empty: 'The warm pool is empty.',
+      kind: {
+        shared: 'Shared',
+        dedicated: 'Dedicated',
+      },
+      status: {
+        available: 'Available',
+        assigned: 'Assigned',
+        error: 'Error',
+      },
+      summaryColumns: {
+        kind: 'Kind',
+        status: 'Status',
+        slots: 'Slots',
+        schema: 'Schema versions',
+      },
+      columns: {
+        slot: 'Slot',
+        kind: 'Kind',
+        status: 'Status',
+        location: 'Shard or project',
+        region: 'Region',
+        schema: 'Schema',
+        workspace: 'Workspace',
+        created: 'Created',
+      },
+      schemaUnknown: 'unknown',
+      listedNote:
+        'Only slots that are not assigned yet are listed. Slots already assigned to a workspace: {assigned}.',
+      truncated: 'Showing the newest {shown} of {total} unassigned slots.',
+      noUnassigned: 'No slots are waiting to be assigned.',
+    },
+
+    shard: {
+      details: 'Details',
+      neonProject: 'Neon project',
+      projectName: 'Project name',
+      region: 'Region',
+      mainBranch: 'Main branch',
+      host: 'Connection host',
+      adminRole: 'Admin role',
+      created: 'Created',
+      updated: 'Last changed',
+      fill: 'Fill',
+      workspaces: {
+        title: 'Workspaces on this shard',
+        empty: 'No workspace lives on this shard.',
+        columns: {
+          workspace: 'Workspace',
+          plan: 'Plan',
+          database: 'Database',
+          provisioning: 'Provisioning',
+          provisioned: 'Provisioned',
+          state: 'State',
+        },
+        shardLinkDrift: 'Shard link differs',
+        pendingTeardown:
+          'Deleted workspaces that still hold a database here until their teardown finishes: {count}.',
+      },
+      slots: {
+        title: 'Pool slots on this shard',
+        empty: 'No pool slots on this shard.',
+      },
+    },
+
+    workspace: {
+      title: 'Where this database lives',
+      placement: 'Placement',
+      hint: {
+        shared: 'The database sits in a shared Neon project, next to the databases of other workspaces.',
+        dedicated: 'The workspace has a Neon project of its own.',
+        none: 'This workspace has no database yet: it is not provisioned, or provisioning failed.',
+      },
+      shard: 'Shard',
+      shardFill: 'Shard fill',
+      neonProject: 'Neon project',
+      databaseName: 'Database',
+      roleName: 'Role',
+      branch: 'Branch',
+      region: 'Region',
+      provisioning: 'Provisioning',
+      provisionedAt: 'Provisioned',
+      shardLink: 'Shard link',
+      shardLinkDrift:
+        "The workspace's shared_project_id says {id}, which does not match where the database lives. The placement above follows the Neon project id.",
+      moveNote: 'Moving a workspace to another shard or to a dedicated project will come in a later release.',
+    },
   },
 };
