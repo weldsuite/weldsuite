@@ -114,7 +114,8 @@ async function deriveTokenKeys(secret: string): Promise<TokenKeys> {
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  // `=` only ever appears as trailing padding in base64.
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
 function fromBase64Url(text: string): Uint8Array | null {
@@ -225,6 +226,12 @@ function bareContentId(contentId: string): string {
   return contentId.trim().replace(/^</, '').replace(/>$/, '');
 }
 
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
+
 function safeDecode(text: string): string {
   try {
     return decodeURIComponent(text);
@@ -260,7 +267,7 @@ export async function rewriteInlineImages(
       t: a.contentType!.split(';')[0]!.trim().toLowerCase(),
       e: expiry,
     });
-    return `${signer.baseUrl.replace(/\/+$/, '')}${INLINE_IMAGE_PATH}/${token}`;
+    return `${withoutTrailingSlashes(signer.baseUrl)}${INLINE_IMAGE_PATH}/${token}`;
   });
 }
 
