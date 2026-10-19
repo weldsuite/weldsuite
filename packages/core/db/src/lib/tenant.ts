@@ -34,9 +34,13 @@ async function getClerkClient() {
 // One WebSocket Pool per workspace, reused across requests. A pool is tied to
 // the connection it was opened for: when the workspace's database coordinates
 // or stored URL change (a database move, a password rotation), or the pool
-// gets old, it is closed and a new one is opened. Pool sessions survive a
-// password rotation on Neon, so without this a long-lived process would keep
-// writing to a database that was moved away (TASK-1150, ADR DATA-016).
+// gets old, a new one is opened and the old one is retired: it keeps serving
+// the requests that already hold it and is closed after POOL_DRAIN_MS. Pool
+// sessions survive a password rotation on Neon, so without this a long-lived
+// process would keep writing to a database that was moved away (TASK-1150,
+// ADR DATA-016). A query that hits a moved database (rotated password, or the
+// read-only source) evicts the workspace at once, so the next request resolves
+// it from the master DB again.
 
 interface CachedTenantPool {
   db: NeonDatabase<typeof tenantSchema>;
@@ -48,6 +52,13 @@ interface CachedTenantPool {
 
 /** Recycle pools at the same pace the workspace info below refreshes. */
 const POOL_MAX_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * How long a retired pool keeps serving requests that already hold its `db`
+ * before it is closed. `pool.end()` refuses every new `connect()` at once, so
+ * closing straight away would break a request in the middle of its work.
+ */
+const POOL_DRAIN_MS = 60 * 1000;
 
 // Global singleton to prevent connection leaks during hot reload in development
 const globalForTenantPools = globalThis as unknown as {
@@ -62,7 +73,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 type WorkspaceConnection = Pick<
   typeof workspaces.$inferSelect,
-  'id' | 'neonProjectId' | 'neonBranchId' | 'neonRoleName' | 'neonDatabaseName' | 'databaseUrl'
+  'id' | 'clerkOrgId' | 'neonProjectId' | 'neonBranchId' | 'neonRoleName' | 'neonDatabaseName' | 'databaseUrl'
 >;
 
 /** Changes whenever the workspace points at another database or its stored URL changes. */
@@ -81,6 +92,47 @@ function closeTenantPool(entry: CachedTenantPool): void {
   entry.pool.end().catch((error: unknown) => {
     console.warn('Closing a tenant pool failed:', error instanceof Error ? error.message : error);
   });
+}
+
+/** Close a replaced pool once the requests still holding it have had time to finish. */
+function retireTenantPool(entry: CachedTenantPool): void {
+  const timer = setTimeout(() => closeTenantPool(entry), POOL_DRAIN_MS);
+  // Never keep a process alive just to close a pool.
+  (timer as unknown as { unref?: () => void }).unref?.();
+}
+
+/**
+ * A tenant query refused because the workspace's database moved: the role's
+ * password was rotated (28P01) or the source was set read-only (25006). The
+ * message is matched too, because a driver may not expose the SQLSTATE.
+ */
+function isMovedDatabaseError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (code === '28P01' || code === '25006') return true;
+  return (
+    typeof message === 'string' &&
+    (message.includes('password authentication failed') || message.includes('read-only transaction'))
+  );
+}
+
+/**
+ * Make the pool evict its workspace when a promise-style `query` (what drizzle
+ * uses outside transactions) hits a moved database. Callback-style calls,
+ * which pg uses internally, pass through untouched. A failure inside a
+ * transaction is not seen here, but the workspace's next plain query evicts it,
+ * and pools are recycled within POOL_MAX_AGE_MS anyway.
+ */
+function evictOnMovedDatabase(pool: Pool, workspace: WorkspaceConnection): void {
+  const query = pool.query.bind(pool) as (...args: unknown[]) => unknown;
+  const watched = (...args: unknown[]): unknown => {
+    if (typeof args[args.length - 1] === 'function') return query(...args);
+    return (query(...args) as Promise<unknown>).catch((error: unknown) => {
+      if (isMovedDatabaseError(error)) evictTenantDb(workspace.id, workspace.clerkOrgId);
+      throw error;
+    });
+  };
+  pool.query = watched as unknown as Pool['query'];
 }
 
 // ============ End Tenant Pool Cache ============
@@ -292,7 +344,7 @@ async function getOrCreateTenantPool(workspace: WorkspaceConnection): Promise<Ne
   }
   if (existing) {
     tenantPoolCache.delete(workspace.id);
-    closeTenantPool(existing);
+    retireTenantPool(existing);
   }
 
   const { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: storedUrl } = workspace;
@@ -312,21 +364,22 @@ async function getOrCreateTenantPool(workspace: WorkspaceConnection): Promise<Ne
   pool.on('error', (error: Error) => {
     console.warn(`Tenant pool for ${workspace.id} lost a client:`, error.message);
   });
+  evictOnMovedDatabase(pool, workspace);
   const db = drizzle({ client: pool, schema: tenantSchema });
   tenantPoolCache.set(workspace.id, { db, pool, fingerprint, createdAt: Date.now() });
   return db;
 }
 
 /**
- * Close a workspace's pooled tenant DB and forget its cached workspace info,
- * so the next call reads the master DB again and opens a fresh pool. Use it
- * when a tenant query fails because the database moved or its password changed.
+ * Retire a workspace's pooled tenant DB and forget its cached workspace info,
+ * so the next call reads the master DB again and opens a fresh pool. The pools
+ * call it themselves when a query hits a moved database; callers can too.
  */
 export function evictTenantDb(workspaceId: string, clerkOrgId?: string | null): void {
   const entry = tenantPoolCache.get(workspaceId);
   if (entry) {
     tenantPoolCache.delete(workspaceId);
-    closeTenantPool(entry);
+    retireTenantPool(entry);
   }
   workspaceInfoCache.delete(`ws:${workspaceId}`);
   if (clerkOrgId) workspaceInfoCache.delete(`org:${clerkOrgId}`);

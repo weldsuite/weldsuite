@@ -4,9 +4,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const queue: unknown[][] = [];
 const insertSpy = vi.fn();
 
-// Pools are fakes that record how they were opened and closed.
-const { pools } = vi.hoisted(() => ({
-  pools: [] as Array<{ connectionString: string; ended: boolean; events: string[] }>,
+// Pools are fakes that record how they were opened, queried and closed.
+type FakePool = {
+  connectionString: string;
+  ended: boolean;
+  events: string[];
+  query: (...args: unknown[]) => unknown;
+};
+const { pools, queryBehaviour } = vi.hoisted(() => ({
+  pools: [] as FakePool[],
+  /** What every fake query does: fail with `error`, or succeed. */
+  queryBehaviour: { error: null as unknown },
 }));
 
 vi.mock('@neondatabase/serverless', () => {
@@ -21,6 +29,14 @@ vi.mock('@neondatabase/serverless', () => {
     on(event: string) {
       this.events.push(event);
       return this;
+    }
+    query(...args: unknown[]) {
+      const callback = args[args.length - 1];
+      if (typeof callback === 'function') {
+        (callback as (error: unknown) => void)(queryBehaviour.error);
+        return undefined;
+      }
+      return queryBehaviour.error ? Promise.reject(queryBehaviour.error) : Promise.resolve({ rows: [] });
     }
     end() {
       this.ended = true;
@@ -64,6 +80,7 @@ beforeEach(() => {
   queue.length = 0;
   insertSpy.mockClear();
   pools.length = 0;
+  queryBehaviour.error = null;
 });
 
 afterEach(() => {
@@ -162,7 +179,8 @@ describe('tenant pool cache', () => {
     expect(pools[0]!.events).toContain('error');
   });
 
-  it('closes the old pool and opens a new one when the stored database URL changes', async () => {
+  it('opens a new pool when the stored database URL changes, and closes the old one after the drain', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
     // The workspace-id path caches enc:1; the org path then reads the master DB
     // and finds the database moved (enc:2) for the same workspace.
     queue.push([{ workspace: workspace('ws_moved', 'enc:1'), plan: null }]);
@@ -171,12 +189,28 @@ describe('tenant pool cache', () => {
     const after = await getTenantDb('org_ws_moved');
     expect(after.db).not.toBe(before.db);
     expect(pools).toHaveLength(2);
+    vi.advanceTimersByTime(60_000);
     expect(pools[0]!.ended).toBe(true);
     expect(pools[1]!.ended).toBe(false);
   });
 
+  it('keeps a retired pool open for requests that still hold it until the drain is over', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    queue.push([{ workspace: workspace('ws_drain', 'enc:1'), plan: null }]);
+    await getTenantDbByWorkspaceId('ws_drain');
+    queue.push([{ workspace: workspace('ws_drain', 'enc:2'), plan: null }]);
+    await getTenantDb('org_ws_drain');
+
+    // A request that took the old db a moment ago can still use it.
+    expect(pools[0]!.ended).toBe(false);
+    vi.advanceTimersByTime(59_000);
+    expect(pools[0]!.ended).toBe(false);
+    vi.advanceTimersByTime(1_000);
+    expect(pools[0]!.ended).toBe(true);
+  });
+
   it('recycles a pool older than five minutes', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
     vi.setSystemTime(new Date('2026-10-19T10:00:00Z'));
     queue.push([{ workspace: workspace('ws_old', 'enc:1'), plan: null }]);
     const first = await getTenantDbByWorkspaceId('ws_old');
@@ -186,13 +220,54 @@ describe('tenant pool cache', () => {
     queue.push([{ workspace: workspace('ws_old', 'enc:1'), plan: null }]);
     const second = await getTenantDbByWorkspaceId('ws_old');
     expect(second.db).not.toBe(first.db);
+    expect(pools.map((p) => p.ended)).toEqual([false, false]);
+    vi.advanceTimersByTime(60_000);
     expect(pools.map((p) => p.ended)).toEqual([true, false]);
   });
 
-  it('evictTenantDb closes the pool and makes the next call read the master DB again', async () => {
+  it('evicts the workspace when a query hits a moved database (rotated password or read-only source)', async () => {
+    for (const error of [
+      Object.assign(new Error('boom'), { code: '28P01' }),
+      new Error("password authentication failed for user 'role_ws'"),
+      Object.assign(new Error('cannot execute INSERT in a read-only transaction'), { code: '25006' }),
+    ]) {
+      pools.length = 0;
+      queue.push([{ workspace: workspace('ws_q', 'enc:1'), plan: null }]);
+      await getTenantDbByWorkspaceId('ws_q');
+      queryBehaviour.error = error;
+      await expect(pools[0]!.query('select 1')).rejects.toBe(error);
+      queryBehaviour.error = null;
+
+      // Evicted: the next call reads the master DB again (the empty queue says "not found").
+      await expect(getTenantDbByWorkspaceId('ws_q')).rejects.toThrow('Workspace not found or inactive');
+    }
+  });
+
+  it('keeps the workspace cached when a query fails for another reason', async () => {
+    queue.push([{ workspace: workspace('ws_other_error', 'enc:1'), plan: null }]);
+    const first = await getTenantDbByWorkspaceId('ws_other_error');
+    queryBehaviour.error = Object.assign(new Error('duplicate key value'), { code: '23505' });
+    await expect(pools[0]!.query('insert …')).rejects.toThrow('duplicate key value');
+    queryBehaviour.error = null;
+    // Still cached: no master read (the queue is empty) and the same pool.
+    const again = await getTenantDbByWorkspaceId('ws_other_error');
+    expect(again.db).toBe(first.db);
+  });
+
+  it('passes callback-style queries (what pg uses internally) straight through', async () => {
+    queue.push([{ workspace: workspace('ws_callback', 'enc:1'), plan: null }]);
+    await getTenantDbByWorkspaceId('ws_callback');
+    const callback = vi.fn();
+    expect(pools[0]!.query('select 1', [], callback)).toBeUndefined();
+    expect(callback).toHaveBeenCalledWith(null);
+  });
+
+  it('evictTenantDb retires the pool and makes the next call read the master DB again', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
     queue.push([{ workspace: workspace('ws_evict', 'enc:1'), plan: null }]);
     await getTenantDbByWorkspaceId('ws_evict');
     evictTenantDb('ws_evict', 'org_ws_evict');
+    vi.advanceTimersByTime(60_000);
     expect(pools[0]!.ended).toBe(true);
 
     // Nothing cached any more: with an empty queue the master DB returns no row.
