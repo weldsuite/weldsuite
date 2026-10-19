@@ -70,6 +70,7 @@ import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-s
 import { collectKnownTags } from '@/components/objects/_shared/known-tags';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
 import { NotesTab } from '@/components/objects/_shared/notes-tab';
 import { ActivityTab } from '@/components/objects/_shared/activity-tab';
@@ -688,16 +689,22 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
     await updateMut.mutateAsync({ id: person.id, data: patch as Parameters<typeof updateMut.mutate>[0]['data'] });
   }, [person, updateMut]);
 
+  // Delete asks first, like notes, tasks and files: the kebab item only opens
+  // the confirmation, the dialog's button does the DELETE.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const handleDelete = useCallback(() => {
+    if (person) setConfirmDeleteOpen(true);
+  }, [person]);
+  const confirmDelete = useCallback(async () => {
     if (!person) return;
-    deleteMut.mutate(person.id, {
-      onSuccess: () => {
-        toast.success(st('sweep.entities.personDeleted'));
-        onClose();
-      },
-      onError: (err: unknown) =>
-        toast.error(err instanceof Error ? err.message : st('sweep.entities.deleteFailed')),
-    });
+    try {
+      await deleteMut.mutateAsync(person.id);
+      setConfirmDeleteOpen(false);
+      toast.success(st('sweep.entities.personDeleted'));
+      onClose();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : st('sweep.entities.deleteFailed'));
+    }
   }, [person, deleteMut, onClose, st]);
 
   const handleArchiveToggle = useCallback(() => {
@@ -854,6 +861,17 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
       {person && activeTab === 'audit' && (
         <AuditTab entityId={person.id} entityKind="person" />
       )}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={st('sweep.entities.deletePersonTitle')}
+        description={st('sweep.entities.deletePersonDescription', { name: person?.displayName ?? '' })}
+        variant="destructive"
+        confirmLabel={st('sweep.entities.delete')}
+        cancelLabel={st('sweep.entities.cancel')}
+        loading={deleteMut.isPending}
+        onConfirm={confirmDelete}
+      />
     </EntityDetailView>
   );
 }

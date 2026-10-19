@@ -894,13 +894,18 @@ export const crm = {
       menuViewPeople: 'Personen bekijken',
       menuEditSteps: 'Stappen bewerken',
       menuActivate: 'Activeren',
+      menuResume: 'Hervatten',
       menuPause: 'Pauzeren',
       menuDelete: 'Verwijderen',
+      deleteTitle: 'Sequentie verwijderen?',
       deleteConfirm: 'Weet u zeker dat u deze sequentie wilt verwijderen?',
+      deleteCancel: 'Annuleren',
       deletedSuccess: 'Sequentie verwijderd',
       deleteFailed: 'Verwijderen van sequentie mislukt',
       activatedSuccess: 'Sequentie geactiveerd',
       activateFailed: 'Activeren van sequentie mislukt',
+      resumedSuccess: 'Sequentie hervat',
+      resumeFailed: 'Hervatten van sequentie mislukt',
       pausedSuccess: 'Sequentie gepauzeerd',
       pauseFailed: 'Pauzeren van sequentie mislukt',
       createDialog: {
@@ -2295,7 +2300,8 @@ export const crm = {
 
     sequenceEditorPage: {
       notFound: 'Reeks niet gevonden of kon niet worden geladen.',
-      launchedSuccess: 'Reeks gestart! {count} inschrijvingen geactiveerd.',
+      launchedSuccess: 'Reeks gestart! {count} inschrijving geactiveerd.',
+      launchedSuccessPlural: 'Reeks gestart! {count} inschrijvingen geactiveerd.',
       launchFailed: 'Reeks starten mislukt',
       resumedSuccess: 'Reeks hervat',
       resumeFailed: 'Reeks hervatten mislukt',
