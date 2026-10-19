@@ -511,6 +511,26 @@ export async function listSecretKeys(
 // ---------------------------------------------------------------------------
 
 /**
+ * Open one row and write its keyed checksum. False when the row cannot be
+ * opened (counted as failed by the caller); other errors propagate.
+ */
+async function rekeyChecksum(
+  kek: Uint8Array<ArrayBuffer>,
+  location: SecretLocation,
+  row: { ciphertext: string; dekWrapped: string },
+  write: (checksum: string) => Promise<unknown>,
+): Promise<boolean> {
+  try {
+    const value = await openSecret(kek, location, row);
+    await write(await checksumFor(kek, location, value));
+    return true;
+  } catch (err) {
+    if (!(err instanceof EnvelopeError)) throw err;
+    return false;
+  }
+}
+
+/**
  * Rewrite every pre-HMAC checksum in one project as a keyed one, on the current
  * rows and on the history rows (which hold the same kind of digest). Idempotent
  * and safe to re-run; rows that fail to open are counted, not fatal. Not wired
@@ -541,15 +561,11 @@ export async function backfillChecksums(
 
   for (const row of secretRows) {
     if (!isLegacyChecksum(row.checksum)) continue;
-    try {
-      const value = await openSecret(kek, locationOf(row), row);
-      const checksum = await checksumFor(kek, locationOf(row), value);
-      await db.update(t).set({ checksum }).where(eq(t.id, row.id));
-      result.secrets++;
-    } catch (err) {
-      if (!(err instanceof EnvelopeError)) throw err;
-      result.failed++;
-    }
+    const ok = await rekeyChecksum(kek, locationOf(row), row, (checksum) =>
+      db.update(t).set({ checksum }).where(eq(t.id, row.id)),
+    );
+    if (ok) result.secrets++;
+    else result.failed++;
   }
 
   // A version row sits at its secret's location (a restore reuses the
@@ -566,19 +582,13 @@ export async function backfillChecksums(
 
   for (const row of versionRows) {
     const location = locations.get(row.secretId);
-    if (!location) {
-      result.failed++;
-      continue;
-    }
-    try {
-      const value = await openSecret(kek, location, row);
-      const checksum = await checksumFor(kek, location, value);
-      await db.update(versions).set({ checksum }).where(eq(versions.id, row.id));
-      result.versions++;
-    } catch (err) {
-      if (!(err instanceof EnvelopeError)) throw err;
-      result.failed++;
-    }
+    const ok =
+      location !== undefined &&
+      (await rekeyChecksum(kek, location, row, (checksum) =>
+        db.update(versions).set({ checksum }).where(eq(versions.id, row.id)),
+      ));
+    if (ok) result.versions++;
+    else result.failed++;
   }
 
   return result;

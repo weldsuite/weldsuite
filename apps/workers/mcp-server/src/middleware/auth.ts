@@ -9,8 +9,8 @@ import * as tenantSchema from '@weldsuite/db/schema';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import { keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import {
-  openCachedDatabaseUrl,
-  sealCachedDatabaseUrl,
+  openCacheEntry,
+  sealCacheEntry,
   sealedMcpOrgCacheKey,
 } from '@weldsuite/db/lib/workspace-url-cache';
 import {
@@ -151,11 +151,8 @@ export async function getWorkspaceForOrg(
   const cached = (await kv.get(cacheKey, 'json')) as StoredWorkspace | null;
   if (cached) {
     // A sealed URL we cannot open reads as a miss.
-    const cachedUrl = await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring);
-    if (cachedUrl) {
-      const { databaseUrlSealed: _sealed, ...rest } = cached;
-      return { ...rest, databaseUrl: cachedUrl };
-    }
+    const opened = await openCacheEntry(cached, keyring);
+    if (opened) return opened;
   }
 
   const [row] = await masterDb
@@ -210,10 +207,8 @@ export async function getWorkspaceForOrg(
     }),
   };
   // No key → nothing to seal with → do not cache (never a plaintext fallback).
-  const databaseUrlSealed = await sealCachedDatabaseUrl(databaseUrl, keyring);
-  if (databaseUrlSealed) {
-    const { databaseUrl: _url, ...rest } = result;
-    const stored: StoredWorkspace = { ...rest, databaseUrlSealed };
+  const stored: StoredWorkspace | null = await sealCacheEntry(result, keyring);
+  if (stored) {
     await kv.put(cacheKey, JSON.stringify(stored), { expirationTtl: KV_TTL_SECONDS });
   }
 

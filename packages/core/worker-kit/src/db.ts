@@ -18,8 +18,8 @@ import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import {
-  openCachedDatabaseUrl,
-  sealCachedDatabaseUrl,
+  openCacheEntry,
+  sealCacheEntry,
   sealedWorkspaceCacheKey,
 } from '@weldsuite/db/lib/workspace-url-cache';
 import type { DbEnv } from './env';
@@ -93,12 +93,10 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
   const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null;
   if (cached && isCompleteEntry(cached)) {
     // A sealed URL this worker cannot open (rotated key, tampering) is a miss.
-    const cachedUrl = await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring);
-    if (cachedUrl) {
-      const { databaseUrlSealed: _sealed, ...rest } = cached;
+    const opened = await openCacheEntry(cached, keyring);
+    if (opened) {
       return {
-        ...rest,
-        databaseUrl: cachedUrl,
+        ...opened,
         suspended: cached.suspended ?? false,
         readOnly: cached.readOnly ?? false,
         readOnlyReason: cached.readOnly ? (cached.readOnlyReason ?? 'licence_inactive') : null,
@@ -166,10 +164,8 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
     ...restrictions,
   };
   // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
-  const databaseUrlSealed = await sealCachedDatabaseUrl(databaseUrl, keyring);
-  if (databaseUrlSealed) {
-    const { databaseUrl: _url, ...rest } = entry;
-    const stored: StoredWorkspace = { ...rest, databaseUrlSealed };
+  const stored: StoredWorkspace | null = await sealCacheEntry(entry, keyring);
+  if (stored) {
     await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(stored), {
       expirationTtl: KV_TTL_SECONDS,
     });
