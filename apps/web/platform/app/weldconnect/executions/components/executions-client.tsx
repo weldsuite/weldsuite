@@ -58,6 +58,7 @@ import {
 } from '../executions-filters';
 import { useNow } from '../use-now';
 import { ExecutionStatusBadge } from './execution-status-badge';
+import { RowChip, RowDate, RowNumberChip, RowText, RowTitle } from '../../components/connect-list-row';
 
 interface ExecutionRow {
   id: string;
@@ -367,20 +368,19 @@ export function ExecutionsClient() {
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         />
         {/* Workflow */}
-        <div className="order-1 flex-1 min-w-0 md:min-w-[200px]">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{execution.workflowName}</span>
-            {execution.isTest && (
-              <Badge variant="outline" className="shrink-0 rounded-md px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
-                {t.weldconnect.executions.testBadge}
-              </Badge>
-            )}
-          </div>
-          <span className="text-xs text-gray-500 font-mono" title={execution.id}>{shortExecutionId(execution.id)}</span>
+        <div className="order-1 flex flex-1 min-w-0 items-center gap-2 md:min-w-[200px]">
+          <span title={execution.id} className="flex-shrink-0">
+            <RowNumberChip>{shortExecutionId(execution.id)}</RowNumberChip>
+          </span>
+          <RowTitle
+            chips={execution.isTest ? <RowChip tone="gray">{t.weldconnect.executions.testBadge}</RowChip> : undefined}
+          >
+            {execution.workflowName}
+          </RowTitle>
         </div>
 
         {/* Actions */}
-        <div className="relative order-2 md:order-7 w-[40px] shrink-0 flex justify-end">
+        <div className="relative order-2 md:order-7 flex h-7 w-[40px] shrink-0 items-center justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -439,15 +439,16 @@ export function ExecutionsClient() {
 
           {/* Trigger */}
           <div className="md:order-3 md:w-[120px] min-w-0">
-            <span className="text-sm text-gray-600 dark:text-muted-foreground">{getTriggerLabel(t, execution.triggerType)}</span>
-            {triggeredByName && (
-              <span className="text-xs text-gray-500 block truncate">{triggeredByName}</span>
-            )}
+            <RowText>
+              {triggeredByName
+                ? `${getTriggerLabel(t, execution.triggerType)} · ${triggeredByName}`
+                : getTriggerLabel(t, execution.triggerType)}
+            </RowText>
           </div>
 
           {/* Progress */}
           <div className="md:order-4 md:w-[140px] flex items-center gap-2">
-            <span className="text-sm text-gray-600 dark:text-muted-foreground">
+            <span className="font-mono text-sm tabular-nums text-gray-600 dark:text-muted-foreground">
               {execution.stepsCompleted}/{execution.stepsTotal}
             </span>
             <div className="w-16 h-1.5 bg-gray-200 dark:bg-accent rounded-full overflow-hidden">
@@ -468,9 +469,9 @@ export function ExecutionsClient() {
 
           {/* Started */}
           <div className="md:order-6 md:w-[120px]">
-            <span className="text-sm text-gray-500">
+            <RowDate>
               {formatRelativeTime(execution.startedAt ?? execution.createdAt, t.weldconnect.executions.justNow, st)}
-            </span>
+            </RowDate>
           </div>
         </div>
       </div>

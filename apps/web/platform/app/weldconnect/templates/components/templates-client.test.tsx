@@ -83,7 +83,7 @@ describe('TemplatesClient', () => {
 
   it('opens a starter template and creates a draft workflow from it, then opens the editor', () => {
     render(<TemplatesClient />);
-    fireEvent.click(screen.getByText('Celebrate won deals'));
+    fireEvent.click(screen.getByRole('button', { name: 'Celebrate won deals' }));
 
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('canvas preview')).toBeTruthy();
@@ -102,7 +102,7 @@ describe('TemplatesClient', () => {
 
   it('offers edit and delete on workspace templates, delete only with the permission', () => {
     const { unmount } = render(<TemplatesClient />);
-    fireEvent.click(screen.getByText('Our onboarding'));
+    fireEvent.click(screen.getByRole('button', { name: 'Our onboarding' }));
     let dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(tt.editDetails)).toBeTruthy();
     expect(within(dialog).getByRole('link', { name: tt.editSteps }).getAttribute('href')).toBe('/weldconnect/templates/tmpl_1/edit');
@@ -111,7 +111,7 @@ describe('TemplatesClient', () => {
 
     canDelete = false;
     render(<TemplatesClient />);
-    fireEvent.click(screen.getByText('Our onboarding'));
+    fireEvent.click(screen.getByRole('button', { name: 'Our onboarding' }));
     dialog = screen.getByRole('dialog');
     expect(within(dialog).queryByLabelText(tt.delete)).toBeNull();
   });

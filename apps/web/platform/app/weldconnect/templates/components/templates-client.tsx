@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plug } from 'lucide-react';
+import { PencilLine, Play, Plug, Trash2 } from 'lucide-react';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import { Button } from '@weldsuite/ui/components/button';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { WorkflowTemplateItem } from '@weldsuite/app-api-client/schemas/weldconnect-templates';
@@ -23,6 +24,16 @@ import {
   type HeaderColumn,
 } from '@/components/entity-list';
 import { setupCount, templateIcon } from '../template-utils';
+import {
+  ConnectListRow,
+  ConnectRowCell,
+  ConnectRowMenu,
+  DESTRUCTIVE_MENU_ITEM,
+  RowChip,
+  RowText,
+  RowTitle,
+  StatusChip,
+} from '../../components/connect-list-row';
 import { TemplateDetailDialog, categoryLabel, integrationLabel } from './template-detail-dialog';
 import { TemplateFormDialog, toTemplateCategory, type TemplateFormValues } from './template-form-dialog';
 
@@ -49,8 +60,9 @@ export function TemplatesClient() {
   const [editing, setEditing] = useState<WorkflowTemplateItem | null>(null);
   const [deleting, setDeleting] = useState<WorkflowTemplateItem | null>(null);
 
-  const handleUse = (template: WorkflowTemplateItem) => {
-    createFromTemplate.mutate(
+  const { mutate: createWorkflowFromTemplate } = createFromTemplate;
+  const handleUse = useCallback((template: WorkflowTemplateItem) => {
+    createWorkflowFromTemplate(
       { templateId: template.id, locale: language },
       {
         onSuccess: (result) => {
@@ -61,7 +73,7 @@ export function TemplatesClient() {
         onError: () => toast.error(tt.toasts.createFailed),
       },
     );
-  };
+  }, [createWorkflowFromTemplate, language, router, tt]);
 
   const handleSaveDetails = (values: TemplateFormValues) => {
     if (!editing) return;
@@ -131,7 +143,6 @@ export function TemplatesClient() {
       { id: 'category', header: t.weldconnect.templatesClient.columnCategory, width: 'w-[140px]' },
       { id: 'steps', header: tt.columnSteps, width: 'w-[90px]' },
       { id: 'setup', header: tt.columnSetup, width: 'w-[200px]' },
-      { id: 'action', header: '', width: 'w-[130px] flex-shrink-0' },
     ],
     [t, tt],
   );
@@ -140,70 +151,67 @@ export function TemplatesClient() {
     (template: WorkflowTemplateItem) => {
       const Icon = templateIcon(template.icon);
       const toSetUp = setupCount(template);
+      const isWorkspace = template.source === 'workspace';
       return (
-        <div
+        <ConnectListRow
           key={template.id}
-          className="relative flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group border-b border-gray-200/70 dark:border-border"
+          label={template.name}
+          onOpen={() => setSelected(template)}
+          menu={
+            <ConnectRowMenu label={t.common.actions.openMenu}>
+              <DropdownMenuItem onClick={() => handleUse(template)} disabled={createFromTemplate.isPending}>
+                <Play className="mr-2 h-4 w-4" />
+                {tt.useTemplate}
+              </DropdownMenuItem>
+              {isWorkspace && canEdit && (
+                <DropdownMenuItem onClick={() => setEditing(template)}>
+                  <PencilLine className="mr-2 h-4 w-4" />
+                  {tt.editDetails}
+                </DropdownMenuItem>
+              )}
+              {isWorkspace && canDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setDeleting(template)} className={DESTRUCTIVE_MENU_ITEM}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {tt.delete}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </ConnectRowMenu>
+          }
         >
-          <button
-            type="button"
-            onClick={() => setSelected(template)}
-            className="min-w-[280px] flex-1 flex items-center gap-3 min-w-0 text-left after:absolute after:inset-0 after:content-['']"
-          >
-            <span className="w-8 h-8 rounded-md bg-muted/50 dark:bg-secondary border border-border flex items-center justify-center flex-shrink-0">
-              <Icon className="h-4 w-4 text-muted-foreground" />
+          <ConnectRowCell width="min-w-[280px] flex-1">
+            <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-[7px] bg-gray-200 text-gray-600 dark:bg-accent dark:text-muted-foreground">
+              <Icon className="h-3 w-3" />
             </span>
-            <span className="flex flex-col min-w-0">
-              <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{template.name}</span>
-              <span className="text-xs text-muted-foreground truncate">{template.description}</span>
-            </span>
-          </button>
+            <RowTitle>{template.name}</RowTitle>
+          </ConnectRowCell>
 
-          <div className="w-[140px]">
-            <span className="-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-muted text-foreground">
-              {categoryLabel(tt, template.category)}
-            </span>
-          </div>
+          <ConnectRowCell width="w-[140px]">
+            <StatusChip tone="gray">{categoryLabel(tt, template.category)}</StatusChip>
+          </ConnectRowCell>
 
-          <div className="w-[90px]">
-            <span className="-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none font-mono tabular-nums bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground border border-gray-200 dark:border-border">
-              {template.steps.length}
-            </span>
-          </div>
+          <ConnectRowCell width="w-[90px]">
+            <RowText className="font-mono tabular-nums">{template.steps.length}</RowText>
+          </ConnectRowCell>
 
-          <div className="w-[200px] flex items-center gap-1 flex-wrap">
+          <ConnectRowCell width="w-[200px]" className="gap-1 overflow-hidden">
             {toSetUp > 0 ? (
-              <span className="inline-flex items-center h-[22px] px-1.5 rounded text-[11px] font-medium leading-none bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
-                {tt.needsSetupCount.replace('{count}', String(toSetUp))}
-              </span>
+              <RowChip tone="amber">{tt.needsSetupCount.replace('{count}', String(toSetUp))}</RowChip>
             ) : (
-              <span className="text-xs text-muted-foreground">{tt.readyToUse}</span>
+              <RowText>{tt.readyToUse}</RowText>
             )}
             {template.requiredIntegrations.map((provider) => (
-              <span
-                key={provider}
-                className="inline-flex items-center gap-1 h-[22px] px-1.5 rounded text-[11px] font-medium leading-none bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400"
-              >
-                <Plug className="h-3 w-3" />
+              <RowChip key={provider} tone="blue" icon={<Plug />}>
                 {integrationLabel(tt, provider)}
-              </span>
+              </RowChip>
             ))}
-          </div>
-
-          <div className="relative z-10 w-[130px] flex-shrink-0 flex justify-end">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-              onClick={() => setSelected(template)}
-            >
-              {tt.useTemplate}
-            </Button>
-          </div>
-        </div>
+          </ConnectRowCell>
+        </ConnectListRow>
       );
     },
-    [tt],
+    [t, tt, canEdit, canDelete, createFromTemplate.isPending, handleUse],
   );
 
   if (error && !data) {
