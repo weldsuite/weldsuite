@@ -1,4 +1,5 @@
 
+import * as React from 'react';
 import { useState, useEffect } from 'react';
 import { Coins } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -12,12 +13,15 @@ import { useCreditsBalance } from '@/hooks/queries/use-billing-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Credits } from '@/lib/api/types/apps/credits.types';
 import { cn } from '@/lib/utils';
+import { PricingDialog } from '@/components/pricing-dialog';
 import { Link } from '@/lib/router';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface ResourceUsageProps {
   collapsed?: boolean;
+  /** The sidebar renders its own UpgradeButton right below, so skip ours to avoid a duplicate. */
+  hideUpgrade?: boolean;
 }
 
 function UsageProgressBar({ value, thresholds, className }: Readonly<{
@@ -48,9 +52,10 @@ function UsageProgressBar({ value, thresholds, className }: Readonly<{
   );
 }
 
-export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps>) {
+export function ResourceUsage({ collapsed = false, hideUpgrade = false }: Readonly<ResourceUsageProps>) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const { getClient } = useAppApiClient();
 
   const { t, format } = useI18n();
@@ -78,6 +83,10 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
     void checkRole();
   }, [getClient]);
 
+  const handlePlanChanged = React.useCallback(() => {
+    // Credits data will auto-refresh via React Query
+  }, []);
+
   if (isLoading || !isAdmin) {
     return null;
   }
@@ -90,27 +99,34 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
 
   if (collapsed) {
     return (
-      <div className="mb-2 px-0.5 flex flex-col gap-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground">
-              <Coins className="h-4 w-4" />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="right" className="flex flex-col gap-2 py-2">
-            <div className="flex flex-col gap-1.5">
-              <span className="font-medium">{t.common.resourceUsage.credits}</span>
-              <UsageProgressBar value={creditsData.usagePercentage} thresholds={{ red: 90, amber: 80 }} className="w-28" />
-              <span className="text-xs">{format(t.common.resourceUsage.remaining, { current: creditsData.currentBalance, total: creditsData.monthlyAllocation })}</span>
-            </div>
-            {managed && (
-              <Button asChild size="sm" className="mt-1 w-full">
-                <Link href="/settings/billing">{format(t.partner.managed.moreCredits, { partner: managed.partner.name })}</Link>
-              </Button>
-            )}
-          </TooltipContent>
-        </Tooltip>
-      </div>
+      <>
+        <div className="mb-2 px-0.5 flex flex-col gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground">
+                <Coins className="h-4 w-4" />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="flex flex-col gap-2 py-2">
+              <div className="flex flex-col gap-1.5">
+                <span className="font-medium">{t.common.resourceUsage.credits}</span>
+                <UsageProgressBar value={creditsData.usagePercentage} thresholds={{ red: 90, amber: 80 }} className="w-28" />
+                <span className="text-xs">{format(t.common.resourceUsage.remaining, { current: creditsData.currentBalance, total: creditsData.monthlyAllocation })}</span>
+              </div>
+              {managed ? (
+                <Button asChild size="sm" className="mt-1 w-full">
+                  <Link href="/settings/billing">{format(t.partner.managed.moreCredits, { partner: managed.partner.name })}</Link>
+                </Button>
+              ) : !hideUpgrade && (
+                <Button size="sm" className="mt-1 w-full" onClick={() => setPricingOpen(true)}>
+                  {t.common.actions.upgrade}
+                </Button>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        {!managed && !hideUpgrade && <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />}
+      </>
     );
   }
 
@@ -134,11 +150,17 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
         </div>
       </div>
 
-      {/* Unmanaged workspaces upgrade through the sidebar's own UpgradeButton below. */}
-      {managed && (
+      {managed ? (
         <Button asChild size="sm" className="mt-2.5 h-9 w-full">
           <Link href="/settings/billing">{format(t.partner.managed.moreCredits, { partner: managed.partner.name })}</Link>
         </Button>
+      ) : !hideUpgrade && (
+        <>
+          <Button size="sm" className="mt-2.5 w-full h-9" onClick={() => setPricingOpen(true)}>
+            {t.common.actions.upgrade}
+          </Button>
+          <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />
+        </>
       )}
     </div>
   );

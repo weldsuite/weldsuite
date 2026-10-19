@@ -1370,7 +1370,7 @@ export function AppSidebarLayout({
         </DndContext>
       </SidebarContent>
       <SidebarFooter suppressHydrationWarning>
-        <ResourceUsage collapsed={state === "collapsed"} />
+        <ResourceUsage collapsed={state === "collapsed"} hideUpgrade={showUpgradeButton} />
         <OnboardingChecklist collapsed={state === "collapsed"} />
         {showUpgradeButton && <UpgradeButton collapsed={state === "collapsed"} />}
         <PartnerPortalLink collapsed={state === "collapsed"} />
