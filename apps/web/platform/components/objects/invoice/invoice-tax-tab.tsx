@@ -61,6 +61,7 @@ function SalesTaxSection({
             icon={Clock}
             label={td.detail.calculatedAt}
             value={formatDateTime(invoice.taxCalculatedAt)}
+            tabular
             readOnly
           />
         ) : null}

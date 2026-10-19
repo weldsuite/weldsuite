@@ -390,7 +390,7 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
       {feature.hasStartDate && (
         <div className="flex items-center gap-2 mt-2.5">
           <CalendarClock className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatShortDateNow(feature.startAt)}
           </span>
         </div>
@@ -400,7 +400,7 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
       {feature.hasDueDate && (
         <div className="flex items-center gap-2 mt-2.5">
           <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatShortDateNow(feature.endAt)}
           </span>
         </div>
@@ -1257,7 +1257,7 @@ const PipelinePage = () => {
                   )}
                   <div className="flex items-center gap-2 mt-2">
                     <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-muted-foreground">{formatShortDateNow(activeDeal.endAt)}</span>
+                    <span className="text-sm tabular-nums">{formatShortDateNow(activeDeal.endAt)}</span>
                   </div>
                   {activeDeal.labels && activeDeal.labels.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">

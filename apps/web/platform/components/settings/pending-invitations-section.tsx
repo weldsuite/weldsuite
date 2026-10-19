@@ -142,7 +142,7 @@ export function PendingInvitationsSection({
                       {getRoleLabel(member.role, st)}
                     </span>
                   </TableCell>
-                  <TableCell className="py-2 text-sm text-muted-foreground whitespace-nowrap">
+                  <TableCell className="py-2 text-sm tabular-nums whitespace-nowrap">
                     {formatDate(invitedAt)}
                   </TableCell>
                   <TableCell className="py-2">

@@ -157,7 +157,7 @@ export function RecordsTab() {
       id: 'date',
       header: t('weldhr.attendance.records.table.date'),
       width: cn(HR_COL.fixed, 'w-[96px]'),
-      render: (r) => <span className="block truncate">{formatDate(r.date)}</span>,
+      render: (r) => <span className="block truncate tabular-nums">{formatDate(r.date)}</span>,
     },
     {
       id: 'employee',
@@ -184,7 +184,7 @@ export function RecordsTab() {
       header: `${t('weldhr.attendance.records.table.clockIn')} – ${t('weldhr.attendance.records.table.clockOut')}`,
       width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[150px]'),
       render: (r) => (
-        <span className="block truncate text-muted-foreground">
+        <span className={cn('block truncate tabular-nums', !r.clockIn && !r.clockOut && 'text-muted-foreground')}>
           {formatTime(r.clockIn)} – {formatTime(r.clockOut)}
         </span>
       ),

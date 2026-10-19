@@ -118,7 +118,7 @@ function ExpiringCertificates() {
                       <TableCell>{forms[certificate.form] ?? certificate.form}</TableCell>
                       <TableCell className="max-w-[12rem] whitespace-normal">{certificate.states.join(', ') || '—'}</TableCell>
                       <TableCell>
-                        <div>{formatDate(certificate.expiresOn)}</div>
+                        <div className="tabular-nums">{formatDate(certificate.expiresOn)}</div>
                         <div
                           className={cn(
                             'text-xs',
@@ -130,7 +130,7 @@ function ExpiringCertificates() {
                           {expiryText(te, certificate.daysLeft)}
                         </div>
                       </TableCell>
-                      <TableCell>{certificate.lastUsedOn ? formatDate(certificate.lastUsedOn) : te.never}</TableCell>
+                      <TableCell className="tabular-nums">{certificate.lastUsedOn ? formatDate(certificate.lastUsedOn) : te.never}</TableCell>
                       <TableCell>
                         <Badge variant={certificate.expired ? 'destructive' : 'success'}>
                           {statuses[certificate.expired ? 'expired' : certificate.status] ?? certificate.status}
@@ -228,10 +228,10 @@ function MissingCertificates() {
                         <CustomerLink id={missing.customerId} name={missing.customerName} />
                       </TableCell>
                       <TableCell>{missing.stateCode ?? '—'}</TableCell>
-                      <TableCell>{formatDate(missing.saleDate)}</TableCell>
+                      <TableCell className="tabular-nums">{formatDate(missing.saleDate)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatMoney(missing.exemptSales)}</TableCell>
                       <TableCell>{missing.exemptReason ? (reasons[missing.exemptReason] ?? missing.exemptReason) : '—'}</TableCell>
-                      <TableCell>{formatDate(missing.cureDeadline)}</TableCell>
+                      <TableCell className="tabular-nums">{formatDate(missing.cureDeadline)}</TableCell>
                       <TableCell>
                         {missing.pastDeadline ? (
                           <div className="space-y-0.5">

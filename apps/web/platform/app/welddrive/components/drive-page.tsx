@@ -492,7 +492,7 @@ function DriveModifiedCell({ item, isTrashView, compact = false }: Readonly<{ it
     const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86400000));
     return <span className={cn(compact ? 'text-[11px]' : 'text-sm', 'font-mono text-orange-500')}>{daysLeft === 0 ? t.welddrive.page.trash.deletingSoon : t.welddrive.page.trash.deletesIn.replace('{days}', String(daysLeft))}</span>;
   }
-  return <span className={cn(compact ? 'text-[11px]' : 'text-sm', 'font-mono text-muted-foreground')}>{formatDate(item.createdAt)}</span>;
+  return <span className={cn(compact ? 'text-[11px]' : 'text-sm', 'tabular-nums')}>{formatDate(item.createdAt)}</span>;
 }
 
 type DragGhost = { name: string; iconHtml: string; x: number; y: number };

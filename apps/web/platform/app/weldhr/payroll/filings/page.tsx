@@ -105,13 +105,13 @@ function FilingsList() {
       id: 'period',
       header: t('weldhr.payroll.common.period'),
       width: 'w-[210px]',
-      render: (filing) => <span className="text-muted-foreground">{periodRange(filing.periodStart, filing.periodEnd)}</span>,
+      render: (filing) => <span className="tabular-nums">{periodRange(filing.periodStart, filing.periodEnd)}</span>,
     },
     {
       id: 'due',
       header: t('weldhr.payroll.filings.table.dueDate'),
       width: 'w-[110px]',
-      render: (filing) => <span className="text-muted-foreground">{formatDate(filing.dueDate)}</span>,
+      render: (filing) => <span className={filing.dueDate ? 'tabular-nums' : 'tabular-nums text-muted-foreground'}>{formatDate(filing.dueDate)}</span>,
     },
     {
       id: 'amount',

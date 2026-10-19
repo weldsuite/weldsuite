@@ -31,9 +31,9 @@ export function DateEditor({
         <Button variant="ghost" className="w-full h-full flex items-center justify-start px-0 cursor-pointer text-left">
           <span
             className={cn(
-              'text-[14px]',
+              'text-[14px] tabular-nums',
               isValidDate
-                ? 'text-foreground/80'
+                ? 'text-foreground'
                 : 'text-muted-foreground'
             )}
           >

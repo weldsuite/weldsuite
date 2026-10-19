@@ -35,7 +35,6 @@ import {
   Receipt,
   Scale,
   Sigma,
-  SquareChartGantt,
   StickyNote,
   Trash2,
   TrendingDown,
@@ -93,20 +92,12 @@ const STATUS_PILL: Record<AssetStatus, string> = {
 
 type Translations = ReturnType<typeof useI18n>['t'];
 
-function FixedAssetAvatar() {
-  return (
-    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900">
-      <SquareChartGantt className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-    </div>
-  );
-}
-
 function FixedAssetTitle({ asset, t }: Readonly<{ asset?: FixedAssetDetail; t: Translations }>) {
   if (!asset) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   const fa = t.weldbooksUs.assets.fixedAssets;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">{asset.name}</span>
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">{asset.name}</span>
       <span className={cn(PILL, STATUS_PILL[asset.status] ?? PILL_GRAY, 'flex-shrink-0')}>
         {fa.statuses[asset.status] ?? asset.status}
       </span>
@@ -322,11 +313,12 @@ function FixedAssetDetailsTab({
         {asset.assetNumber ? (
           <PropertyRow icon={Hash} label={fa.form.fields.assetNumber} value={asset.assetNumber} readOnly />
         ) : null}
-        <PropertyRow icon={CalendarDays} label={td.facts.acquisitionDate} value={formatDate(asset.acquisitionDate)} readOnly />
+        <PropertyRow icon={CalendarDays} label={td.facts.acquisitionDate} value={formatDate(asset.acquisitionDate)} tabular readOnly />
         <PropertyRow
           icon={CalendarCheck}
           label={td.facts.placedInServiceDate}
           value={formatDate(asset.placedInServiceDate)}
+          tabular
           readOnly
         />
         {asset.assetClass ? (
@@ -401,7 +393,7 @@ function FixedAssetDetailsTab({
       {disposed ? (
         <section className="space-y-1" data-testid="disposal-card">
           <h3 className="pb-1 text-sm font-medium">{td.disposal.title}</h3>
-          <PropertyRow icon={CalendarDays} label={td.disposal.date} value={formatDate(asset.disposalDate)} readOnly />
+          <PropertyRow icon={CalendarDays} label={td.disposal.date} value={formatDate(asset.disposalDate)} tabular readOnly />
           <PropertyRow
             icon={PiggyBank}
             label={td.disposal.proceeds}
@@ -579,7 +571,6 @@ export function FixedAssetPanel(props: Readonly<ObjectPanelComponentProps>) {
     <>
       <EntityDetailView
         {...shell.entityDetailViewProps}
-        avatar={<FixedAssetAvatar />}
         title={<FixedAssetTitle asset={asset} t={t} />}
         actions={
           <FixedAssetActions

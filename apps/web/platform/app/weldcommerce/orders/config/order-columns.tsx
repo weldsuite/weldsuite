@@ -84,7 +84,7 @@ export function buildOrderColumns(customerNames: Map<string, string>): ColumnDef
       header: t.fields.created,
       width: 'w-[130px]',
       render: (o) => (
-        <span className="text-muted-foreground">{new Date(o.createdAt).toLocaleDateString()}</span>
+        <span className="tabular-nums">{new Date(o.createdAt).toLocaleDateString()}</span>
       ),
     },
   ];

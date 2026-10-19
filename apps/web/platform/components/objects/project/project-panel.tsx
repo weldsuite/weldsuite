@@ -64,11 +64,11 @@ export function ProjectPanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t('sweep.entities.fieldCustomer'), value: project.customerName },
               { label: t('sweep.entities.fieldBudget'), value: formatPanelMoney(project.budgetedAmount, project.currency ?? undefined) },
               { label: t('sweep.entities.fieldBudgetedHours'), value: project.budgetedHours },
-              { label: t('sweep.entities.fieldStartDate'), value: formatPanelDate(project.startDate) },
-              { label: t('sweep.entities.fieldEndDate'), value: formatPanelDate(project.endDate) },
-              { label: t('sweep.entities.fieldActualStart'), value: formatPanelDate(project.actualStartDate) },
-              { label: t('sweep.entities.fieldActualEnd'), value: formatPanelDate(project.actualEndDate) },
-              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(project.createdAt) },
+              { label: t('sweep.entities.fieldStartDate'), value: formatPanelDate(project.startDate), tabular: true },
+              { label: t('sweep.entities.fieldEndDate'), value: formatPanelDate(project.endDate), tabular: true },
+              { label: t('sweep.entities.fieldActualStart'), value: formatPanelDate(project.actualStartDate), tabular: true },
+              { label: t('sweep.entities.fieldActualEnd'), value: formatPanelDate(project.actualEndDate), tabular: true },
+              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(project.createdAt), tabular: true },
             ]
           : undefined
       }

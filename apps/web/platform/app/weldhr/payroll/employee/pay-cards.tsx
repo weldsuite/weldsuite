@@ -54,7 +54,7 @@ export function CompensationCard({ employeeId, detail, canEdit }: Readonly<{ emp
           <TableBody>
             {detail.compensations.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className="whitespace-nowrap">
+                <TableCell className="whitespace-nowrap tabular-nums">
                   {formatDate(row.effectiveFrom)}
                   {row.effectiveTo === null && <Badge className="ml-2" variant="outline">{t('weldhr.payroll.employee.compensation.current')}</Badge>}
                 </TableCell>
@@ -148,7 +148,7 @@ export function ComponentsCard({ employeeId, detail, canEdit }: Readonly<{ emplo
               <div className="min-w-0">
                 <p className="text-sm font-medium">{component.label ?? labels.component(component.code)}</p>
                 <p className="text-xs text-muted-foreground">{componentSummary(component, currency, t) || '—'}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs tabular-nums">
                   {formatDate(component.effectiveFrom)}
                   {component.effectiveTo ? ` – ${formatDate(component.effectiveTo)}` : ` – ${t('weldhr.payroll.employee.components.ongoing')}`}
                 </p>

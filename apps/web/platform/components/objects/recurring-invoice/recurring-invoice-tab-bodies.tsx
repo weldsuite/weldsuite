@@ -65,12 +65,13 @@ export function RecurringDetailsTab({
     <div className="@container">
       <div className="p-4 space-y-4">
         <div className="space-y-1">
-          <PropertyRow icon={CalendarClock} label={trp.nextIssueDate} value={formatDate(recurring.nextIssueDate)} readOnly />
+          <PropertyRow icon={CalendarClock} label={trp.nextIssueDate} value={formatDate(recurring.nextIssueDate)} tabular readOnly />
           <PropertyRow icon={Hash} label={trp.generatedCount} value={String(recurring.generatedCount ?? 0)} readOnly />
           <PropertyRow
             icon={History}
             label={trp.lastGenerated}
             value={formatDateTime(recurring.lastGeneratedAt, trp.never)}
+            tabular
             readOnly
           />
           <PropertyRow
@@ -91,7 +92,7 @@ export function RecurringDetailsTab({
             />
           ) : null}
           {recurring.endDate ? (
-            <PropertyRow icon={CalendarX} label={trp.endDate} value={formatDate(recurring.endDate)} readOnly />
+            <PropertyRow icon={CalendarX} label={trp.endDate} value={formatDate(recurring.endDate)} tabular readOnly />
           ) : null}
           <PropertyRow icon={FileCheck2} label={trp.autoFinalize} value={yesNo(recurring.autoFinalize)} readOnly />
           <PropertyRow icon={Send} label={trp.autoSend} value={yesNo(recurring.autoSend)} readOnly />

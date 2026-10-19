@@ -123,7 +123,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
             renderRight={(m) => (
               <span className="tabular-nums">
                 {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
-                <span className="ml-2 text-muted-foreground">{formatPanelDate(m.createdAt)}</span>
+                <span className="ml-2 text-foreground">{formatPanelDate(m.createdAt)}</span>
               </span>
             )}
           />
@@ -218,7 +218,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
             <img
               src={product.featuredImageUrl}
               alt=""
-              className="h-7 w-7 rounded-lg object-cover bg-muted"
+              className="size-[22px] rounded-[8px] object-cover bg-muted"
             />
           ) : undefined
         }
@@ -272,7 +272,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
                         .join(', ')
                     : t.products.salesChannelsNone,
                 },
-                { label: t.fields.created, value: formatPanelDate(product.createdAt) },
+                { label: t.fields.created, value: formatPanelDate(product.createdAt), tabular: true },
               ]
             : []
         }

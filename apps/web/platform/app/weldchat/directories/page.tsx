@@ -130,7 +130,7 @@ export default function DirectoriesPage() {
         <span className="w-[120px] flex-shrink-0">
           <span className={cn(
             'text-sm',
-            item.lastMessageAt ? 'text-gray-600 dark:text-muted-foreground' : 'text-gray-400',
+            item.lastMessageAt ? 'tabular-nums' : 'text-gray-400',
           )}>
             {formatRelative(item.lastMessageAt, st)}
           </span>

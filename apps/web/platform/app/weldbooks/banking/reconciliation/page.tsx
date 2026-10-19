@@ -133,7 +133,7 @@ export default function BankReconciliationPage() {
               <span className="text-xs text-muted-foreground truncate max-w-[200px]">
                 {txn.description}
               </span>
-              <span className="text-xs text-muted-foreground">{formatDate(txn.date)}</span>
+              <span className="text-xs tabular-nums">{formatDate(txn.date)}</span>
             </span>
             {txn.checkNumber || txn.source ? (
               <span className="mt-1 flex flex-wrap items-center gap-1.5">

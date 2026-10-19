@@ -381,7 +381,7 @@ export function MembersClient({
                     {roleLabel(member.role)}
                   </span>
                 </TableCell>
-                <TableCell className="py-1.5 font-mono tabular-nums text-sm text-muted-foreground">
+                <TableCell className="py-1.5 tabular-nums text-sm">
                   {formatDate(member.joinedAt)}
                 </TableCell>
                 <TableCell className="py-1.5" onClick={(e) => e.stopPropagation()}>

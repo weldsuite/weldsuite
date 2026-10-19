@@ -112,11 +112,11 @@ function crmRecordOf(contact: Customer): CrmRecord | null {
 // ─── Header ────────────────────────────────────────────────────────────────
 
 function ContactAvatar({ contact }: Readonly<{ contact?: Customer }>) {
-  let content: ReactNode = <Building2 className="h-3.5 w-3.5" aria-hidden />;
-  if (contact?.kind === 'person') content = <User className="h-3.5 w-3.5" aria-hidden />;
+  let content: ReactNode = <Building2 className="size-3" aria-hidden />;
+  if (contact?.kind === 'person') content = <User className="size-3" aria-hidden />;
   else if (!contact?.kind && contact?.name) content = contact.name.charAt(0).toUpperCase();
   return (
-    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gray-200 text-[12px] font-medium text-gray-600 dark:bg-accent dark:text-muted-foreground">
+    <div className="flex size-[22px] flex-shrink-0 items-center justify-center rounded-[8px] bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-accent dark:text-muted-foreground">
       {content}
     </div>
   );

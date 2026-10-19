@@ -26,7 +26,6 @@ import {
   EllipsisVertical,
   Hash,
   Inbox,
-  Landmark,
   Link as LinkIcon,
   ListChecks,
   Plus,
@@ -90,20 +89,12 @@ const PILL_GRAY = 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-
 
 type Translations = ReturnType<typeof useI18n>['t'];
 
-function BankAccountAvatar() {
-  return (
-    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900">
-      <Landmark className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-    </div>
-  );
-}
-
 function BankAccountTitle({ account, t }: Readonly<{ account?: UsBankAccount; t: Translations }>) {
   if (!account) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   const tbp = t.accounting.bankingPages;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">{account.name}</span>
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">{account.name}</span>
       {account.isDefault ? (
         <span className={cn(PILL, PILL_GREEN, 'flex-shrink-0')}>{tbp.badges.default}</span>
       ) : null}
@@ -346,6 +337,7 @@ function BankAccountDetailsTab({
           icon={CalendarClock}
           label={tbp.lastImport}
           value={formatDateTime(account.lastImportDate, '—')}
+          tabular
           readOnly
         />
         <PropertyRow
@@ -409,7 +401,7 @@ function TransactionRow({ line, currency }: Readonly<{ line: BankLine; currency:
   const title = line.description || line.counterpartyName || '—';
   return (
     <TabListRow label={title}>
-      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
+      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums">
         {formatDate(line.date)}
       </span>
       <div className="min-w-0 flex-1">
@@ -628,7 +620,6 @@ export function BankAccountPanel(props: Readonly<ObjectPanelComponentProps>) {
     <>
       <EntityDetailView
         {...shell.entityDetailViewProps}
-        avatar={<BankAccountAvatar />}
         title={<BankAccountTitle account={account} t={t} />}
         actions={
           <BankAccountActions

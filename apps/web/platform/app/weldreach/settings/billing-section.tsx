@@ -80,7 +80,7 @@ export function BillingSection() {
             {billing.data.currentPeriodEnd && (
               <div className="space-y-1">
                 <dt className="text-muted-foreground">{t('reach.settings.billing.nextInvoice')}</dt>
-                <dd>{format.date(billing.data.currentPeriodEnd)}</dd>
+                <dd className="tabular-nums">{format.date(billing.data.currentPeriodEnd)}</dd>
               </div>
             )}
           </dl>

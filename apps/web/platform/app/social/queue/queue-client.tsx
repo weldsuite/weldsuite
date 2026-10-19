@@ -135,7 +135,7 @@ export function QueueClient() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm line-clamp-2">{post.content || '—'}</p>
                         {post.scheduledAt && (
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-xs mt-1 tabular-nums">
                             {formatDate(new Date(post.scheduledAt), 'h:mm a')}
                           </p>
                         )}

@@ -76,6 +76,11 @@ export interface PropertyRowProps {
    * (e.g. a chevron for a select field). Hidden while editing.
    */
   accessory?: React.ReactNode;
+  /**
+   * Set the read-mode value in tabular figures. Always on for `type="date"`;
+   * pass it for a read-only row whose `value` is an already formatted date.
+   */
+  tabular?: boolean;
 }
 
 const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
@@ -135,8 +140,10 @@ export function PropertyRow({
   readOnly,
   renderValue,
   accessory,
+  tabular,
 }: Readonly<PropertyRowProps>) {
   const t = useTranslations();
+  const tabularValue = tabular || type === 'date';
   const editable = !readOnly && !!onSave;
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? '');
@@ -227,6 +234,8 @@ export function PropertyRow({
           // sit in exactly the same place and the text never shifts. 7px
           // padding + 1px border keeps the value on the column's left edge.
           'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-[7px] box-border border border-transparent',
+          // Dates read in the same tabular figures as money totals.
+          tabularValue && !isEditing && 'tabular-nums',
           // Editable values show that border on hover (no fill, no underline).
           editable && !isEditing && cn('relative cursor-text transition-colors hover:border-border', KEEP_CONTROLS_ABOVE_OVERLAY),
           isEditing && 'border-border bg-background focus-within:ring-1 focus-within:ring-primary',

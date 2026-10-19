@@ -78,7 +78,7 @@ export function ElectionsCard({ employeeId, detail, canEdit }: Readonly<{ employ
                 <p>{t('weldhr.payroll.elections.inForceFrom', { date: formatDate(election.effectiveFrom) })}</p>
                 <p className="flex items-center justify-end gap-1.5">
                   <Badge variant="outline">{t(`weldhr.payroll.elections.sources.${election.source}`)}</Badge>
-                  {election.signedAt && <span>{formatDateTime(election.signedAt)}</span>}
+                  {election.signedAt && <span className="tabular-nums text-foreground">{formatDateTime(election.signedAt)}</span>}
                 </p>
               </div>
             </li>
@@ -108,7 +108,7 @@ export function ElectionsCard({ employeeId, detail, canEdit }: Readonly<{ employ
                   {t(`weldhr.payroll.elections.titles.${election.kind}`, { state: election.state ?? '' })}
                   <span className="block text-xs text-muted-foreground">{electionSummary(election, t, stateOption)}</span>
                 </TableCell>
-                <TableCell className="whitespace-nowrap">{formatDate(election.effectiveFrom)}</TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">{formatDate(election.effectiveFrom)}</TableCell>
                 <TableCell>{election.signatureName ?? '—'}</TableCell>
                 <TableCell>{t(`weldhr.payroll.elections.sources.${election.source}`)}</TableCell>
               </TableRow>

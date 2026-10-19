@@ -505,7 +505,7 @@ function RowDisplayContent({
 }: Readonly<{ ctx: FieldContext; placeholder: string }>) {
   const { def, value, hasValue } = ctx;
   if (!hasValue) return <span className="text-muted-foreground/70">{placeholder}</span>;
-  if (def.fieldType === 'date') return <span>{new Date(String(value)).toLocaleDateString()}</span>;
+  if (def.fieldType === 'date') return <span className="tabular-nums">{new Date(String(value)).toLocaleDateString()}</span>;
   return <>{renderDisplayValue(def, value, hasValue)}</>;
 }
 
@@ -604,7 +604,7 @@ function LabeledField({ name, children }: Readonly<{ name: string; children: Rea
 function StackedDisplayContent({ ctx }: Readonly<{ ctx: FieldContext }>) {
   const { def, value, hasValue } = ctx;
   if (hasValue && def.fieldType === 'date') {
-    return <span className="text-sm">{new Date(String(value)).toLocaleDateString()}</span>;
+    return <span className="text-sm tabular-nums">{new Date(String(value)).toLocaleDateString()}</span>;
   }
   return <>{renderDisplayValue(def, value, hasValue)}</>;
 }

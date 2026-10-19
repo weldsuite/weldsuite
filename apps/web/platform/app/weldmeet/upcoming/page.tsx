@@ -346,7 +346,7 @@ export default function UpcomingMeetingsPage() {
 
         {/* Date */}
         <div className="w-[180px]">
-          <span className="text-sm font-mono text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {dateLabel}
           </span>
         </div>

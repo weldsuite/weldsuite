@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { AssetFilters, FixedAssetListItem } from '@/lib/api/domains/weldbooks-assets';
 
@@ -43,13 +43,6 @@ vi.mock('@/hooks/queries/use-weldbooks-assets-queries', () => ({
       refetch: vi.fn(),
     };
   },
-  useFixedAssetRegister: () => ({
-    data: {
-      asOf: '2026-03-10',
-      totals: { cost: 15000, accumulatedDepreciation: 2500, netBookValue: 12500 },
-      lines: [{ disposed: false }, { disposed: false }, { disposed: true }],
-    },
-  }),
 }));
 
 import FixedAssetsPage from './page';
@@ -118,15 +111,6 @@ describe('Fixed assets register', () => {
     expect(row).toHaveTextContent('$10000.00');
     expect(row).toHaveTextContent('Active');
     expect(rowOf('Old press')).toHaveTextContent('Disposed');
-  });
-
-  it('shows the register totals as of today, without the disposed assets', () => {
-    renderWithProviders(<FixedAssetsPage />);
-    const summary = screen.getByTestId('register-summary');
-    expect(summary).toHaveTextContent('Register as of 2026-03-10');
-    expect(summary).toHaveTextContent('$15000.00');
-    expect(summary).toHaveTextContent('$12500.00');
-    expect(within(summary).getByText('Assets').nextElementSibling).toHaveTextContent('2');
   });
 
   it('opens an asset in the fixed asset record panel by clicking its row', async () => {

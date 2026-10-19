@@ -153,7 +153,7 @@ export function ProviderReconciliationReport() {
                     <TableBody>
                       {report.documents.map((document) => (
                         <TableRow key={`${document.documentType}-${document.documentId}`} data-testid="reconciliation-document">
-                          <TableCell>{formatDate(document.date)}</TableCell>
+                          <TableCell className="tabular-nums">{formatDate(document.date)}</TableCell>
                           <TableCell>
                             <DocumentLink
                               type={document.documentType}
@@ -162,7 +162,7 @@ export function ProviderReconciliationReport() {
                             />
                           </TableCell>
                           <TableCell className="max-w-[12rem] truncate">{document.engineRef ?? '—'}</TableCell>
-                          <TableCell>{document.committedAt ? formatDateTime(document.committedAt) : '—'}</TableCell>
+                          <TableCell className="tabular-nums">{document.committedAt ? formatDateTime(document.committedAt) : '—'}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatMoney(document.providerTax)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatMoney(document.ledgerTax)}</TableCell>
                           <TableCell

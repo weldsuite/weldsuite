@@ -339,12 +339,12 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                 </div>
                 <div className="flex items-center justify-between px-2 py-1.5 text-sm">
                   <span className="text-muted-foreground">{t.welddrive.filePreview.details.modified}</span>
-                  <span>{formatDate(file.createdAt)}</span>
+                  <span className="tabular-nums">{formatDate(file.createdAt)}</span>
                 </div>
                 {file.updatedAt && (
                   <div className="flex items-center justify-between px-2 py-1.5 text-sm">
                     <span className="text-muted-foreground">{t.welddrive.filePreview.details.updated}</span>
-                    <span>{formatDate(file.updatedAt)}</span>
+                    <span className="tabular-nums">{formatDate(file.updatedAt)}</span>
                   </div>
                 )}
                 {file.mimeType && (

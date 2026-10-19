@@ -261,7 +261,7 @@ export function GustoConnectionCard({ connection, can }: Readonly<{ connection: 
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm tabular-nums">
           {connection.lastSyncedAt ? fill(tg.lastSynced, { date: formatDateTime(connection.lastSyncedAt) }) : tg.neverSynced}
         </p>
         {connection.lastError ? (

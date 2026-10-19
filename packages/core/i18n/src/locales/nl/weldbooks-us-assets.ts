@@ -129,12 +129,6 @@ const fixedAssets = {
       netBookValue: 'Boekwaarde',
       status: 'Status',
     },
-    summaryTitle: 'Register per {date}',
-    summaryHelp: 'Het grootboekboek: wat de activa kostten, wat is afgeschreven en wat ze in de boeken waard zijn.',
-    summaryAssets: 'Activa',
-    summaryCost: 'Aanschafwaarde',
-    summaryDepreciation: 'Cumulatieve afschrijving',
-    summaryNetBookValue: 'Boekwaarde',
     netBookValueHelp: 'Aanschafwaarde min de afschrijving die tot nu toe in het grootboek is geboekt.',
   },
 

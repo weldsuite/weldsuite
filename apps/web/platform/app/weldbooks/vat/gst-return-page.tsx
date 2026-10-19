@@ -372,7 +372,7 @@ function Gstr1({ sheet, texts: tg }: Readonly<{ sheet: GstWorksheet; texts: Text
               {g.b2cLarge.map((line) => (
                 <TableRow key={`${line.documentId}-${line.slabRate}`}>
                   <TableCell>{line.number}</TableCell>
-                  <TableCell>{formatDate(line.date)}</TableCell>
+                  <TableCell className="tabular-nums">{formatDate(line.date)}</TableCell>
                   <TableCell>{place(line.placeOfSupply)}</TableCell>
                   <TableCell className={NUM}>{line.slabRate}%</TableCell>
                   {taxCells(line)}
@@ -426,7 +426,7 @@ function Gstr1({ sheet, texts: tg }: Readonly<{ sheet: GstWorksheet; texts: Text
               {g.exports.map((row) => (
                 <TableRow key={row.documentId}>
                   <TableCell>{row.number}</TableCell>
-                  <TableCell>{formatDate(row.date)}</TableCell>
+                  <TableCell className="tabular-nums">{formatDate(row.date)}</TableCell>
                   <TableCell className={NUM}>{fmt(row.value)}</TableCell>
                   <TableCell className={NUM}>{fmt(row.taxable)}</TableCell>
                   <TableCell className={NUM}>{fmt(row.igst)}</TableCell>
@@ -485,7 +485,7 @@ function Gstr1({ sheet, texts: tg }: Readonly<{ sheet: GstWorksheet; texts: Text
                   <TableCell>{line.gstin ?? '—'}</TableCell>
                   <TableCell>{line.number}</TableCell>
                   <TableCell>{line.originalNumber ?? '—'}</TableCell>
-                  <TableCell>{formatDate(line.date)}</TableCell>
+                  <TableCell className="tabular-nums">{formatDate(line.date)}</TableCell>
                   <TableCell className={NUM}>{line.slabRate}%</TableCell>
                   {taxCells(line)}
                 </TableRow>
@@ -543,7 +543,7 @@ function PartyRows({
             ) : null}
           </TableCell>
           <TableCell>{line.number}</TableCell>
-          <TableCell>{formatDate(line.date)}</TableCell>
+          <TableCell className="tabular-nums">{formatDate(line.date)}</TableCell>
           <TableCell>{place(line.placeOfSupply)}</TableCell>
           <TableCell className={NUM}>{line.slabRate}%</TableCell>
           {taxCells(line)}

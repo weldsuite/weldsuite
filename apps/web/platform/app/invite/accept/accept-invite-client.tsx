@@ -277,7 +277,7 @@ export function AcceptInviteClient({ token, initialInvitation, initialError }: R
                 {invitation.expiresAt && (
                   <div className="flex justify-between items-center px-4 py-3">
                     <span className="text-[14px] text-gray-500">{t.invite.invitationExpiresLabel}</span>
-                    <span className="text-[14px] text-gray-900">{new Date(invitation.expiresAt).toLocaleDateString()}</span>
+                    <span className="text-[14px] text-gray-900 tabular-nums">{new Date(invitation.expiresAt).toLocaleDateString()}</span>
                   </div>
                 )}
               </div>

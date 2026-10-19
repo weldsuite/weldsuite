@@ -145,7 +145,7 @@ function buildColumns(
       accessorKey: "date",
       header: () => <div className="text-right">{t.weldconnect.components.recentActivity.time}</div>,
       cell: ({ row }) => (
-        <div className="text-right text-sm text-muted-foreground whitespace-nowrap">{row.original.date}</div>
+        <div className="text-right text-sm tabular-nums whitespace-nowrap">{row.original.date}</div>
       ),
     },
     {

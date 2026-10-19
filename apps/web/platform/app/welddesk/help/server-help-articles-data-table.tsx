@@ -999,8 +999,8 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
           <TableCell className="px-3 py-3 align-top">
             <div className="space-y-2">
               {currentFolderArticles.map((article) => (
-                <div key={article.id} className="flex items-center gap-1.5 text-sm text-muted-foreground py-1">
-                  <Clock className="h-3.5 w-3.5" />
+                <div key={article.id} className="flex items-center gap-1.5 text-sm tabular-nums py-1">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>
                     {article.lastUpdated
                       ? format(new Date(article.lastUpdated), "MMM d, yyyy")

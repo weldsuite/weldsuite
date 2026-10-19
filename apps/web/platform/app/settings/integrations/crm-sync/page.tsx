@@ -140,7 +140,7 @@ export default function CrmSyncSettingsPage() {
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">{t('sweep.settings.crmSync.lastSync')}</span>
-                <span className="font-medium">{formatDate(connection.lastSyncAt) ?? t('sweep.settings.crmSync.never')}</span>
+                <span className={connection.lastSyncAt ? 'tabular-nums' : 'text-muted-foreground'}>{formatDate(connection.lastSyncAt) ?? t('sweep.settings.crmSync.never')}</span>
               </div>
             </div>
 
@@ -217,7 +217,7 @@ export default function CrmSyncSettingsPage() {
                           {log.status === 'failed' && log.errorMessage && ` — ${log.errorMessage}`}
                         </span>
                         <span className="text-muted-foreground">{formatDuration(log.durationMs)}</span>
-                        <span className="text-muted-foreground w-[130px] text-right">{formatDate(log.startedAt) ?? t('sweep.settings.crmSync.never')}</span>
+                        <span className={`w-[130px] text-right tabular-nums${log.startedAt ? '' : ' text-muted-foreground'}`}>{formatDate(log.startedAt) ?? t('sweep.settings.crmSync.never')}</span>
                       </div>
                     ))}
                   </div>

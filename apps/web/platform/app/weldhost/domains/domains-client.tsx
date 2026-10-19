@@ -196,7 +196,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         {/* Expires */}
         <div className="w-[140px]">
           {domain.expiresAt ? (
-            <span className="text-sm text-gray-700 dark:text-muted-foreground">
+            <span className="text-sm tabular-nums">
               {new Date(domain.expiresAt).toLocaleDateString()}
             </span>
           ) : (

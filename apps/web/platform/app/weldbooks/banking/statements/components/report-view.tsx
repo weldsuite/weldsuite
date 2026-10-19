@@ -51,7 +51,7 @@ function GroupTable({
         <tbody>
           {group.items.map((item) => (
             <tr key={item.id} className="border-b border-border/50 align-top">
-              <td className="whitespace-nowrap py-1 pr-3">{formatDate(item.date)}</td>
+              <td className="whitespace-nowrap py-1 pr-3 tabular-nums">{formatDate(item.date)}</td>
               <td className="py-1 pr-3">
                 {[item.checkNumber ? tr.checkNumber.replace('{number}', item.checkNumber) : null, item.documentNumber ?? item.entryNumber]
                   .filter(Boolean)

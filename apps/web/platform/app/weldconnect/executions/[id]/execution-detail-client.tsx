@@ -624,7 +624,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
             <p className="text-xs text-gray-500 dark:text-muted-foreground font-medium">
               {t.weldconnect.executionDetail.startedAt}
             </p>
-            <p className="text-base font-semibold mt-1">
+            <p className="text-base font-semibold mt-1 tabular-nums">
               {formatDate(execution.startedAt || execution.createdAt)}
             </p>
           </div>

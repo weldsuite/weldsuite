@@ -319,7 +319,7 @@ export function AnalyticsDashboardClient({
                         >
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{execution.workflowName}</p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className={`text-xs tabular-nums${execution.startedAt ? '' : ' text-muted-foreground'}`}>
                               {execution.startedAt ? new Date(execution.startedAt).toLocaleString() : '—'}
                             </p>
                           </div>

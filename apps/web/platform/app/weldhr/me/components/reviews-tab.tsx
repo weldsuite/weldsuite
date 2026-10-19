@@ -100,7 +100,7 @@ function CoachingCard({
     <div className="space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-0.5">
-          <Meta>{formatDate(log.sessionDate)}</Meta>
+          <p className="text-xs tabular-nums">{formatDate(log.sessionDate)}</p>
           <h3 className="text-sm font-medium">{log.topic || t(`weldhr.status.coachingCategory.${log.category}`)}</h3>
           {log.coachName && <Meta>{t('weldhr.me.reviews.coaching.coach', { name: log.coachName })}</Meta>}
         </div>
@@ -157,9 +157,9 @@ function EvaluationCard({
         <div className="min-w-0 space-y-0.5">
           <h3 className="text-sm font-medium">{evaluation.formName ?? t('weldhr.me.reviews.evaluations.untitled')}</h3>
           {hasPeriod && (
-            <Meta>
+            <p className="text-xs tabular-nums">
               {formatDate(evaluation.periodStart)} – {formatDate(evaluation.periodEnd)}
-            </Meta>
+            </p>
           )}
           {evaluation.evaluatorName && (
             <Meta>{t('weldhr.me.reviews.evaluations.evaluator', { name: evaluation.evaluatorName })}</Meta>

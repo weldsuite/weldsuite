@@ -304,7 +304,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
 
           {/* Date */}
           <div className="w-[140px]">
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm tabular-nums">
               {formatNoteDate(new Date(note.createdAt), t)}
             </span>
           </div>

@@ -209,7 +209,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-sm font-medium">
+              <div className={`text-sm tabular-nums${webhook.lastCalledAt ? '' : ' text-muted-foreground'}`}>
                 {webhook.lastCalledAt ? formatDate(webhook.lastCalledAt) : wd.stats.never}
               </div>
             </CardContent>
@@ -296,7 +296,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
                             <CardTitle className="text-base">{wd.events.webhookEvent}</CardTitle>
                             <EventStatusBadge status={event.status} label={statusLabels[event.status] ?? event.status} />
                           </div>
-                          <CardDescription className="mt-1">
+                          <CardDescription className="mt-1 text-foreground tabular-nums">
                             {formatDate(event.createdAt)}
                           </CardDescription>
                         </div>
@@ -361,11 +361,11 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
                   </div>
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">{wd.info.createdAt}</p>
-                    <p className="text-sm mt-1">{formatDate(webhook.createdAt)}</p>
+                    <p className="text-sm mt-1 tabular-nums">{formatDate(webhook.createdAt)}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">{wd.info.updatedAt}</p>
-                    <p className="text-sm mt-1">{formatDate(webhook.updatedAt)}</p>
+                    <p className="text-sm mt-1 tabular-nums">{formatDate(webhook.updatedAt)}</p>
                   </div>
                   {webhook.workflowName && (
                     <div className="col-span-2">

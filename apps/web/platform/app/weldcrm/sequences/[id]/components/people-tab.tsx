@@ -616,7 +616,7 @@ export function PeopleTab({
                           <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
                             {name}
                           </span>
-                          <span className="text-[11px] text-gray-400 dark:text-muted-foreground flex-shrink-0">
+                          <span className="text-[11px] tabular-nums flex-shrink-0">
                             {formatRelativeTime(enrollment.enrolledAt)}
                           </span>
                         </span>

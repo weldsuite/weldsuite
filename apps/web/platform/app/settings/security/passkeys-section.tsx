@@ -172,10 +172,10 @@ export function PasskeysSection() {
                       <span className="font-medium">{displayName(passkey)}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="h-[42px] py-0 px-3 text-sm text-muted-foreground">
+                  <TableCell className="h-[42px] py-0 px-3 text-sm tabular-nums">
                     {format(passkey.createdAt, 'PP')}
                   </TableCell>
-                  <TableCell className="h-[42px] py-0 px-3 text-sm text-muted-foreground font-mono">
+                  <TableCell className={`h-[42px] py-0 px-3 text-sm tabular-nums${passkey.lastUsedAt ? '' : ' text-muted-foreground'}`}>
                     {passkey.lastUsedAt
                       ? formatDistanceToNow(passkey.lastUsedAt, { addSuffix: true })
                       : tp.never}

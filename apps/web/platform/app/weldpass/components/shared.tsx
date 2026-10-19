@@ -88,7 +88,7 @@ export function TimeAgo({ value }: Readonly<{ value: string | null }>) {
 
   const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
   return (
-    <span title={date.toLocaleString()} className="text-muted-foreground">
+    <span title={date.toLocaleString()} className="text-foreground tabular-nums">
       {formatter.format(-amount, unit)}
     </span>
   );

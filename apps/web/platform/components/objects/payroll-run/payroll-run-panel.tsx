@@ -18,7 +18,6 @@ import {
   CircleDot,
   EllipsisVertical,
   FileText,
-  HandCoins,
   Link as LinkIcon,
   Plug,
   Undo2,
@@ -39,7 +38,6 @@ import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import {
-  PanelAvatar,
   PanelRow,
   PanelNotice,
   PanelSection,
@@ -77,7 +75,7 @@ function PayrollRunTitle({
   const tp = t.weldbooksUs.assets.payroll;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {fill(tp.detail.title, { date: formatDate(payroll.payDate) })}
       </span>
       <span className="flex-shrink-0">
@@ -179,13 +177,15 @@ function PayrollRunDetailsTab({
           icon={CalendarDays}
           label={tp.list.columns.payDate}
           value={formatDate(payroll.payDate)}
+          tabular
         />
-        <PanelRow icon={CalendarDays} label={tp.list.columns.period} value={period} />
+        <PanelRow icon={CalendarDays} label={tp.list.columns.period} value={period} tabular />
         <PanelRow icon={FileText} label={tp.panel.sourceFile} value={payroll.sourceFileName} />
         <PanelRow
           icon={CalendarDays}
           label={tp.panel.importedOn}
           value={formatDateTime(payroll.createdAt)}
+          tabular
         />
         <PanelRow
           icon={BookOpen}
@@ -333,12 +333,6 @@ export function PayrollRunPanel(props: Readonly<ObjectPanelComponentProps>) {
       <EntityDetailView
         {...shell.entityDetailViewProps}
         contentClassName={tabBodyClassName(mode)}
-        avatar={
-          <PanelAvatar
-            icon={HandCoins}
-            className="bg-emerald-100 text-emerald-600 dark:bg-emerald-900 dark:text-emerald-400"
-          />
-        }
         title={<PayrollRunTitle payroll={payroll} t={t} />}
         actions={
           <PayrollRunActions

@@ -220,7 +220,7 @@ export function ReviewsClient({ items }: Readonly<ReviewsClientProps>) {
 
         {/* Date */}
         <div className="w-[120px]">
-          <span className="text-sm text-gray-500">{formatDate(review.date, 'MMM d, yyyy')}</span>
+          <span className="text-sm tabular-nums">{formatDate(review.date, 'MMM d, yyyy')}</span>
         </div>
 
         {/* Status */}
@@ -386,7 +386,7 @@ export function ReviewsClient({ items }: Readonly<ReviewsClientProps>) {
               <div className="space-y-2.5 text-[13px]">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500 dark:text-muted-foreground">{tr.date}</span>
-                  <span className="text-gray-900 dark:text-foreground">
+                  <span className="tabular-nums">
                     {formatDate(selectedReview.date, 'MMM d, yyyy')}
                   </span>
                 </div>

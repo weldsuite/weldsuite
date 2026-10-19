@@ -89,7 +89,7 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
       header: t('weldhr.absenteeism.table.firstSickDay'),
       width: 'w-[150px]',
       render: (r) => (
-        <span className="block truncate">
+        <span className="block truncate tabular-nums">
           {formatDate(r.startDate)}
           {r.firstDay === 'half' && <span className="text-muted-foreground"> · {t('weldhr.absenteeism.halfFirstDay')}</span>}
         </span>
@@ -100,7 +100,7 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
       header: t('weldhr.absenteeism.table.lastSickDay'),
       width: 'w-[105px]',
       render: (r) =>
-        r.endDate ? <span>{formatDate(r.endDate)}</span> : <span className="text-muted-foreground">{t('weldhr.absenteeism.stillAbsent')}</span>,
+        r.endDate ? <span className="tabular-nums">{formatDate(r.endDate)}</span> : <span className="text-muted-foreground">{t('weldhr.absenteeism.stillAbsent')}</span>,
     },
     {
       id: 'days',

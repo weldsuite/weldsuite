@@ -29,7 +29,7 @@ export function FilingCard({ ret }: Readonly<{ ret: TaxReturnDetail }>) {
         <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <dt className="text-xs text-muted-foreground">{tf.filedOn}</dt>
-            <dd className="font-medium">{ret.filedAt ? formatDateTime(ret.filedAt) : tf.notFiledYet}</dd>
+            <dd className="font-medium tabular-nums">{ret.filedAt ? formatDateTime(ret.filedAt) : tf.notFiledYet}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">{tf.confirmation}</dt>
@@ -39,7 +39,7 @@ export function FilingCard({ ret }: Readonly<{ ret: TaxReturnDetail }>) {
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">{tf.paidOn}</dt>
-            <dd className="font-medium">{ret.paidAt ? formatDate(ret.paidAt) : '—'}</dd>
+            <dd className="font-medium tabular-nums">{ret.paidAt ? formatDate(ret.paidAt) : '—'}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">{tf.amountPaid}</dt>
@@ -144,7 +144,7 @@ export function AmendmentsCard({ ret }: Readonly<{ ret: TaxReturnDetail }>) {
               >
                 {ta.item}
               </Link>
-              <span className="flex items-center gap-2 text-muted-foreground">
+              <span className="flex items-center gap-2 tabular-nums">
                 <ReturnStatusBadge status={amendment.status} />
                 {amendment.filedAt ? fill(ta.filedOn, { date: formatDate(amendment.filedAt) }) : ta.notFiled}
               </span>

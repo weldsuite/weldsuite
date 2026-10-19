@@ -123,12 +123,12 @@ export function DashboardClient() {
                       {t.social.posts.statuses[post.status as keyof typeof t.social.posts.statuses] || post.status}
                     </Badge>
                     {post.scheduledAt && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs tabular-nums">
                         {formatDate(new Date(post.scheduledAt), 'MMM d')}
                       </span>
                     )}
                     {post.publishedAt && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs tabular-nums">
                         {formatDate(new Date(post.publishedAt), 'MMM d')}
                       </span>
                     )}

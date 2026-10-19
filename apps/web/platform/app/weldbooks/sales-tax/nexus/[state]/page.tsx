@@ -49,6 +49,16 @@ function DetailSkeleton() {
   );
 }
 
+/** A period's "exceeded" cell: the date it was exceeded, "yes" when that date is unknown, or a dash. */
+function periodExceededLabel(
+  period: NexusDetail['periods'][number],
+  formatDate: (value: string) => string,
+  yes: string,
+): string {
+  if (!period.exceeded) return '—';
+  return period.exceededOn ? formatDate(period.exceededOn) : yes;
+}
+
 function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
   const { t } = useI18n();
   const tn = t.weldbooksUs.salesTax.center.nexus;
@@ -108,14 +118,18 @@ function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
                 : fill(tn.transactionsOf, { count: detail.transactionCount, threshold: detail.thresholdTransactions })}
             </Field>
             <Field label={td.measurementWindow}>
-              {fill(t.weldbooksUs.salesTax.center.overview.periodRange, {
-                start: formatDate(detail.window.from),
-                end: formatDate(detail.window.to),
-              })}
+              <span className="tabular-nums">
+                {fill(t.weldbooksUs.salesTax.center.overview.periodRange, {
+                  start: formatDate(detail.window.from),
+                  end: formatDate(detail.window.to),
+                })}
+              </span>
             </Field>
-            <Field label={td.exceededOn}>{detail.exceededOn ? formatDate(detail.exceededOn) : '—'}</Field>
+            <Field label={td.exceededOn}>
+              <span className="tabular-nums">{detail.exceededOn ? formatDate(detail.exceededOn) : '—'}</span>
+            </Field>
             <Field label={td.collectFrom}>
-              {detail.collectFrom ? formatDate(detail.collectFrom) : '—'}
+              <span className="tabular-nums">{detail.collectFrom ? formatDate(detail.collectFrom) : '—'}</span>
               {detail.collectFrom && !detail.collectFromVerified ? (
                 <span className="block text-xs font-normal text-muted-foreground">{td.collectNotConfirmed}</span>
               ) : null}
@@ -143,7 +157,7 @@ function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
             <TableBody>
               {detail.periods.map((period) => (
                 <TableRow key={`${period.role}|${period.from}|${period.to}`} data-testid="nexus-period">
-                  <TableCell>
+                  <TableCell className="tabular-nums">
                     {fill(t.weldbooksUs.salesTax.center.overview.periodRange, {
                       start: formatDate(period.from),
                       end: formatDate(period.to),
@@ -155,7 +169,7 @@ function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
                   <TableCell>
                     <NexusProgressBar row={{ percentOfThreshold: period.percentOfThreshold, registered: detail.registered }} />
                   </TableCell>
-                  <TableCell>{period.exceeded ? (period.exceededOn ? formatDate(period.exceededOn) : tn.registeredYes) : '—'}</TableCell>
+                  <TableCell className="tabular-nums">{periodExceededLabel(period, formatDate, tn.registeredYes)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -178,7 +192,9 @@ function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
             <Field label={td.marketplace}>
               {rule.marketplaceSalesCount ? t.weldbooksUs.salesTax.center.common.yes : t.weldbooksUs.salesTax.center.common.no}
             </Field>
-            <Field label={td.effectiveFrom}>{formatDate(rule.effectiveFrom)}</Field>
+            <Field label={td.effectiveFrom}>
+              <span className="tabular-nums">{formatDate(rule.effectiveFrom)}</span>
+            </Field>
           </dl>
           {detail.sourceUrl ? (
             <p className="text-sm">

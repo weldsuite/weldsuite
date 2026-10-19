@@ -154,7 +154,7 @@ export function MemberDetailClient({ memberData }: Readonly<MemberDetailClientPr
       label: md.createdColumn,
       sortable: true,
       render: (ticket) => (
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm tabular-nums">
           {format(ticket.createdAt, 'MMM d, yyyy · h:mm a')}
         </span>
       ),

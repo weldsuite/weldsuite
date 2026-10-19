@@ -225,7 +225,7 @@ export function CategoryPanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t.fields.position, value: category.position },
               { label: t.fields.memberCount, value: memberRows.length },
               { label: t.panel.tabSubcategories, value: childRows.length },
-              { label: t.fields.created, value: formatPanelDate(category.createdAt) },
+              { label: t.fields.created, value: formatPanelDate(category.createdAt), tabular: true },
             ]
           : []
       }

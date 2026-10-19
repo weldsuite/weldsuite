@@ -23,7 +23,6 @@ import {
   EllipsisVertical,
   Hash,
   Link as LinkIcon,
-  Receipt,
   Repeat,
   Scale,
   Send,
@@ -53,7 +52,6 @@ import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import {
-  PanelAvatar,
   PanelRow,
   PanelSection,
   useCopyPanelLink,
@@ -110,7 +108,7 @@ function VatReturnTitle({ vr, t }: Readonly<{ vr?: VatReturn; t: Translations }>
   const period = vr.periodLabel ?? `${formatDate(vr.periodStart)} — ${formatDate(vr.periodEnd)}`;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {tv.vatReturnTitle.replace('{period}', period)}
       </span>
       <span className="flex-shrink-0">
@@ -286,6 +284,7 @@ function VatReturnDetailsTab({
           icon={CalendarDays}
           label={tv.period}
           value={`${formatDate(vr.periodStart)} — ${formatDate(vr.periodEnd)}`}
+          tabular
         />
         <PanelRow icon={Repeat} label={tv.type} value={periodTypeName(vr.periodType, t)} />
         {vr.suppletieDeadline ? (
@@ -294,6 +293,7 @@ function VatReturnDetailsTab({
             label={tv.suppletieDeadlineLabel}
             value={formatDate(vr.suppletieDeadline)}
             renderValue={(value) => <span className="text-amber-700 dark:text-amber-400">{value}</span>}
+            tabular
           />
         ) : null}
         {vr.filingReference ? (
@@ -303,6 +303,7 @@ function VatReturnDetailsTab({
               icon={CalendarDays}
               label={tv.filedAt}
               value={vr.filedAt ? formatDateTime(vr.filedAt) : null}
+              tabular
             />
             <PanelRow icon={User} label={tv.filedBy} value={vr.filedBy} />
           </>
@@ -486,12 +487,6 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
       <EntityDetailView
         {...shell.entityDetailViewProps}
         contentClassName={tabBodyClassName(mode)}
-        avatar={
-          <PanelAvatar
-            icon={Receipt}
-            className="bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-400"
-          />
-        }
         title={<VatReturnTitle vr={vr} t={t} />}
         actions={
           <VatReturnActions

@@ -24,7 +24,6 @@ import {
   EllipsisVertical,
   Link as LinkIcon,
   Pencil,
-  Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -75,21 +74,13 @@ function messageOf(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error);
 }
 
-function DepositAvatar() {
-  return (
-    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900">
-      <Wallet className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-    </div>
-  );
-}
-
 function DepositTitle({ deposit, t }: Readonly<{ deposit?: BankDepositDetail; t: Translations }>) {
   const { formatMoney, entityCurrency } = useWeldbooksFormat();
   if (!deposit) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   const td = t.weldbooksUs.banking.deposits;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium tabular-nums text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium tabular-nums text-foreground">
         {formatMoney(deposit.amount, deposit.currency || entityCurrency)}
       </span>
       <span className={cn(PILL, deposit.status === 'void' ? PILL_GRAY : PILL_GREEN, 'flex-shrink-0')}>
@@ -248,7 +239,7 @@ function DepositDetailsTab({
           readOnly
           renderValue={(value) => <span className={cn(PILL, isVoid ? PILL_GRAY : PILL_GREEN)}>{value}</span>}
         />
-        <PropertyRow icon={CalendarDays} label={td.columns.date} value={formatDate(deposit.date)} readOnly />
+        <PropertyRow icon={CalendarDays} label={td.columns.date} value={formatDate(deposit.date)} tabular readOnly />
         <PropertyRow icon={Building2} label={td.columns.bankAccount} value={deposit.bankAccountName} placeholder="—" readOnly />
         <PropertyRow
           icon={BookText}
@@ -321,7 +312,7 @@ function PaymentRow({
 
   return (
     <TabListRow label={from}>
-      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
+      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums">
         {formatDate(payment.date)}
       </span>
       <div className="min-w-0 flex-1">
@@ -476,7 +467,6 @@ export function DepositPanel(props: Readonly<ObjectPanelComponentProps>) {
     <>
       <EntityDetailView
         {...shell.entityDetailViewProps}
-        avatar={<DepositAvatar />}
         title={<DepositTitle deposit={deposit} t={t} />}
         actions={
           <DepositActions deposit={deposit} canVoid={canEdit} onVoid={() => setConfirmVoid(true)} t={t} />

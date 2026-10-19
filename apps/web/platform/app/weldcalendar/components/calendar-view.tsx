@@ -4772,7 +4772,7 @@ export function EventDetailPanel({
                   <span className="text-sm text-muted-foreground">{t.eventPreview.fieldCreated}</span>
                 </div>
                 <div className="flex-1 h-8 text-sm rounded-md px-2 -mx-2 flex items-center">
-                  <span className="text-muted-foreground">
+                  <span className={event.createdAt ? 'tabular-nums' : 'text-muted-foreground'}>
                     {event.createdAt ? format(new Date(event.createdAt), 'MMM d, yyyy') : '—'}
                   </span>
                 </div>

@@ -121,7 +121,7 @@ export function ExceptionsReport() {
                         <span className="font-medium">{kinds[exception.kind]}</span>
                       </div>
                     </TableCell>
-                    <TableCell>{formatDate(exception.date)}</TableCell>
+                    <TableCell className="tabular-nums">{formatDate(exception.date)}</TableCell>
                     <TableCell>
                       <DocumentLink type={exception.documentType} id={exception.documentId} number={exception.documentNumber} />
                     </TableCell>

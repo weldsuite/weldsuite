@@ -16,7 +16,7 @@
 
 import { useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
-import { EllipsisVertical, Link as LinkIcon, ReceiptText } from 'lucide-react';
+import { EllipsisVertical, Link as LinkIcon } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -30,7 +30,7 @@ import {
 import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
 import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initial-tab';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
-import { PanelAvatar, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
+import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { RunStatusChip } from '@/app/weldbooks/payment-runs/components/run-badges';
 import { isRunOpen } from '@/app/weldbooks/payment-runs/payment-run-utils';
 import { useMemberNames } from '@/app/weldbooks/payment-runs/use-member-names';
@@ -53,7 +53,7 @@ function PaymentRunTitle({ run }: Readonly<{ run?: PaymentRunDetail }>) {
   if (!run) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {t.weldbooksUs.payments.detail.title} · {formatDate(run.paymentDate)}
       </span>
       <span className="flex-shrink-0">
@@ -153,7 +153,6 @@ export function PaymentRunPanel(props: Readonly<ObjectPanelComponentProps>) {
     <>
       <EntityDetailView
         {...shell.entityDetailViewProps}
-        avatar={<PanelAvatar icon={ReceiptText} className="bg-emerald-100 text-emerald-600 dark:bg-emerald-900 dark:text-emerald-400" />}
         title={<PaymentRunTitle run={run} />}
         actions={<PaymentRunMenu run={run} />}
         tabs={

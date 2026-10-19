@@ -291,7 +291,7 @@ export function DealsSection({
             </span>
           </div>
           <div className={COLUMN.closeDate}>
-            <span className="text-sm text-muted-foreground">{(closeDate && formatDealDate(closeDate)) || '—'}</span>
+            <span className={`text-sm${closeDate ? ' tabular-nums' : ' text-muted-foreground'}`}>{(closeDate && formatDealDate(closeDate)) || '—'}</span>
           </div>
         </TabListRow>
       );

@@ -214,7 +214,9 @@ function TaskItem({ task, availableLabels, onOpen, onToggle, onDelete, st }: Rea
               isOverdue ? "text-red-600" : "text-gray-500"
             )}>
               <Calendar className="h-3 w-3" />
-              {formatDueLabel(task.dueDate, st, formatShort)}
+              <span className={cn('tabular-nums', !isOverdue && 'text-foreground')}>
+                {formatDueLabel(task.dueDate, st, formatShort)}
+              </span>
             </div>
           )}
         </div>

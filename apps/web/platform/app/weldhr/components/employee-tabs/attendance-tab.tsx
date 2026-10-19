@@ -62,9 +62,9 @@ export function EmployeeAttendanceTab({ employeeId }: Readonly<{ employeeId: str
         <TableBody>
           {records.data.map((record) => (
             <TableRow key={record.id}>
-              <TableCell>{formatDate(record.date)}</TableCell>
-              <TableCell>{formatTime(record.clockIn)}</TableCell>
-              <TableCell>{formatTime(record.clockOut)}</TableCell>
+              <TableCell className="tabular-nums">{formatDate(record.date)}</TableCell>
+              <TableCell className={record.clockIn ? 'tabular-nums' : 'tabular-nums text-muted-foreground'}>{formatTime(record.clockIn)}</TableCell>
+              <TableCell className={record.clockOut ? 'tabular-nums' : 'tabular-nums text-muted-foreground'}>{formatTime(record.clockOut)}</TableCell>
               <TableCell>{formatMinutes(record.workedMinutes)}</TableCell>
               <TableCell className={record.lateMinutes > 0 ? 'text-destructive' : undefined}>
                 {record.lateMinutes > 0 ? record.lateMinutes : '—'}
@@ -94,9 +94,11 @@ export function EmployeeAttendanceTab({ employeeId }: Readonly<{ employeeId: str
       <ul className="divide-y">
         {shifts.map((shift) => (
           <li key={shift.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-            <span className="font-medium">{formatDate(shift.startsAt)}</span>
+            <span className="tabular-nums">{formatDate(shift.startsAt)}</span>
             <span className="text-muted-foreground">
-              {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
+              <span className="tabular-nums text-foreground">
+                {formatTime(shift.startsAt)}–{formatTime(shift.endsAt)}
+              </span>
               {shift.companyName ? ` · ${shift.companyName}` : ''}
             </span>
           </li>

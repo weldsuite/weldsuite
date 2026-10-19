@@ -122,12 +122,12 @@ export function ScheduledClient() {
               )}
               <div className="flex items-center gap-4 mt-3">
                 {showDate && (
-                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                    <Calendar className="h-3 w-3" />
+                  <div className="flex items-center gap-1 text-sm tabular-nums">
+                    <Calendar className="h-3 w-3 text-muted-foreground" />
                     <span>{format(new Date(email.scheduledFor), 'PPP')}</span>
                   </div>
                 )}
-                <div className={cn("flex items-center gap-1 text-sm", getStatusColor(email.scheduledFor))}>
+                <div className={cn("flex items-center gap-1 text-sm tabular-nums", getStatusColor(email.scheduledFor))}>
                   <Clock className="h-3 w-3" />
                   <span>{format(new Date(email.scheduledFor), 'h:mm a')}</span>
                   <span className="text-muted-foreground">

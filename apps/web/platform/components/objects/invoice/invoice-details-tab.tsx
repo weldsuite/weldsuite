@@ -210,6 +210,7 @@ export function InvoiceDetailsTab({
             label={ti.issueDate}
             value={formatDate(invoice.issueDate, '')}
             placeholder={EMPTY}
+            tabular
             readOnly
           />
           <PropertyRow
@@ -217,6 +218,7 @@ export function InvoiceDetailsTab({
             label={ti.dueDate}
             value={formatDate(invoice.dueDate, '')}
             placeholder={EMPTY}
+            tabular
             readOnly
           />
           <PropertyRow icon={Hash} label={ti.reference} value={invoice.reference} placeholder={EMPTY} readOnly />

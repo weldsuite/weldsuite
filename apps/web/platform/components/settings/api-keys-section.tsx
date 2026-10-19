@@ -878,8 +878,8 @@ export function ApiKeysSection() {
                     <TableCell>
                       {formatScopesDisplay(key.scopes)}
                     </TableCell>
-                    <TableCell className="text-[13.5px] font-mono text-muted-foreground">{formatDate(key.createdAt)}</TableCell>
-                    <TableCell className="text-[13.5px] font-mono text-muted-foreground">{formatLastUsed(key.lastUsedAt)}</TableCell>
+                    <TableCell className="text-[13.5px] tabular-nums">{formatDate(key.createdAt)}</TableCell>
+                    <TableCell className={cn("text-[13.5px] tabular-nums", !key.lastUsedAt && "text-muted-foreground")}>{formatLastUsed(key.lastUsedAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end">
                         <DropdownMenu>

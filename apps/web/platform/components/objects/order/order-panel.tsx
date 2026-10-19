@@ -99,7 +99,7 @@ export function OrderPanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t.fields.subtotal, value: formatPanelMoney(order.subtotal, order.currency) },
               { label: t.fields.tax, value: formatPanelMoney(order.taxTotal, order.currency) },
               { label: t.fields.total, value: formatPanelMoney(order.total, order.currency) },
-              { label: t.fields.created, value: formatPanelDate(order.createdAt) },
+              { label: t.fields.created, value: formatPanelDate(order.createdAt), tabular: true },
             ]
           : []
       }

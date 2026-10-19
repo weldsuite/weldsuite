@@ -195,9 +195,9 @@ function OverviewTab({
           fields={[
             { label: t('weldhr.employees.detail.overview.employeeNumber'), value: employee.employeeNumber },
             { label: t('weldhr.employees.detail.overview.pronouns'), value: employee.pronouns },
-            { label: t('weldhr.employees.create.startDate'), value: formatDate(employee.startDate) },
-            { label: t('weldhr.employees.detail.overview.probationEndDate'), value: formatDate(employee.probationEndDate) },
-            { label: t('weldhr.employees.detail.overview.endDate'), value: formatDate(employee.endDate) },
+            { label: t('weldhr.employees.create.startDate'), value: <span className="tabular-nums">{formatDate(employee.startDate)}</span> },
+            { label: t('weldhr.employees.detail.overview.probationEndDate'), value: <span className="tabular-nums">{formatDate(employee.probationEndDate)}</span> },
+            { label: t('weldhr.employees.detail.overview.endDate'), value: <span className="tabular-nums">{formatDate(employee.endDate)}</span> },
             { label: t('weldhr.employees.detail.overview.location'), value: employee.location },
             { label: t('weldhr.employees.detail.overview.timezone'), value: employee.timezone },
             {

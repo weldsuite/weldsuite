@@ -468,7 +468,7 @@ export function ExecutionsClient() {
 
           {/* Started */}
           <div className="md:order-6 md:w-[120px]">
-            <span className="text-sm text-gray-500">
+            <span className="text-sm tabular-nums">
               {formatRelativeTime(execution.startedAt ?? execution.createdAt, t.weldconnect.executions.justNow, st)}
             </span>
           </div>
