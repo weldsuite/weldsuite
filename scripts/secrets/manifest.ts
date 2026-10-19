@@ -199,6 +199,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     // router it also verified moved to "connect-api", which needs the SAME
     // value.
     "INTERNAL_API_SECRET",
+    // HMAC key for the files cookie and signed URLs that read private uploads
+    // (/api/storage/private/*, TASK-620). Rotating it only logs browsers out of
+    // private files until the platform re-requests the cookie.
+    "STORAGE_SIGNING_KEY",
     // CLOUDFLARE_API_TOKEN: the @weldsuite/ai token fallback (WeldMail's Email
     // Routing moved to "mail-api", help center custom domains to "desk-api").
     // CLOUDFLARE_ACCOUNT_ID: accepted by @weldsuite/ai as the CF_ACCOUNT_ID alias.

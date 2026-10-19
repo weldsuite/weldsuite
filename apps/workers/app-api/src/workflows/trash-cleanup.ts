@@ -18,6 +18,7 @@ import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:work
 import { eq } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
+import { deleteStoredObject } from '@weldsuite/worker-kit/storage';
 
 export interface TrashCleanupParams {
   workspaceId: string;
@@ -60,9 +61,9 @@ export class TrashCleanupWorkflow extends WorkflowEntrypoint<Env, TrashCleanupPa
         return;
       }
 
-      // Delete from R2 storage (STORAGE is optional in app-api's Env)
-      if (fileKey && this.env.STORAGE) {
-        await this.env.STORAGE.delete(fileKey).catch((err) => {
+      // Delete from R2 (whichever bucket holds it; both are optional in Env)
+      if (fileKey) {
+        await deleteStoredObject(this.env, fileKey).catch((err) => {
           console.error(`[TrashCleanup] Failed to delete R2 object ${fileKey}:`, err);
         });
       }

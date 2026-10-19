@@ -18,6 +18,7 @@ import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, success } from '../../../lib/response';
 import { mailPrincipal, publicAttachment } from '../../../lib/mail';
+import { getStoredObject } from '@weldsuite/worker-kit/storage';
 
 const app = new Hono<HonoEnv>();
 
@@ -48,10 +49,10 @@ app.get('/:id/download', requireScope('mail_attachments:read'), async (c) => {
   const id = c.req.param('id');
   const row = await reachableAttachment(c, id);
   if (!row?.storagePath) return error.notFound(c, 'MailAttachment', id);
-  if (!c.env.STORAGE) {
+  if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) {
     return c.json({ error: { code: 'STORAGE_UNAVAILABLE', message: 'File storage is not configured' } }, 503);
   }
-  const obj = await c.env.STORAGE.get(row.storagePath);
+  const obj = await getStoredObject(c.env, row.storagePath);
   if (!obj) return error.notFound(c, 'MailAttachment', id);
   return new Response(obj.body, {
     headers: {

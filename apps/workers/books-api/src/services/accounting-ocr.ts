@@ -18,6 +18,7 @@ import {
 } from '@weldsuite/ai';
 import type { Env } from '../types';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
+import { getStoredObject } from '@weldsuite/worker-kit/storage';
 
 export { InsufficientAiCreditsError } from '@weldsuite/core-domain/ai-billing';
 
@@ -118,11 +119,11 @@ async function loadOcrImageBytes(
     );
   }
 
-  if (!env.STORAGE) {
+  if (!env.STORAGE && !env.PRIVATE_STORAGE) {
     throw new AccountingOcrError('FILE_NOT_FOUND', 'File storage is not configured.');
   }
 
-  const stored = await env.STORAGE.get(params.fileKey);
+  const stored = await getStoredObject(env, params.fileKey);
   if (!stored) {
     throw new AccountingOcrError('FILE_NOT_FOUND', `File not found: ${params.fileKey}`);
   }

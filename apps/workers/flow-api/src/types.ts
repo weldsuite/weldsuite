@@ -19,6 +19,8 @@ export interface Env extends KitEnv {
   /** R2 bucket for project files, documents, sheets, task attachments and
    *  task-import payloads. */
   STORAGE?: R2Bucket;
+  /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */
+  PRIVATE_STORAGE?: R2Bucket;
   /** Public hostname that serves objects in the STORAGE bucket. */
   R2_PUBLIC_URL?: string;
 

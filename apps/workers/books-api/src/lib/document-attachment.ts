@@ -6,6 +6,7 @@
 import type { Context } from 'hono';
 import type { Env, Variables } from '../types';
 import { error } from '@weldsuite/worker-kit/response';
+import { getStoredObject } from '@weldsuite/worker-kit/storage';
 
 export async function streamDocumentAttachment(
   c: Context<{ Bindings: Env; Variables: Variables }>,
@@ -33,11 +34,11 @@ export async function streamDocumentAttachment(
     return error.forbidden(c, 'Attachment is outside this workspace');
   }
 
-  if (!c.env.STORAGE) {
+  if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) {
     return error.internal(c, 'Storage is not configured');
   }
 
-  const obj = await c.env.STORAGE.get(fileKey);
+  const obj = await getStoredObject(c.env, fileKey);
   if (!obj) {
     return error.notFound(c, 'Attachment', fileKey);
   }

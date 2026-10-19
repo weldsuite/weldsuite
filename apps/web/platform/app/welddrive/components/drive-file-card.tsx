@@ -36,6 +36,7 @@ import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';
 import { apiUrl } from '@/lib/api/public-env';
+import { isPrivateStorageUrl } from '@/lib/storage/private-url';
 import { copyText } from '@/lib/clipboard';
 
 function triggerAnchorDownload(href: string, filename: string, openInNewTab: boolean) {
@@ -112,7 +113,9 @@ export async function downloadFile(
     return;
   }
   try {
-    const response = await fetch(file.url);
+    // A private-bucket URL reads with the files cookie, so send credentials
+    // to it; the public bucket domain must not get them (its CORS is `*`).
+    const response = await fetch(file.url, isPrivateStorageUrl(file.url) ? { credentials: 'include' } : undefined);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
     const blobUrl = URL.createObjectURL(blob);

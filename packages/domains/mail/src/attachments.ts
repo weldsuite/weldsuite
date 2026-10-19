@@ -16,12 +16,14 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { deleteStoredObject } from '@weldsuite/worker-kit/storage';
 
 const { mailAttachments } = schema;
 
 /** The binding `deleteAttachment` reads (any worker Env with it fits). */
 export interface MailAttachmentsEnv {
   STORAGE?: R2Bucket;
+  PRIVATE_STORAGE?: R2Bucket;
 }
 
 export function listAttachmentsForMessage(db: Database, messageId: string) {
@@ -114,9 +116,9 @@ export async function deleteAttachment(env: MailAttachmentsEnv, db: Database, id
     .where(eq(mailAttachments.id, id));
   await refreshMessageAttachmentCount(db, existing.messageId);
 
-  if (existing.storagePath && env.STORAGE) {
+  if (existing.storagePath && (env.STORAGE || env.PRIVATE_STORAGE)) {
     try {
-      await env.STORAGE.delete(existing.storagePath);
+      await deleteStoredObject(env, existing.storagePath);
     } catch (err) {
       console.error(
         `[mail-attachments] R2 delete failed for ${existing.storagePath} (attachment ${id}):`,

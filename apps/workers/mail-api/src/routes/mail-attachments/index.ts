@@ -20,6 +20,7 @@ import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import * as attachments from '@weldsuite/mail-domain/attachments';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { getStoredObject } from '@weldsuite/worker-kit/storage';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -94,13 +95,13 @@ app.get('/:id/download', requirePermission('messages:read'), async (c) => {
     if (!accountId) return error.notFound(c, 'Attachment', id);
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    if (!c.env.STORAGE) {
+    if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) {
       return c.json(
         { error: { code: 'STORAGE_BINDING_MISSING', message: 'Storage binding not configured' } },
         503,
       );
     }
-    const object = row.storagePath ? await c.env.STORAGE.get(row.storagePath) : null;
+    const object = row.storagePath ? await getStoredObject(c.env, row.storagePath) : null;
     if (!object) return error.notFound(c, 'Attachment', id);
     return new Response(object.body, {
       headers: {

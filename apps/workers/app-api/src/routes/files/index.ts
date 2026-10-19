@@ -22,6 +22,7 @@ import { shareDriveItemSchema } from '@weldsuite/core-api-client/schemas/drive-s
 import { tagsToSpaces } from '@weldsuite/text';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { getStoredObject, putStoredObject, workspaceOfKey } from '@weldsuite/worker-kit/storage';
 import * as filesService from '@weldsuite/core-domain/files';
 import {
   canEdit,
@@ -119,7 +120,11 @@ app.get('/', requirePermission('files:read'), zValidator('query', listFilesQuery
       }),
       driveAccess(c),
     ]);
-    const normalized = normalizeGenericFiles(withFileAccess(access, rows), c.env.R2_PUBLIC_URL);
+    const normalized = normalizeGenericFiles(
+      withFileAccess(access, rows),
+      c.env.R2_PUBLIC_URL,
+      new URL(c.req.url).origin,
+    );
     const { items, pagination } = queryArray<UnifiedFile>(normalized, {
       page: q.page ?? 1,
       pageSize: q.pageSize ?? 30,
@@ -351,6 +356,12 @@ app.post('/:id/pin', requirePermission('files:update'), async (c) => {
   }
 });
 
+/** True when `key` is under the caller's own `workspaces/<id>/` prefix. */
+function isOwnWorkspaceKey(c: Context<{ Bindings: Env; Variables: Variables }>, key: string): boolean {
+  const workspaceId = c.get('workspaceId') || c.get('orgId');
+  return !!workspaceId && workspaceOfKey(key) === workspaceId;
+}
+
 // ============================================================================
 // GET /:id/content — stream the R2 object body
 // ============================================================================
@@ -362,10 +373,13 @@ app.get('/:id/content', requirePermission('files:read'), async (c) => {
     const opened = await openFile(c, id, 'view');
     if (opened instanceof Response) return opened;
     const { row } = opened;
-    if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
+    if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) return error.internal(c, 'Storage is not configured');
     const key = row.fileKey || row.storagePath;
     if (!key) return error.notFound(c, 'File content', id);
-    const obj = await c.env.STORAGE.get(key);
+    // A row's key is client-supplied at POST /api/files; never let it reach
+    // another tenant's objects (TASK-620).
+    if (!isOwnWorkspaceKey(c, key)) return error.notFound(c, 'File content', id);
+    const obj = await getStoredObject(c.env, key);
     if (!obj) return error.notFound(c, 'File content', id);
     const headers: Record<string, string> = {
       'Content-Type': row.mimeType || obj.httpMetadata?.contentType || 'application/octet-stream',
@@ -395,11 +409,13 @@ app.put('/:id/content', requirePermission('files:update'), async (c) => {
     const opened = await openFile(c, id, 'edit');
     if (opened instanceof Response) return opened;
     const { row } = opened;
-    if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
+    if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) return error.internal(c, 'Storage is not configured');
     const key = row.fileKey || row.storagePath;
     if (!key) return error.internal(c, 'File has no storage key');
+    if (!isOwnWorkspaceKey(c, key)) return error.notFound(c, 'File', id);
     const body = await c.req.arrayBuffer();
-    await c.env.STORAGE.put(key, body, {
+    // Overwrite in whichever bucket holds the file, so an edit never moves it.
+    await putStoredObject(c.env, key, body, {
       httpMetadata: { contentType: row.mimeType || 'application/octet-stream' },
     });
     const updated = await filesService.touchFileSize(c.get('tenantDb'), id, body.byteLength);

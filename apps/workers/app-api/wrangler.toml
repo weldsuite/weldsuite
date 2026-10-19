@@ -173,6 +173,12 @@ database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
 
+# Private uploads (TASK-620): no public domain; read only through
+# @weldsuite/worker-kit/storage (app-api serves /api/storage/private/*).
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 # Cloudflare Queues: ENTITY_EVENTS hub (Phase 2). Hub fans out to audit/analytics/search.
 [[queues.producers]]
 binding = "ENTITY_EVENTS"
@@ -431,6 +437,10 @@ database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
 
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
@@ -638,6 +648,10 @@ database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
 
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"

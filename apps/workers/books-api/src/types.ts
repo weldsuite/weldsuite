@@ -15,6 +15,8 @@ export interface Env extends KitEnv, BankFeedEnv {
   /** R2 bucket holding invoice/bill attachments and scanned accounting
    *  documents (lib/document-attachment.ts, services/accounting-ocr.ts). */
   STORAGE?: R2Bucket;
+  /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */
+  PRIVATE_STORAGE?: R2Bucket;
 
   // --- WeldBooks Digipoort (Belastingdienst SBR filing) --------------------
   /** simulated (default) | preprod | production — gates real transmission. */

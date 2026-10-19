@@ -101,6 +101,12 @@ remote = true
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# Private uploads (TASK-620): no public domain; read only through
+# @weldsuite/worker-kit/storage (app-api serves /api/storage/private/*).
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 # ============ TEST ENVIRONMENT ============
 # Daily WeldBooks sweep: overdue invoices, due recurring invoices, ECB rates (src/cron/books-sweep.ts).
 [triggers]
@@ -144,6 +150,10 @@ service = "weldsuite-realtime-test"
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
 
 [env.test.triggers]
 crons = ["0 3 * * *"]
@@ -191,6 +201,10 @@ service = "weldsuite-realtime-production"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
 
 [env.production.triggers]
 crons = ["0 3 * * *"]
