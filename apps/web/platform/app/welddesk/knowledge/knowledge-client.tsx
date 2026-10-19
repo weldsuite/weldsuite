@@ -631,7 +631,7 @@ export function KnowledgeClient({
 
         {/* Last Updated */}
         <div className="w-[120px] flex items-center gap-1.5">
-          <span className="text-sm text-gray-500">{format(article.lastUpdated, 'MMM d, yyyy')}</span>
+          <span className="text-sm tabular-nums">{format(article.lastUpdated, 'MMM d, yyyy')}</span>
         </div>
 
         {/* Status */}

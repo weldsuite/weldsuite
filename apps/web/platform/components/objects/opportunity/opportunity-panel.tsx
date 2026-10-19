@@ -101,10 +101,10 @@ function opportunityInitial(name: string): string {
 }
 
 function OpportunityAvatar({ opportunity }: Readonly<{ opportunity?: Opportunity }>) {
-  if (!opportunity) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
+  if (!opportunity) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
   return (
-    <Avatar className="h-7 w-7 rounded-lg border border-border">
-      <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+    <Avatar className="size-[22px] !rounded-[8px] border border-border">
+      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
         {opportunityInitial(opportunity.name)}
       </AvatarFallback>
     </Avatar>
@@ -509,6 +509,7 @@ export function OpportunityDetailsTab({
         icon={Calendar}
         label={t('sweep.entities.fieldActualClose')}
         value={formatDate(opportunity.actualCloseDate)}
+        tabular
         readOnly
       />
       <MemberPropertyRow
@@ -552,6 +553,7 @@ export function OpportunityDetailsTab({
         icon={Calendar}
         label={t('sweep.entities.fieldNextStepDate')}
         value={formatDate(opportunity.nextStepDate)}
+        tabular
         readOnly
       />
       <PropertyRow

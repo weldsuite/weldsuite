@@ -265,7 +265,7 @@ export default function TaxDepreciationPage() {
                         </Link>
                         {line.placedInServiceThisYear ? null : <Badge variant="outline" className="ml-2">{tt.part3.priorYear}</Badge>}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">{formatDate(line.placedInServiceDate)}</TableCell>
+                      <TableCell className="whitespace-nowrap tabular-nums">{formatDate(line.placedInServiceDate)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatMoney(line.cost)}</TableCell>
                       <TableCell className="text-right tabular-nums">{line.businessUsePercent}%</TableCell>
                       <TableCell className="whitespace-nowrap">

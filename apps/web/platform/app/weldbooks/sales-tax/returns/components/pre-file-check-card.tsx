@@ -82,7 +82,7 @@ function FindingBlock({ finding, check }: Readonly<FindingBlockProps>) {
                   <TableCell>
                     <DocumentLink type={document.documentType} id={document.documentId} number={document.number} />
                   </TableCell>
-                  <TableCell>{formatDate(document.date)}</TableCell>
+                  <TableCell className="tabular-nums">{formatDate(document.date)}</TableCell>
                   <TableCell>{document.contactName ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(document.amount)}</TableCell>
                   {showReturnColumn ? (

@@ -199,11 +199,11 @@ export default function WhiteboardPage() {
         </div>
 
         <div className="w-[140px]">
-          <span className="text-sm text-gray-500">{formatDate(item.updatedAt)}</span>
+          <span className="text-sm tabular-nums">{formatDate(item.updatedAt)}</span>
         </div>
 
         <div className="w-[140px]">
-          <span className="text-sm text-gray-500">{formatDate(item.createdAt)}</span>
+          <span className="text-sm tabular-nums">{formatDate(item.createdAt)}</span>
         </div>
 
         <div className="relative z-[1] w-[40px] flex justify-end">

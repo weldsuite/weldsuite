@@ -97,7 +97,7 @@ function WeldPassProjectsPage() {
       header: t('weldpass.projectList.table.updated'),
       width: 'hidden md:block md:w-[200px]',
       render: (project) => (
-        <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+        <span className="whitespace-nowrap text-sm tabular-nums">
           {formatDateTime(project.updatedAt)}
         </span>
       ),

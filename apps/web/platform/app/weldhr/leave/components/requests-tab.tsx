@@ -79,7 +79,7 @@ export function RequestsTab() {
       header: t('weldhr.leave.requests.table.dates'),
       width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[190px]'),
       render: (r) => (
-        <span className="block truncate text-muted-foreground">
+        <span className="block truncate tabular-nums">
           {formatDate(r.startDate)} – {formatDate(r.endDate)}
         </span>
       ),

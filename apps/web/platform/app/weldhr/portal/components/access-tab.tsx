@@ -117,13 +117,13 @@ export function PortalAccessTab() {
       id: 'invitedAt',
       header: t('weldhr.portal.access.invitedAt'),
       width: 'w-[120px]',
-      render: (item) => <span className="text-muted-foreground">{formatDate(item.invitedAt)}</span>,
+      render: (item) => <span className="tabular-nums">{formatDate(item.invitedAt)}</span>,
     },
     {
       id: 'lastSignIn',
       header: t('weldhr.portal.access.lastSignIn'),
       width: 'w-[140px]',
-      render: (item) => <span className="text-muted-foreground">{formatDateTime(item.lastLoginAt)}</span>,
+      render: (item) => <span className={item.lastLoginAt ? 'tabular-nums' : 'tabular-nums text-muted-foreground'}>{formatDateTime(item.lastLoginAt)}</span>,
     },
     {
       id: 'quickActions',

@@ -412,7 +412,7 @@ export default function McpServersPage() {
                       </Badge>
                       {conn.settings?.lastDiscoveredAt && (
                         <span className="text-xs text-muted-foreground">
-                          {tm.lastDiscovered} {new Date(conn.settings.lastDiscoveredAt).toLocaleDateString()}
+                          {tm.lastDiscovered} <span className="text-foreground tabular-nums">{new Date(conn.settings.lastDiscoveredAt).toLocaleDateString()}</span>
                         </span>
                       )}
                     </div>

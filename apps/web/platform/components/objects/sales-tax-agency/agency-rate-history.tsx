@@ -41,8 +41,9 @@ export function AgencyRateHistory({ rates, canUpdate, canDelete, onEdit, onDelet
         return (
           <div key={rate.id} className="flex items-center gap-3 py-2 pl-11 pr-4 text-sm">
             <span className="w-[64px] flex-shrink-0 font-medium tabular-nums">{formatRatePercent(rate.rate)}</span>
-            <span className="min-w-0 flex-1 text-muted-foreground">
-              {formatDate(rate.effectiveFrom)} – {rate.effectiveTo ? formatDate(rate.effectiveTo) : tr.noEnd}
+            <span className="min-w-0 flex-1 tabular-nums">
+              {formatDate(rate.effectiveFrom)} –{' '}
+              {rate.effectiveTo ? formatDate(rate.effectiveTo) : <span className="text-muted-foreground">{tr.noEnd}</span>}
             </span>
             <Badge variant={PERIOD_VARIANT[period]} className="flex-shrink-0">
               {periodText[period]}

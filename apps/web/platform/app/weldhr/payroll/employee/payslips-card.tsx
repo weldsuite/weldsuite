@@ -53,8 +53,8 @@ export function PayslipsCard({ employeeId, detail }: Readonly<{ employeeId: stri
           <TableBody>
             {payslips.map((payslip) => (
               <TableRow key={payslip.id}>
-                <TableCell className="whitespace-nowrap">{periodRange(payslip.periodStart, payslip.periodEnd)}</TableCell>
-                <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(payslip.payDate)}</TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">{periodRange(payslip.periodStart, payslip.periodEnd)}</TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">{formatDate(payslip.payDate)}</TableCell>
                 <TableCell className="text-muted-foreground">{payslip.number ?? '—'}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatDecimal(payslip.grossPay, payslip.currency || fallbackCurrency)}</TableCell>
                 <TableCell className="text-right font-medium tabular-nums">{formatDecimal(payslip.netPay, payslip.currency || fallbackCurrency)}</TableCell>

@@ -112,7 +112,7 @@ export function MyOverviewTab({
               { label: t('weldhr.me.overview.profile.phone'), value: employee.phone },
               { label: t('weldhr.me.overview.profile.employeeNumber'), value: employee.employeeNumber },
               { label: t('weldhr.me.overview.profile.employmentType'), value: t(`weldhr.status.employmentType.${employee.employmentType}`) },
-              { label: t('weldhr.me.overview.profile.startDate'), value: formatDate(employee.startDate) },
+              { label: t('weldhr.me.overview.profile.startDate'), value: <span className="tabular-nums">{formatDate(employee.startDate)}</span> },
               { label: t('weldhr.me.overview.profile.location'), value: employee.location },
             ]}
           />

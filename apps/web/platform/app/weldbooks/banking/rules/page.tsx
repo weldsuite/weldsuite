@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
-import { RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { RowDate, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
   type ColumnDef,
@@ -114,7 +114,7 @@ export default function ReconciliationRulesPage() {
       id: 'lastMatched',
       header: tbp.columns_rules.lastMatched,
       width: 'w-[130px]',
-      render: (r) => <RowText>{formatDateTime(r.lastMatchedAt, tbp.ruleNever)}</RowText>,
+      render: (r) => <RowDate>{formatDateTime(r.lastMatchedAt, tbp.ruleNever)}</RowDate>,
     },
     {
       id: 'status',

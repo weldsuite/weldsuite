@@ -17,7 +17,7 @@
 
 import { useMemo } from 'react';
 import { Link } from '@tanstack/react-router';
-import { EllipsisVertical, Link as LinkIcon, Pencil, Receipt } from 'lucide-react';
+import { EllipsisVertical, Link as LinkIcon, Pencil } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -33,7 +33,7 @@ import { usePanelInitialTab } from '@/components/objects/_shared/use-panel-initi
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
-import { PanelAvatar, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
+import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { useAccountingBill } from '@/hooks/queries/use-accounting-queries';
 import type { BillWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
@@ -57,7 +57,7 @@ function BillTitle({
   const showApproval = !!bill.approvalStatus && bill.approvalStatus !== 'approved';
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">{bill.billNumber ?? fallback}</span>
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">{bill.billNumber ?? fallback}</span>
       <StatusChip status={bill.status}>{statusLabels[bill.status] ?? bill.status}</StatusChip>
       {showApproval && bill.approvalStatus ? (
         <StatusChip status={bill.approvalStatus}>
@@ -159,7 +159,6 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
     <>
       <EntityDetailView
         {...shell.entityDetailViewProps}
-        avatar={<PanelAvatar icon={Receipt} className="bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-400" />}
         title={
           <BillTitle
             bill={bill}

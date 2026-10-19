@@ -22,7 +22,7 @@ function PaymentRow({
   const detail = [payment.checkNumber, payment.reference].filter(Boolean).join(' · ');
   return (
     <TabListRow label={method}>
-      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
+      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums">
         {formatDate(payment.date)}
       </span>
       <div className="min-w-0 flex-1">

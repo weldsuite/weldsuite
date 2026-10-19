@@ -1272,7 +1272,7 @@ function InvoicesListView({
                     </span>
                     <span className="block">
                       <span className="block text-sm font-medium">{invoice.id}</span>
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="block text-xs tabular-nums">
                         {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
                       </span>
                     </span>
@@ -1315,7 +1315,7 @@ function InvoiceDetailView({
           <div className="flex items-start justify-between">
             <div>
               <CardTitle>{invoice.id}</CardTitle>
-              <CardDescription className="mt-2">
+              <CardDescription className="mt-2 text-foreground tabular-nums">
                 {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
               </CardDescription>
             </div>
@@ -1679,7 +1679,7 @@ function RecentInvoicesSection({
               <FileText className="h-4 w-4 text-muted-foreground" />
               <span className="block">
                 <span className="block text-sm font-medium">{invoice.id}</span>
-                <span className="block text-xs text-muted-foreground">
+                <span className="block text-xs tabular-nums">
                   {formatDate(invoice.periodStart)}
                 </span>
               </span>
@@ -1728,7 +1728,7 @@ function InvoiceHistorySection({ invoices }: Readonly<{ invoices: InvoiceInfo[] 
                   </span>
                 )}
               </div>
-              <div>{invoice.periodStart ? format(new Date(invoice.periodStart), 'do MMM yyyy') : '—'}</div>
+              <div className="tabular-nums">{invoice.periodStart ? format(new Date(invoice.periodStart), 'do MMM yyyy') : '—'}</div>
               <div>
                 <InvoiceStatusBadge status={invoice.status} />
               </div>

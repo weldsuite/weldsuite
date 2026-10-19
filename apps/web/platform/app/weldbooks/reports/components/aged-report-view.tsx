@@ -134,7 +134,7 @@ export function AgedReportView({ report, kind }: Readonly<AgedReportViewProps>) 
                     )}
                   </TableCell>
                   <TableCell>{doc.contactName ?? doc.contactId}</TableCell>
-                  <TableCell className="whitespace-nowrap">{formatDate(doc.dueDate)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{formatDate(doc.dueDate)}</TableCell>
                   <TableCell className="text-right tabular-nums">{Math.max(doc.daysPastDue, 0)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(doc.balance)}</TableCell>
                 </TableRow>

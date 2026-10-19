@@ -19,32 +19,28 @@ export function SalesTaxPanelGate({
   panelProps,
   width,
   title,
-  avatar,
   children,
 }: Readonly<{
   panelProps: ObjectPanelComponentProps;
   width: number;
   /** Shown in the header while there is no record to name. */
   title: string;
-  avatar: ReactNode;
   children: ReactNode;
 }>) {
   const status = useSalesTaxSetupGate();
   if (status === 'ready') return <>{children}</>;
-  return <GatedPanel panelProps={panelProps} width={width} title={title} avatar={avatar} status={status} />;
+  return <GatedPanel panelProps={panelProps} width={width} title={title} status={status} />;
 }
 
 function GatedPanel({
   panelProps,
   width,
   title,
-  avatar,
   status,
 }: Readonly<{
   panelProps: ObjectPanelComponentProps;
   width: number;
   title: string;
-  avatar: ReactNode;
   status: Exclude<ReturnType<typeof useSalesTaxSetupGate>, 'ready'>;
 }>) {
   const { t } = useSetupTexts();
@@ -58,8 +54,7 @@ function GatedPanel({
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
-      avatar={avatar}
-      title={<span className="truncate text-[15px] font-medium text-foreground">{title}</span>}
+      title={<span className="relative top-px truncate text-[15px] font-medium text-foreground">{title}</span>}
     >
       <p className="p-6 text-sm text-muted-foreground" role={status === 'load-error' ? 'alert' : undefined}>
         {messages[status]}

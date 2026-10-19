@@ -218,7 +218,7 @@ export function AnalyticsListClient({
 
       {/* Updated */}
       <div className="w-[120px]">
-        <span className="text-sm text-gray-600 dark:text-muted-foreground">
+        <span className="text-sm tabular-nums">
           {formatDate(report.updatedAt)}
         </span>
       </div>
@@ -251,7 +251,7 @@ export function AnalyticsListClient({
                 <span>
                   {chartCountLabel(report.chartCount)}
                 </span>
-                <span>{t.projects.analyticsReports.updated} {formatDate(report.updatedAt)}</span>
+                <span>{t.projects.analyticsReports.updated} <span className="tabular-nums text-foreground">{formatDate(report.updatedAt)}</span></span>
               </div>
             </CardContent>
           </Card>

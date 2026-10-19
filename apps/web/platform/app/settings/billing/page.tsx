@@ -219,7 +219,7 @@ function buildDomainColumns(ts: BillingStrings, statusLabel: string): ColumnDef<
       cell: ({ row }) => {
         const domain = row.original;
         return (
-          <span className="text-sm text-muted-foreground">
+          <span className={`text-sm tabular-nums${domain.expiresAt ? '' : ' text-muted-foreground'}`}>
             {domain.expiresAt
               ? format(new Date(domain.expiresAt), 'MMM d, yyyy')
               : '—'}
@@ -721,7 +721,7 @@ function DirectBillingSettings() {
                       <span className="text-sm">{formatCurrency(invoice.amount, invoice.currency)}</span>
                     </TableCell>
                     <TableCell className="h-[42px] py-0 px-3">
-                      <span className="text-sm text-muted-foreground">
+                      <span className={`text-sm tabular-nums${invoice.createdAt ? '' : ' text-muted-foreground'}`}>
                         {invoice.createdAt ? format(new Date(invoice.createdAt), 'do MMM yyyy') : '\u2014'}
                       </span>
                     </TableCell>

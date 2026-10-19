@@ -173,8 +173,8 @@ export function ExceptionsCard({ ret, canCarryForward, canAmend }: Readonly<Exce
                             <span className="block text-xs text-muted-foreground">{item.document.contactName}</span>
                           ) : null}
                         </TableCell>
-                        <TableCell>{formatDate(item.taxDate)}</TableCell>
-                        <TableCell>{formatDateTime(item.postedAt)}</TableCell>
+                        <TableCell className="tabular-nums">{formatDate(item.taxDate)}</TableCell>
+                        <TableCell className="tabular-nums">{formatDateTime(item.postedAt)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatMoney(item.grossAmount)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatMoney(item.taxableAmount)}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatMoney(item.taxAmount)}</TableCell>

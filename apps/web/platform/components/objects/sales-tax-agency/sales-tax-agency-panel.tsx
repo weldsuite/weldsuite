@@ -48,7 +48,6 @@ import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { RowChip, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import {
-  PanelAvatar,
   PanelRow,
   PanelNotice,
   PanelSection,
@@ -80,21 +79,12 @@ import { getSalesTaxAgencyTabs, type SalesTaxAgencyTab } from './sales-tax-agenc
 const AGENCY_PANEL_WIDTH = 480;
 const AGENCY_TYPE = 'sales_tax_agency';
 
-function AgencyAvatar() {
-  return (
-    <PanelAvatar
-      icon={Building2}
-      className="bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400"
-    />
-  );
-}
-
 function AgencyTitle({ agency }: Readonly<{ agency?: SalesTaxAgency }>) {
   const { t } = useSetupTexts();
   if (!agency) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {salesTaxStateName(agency.stateCode)} ({agency.stateCode})
       </span>
       <span className="flex-shrink-0">
@@ -219,11 +209,13 @@ function AgencyDetailsTab({ agency, canUpdate }: Readonly<{ agency: SalesTaxAgen
             icon={CalendarDays}
             label={ta.fields.registeredFrom}
             value={formatDate(agency.registeredFrom, '')}
+            tabular
           />
           <PanelRow
             icon={CalendarDays}
             label={ta.fields.registeredUntil}
             value={formatDate(agency.registeredUntil, '')}
+            tabular
           />
           {agency.level === 'local' ? (
             <PanelRow
@@ -242,6 +234,7 @@ function AgencyDetailsTab({ agency, canUpdate }: Readonly<{ agency: SalesTaxAgen
             icon={CalendarDays}
             label={ta.fields.firstPeriodStart}
             value={formatDate(agency.firstPeriodStart, '')}
+            tabular
           />
           <PanelRow
             icon={CalendarClock}
@@ -419,7 +412,6 @@ function AgencyPanelContent(props: Readonly<ObjectPanelComponentProps>) {
       <EntityDetailView
         {...shell.entityDetailViewProps}
         contentClassName={tabBodyClassName(mode)}
-        avatar={<AgencyAvatar />}
         title={<AgencyTitle agency={agency} />}
         actions={
           <AgencyActions
@@ -467,7 +459,6 @@ export function SalesTaxAgencyPanel(props: Readonly<ObjectPanelComponentProps>) 
       panelProps={props}
       width={AGENCY_PANEL_WIDTH}
       title={t.agencies.title}
-      avatar={<AgencyAvatar />}
     >
       <AgencyPanelContent {...props} />
     </SalesTaxPanelGate>

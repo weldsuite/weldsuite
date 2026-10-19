@@ -84,7 +84,7 @@ export function LineTable({
                     aria-label={tw.selectLine.replace('{description}', line.description ?? line.entryNumber ?? line.id)}
                     data-testid={`line-${line.id}`}
                   />
-                  <span className="whitespace-nowrap text-sm text-muted-foreground">{formatDate(line.date)}</span>
+                  <span className="whitespace-nowrap text-sm tabular-nums">{formatDate(line.date)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{line.description || line.document?.number || line.entryNumber || '—'}</span>
                     <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

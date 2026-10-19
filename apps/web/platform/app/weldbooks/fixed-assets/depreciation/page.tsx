@@ -153,7 +153,7 @@ export default function DepreciationRunPage() {
                     <TableBody>
                       {result.posted.map((period) => (
                         <TableRow key={period.journalEntryId}>
-                          <TableCell className="whitespace-nowrap">{formatDate(period.periodEnd)}</TableCell>
+                          <TableCell className="whitespace-nowrap tabular-nums">{formatDate(period.periodEnd)}</TableCell>
                           <TableCell className="text-right tabular-nums">{period.assets}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatMoney(period.amount)}</TableCell>
                           <TableCell className="space-x-2">
@@ -198,7 +198,7 @@ export default function DepreciationRunPage() {
                     <TableBody>
                       {result.skipped.map((period) => (
                         <TableRow key={period.periodEnd}>
-                          <TableCell className="whitespace-nowrap">{formatDate(period.periodEnd)}</TableCell>
+                          <TableCell className="whitespace-nowrap tabular-nums">{formatDate(period.periodEnd)}</TableCell>
                           <TableCell className="text-right tabular-nums">{period.assets}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatMoney(period.amount)}</TableCell>
                           <TableCell>{period.reason}</TableCell>

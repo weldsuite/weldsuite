@@ -57,12 +57,15 @@ import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { ComingSoonTab } from './coming-soon-tab';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
+import { cn } from '@/lib/utils';
 
 const PANEL_WIDTH = 400;
 
 interface SimplePanelField {
   label: string;
   value: string | number | null | undefined;
+  /** Set the value in tabular figures — for dates. */
+  tabular?: boolean;
 }
 
 interface SimplePanelTab extends ObjectPanelTabDescriptor {
@@ -125,11 +128,11 @@ export interface SimpleObjectPanelProps extends ObjectPanelComponentProps {
 function PanelAvatar({ title }: Readonly<{ title?: string }>) {
   const initial = (title?.trim()[0] ?? '#').toUpperCase();
   if (!title) {
-    return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
+    return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
   }
   return (
-    <Avatar className="h-7 w-7 rounded-lg border border-border">
-      <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+    <Avatar className="size-[22px] !rounded-[8px] border border-border">
+      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
         {initial}
       </AvatarFallback>
     </Avatar>
@@ -261,7 +264,7 @@ function FieldGrid({ fields }: Readonly<{ fields: SimplePanelField[] }>) {
       {filled.map((f) => (
         <div key={f.label} className="flex flex-col gap-0.5 min-w-0">
           <dt className="text-xs text-muted-foreground">{f.label}</dt>
-          <dd className="text-sm text-foreground truncate">{String(f.value)}</dd>
+          <dd className={cn('text-sm text-foreground truncate', f.tabular && 'tabular-nums')}>{String(f.value)}</dd>
         </div>
       ))}
     </dl>

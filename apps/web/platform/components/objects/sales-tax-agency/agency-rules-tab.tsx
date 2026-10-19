@@ -70,8 +70,13 @@ export function AgencyRulesTab({
                   <RowChip tone={rule.taxable ? 'green' : 'gray'}>{rule.taxable ? tr.taxable : tr.notTaxable}</RowChip>
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {t.uses[rule.appliesToUse] ?? rule.appliesToUse} · {formatDate(rule.effectiveFrom)} –{' '}
-                  {rule.effectiveTo ? formatDate(rule.effectiveTo) : tr.noEnd}
+                  {t.uses[rule.appliesToUse] ?? rule.appliesToUse} ·{' '}
+                  <span className="tabular-nums text-foreground">{formatDate(rule.effectiveFrom)}</span> –{' '}
+                  {rule.effectiveTo ? (
+                    <span className="tabular-nums text-foreground">{formatDate(rule.effectiveTo)}</span>
+                  ) : (
+                    tr.noEnd
+                  )}
                 </div>
                 {rule.rateOverride !== null ? (
                   <div className="truncate text-xs text-muted-foreground">

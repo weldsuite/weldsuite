@@ -71,9 +71,9 @@ export function ArticlePanel(props: Readonly<ObjectPanelComponentProps>) {
                     ? `${article.helpfulCount} 👍 / ${article.notHelpfulCount ?? 0} 👎`
                     : null,
               },
-              { label: t('sweep.entities.fieldPublished'), value: formatPanelDate(article.publishedAt) },
-              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(article.createdAt) },
-              { label: t('sweep.entities.fieldUpdated'), value: formatPanelDate(article.updatedAt) },
+              { label: t('sweep.entities.fieldPublished'), value: formatPanelDate(article.publishedAt), tabular: true },
+              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(article.createdAt), tabular: true },
+              { label: t('sweep.entities.fieldUpdated'), value: formatPanelDate(article.updatedAt), tabular: true },
             ]
           : undefined
       }

@@ -96,7 +96,7 @@ export function ChangelogClient({
       sortable: true,
       width: '120px',
       render: (item) => (
-        <span className="text-sm">{format(new Date(item.date), 'MMM dd, yyyy')}</span>
+        <span className="text-sm tabular-nums">{format(new Date(item.date), 'MMM dd, yyyy')}</span>
       ),
     },
     {

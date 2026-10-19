@@ -378,7 +378,7 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
           <TableCell className="h-[42px] py-0 px-3">
             {expiry ? (
               <span
-                className={`text-sm ${expired ? 'text-destructive' : 'text-muted-foreground'}`}
+                className={`text-sm tabular-nums${expired ? ' text-destructive' : ''}`}
               >
                 {expiry}
                 {expired && ` · ${ts.expired}`}
@@ -388,7 +388,7 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
             )}
           </TableCell>
           <TableCell className="h-[42px] py-0 px-3">
-            <span className="text-sm text-muted-foreground">
+            <span className={`text-sm tabular-nums${method.createdAt ? '' : ' text-muted-foreground'}`}>
               {method.createdAt
                 ? format(new Date(method.createdAt), 'MMM d, yyyy')
                 : '—'}

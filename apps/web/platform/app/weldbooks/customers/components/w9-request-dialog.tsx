@@ -45,12 +45,12 @@ function RequestRow({ request, onCancel, cancelling }: Readonly<{ request: W9Req
     <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={STATUS_VARIANT[request.status]}>{tw.status[request.status]}</Badge>
-        <span className="text-muted-foreground">{tw.requestedOn.replace('{date}', formatDate(request.createdAt))}</span>
+        <span className="tabular-nums">{tw.requestedOn.replace('{date}', formatDate(request.createdAt))}</span>
         {request.status === 'pending' ? (
-          <span className="text-muted-foreground">{tw.expiresOn.replace('{date}', formatDate(request.expiresAt))}</span>
+          <span className="tabular-nums">{tw.expiresOn.replace('{date}', formatDate(request.expiresAt))}</span>
         ) : null}
         {request.status === 'completed' && request.completedAt ? (
-          <span className="text-muted-foreground">{tw.completedOn.replace('{date}', formatDate(request.completedAt))}</span>
+          <span className="tabular-nums">{tw.completedOn.replace('{date}', formatDate(request.completedAt))}</span>
         ) : null}
       </div>
       {request.status === 'pending' ? (

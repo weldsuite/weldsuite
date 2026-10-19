@@ -56,8 +56,8 @@ export function LeadPanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t('sweep.entities.fieldCampaign'), value: lead.campaign },
               { label: t('sweep.entities.fieldScore'), value: lead.score?.toString() },
               { label: t('sweep.entities.fieldTimeline'), value: lead.timeline },
-              { label: t('sweep.entities.fieldQualified'), value: formatPanelDate(lead.qualifiedAt) },
-              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(lead.createdAt) },
+              { label: t('sweep.entities.fieldQualified'), value: formatPanelDate(lead.qualifiedAt), tabular: true },
+              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(lead.createdAt), tabular: true },
             ]
           : undefined
       }

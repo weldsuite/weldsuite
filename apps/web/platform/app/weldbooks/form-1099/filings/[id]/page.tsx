@@ -254,7 +254,7 @@ export default function Form1099FilingPage() {
         <Card>
           <CardContent className="space-y-1 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tf.filedOn}</p>
-            <p className="text-lg font-semibold">{filing.filedAt ? formatDate(filing.filedAt) : '—'}</p>
+            <p className="text-lg font-semibold tabular-nums">{filing.filedAt ? formatDate(filing.filedAt) : '—'}</p>
             {filing.confirmationNumber ? <p className="break-all text-xs text-muted-foreground">{filing.confirmationNumber}</p> : null}
           </CardContent>
         </Card>

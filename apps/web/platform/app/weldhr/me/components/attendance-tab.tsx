@@ -90,9 +90,9 @@ export function MyAttendanceTab() {
             <TableBody>
               {data.records.map((record) => (
                 <TableRow key={record.id}>
-                  <TableCell className="whitespace-nowrap">{formatDate(record.date)}</TableCell>
-                  <TableCell>{formatTime(record.clockIn)}</TableCell>
-                  <TableCell>{formatTime(record.clockOut)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{formatDate(record.date)}</TableCell>
+                  <TableCell className={record.clockIn ? 'tabular-nums' : 'tabular-nums text-muted-foreground'}>{formatTime(record.clockIn)}</TableCell>
+                  <TableCell className={record.clockOut ? 'tabular-nums' : 'tabular-nums text-muted-foreground'}>{formatTime(record.clockOut)}</TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">{formatMinutes(record.breakMinutes)}</TableCell>
                   <TableCell className="whitespace-nowrap">{formatMinutes(record.workedMinutes)}</TableCell>
                   <TableCell>

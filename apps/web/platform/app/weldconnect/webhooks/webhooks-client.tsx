@@ -165,7 +165,7 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
       </div>
 
       <div className="w-[120px]">
-        <div className="text-sm">{new Date(webhook.createdAt).toLocaleDateString()}</div>
+        <div className="text-sm tabular-nums">{new Date(webhook.createdAt).toLocaleDateString()}</div>
         {webhook.lastCalledAt && (
           <div className="text-xs text-muted-foreground">
             {wc.lastCalled.replace('{date}', new Date(webhook.lastCalledAt).toLocaleDateString())}

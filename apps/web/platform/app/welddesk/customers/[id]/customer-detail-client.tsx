@@ -143,7 +143,7 @@ function ConversationsTable({ tc, conversations, router }: Readonly<{
                     {conversation.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-muted-foreground">
+                <TableCell className="tabular-nums">
                   {format(conversation.lastMessageAt, 'MMM d, yyyy')}
                 </TableCell>
                 <TableCell>

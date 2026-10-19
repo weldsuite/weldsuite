@@ -36,7 +36,6 @@ import { RecurringInvoiceForm } from '@/app/weldbooks/recurring/components/recur
 import {
   GenerationResult,
   RecurringActionBar,
-  RecurringAvatar,
   RecurringHeaderActions,
   RecurringTitle,
 } from './recurring-invoice-header';
@@ -132,7 +131,6 @@ export function RecurringInvoicePanel(props: Readonly<ObjectPanelComponentProps>
     <EntityDetailView
       {...shell.entityDetailViewProps}
       contentClassName={tabBodyClassName(shell.mode)}
-      avatar={<RecurringAvatar />}
       title={<RecurringTitle recurring={recurring} />}
       actions={<RecurringHeaderActions recurring={recurring} canUpdate={canUpdate} onEdit={startEditing} />}
       subheader={

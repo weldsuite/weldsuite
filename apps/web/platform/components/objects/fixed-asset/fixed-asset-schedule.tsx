@@ -88,7 +88,7 @@ export function LedgerPostingsList({ rows }: Readonly<{ rows: readonly LedgerDep
                 onOpen={entryId ? () => openPanel({ type: 'journal_entry', id: entryId, stack: true }) : undefined}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{period}</div>
+                  <div className="truncate text-sm tabular-nums">{period}</div>
                   <div className="truncate text-xs text-muted-foreground">
                     {tm.accumulated} {formatMoney(row.accumulated)}
                   </div>

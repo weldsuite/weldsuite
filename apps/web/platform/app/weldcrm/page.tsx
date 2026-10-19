@@ -848,7 +848,7 @@ export default function CrmTasksClient() {
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
                 {task.dueDate ? (
-                  <span className="font-mono text-gray-600 dark:text-muted-foreground">{formatDate(task.dueDate)}</span>
+                  <span className="tabular-nums">{formatDate(task.dueDate)}</span>
                 ) : (
                   <span className="text-gray-400">—</span>
                 )}

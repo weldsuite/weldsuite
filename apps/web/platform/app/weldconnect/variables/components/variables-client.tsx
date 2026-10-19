@@ -224,8 +224,8 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
         </div>
 
         <div className={COLUMN_WIDTHS.created}>
-          <div className="text-sm">{new Date(variable.createdAt).toLocaleDateString()}</div>
-          <div className="text-xs text-muted-foreground">
+          <div className="text-sm tabular-nums">{new Date(variable.createdAt).toLocaleDateString()}</div>
+          <div className="text-xs tabular-nums">
             {new Date(variable.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>

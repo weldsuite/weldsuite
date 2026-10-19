@@ -61,7 +61,7 @@ export function ReviewStep({ values, bankAccountName, vendors, built, canCreate,
           </div>
           <div>
             <dt className="text-muted-foreground">{tr.paymentDate}</dt>
-            <dd className="font-medium">{formatDate(values.paymentDate)}</dd>
+            <dd className="font-medium tabular-nums">{formatDate(values.paymentDate)}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground">{tr.approvals}</dt>

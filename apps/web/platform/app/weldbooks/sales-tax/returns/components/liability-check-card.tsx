@@ -97,7 +97,7 @@ export function LiabilityCheckResult({ check }: Readonly<{ check: LiabilityCheck
                   <TableCell>
                     <DocumentLink type="journal_entry" id={item.journalEntryId} number={item.entryNumber ?? item.journalEntryId} />
                   </TableCell>
-                  <TableCell>{formatDate(item.date)}</TableCell>
+                  <TableCell className="tabular-nums">{formatDate(item.date)}</TableCell>
                   <TableCell className="max-w-[20rem] truncate">{item.description ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(item.glAmount)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(item.expectedAmount)}</TableCell>

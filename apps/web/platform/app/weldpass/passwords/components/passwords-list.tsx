@@ -237,7 +237,7 @@ export function PasswordsList({ vaultId: scopedVaultId }: Readonly<{ vaultId?: s
       header: tp('table.updated'),
       width: 'hidden md:block md:w-[200px]',
       render: (item) => (
-        <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+        <span className="whitespace-nowrap text-sm tabular-nums">
           {formatDateTime(item.updatedAt)}
         </span>
       ),

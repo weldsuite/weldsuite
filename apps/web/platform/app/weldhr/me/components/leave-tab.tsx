@@ -87,7 +87,7 @@ export function MyLeaveTab({ canRequest }: Readonly<{ canRequest: boolean }>) {
                     {request.reason && <Meta>{request.reason}</Meta>}
                     {request.reviewNote && <Meta>{t('weldhr.me.leave.requests.reviewNote', { note: request.reviewNote })}</Meta>}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap">
+                  <TableCell className="whitespace-nowrap tabular-nums">
                     {formatDate(request.startDate)} – {formatDate(request.endDate)}
                   </TableCell>
                   <TableCell className="tabular-nums">{request.days}</TableCell>

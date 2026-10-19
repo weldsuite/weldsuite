@@ -33,7 +33,7 @@ export function FilingSheet({ filing, onClose }: Readonly<{ filing: HrPayrollFil
           {filing.country === 'US' && <InfoLine>{t('weldhr.payroll.filings.usNote')}</InfoLine>}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <ValueRow label={t('weldhr.payroll.filings.table.dueDate')}>{formatDate(filing.dueDate)}</ValueRow>
+            <ValueRow label={t('weldhr.payroll.filings.table.dueDate')}><span className="tabular-nums">{formatDate(filing.dueDate)}</span></ValueRow>
             <ValueRow label={t('weldhr.payroll.filings.table.amountDue')}>{formatDecimal(filing.amountDue, currency)}</ValueRow>
             <ValueRow label={t('weldhr.payroll.filings.paymentReference')}>
               {filing.paymentReference ? <span className="font-mono">{filing.paymentReference}</span> : null}
@@ -41,7 +41,7 @@ export function FilingSheet({ filing, onClose }: Readonly<{ filing: HrPayrollFil
             <ValueRow label={t('weldhr.payroll.filings.file')}>{filing.fileName}</ValueRow>
             {filing.channel && <ValueRow label={t('weldhr.payroll.filings.channel')}>{t(`weldhr.payroll.filings.channels.${filing.channel}`)}</ValueRow>}
             {filing.externalReference && <ValueRow label={t('weldhr.payroll.filings.externalReference')}>{filing.externalReference}</ValueRow>}
-            {filing.submittedAt && <ValueRow label={t('weldhr.payroll.filings.submittedAt')}>{formatDateTime(filing.submittedAt)}</ValueRow>}
+            {filing.submittedAt && <ValueRow label={t('weldhr.payroll.filings.submittedAt')}><span className="tabular-nums">{formatDateTime(filing.submittedAt)}</span></ValueRow>}
           </div>
 
           <section className="space-y-1.5">

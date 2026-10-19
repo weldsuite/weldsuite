@@ -127,7 +127,7 @@ export default function ReachCampaignsPage() {
       header: t('reachEngage.campaigns.table.updated'),
       width: 'hidden md:block md:w-[130px]',
       render: (campaign) => (
-        <RelativeTime value={campaign.updatedAt} className="text-sm text-muted-foreground" />
+        <RelativeTime value={campaign.updatedAt} className="text-sm tabular-nums" />
       ),
     },
   ];

@@ -5,9 +5,9 @@ import { expiryTone, type ExpiryTone } from './certificate-model';
 
 const TONE_CLASS: Record<ExpiryTone, string> = {
   none: 'text-muted-foreground',
-  ok: '',
-  soon: 'text-amber-600 dark:text-amber-400',
-  expired: 'text-destructive',
+  ok: 'tabular-nums text-foreground',
+  soon: 'tabular-nums text-amber-600 dark:text-amber-400',
+  expired: 'tabular-nums text-destructive',
 };
 
 /** When a certificate ends, in words: "Expires Dec 31, 2026 (in 84 days)", "Expired …", or "Does not expire". */

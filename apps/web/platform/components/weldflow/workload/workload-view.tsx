@@ -1444,7 +1444,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                   <div className="px-2 py-1.5">
                     <p className="text-sm font-medium leading-none truncate">{selectedMarker.label}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {formatMedium(selectedMarker.date)}
+                      <span className="tabular-nums text-foreground">{formatMedium(selectedMarker.date)}</span>
                       {(selectedMarker.date.getHours() !== 0 || selectedMarker.date.getMinutes() !== 0) && (
                         <span> {st('projects.gantt.atTime', { time: `${selectedMarker.date.getHours().toString().padStart(2, '0')}:${selectedMarker.date.getMinutes().toString().padStart(2, '0')}` })}</span>
                       )}

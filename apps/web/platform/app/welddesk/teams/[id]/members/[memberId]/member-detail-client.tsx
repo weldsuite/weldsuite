@@ -147,7 +147,7 @@ function TicketsTable({ tickets }: Readonly<{ tickets: TicketData[] }>) {
                     {ticket.status.replace('-', ' ')}
                   </Badge>
                 </TableCell>
-                <TableCell>{format(ticket.createdAt, 'MMM d, yyyy')}</TableCell>
+                <TableCell className="tabular-nums">{format(ticket.createdAt, 'MMM d, yyyy')}</TableCell>
                 <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>

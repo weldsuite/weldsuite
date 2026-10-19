@@ -106,13 +106,13 @@ export function MyPayrollTab({ employeeName }: Readonly<{ employeeName: string }
             <TableBody>
               {payslips.map((payslip) => (
                 <TableRow key={payslip.id}>
-                  <TableCell className="whitespace-nowrap">
+                  <TableCell className="whitespace-nowrap tabular-nums">
                     <span className={payslip.viewedAt ? undefined : 'font-medium'}>
                       {formatDate(payslip.periodStart)} – {formatDate(payslip.periodEnd)}
                     </span>
                     {!payslip.viewedAt && <Badge className="ml-2" variant="outline">{t('weldhr.payroll.me.payslips.new')}</Badge>}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(payslip.payDate)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{formatDate(payslip.payDate)}</TableCell>
                   <TableCell className="text-muted-foreground">{payslip.employerName}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatDecimal(payslip.grossPay, payslip.currency)}</TableCell>
                   <TableCell className="text-right font-medium tabular-nums">{formatDecimal(payslip.netPay, payslip.currency)}</TableCell>

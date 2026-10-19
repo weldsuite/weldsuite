@@ -391,7 +391,7 @@ export function CallHistoryList({
       {/* Date */}
       <div className="w-[170px]">
         {call.initiatedAt ? (
-          <span className="text-sm font-mono text-gray-500 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {format(new Date(call.initiatedAt), 'yyyy-MM-dd HH:mm')}
           </span>
         ) : (

@@ -214,7 +214,8 @@ describe('InvoicePanel', () => {
 
       const title = within(screen.getByTestId('title'));
       expect(title.getByText('INV-0001')).toBeInTheDocument();
-      expect(title.getByText('Sent')).toBeInTheDocument();
+      expect(title.queryByText('Sent')).not.toBeInTheDocument();
+      expect(screen.getByText('Sent')).toBeInTheDocument();
       expect(screen.getByText('Globex')).toBeInTheDocument();
       expect(screen.getByText('ap@globex.test')).toBeInTheDocument();
       expect(screen.getByText('2026-03-01')).toBeInTheDocument();

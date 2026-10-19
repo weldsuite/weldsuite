@@ -144,11 +144,11 @@ export function RowText({ children, className }: Readonly<{ children?: ReactNode
   );
 }
 
-/** A date, monospaced like the task due date; a dash when empty. Pass the formatted string. */
+/** A date, set like the amount next to it; a dash when empty. Pass the formatted string. */
 export function RowDate({ children, className }: Readonly<{ children?: string | null; className?: string }>) {
   if (!children || children === '—') return <EmptyCell />;
   return (
-    <span className={cn('whitespace-nowrap font-mono text-sm text-gray-600 dark:text-muted-foreground', className)}>
+    <span className={cn('whitespace-nowrap text-sm tabular-nums', className)}>
       {children}
     </span>
   );

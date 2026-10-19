@@ -54,8 +54,8 @@ export function TicketPanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t('sweep.entities.fieldEmail'), value: ticket.customerEmail },
               { label: t('sweep.entities.fieldAssignee'), value: ticket.assigneeName },
               { label: t('sweep.entities.fieldChannel'), value: ticket.channel },
-              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(ticket.createdAt) },
-              { label: t('sweep.entities.fieldUpdated'), value: formatPanelDate(ticket.updatedAt) },
+              { label: t('sweep.entities.fieldCreated'), value: formatPanelDate(ticket.createdAt), tabular: true },
+              { label: t('sweep.entities.fieldUpdated'), value: formatPanelDate(ticket.updatedAt), tabular: true },
             ]
           : undefined
       }

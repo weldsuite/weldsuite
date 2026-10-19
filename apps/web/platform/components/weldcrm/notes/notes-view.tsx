@@ -391,7 +391,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
 
         {/* Last updated */}
         <div className={cn("w-[120px]", NOTES_HIDE_DATE)}>
-          <span className="text-sm font-mono text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatNoteDate(new Date(note.updatedAt ?? note.createdAt), t)}
           </span>
         </div>

@@ -131,7 +131,7 @@ function OrderCard({ order }: Readonly<{ order: CustomerOrder }>) {
           </span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-          <span>{formatDate(order.createdAt)}</span>
+          <span className="text-foreground tabular-nums">{formatDate(order.createdAt)}</span>
           <span>·</span>
           <span>{order.itemCount} items</span>
           {order.source && (

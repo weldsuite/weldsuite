@@ -24,7 +24,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
-import { RowChip, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
+import { RowChip, RowDate, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import type { useFiscalCalendar } from '@/hooks/queries/use-weldbooks-assets-queries';
 import type { GenerateFiscalPeriodsResult, PlannedFiscalPeriod } from '@/lib/api/domains/weldbooks-assets';
 import { useI18n } from '@/lib/i18n/provider';
@@ -122,9 +122,7 @@ function useFiscalColumns({
       header: tf.columns.dates,
       width: 'w-[260px]',
       render: (period) => (
-        <span className="whitespace-nowrap font-mono text-sm text-gray-600 dark:text-muted-foreground">
-          {formatDate(period.startDate)} – {formatDate(period.endDate)}
-        </span>
+        <RowDate>{`${formatDate(period.startDate)} – ${formatDate(period.endDate)}`}</RowDate>
       ),
     },
     ...(weekBased
@@ -182,7 +180,7 @@ function FiscalSummary({ data, weekBased }: Readonly<{ data: FiscalCalendar; wee
             {fill(tf.weeks, { weeks: data.weeks })}
           </Badge>
         ) : null}
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm tabular-nums">
           {formatDate(data.startDate)} – {formatDate(data.endDate)}
         </span>
       </div>

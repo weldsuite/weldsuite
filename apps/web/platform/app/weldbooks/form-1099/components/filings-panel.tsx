@@ -79,7 +79,7 @@ function FilingCard({
               {filing.filedAt ? (
                 <div>
                   <dt className="text-xs text-muted-foreground">{tf.filedOn}</dt>
-                  <dd>
+                  <dd className="tabular-nums">
                     {formatDate(filing.filedAt)}
                     {filing.confirmationNumber ? <span className="block text-xs text-muted-foreground">{filing.confirmationNumber}</span> : null}
                   </dd>

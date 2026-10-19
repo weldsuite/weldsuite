@@ -189,7 +189,7 @@ export function EmailsTab({ entityEmail, entityKind, entityAvatar }: Readonly<Em
           ) : null}
         </div>
         <div className={COLUMN.date}>
-          <span className="text-sm font-mono text-muted-foreground">
+          <span className="whitespace-nowrap text-sm tabular-nums">
             {formatMailDate(when, t('sweep.entities.yesterday'))}
           </span>
         </div>

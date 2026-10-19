@@ -566,7 +566,7 @@ function NoteCard({ note, onToggleFavorite, onClick }: Readonly<{
           <User className="h-3.5 w-3.5 text-gray-400" />
           <span className="text-xs text-gray-400">tetstet wedwdwde</span>
         </div>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs tabular-nums">
           {format(note.createdAt, 'MMMM d, yyyy')}
         </span>
       </div>
