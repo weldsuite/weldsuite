@@ -88,8 +88,9 @@ const SETTLED_TTL_SECONDS = 6 * 60 * 60;
 /**
  * Backoff after a run that could NOT reach target — no shard capacity, Neon API
  * failing, or a slot that keeps failing catch-up. Without it such a run retries
- * every tick indefinitely, and each retry wakes both the master DB and every
- * shard it probes for a golden-template version.
+ * as soon as the in-flight lock lapses, indefinitely, and each retry wakes both
+ * the master DB and every shard it probes for a golden-template version. The
+ * cron honours it through `regionCanSkip`.
  */
 const UNSETTLED_TTL_SECONDS = 30 * 60;
 /** TTL of the region index. Must outlive the per-region state entries so it can
@@ -147,24 +148,36 @@ async function readPoolState(env: Env, region: string): Promise<PoolState | null
   }
 }
 
-/** A cached verdict only counts if it was recorded at the deployed schema. */
-function stateIsSettled(state: PoolState | null): boolean {
-  return state?.settled === true && state.schemaVersion === LATEST_SCHEMA_VERSION;
+/**
+ * Whether a region's cached state lets the cron leave it alone this tick.
+ *
+ * Only a verdict recorded at the deployed schema counts; a deploy invalidates by
+ * mismatch. Either verdict then holds until its entry expires: settled means
+ * nothing to do (SETTLED_TTL_SECONDS), unsettled is the back-off after a run
+ * that fell short (UNSETTLED_TTL_SECONDS). A warm-slot claim deletes the entry
+ * (`invalidatePoolState`), so a drained pool still refills on the next tick.
+ */
+function regionCanSkip(state: PoolState | null): boolean {
+  return (
+    !!LATEST_SCHEMA_VERSION &&
+    typeof state?.settled === 'boolean' &&
+    state.schemaVersion === LATEST_SCHEMA_VERSION
+  );
 }
 
 /**
- * True when every region the last run knew about reported a settled pool at the
- * schema version this deploy carries. Fails open (false) on any KV problem, so
- * a cache outage degrades to the old always-check-Postgres behaviour.
+ * True when every region the last run knew about is settled or backing off at
+ * the schema version this deploy carries. Fails open (false) on any KV problem,
+ * so a cache outage degrades to the old always-check-Postgres behaviour.
  */
-async function poolIsSettled(env: Env): Promise<boolean> {
+async function poolCanSkip(env: Env): Promise<boolean> {
   if (!LATEST_SCHEMA_VERSION) return false;
   try {
     const regions = await env.WORKSPACE_CACHE.get(REGIONS_KEY, 'json') as string[] | null;
     if (!regions?.length) return false;
 
     const states = await Promise.all(regions.map(region => readPoolState(env, region)));
-    return states.every(stateIsSettled);
+    return states.every(regionCanSkip);
   } catch (error) {
     console.warn('[RefillPool] Pool-state cache unavailable, checking Postgres:', error);
     return false;
@@ -174,14 +187,14 @@ async function poolIsSettled(env: Env): Promise<boolean> {
 /**
  * Narrow a freshly enumerated region list to the regions with work to do.
  *
- * `poolIsSettled` is all-or-nothing, so on a tick where one region is unsettled
+ * `poolCanSkip` is all-or-nothing, so on a tick where one region needs a run
  * we would otherwise start a workflow — two more master-DB queries each — for
- * every settled region alongside it. Regions with no cached state are kept:
- * unknown is not settled.
+ * every settled or backing-off region alongside it. Regions with no cached
+ * state are kept: unknown is not settled.
  */
-async function unsettledRegions(env: Env, regions: string[]): Promise<string[]> {
+async function regionsDueForRefill(env: Env, regions: string[]): Promise<string[]> {
   const states = await Promise.all(regions.map(region => readPoolState(env, region)));
-  return regions.filter((_region, i) => !stateIsSettled(states[i] ?? null));
+  return regions.filter((_region, i) => !regionCanSkip(states[i] ?? null));
 }
 
 /** Record a region's post-run state so settled ticks can skip Postgres. */
@@ -650,9 +663,10 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
  * too). A short-TTL KV lock prevents a thundering herd of overlapping runs;
  * the per-step recount inside the workflow is the real overshoot guard.
  *
- * Ticks where the pool is already settled return before touching Postgres at
- * all — see `poolIsSettled`. Without that the cron's own bookkeeping queries
- * kept the master Neon compute from ever scaling to zero.
+ * Ticks where the pool is already settled, or backing off after a run that fell
+ * short, return before touching Postgres at all — see `poolCanSkip`. Without
+ * that the cron's own bookkeeping queries kept the master Neon compute from
+ * ever scaling to zero.
  */
 export async function triggerPoolRefill(env: Env): Promise<void> {
   if (!env.REFILL_POOL) {
@@ -672,8 +686,8 @@ export async function triggerPoolRefill(env: Env): Promise<void> {
 
   // Checked before the lock is taken: this path opens no database and starts no
   // workflow, so it must not leave a 10-minute lock behind either.
-  if (await poolIsSettled(env)) {
-    console.log('[RefillPool] Pool settled per cached state — skipping (no database access)');
+  if (await poolCanSkip(env)) {
+    console.log('[RefillPool] Pool settled or backing off per cached state — skipping (no database access)');
     return;
   }
 
@@ -697,7 +711,7 @@ export async function triggerPoolRefill(env: Env): Promise<void> {
       .selectDistinct({ region: neonSharedProjects.region })
       .from(neonSharedProjects);
     regions = [...new Set([defaultRegion, ...shardRegions.map(r => r.region)])];
-    // Cached so `poolIsSettled` knows which regions to check — and so this
+    // Cached so `poolCanSkip` knows which regions to check — and so this
     // enumeration isn't itself a per-tick query against the master DB.
     await cacheRegions(env, regions);
   } catch (error) {
@@ -705,11 +719,12 @@ export async function triggerPoolRefill(env: Env): Promise<void> {
   }
 
   // The aggregate check above only tells us SOMETHING needs doing. Drop the
-  // regions whose own cached state is still settled so they don't each pay an
-  // assess + find-stale-slots round-trip on behalf of a noisy neighbour.
-  const pending = await unsettledRegions(env, regions);
+  // regions whose own cached state is still settled or backing off so they
+  // don't each pay an assess + find-stale-slots round-trip on behalf of a
+  // noisy neighbour.
+  const pending = await regionsDueForRefill(env, regions);
   if (pending.length === 0) {
-    console.log('[RefillPool] All enumerated regions already settled — nothing to trigger');
+    console.log('[RefillPool] All enumerated regions settled or backing off — nothing to trigger');
     // Nothing was started, so don't sit on the in-flight lock for its full TTL.
     try {
       await env.WORKSPACE_CACHE.delete(lockKey);
