@@ -112,6 +112,7 @@ Worker runtime secrets (set via `wrangler secret put`, not GitHub):
 | `CLERK_SECRET_KEY` / `CLERK_JWT_KEY` | `personal-api`, `app-api`, … |
 | `INTERNAL_API_SECRET` | `app-api`, `agent-runtime`, `integration-*`, `helpdesk-workflow-worker`, … |
 | `BILLING_ADMIN_SECRET` | `billing-worker`; the admin console (`apps/web/admin`) holds the same value |
+| `WORKSPACE_ADMIN_SECRET` | `workspace-worker` (`/api/internal/admin/*`: database moves, live shard state, shard sizes); the admin console holds the same value, next to `WORKSPACE_WORKER_URL` (`https://workspace-worker-test.weldsuite.org` / `https://workspace-worker.weldsuite.org`). 32+ random characters; unset or shorter, the routes answer 503. The console also sends the admin's `x-admin-email`, `x-admin-user-id` and `x-admin-role` headers; only a `superadmin` can start, cancel or recover a move |
 | `OUTBOUND_ADMIN_SECRET` | `mail-api` (`/internal/outbound/*`); the admin console holds the same value, next to `MAIL_API_URL` |
 
 Copy from Doppler without printing values:

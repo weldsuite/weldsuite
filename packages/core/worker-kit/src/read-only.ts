@@ -10,14 +10,35 @@
  * is read from the master DB on a cache miss; `licenceGate()` enforces it per
  * request with `isReadOnlyRequestAllowed`.
  *
- * external-api and mcp-server do not depend on worker-kit, so each carries a
- * small copy of `isReadOnlyRequestAllowed` and `workspaceReadOnlyBody`
+ * A workspace whose tenant database is being moved (TASK-1150, ADR DATA-016) is
+ * read-only too, for the other reason: `database_move`. It is not a licence
+ * matter, so `licenceGate()` answers it with a retryable
+ * `503 WORKSPACE_MOVING` (see ./workspace-moving.ts), not the 403 below, with
+ * the same exceptions (`isReadOnlyRequestAllowed`: reads, search, the user-level
+ * paths). Data safety does not depend on the gate: writes that land during the
+ * drain are copied, and once the move locks the database it refuses writes
+ * itself (those surface as 25006 / 28P01, which `createModuleApi` also answers
+ * with 503 WORKSPACE_MOVING).
+ *
+ * external-api and mcp-server do not use this file, so each carries a small
+ * copy of `computeWorkspaceRestrictions`, `isReadOnlyRequestAllowed` and
+ * `workspaceReadOnlyBody`
  * (`apps/workers/external-api/src/middleware/licence.ts`,
  * `apps/workers/mcp-server/src/lib/read-only.ts`), each with its own test.
- * Change the rule here and in both copies together.
+ * Change the rule here and in both copies together. The database-move rules
+ * are not copied: both import them (the 503 answer, the request rule, the error
+ * classification and the master-query fragment) from
+ * `@weldsuite/worker-kit/workspace-moving`.
  */
 
-export type ReadOnlyReason = 'partner_suspended' | 'licence_inactive';
+/** Why a workspace's licence makes it read-only (answered with 403 WORKSPACE_READ_ONLY). */
+export type LicenceReadOnlyReason = 'partner_suspended' | 'licence_inactive';
+
+/**
+ * Why a workspace may only be read: a licence reason, or `database_move` while
+ * its tenant database is being moved (answered with 503 WORKSPACE_MOVING).
+ */
+export type ReadOnlyReason = LicenceReadOnlyReason | 'database_move';
 
 /** What a workspace's billing mode, licence and partner say it may do. */
 export interface WorkspaceRestrictions {
@@ -33,6 +54,12 @@ export interface WorkspaceRestrictionInput {
   licence: { status: string; allowedApps: readonly string[] | null } | null | undefined;
   /** `partners.status` of the workspace's partner. */
   partnerStatus: string | null | undefined;
+  /**
+   * The workspace has a database move in a write-blocking status
+   * (`WRITE_BLOCKING_DATABASE_MOVE_STATUSES`). Applies to every workspace,
+   * direct or partner-managed.
+   */
+  databaseMoveInProgress?: boolean | null;
 }
 
 export const UNRESTRICTED: WorkspaceRestrictions = Object.freeze({
@@ -49,10 +76,20 @@ export const UNRESTRICTED: WorkspaceRestrictions = Object.freeze({
  * closed.
  */
 export function computeWorkspaceRestrictions(input: WorkspaceRestrictionInput): WorkspaceRestrictions {
+  const restrictions = computeLicenceRestrictions(input);
+  // A move outranks a licence reason: while it runs the answer is "try again",
+  // and once it ends the cache is rebuilt and the licence reason is back.
+  if (input.databaseMoveInProgress) {
+    return { ...restrictions, readOnly: true, readOnlyReason: 'database_move' };
+  }
+  return restrictions;
+}
+
+function computeLicenceRestrictions(input: WorkspaceRestrictionInput): WorkspaceRestrictions {
   if (input.billingMode !== 'partner') return { ...UNRESTRICTED };
 
   const licensedApps = [...(input.licence?.allowedApps ?? [])];
-  let readOnlyReason: ReadOnlyReason | null = null;
+  let readOnlyReason: LicenceReadOnlyReason | null = null;
   if (input.partnerStatus === 'suspended') readOnlyReason = 'partner_suspended';
   else if (input.licence?.status !== 'active') readOnlyReason = 'licence_inactive';
 
@@ -89,8 +126,8 @@ export function isReadOnlyRequestAllowed(method: string, path: string): boolean 
 }
 
 /** The 403 body every read-only gate returns, so all workers answer alike. */
-export function workspaceReadOnlyBody(reason: ReadOnlyReason | null | undefined) {
-  const resolved: ReadOnlyReason = reason ?? 'licence_inactive';
+export function workspaceReadOnlyBody(reason: LicenceReadOnlyReason | null | undefined) {
+  const resolved: LicenceReadOnlyReason = reason ?? 'licence_inactive';
   return {
     error: {
       code: 'WORKSPACE_READ_ONLY',

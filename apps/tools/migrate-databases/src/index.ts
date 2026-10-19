@@ -7,6 +7,7 @@ import postgres from 'postgres';
 import { eq, isNotNull, and } from 'drizzle-orm';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import { partitionByActiveMove, workspacesWithActiveMove } from './lib/active-moves';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -77,6 +78,11 @@ Workspace details are redacted by default in CI (CI / GITHUB_ACTIONS set) so
 tenant identities never land in public workflow logs. Pass --show-workspaces
 when running locally to see them.
 
+A workspace whose database is being moved to another Neon project or shard
+(workspace_database_moves, status queued ... switching or cancelling) is
+skipped, not failed: its old database is locked read-only on purpose. It is
+migrated by the next run, wherever it lives by then.
+
 Examples:
   pnpm migrate                    # Run migrations on all workspace databases
   pnpm migrate:dry-run            # List all workspaces and their databases
@@ -99,6 +105,12 @@ interface MigrationResult {
   error?: string;
 }
 
+/** A workspace left out of the run because a database move owns its database right now. */
+interface SkippedWorkspace {
+  id: string;
+  name: string;
+}
+
 // Set once from CLI options, consulted by the logging helpers below.
 let redactWorkspaces = redactByDefault();
 
@@ -117,7 +129,10 @@ function sanitizeMessage(message: string): string {
     .replace(/\borg_[A-Za-z0-9]+/g, '<redacted-workspace-id>');
 }
 
-async function getWorkspaces(masterClient: postgres.Sql, only: string | null): Promise<WorkspaceInfo[]> {
+async function getWorkspaces(
+  masterClient: postgres.Sql,
+  only: string | null,
+): Promise<{ workspaces: WorkspaceInfo[]; skipped: SkippedWorkspace[] }> {
   const db = drizzle(masterClient);
 
   const neonApiKey = process.env.NEON_API_KEY || '';
@@ -148,16 +163,23 @@ async function getWorkspaces(masterClient: postgres.Sql, only: string | null): P
     .from(workspaces)
     .where(and(...conditions));
 
+  // A workspace whose database is being moved is left out before its URL is resolved: its old database is
+  // locked read-only on purpose, and the move migrates the target itself.
+  const { migratable, skipped } = partitionByActiveMove(
+    result,
+    await workspacesWithActiveMove(db, result.map((w) => w.id)),
+  );
+
   // Resolve connection URIs — uses stored databaseUrl when available,
   // falls back to Neon API only if needed
   const resolved: WorkspaceInfo[] = [];
-  for (const w of result) {
+  for (const w of migratable) {
     if (!w.neonProjectId || !w.neonBranchId || !w.neonRoleName) continue;
     const databaseUrl = await resolveDatabaseUrl(neonApiKey, w as any, encryptionKey);
     resolved.push({ id: w.id, name: w.name, databaseUrl, neonProjectId: w.neonProjectId });
   }
 
-  return resolved;
+  return { workspaces: resolved, skipped: skipped.map((w) => ({ id: w.id, name: w.name })) };
 }
 
 async function migrateWorkspace(
@@ -228,6 +250,20 @@ function printNoWorkspacesFound(only: string | null): void {
   );
 }
 
+// Names only when not redacting; the databases are never shown (the move row holds them).
+function printSkippedWorkspaces(skipped: SkippedWorkspace[]): void {
+  if (skipped.length === 0) return;
+  console.log(`Skipping ${skipped.length} workspace(s): a database move is in progress (not a failure):`);
+  skipped.forEach((workspace, index) => {
+    console.log(
+      redactWorkspaces
+        ? `  skipped workspace #${index + 1}`
+        : `  ${workspace.name} (${workspace.id})`
+    );
+  });
+  console.log('');
+}
+
 function printWorkspaceList(workspaceList: WorkspaceInfo[]): void {
   let listIndex = 0;
   for (const workspace of workspaceList) {
@@ -272,7 +308,7 @@ async function runMigrations(
   return { results, labels };
 }
 
-function printSummary(results: MigrationResult[], labels: Map<string, string>): void {
+function printSummary(results: MigrationResult[], labels: Map<string, string>, skippedCount: number): void {
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
@@ -282,6 +318,8 @@ function printSummary(results: MigrationResult[], labels: Map<string, string>): 
   console.log(`  Total:      ${results.length}`);
   console.log(`  Successful: ${successful.length}`);
   console.log(`  Failed:     ${failed.length}`);
+  // Not part of Total and never a failure: the next run migrates these workspaces.
+  console.log(`  Skipped:    ${skippedCount} (database move in progress)`);
 
   if (failed.length > 0) {
     console.log('\nFailed workspaces:');
@@ -336,10 +374,16 @@ async function main(): Promise<void> {
   try {
     // Fetch workspaces
     console.log('Fetching workspaces...\n');
-    const workspaceList = await getWorkspaces(masterClient, options.only);
+    const { workspaces: workspaceList, skipped } = await getWorkspaces(masterClient, options.only);
+
+    printSkippedWorkspaces(skipped);
 
     if (workspaceList.length === 0) {
-      printNoWorkspacesFound(options.only);
+      if (skipped.length > 0) {
+        console.log(`Nothing to migrate now. Skipped: ${skipped.length} (database move in progress).`);
+      } else {
+        printNoWorkspacesFound(options.only);
+      }
       return;
     }
 
@@ -361,7 +405,7 @@ async function main(): Promise<void> {
     const { results, labels } = await runMigrations(workspaceList, migrationsFolder, options.verbose);
 
     // Print summary (exits with code 1 when any workspace failed)
-    printSummary(results, labels);
+    printSummary(results, labels, skipped.length);
   } finally {
     await masterClient.end();
   }

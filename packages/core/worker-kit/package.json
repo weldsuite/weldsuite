@@ -31,7 +31,8 @@
     "./testing/pglite": "./src/testing/pglite.ts",
     "./testing/d1": "./src/testing/d1.ts",
     "./testing/sweeps": "./src/testing/sweeps.ts",
-    "./webhook-token": "./src/webhook-token.ts"
+    "./webhook-token": "./src/webhook-token.ts",
+    "./workspace-moving": "./src/workspace-moving.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

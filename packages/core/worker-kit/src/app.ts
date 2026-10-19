@@ -9,7 +9,9 @@
  *
  * Global middleware (in order): request id, logger, CORS, X-Weld-App app
  * context. Also `/robots.txt`, `/health` (master DB ping) and the JSON
- * notFound/onError envelope that `@weldsuite/api-client` expects.
+ * notFound/onError envelope that `@weldsuite/api-client` expects. `onError`
+ * answers a database that moved under the request (read-only 25006, rotated
+ * password 28P01) with 503 WORKSPACE_MOVING + `Retry-After`.
  */
 
 import { Hono, type MiddlewareHandler } from 'hono';
@@ -21,7 +23,7 @@ import {
   initPermissionMiddleware,
 } from '@weldsuite/permissions/server';
 import { apiCors } from './cors';
-import { getMasterDb, schema } from './db';
+import { forgetWorkspaceContext, getMasterDb, schema } from './db';
 import type { KitEnv, KitVariables } from './env';
 import { moduleForwarder } from './forward';
 import { clerkMiddleware } from './middleware/clerk';
@@ -29,6 +31,7 @@ import { featureFlagsMiddleware } from './middleware/feature-flags';
 import { licenceGate } from './middleware/licence-gate';
 import { requestId } from './middleware/request-id';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
+import { classifyMovedDatabaseError, workspaceMovingResponse } from './workspace-moving';
 
 let permissionsInitialized = false;
 
@@ -116,7 +119,22 @@ export function createModuleApi<
     c.json({ error: { code: 'NOT_FOUND', message: `${c.req.path} not found` } }, 404),
   );
 
-  app.onError((err, c) => {
+  app.onError(async (err, c) => {
+    // The tenant database says the workspace moved under this request (set
+    // read-only, or the role's password rotated): a retryable 503, not a 500.
+    // Only a classification is logged, never the error: its message can carry
+    // the query and the role name.
+    const moved = classifyMovedDatabaseError(err);
+    if (moved) {
+      const orgId = c.get('orgId');
+      console.warn(`${options.service}: workspace database moved (${moved}), org ${orgId ?? 'unknown'}`);
+      // A rotated password means the URL in the cached entry is dead. Drop the
+      // entry so the next request resolves the workspace from master again
+      // instead of failing the same way until the TTL runs out.
+      if (moved === 'password_rotated' && orgId) await forgetWorkspaceContext(c.env, orgId);
+      return workspaceMovingResponse(c);
+    }
+
     console.error(`${options.service} error:`, err);
     return c.json(
       { error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } },

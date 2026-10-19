@@ -9,6 +9,7 @@ import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import type * as schema from '@weldsuite/db/schema';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
+import type { ReadOnlyReason } from './read-only';
 
 export type Database = NeonHttpDatabase<typeof schema>;
 
@@ -51,9 +52,13 @@ export type KitVariables = {
   workspaceId: string;
   /** Apps the workspace is licensed for; null = unrestricted (workspaceDbMiddleware). */
   licensedApps?: readonly string[] | null;
-  /** Partner suspended or licence inactive: writes are refused (licenceGate). */
+  /**
+   * Partner suspended, licence inactive or database being moved: writes are
+   * refused (licenceGate), with 403 WORKSPACE_READ_ONLY for the first two and
+   * 503 WORKSPACE_MOVING for `database_move`.
+   */
   readOnly?: boolean;
-  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
+  readOnlyReason?: ReadOnlyReason | null;
   userPermissions?: ResolvedPermissions;
   /** Canonical app code from the X-Weld-App header (appContextMiddleware). */
   app?: string;
