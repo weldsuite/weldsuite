@@ -32,24 +32,38 @@ function inlineText(content: unknown): string {
     .join('');
 }
 
+interface OutlineBlock {
+  id?: string;
+  type?: string;
+  props?: { level?: unknown };
+  content?: unknown;
+  children?: unknown;
+}
+
+function asBlocks(list: unknown): OutlineBlock[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter((node): node is OutlineBlock => !!node && typeof node === 'object');
+}
+
+/** Adds a block to the outline: a heading starts an entry, other text extends the last entry's preview. */
+function addToOutline(entries: OutlineEntry[], block: OutlineBlock) {
+  const text = inlineText(block.content).trim();
+  if (block.type === 'heading' && block.id) {
+    const level = typeof block.props?.level === 'number' ? block.props.level : 1;
+    entries.push({ id: block.id, level, text, preview: '' });
+    return;
+  }
+  const current = entries.at(-1);
+  if (!text || !current || current.preview.length >= PREVIEW_LENGTH) return;
+  current.preview = current.preview ? `${current.preview} ${text}` : text;
+}
+
 /** Every heading in reading order (nested blocks included), each with a preview of what follows it. */
 export function collectOutline(blocks: unknown): OutlineEntry[] {
   const entries: OutlineEntry[] = [];
   const walk = (list: unknown) => {
-    if (!Array.isArray(list)) return;
-    for (const node of list) {
-      if (!node || typeof node !== 'object') continue;
-      const block = node as { id?: string; type?: string; props?: { level?: unknown }; content?: unknown; children?: unknown };
-      const text = inlineText(block.content).trim();
-      if (block.type === 'heading' && block.id) {
-        const level = typeof block.props?.level === 'number' ? block.props.level : 1;
-        entries.push({ id: block.id, level, text, preview: '' });
-      } else if (text) {
-        const current = entries.at(-1);
-        if (current && current.preview.length < PREVIEW_LENGTH) {
-          current.preview = current.preview ? `${current.preview} ${text}` : text;
-        }
-      }
+    for (const block of asBlocks(list)) {
+      addToOutline(entries, block);
       walk(block.children);
     }
   };

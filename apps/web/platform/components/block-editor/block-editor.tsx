@@ -406,6 +406,11 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
 // ============================================================================
 
 type BasicStyle = 'bold' | 'italic' | 'underline' | 'strike' | 'code';
+type HeadingLevel = 1 | 2 | 3;
+/** Block types the static toolbar's block menu can switch to. */
+type StaticBlockType =
+  | 'paragraph' | 'heading' | 'bulletListItem' | 'numberedListItem' | 'checkListItem' | 'quote'
+  | 'toggleListItem' | 'codeBlock' | 'callout';
 type ColorLabelKey = keyof BlockEditorStrings['toolbar']['colors'];
 type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 
@@ -855,12 +860,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
   );
 
   const setBlockType = useCallback(
-    (
-      type:
-        | 'paragraph' | 'heading' | 'bulletListItem' | 'numberedListItem' | 'checkListItem' | 'quote'
-        | 'toggleListItem' | 'codeBlock' | 'callout',
-      level?: 1 | 2 | 3,
-    ) => {
+    (type: StaticBlockType, level?: HeadingLevel) => {
       editor.focus();
       const block = editor.getTextCursorPosition().block;
       if (!block) return;
@@ -2004,9 +2004,11 @@ function SelectionToolbar({
       // Let the browser settle the selection first.
       requestAnimationFrame(update);
     };
+    // Only follow the selection while the bar is showing; a dismissed bar
+    // must not come back on scroll or resize.
     const onScroll = () => {
       const next = readSelectionAnchor();
-      if (next) setAnchor(next);
+      if (next) setAnchor((prev) => (prev ? next : prev));
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -2099,7 +2101,7 @@ function SelectionToolbar({
   );
 
   const setBlockType = useCallback(
-    (type: SelectionBlockType, level?: 1 | 2 | 3) => {
+    (type: SelectionBlockType, level?: HeadingLevel) => {
       editor.focus();
       const block = editor.getTextCursorPosition().block;
       if (!block) return;
@@ -2142,7 +2144,7 @@ function SelectionToolbar({
 
   const { activeStyles, activeBlockType, activeHeadingLevel } = state;
   const codeBlockLabel = editor.dictionary.slash_menu.code_block.title;
-  const blockItems: { type: SelectionBlockType; level?: 1 | 2 | 3; label: string; Icon: typeof Pilcrow; match: boolean }[] = [
+  const blockItems: { type: SelectionBlockType; level?: HeadingLevel; label: string; Icon: typeof Pilcrow; match: boolean }[] = [
     { type: 'paragraph', label: st.body, Icon: Pilcrow, match: activeBlockType === 'paragraph' },
     { type: 'heading', level: 1, label: tb.blocks.heading1, Icon: Heading1, match: activeBlockType === 'heading' && activeHeadingLevel === 1 },
     { type: 'heading', level: 2, label: tb.blocks.heading2, Icon: Heading2, match: activeBlockType === 'heading' && activeHeadingLevel === 2 },
