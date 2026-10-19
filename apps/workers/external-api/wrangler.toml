@@ -239,9 +239,10 @@ namespace_id = "2101"
   period = 60
 
 # Master Postgres over Hyperdrive — required for api_key_registry lookups in auth.
+# weldsuite-master-test (the test master's pooler endpoint).
 [[env.test.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
+id = "02e3ecd8560540a1993883b9949f6002"
 
 [env.test.observability]
 enabled = true
