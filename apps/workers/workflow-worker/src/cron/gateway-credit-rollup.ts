@@ -7,9 +7,11 @@
  * (The KV lock below only guards a run overrunning its own minute.)
  *
  * Test skips the query. Neon suspends a compute after 5 minutes without one,
- * and this rollup is the fleet's only per-minute master read, so running it
- * on test keeps that database billed 24/7. With no snapshot, routers fall
- * back to fee order and do not touch the master DB (see gateway-cache.ts).
+ * and a per-minute master read keeps that database billed 24/7. This rollup
+ * is not the only one: reach-warmup-worker's dispatch cron reads and writes
+ * master every minute while its warmup kill switch is on. With no snapshot,
+ * routers fall back to fee order and do not touch the master DB (see
+ * gateway-cache.ts).
  *
  * Why re-aggregate instead of incrementing a counter per call: see
  * `packages/core/credits/src/gateway-costs.ts`. Short version — a SUM self-heals and
