@@ -247,7 +247,7 @@ describe('reads and writes with the right permission', () => {
 
     const created = w.events.filter((e) => e.entityType === 'reach_prospect' && e.action === 'created');
     expect(created).toHaveLength(1);
-    expect(created[0]).toMatchObject({ entityId: res.body.data.id, metadata: { workspaceId: WORKSPACE_ID, userId: 'user_mcp_reach' } });
+    expect(created[0]).toMatchObject({ entityId: res.body.data.id, metadata: { workspaceId: ORG_ID, userId: 'user_mcp_reach' } });
   });
 
   it('refuses to create a prospect on update alone (the app asks for create), and on a read grant', async () => {
