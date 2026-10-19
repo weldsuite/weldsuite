@@ -40,6 +40,9 @@
 # Email Sending quota to arm the platform budget.
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
+# MAIL_API_PUBLIC_URL is this worker's own origin: inline-image URLs in read
+# messages point at its /public/mail-inline (TASK-905). Unset in local dev,
+# where the request origin is used.
 
 name = "weldsuite-mail-api"
 main = "src/index.ts"
@@ -174,6 +177,7 @@ ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+MAIL_API_PUBLIC_URL = "https://mail-api-test.weldsuite.org"
 ABUSE_NOTIFY_EMAIL = "gert@weldsuite.org"
 
 [[env.test.flagship]]
@@ -270,6 +274,7 @@ ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+MAIL_API_PUBLIC_URL = "https://mail-api.weldsuite.org"
 ABUSE_NOTIFY_EMAIL = "gert@weldsuite.org"
 
 [[env.production.flagship]]

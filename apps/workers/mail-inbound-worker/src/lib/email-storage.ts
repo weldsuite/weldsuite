@@ -23,6 +23,7 @@ import {
   sendPersonalEmailPushNotification,
 } from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
+import { inboundAttachmentRecord } from './inbound-attachments';
 import {
   bareSubject,
   conversationSubjects,
@@ -888,7 +889,7 @@ export async function processInboundEmail(
   return { stored, notified, recipients: accounts.length };
 }
 
-/** Store attachments to R2 + DB and rewrite inline cid: references. Best-effort. */
+/** Store attachments to R2 + DB. Best-effort. */
 async function storeWorkspaceAttachments(
   env: Env,
   workspaceId: string,
@@ -899,18 +900,9 @@ async function storeWorkspaceAttachments(
   if (!email.hasAttachments || !attachments || attachments.length === 0 || !env.STORAGE) return;
 
   try {
-    const cidMap = await storeInboundAttachments(env, workspaceId, result.messageId, attachments);
-
-    // Rewrite cid: references in HTML body to point to R2 URLs
-    const rewrittenHtml = rewriteCidReferences(email.htmlBody, cidMap);
-    if (rewrittenHtml) {
-      const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
-      await tenantDb
-        .update(tenantSchema.mailMessages)
-        .set({ htmlBody: rewrittenHtml })
-        .where(eq(tenantSchema.mailMessages.id, result.messageId));
-      console.log(`[Store] Rewrote ${cidMap.size} inline CID reference(s) in HTML body for ${result.messageId}`);
-    }
+    // The HTML body keeps its cid: references: mail-api swaps them for
+    // short-lived URLs when the message is read (TASK-905).
+    await storeInboundAttachments(env, workspaceId, result.messageId, attachments);
   } catch (attachErr) {
     console.error(`[Store] Failed to store attachments for ${result.messageId}:`, attachErr);
   }
@@ -1715,62 +1707,42 @@ async function executeRuleAction(
 /**
  * Store parsed attachments: upload to R2 and create DB records.
  * Accepts ParsedAttachment[] from the MIME parser (postal-mime).
- * Returns a map of contentId → downloadUrl for inline CID rewriting.
+ * No public URL is written (TASK-905): see ./inbound-attachments.ts.
  */
 async function storeInboundAttachments(
   env: Env,
   workspaceId: string,
   dbMessageId: string,
   attachments: ParsedAttachment[],
-): Promise<Map<string, string>> {
-  const cidMap = new Map<string, string>();
+): Promise<number> {
   const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
-  const r2PublicUrl = env.R2_PUBLIC_URL || '';
+  let stored = 0;
 
   for (let i = 0; i < attachments.length; i++) {
     const att = attachments[i]!;
 
     try {
-      const contentType = att.contentType || 'application/octet-stream';
+      const { r2Key, contentType, row } = inboundAttachmentRecord(
+        workspaceId,
+        dbMessageId,
+        i,
+        att,
+        generateId('attach'),
+      );
 
-      // Build R2 key: workspaces/{workspaceId}/mail/attachments/{messageId}/{filename}
-      const sanitizedName = att.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
-      const r2Key = `workspaces/${workspaceId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
-
-      // Upload to R2
       await env.STORAGE.put(r2Key, att.content, {
         httpMetadata: { contentType },
       });
+      await tenantDb.insert(tenantSchema.mailAttachments).values(row);
+      stored++;
 
-      const downloadUrl = r2PublicUrl ? `${r2PublicUrl}/${r2Key}` : '';
-      const attachId = generateId('attach');
-
-      // Create DB record
-      await tenantDb.insert(tenantSchema.mailAttachments).values({
-        id: attachId,
-        messageId: dbMessageId,
-        fileName: att.fileName,
-        contentType,
-        size: att.content.length,
-        storagePath: r2Key,
-        downloadUrl,
-        isInline: att.disposition === 'inline',
-      });
-
-      // Track CID → URL mapping for inline image rewriting
-      if (att.contentId && downloadUrl) {
-        // Strip angle brackets from contentId if present (e.g. "<image001>" → "image001")
-        const cid = att.contentId.replace(/^</, '').replace(/>$/, '');
-        cidMap.set(cid, downloadUrl);
-      }
-
-      console.log(`[Store] Saved attachment ${attachId} (${att.fileName}, ${att.content.length} bytes) → ${r2Key}`);
+      console.log(`[Store] Saved attachment ${row.id} (${att.fileName}, ${row.size} bytes) → ${r2Key}`);
     } catch (attErr) {
       console.error(`[Store] Failed to store attachment ${i + 1} (${att.fileName}):`, attErr);
     }
   }
 
-  return cidMap;
+  return stored;
 }
 
 /**
@@ -1779,6 +1751,10 @@ async function storeInboundAttachments(
  * Mirrors `storeInboundAttachments`, but writes to the shared personal DB and
  * keys R2 objects under `personal/<personalAccountId>/…` so nothing lands in a
  * workspace prefix. Returns the CID → URL map for inline-image rewriting.
+ *
+ * Unlike the workspace path, this still writes the bucket's public URL
+ * (TASK-905 covers workspace mail): personal-api has no authenticated
+ * download or inline-image route to point at yet.
  */
 async function storePersonalAttachments(
   env: Env,

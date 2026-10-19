@@ -22,6 +22,7 @@ import * as messages from '@weldsuite/mail-domain/messages';
 import { toPublicAttachment } from '@weldsuite/mail-domain/attachments';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
 import { sendErrorResponse } from '../../lib/send-errors';
+import { inlineImageSigner } from '../../lib/inline-images';
 import {
   emailEventData,
   checkAccountAccess,
@@ -178,7 +179,9 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
     if (!accountId) return error.notFound(c, 'Message', id);
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const row = await messages.getMessage(db, id);
+    // Inline images come back as short-lived /public/mail-inline URLs, never
+    // the bucket's public URL (TASK-905).
+    const row = await messages.getMessage(db, id, { inlineImages: inlineImageSigner(c) });
     if (!row) return error.notFound(c, 'Message', id);
     // Attachment rows without their storage URL: files are read through
     // GET /api/mail-attachments/:id/download, which checks the mailbox.
@@ -201,7 +204,7 @@ app.get('/:id/thread', requirePermission('messages:read'), async (c) => {
     if (!accountId) return error.notFound(c, 'Thread for message', id);
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const thread = await messages.getThread(db, id);
+    const thread = await messages.getThread(db, id, { inlineImages: inlineImageSigner(c) });
     if (!thread) return error.notFound(c, 'Thread for message', id);
     return success(c, thread);
   } catch (err) {

@@ -22,6 +22,7 @@ import { mailCampaignsRoutes } from './routes/mail-campaigns';
 import { mailDomainsRoutes } from './routes/mail-domains';
 import { mailDraftsRoutes } from './routes/mail-drafts';
 import { mailFoldersRoutes } from './routes/mail-folders';
+import { mailInlineImagesRoutes } from './routes/mail-inline-images';
 import { mailLabelsRoutes } from './routes/mail-labels';
 import { mailMessagesRoutes } from './routes/mail-messages';
 import { mailRulesRoutes } from './routes/mail-rules';
@@ -48,6 +49,10 @@ const app = createModuleApi<Env, Variables>({ service: 'mail-api' });
 // Outbound guard staff API (admin console, shared secret; not Clerk). Kept off
 // the /api/* auth chain on purpose. docs/plans/weldmail-outbound-abuse.md.
 app.route('/internal/outbound', internalOutboundRoutes);
+
+// Inline images of mail messages (TASK-905): no session, a sealed short-lived
+// token minted when the message is read. Kept off the /api/* auth chain.
+app.route('/public/mail-inline', mailInlineImagesRoutes);
 
 // Mailbox directory — Clerk-authenticated but org-LESS: WeldMail lists every
 // workspace mailbox the user can see without flipping the active org (personal
