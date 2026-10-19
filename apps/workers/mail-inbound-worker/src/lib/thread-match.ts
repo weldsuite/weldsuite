@@ -7,12 +7,28 @@
  * lookups in `email-storage.ts` tolerant of all three.
  */
 
-/** A reply or forward prefix, repeated any number of times (`Re: Fwd: RE[2]: `). */
-const SUBJECT_PREFIXES = /^(?:\s*(?:re|fwd?|aw|sv|vs|antw)(?:\[\d+\])?\s*:)+\s*/i;
+/** One reply or forward prefix (`Re:`, `FWD:`, `Aw:`, `RE[2]:`). Stripped in a loop, so it never backtracks. */
+const SUBJECT_PREFIX = /^(?:re|fwd?|aw|sv|vs|antw)(?:\[\d+\])?\s*:/i;
+
+/** The subject with every leading reply / forward prefix removed, and whether there was one. */
+function stripSubjectPrefixes(subject: string): { bare: string; prefixed: boolean } {
+  let rest = subject.trim();
+  let prefixed = false;
+  for (let match = SUBJECT_PREFIX.exec(rest); match; match = SUBJECT_PREFIX.exec(rest)) {
+    rest = rest.slice(match[0].length).trimStart();
+    prefixed = true;
+  }
+  return { bare: rest.trim(), prefixed };
+}
 
 /** The Message-ID without its angle brackets. */
 export function bareMessageId(id: string): string {
-  return id.trim().replace(/^<+/, '').replace(/>+$/, '').trim();
+  const isEdge = (ch: string, bracket: string) => ch === bracket || ch.trim() === '';
+  let start = 0;
+  let end = id.length;
+  while (start < end && isEdge(id.charAt(start), '<')) start++;
+  while (end > start && isEdge(id.charAt(end - 1), '>')) end--;
+  return id.slice(start, end);
 }
 
 /** Every Message-ID in both spellings (`id@host` and `<id@host>`), without duplicates. */
@@ -39,12 +55,12 @@ export function providerMessageIds(ids: readonly string[]): string[] {
 
 /** The subject without any reply / forward prefixes. */
 export function bareSubject(subject: string | null | undefined): string {
-  return (subject ?? '').replace(SUBJECT_PREFIXES, '').trim();
+  return stripSubjectPrefixes(subject ?? '').bare;
 }
 
 /** The subject says it answers or forwards something (`Re:`, `Fwd:`, ...). */
 export function hasReplyPrefix(subject: string | null | undefined): boolean {
-  return SUBJECT_PREFIXES.test(subject ?? '');
+  return stripSubjectPrefixes(subject ?? '').prefixed;
 }
 
 /** The lower-cased subjects an earlier message of the same conversation may carry. */
@@ -60,7 +76,9 @@ interface Addressed {
 }
 
 function emailsOf(value: unknown): string[] {
-  const list = Array.isArray(value) ? value : value ? [value] : [];
+  let list: unknown[] = [];
+  if (Array.isArray(value)) list = value;
+  else if (value) list = [value];
   return list
     .map((entry) => (entry as { email?: unknown } | null)?.email)
     .filter((email): email is string => typeof email === 'string' && email.length > 0)

@@ -6,11 +6,13 @@
  * - `GET /:id/download` is the only way to the bytes, answers 404 (not 403) for
  *   an attachment of a mailbox the caller cannot open, and never serves a key
  *   outside the workspace's folder.
+ * - Both of the workspace's folders count as its own: compose uploads under the
+ *   Clerk org id, inbound mail under the master workspace id (`ws_…`).
  * - `POST /` and `PATCH /:id` refuse a storagePath outside the workspace, and
  *   `POST /associate` cannot move an attachment out of a private mailbox.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { mailAttachmentsRoutes } from './index';
@@ -22,6 +24,13 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
 
+const WS = 'ws_test_default';
+// The master workspace id of ORG (KV / master DB in production).
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getWorkspaceForOrg: vi.fn(async () => ({ id: WS })),
+}));
+
 const { mailAccounts, mailAttachments, mailMessages, workspaceMembers } = schema;
 
 const ORG = 'org_test_default';
@@ -31,6 +40,9 @@ const PUBLIC_URL = 'https://weldsuite-storage.weldsuite.org';
 
 const OWN_KEY = `workspaces/${ORG}/mail/attachments/msg/1_report.txt`;
 const FOREIGN_KEY = 'workspaces/org_other/mail/attachments/msg/1_secret.txt';
+// Where mail-inbound-worker stores a received attachment.
+const INBOUND_KEY = `workspaces/${WS}/mail/attachments/msg/1_inbound-note.txt`;
+const FOREIGN_INBOUND_KEY = 'workspaces/ws_other/mail/attachments/msg/1_secret.txt';
 
 let db: Database;
 let sharedMessage: string;
@@ -39,11 +51,15 @@ let sharedAttachment: string;
 let privateAttachment: string;
 let foreignKeyAttachment: string;
 let missingObjectAttachment: string;
+let inboundAttachment: string;
+let foreignInboundAttachment: string;
 
 const objects = new Map<string, string>([
   [OWN_KEY, 'hello shared'],
   [`workspaces/${ORG}/mail/attachments/msg/2_private.txt`, 'hello private'],
   [FOREIGN_KEY, 'other workspace'],
+  [INBOUND_KEY, 'hello inbound'],
+  [FOREIGN_INBOUND_KEY, 'other workspace inbound'],
 ]);
 
 const storage = {
@@ -138,6 +154,8 @@ beforeAll(async () => {
   privateAttachment = await seedAttachment(privateMessage, `workspaces/${ORG}/mail/attachments/msg/2_private.txt`);
   foreignKeyAttachment = await seedAttachment(sharedMessage, FOREIGN_KEY);
   missingObjectAttachment = await seedAttachment(sharedMessage, `workspaces/${ORG}/mail/attachments/msg/gone.txt`);
+  inboundAttachment = await seedAttachment(sharedMessage, INBOUND_KEY);
+  foreignInboundAttachment = await seedAttachment(sharedMessage, FOREIGN_INBOUND_KEY);
 }, 60_000);
 
 describe('responses never carry the storage URL', () => {
@@ -224,6 +242,16 @@ describe('GET /:id/download', () => {
     expect(res.status).toBe(404);
   });
 
+  it('serves a received attachment stored under the master workspace id', async () => {
+    const res = await api(MEMBER)(`/${inboundAttachment}/download`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('hello inbound');
+  });
+
+  it("never serves another workspace's inbound folder", async () => {
+    expect((await api(MEMBER)(`/${foreignInboundAttachment}/download`)).status).toBe(404);
+  });
+
   it('answers 404 when the object is gone', async () => {
     expect((await api(MEMBER)(`/${missingObjectAttachment}/download`)).status).toBe(404);
   });
@@ -231,10 +259,15 @@ describe('GET /:id/download', () => {
 
 describe('storagePath is confined to the workspace', () => {
   it('POST / refuses a key of another workspace or a path with ..', async () => {
-    for (const storagePath of [FOREIGN_KEY, `workspaces/${ORG}/../org_other/x`, 'personal/p1/x']) {
+    for (const storagePath of [FOREIGN_KEY, FOREIGN_INBOUND_KEY, `workspaces/${ORG}/../org_other/x`, 'personal/p1/x']) {
       const res = await api(MEMBER)('', json({ messageId: sharedMessage, fileName: 'x.txt', size: 1, storagePath }));
       expect(res.status).toBe(400);
     }
+  });
+
+  it("POST / accepts a key in the workspace's inbound folder", async () => {
+    const res = await api(MEMBER)('', json({ messageId: sharedMessage, fileName: 'in.txt', size: 1, storagePath: INBOUND_KEY }));
+    expect(res.status).toBe(201);
   });
 
   it('PATCH /:id refuses it too', async () => {

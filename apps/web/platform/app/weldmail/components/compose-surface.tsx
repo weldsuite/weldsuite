@@ -155,6 +155,29 @@ function formatScheduledTime(date: Date): string {
   return format(date, date.getFullYear() === new Date().getFullYear() ? 'MMM d, h:mm a' : 'MMM d, yyyy, h:mm a');
 }
 
+// "Schedule for Oct 20, 9:00 AM" once a time is picked.
+function scheduleLabelFor(template: string, scheduledTime: Date | null): string | undefined {
+  return scheduledTime ? template.replace('{date}', formatScheduledTime(scheduledTime)) : undefined;
+}
+
+// The send button's text: "Send", or "Schedule  Oct 20, 9:00 AM".
+function SendButtonLabel({
+  scheduledTime,
+  scheduleText,
+  sendText,
+  testId,
+}: Readonly<{ scheduledTime: Date | null; scheduleText: string; sendText: string; testId: string }>) {
+  if (!scheduledTime) return <>{sendText}</>;
+  return (
+    <>
+      {scheduleText}
+      <span className="font-normal opacity-80" data-testid={testId}>
+        {formatScheduledTime(scheduledTime)}
+      </span>
+    </>
+  );
+}
+
 // Schedule helpers: a picked time never lands in the past.
 function scheduleForDate(date: Date, current: Date | null): Date {
   const now = new Date();
@@ -458,6 +481,8 @@ export function ComposeSurface({
     }
     onSend();
   };
+
+  const scheduleLabel = scheduleLabelFor(t.mail.floatingCompose.scheduleFor, scheduledTime);
 
   // Ctrl/Cmd+Enter sends from anywhere in the surface.
   const handleSendShortcut = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -977,8 +1002,8 @@ export function ComposeSurface({
                   size="icon"
                   className={cn(TOOL_BUTTON, scheduledTime && 'bg-muted text-foreground')}
                   data-testid={`${testIdPrefix}-schedule-btn`}
-                  title={scheduledTime ? t.mail.floatingCompose.scheduleFor.replace('{date}', formatScheduledTime(scheduledTime)) : t.mail.floatingCompose.schedule}
-                  aria-label={scheduledTime ? t.mail.floatingCompose.scheduleFor.replace('{date}', formatScheduledTime(scheduledTime)) : t.mail.floatingCompose.schedule}
+                  title={scheduleLabel ?? t.mail.floatingCompose.schedule}
+                  aria-label={scheduleLabel ?? t.mail.floatingCompose.schedule}
                 >
                   <Clock className="h-4 w-4" />
                 </Button>
@@ -1069,19 +1094,15 @@ export function ComposeSurface({
               size="sm"
               className="ml-1 !px-3"
               title="Ctrl+Enter"
-              aria-label={scheduledTime ? t.mail.floatingCompose.scheduleFor.replace('{date}', formatScheduledTime(scheduledTime)) : undefined}
+              aria-label={scheduleLabel}
             >
               {isSending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {scheduledTime ? (
-                <>
-                  {t.mail.floatingCompose.schedule}
-                  <span className="font-normal opacity-80" data-testid={`${testIdPrefix}-scheduled-time`}>
-                    {formatScheduledTime(scheduledTime)}
-                  </span>
-                </>
-              ) : (
-                t.mail.floatingCompose.sendEmail
-              )}
+              <SendButtonLabel
+                scheduledTime={scheduledTime}
+                scheduleText={t.mail.floatingCompose.schedule}
+                sendText={t.mail.floatingCompose.sendEmail}
+                testId={`${testIdPrefix}-scheduled-time`}
+              />
             </Button>
           </div>
         </div>

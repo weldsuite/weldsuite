@@ -26,6 +26,7 @@ import * as attachments from '@weldsuite/mail-domain/attachments';
 import { toPublicAttachment, isWorkspaceStorageKey } from '@weldsuite/mail-domain/attachments';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,9 +46,28 @@ const createBody = z.object({
 
 const updateBody = createBody.partial();
 
+type AppContext = import('hono').Context<{ Bindings: Env; Variables: Variables }>;
+
+/**
+ * The ids the workspace's storage folders are named after: the Clerk org id
+ * (compose uploads) and the master workspace id (inbound mail, written by
+ * mail-inbound-worker). The master id comes from the KV-cached lookup the
+ * tenant DB middleware already warmed.
+ */
+async function workspaceStorageIds(c: AppContext): Promise<string[]> {
+  const orgId = c.get('workspaceId');
+  try {
+    const { id } = await getWorkspaceForOrg(c.env, orgId);
+    return [orgId, id];
+  } catch (err) {
+    console.warn('[mail-attachments] master workspace id lookup failed:', err instanceof Error ? err.message : err);
+    return [orgId];
+  }
+}
+
 /** 400 body when a storagePath points outside the workspace's folder. */
-function foreignStoragePath(c: import('hono').Context<{ Bindings: Env; Variables: Variables }>, path: string | undefined) {
-  if (path === undefined || isWorkspaceStorageKey(path, c.get('workspaceId'))) return null;
+async function foreignStoragePath(c: AppContext, path: string | undefined) {
+  if (path === undefined || isWorkspaceStorageKey(path, await workspaceStorageIds(c))) return null;
   return error.badRequest(c, 'storagePath must be a file in this workspace');
 }
 
@@ -144,7 +164,7 @@ app.get('/:id/download', requirePermission('messages:read'), async (c) => {
     }
     // A key outside the workspace's folder is never served, whatever the row says.
     const object =
-      row.storagePath && isWorkspaceStorageKey(row.storagePath, c.get('workspaceId'))
+      row.storagePath && isWorkspaceStorageKey(row.storagePath, await workspaceStorageIds(c))
         ? await c.env.STORAGE.get(row.storagePath)
         : null;
     if (!object) return error.notFound(c, 'Attachment', id);
@@ -188,7 +208,7 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createBod
     const db = c.get('tenantDb');
     const userId = c.get('userId');
     const data = c.req.valid('json');
-    const foreign = foreignStoragePath(c, data.storagePath);
+    const foreign = await foreignStoragePath(c, data.storagePath);
     if (foreign) return foreign;
     const accountId = await getMessageAccountId(db, data.messageId);
     if (!accountId) return error.notFound(c, 'Message', data.messageId);
@@ -214,7 +234,7 @@ const updateRoute = async (
 ) => {
   const id = c.req.param('id');
   const data = c.req.valid('json' as never) as z.infer<typeof updateBody>;
-  const foreign = foreignStoragePath(c, data.storagePath);
+  const foreign = await foreignStoragePath(c, data.storagePath);
   if (foreign) return foreign;
   const db = c.get('tenantDb');
   const userId = c.get('userId');

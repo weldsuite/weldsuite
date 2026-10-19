@@ -172,7 +172,7 @@ export async function canonicalLabelNames(
         eq(mailLabels.accountId, accountId),
         isNull(mailLabels.deletedAt),
         sql`${mailLabels.isSystem} IS NOT TRUE`,
-        sql`LOWER(${mailLabels.name}) IN (${sql.join(custom.map((l) => sql`${l.toLowerCase()}`), sql`, `)})`,
+        inArray(sql`LOWER(${mailLabels.name})`, custom.map((l) => l.toLowerCase())),
       ),
     );
   const byLower = new Map(rows.map((r) => [r.name.toLowerCase(), r.name]));
@@ -275,7 +275,9 @@ async function withLiveMessageCounts(db: Database, rows: MailLabelRow[]): Promis
     const system = toSystemLabel(key);
     const everywhere = system === SYSTEM_LABELS.TRASH || system === SYSTEM_LABELS.SPAM;
     const matches = labelCondition(key);
-    selection[`c${i}`] = sql<number>`count(*) FILTER (WHERE ${everywhere ? matches : sql`${matches} AND ${live}`})::int`.as(`c${i}`);
+    const filter = everywhere ? matches : sql`${matches} AND ${live}`;
+    const alias = `c${i}`;
+    selection[alias] = sql<number>`count(*) FILTER (WHERE ${filter})::int`.as(alias);
   });
   const counted = await db
     .select({ accountId: mailMessages.accountId, ...selection })

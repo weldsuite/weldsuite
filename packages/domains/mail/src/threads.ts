@@ -242,6 +242,15 @@ function buildThreadSummary(
   };
 }
 
+/** The advanced-search From / To / Subject filters, per message. */
+function fieldFilterConditions(input: ListThreadsByLabelInput): SQL[] {
+  const conditions: SQL[] = [];
+  if (input.from?.trim()) conditions.push(senderMatches(input.from));
+  if (input.to?.trim()) conditions.push(anyRecipientMatches(input.to));
+  if (input.subject?.trim()) conditions.push(ilike(mailMessages.subject, containsPattern(input.subject)));
+  return conditions;
+}
+
 export async function listThreadsByLabel(
   db: Database,
   caller: MailCaller,
@@ -276,11 +285,7 @@ export async function listThreadsByLabel(
     baseConditions.push(sql`NOT ${inTrashOrSpamCondition()}`);
   }
   if (searchCondition) baseConditions.push(searchCondition);
-  if (input.from?.trim()) baseConditions.push(senderMatches(input.from));
-  if (input.to?.trim()) baseConditions.push(anyRecipientMatches(input.to));
-  if (input.subject?.trim()) {
-    baseConditions.push(ilike(mailMessages.subject, containsPattern(input.subject)));
-  }
+  baseConditions.push(...fieldFilterConditions(input));
 
   const threadIdExpr = sql<string>`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
   const threadKey = sql`(${mailMessages.accountId}, ${threadIdExpr})`;

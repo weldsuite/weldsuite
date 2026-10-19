@@ -1342,6 +1342,25 @@ function inlineSignature(isReplying: boolean, isForwarding: boolean, round: numb
   return { mode, session: mode ? `${round}:${mode}:${messageId}` : null };
 }
 
+/** A star / important flag: its column, or its system label. */
+function isFlagged(column: boolean | null | undefined, labels: string[] | null | undefined, label: string): boolean {
+  return Boolean(column) || hasLabel(labels, label);
+}
+
+/** The toolbar and menu wording that follows the message's state. */
+function messageActionLabels(
+  md: ReturnType<typeof useI18n>['t']['mail']['messageDetail'],
+  state: Readonly<{ isStarred: boolean; isPinned: boolean; isImportant: boolean; inThread: boolean }>,
+) {
+  return {
+    star: state.isStarred ? md.removeStar : md.addStar,
+    pin: state.isPinned ? md.unpin : md.pin,
+    archive: state.inThread ? md.archiveConversation : md.archivedSingle,
+    remove: state.inThread ? md.deleteConversation : md.movedSingleToTrash,
+    important: state.isImportant ? md.markAsNotImportant : md.markAsImportant,
+  };
+}
+
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
   const { t } = useI18n();
   const notifySendError = useNotifySendError();
@@ -1462,7 +1481,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // Star and pin are server state: the STARRED / PINNED system labels (the
   // star also has its `isStarred` column). The override only bridges the
   // moment between the click and the refetch.
-  const serverStarred = Boolean(message.isStarred) || hasLabel(message.labels, 'STARRED');
+  const serverStarred = isFlagged(message.isStarred, message.labels, 'STARRED');
   const serverPinned = [message, ...thread].some((m) => hasLabel(m.labels, 'PINNED'));
   const [starOverride, setStarOverride] = useState<boolean | null>(null);
   const [pinOverride, setPinOverride] = useState<boolean | null>(null);
@@ -1472,10 +1491,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const isPinned = pinOverride ?? serverPinned;
 
   // Important works like the star: the IMPORTANT label plus the `isImportant` column.
-  const serverImportant = Boolean(message.isImportant) || hasLabel(message.labels, 'IMPORTANT');
+  const serverImportant = isFlagged(message.isImportant, message.labels, 'IMPORTANT');
   const [importantOverride, setImportantOverride] = useState<boolean | null>(null);
   useEffect(() => setImportantOverride(null), [message.id, serverImportant]);
   const isImportant = importantOverride ?? serverImportant;
+  const actionLabels = messageActionLabels(t.mail.messageDetail, { isStarred, isPinned, isImportant, inThread: Boolean(threadId) });
 
   // Snoozed mail carries the SNOOZED label until it wakes or is unsnoozed.
   const snoozedMessageIds = [message, ...thread]
@@ -2396,8 +2416,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             variant="ghost"
             size="icon"
             onClick={handleToggleStar}
-            aria-label={isStarred ? t.mail.messageDetail.removeStar : t.mail.messageDetail.addStar}
-            title={isStarred ? t.mail.messageDetail.removeStar : t.mail.messageDetail.addStar}
+            aria-label={actionLabels.star}
+            title={actionLabels.star}
             aria-pressed={isStarred}
             className={cn("md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isStarred && "text-yellow-500")}
           >
@@ -2409,8 +2429,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             size="icon"
             onClick={handleTogglePin}
             className={cn("hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isPinned && "text-blue-500")}
-            title={isPinned ? t.mail.messageDetail.unpin : t.mail.messageDetail.pin}
-            aria-label={isPinned ? t.mail.messageDetail.unpin : t.mail.messageDetail.pin}
+            title={actionLabels.pin}
+            aria-label={actionLabels.pin}
           >
             <Pin className={cn("h-4 w-4", isPinned ? "fill-current" : "text-gray-500 dark:text-muted-foreground")} />
           </Button>
@@ -2419,8 +2439,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             size="icon"
             onClick={handleArchive}
             className="md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors"
-            title={threadId ? t.mail.messageDetail.archiveConversation : t.mail.messageDetail.archivedSingle}
-            aria-label={threadId ? t.mail.messageDetail.archiveConversation : t.mail.messageDetail.archivedSingle}
+            title={actionLabels.archive}
+            aria-label={actionLabels.archive}
           >
             <Archive className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
           </Button>
@@ -2482,8 +2502,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             size="icon"
             onClick={handleDelete}
             className="md:size-7 p-1.5 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md transition-colors group/delete"
-            title={threadId ? t.mail.messageDetail.deleteConversation : t.mail.messageDetail.movedSingleToTrash}
-            aria-label={threadId ? t.mail.messageDetail.deleteConversation : t.mail.messageDetail.movedSingleToTrash}
+            title={actionLabels.remove}
+            aria-label={actionLabels.remove}
           >
             <Trash2 className="h-4 w-4 text-gray-500 dark:text-muted-foreground group-hover/delete:text-red-500 transition-colors" />
           </Button>
@@ -2579,11 +2599,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     <Eye className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsUnread}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleToggleStar}>
-                    <Star className={cn("mr-0.5 h-4 w-4", isStarred && "text-yellow-500 fill-yellow-500")} /> {isStarred ? t.mail.messageDetail.removeStar : t.mail.messageDetail.addStar}
+                    <Star className={cn("mr-0.5 h-4 w-4", isStarred && "text-yellow-500 fill-yellow-500")} /> {actionLabels.star}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleToggleImportance}>
                     <Flag className={cn("mr-0.5 h-4 w-4", isImportant && "text-orange-500 fill-orange-500")} />{' '}
-                    {isImportant ? t.mail.messageDetail.markAsNotImportant : t.mail.messageDetail.markAsImportant}
+                    {actionLabels.important}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => { copyText(message.id || '', () => toast.success(t.mail.messageDetail.messageIdCopied)); }}>
