@@ -143,15 +143,20 @@ export function createDrizzlePermissionQueries(
       if (schema.workspaceMembers.memberType) {
         columns.memberType = schema.workspaceMembers.memberType;
       }
+      // Only an ACTIVE member resolves permissions: a SUSPENDED member must
+      // lose access the moment they are suspended, and a PENDING invite grants
+      // nothing until it is accepted. Anything else resolves as "no member".
+      const conditions = [
+        eq(schema.workspaceMembers.userId, userId),
+        isNull(schema.workspaceMembers.deletedAt),
+      ];
+      if (schema.workspaceMembers.status) {
+        conditions.push(eq(schema.workspaceMembers.status, 'ACTIVE'));
+      }
       const [member] = await db
         .select(columns)
         .from(schema.workspaceMembers)
-        .where(
-          and(
-            eq(schema.workspaceMembers.userId, userId),
-            isNull(schema.workspaceMembers.deletedAt),
-          ),
-        )
+        .where(and(...conditions))
         .limit(1);
 
       return member ?? null;

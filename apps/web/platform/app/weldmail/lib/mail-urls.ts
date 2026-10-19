@@ -63,6 +63,16 @@ export function parseMailSearch(search: Record<string, unknown>): {
   };
 }
 
+/**
+ * An in-app path as an absolute URL on this origin, for places that leave the
+ * app (a task description that links back to the mail). Without an origin
+ * (tests, SSR) the path is returned as it is.
+ */
+export function absoluteMailUrl(path: string, origin?: string): string {
+  const base = origin ?? (typeof window === 'undefined' ? '' : window.location.origin);
+  return `${base}${path}`;
+}
+
 export function currentMailHref(): string {
   if (typeof window === 'undefined') return '';
   return `${window.location.pathname}${window.location.search}`;

@@ -8,6 +8,7 @@ import type { TenantTier } from '@weldsuite/db/schema/master';
 import * as tenantSchema from '@weldsuite/db/schema';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import { keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import { openCacheEntry, sealCacheEntry } from '@weldsuite/db/lib/workspace-url-cache';
 import {
   createDrizzlePermissionQueries,
   resolveEffectivePermissions,
@@ -96,6 +97,9 @@ interface CachedWorkspace {
   readOnlyReason?: 'partner_suspended' | 'licence_inactive' | 'database_move' | null;
 }
 
+/** What lands in KV: the connection string sealed, never in the clear. */
+type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl'> & { databaseUrlSealed?: string };
+
 function getTierFromPlan(planSlug: string | null | undefined): TenantTier {
   if (!planSlug) return 'free';
   if (['free', 'business', 'scale', 'enterprise'].includes(planSlug)) {
@@ -135,6 +139,10 @@ function decodeVerifiedJwtPayload(token: string): Record<string, unknown> | null
  * Resolve a Clerk organization to its workspace and tenant database, cached in
  * KV. The MCP server serves tool calls from its own copy of the v1 routes, so
  * it needs a real tenant connection string, not just an identifier.
+ *
+ * The cached connection string is sealed with `keyring`; without a key nothing
+ * is cached. Sealed entries live under `mcpx:org:<org>`, never the old
+ * plaintext `mcp:org:<org>`.
  */
 export async function getWorkspaceForOrg(
   kv: KVNamespace,
@@ -144,8 +152,12 @@ export async function getWorkspaceForOrg(
   keyring?: string | EncryptionKeyring,
 ): Promise<CachedWorkspace | null> {
   const cacheKey = workspaceOrgCacheKey(clerkOrgId);
-  const cached = (await kv.get(cacheKey, 'json')) as CachedWorkspace | null;
-  if (cached) return cached;
+  const cached = (await kv.get(cacheKey, 'json')) as StoredWorkspace | null;
+  if (cached) {
+    // A sealed URL we cannot open reads as a miss.
+    const opened = await openCacheEntry(cached, keyring);
+    if (opened) return opened;
+  }
 
   const [row] = await masterDb
     .select({
@@ -200,7 +212,11 @@ export async function getWorkspaceForOrg(
       databaseMoveInProgress: row.databaseMoveInProgress,
     }),
   };
-  await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
+  // No key → nothing to seal with → do not cache (never a plaintext fallback).
+  const stored: StoredWorkspace | null = await sealCacheEntry(result, keyring);
+  if (stored) {
+    await kv.put(cacheKey, JSON.stringify(stored), { expirationTtl: KV_TTL_SECONDS });
+  }
 
   return result;
 }

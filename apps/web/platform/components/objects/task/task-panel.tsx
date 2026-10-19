@@ -737,18 +737,21 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       // hide the toggle. Panel mode is unaffected: the bottom chat is still
       // freely collapsible via the resize handle.
       sidebarLocked={mode === 'fullscreen'}
-      subheader={
-        task ? (
-          <div className="px-1 md:px-2 -mt-2 pb-3">
-            <DescriptionField
-              taskId={task.id}
-              description={task.description}
-              onUpdate={handleUpdate}
-            />
-          </div>
-        ) : null
-      }
+      // The description scrolls with the details instead of sitting in the
+      // non-scrolling `subheader`: a long one would otherwise fill the panel
+      // and leave the details unreachable. The scroll area takes over the
+      // `-mt-2` the description had, so it still tucks under the title.
+      contentClassName="-mt-2"
     >
+      {task && (
+        <div className="px-1 md:px-2 pb-3">
+          <DescriptionField
+            taskId={task.id}
+            description={task.description}
+            onUpdate={handleUpdate}
+          />
+        </div>
+      )}
       {task && (
         <TaskDetailContent
             task={task}

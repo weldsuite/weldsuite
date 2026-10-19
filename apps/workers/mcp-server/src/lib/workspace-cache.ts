@@ -1,16 +1,24 @@
 /**
- * The workspace entry this worker caches in API_CACHE: `mcp:org:<clerkOrgId>`
- * (tenant database URL, tier, licence, read-only / database-move state). Not
- * the `ws:<clerkOrgId>` entry the first-party API workers keep in
- * WORKSPACE_CACHE.
+ * The workspace entry this worker caches in API_CACHE: the sealed
+ * `mcpx:org:<clerkOrgId>` entry (tenant database URL, tier, licence,
+ * read-only / database-move state). Not the `wsx:<clerkOrgId>` entry the
+ * first-party API workers keep in WORKSPACE_CACHE.
  *
  * A database move (TASK-1150) rotates the source role's password, which kills
- * the URL in this entry; `forgetWorkspaceForOrg` drops it so the next request
- * resolves the workspace from master again.
+ * the URL in this entry; `forgetWorkspaceForOrg` drops it, and the old
+ * plaintext `mcp:org:<clerkOrgId>` key a not-yet-redeployed worker may still
+ * write, so the next request resolves the workspace from master again.
  */
 
-/** The API_CACHE key of an organization's cached workspace. */
+import { sealedMcpOrgCacheKey } from '@weldsuite/db/lib/workspace-url-cache';
+
+/** The API_CACHE key of an organization's cached workspace (sealed). */
 export function workspaceOrgCacheKey(clerkOrgId: string): string {
+  return sealedMcpOrgCacheKey(clerkOrgId);
+}
+
+/** The plaintext key used before entries were sealed; still purged. */
+export function legacyWorkspaceOrgCacheKey(clerkOrgId: string): string {
   return `mcp:org:${clerkOrgId}`;
 }
 
@@ -19,8 +27,12 @@ export function workspaceOrgCacheKey(clerkOrgId: string): string {
  * missing binding) only leaves the entry to expire on its own.
  */
 export async function forgetWorkspaceForOrg(kv: KVNamespace | undefined, clerkOrgId: string): Promise<void> {
+  if (!kv) return;
   try {
-    await kv?.delete(workspaceOrgCacheKey(clerkOrgId));
+    await Promise.all([
+      kv.delete(workspaceOrgCacheKey(clerkOrgId)),
+      kv.delete(legacyWorkspaceOrgCacheKey(clerkOrgId)),
+    ]);
   } catch (err) {
     console.warn('[MCP Server] could not purge a workspace cache entry:', err instanceof Error ? err.message : 'unknown error');
   }

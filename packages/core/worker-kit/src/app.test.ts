@@ -118,7 +118,9 @@ describe('createModuleApi · a database that moved under the request', () => {
     expect(res.status).toBe(503);
     expect(res.headers.get('Retry-After')).toBe('30');
     expect(await res.json()).toEqual(movingBody);
-    expect(kv.delete).toHaveBeenCalledTimes(1);
+    // The sealed entry and the old plaintext one.
+    expect(kv.delete).toHaveBeenCalledTimes(2);
+    expect(kv.delete).toHaveBeenCalledWith('wsx:org_1');
     expect(kv.delete).toHaveBeenCalledWith('ws:org_1');
   });
 

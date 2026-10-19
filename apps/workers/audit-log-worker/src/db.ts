@@ -11,6 +11,11 @@ import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/n
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import {
+  openCachedDatabaseUrl,
+  sealCachedDatabaseUrl,
+  sealedWorkspaceCacheKey,
+} from '@weldsuite/db/lib/workspace-url-cache';
 import type { Env } from './env';
 
 // ============ Tenant DB (Neon HTTP) ============
@@ -29,13 +34,19 @@ interface CachedWorkspace {
   databaseUrl: string;
 }
 
+/** What lands in KV: the connection string sealed, never in the clear. */
+type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl'> & { databaseUrlSealed?: string };
+
 async function getCachedWorkspaceUrl(
   env: Env,
   clerkOrgId: string,
 ): Promise<CachedWorkspace> {
-  const cacheKey = `ws:${clerkOrgId}`;
-  const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as CachedWorkspace | null;
-  if (cached) return cached;
+  // Sealed entries live under `wsx:`; the old plaintext `ws:<org>` key is never read.
+  const cacheKey = sealedWorkspaceCacheKey(clerkOrgId);
+  const keyring = { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
+  const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null;
+  const cachedUrl = cached ? await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring) : null;
+  if (cached && cachedUrl) return { id: cached.id, databaseUrl: cachedUrl };
 
   const sql = neon(env.DATABASE_URL_MASTER);
   const masterDb = drizzleNeonHttp({ client: sql, schema: masterSchema });
@@ -61,13 +72,18 @@ async function getCachedWorkspaceUrl(
   const databaseUrl = await resolveDatabaseUrl(
     env.NEON_API_KEY,
     workspace as any,
-    { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
+    keyring,
   );
 
   const entry: CachedWorkspace = { id: workspace.id, databaseUrl };
-  await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(entry), {
-    expirationTtl: KV_TTL_SECONDS,
-  });
+  // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
+  const databaseUrlSealed = await sealCachedDatabaseUrl(databaseUrl, keyring);
+  if (databaseUrlSealed) {
+    const stored: StoredWorkspace = { id: workspace.id, databaseUrlSealed };
+    await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(stored), {
+      expirationTtl: KV_TTL_SECONDS,
+    });
+  }
 
   return entry;
 }

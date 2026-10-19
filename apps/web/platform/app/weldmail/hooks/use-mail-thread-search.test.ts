@@ -8,6 +8,12 @@ describe('normalizeThreadSearch', () => {
     ).toEqual({ search: 'osprey', subject: 'Invoice' });
   });
 
+  it('keeps the "doesn\'t have" words as excludeWords', () => {
+    expect(normalizeThreadSearch({ excludeWords: '  spam promo ' })).toEqual({ excludeWords: 'spam promo' });
+    expect(normalizeThreadSearch({ excludeWords: '   ' })).toEqual({});
+    expect(hasThreadSearch({ excludeWords: 'spam' })).toBe(true);
+  });
+
   it('keeps the attachment filter only when it is on', () => {
     expect(normalizeThreadSearch({ hasAttachment: true })).toEqual({ hasAttachment: true });
     expect(normalizeThreadSearch({ hasAttachment: false })).toEqual({});

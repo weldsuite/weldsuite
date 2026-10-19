@@ -45,4 +45,17 @@ describe('public /api/internal', () => {
       (await worker.fetch(post(path, { Authorization: 'Bearer internal-secret' }), secretEnv as never)).status,
     ).toBe(400);
   });
+
+  it('compares the bearer in constant time: a prefix, an extension and a wrong-length token are all refused', async () => {
+    const path = '/api/internal/send-email';
+    for (const token of ['internal-secre', 'internal-secret2', 'x']) {
+      const res = await worker.fetch(post(path, { Authorization: `Bearer ${token}` }), secretEnv as never);
+      expect(res.status).toBe(401);
+    }
+  });
+
+  it('refuses send-transactional-email without the bearer too', async () => {
+    const res = await worker.fetch(post('/api/internal/send-transactional-email'), secretEnv as never);
+    expect(res.status).toBe(401);
+  });
 });

@@ -19,6 +19,7 @@
 
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
+import { releaseRemovedMemberUserId } from '@weldsuite/db/lib/workspace-members';
 import { autoJoinUserToPublicChannels } from '@weldsuite/chat-domain/weldchat-auto-join';
 import { applyRoleChangeToChannels } from '@weldsuite/chat-domain/weldchat-role-links';
 import {
@@ -145,6 +146,8 @@ async function activatePendingMember(
     ? (pending.role || 'VIEWER')
     : (CLERK_ROLE_MAP[membership.role] || pending.role || 'MEMBER');
 
+  // A returning member's removed row still holds their user id.
+  await releaseRemovedMemberUserId(tenantDb, userId);
   const updated = await tenantDb
     .update(schema.workspaceMembers)
     .set({

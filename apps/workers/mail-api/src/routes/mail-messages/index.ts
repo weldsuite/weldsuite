@@ -19,6 +19,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as messages from '@weldsuite/mail-domain/messages';
+import { toPublicAttachment } from '@weldsuite/mail-domain/attachments';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
 import { sendErrorResponse } from '../../lib/send-errors';
 import {
@@ -179,7 +180,12 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     const row = await messages.getMessage(db, id);
     if (!row) return error.notFound(c, 'Message', id);
-    return success(c, row);
+    // Attachment rows without their storage URL: files are read through
+    // GET /api/mail-attachments/:id/download, which checks the mailbox.
+    return success(c, {
+      ...row,
+      attachments: row.attachments.filter((a) => !a.deletedAt).map(toPublicAttachment),
+    });
   } catch (err) {
     console.error('[app-api/mail-messages] get failed:', err);
     return error.internal(c, 'Failed to fetch message');

@@ -23,9 +23,8 @@ export type TelnyxEnv = Env & {
   TELNYX_WEBHOOK_SECRET?: string;
   /**
    * Telnyx account public key (base64 Ed25519) for webhook signature
-   * verification. When set, /public/webhooks/telnyx enforces signatures;
-   * when unset, the receiver accepts unsigned requests (legacy parity —
-   * api-worker performed no verification).
+   * verification. Required: /public/webhooks/telnyx enforces signatures and
+   * rejects every request (401) while this is unset (fail closed).
    */
   TELNYX_PUBLIC_KEY?: string;
 };

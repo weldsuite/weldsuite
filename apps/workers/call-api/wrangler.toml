@@ -23,8 +23,12 @@
 #     (telephony: /api/telephony, /api/porting, /api/desk/phone,
 #     /public/webhooks/telnyx; TELNYX_API_KEY also signs the desk-phone
 #     lookup_crm tool tokens)
-#   TELNYX_PUBLIC_KEY (optional, recommended: base64 Ed25519 account public key;
-#     when set the Telnyx webhook receiver enforces signatures)
+#   TELNYX_PUBLIC_KEY (REQUIRED: base64 Ed25519 account public key; the Telnyx
+#     webhook receiver rejects every request with 401 while it is unset)
+#   STRIPE_SECRET_KEY (REQUIRED for phone-number fulfilment; the SAME value as
+#     billing-worker in the same env. /api/internal/telephony/fulfill-number
+#     re-reads the Stripe Checkout Session (paid, same org + number) before it
+#     buys a Telnyx number and answers 503 while this is unset)
 #   TELNYX_WEBHOOK_SECRET (optional, legacy parity only — declared-but-unused)
 #   APP_API_PUBLIC_URL (optional, only if app-api has it: override of the
 #     app-api host in the Telnyx assistant's lookup_crm tool URL)

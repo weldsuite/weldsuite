@@ -170,24 +170,24 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
             style={{ paddingLeft: 8 + depth * INDENT_PX }}
           >
             <Link href={`/weldknow/page/${node.id}`}>
-              <span
-                role="button"
-                tabIndex={-1}
-                aria-label={isExpanded ? t.common.collapse : t.common.expand}
-                className={cn(
-                  'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-black/[0.06] dark:hover:bg-white/10',
-                  !hasChildren && 'invisible',
-                )}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onTogglePage(node.id);
-                }}
-              >
-                <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
-              </span>
               <NodeIcon emoji={node.icon} fallback={FileText} />
               <span className="truncate min-w-0 text-muted-foreground">{node.title || t.sidebar.untitled}</span>
+              {/* Expand / collapse sits at the right end of the row */}
+              {hasChildren && (
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={isExpanded ? t.common.collapse : t.common.expand}
+                  className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-black/[0.06] dark:hover:bg-white/10"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onTogglePage(node.id);
+                  }}
+                >
+                  <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
+                </span>
+              )}
             </Link>
           </SidebarMenuButton>
 
@@ -268,12 +268,12 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
                 onClick={() => onToggleSpace(space.id)}
                 aria-expanded={isExpanded}
               >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">
-                  <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
-                </span>
                 <NodeIcon emoji={space.icon} fallback={Folder} />
                 <span className="truncate min-w-0 text-foreground">{space.name}</span>
                 {space.visibility !== 'open' && <Lock className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                <span className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">
+                  <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
+                </span>
               </SidebarMenuButton>
 
               <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/item:opacity-100 group-has-[[data-state=open]]/item:opacity-100">
@@ -333,7 +333,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
 
             {isExpanded && (
               tree.length === 0 ? (
-                <p className="py-1.5 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: 8 + INDENT_PX + 24 }}>
+                <p className="py-1.5 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: 8 + INDENT_PX }}>
                   {t.sidebar.noPagesInSpace}
                 </p>
               ) : (

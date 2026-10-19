@@ -26,6 +26,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { error } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { ALPHANUMERIC, randomString } from '@weldsuite/worker-kit/random';
 
 // ============================================================================
 // KV-stored upload tokens (10 min TTL).
@@ -33,6 +34,17 @@ import { generateId } from '@weldsuite/worker-kit/id';
 
 const UPLOAD_TOKEN_PREFIX = 'upload:';
 const UPLOAD_TOKEN_TTL = 600;
+
+/**
+ * The upload token is the ONLY credential on the unauthenticated
+ * `PUT /api/storage/upload/:token`, so it is a secret, not an id: 32
+ * CSPRNG characters (~190 bits) instead of `generateId`'s 8.
+ */
+function generateUploadToken(): string {
+  return `upl_${randomString(32, ALPHANUMERIC)}`;
+}
+
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 
 interface PendingUpload {
   fileKey: string;
@@ -74,7 +86,7 @@ function resolvePublicUrl(
   fileKey: string,
 ): string {
   const origin = new URL(reqUrl).origin;
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+  if (LOCAL_ORIGIN.test(origin)) {
     return `${origin}/api/storage/public/${fileKey}`;
   }
   const base = r2PublicUrl || 'https://weldsuite-storage-test.weldsuite.org';
@@ -131,9 +143,13 @@ uploadTokenApp.put('/api/storage/upload/:token', async (c) => {
  * localhost origins). In test/preview/production the route 404s and public
  * files are served by the mapped R2 domain instead. This mirrors the
  * `ENVIRONMENT !== 'production'` belt-and-braces gate used by `/test-fixtures/*`.
+ *
+ * On top of that it only answers requests addressed to localhost: a `wrangler
+ * dev` session reachable from elsewhere (a tunnel, a LAN address) must not
+ * become an open proxy for whatever bucket STORAGE is bound to.
  */
 uploadTokenApp.get('/api/storage/public/*', async (c) => {
-  if (c.env.ENVIRONMENT !== 'development') {
+  if (c.env.ENVIRONMENT !== 'development' || !LOCAL_ORIGIN.test(new URL(c.req.url).origin)) {
     return c.json({ error: 'Not found' }, 404);
   }
   if (!c.env.STORAGE) {
@@ -197,7 +213,7 @@ app.post(
     const data = c.req.valid('json');
 
     try {
-      const uploadToken = generateId('upl');
+      const uploadToken = generateUploadToken();
       let fileKey: string;
 
       if (data.entityType === 'customer-avatar' && data.entityId) {
@@ -250,11 +266,18 @@ app.post(
     const userId = c.get('userId');
     if (!userId) return error.unauthorized(c);
 
-    const { uploadToken, fileKey } = c.req.valid('json');
+    const { uploadToken, fileKey: requestedKey } = c.req.valid('json');
 
     const pending = await getPendingUpload(c.env.WORKSPACE_CACHE, uploadToken);
-    if (!pending) {
+    if (!pending || pending.userId !== userId) {
       return c.json({ success: false, error: 'Invalid or expired upload token' }, 400);
+    }
+    // The key comes from the token, never from the request: a caller-supplied
+    // key would turn this into a size/URL oracle for any object in the bucket,
+    // other tenants' included.
+    const fileKey = pending.fileKey;
+    if (requestedKey !== fileKey) {
+      return error.badRequest(c, 'File key does not match the upload token');
     }
     await deletePendingUpload(c.env.WORKSPACE_CACHE, uploadToken);
 

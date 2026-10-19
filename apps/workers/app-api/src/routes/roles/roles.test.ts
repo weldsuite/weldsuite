@@ -156,3 +156,64 @@ describe('role names', () => {
     expect(owners).toHaveLength(1);
   });
 });
+
+// TASK-625: a roles:create / roles:update holder must not be able to mint or
+// widen a role past their own access, e.g. `['*']`, then assign it to themselves.
+describe('grant ceiling', () => {
+  function apiAs(...keys: string[]) {
+    return createTestApp('/api/roles', rolesRoutes, {
+      context: { tenantDb: db, permissions: permissions('roles:read', 'roles:create', 'roles:update', ...keys) },
+    });
+  }
+
+  function send(app: ReturnType<typeof apiAs>, path: string, method: string, body: unknown) {
+    return app.request(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('rejects the global wildcard and unknown keys', async () => {
+    for (const permissions of [['*'], ['*:read'], ['not-a-real:permission']]) {
+      const res = await send(apiAs('*'), '/api/roles', 'POST', { name: `Wild ${permissions[0]}`, permissions });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('refuses a permission the caller does not hold', async () => {
+    const res = await send(apiAs(), '/api/roles', 'POST', { name: 'Escalate', permissions: ['secrets:reveal'] });
+    expect(res.status).toBe(403);
+  });
+
+  it('allows permissions the caller holds, plain or app-qualified', async () => {
+    const res = await send(apiAs('companies:read'), '/api/roles', 'POST', {
+      name: 'Readers',
+      permissions: ['companies:read', 'weldcrm:companies:read'],
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('refuses copying a role whose grants exceed the caller', async () => {
+    const owner = (await listRoles()).find((r) => r.name === 'Owner')!;
+    // The Owner's grant is `*`, which no role may carry at all: 400, not 403.
+    const res = await send(apiAs(), '/api/roles', 'POST', { name: 'Owner copy', copyFromRoleId: owner.id });
+    expect(res.status).toBe(400);
+    const admin = (await listRoles()).find((r) => r.name === 'Admin')!;
+    const adminCopy = await send(apiAs(), '/api/roles', 'POST', { name: 'Admin copy', copyFromRoleId: admin.id });
+    expect(adminCopy.status).toBe(403);
+  });
+
+  it('refuses widening a role on update, but keeps what it already has', async () => {
+    const created = await send(apiAs('companies:read'), '/api/roles', 'POST', {
+      name: 'Widen me',
+      permissions: ['companies:read'],
+    });
+    const role = ((await created.json()) as { data: RoleBody }).data;
+
+    // A caller without companies:read can still save the role unchanged.
+    expect((await send(apiAs(), `/api/roles/${role.id}`, 'PUT', { permissions: ['companies:read'] })).status).toBe(200);
+    expect((await send(apiAs(), `/api/roles/${role.id}`, 'PUT', { permissions: ['companies:read', '*'] })).status).toBe(400);
+    expect((await send(apiAs(), `/api/roles/${role.id}`, 'PUT', { permissions: ['secrets:reveal'] })).status).toBe(403);
+  });
+});

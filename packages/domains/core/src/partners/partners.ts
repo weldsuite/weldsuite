@@ -4,6 +4,11 @@
 
 import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
+import {
+  sealedMcpOrgCacheKey,
+  sealedWorkspaceCacheKey,
+  sealedWorkspaceIdCacheKey,
+} from '@weldsuite/db/lib/workspace-url-cache';
 import { grantCredits } from '@weldsuite/credits';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
@@ -374,22 +379,28 @@ type KvDeleter = { delete(key: string): Promise<void> };
  *
  * - worker-kit (every module worker, app-api) and workflow-worker,
  *   realtime-worker, audit-log-worker, helpdesk-widget-api,
- *   helpdesk-workflow-worker, workspace-worker: `ws:<clerkOrgId>` in
+ *   helpdesk-workflow-worker, workspace-worker: `wsx:<clerkOrgId>` in
  *   `WORKSPACE_CACHE` (`kv`, the first argument);
- * - external-api: `ws:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
+ * - external-api: `wsx:id:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
  *   `getWorkspaceDetails`);
- * - mcp-server: `mcp:org:<clerkOrgId>` in `API_CACHE` (middleware/auth.ts
+ * - mcp-server: `mcpx:org:<clerkOrgId>` in `API_CACHE` (middleware/auth.ts
  *   `getWorkspaceForOrg`). external-api and mcp-server share the `API_CACHE`
  *   namespace, so one `apiCache` handle covers both.
+ *
+ * Those are the sealed entries (the tenant connection string is encrypted in
+ * them). The old plaintext keys (`ws:<org>`, `ws:<id>`, `mcp:org:<org>`) are
+ * deleted too: a worker that has not been redeployed yet still reads them, and
+ * they otherwise expire on their own TTL. Drop that half once every worker runs
+ * the sealed-cache build.
  *
  * Two more entries hold only the tenant database URL (no licence), so a licence
  * change does not need them gone, but a database move does. They are purged
  * only when `databaseKeys` is set, which keeps the licence callers' behaviour
- * (and delete count) as it was:
+ * (and delete count) as it was, again with their old plaintext twins:
  *
- * - integration-webhook-worker, mail-inbound-worker: `wsid:<workspaceId>` in
- *   `WORKSPACE_CACHE`;
- * - billing-worker: `ws:id:<workspaceId>` and `ws:id:<clerkOrgId>` in
+ * - integration-webhook-worker, mail-inbound-worker: `wsx:id:<workspaceId>`
+ *   (was `wsid:<workspaceId>`) in `WORKSPACE_CACHE`;
+ * - billing-worker: `wsx:bill:<workspaceId or clerkOrgId>` (was `ws:id:…`) in
  *   `WORKSPACE_CACHE` (it accepts either id).
  *
  * A missing handle skips that cache (it then expires on its own TTL), so a
@@ -420,17 +431,27 @@ export async function invalidateWorkspaceContexts(
   await Promise.all(deletes);
 }
 
-/** The `WORKSPACE_CACHE` keys to drop, in the order they are deleted. */
+/** billing-worker's sealed `WORKSPACE_CACHE` key (`apps/workers/billing-worker/src/lib/tenant-db.ts`). */
+function sealedBillingCacheKey(workspaceIdOrOrgId: string): string {
+  return `wsx:bill:${workspaceIdOrOrgId}`;
+}
+
+/** The `WORKSPACE_CACHE` keys to drop, in the order they are deleted: each sealed key, then its old plaintext twin. */
 function workspaceCacheKeys(orgIds: readonly string[], workspaceIds: readonly string[], databaseKeys: boolean): string[] {
-  const keys = orgIds.map((id) => `ws:${id}`);
+  const keys = orgIds.flatMap((id) => [sealedWorkspaceCacheKey(id), `ws:${id}`]);
   if (databaseKeys) {
-    for (const id of orgIds) keys.push(`ws:id:${id}`);
-    for (const id of workspaceIds) keys.push(`wsid:${id}`, `ws:id:${id}`);
+    for (const id of orgIds) keys.push(sealedBillingCacheKey(id), `ws:id:${id}`);
+    for (const id of workspaceIds) {
+      keys.push(sealedWorkspaceIdCacheKey(id), `wsid:${id}`, sealedBillingCacheKey(id), `ws:id:${id}`);
+    }
   }
   return keys;
 }
 
 /** The `API_CACHE` keys to drop (external-api, then mcp-server), in the order they are deleted. */
 function apiCacheKeys(orgIds: readonly string[], workspaceIds: readonly string[]): string[] {
-  return [...workspaceIds.map((id) => `ws:${id}`), ...orgIds.map((id) => `mcp:org:${id}`)];
+  return [
+    ...workspaceIds.flatMap((id) => [sealedWorkspaceIdCacheKey(id), `ws:${id}`]),
+    ...orgIds.flatMap((id) => [sealedMcpOrgCacheKey(id), `mcp:org:${id}`]),
+  ];
 }

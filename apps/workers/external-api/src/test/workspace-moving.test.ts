@@ -25,6 +25,7 @@ import { getTableColumns } from 'drizzle-orm';
 import { NeonDbError, neonConfig } from '@neondatabase/serverless';
 import { DrizzleQueryError } from 'drizzle-orm/errors';
 import { workspaceApiKeys } from '@weldsuite/db/schema/workspace-api-keys';
+import { sealCachedDatabaseUrl } from '@weldsuite/db/lib/workspace-url-cache';
 import { authMiddleware } from '../middleware/auth';
 import { errorHandler } from '../middleware/error-handler';
 import { licenceMiddleware, workspaceRestrictions } from '../middleware/licence';
@@ -38,6 +39,7 @@ const movingBody = {
   },
 };
 
+const ENCRYPTION_KEY = 'a'.repeat(64);
 const TENANT_URL = 'postgres://tenant_role:s3cret-pass@ep-test-123456.eu-central-1.aws.neon.tech/tenant_db';
 
 /** The error neon-http + drizzle produce: the driver error (empty code) under a DrizzleQueryError. */
@@ -209,12 +211,19 @@ describe('external-api · errorHandler · a database that moved under the reques
 
   it('answers a rotated password with 503 and drops the workspace cache entry', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { kv, mock } = fakeKv({ 'ws:ws_1': { databaseUrl: TENANT_URL } });
+    const { kv, mock, store } = fakeKv({
+      'wsx:id:ws_1': { databaseUrlSealed: 'sealed' },
+      'ws:ws_1': { databaseUrl: TENANT_URL },
+    });
     const res = await appThatThrows(passwordRotated()).request('/v1/things', {}, { API_CACHE: kv });
     expect(res.status).toBe(503);
     expect(res.headers.get('Retry-After')).toBe('30');
     expect(await res.json()).toEqual(movingBody);
+    // Both the sealed entry and the plaintext key an older worker may still write.
+    expect(mock.delete).toHaveBeenCalledTimes(2);
+    expect(mock.delete).toHaveBeenCalledWith('wsx:id:ws_1');
     expect(mock.delete).toHaveBeenCalledWith('ws:ws_1');
+    expect(store.size).toBe(0);
   });
 
   it('skips the purge without a session, and still answers 503', async () => {
@@ -271,6 +280,8 @@ describe('external-api · errorHandler · a database that moved under the reques
     const res = await app.request('/v1/reach/things', {}, { API_CACHE: kv });
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual(movingBody);
+    expect(mock.delete).toHaveBeenCalledTimes(2);
+    expect(mock.delete).toHaveBeenCalledWith('wsx:id:ws_1');
     expect(mock.delete).toHaveBeenCalledWith('ws:ws_1');
   });
 });
@@ -283,18 +294,18 @@ describe('external-api · authMiddleware · a workspace key against a tenant dat
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
-  /** Cached registry + workspace entries, so master (Hyperdrive) is never asked. */
+  /**
+   * Cached registry + workspace entries, so master (Hyperdrive) is never asked.
+   * The workspace is cached the way the worker writes it, sealed under
+   * `wsx:id:<id>`; the plaintext `ws:<id>` copy is what a not-yet-redeployed
+   * worker may still have written: never read, but a purge must drop it.
+   */
   async function cachedKv(workspace: Record<string, unknown> = {}) {
+    const entry = { tier: 'business', clerkOrgId: 'org_1', licensedApps: null, readOnly: false, ...workspace };
     return fakeKv({
       [`akr:${await sha256Hex(API_KEY)}`]: { workspaceId: 'ws_1', keyType: 'workspace', tenantKeyId: 'wk_1' },
-      'ws:ws_1': {
-        databaseUrl: TENANT_URL,
-        tier: 'business',
-        clerkOrgId: 'org_1',
-        licensedApps: null,
-        readOnly: false,
-        ...workspace,
-      },
+      'wsx:id:ws_1': { ...entry, databaseUrlSealed: await sealCachedDatabaseUrl(TENANT_URL, { v1: ENCRYPTION_KEY }) },
+      'ws:ws_1': { ...entry, databaseUrl: TENANT_URL },
     });
   }
 
@@ -311,6 +322,7 @@ describe('external-api · authMiddleware · a workspace key against a tenant dat
     API_CACHE: kv,
     HYPERDRIVE_MASTER: { connectionString: 'postgres://master:master@localhost:5432/master' },
     NEON_API_KEY: 'neon-test',
+    DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY,
   });
 
   const request = (kv: KVNamespace, method = 'GET') =>
@@ -375,7 +387,11 @@ describe('external-api · authMiddleware · a workspace key against a tenant dat
     expect(res.status).toBe(503);
     expect(res.headers.get('Retry-After')).toBe('30');
     expect(await res.json()).toEqual(movingBody);
+    // Both the sealed entry and the plaintext key are dropped.
+    expect(mock.delete).toHaveBeenCalledTimes(2);
+    expect(mock.delete).toHaveBeenCalledWith('wsx:id:ws_1');
     expect(mock.delete).toHaveBeenCalledWith('ws:ws_1');
+    expect(store.has('wsx:id:ws_1')).toBe(false);
     expect(store.has('ws:ws_1')).toBe(false);
     // The connection string stays out of the logs.
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain('s3cret-pass');

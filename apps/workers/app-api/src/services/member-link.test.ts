@@ -105,6 +105,24 @@ describe('ensureMemberLinked', () => {
     expect(row.name).toBe('New Admin');
   });
 
+  it('links a returning member whose removed row still holds their user id', async () => {
+    await db.insert(workspaceMembers).values([
+      { id: 'mbr_removed', userId: 'user_back', email: 'back@test.dev', role: 'MEMBER', status: 'ACTIVE', deletedAt: new Date() },
+      { id: 'mbr_reinvited', userId: 'pending_clerk_orginv_3', email: 'back@test.dev', role: 'ADMIN', status: 'PENDING', clerkInvitationId: 'orginv_3' },
+    ]);
+    vi.stubGlobal('fetch', clerkMemberships([{ orgId: ORG_ID, role: 'org:admin', email: 'back@test.dev' }]));
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_back');
+
+    // The live row is the only one left on the user id; the removed row keeps
+    // its history under a freed id.
+    const rows = await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, 'user_back'));
+    expect(rows.map((r) => r.id)).toEqual(['mbr_reinvited']);
+    expect(rows[0]!.status).toBe('ACTIVE');
+    const [removed] = await db.select().from(workspaceMembers).where(eq(workspaceMembers.id, 'mbr_removed'));
+    expect(removed!.userId).toBe('removed_mbr_removed');
+  });
+
   it('does not ask Clerk when the member is already linked', async () => {
     await db.insert(workspaceMembers).values({
       id: generateId('mbr'),

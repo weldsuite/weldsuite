@@ -238,10 +238,12 @@ function WeldMailContent({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
           </div>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          {t.mail.setupPage.emailAddressWillBe}{' '}
-          <strong>{address || 'mycompany'}@{domain || 'weldmail.com'}</strong>
-        </p>
+        {address && (
+          <p className="text-xs text-muted-foreground">
+            {t.mail.setupPage.emailAddressWillBe}{' '}
+            <strong>{address}@{domain || 'weldmail.com'}</strong>
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -420,10 +422,12 @@ function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>)
             <span className="text-sm text-muted-foreground">@{selectedDomain}</span>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {t.mail.setupPage.emailAddressWillBe}{' '}
-          <strong>{emailPrefix || 'john.doe'}@{selectedDomain}</strong>
-        </p>
+        {emailPrefix && (
+          <p className="text-xs text-muted-foreground">
+            {t.mail.setupPage.emailAddressWillBe}{' '}
+            <strong>{emailPrefix}@{selectedDomain}</strong>
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">

@@ -13,8 +13,8 @@ export const createMailAttachmentSchema = z.object({
   fileName: z.string().min(1).max(500),
   contentType: z.string().max(255).optional(),
   size: z.number().int().nonnegative(),
+  // R2 key under `workspaces/{orgId}/`; write-only, never returned.
   storagePath: z.string().max(1000).optional(),
-  downloadUrl: z.string().optional(),
   checksum: z.string().max(64).optional(),
   isInline: z.boolean().optional(),
   contentId: z.string().max(255).nullish(),

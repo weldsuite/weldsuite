@@ -10,12 +10,14 @@ import * as tenantSchema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import { keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import { openCacheEntry, sealCacheEntry } from '@weldsuite/db/lib/workspace-url-cache';
 import type { ApiKeySession, HonoEnv } from '../types';
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import { error } from '../lib/response';
 import { classifyMovedDatabaseError, databaseMoveInProgressSql } from '@weldsuite/worker-kit/workspace-moving';
 import { forgetWorkspaceDetails, workspaceDetailsCacheKey } from '../lib/workspace-cache';
 import { workspaceRestrictions } from './licence';
+import { resolveClerkOrgId } from '../lib/social-context';
 
 // KV cache TTL in seconds (5 minutes)
 const KV_TTL_SECONDS = 300;
@@ -53,6 +55,9 @@ interface CachedWorkspaceDetails {
   readOnly?: boolean;
   readOnlyReason?: 'partner_suspended' | 'licence_inactive' | 'database_move' | null;
 }
+
+/** What lands in KV: the connection string sealed, never in the clear. */
+type StoredWorkspaceDetails = Omit<CachedWorkspaceDetails, 'databaseUrl'> & { databaseUrlSealed?: string };
 
 interface CachedAppToken {
   workspaceId: string;
@@ -159,7 +164,10 @@ async function getRegistryEntry(
 }
 
 /**
- * Look up workspace details (databaseUrl resolved via Neon API, plan tier), with KV cache
+ * Look up workspace details (databaseUrl resolved via Neon API, plan tier), with KV cache.
+ * The cached connection string is sealed with `encryptionKey`; without a key
+ * nothing is cached. Sealed entries live under `wsx:id:<id>`, never the old
+ * plaintext `ws:<id>`.
  */
 export async function getWorkspaceDetails(
   kv: KVNamespace,
@@ -170,9 +178,12 @@ export async function getWorkspaceDetails(
 ): Promise<CachedWorkspaceDetails | null> {
   const cacheKey = workspaceDetailsCacheKey(workspaceId);
 
-  // 1. Check KV cache
-  const cached = await kv.get(cacheKey, 'json') as CachedWorkspaceDetails | null;
-  if (cached) return cached;
+  // 1. Check KV cache (a sealed URL we cannot open reads as a miss)
+  const cached = await kv.get(cacheKey, 'json') as StoredWorkspaceDetails | null;
+  if (cached) {
+    const opened = await openCacheEntry(cached, encryptionKey);
+    if (opened) return opened;
+  }
 
   // 2. Cache miss — query master DB for Neon metadata + plan
   const [row] = await masterDb
@@ -222,7 +233,11 @@ export async function getWorkspaceDetails(
       databaseMoveInProgress: row.databaseMoveInProgress,
     }),
   };
-  await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
+  // No key → nothing to seal with → do not cache (never a plaintext fallback).
+  const stored: StoredWorkspaceDetails | null = await sealCacheEntry(result, encryptionKey);
+  if (stored) {
+    await kv.put(cacheKey, JSON.stringify(stored), { expirationTtl: KV_TTL_SECONDS });
+  }
 
   return result;
 }
@@ -570,9 +585,15 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   }
 
   c.set('apiSession', session);
-  // Mirror onto the top-level context vars that `publishEntityEvent` reads.
+  // The top-level context vars that `publishEntityEvent` reads. `workspaceId`
+  // is the Clerk org id, not the master `workspaces.id`: entity-event
+  // subscribers (audit log, workflows, realtime) resolve the tenant DB by org
+  // id, so an event stamped with the master id never reaches the audit log.
+  // An older cached session has no org id, and then it is looked up.
+  const clerkOrgId =
+    session.clerkOrgId !== undefined ? session.clerkOrgId : await resolveClerkOrgId(c.env, session.workspaceId);
+  c.set('workspaceId', clerkOrgId ?? session.workspaceId);
   // Workspace keys have no user, so fall back to the key id as the actor.
-  c.set('workspaceId', session.workspaceId);
   c.set('userId', session.userId ?? session.keyId);
   await next();
 };

@@ -144,6 +144,9 @@ describe('mcp-server internal API · a database that moved under the request', (
     expect(res.status).toBe(503);
     expect(res.headers.get('Retry-After')).toBe('30');
     expect(await res.json()).toEqual(movingBody);
+    // Both the sealed entry and the plaintext key an older worker may still write.
+    expect(mock.delete).toHaveBeenCalledTimes(2);
+    expect(mock.delete).toHaveBeenCalledWith('mcpx:org:org_test');
     expect(mock.delete).toHaveBeenCalledWith('mcp:org:org_test');
     // The connection string stays out of the logs.
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain('s3cret-pass');
@@ -200,12 +203,15 @@ describe('mcp-server reach router · errorHandler', () => {
     expect(res.status).toBe(503);
     expect(res.headers.get('Retry-After')).toBe('30');
     expect(await res.json()).toEqual(movingBody);
+    expect(mock.delete).toHaveBeenCalledTimes(2);
+    expect(mock.delete).toHaveBeenCalledWith('mcpx:org:org_test');
     expect(mock.delete).toHaveBeenCalledWith('mcp:org:org_test');
 
     const readOnly = Object.assign(new NeonDbError('cannot execute INSERT in a read-only transaction'), { code: '25006' });
     const second = await appThatThrows(readOnly).request('/v1/things', { method: 'POST' }, { API_CACHE: kv });
     expect(second.status).toBe(503);
-    expect(mock.delete).toHaveBeenCalledTimes(1);
+    // A read-only source purges nothing more.
+    expect(mock.delete).toHaveBeenCalledTimes(2);
   });
 
   it('leaves other errors a 500 envelope', async () => {
