@@ -49,6 +49,16 @@ function DetailSkeleton() {
   );
 }
 
+/** A period's "exceeded" cell: the date it was exceeded, "yes" when that date is unknown, or a dash. */
+function periodExceededLabel(
+  period: NexusDetail['periods'][number],
+  formatDate: (value: string) => string,
+  yes: string,
+): string {
+  if (!period.exceeded) return '—';
+  return period.exceededOn ? formatDate(period.exceededOn) : yes;
+}
+
 function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
   const { t } = useI18n();
   const tn = t.weldbooksUs.salesTax.center.nexus;
@@ -159,7 +169,7 @@ function NexusDetailView({ detail }: Readonly<{ detail: NexusDetail }>) {
                   <TableCell>
                     <NexusProgressBar row={{ percentOfThreshold: period.percentOfThreshold, registered: detail.registered }} />
                   </TableCell>
-                  <TableCell className="tabular-nums">{period.exceeded ? (period.exceededOn ? formatDate(period.exceededOn) : tn.registeredYes) : '—'}</TableCell>
+                  <TableCell className="tabular-nums">{periodExceededLabel(period, formatDate, tn.registeredYes)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
