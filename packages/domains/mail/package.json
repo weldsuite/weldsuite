@@ -11,6 +11,7 @@
     "./contacts": "./src/contacts.ts",
     "./drafts": "./src/drafts.ts",
     "./folders": "./src/folders.ts",
+    "./inline-images": "./src/inline-images.ts",
     "./labels": "./src/labels.ts",
     "./messages": "./src/messages.ts",
     "./outbound": "./src/outbound/index.ts",

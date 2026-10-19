@@ -22,6 +22,10 @@ export interface Env extends KitEnv {
   STORAGE?: R2Bucket;
   /** Public hostname that serves objects in the STORAGE bucket. */
   R2_PUBLIC_URL?: string;
+  /** This worker's public origin; inline-image URLs point at it (`/public/mail-inline`). */
+  MAIL_API_PUBLIC_URL?: string;
+  /** Optional secret for inline-image tokens; DATABASE_ENCRYPTION_KEY when unset. */
+  MAIL_INLINE_IMAGE_SECRET?: string;
 
   // --- WeldMail (Cloudflare Email Routing + Email Sending) ----------------
   /** Cloudflare `[[send_email]]` binding for outbound mail. */

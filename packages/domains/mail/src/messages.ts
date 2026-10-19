@@ -22,6 +22,7 @@ import {
   resolveCustomLabelNames,
   SYSTEM_LABELS,
 } from './labels';
+import { applyInlineImages, type InlineImageSigner } from './inline-images';
 
 const { mailAccounts, mailMessages, mailAttachments, mailDrafts, people: contacts } = schema;
 
@@ -340,7 +341,16 @@ export async function getMessageAccountId(db: Database, id: string): Promise<str
   return row?.accountId ?? null;
 }
 
-export async function getMessage(db: Database, id: string) {
+/**
+ * Read options. `inlineImages` swaps the HTML body's inline-image references
+ * (`cid:`, and the public storage URLs of older messages) for short-lived
+ * URLs; without it the stored HTML is returned as it is.
+ */
+export interface ReadMessageOptions {
+  inlineImages?: InlineImageSigner;
+}
+
+export async function getMessage(db: Database, id: string, opts: ReadMessageOptions = {}) {
   const [row] = await db
     .select()
     .from(mailMessages)
@@ -353,10 +363,18 @@ export async function getMessage(db: Database, id: string) {
   const attachments = row.hasAttachments
     ? await db.select().from(mailAttachments).where(eq(mailAttachments.messageId, id))
     : [];
+  if (opts.inlineImages) {
+    await applyInlineImages(
+      db,
+      [row],
+      opts.inlineImages,
+      attachments.filter((a) => !a.deletedAt),
+    );
+  }
   return { ...row, attachments };
 }
 
-export async function getThread(db: Database, messageId: string) {
+export async function getThread(db: Database, messageId: string, opts: ReadMessageOptions = {}) {
   const [anchor] = await db
     .select({ threadId: mailMessages.threadId, accountId: mailMessages.accountId })
     .from(mailMessages)
@@ -375,6 +393,7 @@ export async function getThread(db: Database, messageId: string) {
       .where(and(eq(mailMessages.id, messageId), isNull(mailMessages.deletedAt)))
       .limit(1);
     await enrichSenderContacts(db, single);
+    if (opts.inlineImages) await applyInlineImages(db, single, opts.inlineImages);
     return { threadId: messageId, messages: single };
   }
 
@@ -390,6 +409,7 @@ export async function getThread(db: Database, messageId: string) {
     )
     .orderBy(asc(mailMessages.sentDate), asc(mailMessages.id));
   await enrichSenderContacts(db, rows);
+  if (opts.inlineImages) await applyInlineImages(db, rows, opts.inlineImages);
   return { threadId: anchor.threadId, messages: rows };
 }
 
