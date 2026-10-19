@@ -1,15 +1,19 @@
 /**
  * DB-backed tests for POST /invite against soft-deleted member rows.
  *
- *   - A removed member keeps their row (soft delete), user_id included. The
- *     unique index on user_id only covers live rows, so the same person can
- *     be invited again and, on accept, linked to their real Clerk user id.
+ *   - A removed member keeps their row (soft delete), user_id included, and
+ *     user_id is unique over every row. Re-inviting the same address frees
+ *     the old row's `invited_<email>` placeholder first, so the invite goes
+ *     through and the new row is the only one on that user id.
  *   - When the PENDING row can't be written, the Clerk invitation created a
  *     moment earlier is revoked, so no invite is left behind for an error.
+ *
+ * Linking the real Clerk user id on accept is covered in
+ * services/member-link.test.ts.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { and, eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { teamMembersRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -74,30 +78,30 @@ describe('POST /invite with soft-deleted rows', () => {
     const res = await invite('back@example.com');
     expect(res.status).toBe(201);
 
-    const live = await db
-      .select({ userId: workspaceMembers.userId, status: workspaceMembers.status })
+    // Every row on the placeholder, deleted ones included: only the new invite.
+    const holders = await db
+      .select({ status: workspaceMembers.status, deletedAt: workspaceMembers.deletedAt })
       .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.email, 'back@example.com'), isNull(workspaceMembers.deletedAt)));
-    expect(live).toEqual([{ userId: 'invited_back@example.com', status: 'PENDING' }]);
+      .where(eq(workspaceMembers.userId, 'invited_back@example.com'));
+    expect(holders).toEqual([{ status: 'PENDING', deletedAt: null }]);
+
+    const [old] = await db
+      .select({ userId: workspaceMembers.userId })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.id, 'wm_old_invite'));
+    expect(old?.userId).toBe('removed_wm_old_invite');
     expect(clerkCalls.some((call) => call.url.endsWith('/revoke'))).toBe(false);
   });
 
-  it('lets a removed member be linked to their Clerk user id again', async () => {
+  it('leaves a removed member that holds their real user id alone at invite time', async () => {
     const res = await invite('returning@example.com');
     expect(res.status).toBe(201);
-    const { data } = (await res.json()) as { data: { memberId: string } };
 
-    // What the membership webhook / member-link do on accept.
-    await db
-      .update(workspaceMembers)
-      .set({ userId: 'user_returning', status: 'ACTIVE' })
-      .where(eq(workspaceMembers.id, data.memberId));
-
-    const [live] = await db
-      .select({ id: workspaceMembers.id })
+    const [removed] = await db
+      .select({ userId: workspaceMembers.userId })
       .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.userId, 'user_returning'), isNull(workspaceMembers.deletedAt)));
-    expect(live?.id).toBe(data.memberId);
+      .where(eq(workspaceMembers.id, 'wm_removed'));
+    expect(removed?.userId).toBe('user_returning');
   });
 
   it('revokes the Clerk invitation when the member row cannot be written', async () => {

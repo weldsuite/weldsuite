@@ -1,2 +1,0 @@
-ALTER TABLE "workspace_members" DROP CONSTRAINT "workspace_members_unique";--> statement-breakpoint
-CREATE UNIQUE INDEX "workspace_members_unique" ON "workspace_members" USING btree ("user_id") WHERE "workspace_members"."deleted_at" IS NULL;

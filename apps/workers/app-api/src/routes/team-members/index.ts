@@ -69,6 +69,7 @@ import { removeClerkMembership } from '../../services/member-count';
 import { syncClerkSeatLimit } from '../../services/billing';
 import { invitationRedirectUrl } from '../../services/invitation-redirect';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { releaseRemovedMemberUserId } from '@weldsuite/db/lib/workspace-members';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -550,6 +551,7 @@ async function addExistingClerkUserAsGuest(params: {
   const membership = (await membershipResp.json()) as { id: string };
 
   const memberId = generateId('mbr');
+  await releaseRemovedMemberUserId(db, existingClerkUserId);
   await db.insert(schema.workspaceMembers).values({
     id: memberId,
     userId: existingClerkUserId,
@@ -691,9 +693,12 @@ async function insertPendingMember(
   },
 ): Promise<string> {
   const memberId = generateId('mbr');
+  const userId = `invited_${input.email}`;
+  // A cancelled earlier invite for this address still holds the placeholder.
+  await releaseRemovedMemberUserId(db, userId);
   await db.insert(schema.workspaceMembers).values({
     id: memberId,
-    userId: `invited_${input.email}`,
+    userId,
     email: input.email.toLowerCase(),
     name: input.name,
     role:
