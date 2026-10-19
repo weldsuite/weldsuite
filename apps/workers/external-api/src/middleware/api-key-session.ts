@@ -90,6 +90,7 @@ export async function sessionFromTenantKey(
   registryEntry: CachedRegistryEntry,
   workspace: CachedWorkspaceDetails,
   now: Date,
+  options: { moving?: boolean } = {},
 ): Promise<ApiKeySession | null> {
   const restrictions = {
     tier: workspace.tier,
@@ -104,13 +105,15 @@ export async function sessionFromTenantKey(
     const workspaceKey = await loadWorkspaceKey(tenantDb, registryEntry.tenantKeyId, now);
     if (!workspaceKey) return null;
 
-    // Fire-and-forget lastUsedAt update
-    tenantDb
-      .update(workspaceApiKeys)
-      .set({ lastUsedAt: now })
-      .where(eq(workspaceApiKeys.id, workspaceKey.id))
-      .execute()
-      .catch(console.error);
+    // Fire-and-forget lastUsedAt update (not while a database move copies it)
+    if (!options.moving) {
+      tenantDb
+        .update(workspaceApiKeys)
+        .set({ lastUsedAt: now })
+        .where(eq(workspaceApiKeys.id, workspaceKey.id))
+        .execute()
+        .catch(console.error);
+    }
 
     return {
       keyId: workspaceKey.id,
@@ -126,13 +129,15 @@ export async function sessionFromTenantKey(
   const personalKey = await loadPersonalKey(tenantDb, registryEntry.tenantKeyId, now);
   if (!personalKey) return null;
 
-  // Fire-and-forget lastUsedAt update
-  tenantDb
-    .update(apiKeys)
-    .set({ lastUsedAt: now })
-    .where(eq(apiKeys.id, personalKey.id))
-    .execute()
-    .catch(console.error);
+  // Fire-and-forget lastUsedAt update (not while a database move copies it)
+  if (!options.moving) {
+    tenantDb
+      .update(apiKeys)
+      .set({ lastUsedAt: now })
+      .where(eq(apiKeys.id, personalKey.id))
+      .execute()
+      .catch(console.error);
+  }
 
   return {
     keyId: personalKey.id,

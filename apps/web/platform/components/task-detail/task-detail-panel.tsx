@@ -389,18 +389,17 @@ export function TaskDetailPanel({
         </div>
       </div>
 
-      {/* Description under title */}
-      <div className="px-1 md:px-2 -mt-2 pb-3">
-        <DescriptionField
-          taskId={task.id}
-          description={task.description}
-          onUpdate={onUpdate}
-        />
-      </div>
-
-      {/* Content area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      {/* Content area — the description under the title scrolls with the
+          details, so a long one can't push them out of reach. */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 -mt-2">
         <div className="flex-1 overflow-y-auto overflow-x-hidden customer-detail-scroll min-w-0" style={{ overflowX: 'hidden' }}>
+          <div className="px-1 md:px-2 pb-3">
+            <DescriptionField
+              taskId={task.id}
+              description={task.description}
+              onUpdate={onUpdate}
+            />
+          </div>
           <TaskDetailContent
             task={task}
             onUpdate={onUpdate}

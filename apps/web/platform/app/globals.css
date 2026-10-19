@@ -589,6 +589,13 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
   padding-inline: 0;
 }
 
+/* The selection kept visible while the editor's selection toolbar has
+   focus (see SelectionToolbar in components/block-editor). */
+::highlight(weld-editor-selection) {
+  background-color: Highlight;
+  color: HighlightText;
+}
+
 /* BlockNote side menu (the hover + / drag controls next to each block)
    — hide entirely. */
 .bn-container .bn-side-menu,

@@ -1,6 +1,9 @@
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
+import { classifyMovedDatabaseError, workspaceMovingResponse } from '@weldsuite/worker-kit/workspace-moving';
+import { forgetWorkspaceForOrg } from '../../lib/workspace-cache';
+import type { HonoEnv } from '../types';
 
 function getErrorCode(status: number): string {
   switch (status) {
@@ -35,8 +38,24 @@ function getErrorCode(status: number): string {
  * Global error handler.
  *
  * Returns the unified envelope: `{ error: { code, message, details? } }`.
+ *
+ * A tenant database that moved under the request (source set read-only, 25006;
+ * role password rotated, 28P01) is not a bug of ours: it is answered with
+ * 503 WORKSPACE_MOVING + `Retry-After` (TASK-1150). A rotated password also
+ * means the cached tenant URL is dead, so the organization's cache entry is
+ * dropped and the next request resolves it from master again.
  */
-export const errorHandler = (err: Error, c: Context) => {
+export const errorHandler = async (err: Error, c: Context<HonoEnv>): Promise<Response> => {
+  // Only a classification is logged, never the error: its message can carry
+  // the query and the role name.
+  const moved = classifyMovedDatabaseError(err);
+  if (moved) {
+    const clerkOrgId = c.get('apiSession')?.clerkOrgId;
+    console.warn(`[mcp-server] workspace database moved (${moved}), org ${clerkOrgId ?? 'unknown'}`);
+    if (moved === 'password_rotated' && clerkOrgId) await forgetWorkspaceForOrg(c.env?.API_CACHE, clerkOrgId);
+    return workspaceMovingResponse(c);
+  }
+
   if (err instanceof ZodError) {
     return c.json(
       {

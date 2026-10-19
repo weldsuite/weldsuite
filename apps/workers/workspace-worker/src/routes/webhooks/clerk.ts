@@ -21,6 +21,8 @@ import { generateId } from '../../lib/id';
 import { autoJoinUserToPublicChannels } from '../../lib/weldchat-auto-join';
 import { createProvisioningService, type InitialMember } from '@weldsuite/neon-provisioning';
 import { provisionWorkspaceDatabase } from '../../services/provisioning';
+import { DatabaseMoveActiveError } from '../../services/database-move/errors';
+import { hasActiveMove } from '../../services/database-move/state';
 import {
   users,
   workspaces,
@@ -180,6 +182,12 @@ clerkWebhookRoutes.post('/', async (c) => {
 
     return c.json({ received: true });
   } catch (error: unknown) {
+    if (error instanceof DatabaseMoveActiveError) {
+      // Not a failure: the workspace database is mid-move. A non-2xx answer makes Svix redeliver later,
+      // by which time the move has usually ended and the deletion goes through.
+      console.warn(`[Clerk Webhook] ${event.type} deferred: workspace ${error.workspaceId} has a database move in progress`);
+      return c.json({ error: error.message, code: 'DATABASE_MOVE_ACTIVE' }, 500);
+    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Clerk Webhook] Error processing event:', error);
     return c.json({ error: message }, 500);
@@ -339,6 +347,10 @@ async function handleOrganizationDeleted(
 
   if (!workspace) return;
 
+  // A database move owns the workspace's database until it ends: dropping it now would destroy the source
+  // mid-copy. Defer the whole cascade (nothing is changed yet) and let Svix redeliver.
+  if (await hasActiveMove(masterDb, workspace.id)) throw new DatabaseMoveActiveError(workspace.id);
+
   await masterDb
     .update(workspaces)
     .set({ isActive: false, updatedAt: new Date() })
@@ -351,6 +363,9 @@ async function handleOrganizationDeleted(
   console.log(`[Clerk Webhook] Soft-deleted workspace ${workspace.id}`);
 
   if (env.NEON_API_KEY && workspace.neonProjectId) {
+    // A move may have been started since the check above; look again right before the irreversible part.
+    if (await hasActiveMove(masterDb, workspace.id)) throw new DatabaseMoveActiveError(workspace.id);
+
     try {
       const provisioningService = createProvisioningService({
         NEON_API_KEY: env.NEON_API_KEY,

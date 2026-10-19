@@ -196,3 +196,8 @@ export function useMobileNavActions() {
   }
   return actions;
 }
+
+// Actions only, without the throw: for components that may render outside the shell.
+export function useMobileNavActionsOptional() {
+  return useContext(MobileNavActionsContext);
+}

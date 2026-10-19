@@ -35,9 +35,18 @@ export {
   computeWorkspaceRestrictions,
   isReadOnlyRequestAllowed,
   workspaceReadOnlyBody,
+  type LicenceReadOnlyReason,
   type ReadOnlyReason,
   type WorkspaceRestrictionInput,
   type WorkspaceRestrictions,
 } from './read-only';
+export {
+  WORKSPACE_MOVING_RETRY_AFTER_SECONDS,
+  classifyMovedDatabaseError,
+  databaseMoveInProgressSql,
+  workspaceMovingBody,
+  workspaceMovingResponse,
+  type MovedDatabaseFailure,
+} from './workspace-moving';
 export { cursorPagination, error, list, noContent, success, type PaginationMeta } from './response';
 export { secretMatches, timingSafeEqualStr, verifyWebhookToken } from './webhook-token';

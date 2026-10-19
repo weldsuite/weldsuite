@@ -41,6 +41,43 @@ describe('workspaceRestrictions', () => {
   });
 });
 
+describe('workspaceRestrictions · database move', () => {
+  it('makes a workspace read-only with reason database_move, and keeps its licensed apps', () => {
+    expect(workspaceRestrictions({ ...base, billingMode: 'direct', databaseMoveInProgress: true })).toEqual({
+      licensedApps: null,
+      readOnly: true,
+      readOnlyReason: 'database_move',
+    });
+    expect(workspaceRestrictions({ ...base, databaseMoveInProgress: true })).toEqual({
+      licensedApps: ['welddesk'],
+      readOnly: true,
+      readOnlyReason: 'database_move',
+    });
+  });
+
+  it('lets the move outrank a licence reason', () => {
+    expect(workspaceRestrictions({ ...base, partnerStatus: 'suspended', databaseMoveInProgress: true }).readOnlyReason).toBe(
+      'database_move',
+    );
+    expect(workspaceRestrictions({ ...base, licenceStatus: 'ended', databaseMoveInProgress: true }).readOnlyReason).toBe(
+      'database_move',
+    );
+  });
+
+  it('changes nothing when no move is running', () => {
+    for (const databaseMoveInProgress of [false, null, undefined]) {
+      expect(workspaceRestrictions({ ...base, databaseMoveInProgress })).toEqual({
+        licensedApps: ['welddesk'],
+        readOnly: false,
+        readOnlyReason: null,
+      });
+      expect(workspaceRestrictions({ ...base, partnerStatus: 'suspended', databaseMoveInProgress }).readOnlyReason).toBe(
+        'partner_suspended',
+      );
+    }
+  });
+});
+
 describe('isReadOnlyRequestAllowed', () => {
   it('allows reads and search; refuses other writes, including paths containing "export"', () => {
     expect(isReadOnlyRequestAllowed('GET', '/v1/tickets')).toBe(true);

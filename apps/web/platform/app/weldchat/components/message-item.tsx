@@ -295,6 +295,7 @@ function MessageAvatar({
       size="icon"
       onClick={onAuthorClick}
       style={{ marginTop: '3px' }}
+      data-author-avatar
       className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
       title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
     >
@@ -367,7 +368,7 @@ export function MessageItem({
         // Always reserve the 2px left border so the mention highlight only
         // changes color, not layout — otherwise mentioned messages would
         // shift relative to surrounding messages and the text "jumps".
-        'group relative px-2 md:px-4 py-1 hover:bg-muted/50 transition-colors border-l-2 border-l-transparent',
+        'group group/message relative px-2 md:px-4 py-1 hover:bg-muted/50 transition-colors border-l-2 border-l-transparent',
         compact && 'py-0.5',
         isMentioned && 'bg-yellow-50/60 dark:bg-yellow-900/10 border-l-yellow-400 dark:border-l-yellow-500',
         message._optimistic && 'opacity-60',
@@ -404,7 +405,8 @@ export function MessageItem({
                 type="button"
                 variant="ghost"
                 onClick={handleAuthorClick}
-                className="h-auto px-0 py-0 font-semibold text-sm hover:underline focus:outline-none focus-visible:underline hover:bg-transparent"
+                // Hovering the avatar underlines the name too: both open the same profile.
+                className="h-auto px-0 py-0 font-semibold text-sm hover:underline group-has-[[data-author-avatar]:hover]/message:underline focus:outline-none focus-visible:underline hover:bg-transparent"
               >
                 {message.authorName}
               </Button>
