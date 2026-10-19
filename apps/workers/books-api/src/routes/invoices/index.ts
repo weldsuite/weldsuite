@@ -527,6 +527,25 @@ function statusChangeRefusal(invoice: InvoiceRow, newStatus: 'cancelled' | 'unco
 }
 
 // GET / — list invoices (entity-scoped, filters)
+/** Adds the number of the invoice each credit note credits, so a list can name it. */
+async function withSourceInvoiceNumbers<T extends { creditNoteForInvoiceId: string | null }>(
+  db: Database,
+  rows: T[],
+): Promise<(T & { creditNoteForInvoiceNumber: string | null })[]> {
+  const sourceIds = [...new Set(rows.map((r) => r.creditNoteForInvoiceId).filter((id): id is string => !!id))];
+  const sources = sourceIds.length
+    ? await db
+        .select({ id: schema.invoices.id, invoiceNumber: schema.invoices.invoiceNumber })
+        .from(schema.invoices)
+        .where(inArray(schema.invoices.id, sourceIds))
+    : [];
+  const numbers = new Map(sources.map((s) => [s.id, s.invoiceNumber]));
+  return rows.map((r) => ({
+    ...r,
+    creditNoteForInvoiceNumber: r.creditNoteForInvoiceId ? (numbers.get(r.creditNoteForInvoiceId) ?? null) : null,
+  }));
+}
+
 app.get('/', requirePermission('invoices:read'), async (c) => {
   const db = c.get('tenantDb');
   const { invoices } = schema;
@@ -588,7 +607,8 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
       db.select({ count: sql<number>`count(*)::int` }).from(invoices).where(where),
     ]);
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, await withContactNames(db, rows), cursorPagination(totalCount, page * pageSize < totalCount, null));
+    const named = await withSourceInvoiceNumbers(db, await withContactNames(db, rows));
+    return list(c, named, cursorPagination(totalCount, page * pageSize < totalCount, null));
   } catch (err) {
     console.error('[app-api/invoices] list failed:', err);
     return error.internal(c, 'Failed to fetch invoices');
