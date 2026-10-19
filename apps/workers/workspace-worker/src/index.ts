@@ -28,6 +28,18 @@ export interface Env {
   PROVISION_WORKSPACE: Workflow;
   // Cloudflare Workflow that keeps the warm database pool topped up
   REFILL_POOL?: Workflow;
+  // Cloudflare Workflow that moves a workspace's tenant database between a
+  // shared shard and a dedicated Neon project (TASK-1150). Instance id = the
+  // `workspace_database_moves` row id.
+  MOVE_DATABASE: Workflow;
+  // KV namespace external-api and mcp-server cache the workspace in (the same
+  // namespace app-api binds). A database move purges its entries
+  // (`ws:<workspaceId>`, `mcp:org:<clerkOrgId>`) so they stop serving the old
+  // database URL. Absent in local dev: those entries then expire on their TTL.
+  API_CACHE?: KVNamespace;
+  // Days the OLD database stays (read-only) after a move before the retention
+  // sweep drops it (number as string — wrangler var). Defaults to 7.
+  DATABASE_MOVE_RETENTION_DAYS?: string;
   // Warm-pool watermarks (numbers as strings — wrangler vars). Shared slots
   // serve free workspaces, dedicated projects serve paid ones.
   POOL_TARGET_SHARED?: string;
@@ -181,3 +193,4 @@ export class WorkspaceOnboardEntrypoint extends WorkerEntrypoint<Env> {
 
 export { ProvisionWorkspaceWorkflow } from './workflows/provision-workspace';
 export { RefillPoolWorkflow } from './workflows/refill-pool';
+export { MoveDatabaseWorkflow } from './workflows/move-database';

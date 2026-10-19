@@ -368,11 +368,13 @@ export async function partnerWorkspaceCacheKeys(
 type KvDeleter = { delete(key: string): Promise<void> };
 
 /**
- * Drop every cached copy of a workspace's licence and partner-status state, so
- * a licence or partner-status change is enforced now instead of after the KV
- * TTL (300 s). Three caches hold it:
+ * Drop every cached copy of a workspace's licence, partner-status and tenant
+ * database state, so a licence or partner-status change (or a database move,
+ * TASK-1150) is enforced now instead of after the KV TTL (300 s). The caches:
  *
- * - worker-kit (every module worker, app-api): `ws:<clerkOrgId>` in
+ * - worker-kit (every module worker, app-api) and workflow-worker,
+ *   realtime-worker, audit-log-worker, helpdesk-widget-api,
+ *   helpdesk-workflow-worker, workspace-worker: `ws:<clerkOrgId>` in
  *   `WORKSPACE_CACHE` (`kv`, the first argument);
  * - external-api: `ws:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
  *   `getWorkspaceDetails`);
@@ -380,19 +382,43 @@ type KvDeleter = { delete(key: string): Promise<void> };
  *   `getWorkspaceForOrg`). external-api and mcp-server share the `API_CACHE`
  *   namespace, so one `apiCache` handle covers both.
  *
+ * Two more entries hold only the tenant database URL (no licence), so a licence
+ * change does not need them gone, but a database move does. They are purged
+ * only when `databaseKeys` is set, which keeps the licence callers' behaviour
+ * (and delete count) as it was:
+ *
+ * - integration-webhook-worker, mail-inbound-worker: `wsid:<workspaceId>` in
+ *   `WORKSPACE_CACHE`;
+ * - billing-worker: `ws:id:<workspaceId>` and `ws:id:<clerkOrgId>` in
+ *   `WORKSPACE_CACHE` (it accepts either id).
+ *
  * A missing handle skips that cache (it then expires on its own TTL), so a
  * caller without the `API_CACHE` binding degrades to the old behaviour.
  */
 export async function invalidateWorkspaceContexts(
   kv: KvDeleter | undefined,
   clerkOrgIds: readonly (string | null | undefined)[],
-  extra: { apiCache?: KvDeleter; workspaceIds?: readonly (string | null | undefined)[] } = {},
+  extra: {
+    apiCache?: KvDeleter;
+    workspaceIds?: readonly (string | null | undefined)[];
+    /** Also purge the entries that carry only the tenant database URL (see above). Default false. */
+    databaseKeys?: boolean;
+  } = {},
 ): Promise<void> {
   const orgIds = clerkOrgIds.filter((id): id is string => Boolean(id));
   const workspaceIds = (extra.workspaceIds ?? []).filter((id): id is string => Boolean(id));
   const quiet = (p: Promise<void>) => p.catch(() => undefined);
   const deletes: Array<Promise<void>> = [];
-  if (kv) for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:${id}`)));
+  if (kv) {
+    for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:${id}`)));
+    if (extra.databaseKeys) {
+      for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:id:${id}`)));
+      for (const id of workspaceIds) {
+        deletes.push(quiet(kv.delete(`wsid:${id}`)));
+        deletes.push(quiet(kv.delete(`ws:id:${id}`)));
+      }
+    }
+  }
   if (extra.apiCache) {
     for (const id of workspaceIds) deletes.push(quiet(extra.apiCache.delete(`ws:${id}`)));
     for (const id of orgIds) deletes.push(quiet(extra.apiCache.delete(`mcp:org:${id}`)));

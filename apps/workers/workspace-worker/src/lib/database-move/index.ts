@@ -10,6 +10,7 @@ export * from './copy';
 export * from './errors';
 export * from './finish-target';
 export * from './guard';
+export * from './pg-errors';
 export * from './prepare-target';
 export * from './quote';
 export * from './types';

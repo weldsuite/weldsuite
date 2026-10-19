@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
-    "./provisioning": "./src/provisioning.ts"
+    "./provisioning": "./src/provisioning.ts",
+    "./test/master-db": "./src/test/master-db.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

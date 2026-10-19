@@ -1,8 +1,9 @@
 /**
  * Connection-URL helpers for tenant databases.
  *
- * Package-internal (not re-exported from the barrel). These handle credentials,
- * so nothing here logs, and callers must not log what they return.
+ * Package-internal, except `directUrlOf`, which the barrel re-exports. These
+ * handle credentials, so nothing here logs, and callers must not log what they
+ * return.
  */
 
 import { NeonClient } from '../client';

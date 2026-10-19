@@ -73,13 +73,57 @@ export interface DatabaseMoveTableProgress {
   /** Last primary key copied (JSON-encoded key values), null before the first page. */
   cursor: string | null;
   done: boolean;
+  /** Rows per page chosen when the copy was planned (kept so a retried step pages the same way). */
+  pageSize?: number;
+  /** Row estimate the plan was ordered by. */
+  estimatedRows?: number | null;
 }
+
+/** A foreign key dropped from the target for the copy and re-added afterwards (mirrors the engine's `ForeignKeyInfo`). */
+export interface DatabaseMoveSavedForeignKey {
+  table: string;
+  name: string;
+  definition: string;
+  validated: boolean;
+}
+
+/** A user trigger disabled on the target for the copy (mirrors the engine's `TriggerInfo`). */
+export interface DatabaseMoveSavedTrigger {
+  table: string;
+  name: string;
+  /** `pg_trigger.tgenabled` on the source: O origin, D disabled, R replica, A always. */
+  enabled: 'O' | 'D' | 'R' | 'A';
+}
+
+/** What preparing the target changed, handed to the finishing step (mirrors the engine's `SavedTargetState`). */
+export interface DatabaseMoveSavedState {
+  foreignKeys: DatabaseMoveSavedForeignKey[];
+  triggers: DatabaseMoveSavedTrigger[];
+}
+
+/** Row count and order-independent checksum per table (mirrors the engine's `ChecksumMap`). */
+export type DatabaseMoveChecksums = Record<string, { count: number; hash: string | null }>;
 
 export interface DatabaseMoveProgress {
   tables: DatabaseMoveTableProgress[];
   copiedRows: number;
-  /** Row estimate taken before the copy, for the progress bar. */
+  /** Row estimate taken before the copy, for the progress bar; replaced by the exact count once the source is checksummed. */
   totalRows: number | null;
+
+  // Workflow state a retried or replayed step needs. Plain JSON: no connection
+  // strings, no row contents.
+  /** When the lock procedure began on the source (before the password rotation), so a failed move knows to unlock it. */
+  lockStartedAt?: string;
+  /** `prepareTargetForCopy` ran (target truncated, foreign keys dropped): it must never run again once copying started. */
+  prepared?: boolean;
+  /** What preparing the target changed, for the finishing step. */
+  saved?: DatabaseMoveSavedState;
+  /** Tables that were empty on the source when the copy was planned (verified too, never copied). */
+  emptyTables?: string[];
+  /** Source checksums taken right after the lock, before the copy. */
+  sourceChecksums?: DatabaseMoveChecksums;
+  /** Set once the target was dropped or returned after a failed or cancelled move, so a repeat run skips it. */
+  targetReleasedAt?: string;
 }
 
 export interface DatabaseMoveTableVerification {
@@ -97,6 +141,12 @@ export interface DatabaseMoveVerification {
   /** True when every table matched, and the source did not change after the lock. */
   ok: boolean;
   verifiedAt: string;
+  /** False when the source differed between the reading before the copy and the reading after it. */
+  sourceUnchanged?: boolean;
+  /** Tables whose count or checksum differed between the two source readings. */
+  sourceChangedTables?: string[];
+  /** Non-fatal findings (for example, ANALYZE on the target failed). */
+  warnings?: string[];
 }
 
 const activeStatusesSql = sql.raw(ACTIVE_DATABASE_MOVE_STATUSES.map((s) => `'${s}'`).join(', '));

@@ -151,6 +151,29 @@ describe('invalidateWorkspaceContexts', () => {
     expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['mcp:org:org_1', 'mcp:org:org_2', 'ws:ws_1', 'ws:ws_2']);
   });
 
+  it('also deletes the tenant-database-only keys when asked (database moves)', async () => {
+    const workspaceCache = kv();
+    const apiCache = kv();
+    await invalidateWorkspaceContexts(workspaceCache, ['org_1'], {
+      apiCache,
+      workspaceIds: ['ws_1'],
+      databaseKeys: true,
+    });
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'ws:id:org_1',
+      'ws:id:ws_1',
+      'ws:org_1',
+      'wsid:ws_1',
+    ]);
+    expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['mcp:org:org_1', 'ws:ws_1']);
+  });
+
+  it('keeps the licence callers as they were: no wsid:/ws:id: keys unless databaseKeys is set', async () => {
+    const workspaceCache = kv();
+    await invalidateWorkspaceContexts(workspaceCache, ['org_1'], { workspaceIds: ['ws_1'] });
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0])).toEqual(['ws:org_1']);
+  });
+
   it('keeps the two-argument behaviour (only ws:<org> in WORKSPACE_CACHE)', async () => {
     const workspaceCache = kv();
     await invalidateWorkspaceContexts(workspaceCache, ['org_1']);
