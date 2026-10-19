@@ -17,6 +17,12 @@
  * internal router. The caller's INTERNAL_API_SECRET must match this worker's
  * (ops contract) while it does.
  *
+ * Payment is never taken on the caller's word: the body must carry the Stripe
+ * Checkout Session id (`checkoutSessionId`), which is re-read from Stripe
+ * (STRIPE_SECRET_KEY) and checked to be a paid phone checkout for the same org
+ * and number. The same id makes a retry idempotent (see
+ * services/phone-number-order.ts `fulfillPaidPhoneNumberForCheckout`).
+ *
  * Response shapes intentionally preserve the LEGACY internal contract
  * ({ success, ... } / { success:false, error }) rather than the app-api
  * { data }/{ error } envelope. This is a machine contract, not a
@@ -26,6 +32,8 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { timingSafeEqualStr } from '@weldsuite/worker-kit/webhook-token';
+import { PhonePaymentError } from '../../lib/stripe-checkout';
 import type { Env, Variables } from '../../types';
 
 export const internalTelephonyRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -54,7 +62,7 @@ internalTelephonyRoutes.use('*', async (c, next) => {
     return c.json({ error: 'Missing or invalid Authorization header' }, 401);
   }
 
-  if (authHeader.slice(7) !== secret) {
+  if (!timingSafeEqualStr(authHeader.slice(7), secret)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
@@ -62,6 +70,9 @@ internalTelephonyRoutes.use('*', async (c, next) => {
 });
 
 const fulfillPhoneNumberSchema = z.object({
+  /** Stripe Checkout Session id of the completed phone checkout. Re-verified
+   *  against Stripe before anything is bought, and the idempotency key. */
+  checkoutSessionId: z.string().regex(/^cs_\w{8,}$/),
   clerkOrgId: z.string().min(1),
   phoneNumber: z.string().min(1),
   countryCode: z.string().min(2).max(5),
@@ -77,10 +88,17 @@ internalTelephonyRoutes.post(
   zValidator('json', fulfillPhoneNumberSchema),
   async (c) => {
     try {
-      const { fulfillPaidPhoneNumber } = await import('../../services/phone-number-order');
-      const result = await fulfillPaidPhoneNumber(c.env, c.req.valid('json'));
+      const { fulfillPaidPhoneNumberForCheckout } = await import('../../services/phone-number-order');
+      const result = await fulfillPaidPhoneNumberForCheckout(c.env, c.req.valid('json'));
       return c.json({ success: true, ...result });
     } catch (err) {
+      if (err instanceof PhonePaymentError) {
+        console.warn(`[Internal] Phone fulfill refused (${err.status}): ${err.message}`);
+        return c.json({ success: false, error: err.message }, err.status);
+      }
+      if (err instanceof Error && err.name === 'PhoneFulfillInProgressError') {
+        return c.json({ success: false, error: err.message }, 409);
+      }
       console.error('[Internal] Phone fulfill failed:', err);
       return c.json(
         { success: false, error: err instanceof Error ? err.message : 'Unknown error' },

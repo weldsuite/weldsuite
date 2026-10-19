@@ -17,6 +17,8 @@ export function appApiUrl(env: Pick<Env, 'ENVIRONMENT' | 'APP_API_URL'>): string
 export async function fulfillPaidPhoneNumberFromBilling(
   env: Env,
   input: {
+    /** Stripe Checkout Session id; call-api re-verifies the payment against it. */
+    checkoutSessionId: string;
     clerkOrgId: string;
     phoneNumber: string;
     countryCode: string;

@@ -23,9 +23,11 @@ export const commercePortalAuthRequestSchema = z.object({
 export const commercePortalAuthVerifySchema = z.object({
   token: z.string().min(1).optional(),
   otp: z.string().min(4).max(12).optional(),
+  /** Required with `otp`: the code is only checked against that buyer's challenge. */
+  email: z.string().email().optional(),
   accessId: z.string().min(1).optional(),
-}).refine((v) => Boolean(v.token || v.otp), {
-  message: 'token or otp is required',
+}).refine((v) => Boolean(v.token || (v.otp && v.email)), {
+  message: 'token, or otp together with email, is required',
 });
 
 export const commercePortalSelectCompanySchema = z.object({

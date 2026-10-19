@@ -29,8 +29,8 @@ const app = createModuleApi<Env, Variables>({ service: 'call-api' });
 app.route('/api/internal/telephony', internalTelephonyRoutes);
 
 // Telnyx Call Control webhook — PUBLIC (no Clerk). Server-to-server events
-// from Telnyx; Ed25519 signature enforcement applies when TELNYX_PUBLIC_KEY
-// is set. Must stay ABOVE the /api/* guard.
+// from Telnyx; Ed25519 signatures are always enforced (fail closed when
+// TELNYX_PUBLIC_KEY is unset). Must stay ABOVE the /api/* guard.
 app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
 
 // Auth + tenant DB + feature flags for everything under /api/*

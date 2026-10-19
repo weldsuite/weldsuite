@@ -150,6 +150,24 @@ describe('generateInvoiceHtml · escaping (TASK-634)', () => {
     expect(branded).toContain('src="https://cdn.example/logo.png"');
   });
 
+  it('neutralises a style-breakout payload in a branding colour', () => {
+    const html = generateInvoiceHtml(
+      invoice(),
+      entity({ branding: { primaryColor: 'red;}</style><script>alert(5)</script>', accentColor: '#12;}</style><script>alert(6)</script>' } }),
+    );
+    expect(html).not.toContain('<script>alert(5)');
+    expect(html).not.toContain('<script>alert(6)');
+    expect(html).not.toContain('red;}');
+  });
+
+  it('renders instead of throwing when text fields are null', () => {
+    const html = generateInvoiceHtml(
+      invoice({ contactName: null as unknown as string, notes: null, contactEmail: null }),
+      entity({ branding: { footerText: null as unknown as string } }),
+    );
+    expect(html).toContain('INV-0001');
+  });
+
   it('keeps printing IBAN/BIC and account/routing numbers', () => {
     const nl = generateInvoiceHtml(invoice(), entity());
     expect(nl).toContain('IBAN: <strong>NL91ABNA0417164300</strong>');

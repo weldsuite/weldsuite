@@ -4,6 +4,8 @@
  *   - PATCH /:id with `permissions` + `permissionDenies` stores both lists.
  *   - GET /:id/permissions returns them, plus `inheritedPermissions`: the
  *     custom role's grants, or the system tier's defaults for a bare tier.
+ *   - Grant ceiling (TASK-625): the caller can't hand out, through extras or a
+ *     role assignment, a permission they don't hold themselves.
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -36,18 +38,35 @@ beforeAll(async () => {
   await db.insert(schema.workspaceMembers).values([
     { id: 'wm_custom', userId: 'user_custom', email: 'c@example.com', role: 'MEMBER', roleId: 'role_sales', createdAt: now, updatedAt: now },
     { id: 'wm_tier', userId: 'user_tier', email: 't@example.com', role: 'VIEWER', createdAt: now, updatedAt: now },
+    { id: 'wm_target', userId: 'user_target', email: 'x@example.com', role: 'MEMBER', status: 'ACTIVE', createdAt: now, updatedAt: now },
   ] as (typeof schema.workspaceMembers.$inferInsert)[]);
+  await db.insert(schema.roles).values({
+    id: 'role_owner_row',
+    name: 'Owner',
+    isSystem: true,
+    permissions: ['*'],
+    createdAt: now,
+    updatedAt: now,
+  } as typeof schema.roles.$inferInsert);
 }, 60_000);
 
-function app() {
+function app(...extra: string[]) {
   return createTestApp('/api/team-members', teamMembersRoutes, {
-    context: { tenantDb: db, permissions: permissions('team:read', 'team:update') },
+    context: { tenantDb: db, permissions: permissions('team:read', 'team:update', ...extra) },
+  });
+}
+
+function patchMember(t: ReturnType<typeof app>, id: string, body: Record<string, unknown>) {
+  return t.request(`/api/team-members/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 }
 
 describe('per-member permission overrides', () => {
   it('stores grants and denies, and reads them back with the role baseline', async () => {
-    const t = app();
+    const t = app('tickets:read');
     const patch = await t.request('/api/team-members/wm_custom', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -73,6 +92,33 @@ describe('per-member permission overrides', () => {
     expect(data.rolePermissions).toEqual([]);
     expect(data.inheritedPermissions).toEqual(SYSTEM_ROLES.VIEWER!.permissions);
     expect(data.memberDenies).toEqual([]);
+  });
+
+  it('refuses extras the caller does not hold', async () => {
+    const res = await patchMember(app(), 'wm_target', { permissions: ['secrets:reveal'] });
+    expect(res.status).toBe(403);
+  });
+
+  it('refuses the global wildcard and unknown keys as extras', async () => {
+    for (const permissions of [['*'], ['*:read'], ['not-a-real:permission']]) {
+      const res = await patchMember(app('*'), 'wm_target', { permissions });
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it('keeps extras the member already has without re-checking them', async () => {
+    // wm_custom already holds welddesk:tickets:read from the first test.
+    const res = await patchMember(app(), 'wm_custom', {
+      permissions: ['welddesk:tickets:read'],
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses assigning a role that grants more than the caller holds', async () => {
+    const res = await patchMember(app(), 'wm_target', { roleId: 'role_owner_row' });
+    expect(res.status).toBe(403);
+    const toAdmin = await patchMember(app('roles:read'), 'wm_target', { role: 'ADMIN' });
+    expect(toAdmin.status).toBe(403);
   });
 
   it('rejects a non-array permissionDenies', async () => {

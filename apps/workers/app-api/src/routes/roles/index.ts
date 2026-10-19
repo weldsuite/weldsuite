@@ -22,7 +22,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
 import { listCustomObjects } from '@weldsuite/core-domain/custom-objects';
 import { createRoleSchema, updateRoleSchema } from '@weldsuite/app-api-client/schemas/roles';
 import type { Env, Variables } from '../../types';
@@ -39,6 +39,12 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  * Viewer), 409 for a name another role already has. `details.reason` lets the
  * UI show the matching inline error.
  */
+function ungrantableError(c: Context, result: rolesService.UngrantablePermissions) {
+  return result.invalid.length > 0
+    ? error.badRequest(c, 'Unknown or disallowed permissions', { field: 'permissions', invalid: result.invalid })
+    : error.forbidden(c, 'You cannot grant permissions you do not hold yourself');
+}
+
 function roleNameError(c: Context, reason: rolesService.RoleNameProblem) {
   return reason === 'reserved'
     ? error.badRequest(c, 'This name is reserved for a system role', { field: 'name', reason })
@@ -151,8 +157,13 @@ app.get('/:roleId', requirePermission('roles:read'), async (c) => {
 app.post('/', requirePermission('roles:create'), zValidator('json', createRoleSchema), async (c) => {
   try {
     const db = c.get('tenantDb');
-    const result = await rolesService.createRole(db, c.req.valid('json'));
-    if (!result.ok) return roleNameError(c, result.reason);
+    const grantor = await ensurePermissionsResolved(c);
+    if (!grantor) return error.unauthorized(c);
+    const result = await rolesService.createRole(db, c.req.valid('json'), grantor);
+    if (!result.ok) {
+      if (result.reason === 'ungrantable') return ungrantableError(c, result);
+      return roleNameError(c, result.reason);
+    }
     return success(c, result.role, 201);
   } catch (err) {
     console.error('[app-api/roles] create failed:', err);
@@ -164,10 +175,13 @@ app.post('/', requirePermission('roles:create'), zValidator('json', createRoleSc
 app.put('/:roleId', requirePermission('roles:update'), zValidator('json', updateRoleSchema), async (c) => {
   try {
     const db = c.get('tenantDb');
-    const result = await rolesService.updateRole(db, c.req.param('roleId'), c.req.valid('json'));
+    const grantor = await ensurePermissionsResolved(c);
+    if (!grantor) return error.unauthorized(c);
+    const result = await rolesService.updateRole(db, c.req.param('roleId'), c.req.valid('json'), grantor);
     if (!result.ok) {
       if (result.reason === 'not_found') return error.notFound(c, 'Role', c.req.param('roleId'));
       if (result.reason === 'system') return error.forbidden(c, 'Cannot modify system roles');
+      if (result.reason === 'ungrantable') return ungrantableError(c, result);
       return roleNameError(c, result.reason);
     }
     return success(c, result.role);

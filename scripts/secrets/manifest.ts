@@ -540,6 +540,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     "TELNYX_SIP_CONNECTION_ID",
     "TELNYX_PUBLIC_KEY",
     "TELNYX_WEBHOOK_SECRET",
+    // Same value as billing-worker in the same env. fulfill-number re-reads the
+    // Stripe Checkout Session to verify payment before buying a Telnyx number.
+    "STRIPE_SECRET_KEY",
   ],
 
   // desk-api: the desk module's API worker (split from app-api). Base
