@@ -48,6 +48,8 @@ export interface MailMessageRow {
   sizeBytes: number | null;
   scheduledFor: string | null;
   sendStatus: string | null;
+  /** When a snoozed message wakes; null when it is not snoozed. */
+  snoozedUntil?: string | null;
   source: string | null;
   inReplyTo: string | null;
   references: string[] | null;
@@ -63,7 +65,6 @@ export interface MailMessageWithAttachments extends MailMessageRow {
     fileName: string;
     contentType: string | null;
     size: number;
-    storagePath: string | null;
     isInline: boolean | null;
   }>;
 }

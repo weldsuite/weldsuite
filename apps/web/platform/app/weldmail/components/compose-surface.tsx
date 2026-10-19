@@ -33,7 +33,7 @@ import {
   Plus,
   ArrowUp,
 } from 'lucide-react';
-import { format, addDays } from 'date-fns';
+import { format, addDays, startOfDay } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import {
@@ -69,7 +69,8 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
-import { RecipientsRow, StringRecipientsRow } from '@/app/weldmail/components/compose-recipients';
+import { RecipientsRow, StringRecipientsRow, type RecipientsRowHandle } from '@/app/weldmail/components/compose-recipients';
+import { ComposeLinkButton } from '@/app/weldmail/components/compose-link-button';
 import { SignaturePicker, useComposeSignature } from '@/app/weldmail/components/compose-signature';
 import type { SignatureMode } from '@/app/weldmail/lib/signature';
 
@@ -143,6 +144,15 @@ function ComposeFromRow({ accountId, label }: Readonly<{ accountId?: string; lab
       )}
     </div>
   );
+}
+
+// How far ahead a send can be scheduled. Keep in step with MAX_SCHEDULE_DAYS in
+// apps/workers/mail-api/src/services/mail/scheduled.ts, which rejects anything later.
+const MAX_SCHEDULE_DAYS = 365;
+
+// "Oct 20, 9:00 AM", with the year once it is not this year's.
+function formatScheduledTime(date: Date): string {
+  return format(date, date.getFullYear() === new Date().getFullYear() ? 'MMM d, h:mm a' : 'MMM d, yyyy, h:mm a');
 }
 
 // Schedule helpers: a picked time never lands in the past.
@@ -431,11 +441,29 @@ export function ComposeSurface({
   };
 
 
+  // A send without a recipient does not go anywhere: say so next to the To
+  // field and put the cursor there.
+  const toFieldRef = useRef<RecipientsRowHandle>(null);
+  const [recipientMissing, setRecipientMissing] = useState(false);
+  const hasRecipient = toRecipients.length > 0 || toInput.trim() !== '';
+  useEffect(() => {
+    if (hasRecipient) setRecipientMissing(false);
+  }, [hasRecipient]);
+
+  const handleSend = () => {
+    if (!hasRecipient) {
+      setRecipientMissing(true);
+      toFieldRef.current?.focus();
+      return;
+    }
+    onSend();
+  };
+
   // Ctrl/Cmd+Enter sends from anywhere in the surface.
   const handleSendShortcut = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    onSend();
+    handleSend();
   };
 
   return (
@@ -522,6 +550,8 @@ export function ComposeSurface({
               menuClassName={SUGGESTIONS_MENU}
               focusOnMount={startInTo}
               testId={`${testIdPrefix}-to-input`}
+              handleRef={toFieldRef}
+              error={recipientMissing ? t.mail.compose.recipientRequired : undefined}
               trailing={
                 (!showCc || !showBcc) && (
                   <div className="flex items-center h-9 -mr-2 flex-shrink-0">
@@ -859,6 +889,7 @@ export function ComposeSurface({
                   <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
                 </svg>
               </Button>
+              <ComposeLinkButton editorRef={editorRef} className={TOOL_BUTTON} testId={`${testIdPrefix}-link-btn`} />
               <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleOutdent} className={TOOL_BUTTON} title={t.mail.toolbar.indentLess} aria-label={t.mail.toolbar.indentLess}>
                 <IndentDecrease className="h-4 w-4" />
               </Button>
@@ -944,10 +975,10 @@ export function ComposeSurface({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={TOOL_BUTTON}
+                  className={cn(TOOL_BUTTON, scheduledTime && 'bg-muted text-foreground')}
                   data-testid={`${testIdPrefix}-schedule-btn`}
-                  title={t.mail.floatingCompose.schedule}
-                  aria-label={t.mail.floatingCompose.schedule}
+                  title={scheduledTime ? t.mail.floatingCompose.scheduleFor.replace('{date}', formatScheduledTime(scheduledTime)) : t.mail.floatingCompose.schedule}
+                  aria-label={scheduledTime ? t.mail.floatingCompose.scheduleFor.replace('{date}', formatScheduledTime(scheduledTime)) : t.mail.floatingCompose.schedule}
                 >
                   <Clock className="h-4 w-4" />
                 </Button>
@@ -956,10 +987,13 @@ export function ComposeSurface({
                 <Calendar
                   mode="single"
                   selected={scheduledTime || undefined}
+                  defaultMonth={scheduledTime ?? undefined}
                   onSelect={(date) => {
                     if (date) onScheduledTimeChange(scheduleForDate(date, scheduledTime));
                   }}
-                  disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || date > addDays(new Date(), 7)}
+                  disabled={(date) => date < startOfDay(new Date()) || date > addDays(new Date(), MAX_SCHEDULE_DAYS)}
+                  startMonth={new Date()}
+                  endMonth={addDays(new Date(), MAX_SCHEDULE_DAYS)}
                   autoFocus
                 />
                 <div className="border-t border-border px-3 py-3">
@@ -997,6 +1031,17 @@ export function ComposeSurface({
                       </SelectContent>
                     </Select>
                   </div>
+                  {scheduledTime && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onScheduledTimeChange(null)}
+                      className="mt-2 -ml-2 h-7 px-2 text-xs text-muted-foreground"
+                    >
+                      {t.mail.floatingCompose.removeSchedule}
+                    </Button>
+                  )}
                 </div>
               </PopoverContent>
             </Popover>
@@ -1014,33 +1059,29 @@ export function ComposeSurface({
             </Button>
           </div>
 
-          {/* Scheduled time, send */}
+          {/* Send, or schedule at the chosen time */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {scheduledTime && (
-              <div className="inline-flex items-center gap-1 h-7 pl-2 pr-1 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 rounded-md text-xs whitespace-nowrap">
-                <span>{format(scheduledTime, 'MMM d, h:mm a')}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onScheduledTimeChange(null)}
-                  className="h-5 w-5 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded"
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            )}
-
             <Button
               type="button"
               data-testid={`${testIdPrefix}-send-btn`}
-              onClick={onSend}
+              onClick={handleSend}
               disabled={isSending}
               size="sm"
               className="ml-1 !px-3"
               title="Ctrl+Enter"
+              aria-label={scheduledTime ? t.mail.floatingCompose.scheduleFor.replace('{date}', formatScheduledTime(scheduledTime)) : undefined}
             >
               {isSending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {scheduledTime ? t.mail.floatingCompose.schedule : t.mail.floatingCompose.sendEmail}
+              {scheduledTime ? (
+                <>
+                  {t.mail.floatingCompose.schedule}
+                  <span className="font-normal opacity-80" data-testid={`${testIdPrefix}-scheduled-time`}>
+                    {formatScheduledTime(scheduledTime)}
+                  </span>
+                </>
+              ) : (
+                t.mail.floatingCompose.sendEmail
+              )}
             </Button>
           </div>
         </div>

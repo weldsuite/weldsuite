@@ -5,8 +5,10 @@
  * guard's status and the app-api error envelope so the caller can stop its loop.
  *
  * The guard's own checks are covered in @weldsuite/mail-domain; here it is
- * stubbed at the module boundary. /send-transactional-email (WeldSuite's own
- * mail) must stay outside it.
+ * stubbed at the module boundary. On top of it the route requires the workspace
+ * and a From that is one of its mailboxes, and accepts only allowlisted extra
+ * headers. /send-transactional-email (WeldSuite's own mail) stays outside the
+ * guard but may only send as WeldSuite's own domains.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -34,7 +36,12 @@ const tenantDb = vi.mocked(getTenantDbForWorkspace);
 
 const env = { ENVIRONMENT: 'test' } as unknown as Env;
 const executionCtx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
-const db = { tenant: true } as never;
+// The tenant DB the sender check reads: `select().from().where().limit()` yields
+// the workspace's matching mailboxes (set per test through `mailboxes`).
+let mailboxes: Array<{ id: string }> = [{ id: 'macc_1' }];
+const db = {
+  select: () => ({ from: () => ({ where: () => ({ limit: async () => mailboxes }) }) }),
+} as never;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', async (c, next) => {
@@ -63,6 +70,7 @@ const email = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mailboxes = [{ id: 'macc_1' }];
   tenantDb.mockResolvedValue(db);
   send.mockResolvedValue({ messageId: 'msg_1' });
   // Allowed by default: run the send, like the real guard does.
@@ -141,33 +149,117 @@ describe('POST /api/internal/send-email', () => {
     expect(await res.json()).toEqual({ success: false, error: 'send_email failed' });
   });
 
-  it('runs the guard without the tenant DB when it cannot be resolved (the guard degrades, the send is not blocked)', async () => {
+  it('fails the send (500) when the tenant DB cannot be resolved: the sender check is never skipped', async () => {
     tenantDb.mockRejectedValueOnce(new Error('workspace not found'));
     const res = await post('/send-email', email);
-    expect(res.status).toBe(200);
-    expect(guard.mock.calls[0]![1]).toBeNull();
+    expect(res.status).toBe(500);
+    expect(guard).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
-  it('sends without the guard, and says so, while an older workflow-worker omits the workspace', async () => {
-    const { workspaceId: _omitted, ...legacy } = email;
+  it('requires the workspace: there is no unguarded path', async () => {
+    const { workspaceId: _omitted, ...withoutWorkspace } = email;
 
-    const res = await post('/send-email', legacy);
+    const res = await post('/send-email', withoutWorkspace);
+
+    expect(res.status).toBe(400);
+    expect(tenantDb).not.toHaveBeenCalled();
+    expect(guard).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+
+    expect((await post('/send-email', { ...email, workspaceId: '' })).status).toBe(400);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('refuses a From that is not an active mailbox of the workspace, before the guard and the send', async () => {
+    mailboxes = [];
+
+    const res = await post('/send-email', { ...email, from: 'CEO <ceo@weldsuite.org>' });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        code: 'SENDER_NOT_OWNED',
+        message: expect.any(String),
+        details: { code: 'SENDER_NOT_OWNED', reason: 'sender_not_workspace_mailbox' },
+      },
+    });
+    expect(guard).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('passes allowlisted headers through, in any case', async () => {
+    const headers = { 'Reply-To': 'help@acme.test', 'list-unsubscribe': '<mailto:unsub@acme.test>', References: '<a@b>' };
+
+    const res = await post('/send-email', { ...email, headers });
 
     expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalledWith(env, expect.objectContaining({ headers }));
+  });
+
+  it.each([
+    ['Bcc', 'spy@evil.test'],
+    ['From', 'ceo@weldsuite.org'],
+    ['Return-Path', 'bounce@evil.test'],
+    ['DKIM-Signature', 'v=1'],
+    ['X-Anything', 'x'],
+  ])('rejects the %s header', async (name, value) => {
+    const res = await post('/send-email', { ...email, headers: { 'Reply-To': 'help@acme.test', [name]: value } });
+
+    expect(res.status).toBe(400);
     expect(guard).not.toHaveBeenCalled();
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('outbound guard skipped'));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a header value', { headers: { 'Reply-To': 'a@b.test\r\nBcc: spy@evil.test' } }],
+    ['the subject', { subject: 'Hello\nBcc: spy@evil.test' }],
+    ['the From', { from: 'a@acme.test\r\nBcc: spy@evil.test' }],
+    ['a recipient', { to: ['p@example.org\r\nBcc: spy@evil.test'] }],
+  ])('rejects a line break in %s', async (_label, patch) => {
+    const res = await post('/send-email', { ...email, ...patch });
+
+    expect(res.status).toBe(400);
+    expect(send).not.toHaveBeenCalled();
   });
 });
 
 describe('POST /api/internal/send-transactional-email', () => {
+  const { workspaceId: _ws, ...base } = email;
+  const system = { ...base, from: 'WeldSuite <notifications@mail.weldsuite.org>' };
+
   it("is WeldSuite's own mail: it never goes through the guard", async () => {
-    const { workspaceId: _ws, ...params } = email;
-    const res = await post('/send-transactional-email', params);
+    const res = await post('/send-transactional-email', system);
 
     expect(res.status).toBe(200);
     expect(guard).not.toHaveBeenCalled();
     expect(tenantDb).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['noreply@weldsuite.org', 'Support <Support@Mail.WeldSuite.org>'])('accepts the WeldSuite sender %s', async (from) => {
+    const res = await post('/send-transactional-email', { ...system, from });
+    expect(res.status).toBe(200);
+  });
+
+  it.each([
+    'Sales <sales@acme.test>',
+    'ceo@evil.weldsuite.org.attacker.test',
+    'ceo@sub.weldsuite.org',
+    'attacker@evil.test, ceo@weldsuite.org',
+    '"ceo@weldsuite.org" <sales@acme.test>',
+    'weldsuite.org',
+  ])('refuses to send as %s', async (from) => {
+    const res = await post('/send-transactional-email', { ...system, from });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: 'SENDER_NOT_ALLOWED' } });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('applies the same header allowlist', async () => {
+    const res = await post('/send-transactional-email', { ...system, headers: { Bcc: 'spy@evil.test' } });
+    expect(res.status).toBe(400);
+    expect(send).not.toHaveBeenCalled();
   });
 });

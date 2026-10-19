@@ -23,6 +23,14 @@ import {
   sendPersonalEmailPushNotification,
 } from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
+import {
+  bareSubject,
+  conversationSubjects,
+  hasReplyPrefix,
+  involvesAddress,
+  messageIdVariants,
+  providerMessageIds,
+} from './thread-match';
 import { scoreInboundSpam } from './spam-filter';
 import { classifyPromotion } from './promotion-filter';
 import { parseListUnsubscribe } from '@weldsuite/email/list-unsubscribe';
@@ -407,12 +415,16 @@ export async function findRecipientAccounts(
 type TenantDbHandle = Awaited<ReturnType<typeof getTenantDbForWorkspaceById>>;
 type PersonalDbHandle = ReturnType<typeof getPersonalDb>;
 
-/** Message-IDs this email replies to / references, in lookup order. */
+/**
+ * Message-IDs this email replies to / references, in lookup order, each in
+ * both spellings: a sender that writes `In-Reply-To: id@host` still finds the
+ * message stored as `<id@host>`.
+ */
 function replyLookupIds(email: ParsedEmail): string[] {
-  return [
+  return messageIdVariants([
     ...(email.inReplyTo ? [email.inReplyTo] : []),
     ...(email.references || []),
-  ];
+  ]);
 }
 
 /** Inbox label set for a stored message: spam wins over promotions. */
@@ -625,9 +637,7 @@ async function findThreadByReplyIds(
 
   // Extract local parts from Message-IDs for provider ID matching
   // e.g. "<abc-123@eu-west-1.amazonses.com>" → "abc-123"
-  const providerIds = lookupIds
-    .map((id) => id.replace(/^</, '').replace(/@[\s\S]*/, ''))
-    .filter(Boolean);
+  const providerIds = providerMessageIds(lookupIds);
 
   const existingMessages = await tenantDb
     .select({
@@ -642,6 +652,8 @@ async function findThreadByReplyIds(
         or(
           // Match by our stored messageId (custom Message-ID header)
           inArray(tenantSchema.mailMessages.messageId, lookupIds),
+          // The id the provider returned for a message we sent
+          inArray(tenantSchema.mailMessages.externalMessageId, lookupIds),
           // Match by provider message ID (Mailgun/SES may override Message-ID)
           inArray(tenantSchema.mailMessages.mailcowMessageId, providerIds)
         )
@@ -655,38 +667,45 @@ async function findThreadByReplyIds(
 }
 
 /**
- * Fallback: match by subject when Message-ID lookup fails
- * (handles cases where the email provider overrides the Message-ID header).
+ * Fallback: match by subject when Message-ID lookup fails (the provider
+ * overrides the Message-ID header, or the reply carries no threading headers).
+ * Looks at earlier messages with the same subject (`X` or `Re: X`) in the same
+ * mailbox. A reply that has no headers to vouch for it must also share a
+ * participant with the thread, so two strangers' "Re: Hello" do not merge.
  */
 async function findThreadBySubject(
   tenantDb: TenantDbHandle,
   account: RecipientAccount,
   email: ParsedEmail,
+  opts: { requireParticipant: boolean } = { requireParticipant: false },
 ): Promise<ThreadMatch | null> {
-  const normalizedSubject = email.subject
-    .replaceAll(/^(Re|Fwd|Fw):\s*/gi, '')
-    .trim();
-  if (!normalizedSubject) return null;
+  const subjects = conversationSubjects(email.subject);
+  if (subjects.length === 0) return null;
 
-  const subjectMatch = await tenantDb
+  const candidates = await tenantDb
     .select({
       threadId: tenantSchema.mailMessages.threadId,
       isSpam: tenantSchema.mailMessages.isSpam,
+      from: tenantSchema.mailMessages.from,
+      to: tenantSchema.mailMessages.to,
+      cc: tenantSchema.mailMessages.cc,
     })
     .from(tenantSchema.mailMessages)
     .where(
       and(
         eq(tenantSchema.mailMessages.accountId, account.accountId),
-        eq(tenantSchema.mailMessages.subject, normalizedSubject),
+        inArray(sql`lower(${tenantSchema.mailMessages.subject})`, subjects),
         isNull(tenantSchema.mailMessages.deletedAt)
       )
     )
     .orderBy(desc(tenantSchema.mailMessages.sentDate))
-    .limit(1);
+    .limit(20);
 
-  const subjectThreadId = subjectMatch[0]?.threadId;
-  if (!subjectThreadId) return null;
-  return { threadId: subjectThreadId, isExistingHamThread: subjectMatch[0]?.isSpam === false };
+  const subjectMatch = candidates.find(
+    (c) => c.threadId && (!opts.requireParticipant || involvesAddress(c, email.from?.email)),
+  );
+  if (!subjectMatch?.threadId) return null;
+  return { threadId: subjectMatch.threadId, isExistingHamThread: subjectMatch.isSpam === false };
 }
 
 /** Resolve the thread a new tenant message belongs to. */
@@ -696,8 +715,20 @@ async function resolveTenantThread(
   email: ParsedEmail,
   isReply: boolean,
 ): Promise<ThreadMatch> {
-  // New standalone message
-  if (!isReply) return { threadId: email.messageId, isExistingHamThread: false };
+  // No threading headers. A "Re: ..." from a sender that never set them
+  // (some helpdesk and CRM mailers) still belongs to the conversation it
+  // answers, when we hold that conversation and the sender took part in it.
+  if (!isReply) {
+    if (hasReplyPrefix(email.subject) && bareSubject(email.subject)) {
+      const bySubject = await findThreadBySubject(tenantDb, account, email, { requireParticipant: true });
+      if (bySubject) {
+        console.log(`[Store] Found existing thread ${bySubject.threadId} for reply without headers (by subject)`);
+        return bySubject;
+      }
+    }
+    // New standalone message
+    return { threadId: email.messageId, isExistingHamThread: false };
+  }
 
   // Look up existing messages by inReplyTo or references to find the thread
   const byIds = await findThreadByReplyIds(tenantDb, account, email);

@@ -7,6 +7,11 @@
  * to wire them together. Delete cleans up both the row and the R2 object
  * (best-effort — R2 failure doesn't block).
  *
+ * Responses never carry `storagePath` or `downloadUrl` (the bucket's public URL
+ * serves a file without authentication): the bytes are only served by
+ * `GET /:id/download`, which checks access to the mailbox, and a caller that
+ * cannot read the attachment gets a 404 there, like for a missing one.
+ *
  * Entity events: `mail_attachment:created | updated | deleted`.
  */
 
@@ -18,6 +23,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import * as attachments from '@weldsuite/mail-domain/attachments';
+import { toPublicAttachment, isWorkspaceStorageKey } from '@weldsuite/mail-domain/attachments';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 
@@ -28,8 +34,9 @@ const createBody = z.object({
   fileName: z.string().min(1).max(500),
   contentType: z.string().max(255).optional(),
   size: z.number().int().nonnegative(),
+  // Must be an object under the caller's workspace folder (checked in the
+  // handlers). `downloadUrl` is no longer accepted: a public URL is never stored.
   storagePath: z.string().max(1000).optional(),
-  downloadUrl: z.string().optional(),
   checksum: z.string().max(64).optional(),
   isInline: z.boolean().optional(),
   contentId: z.string().max(255).optional(),
@@ -37,6 +44,12 @@ const createBody = z.object({
 });
 
 const updateBody = createBody.partial();
+
+/** 400 body when a storagePath points outside the workspace's folder. */
+function foreignStoragePath(c: import('hono').Context<{ Bindings: Env; Variables: Variables }>, path: string | undefined) {
+  if (path === undefined || isWorkspaceStorageKey(path, c.get('workspaceId'))) return null;
+  return error.badRequest(c, 'storagePath must be a file in this workspace');
+}
 
 const associateBody = z.object({
   messageId: z.string().min(1),
@@ -53,7 +66,7 @@ app.get('/message/:messageId', requirePermission('messages:read'), async (c) => 
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     const rows = await attachments.listAttachmentsForMessage(db, messageId);
-    return success(c, rows);
+    return success(c, rows.map(toPublicAttachment));
   } catch (err) {
     console.error('[app-api/mail-attachments] list-for-message failed:', err);
     return error.internal(c, 'Failed to list attachments');
@@ -69,7 +82,34 @@ app.post('/associate', requirePermission('messages:update'), zValidator('json', 
     if (!accountId) return error.notFound(c, 'Message', messageId);
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const result = await attachments.associateAttachments(db, messageId, attachmentIds);
+    // Only attachments of mailboxes the caller can open: an id from a private
+    // mailbox must not be movable into a message the caller does control.
+    const movable: Array<{ id: string; fileName: string }> = [];
+    const checked = new Map<string, boolean>();
+    for (const attachmentId of new Set(attachmentIds)) {
+      const row = await attachments.getAttachment(db, attachmentId);
+      if (!row) continue;
+      const owner = await getMessageAccountId(db, row.messageId);
+      if (!owner) continue;
+      if (!checked.has(owner)) checked.set(owner, await checkAccountAccess(db, owner, userId));
+      if (checked.get(owner)) movable.push({ id: row.id, fileName: row.fileName });
+    }
+    const result = await attachments.associateAttachments(
+      db,
+      messageId,
+      movable.map((a) => a.id),
+    );
+    if (result.associated > 0) {
+      for (const moved of movable) {
+        publishEntityEvent({
+          c,
+          entityType: 'mail_attachment',
+          entityId: moved.id,
+          action: 'updated',
+          data: { id: moved.id, messageId, fileName: moved.fileName },
+        });
+      }
+    }
     return success(c, { messageId, ...result });
   } catch (err) {
     console.error('[app-api/mail-attachments] associate failed:', err);
@@ -92,15 +132,21 @@ app.get('/:id/download', requirePermission('messages:read'), async (c) => {
     if (!row) return error.notFound(c, 'Attachment', id);
     const accountId = await getMessageAccountId(db, row.messageId);
     if (!accountId) return error.notFound(c, 'Attachment', id);
+    // Not readable = not found: the response must not tell an attachment of a
+    // private mailbox apart from one that does not exist.
     const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+    if (!allowed) return error.notFound(c, 'Attachment', id);
     if (!c.env.STORAGE) {
       return c.json(
         { error: { code: 'STORAGE_BINDING_MISSING', message: 'Storage binding not configured' } },
         503,
       );
     }
-    const object = row.storagePath ? await c.env.STORAGE.get(row.storagePath) : null;
+    // A key outside the workspace's folder is never served, whatever the row says.
+    const object =
+      row.storagePath && isWorkspaceStorageKey(row.storagePath, c.get('workspaceId'))
+        ? await c.env.STORAGE.get(row.storagePath)
+        : null;
     if (!object) return error.notFound(c, 'Attachment', id);
     return new Response(object.body, {
       headers: {
@@ -129,8 +175,8 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
     const accountId = await getMessageAccountId(db, row.messageId);
     if (!accountId) return error.notFound(c, 'Attachment', id);
     const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    return success(c, row);
+    if (!allowed) return error.notFound(c, 'Attachment', id);
+    return success(c, toPublicAttachment(row));
   } catch (err) {
     console.error('[app-api/mail-attachments] get failed:', err);
     return error.internal(c, 'Failed to fetch attachment');
@@ -142,6 +188,8 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createBod
     const db = c.get('tenantDb');
     const userId = c.get('userId');
     const data = c.req.valid('json');
+    const foreign = foreignStoragePath(c, data.storagePath);
+    if (foreign) return foreign;
     const accountId = await getMessageAccountId(db, data.messageId);
     if (!accountId) return error.notFound(c, 'Message', data.messageId);
     const allowed = await checkAccountAccess(db, accountId, userId);
@@ -154,7 +202,7 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createBod
       action: 'created',
       data: { id: row.id, messageId: row.messageId, fileName: row.fileName },
     });
-    return success(c, row, 201);
+    return success(c, toPublicAttachment(row), 201);
   } catch (err) {
     console.error('[app-api/mail-attachments] create failed:', err);
     return error.internal(c, 'Failed to create attachment');
@@ -166,6 +214,8 @@ const updateRoute = async (
 ) => {
   const id = c.req.param('id');
   const data = c.req.valid('json' as never) as z.infer<typeof updateBody>;
+  const foreign = foreignStoragePath(c, data.storagePath);
+  if (foreign) return foreign;
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const existing = await attachments.getAttachment(db, id);
@@ -184,7 +234,7 @@ const updateRoute = async (
       action: 'updated',
       data: { id, messageId: result.after.messageId, fileName: result.after.fileName },
     });
-    return success(c, result.after);
+    return success(c, toPublicAttachment(result.after));
   } catch (err) {
     console.error('[app-api/mail-attachments] update failed:', err);
     return error.internal(c, 'Failed to update attachment');

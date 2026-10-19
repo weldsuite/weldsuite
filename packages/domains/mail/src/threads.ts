@@ -12,7 +12,8 @@
  *   2. Pull the full message bodies for those threads in a second query.
  *   3. Group + summarise in memory (participants, label union, latest
  *      sender, attachment flag, unread count).
- *   4. Resolve contact names + avatars via a single `people` join.
+ *   4. Resolve sender names + avatars (own mailbox, contacts) with the same
+ *      helper the reading pane uses (`enrichSenderContacts`).
  *
  * The api-worker version does the same thing in two places (per-account
  * and unified); we've collapsed both into `listThreadsByLabel`.
@@ -28,7 +29,14 @@ import {
   SYSTEM_LABELS,
   toSystemLabel,
 } from './labels';
-import { anyRecipientMatches, containsPattern, messageSearchCondition, senderMatches } from './messages';
+import {
+  anyRecipientMatches,
+  containsPattern,
+  enrichSenderContacts,
+  messageContainsAnyWord,
+  messageSearchCondition,
+  senderMatches,
+} from './messages';
 import { wakeDueSnoozedMessages } from './snooze';
 import {
   principalAccessCondition,
@@ -38,7 +46,7 @@ import {
   type MailCaller,
 } from './access';
 
-const { mailAccounts, mailMessages, people: contacts } = schema;
+const { mailAccounts, mailMessages } = schema;
 
 export interface ListThreadsByLabelInput {
   labelSlug: string;
@@ -65,7 +73,13 @@ export interface ListThreadsByLabelInput {
   to?: string;
   /** Subject contains this text. */
   subject?: string;
+  /** Some message in the thread has an attachment (not only the latest one, not only one in this folder). */
   hasAttachment?: boolean;
+  /**
+   * "Doesn't have": leave out threads where any message contains any of these
+   * space-separated words in its subject, body or sender.
+   */
+  excludeWords?: string;
 }
 
 export interface ThreadSummary {
@@ -267,10 +281,38 @@ export async function listThreadsByLabel(
   if (input.subject?.trim()) {
     baseConditions.push(ilike(mailMessages.subject, containsPattern(input.subject)));
   }
-  if (input.hasAttachment) baseConditions.push(eq(mailMessages.hasAttachments, true));
 
   const threadIdExpr = sql<string>`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
-  const latestDateExpr = sql<string>`MAX(COALESCE(${mailMessages.receivedDate}, ${mailMessages.sentDate}, ${mailMessages.createdAt}))`;
+  const threadKey = sql`(${mailMessages.accountId}, ${threadIdExpr})`;
+  // Thread-level filters look at every message of the conversation, wherever
+  // it sits: a thread has an attachment when any reply does, and a word rules
+  // a thread out when any message carries it.
+  const anyMessageOfThread = (condition: SQL) =>
+    db
+      .select({ accountId: mailMessages.accountId, threadKey: threadIdExpr })
+      .from(mailMessages)
+      .where(and(isNull(mailMessages.deletedAt), accountScope, condition));
+  if (input.hasAttachment) {
+    baseConditions.push(
+      sql`${threadKey} IN ${anyMessageOfThread(
+        sql`(${mailMessages.hasAttachments} = true OR COALESCE(${mailMessages.attachmentCount}, 0) > 0)`,
+      )}`,
+    );
+  }
+  const excludeCondition = messageContainsAnyWord(input.excludeWords);
+  if (excludeCondition) {
+    baseConditions.push(sql`${threadKey} NOT IN ${anyMessageOfThread(excludeCondition)}`);
+  }
+
+  // A thread sorts by its newest message of any kind, so the reply you sent
+  // (SENT, not INBOX) lifts the conversation in the inbox like it does in Gmail.
+  const latestDateExpr = sql<string>`MAX((
+    SELECT MAX(COALESCE(newest.received_date, newest.sent_date, newest.created_at))
+    FROM mail_messages newest
+    WHERE newest.account_id = ${mailMessages.accountId}
+      AND COALESCE(newest.thread_id, newest.id) = COALESCE(${mailMessages.threadId}, ${mailMessages.id})
+      AND newest.deleted_at IS NULL
+  ))`;
 
   // ---- count distinct threads -----------------------------------------
   const [countRow] = await db
@@ -368,88 +410,32 @@ function dateOf(...candidates: (Date | null | undefined)[]): number {
   return 0;
 }
 
-function normalizeSubject(subject: string | null): string {
+/**
+ * The title of a thread: its first message's subject without reply prefixes.
+ * A forward keeps its `Fwd:`, which tells the conversation from the mail it
+ * was forwarded from.
+ */
+export function normalizeSubject(subject: string | null): string {
   if (!subject) return '(No subject)';
-  return subject.replace(/^(Re:|Fwd:|Fw:)\s*/i, '');
+  return subject.replace(/^(?:re:\s*)+/i, '') || '(No subject)';
 }
 
-function collectThreadSenderEmails(summaries: ThreadSummary[]): Set<string> {
-  const emails = new Set<string>();
-  for (const t of summaries) {
-    if (t.latestSenderEmail) emails.add(t.latestSenderEmail.toLowerCase());
-    for (const msg of t.messages) {
-      const from = msg.from as { email?: string } | null;
-      if (from?.email) emails.add(from.email.toLowerCase());
-    }
-  }
-  return emails;
-}
-
-function buildContactLookups(
-  contactRows: Array<{
-    email: string | null;
-    firstName: string | null;
-    lastName: string | null;
-    avatarUrl: string | null;
-  }>,
-): { nameByEmail: Map<string, string>; avatarByEmail: Map<string, string> } {
-  const nameByEmail = new Map<string, string>();
-  const avatarByEmail = new Map<string, string>();
-  for (const row of contactRows) {
-    if (!row.email) continue;
-    const key = row.email.toLowerCase();
-    const fullName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim();
-    if (fullName && !nameByEmail.has(key)) nameByEmail.set(key, fullName);
-    if (row.avatarUrl && !avatarByEmail.has(key)) avatarByEmail.set(key, row.avatarUrl);
-  }
-  return { nameByEmail, avatarByEmail };
-}
-
-/** Rewrite each message's `from` with the resolved contact name + avatar, where one is known. */
-function applyContactsToMessages(
-  messages: MessageRow[],
-  nameByEmail: Map<string, string>,
-  avatarByEmail: Map<string, string>,
-): void {
-  for (const msg of messages) {
-    const from = msg.from as { name?: string; email?: string } | null;
-    if (!from?.email) continue;
-    const key = from.email.toLowerCase();
-    const contactName = nameByEmail.get(key);
-    const avatarUrl = avatarByEmail.get(key);
-    if (contactName || avatarUrl) {
-      (msg as { from: unknown }).from = {
-        ...from,
-        name: contactName ?? from.name,
-        avatarUrl: avatarUrl ?? null,
-      };
-    }
-  }
-}
-
+/**
+ * Resolve sender names + avatars on every message through the shared helper
+ * (own mailbox name, else contact name, else From name), then take the
+ * thread's latest sender from the latest message, so the list row and the
+ * reading pane show the same name.
+ */
 async function enrichThreadContacts(db: Database, summaries: ThreadSummary[]): Promise<void> {
-  const emails = collectThreadSenderEmails(summaries);
-  if (emails.size === 0) return;
-
-  const contactRows = await db
-    .select({
-      email: contacts.email,
-      firstName: contacts.firstName,
-      lastName: contacts.lastName,
-      avatarUrl: contacts.avatarUrl,
-    })
-    .from(contacts)
-    .where(and(inArray(contacts.email, [...emails]), isNull(contacts.deletedAt)));
-
-  const { nameByEmail, avatarByEmail } = buildContactLookups(contactRows);
-
+  await enrichSenderContacts(
+    db,
+    summaries.flatMap((t) => t.messages),
+  );
   for (const t of summaries) {
-    if (t.latestSenderEmail) {
-      const key = t.latestSenderEmail.toLowerCase();
-      const contactName = nameByEmail.get(key);
-      if (contactName) t.latestSender = contactName;
-      t.latestSenderAvatarUrl = avatarByEmail.get(key) ?? null;
-    }
-    applyContactsToMessages(t.messages, nameByEmail, avatarByEmail);
+    const latest = t.messages.find((m) => m.id === t.latestMessageId);
+    const from = latest?.from as { name?: string; email?: string; avatarUrl?: string | null } | null;
+    if (!from) continue;
+    t.latestSender = from.name || from.email || 'Unknown';
+    t.latestSenderAvatarUrl = from.avatarUrl ?? null;
   }
 }

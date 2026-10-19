@@ -19,6 +19,31 @@ import { generateId } from '@weldsuite/worker-kit/id';
 
 const { mailAttachments } = schema;
 
+/**
+ * A mail attachment as an API returns it. `storagePath` and `downloadUrl` are
+ * left out: the bucket's public URL serves a file to anyone holding the link,
+ * with no session, signature or expiry, so a mail API never hands it out. The
+ * bytes come from the mailbox-checked `GET /api/mail-attachments/:id/download`.
+ */
+export type PublicMailAttachment = Omit<typeof mailAttachments.$inferSelect, 'storagePath' | 'downloadUrl'>;
+
+export function toPublicAttachment<T extends { storagePath?: unknown; downloadUrl?: unknown }>(
+  row: T,
+): Omit<T, 'storagePath' | 'downloadUrl'> {
+  const { storagePath: _storagePath, downloadUrl: _downloadUrl, ...rest } = row;
+  return rest;
+}
+
+/**
+ * True when an object key sits under this workspace's folder. A row's
+ * `storagePath` is only ever read back through this check: a caller-supplied
+ * key must not reach into another workspace's files.
+ */
+export function isWorkspaceStorageKey(key: string, workspaceId: string): boolean {
+  if (!workspaceId || key.includes('..')) return false;
+  return key.startsWith(`workspaces/${workspaceId}/`);
+}
+
 /** The binding `deleteAttachment` reads (any worker Env with it fits). */
 export interface MailAttachmentsEnv {
   STORAGE?: R2Bucket;

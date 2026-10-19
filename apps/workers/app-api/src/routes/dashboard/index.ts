@@ -18,6 +18,7 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
+import { inTrashOrSpamCondition } from '@weldsuite/mail-domain/labels';
 import { listMemberAppCodes } from '../../services/member-apps';
 import { ensureMemberLinked } from '../../services/member-link';
 
@@ -130,7 +131,8 @@ app.get('/sidebar-badges', async (c) => {
     try {
       const { mailMessages } = schema;
       // Only the mailboxes this member may open: the count of a colleague's
-      // private mailbox is theirs alone.
+      // private mailbox is theirs alone. Trash and spam never count towards
+      // the badge (same rule as the mail folder counters).
       const accountIds = await listAccessibleAccountIds(db, c.get('userId'));
       if (accountIds.length > 0) {
         const [messageCount] = await db
@@ -141,6 +143,7 @@ app.get('/sidebar-badges', async (c) => {
               eq(mailMessages.isRead, false),
               isNull(mailMessages.deletedAt),
               inArray(mailMessages.accountId, accountIds),
+              sql`NOT ${inTrashOrSpamCondition()}`,
             ),
           );
         badges.unreadMessages = messageCount?.count || 0;

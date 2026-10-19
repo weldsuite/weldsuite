@@ -460,13 +460,14 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
                 </div>
               )}
 
-              <p className="text-xs text-muted-foreground">
-                {t.mail.addAccount.emailAddressWillBe}{' '}
-                <strong>
-                  {weldmailAddress || 'mycompany'}@
-                  {weldmailDomain || 'weldmail.com'}
-                </strong>
-              </p>
+              {weldmailAddress && (
+                <p className="text-xs text-muted-foreground">
+                  {t.mail.addAccount.emailAddressWillBe}{' '}
+                  <strong>
+                    {weldmailAddress}@{weldmailDomain || 'weldmail.com'}
+                  </strong>
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -573,12 +574,14 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
                       </span>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t.mail.addAccount.emailAddressWillBe}{' '}
-                    <strong>
-                      {emailPrefix || 'john.doe'}@{selectedDomain}
-                    </strong>
-                  </p>
+                  {emailPrefix && (
+                    <p className="text-xs text-muted-foreground">
+                      {t.mail.addAccount.emailAddressWillBe}{' '}
+                      <strong>
+                        {emailPrefix}@{selectedDomain}
+                      </strong>
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
