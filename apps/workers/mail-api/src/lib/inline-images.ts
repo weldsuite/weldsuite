@@ -4,18 +4,11 @@
  */
 
 import type { Context } from 'hono';
-import type { InlineImageSigner } from '@weldsuite/mail-domain/inline-images';
+import { inlineImageSecret, type InlineImageSigner } from '@weldsuite/mail-domain/inline-images';
 import type { Env, Variables } from '../types';
 
-/**
- * The secret inline-image tokens are sealed with: `MAIL_INLINE_IMAGE_SECRET`,
- * else `DATABASE_ENCRYPTION_KEY` (every API worker holds it; the token keys
- * are derived from it under their own HKDF labels, so it never serves as the
- * key itself). Rotating either only breaks URLs minted in the last hour.
- */
-export function inlineImageSecret(env: Env): string | undefined {
-  return env.MAIL_INLINE_IMAGE_SECRET || env.DATABASE_ENCRYPTION_KEY || undefined;
-}
+// The send path opens the same tokens, so the secret is resolved in the domain.
+export { inlineImageSecret };
 
 /**
  * The signer a reading route passes to getMessage / getThread. Undefined

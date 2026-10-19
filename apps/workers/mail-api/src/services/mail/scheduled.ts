@@ -28,6 +28,7 @@ import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
 import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { embedInlineImages, type InlineImagePart } from '@weldsuite/mail-domain/send-inline-images';
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 
@@ -137,7 +138,6 @@ export async function scheduleEmail(
   // failure days later would be a confusing UX.
   const validated = await validateScheduledAttachments(env, workspaceId, data);
   const reparented = await movableAttachmentIds(db, userId, data.attachmentIds ?? []);
-  const totalAttachmentCount = reparented.length + validated.length;
 
   const messageId = generateId('msg');
   const smtpMessageId = `<${messageId}@scheduled.weldsuite.org>`;
@@ -145,9 +145,24 @@ export async function scheduleEmail(
   // Sanitize before storing; the delivery workflow re-sends this stored copy.
   // Same body rules as an immediate send (see @weldsuite/mail-domain/text).
   const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
-  const htmlBody = sanitizeEmailHtml(rawHtml) || undefined;
   const textBody = plainTextBody(data.body, data.htmlBody);
   const textPreview = (textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  // A quoted reading-pane image URL expires within the hour; the stored copy
+  // goes out later, so its images are stored as inline parts of their own.
+  const { html: htmlBody, parts: inlineParts } = await embedInlineImages(
+    env,
+    db,
+    sanitizeEmailHtml(rawHtml) || undefined,
+    { workspaceId, caller: userId, accountId: data.accountId },
+  );
+  const inlineBytes = inlineParts.reduce((total, part) => total + part.content.byteLength, 0);
+  if (inlineBytes > 0 && inlineBytes + scheduledBytes(data, validated) > MAX_EMAIL_SIZE_BYTES) {
+    throw new MailScheduledError(
+      'EMAIL_TOO_LARGE',
+      `Email exceeds the ${MAX_EMAIL_SIZE_BYTES / (1024 * 1024)} MB limit (body + attachments).`,
+    );
+  }
+  const totalAttachmentCount = reparented.length + validated.length + inlineParts.length;
 
   await db.insert(mailMessages).values({
     id: messageId,
@@ -201,6 +216,7 @@ export async function scheduleEmail(
       })),
     );
   }
+  await storeInlineParts(env, db, workspaceId, messageId, inlineParts, now);
 
   // Workflow instance id == messageId — cancel/reschedule routes look it
   // up by message id without an extra column.
@@ -358,6 +374,7 @@ export async function sendScheduledNow(
       contentType: r.contentType ?? undefined,
       size: r.size,
       fileKey: r.storagePath!,
+      cid: r.isInline && r.contentId ? r.contentId : undefined,
     }));
 
   const toAddresses = ((message.to as { email?: string }[] | null) ?? [])
@@ -461,6 +478,54 @@ async function restoreSchedule(
   } catch (err) {
     console.error('[mail-scheduled] could not restore the schedule after a failed send-now:', err);
   }
+}
+
+/** Body plus uploaded attachments, as the size cap counts them. */
+function scheduledBytes(data: ScheduleEmailInput, validated: Array<{ size: number }>): number {
+  const encoder = new TextEncoder();
+  return (
+    (data.body ? encoder.encode(data.body).byteLength : 0) +
+    (data.htmlBody ? encoder.encode(data.htmlBody).byteLength : 0) +
+    validated.reduce((total, att) => total + att.size, 0)
+  );
+}
+
+/**
+ * Store a scheduled message's inline images as its own attachments, so the
+ * workflow sends them by Content-ID and the Scheduled/Sent copy shows them.
+ */
+async function storeInlineParts(
+  env: Env,
+  db: Database,
+  workspaceId: string,
+  messageId: string,
+  parts: InlineImagePart[],
+  now: Date,
+): Promise<void> {
+  if (parts.length === 0 || !env.STORAGE) return;
+  const storage = env.STORAGE;
+  const rows = await Promise.all(
+    parts.map(async (part, index) => {
+      const safeName = part.filename.replaceAll(/[^\w.\- ]+/g, '_').slice(0, 200) || 'image';
+      const storagePath = `workspaces/${workspaceId}/mail/attachments/${messageId}/inline_${index + 1}_${safeName}`;
+      await storage.put(storagePath, part.content, {
+        httpMetadata: { contentType: part.contentType || 'application/octet-stream' },
+      });
+      return {
+        id: generateId('attach'),
+        messageId,
+        fileName: part.filename,
+        contentType: part.contentType || 'application/octet-stream',
+        size: part.content.byteLength,
+        storagePath,
+        isInline: true,
+        contentId: part.cid,
+        createdAt: now,
+        updatedAt: now,
+      };
+    }),
+  );
+  await db.insert(mailAttachments).values(rows);
 }
 
 async function validateScheduledAttachments(
