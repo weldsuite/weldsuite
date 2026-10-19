@@ -91,4 +91,37 @@ test.describe('WeldMail · Compose form', () => {
     // Should navigate back to the label view
     await expect(page).toHaveURL(new RegExp(`/weldmail/${accountId}`), { timeout: 10_000 });
   });
+
+  test('Send without a recipient shows an inline error and focuses the To field', async ({ page }) => {
+    await page.goto(`/weldmail/${accountId}/INBOX/compose`);
+    await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByPlaceholder(/subject/i).fill('No recipient yet');
+    const body = page.locator('[contenteditable="true"]');
+    await body.click();
+    await body.type('Body without a recipient.');
+
+    await page.getByTestId('compose-send-btn').click();
+
+    await expect(page.getByTestId('compose-to-input-error')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('compose-to-input')).toBeFocused();
+    // Still on the compose page: nothing was sent.
+    await expect(page).toHaveURL(/\/compose/);
+  });
+
+  test('picking a recipient clears the missing-recipient error', async ({ page }) => {
+    await page.goto(`/weldmail/${accountId}/INBOX/compose`);
+    await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByPlaceholder(/subject/i).fill('Recipient later');
+    const body = page.locator('[contenteditable="true"]');
+    await body.click();
+    await body.type('Body.');
+    await page.getByTestId('compose-send-btn').click();
+    await expect(page.getByTestId('compose-to-input-error')).toBeVisible({ timeout: 5_000 });
+
+    const toInput = page.getByTestId('compose-to-input');
+    await toInput.fill('playwright@test.example');
+    await expect(page.getByTestId('compose-to-input-error')).toBeHidden();
+  });
 });

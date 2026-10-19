@@ -36,6 +36,19 @@ describe('plainTextBody', () => {
     expect(plainTextBody('Hi there,\n\nBye', '<p>Hi there,</p><p>Bye</p>')).toBe('Hi there,\n\nBye');
   });
 
+  it('keeps plain text with angle brackets verbatim when an htmlBody came with it', () => {
+    const text = 'Budget is < 500 and margin > 20%. Use <strong> in the template.';
+    expect(
+      plainTextBody(text, '<p>Budget is &lt; 500 and margin &gt; 20%. Use &lt;strong&gt; in the template.</p>'),
+    ).toBe(text);
+    expect(plainTextBody('a < b and c > d <strong>', '<p>a &lt; b and c &gt; d &lt;strong&gt;</p>')).toBe(
+      'a < b and c > d <strong>',
+    );
+    expect(plainTextBody('<i>literal tag</i> & ampersand.', '<p>&lt;i&gt;literal tag&lt;/i&gt; &amp; ampersand.</p>')).toBe(
+      '<i>literal tag</i> & ampersand.',
+    );
+  });
+
   it('strips markup a client put in the text field', () => {
     expect(plainTextBody('Hi<div><b>bold</b></div>', undefined)).toBe('Hi\nbold');
   });

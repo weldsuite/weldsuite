@@ -8,7 +8,7 @@
  */
 
 /** Mirrors MAX_SCHEDULE_DAYS in apps/workers/mail-api/src/services/mail/scheduled.ts. */
-export const MAX_SCHEDULE_DAYS = 7;
+export const MAX_SCHEDULE_DAYS = 365;
 
 export type SendTimeIcon = 'clock' | 'sun' | 'coffee' | 'calendar';
 

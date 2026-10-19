@@ -2,7 +2,7 @@
 import React, { useState, useCallback } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Link } from '@/lib/router';
-import { Star, Pin, Paperclip } from 'lucide-react';
+import { Star, Pin, Paperclip, Flag, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   ContextMenu,
@@ -138,6 +138,9 @@ function ItemHeader({
             hasUnread ? 'font-semibold text-gray-900 dark:text-foreground' : 'font-medium text-gray-500 dark:text-muted-foreground'
           )}
         >
+          {item.namePrefix && (
+            <span className="font-normal text-gray-400 dark:text-muted-foreground">{item.namePrefix} </span>
+          )}
           {item.name || t('sweep.shared.unknown')}
         </span>
         {item.messageCount > 1 && (
@@ -154,6 +157,13 @@ function ItemHeader({
           <Paperclip className="h-3 w-3 text-gray-400 dark:text-muted-foreground" />
         )}
         {isPinned && <Pin className="h-3 w-3 text-blue-500 fill-blue-500" />}
+        {item.isImportant && (
+          <Flag
+            className="h-3 w-3 text-orange-500 fill-orange-500"
+            role="img"
+            aria-label={item.importantLabel}
+          />
+        )}
         {item.isStarred && (
           <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 -translate-y-[1.5px]" />
         )}
@@ -219,6 +229,12 @@ export function ConversationListItem({
             <div className={cn('text-[13px] truncate mt-0.5', hasUnread ? 'text-gray-500 dark:text-muted-foreground' : 'text-gray-400 dark:text-muted-foreground')}>
               {item.preview}
             </div>
+            {item.statusLabel && (
+              <div className="mt-1 flex items-center gap-1 text-[12px] text-purple-600 dark:text-purple-400">
+                <Clock className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                <span className="truncate">{item.statusLabel}</span>
+              </div>
+            )}
             {/* Label Badges */}
             <LabelBadges item={item} labels={displayLabels} />
             {/* Unread count indicator */}

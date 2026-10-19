@@ -713,7 +713,7 @@ export async function sendAndPersist(
 function prepareBody(data: SendComposeInput): { html: string | undefined; text: string | undefined } {
   const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
   const html = sanitizeEmailHtml(rawHtml) || undefined;
-  return { html, text: plainTextBody(data.body, html) };
+  return { html, text: plainTextBody(data.body, data.htmlBody) };
 }
 
 /** Recipient validation (format + MX). Dry-run keeps the format check but skips the network MX lookup. */
@@ -974,6 +974,13 @@ function buildEmlAttachment(original: OriginalMessage, files: InlineAttachment[]
   };
 }
 
+/** The subject of a forward: `Fwd: ` once, whatever the original already had (`Fwd:`, `Fw:`, any casing). */
+export function forwardSubject(original: string | null | undefined): string {
+  const subject = (original ?? '').trim();
+  if (/^fwd?:\s*/i.test(subject)) return subject;
+  return `Fwd: ${subject || '(No subject)'}`;
+}
+
 /**
  * Forward variant — looks up the original message, prepends the standard
  * quoted "Forwarded message" block to the user's body, prefixes the
@@ -1004,9 +1011,7 @@ export async function forwardAndPersist(
     throw new MailSendError('ACCOUNT_NOT_FOUND', 'Original message not found');
   }
 
-  const subject = original.subject?.match(/^(Fwd|Fw):\s*/i)
-    ? original.subject
-    : `Fwd: ${original.subject ?? ''}`;
+  const subject = forwardSubject(original.subject);
 
   const originalFiles = await loadOriginalAttachments(
     env,

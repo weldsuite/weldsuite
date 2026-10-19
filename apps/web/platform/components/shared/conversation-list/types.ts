@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 export interface ConversationItem {
   id: string;
   name: string;
+  /** Shown before the name, e.g. "To:" on rows of mail the user sent. */
+  namePrefix?: string;
   email?: string;
   avatarUrl?: string;
   subject: string;
@@ -10,6 +12,11 @@ export interface ConversationItem {
   date: Date;
   isRead: boolean;
   isStarred: boolean;
+  /** Shows a flag next to the star. Set importantLabel too, for screen readers. */
+  isImportant?: boolean;
+  importantLabel?: string;
+  /** A short status line under the preview, e.g. "Snoozed until 25 Oct, 08:00". */
+  statusLabel?: string;
   hasAttachments: boolean;
   labels: string[];
   labelColors?: Record<string, string>;

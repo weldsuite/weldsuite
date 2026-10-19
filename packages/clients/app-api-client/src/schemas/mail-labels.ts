@@ -53,6 +53,8 @@ export const listMailLabelThreadsQuery = z.object({
   from: z.string().max(200).optional(),
   to: z.string().max(200).optional(),
   subject: z.string().max(200).optional(),
+  /** "Doesn't have": leaves out threads where any message has any of these words (subject, body, sender). */
+  excludeWords: z.string().max(200).optional(),
   hasAttachment: z.boolean().optional(),
 });
 

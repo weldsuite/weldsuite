@@ -3,7 +3,7 @@
  * people suggestions menu and the handlers that tie them together. Shared by
  * the full-page compose and the floating compose panel so both behave the same.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { ChevronDown, PanelRight, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -320,6 +320,8 @@ function ToRecipientsInput({
   onInputBlur,
   label,
   testId,
+  invalid = false,
+  describedBy,
 }: Readonly<{
   recipients: string[];
   /** The person behind an address, where there is one. */
@@ -334,6 +336,10 @@ function ToRecipientsInput({
   /** Accessible name of the typing input (To, Cc, Bcc). */
   label: string;
   testId?: string;
+  /** Marks the input as failing validation (a send without any recipient). */
+  invalid?: boolean;
+  /** Id of the element that explains `invalid`. */
+  describedBy?: string;
 }>) {
   const { t } = useI18n();
 
@@ -405,6 +411,8 @@ function ToRecipientsInput({
         onFocus={onInputFocus}
         onBlur={onInputBlur}
         aria-label={label}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? describedBy : undefined}
         data-testid={testId}
       />
     </div>
@@ -456,6 +464,12 @@ function ContactSuggestionsList({
   );
 }
 
+/** What the owner of a recipients row can ask of it. */
+export interface RecipientsRowHandle {
+  /** Puts the cursor in the row's typing input. */
+  focus: () => void;
+}
+
 /**
  * One recipients row (To, Cc or Bcc): the label, the recipients with their typing
  * input, the people suggestions menu under it and the quick-add dialog.
@@ -471,6 +485,8 @@ export function RecipientsRow({
   trailing,
   focusOnMount = false,
   testId,
+  handleRef,
+  error,
 }: Readonly<{
   label: string;
   recipients: string[];
@@ -484,7 +500,11 @@ export function RecipientsRow({
   trailing?: React.ReactNode;
   focusOnMount?: boolean;
   testId?: string;
+  handleRef?: React.Ref<RecipientsRowHandle>;
+  /** Message shown under the row, which also marks the input as invalid. */
+  error?: string;
 }>) {
+  const errorId = useId();
   const suggestions = useContactSuggestions();
   const recipientInput = useRecipientInput({
     toRecipients: recipients,
@@ -501,6 +521,7 @@ export function RecipientsRow({
   };
 
   const { inputRef } = suggestions;
+  useImperativeHandle(handleRef, () => ({ focus: () => inputRef.current?.focus() }), [inputRef]);
   useEffect(() => {
     if (focusOnMount) inputRef.current?.focus();
     // Once, when the row appears.
@@ -527,10 +548,22 @@ export function RecipientsRow({
               onInputBlur={recipientInput.handleToInputBlur}
               label={label}
               testId={testId}
+              invalid={!!error}
+              describedBy={errorId}
             />
           </div>
           {trailing}
         </div>
+        {error && (
+          <p
+            id={errorId}
+            role="alert"
+            data-testid={testId ? `${testId}-error` : undefined}
+            className={cn(labelClassName && 'pl-[72px]', 'pb-1 text-xs text-destructive')}
+          >
+            {error}
+          </p>
+        )}
 
         {suggestions.show && (
           <ContactSuggestionsList
