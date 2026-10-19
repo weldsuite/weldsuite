@@ -106,10 +106,14 @@ export function ShardStatusBadge({ status }: Readonly<{ status: ShardStatus }>) 
   return <Badge variant={SHARD_STATUS_VARIANT[status] ?? 'secondary'}>{lookup(t.shards.status, status)}</Badge>;
 }
 
+const PROVISIONING_VARIANT: Record<string, 'success' | 'destructive'> = {
+  ready: 'success',
+  failed: 'destructive',
+};
+
 export function ProvisioningBadge({ status }: Readonly<{ status: string }>) {
   const t = adminCopy().databases;
-  const variant = status === 'ready' ? 'success' : status === 'failed' ? 'destructive' : 'warning';
-  return <Badge variant={variant}>{lookup(t.provisioning, status)}</Badge>;
+  return <Badge variant={PROVISIONING_VARIANT[status] ?? 'warning'}>{lookup(t.provisioning, status)}</Badge>;
 }
 
 const POOL_STATUS_VARIANT: Record<PoolStatus, 'success' | 'secondary' | 'destructive'> = {
@@ -191,7 +195,8 @@ export function DriftNotice({
   const t = adminCopy().databases;
   if (drift.state === 'in_sync') return null;
 
-  const message = drift.state === 'recent' ? t.drift.recent : drift.delta > 0 ? t.drift.higher : t.drift.lower;
+  let message = drift.delta > 0 ? t.drift.higher : t.drift.lower;
+  if (drift.state === 'recent') message = t.drift.recent;
   const text = fill(message, {
     actual: drift.actual,
     expected: drift.expected,
