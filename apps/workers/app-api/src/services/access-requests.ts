@@ -14,6 +14,7 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { checkPermissionGrants, type PermissionSubject } from '@weldsuite/permissions';
 
 export interface CreateAccessRequestParams {
   requesterId: string;
@@ -163,10 +164,14 @@ export interface ResolveAccessRequestParams {
   requestId: string;
   resolverUserId: string;
   status: ResolveStatus;
+  /** The resolver's own permissions: approving may only grant what they hold. */
+  grantor: PermissionSubject;
 }
 
 export type ResolveOutcome =
   | { kind: 'not_found' }
+  /** Approval refused: the permission is not grantable, or not held by the resolver. */
+  | { kind: 'ungrantable' }
   | { kind: 'already_resolved'; request: typeof schema.accessRequests.$inferSelect }
   | {
       kind: 'resolved';
@@ -182,10 +187,17 @@ export type ResolveOutcome =
  * Returns the granted permission, or null when the requester has no active
  * membership (nothing to grant to).
  */
+/**
+ * Add the requested permission to the requester's per-member extras. Same
+ * grant ceiling as every other permission write (TASK-625): the request's
+ * `permission` is requester-supplied text, so it must be a real key the
+ * resolver holds, never `*`. Returns 'ungrantable' without writing otherwise.
+ */
 async function grantRequestedPermission(
   db: Database,
   request: typeof schema.accessRequests.$inferSelect,
-): Promise<string | null> {
+  grantor: PermissionSubject,
+): Promise<string | null | 'ungrantable'> {
   const { workspaceMembers } = schema;
 
   const [member] = await db
@@ -205,6 +217,7 @@ async function grantRequestedPermission(
   if (!member) return null;
 
   const current = Array.isArray(member.permissions) ? member.permissions : [];
+  if (!checkPermissionGrants(grantor, [request.permission], current).ok) return 'ungrantable';
   if (!current.includes(request.permission)) {
     const next = [...current, request.permission];
     await db
@@ -231,7 +244,9 @@ export async function resolveAccessRequest(
   if (existing.status !== 'pending') return { kind: 'already_resolved', request: existing };
 
   const grantedPermission =
-    params.status === 'approved' ? await grantRequestedPermission(db, existing) : null;
+    params.status === 'approved' ? await grantRequestedPermission(db, existing, params.grantor) : null;
+  // Left pending, so someone who does hold the permission can still approve it.
+  if (grantedPermission === 'ungrantable') return { kind: 'ungrantable' };
 
   const now = new Date();
   const [updated] = await db

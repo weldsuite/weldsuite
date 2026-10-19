@@ -16,6 +16,11 @@ import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/n
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import {
+  openCachedDatabaseUrl,
+  sealCachedDatabaseUrl,
+  sealedWorkspaceCacheKey,
+} from '@weldsuite/db/lib/workspace-url-cache';
 
 export type TenantDatabase = NeonHttpDatabase<typeof schema>;
 
@@ -34,6 +39,9 @@ interface CachedWorkspace {
   databaseUrl: string;
 }
 
+/** What lands in KV: the connection string sealed, never in the clear. */
+type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl'> & { databaseUrlSealed?: string };
+
 function getMasterDb(env: DbEnv): NeonHttpDatabase<typeof masterSchema> {
   if (!env.DATABASE_URL_MASTER) {
     throw new Error('DATABASE_URL_MASTER is not configured on realtime-worker');
@@ -43,11 +51,14 @@ function getMasterDb(env: DbEnv): NeonHttpDatabase<typeof masterSchema> {
 }
 
 async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
-  const cacheKey = `ws:${clerkOrgId}`;
+  // Sealed entries live under `wsx:`; the old plaintext `ws:<org>` key is never read.
+  const cacheKey = sealedWorkspaceCacheKey(clerkOrgId);
+  const keyring = { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
   const cached = env.WORKSPACE_CACHE
-    ? ((await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as CachedWorkspace | null)
+    ? ((await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null)
     : null;
-  if (cached) return cached;
+  const cachedUrl = cached ? await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring) : null;
+  if (cached && cachedUrl) return { id: cached.id, databaseUrl: cachedUrl };
 
   const masterDb = getMasterDb(env);
   const [workspace] = await masterDb
@@ -70,12 +81,15 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
   const databaseUrl = await resolveDatabaseUrl(
     env.NEON_API_KEY ?? '',
     workspace as any,
-    { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
+    keyring,
   );
 
   const entry: CachedWorkspace = { id: workspace.id, databaseUrl };
-  if (env.WORKSPACE_CACHE) {
-    await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(entry), {
+  // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
+  const databaseUrlSealed = env.WORKSPACE_CACHE ? await sealCachedDatabaseUrl(databaseUrl, keyring) : null;
+  if (env.WORKSPACE_CACHE && databaseUrlSealed) {
+    const stored: StoredWorkspace = { id: workspace.id, databaseUrlSealed };
+    await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(stored), {
       expirationTtl: KV_TTL_SECONDS,
     });
   }

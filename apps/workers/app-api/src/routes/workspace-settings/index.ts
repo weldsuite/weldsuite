@@ -48,8 +48,20 @@ import { cancelSubscriptionImmediately } from '@weldsuite/stripe';
 import { getMasterDb, masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import * as settingsService from '../../services/workspace-settings';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { sealedWorkspaceCacheKey } from '@weldsuite/db/lib/workspace-url-cache';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/**
+ * Drop the cached tenant-DB lookup of an org: the sealed entry (`wsx:<org>`)
+ * and the old plaintext key (`ws:<org>`), which a worker that has not been
+ * redeployed yet still reads and writes. Best effort, like the cache itself.
+ */
+async function invalidateWorkspaceCache(kv: KVNamespace, orgId: string): Promise<void> {
+  await Promise.all(
+    [sealedWorkspaceCacheKey(orgId), `ws:${orgId}`].map((key) => kv.delete(key).catch(() => {})),
+  );
+}
 
 const HELPCENTER_DOMAIN_SUFFIX = '.welddesk.org';
 
@@ -384,7 +396,7 @@ app.put('/name', zValidator('json', updateWorkspaceNameInput), async (c) => {
 
     // Invalidate the workspace cache — the next request re-resolves the
     // workspace metadata and picks up the new name.
-    await c.env.WORKSPACE_CACHE.delete(`ws:${orgId}`).catch(() => {});
+    await invalidateWorkspaceCache(c.env.WORKSPACE_CACHE, orgId);
 
     publishEntityEvent({
       c,
@@ -454,7 +466,7 @@ app.post('/slug', zValidator('json', updateWorkspaceSlugInput), async (c) => {
 
     // Invalidate the workspace cache — the next request will re-resolve the
     // tenant DB connection and pick up the new slug.
-    await c.env.WORKSPACE_CACHE.delete(`ws:${orgId}`).catch(() => {});
+    await invalidateWorkspaceCache(c.env.WORKSPACE_CACHE, orgId);
 
     publishEntityEvent({
       c,
@@ -636,7 +648,7 @@ app.post('/delete', zValidator('json', deleteWorkspaceInput), async (c) => {
       .where(eq(masterSchema.userWorkspaces.workspaceId, workspace.id));
 
     // 4) Invalidate the workspace cache so the next request re-resolves.
-    await c.env.WORKSPACE_CACHE.delete(`ws:${orgId}`).catch(() => {});
+    await invalidateWorkspaceCache(c.env.WORKSPACE_CACHE, orgId);
 
     publishEntityEvent({
       c,

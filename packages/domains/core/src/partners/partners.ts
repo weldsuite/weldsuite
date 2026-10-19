@@ -4,6 +4,11 @@
 
 import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
+import {
+  sealedMcpOrgCacheKey,
+  sealedWorkspaceCacheKey,
+  sealedWorkspaceIdCacheKey,
+} from '@weldsuite/db/lib/workspace-url-cache';
 import { grantCredits } from '@weldsuite/credits';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
@@ -372,13 +377,19 @@ type KvDeleter = { delete(key: string): Promise<void> };
  * a licence or partner-status change is enforced now instead of after the KV
  * TTL (300 s). Three caches hold it:
  *
- * - worker-kit (every module worker, app-api): `ws:<clerkOrgId>` in
+ * - worker-kit (every module worker, app-api): `wsx:<clerkOrgId>` in
  *   `WORKSPACE_CACHE` (`kv`, the first argument);
- * - external-api: `ws:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
+ * - external-api: `wsx:id:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
  *   `getWorkspaceDetails`);
- * - mcp-server: `mcp:org:<clerkOrgId>` in `API_CACHE` (middleware/auth.ts
+ * - mcp-server: `mcpx:org:<clerkOrgId>` in `API_CACHE` (middleware/auth.ts
  *   `getWorkspaceForOrg`). external-api and mcp-server share the `API_CACHE`
  *   namespace, so one `apiCache` handle covers both.
+ *
+ * Those are the sealed entries (the tenant connection string is encrypted in
+ * them). The old plaintext keys (`ws:<org>`, `ws:<id>`, `mcp:org:<org>`) are
+ * deleted too: a worker that has not been redeployed yet still reads them, and
+ * they otherwise expire on their own TTL. Drop that half once every worker runs
+ * the sealed-cache build.
  *
  * A missing handle skips that cache (it then expires on its own TTL), so a
  * caller without the `API_CACHE` binding degrades to the old behaviour.
@@ -392,10 +403,18 @@ export async function invalidateWorkspaceContexts(
   const workspaceIds = (extra.workspaceIds ?? []).filter((id): id is string => Boolean(id));
   const quiet = (p: Promise<void>) => p.catch(() => undefined);
   const deletes: Array<Promise<void>> = [];
-  if (kv) for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:${id}`)));
+  if (kv) {
+    for (const id of orgIds) {
+      deletes.push(quiet(kv.delete(sealedWorkspaceCacheKey(id))), quiet(kv.delete(`ws:${id}`)));
+    }
+  }
   if (extra.apiCache) {
-    for (const id of workspaceIds) deletes.push(quiet(extra.apiCache.delete(`ws:${id}`)));
-    for (const id of orgIds) deletes.push(quiet(extra.apiCache.delete(`mcp:org:${id}`)));
+    for (const id of workspaceIds) {
+      deletes.push(quiet(extra.apiCache.delete(sealedWorkspaceIdCacheKey(id))), quiet(extra.apiCache.delete(`ws:${id}`)));
+    }
+    for (const id of orgIds) {
+      deletes.push(quiet(extra.apiCache.delete(sealedMcpOrgCacheKey(id))), quiet(extra.apiCache.delete(`mcp:org:${id}`)));
+    }
   }
   await Promise.all(deletes);
 }

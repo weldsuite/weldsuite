@@ -4,9 +4,13 @@
  *
  * Aggregates cross-module data (orders/tickets chart, installed apps,
  * recent activity, sidebar badges, onboarding checklist). These are
- * workspace-home reads that span every module, so they are not gated on a
- * single object permission prefix — authentication + tenant resolution is
- * enforced by the `/api/*` Clerk + workspace-db middleware. The single
+ * workspace-home reads that span every module, so there is no single route
+ * gate; instead each section is gated on the object it reads and comes back
+ * empty/zero for a member without it (`orders:read` for order counts and
+ * revenue, `tickets:read` for ticket counts, `activities:read` for the CRM
+ * activity feed). The mail badge counts only mailboxes the member may open.
+ * Authentication + tenant resolution is the `/api/*` Clerk + workspace-db
+ * middleware. The single
  * mutation (`POST /onboarding-checklist/dismiss`) only flips a JSONB flag in
  * workspace_settings and is not an entity-object lifecycle event.
  */
@@ -14,6 +18,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
+import { hasContextPermission } from '@weldsuite/permissions/server';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -28,47 +33,63 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 // GET /chart — orders + tickets + revenue over the last 30 days
 // ============================================================================
 
+type ChartPoint = { date: string; orders: number; tickets: number; revenue: number };
+
 app.get('/chart', async (c) => {
   try {
     const db = c.get('tenantDb');
     const { orders } = schema;
+    const [canReadOrders, canReadTickets] = await Promise.all([
+      hasContextPermission(c, 'orders:read'),
+      hasContextPermission(c, 'tickets:read'),
+    ]);
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const chartData = await db
-      .select({
-        date: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM-DD')`,
-        orders: sql<number>`count(*)::int`,
-        revenue: sql<number>`coalesce(sum(${orders.total}::numeric), 0)::numeric`,
-      })
-      .from(orders)
-      .where(and(isNull(orders.deletedAt), gte(orders.createdAt, thirtyDaysAgo)))
-      .groupBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`)
-      .orderBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`);
+    // Order counts and revenue only for members who may read orders.
+    const chartData = canReadOrders
+      ? await db
+          .select({
+            date: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM-DD')`,
+            orders: sql<number>`count(*)::int`,
+            revenue: sql<number>`coalesce(sum(${orders.total}::numeric), 0)::numeric`,
+          })
+          .from(orders)
+          .where(and(isNull(orders.deletedAt), gte(orders.createdAt, thirtyDaysAgo)))
+          .groupBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`)
+          .orderBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`)
+      : [];
 
     const ticketCountsByDate: Record<string, number> = {};
     try {
       const { helpdeskTickets } = schema;
-      const ticketData = await db
-        .select({
-          date: sql<string>`to_char(${helpdeskTickets.createdAt}, 'YYYY-MM-DD')`,
-          tickets: sql<number>`count(*)::int`,
-        })
-        .from(helpdeskTickets)
-        .where(and(isNull(helpdeskTickets.deletedAt), gte(helpdeskTickets.createdAt, thirtyDaysAgo)))
-        .groupBy(sql`to_char(${helpdeskTickets.createdAt}, 'YYYY-MM-DD')`);
+      const ticketData = canReadTickets
+        ? await db
+            .select({
+              date: sql<string>`to_char(${helpdeskTickets.createdAt}, 'YYYY-MM-DD')`,
+              tickets: sql<number>`count(*)::int`,
+            })
+            .from(helpdeskTickets)
+            .where(and(isNull(helpdeskTickets.deletedAt), gte(helpdeskTickets.createdAt, thirtyDaysAgo)))
+            .groupBy(sql`to_char(${helpdeskTickets.createdAt}, 'YYYY-MM-DD')`)
+        : [];
       for (const row of ticketData) ticketCountsByDate[row.date] = row.tickets;
     } catch {
       // helpdeskTickets table may not exist; ignore.
     }
 
-    const result = chartData.map((row) => ({
-      date: row.date,
-      orders: row.orders,
-      tickets: ticketCountsByDate[row.date] || 0,
-      revenue: Number(row.revenue),
-    }));
+    const byDate = new Map<string, ChartPoint>();
+    for (const row of chartData) {
+      byDate.set(row.date, { date: row.date, orders: row.orders, tickets: 0, revenue: Number(row.revenue) });
+    }
+    // Without orders:read the ticket days still need a point of their own.
+    for (const [date, tickets] of Object.entries(ticketCountsByDate)) {
+      const point = byDate.get(date) ?? { date, orders: 0, tickets: 0, revenue: 0 };
+      point.tickets = tickets;
+      byDate.set(date, point);
+    }
+    const result = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 
     return success(c, result);
   } catch (err) {
@@ -101,6 +122,7 @@ app.get('/installed-apps', async (c) => {
 
 app.get('/activity', async (c) => {
   try {
+    if (!(await hasContextPermission(c, 'activities:read'))) return success(c, []);
     const db = c.get('tenantDb');
     const { crmActivities } = schema;
 
@@ -152,24 +174,34 @@ app.get('/sidebar-badges', async (c) => {
       // mailMessages table may not exist.
     }
 
+    // Ticket and order counts only for members who may read those objects.
+    const [canReadTickets, canReadOrders] = await Promise.all([
+      hasContextPermission(c, 'tickets:read'),
+      hasContextPermission(c, 'orders:read'),
+    ]);
+
     try {
       const { helpdeskTickets } = schema;
-      const [ticketCount] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(helpdeskTickets)
-        .where(and(eq(helpdeskTickets.status, 'open'), isNull(helpdeskTickets.deletedAt)));
-      badges.openTickets = ticketCount?.count || 0;
+      if (canReadTickets) {
+        const [ticketCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(helpdeskTickets)
+          .where(and(eq(helpdeskTickets.status, 'open'), isNull(helpdeskTickets.deletedAt)));
+        badges.openTickets = ticketCount?.count || 0;
+      }
     } catch {
       // helpdeskTickets table may not exist.
     }
 
     try {
       const { orders } = schema;
-      const [orderCount] = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(orders)
-        .where(and(eq(orders.status, 'pending'), isNull(orders.deletedAt)));
-      badges.pendingOrders = orderCount?.count || 0;
+      if (canReadOrders) {
+        const [orderCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(orders)
+          .where(and(eq(orders.status, 'pending'), isNull(orders.deletedAt)));
+        badges.pendingOrders = orderCount?.count || 0;
+      }
     } catch {
       // orders table may not exist.
     }

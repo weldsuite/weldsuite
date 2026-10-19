@@ -130,8 +130,9 @@ function isNotPositive(n: number): boolean {
   return Number.isNaN(n) || n <= 0;
 }
 
-function escapeHtml(str: string): string {
-  return str
+/** Null-safe: a contact without a name or an unset text field renders empty instead of throwing. */
+function escapeHtml(str: string | null | undefined): string {
+  return String(str ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')

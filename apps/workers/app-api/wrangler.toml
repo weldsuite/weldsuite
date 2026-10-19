@@ -167,9 +167,11 @@ database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 # with the connectors.)
 
 # R2 bucket for avatars / customer logos (shared with api-worker).
+# Dev uses the TEST bucket, like every other binding in this block: `wrangler
+# dev` (and a deploy without --env) must never read or write customer files.
 [[r2_buckets]]
 binding = "STORAGE"
-bucket_name = "weldsuite-storage"
+bucket_name = "weldsuite-storage-test"
 
 # Cloudflare Queues: ENTITY_EVENTS hub (Phase 2). Hub fans out to audit/analytics/search.
 [[queues.producers]]

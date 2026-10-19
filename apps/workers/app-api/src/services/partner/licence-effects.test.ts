@@ -89,7 +89,7 @@ describe('applyLicenceEffects', () => {
       changeId: 'wlc_1',
     });
     expect(syncClerkSeatLimit).toHaveBeenCalledWith('sk_test', 'org_1', 10);
-    // worker-kit (ws:<org>), external-api (ws:<id>) and mcp-server (mcp:org:<org>) caches.
+    // worker-kit (wsx:<org>), external-api (wsx:id:<id>) and mcp-server (mcpx:org:<org>) caches.
     expect(domain.invalidateWorkspaceContexts).toHaveBeenCalledWith(kv, ['org_1'], { apiCache, workspaceIds: ['ws_1'] });
   });
 

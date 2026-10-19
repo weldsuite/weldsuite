@@ -15,6 +15,12 @@
  * single secret means rewriting one row; rotating the root key means rewriting
  * only the project rows, not every secret.
  *
+ * That includes the drift checksum stored next to each secret: it is an HMAC
+ * keyed from the vault KEK, never a bare hash of the plaintext, which would let
+ * anyone holding a dump test guesses offline. What a dump does still show is
+ * the last-four `valueHint` of long values (see `hintFor`), a documented
+ * trade-off.
+ *
  * Every ciphertext is bound to where it lives via GCM additional authenticated
  * data, so a row copied from a staging environment into production fails to
  * decrypt instead of silently yielding the wrong value.
@@ -225,7 +231,10 @@ export interface SealedSecret {
   valueHint: string | null;
 }
 
-/** Encrypt one value under a fresh data key. */
+/**
+ * Encrypt one value under a fresh data key. The checksum is keyed from `kek`
+ * and bound to `location`, see `checksumFor`.
+ */
 export async function sealSecret(
   kek: Uint8Array<ArrayBuffer>,
   location: SecretLocation,
@@ -240,7 +249,7 @@ export async function sealSecret(
   return {
     ciphertext,
     dekWrapped,
-    checksum: await sha256Hex(plaintext),
+    checksum: await checksumFor(kek, location, plaintext),
     valueLength: plaintext.length,
     valueHint: hintFor(plaintext),
   };
@@ -287,9 +296,10 @@ export interface ItemLocation {
 /**
  * Encrypt one item's fields under a fresh data key.
  *
- * Unlike `sealSecret` this stores no checksum and no hint. Those are safe for
- * machine-generated API keys, but an unsalted hash or the last four characters
- * of a human-chosen password is enough to confirm a guess from a database dump.
+ * Unlike `sealSecret` this stores no checksum and no hint. Those are tolerable
+ * for machine-generated API keys, but the last four characters of a
+ * human-chosen password (or any stored digest of it) helps confirm a guess
+ * from a database dump.
  */
 export async function sealItem(
   kek: Uint8Array<ArrayBuffer>,
@@ -326,10 +336,81 @@ function itemDekAad(location: ItemLocation): string {
 // Non-secret derivatives
 // ---------------------------------------------------------------------------
 
-/** SHA-256 of a plaintext, hex. Used to spot drift without decrypting. */
+/**
+ * Plain SHA-256 of a plaintext, hex. Only here to recognise checksums written
+ * before they were keyed (see `isLegacyChecksum`); never store its output.
+ */
 export async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return bytesToHex(new Uint8Array(digest));
+}
+
+/**
+ * Version tag on keyed checksums. The column is `varchar(64)`, so the tag
+ * costs three characters: `h1:` + 61 hex characters (244 bits of an
+ * HMAC-SHA256) is exactly 64. A legacy SHA-256 is 64 bare hex characters and
+ * can never start with `h`, so the two are always told apart.
+ */
+const CHECKSUM_PREFIX = 'h1:';
+const CHECKSUM_HEX_LENGTH = 61;
+
+/** HMAC key for checksums, derived from the KEK so it never doubles as the wrapping key. */
+async function checksumKey(kek: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey('raw', kek, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode('weldpass:checksum:v1'),
+    },
+    base,
+    { name: 'HMAC', hash: 'SHA-256', length: 256 },
+    false,
+    ['sign'],
+  );
+}
+
+/**
+ * Drift checksum of a value: HMAC-SHA256 under a key derived from the vault
+ * KEK, over `location` and the plaintext. Equal values at the same location
+ * give equal checksums, which is what "unchanged" detection needs; without the
+ * KEK (a database dump) it cannot be used to test guesses. Binding the
+ * location also keeps a dump from showing that two environments or keys share
+ * a value.
+ */
+export async function checksumFor(
+  kek: Uint8Array<ArrayBuffer>,
+  location: SecretLocation,
+  plaintext: string,
+): Promise<string> {
+  // Ids and env-var names never contain NUL, and the plaintext comes last, so
+  // the message is unambiguous.
+  const message = new TextEncoder().encode(
+    `${location.projectId}\0${location.environmentId}\0${location.key}\0${plaintext}`,
+  );
+  const mac = await crypto.subtle.sign('HMAC', await checksumKey(kek), message);
+  return CHECKSUM_PREFIX + bytesToHex(new Uint8Array(mac)).slice(0, CHECKSUM_HEX_LENGTH);
+}
+
+/** True for a checksum written before checksums were keyed: a bare SHA-256. */
+export function isLegacyChecksum(stored: string): boolean {
+  return !stored.startsWith(CHECKSUM_PREFIX);
+}
+
+/**
+ * Does `plaintext` still match a stored checksum? Handles both formats, so
+ * rows that predate keyed checksums neither look changed nor look equal by
+ * mistake. `fresh` is `checksumFor` of the same plaintext, passed in so a
+ * caller that already computed it (`sealSecret`) does not do so twice.
+ */
+export async function checksumMatches(
+  stored: string,
+  fresh: string,
+  plaintext: string,
+): Promise<boolean> {
+  if (!isLegacyChecksum(stored)) return stored === fresh;
+  return stored === (await sha256Hex(plaintext));
 }
 
 /**
