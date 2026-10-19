@@ -1,9 +1,13 @@
 /**
  * Master and tenant database clients for API workers.
  *
- * Tenant resolution: Clerk org id → KV `ws:<org>` (300 s TTL) → on a miss,
+ * Tenant resolution: Clerk org id → KV `wsx:<org>` (300 s TTL) → on a miss,
  * the master DB row + `resolveDatabaseUrl`. Every API worker shares the
  * WORKSPACE_CACHE namespace, so a lookup cached by one worker serves all.
+ *
+ * The cached entry never holds the connection string in the clear: it is sealed
+ * with the DATABASE_ENCRYPTION_KEY keyring (`databaseUrlSealed`), like
+ * `workspaces.database_url` itself. A worker without a keyring caches nothing.
  */
 
 import { eq } from 'drizzle-orm';
@@ -13,6 +17,11 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import {
+  openCachedDatabaseUrl,
+  sealCachedDatabaseUrl,
+  sealedWorkspaceCacheKey,
+} from '@weldsuite/db/lib/workspace-url-cache';
 import type { DbEnv } from './env';
 import { computeWorkspaceRestrictions, type ReadOnlyReason } from './read-only';
 
@@ -54,14 +63,16 @@ interface CachedWorkspace {
   readOnlyReason: ReadOnlyReason | null;
 }
 
-type StoredWorkspace = Omit<CachedWorkspace, 'suspended' | 'readOnly' | 'readOnlyReason'> & {
+/** What lands in KV: the cached shape with the URL sealed instead of in the clear. */
+type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl' | 'suspended' | 'readOnly' | 'readOnlyReason'> & {
+  databaseUrlSealed?: string;
   suspended?: boolean;
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason | null;
 };
 
 /**
- * Other workers write `ws:<org>` entries too, with only the DB URL (they predate
+ * Other workers write `wsx:<org>` entries too, with only the sealed DB URL (they predate
  * the licence). Such an entry has no `licensedApps` key at all, so it cannot say
  * whether the workspace is licensed: it is treated as a miss and re-resolved
  * from the master DB, rather than letting a partner workspace through
@@ -72,18 +83,27 @@ function isCompleteEntry(cached: StoredWorkspace): boolean {
 }
 
 async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
-  const cacheKey = `ws:${clerkOrgId}`;
+  // Sealed entries live under `wsx:`; the old plaintext `ws:<org>` key is never
+  // read (a worker not yet redeployed still writes it, and it expires on its own).
+  const cacheKey = sealedWorkspaceCacheKey(clerkOrgId);
+  const keyring = { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
   // `suspended` and `readOnly` were added later: an entry cached before they
   // existed omits them and reads as not-suspended / not read-only (it refreshes
   // within KV_TTL_SECONDS).
   const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null;
   if (cached && isCompleteEntry(cached)) {
-    return {
-      ...cached,
-      suspended: cached.suspended ?? false,
-      readOnly: cached.readOnly ?? false,
-      readOnlyReason: cached.readOnly ? (cached.readOnlyReason ?? 'licence_inactive') : null,
-    };
+    // A sealed URL this worker cannot open (rotated key, tampering) is a miss.
+    const cachedUrl = await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring);
+    if (cachedUrl) {
+      const { databaseUrlSealed: _sealed, ...rest } = cached;
+      return {
+        ...rest,
+        databaseUrl: cachedUrl,
+        suspended: cached.suspended ?? false,
+        readOnly: cached.readOnly ?? false,
+        readOnlyReason: cached.readOnly ? (cached.readOnlyReason ?? 'licence_inactive') : null,
+      };
+    }
   }
 
   const masterDb = getMasterDb(env);
@@ -128,7 +148,7 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
       neonDatabaseName: workspace.neonDatabaseName,
       databaseUrl: workspace.databaseUrl,
     },
-    { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
+    keyring,
   );
 
   const restrictions = computeWorkspaceRestrictions({
@@ -145,9 +165,15 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
     suspended: !workspace.isActive,
     ...restrictions,
   };
-  await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(entry), {
-    expirationTtl: KV_TTL_SECONDS,
-  });
+  // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
+  const databaseUrlSealed = await sealCachedDatabaseUrl(databaseUrl, keyring);
+  if (databaseUrlSealed) {
+    const { databaseUrl: _url, ...rest } = entry;
+    const stored: StoredWorkspace = { ...rest, databaseUrlSealed };
+    await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(stored), {
+      expirationTtl: KV_TTL_SECONDS,
+    });
+  }
 
   return entry;
 }

@@ -152,3 +152,32 @@ describe('createDrizzlePermissionQueries', () => {
     expect(Object.keys(selected[0]!)).not.toContain('permissionDenies');
   });
 });
+
+// TASK-636: suspending a member must revoke their access, and an invite that
+// was never accepted grants nothing. Only ACTIVE members resolve.
+describe('member status', () => {
+  it('resolves nothing for SUSPENDED or PENDING members', async () => {
+    const { createPgliteDb } = await import('@weldsuite/worker-kit/testing/pglite');
+    const { db } = await createPgliteDb();
+    const now = new Date();
+    await db.insert(schema.workspaceMembers).values(
+      (['ACTIVE', 'SUSPENDED', 'PENDING'] as const).map((status) => ({
+        id: `wm_${status}`,
+        userId: `user_${status}`,
+        email: `${status}@example.com`,
+        role: 'ADMIN',
+        status,
+        createdAt: now,
+        updatedAt: now,
+      })) as (typeof schema.workspaceMembers.$inferInsert)[],
+    );
+    const q = createDrizzlePermissionQueries(db, schema, { eq, and, isNull });
+
+    expect((await resolveEffectivePermissions(q, 'user_ACTIVE')).permissions).toEqual(SYSTEM_ROLES.ADMIN!.permissions);
+    for (const status of ['SUSPENDED', 'PENDING']) {
+      const resolved = await resolveEffectivePermissions(q, `user_${status}`);
+      expect(resolved.permissions).toEqual([]);
+      expect(resolved.role).toBe('');
+    }
+  }, 60_000);
+});

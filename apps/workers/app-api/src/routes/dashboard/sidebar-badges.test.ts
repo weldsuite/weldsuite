@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
 import { dashboardRoutes } from './index';
-import { createTestApp } from '@weldsuite/worker-kit/testing';
+import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -61,7 +61,8 @@ async function seedMessages(accountId: string, count: number, isRead = false) {
 
 async function unreadBadge(userId: string): Promise<number> {
   const { request } = createTestApp('/api/dashboard', dashboardRoutes, {
-    context: { userId, tenantDb: db },
+    // No ticket/order permissions: those badges are gated separately.
+    context: { userId, tenantDb: db, permissions: permissions() },
   });
   const res = await request('/api/dashboard/sidebar-badges');
   expect(res.status).toBe(200);

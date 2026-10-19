@@ -10,6 +10,11 @@ import * as tenantSchema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import { keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import {
+  openCachedDatabaseUrl,
+  sealCachedDatabaseUrl,
+  sealedWorkspaceIdCacheKey,
+} from '@weldsuite/db/lib/workspace-url-cache';
 import type { ApiKeySession, HonoEnv } from '../types';
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import { error } from '../lib/response';
@@ -50,6 +55,9 @@ interface CachedWorkspaceDetails {
   readOnly?: boolean;
   readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
 }
+
+/** What lands in KV: the connection string sealed, never in the clear. */
+type StoredWorkspaceDetails = Omit<CachedWorkspaceDetails, 'databaseUrl'> & { databaseUrlSealed?: string };
 
 interface CachedAppToken {
   workspaceId: string;
@@ -156,7 +164,10 @@ async function getRegistryEntry(
 }
 
 /**
- * Look up workspace details (databaseUrl resolved via Neon API, plan tier), with KV cache
+ * Look up workspace details (databaseUrl resolved via Neon API, plan tier), with KV cache.
+ * The cached connection string is sealed with `encryptionKey`; without a key
+ * nothing is cached. Sealed entries live under `wsx:id:<id>`, never the old
+ * plaintext `ws:<id>`.
  */
 export async function getWorkspaceDetails(
   kv: KVNamespace,
@@ -165,11 +176,17 @@ export async function getWorkspaceDetails(
   neonApiKey: string,
   encryptionKey?: string | EncryptionKeyring,
 ): Promise<CachedWorkspaceDetails | null> {
-  const cacheKey = `ws:${workspaceId}`;
+  const cacheKey = sealedWorkspaceIdCacheKey(workspaceId);
 
-  // 1. Check KV cache
-  const cached = await kv.get(cacheKey, 'json') as CachedWorkspaceDetails | null;
-  if (cached) return cached;
+  // 1. Check KV cache (a sealed URL we cannot open reads as a miss)
+  const cached = await kv.get(cacheKey, 'json') as StoredWorkspaceDetails | null;
+  if (cached) {
+    const cachedUrl = await openCachedDatabaseUrl(cached.databaseUrlSealed, encryptionKey);
+    if (cachedUrl) {
+      const { databaseUrlSealed: _sealed, ...rest } = cached;
+      return { ...rest, databaseUrl: cachedUrl };
+    }
+  }
 
   // 2. Cache miss — query master DB for Neon metadata + plan
   const [row] = await masterDb
@@ -217,7 +234,13 @@ export async function getWorkspaceDetails(
       partnerStatus: row.partnerStatus,
     }),
   };
-  await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
+  // No key → nothing to seal with → do not cache (never a plaintext fallback).
+  const databaseUrlSealed = await sealCachedDatabaseUrl(databaseUrl, encryptionKey);
+  if (databaseUrlSealed) {
+    const { databaseUrl: _url, ...rest } = result;
+    const stored: StoredWorkspaceDetails = { ...rest, databaseUrlSealed };
+    await kv.put(cacheKey, JSON.stringify(stored), { expirationTtl: KV_TTL_SECONDS });
+  }
 
   return result;
 }

@@ -80,6 +80,14 @@ export {
   type CustomObjectPermissionSource,
 } from './custom-objects';
 
+// Grant checks (roles, member extras, role assignment)
+export {
+  checkPermissionGrants,
+  canGrantPermission,
+  isGrantablePermissionKey,
+  type PermissionGrantCheck,
+} from './grants';
+
 // Migration map (single source of truth for old → new key migration)
 export {
   OLD_MODULE_TO_NEW_OBJECT,

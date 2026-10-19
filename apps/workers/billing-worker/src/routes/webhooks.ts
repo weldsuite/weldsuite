@@ -458,6 +458,7 @@ async function handlePhoneCheckoutCompleted(
 
   const { fulfillPaidPhoneNumberFromBilling } = await import('../lib/phone-fulfill');
   await fulfillPaidPhoneNumberFromBilling(env, {
+    checkoutSessionId: session.id,
     clerkOrgId,
     phoneNumber,
     countryCode: session.metadata?.phone_country_code || 'US',

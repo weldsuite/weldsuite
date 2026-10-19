@@ -143,18 +143,28 @@ describe('grantPartnerExtraCredits', () => {
 describe('invalidateWorkspaceContexts', () => {
   const kv = () => ({ delete: vi.fn(async (_key: string) => undefined) });
 
-  it('deletes the worker-kit, external-api and mcp-server keys', async () => {
+  it('deletes the sealed worker-kit, external-api and mcp-server keys and the old plaintext ones', async () => {
     const workspaceCache = kv();
     const apiCache = kv();
     await invalidateWorkspaceContexts(workspaceCache, ['org_1', null, 'org_2'], { apiCache, workspaceIds: ['ws_1', 'ws_2'] });
-    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['ws:org_1', 'ws:org_2']);
-    expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['mcp:org:org_1', 'mcp:org:org_2', 'ws:ws_1', 'ws:ws_2']);
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['ws:org_1', 'ws:org_2', 'wsx:org_1', 'wsx:org_2']);
+    expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'mcp:org:org_1',
+      'mcp:org:org_2',
+      'mcpx:org:org_1',
+      'mcpx:org:org_2',
+      'ws:ws_1',
+      'ws:ws_2',
+      'wsx:id:ws_1',
+      'wsx:id:ws_2',
+    ]);
   });
 
-  it('keeps the two-argument behaviour (only ws:<org> in WORKSPACE_CACHE)', async () => {
+  it('keeps the two-argument behaviour (only the org keys in WORKSPACE_CACHE)', async () => {
     const workspaceCache = kv();
     await invalidateWorkspaceContexts(workspaceCache, ['org_1']);
-    expect(workspaceCache.delete).toHaveBeenCalledTimes(1);
+    expect(workspaceCache.delete).toHaveBeenCalledTimes(2);
+    expect(workspaceCache.delete).toHaveBeenCalledWith('wsx:org_1');
     expect(workspaceCache.delete).toHaveBeenCalledWith('ws:org_1');
   });
 
@@ -162,7 +172,7 @@ describe('invalidateWorkspaceContexts', () => {
     const workspaceCache = { delete: vi.fn(async (_key: string): Promise<void> => { throw new Error('kv'); }) };
     const apiCache = kv();
     await expect(invalidateWorkspaceContexts(workspaceCache, ['org_1'], { apiCache, workspaceIds: ['ws_1'] })).resolves.toBeUndefined();
-    expect(apiCache.delete).toHaveBeenCalledTimes(2);
+    expect(apiCache.delete).toHaveBeenCalledTimes(4);
     await expect(invalidateWorkspaceContexts(undefined, ['org_1'])).resolves.toBeUndefined();
   });
 });

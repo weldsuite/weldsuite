@@ -5,6 +5,7 @@
 import { and, desc, eq, isNull, lte } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { ALPHANUMERIC, randomString } from '@weldsuite/worker-kit/random';
 import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 import { type AgentDb, getAgent, createAgent, updateAgent } from './agents';
 import { resolveManagedModel } from './managed-agents';
@@ -863,7 +864,8 @@ export async function exportAgentTemplate(
   const routines = await listRoutines(db, agent.id);
   const memories = await listMemories(db, agent.id);
   const id = generateId('tpl');
-  const shareToken = generateId('share');
+  // Bearer token for the template payload (system prompt, permissions, tools).
+  const shareToken = `share_${randomString(32, ALPHANUMERIC)}`;
   const payload = {
     systemPrompt: agent.systemPrompt,
     permissions: agent.permissions,

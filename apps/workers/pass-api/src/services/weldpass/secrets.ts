@@ -5,13 +5,27 @@
  * a value, and both are gated on `secrets:reveal` at the route and written to
  * the WeldPass audit trail. Every write appends to `weldpass_secret_versions`
  * before the current row changes, so a bad edit is recoverable.
+ *
+ * Checksums are keyed (HMAC under the vault KEK, see `checksumFor`). Rows
+ * written before that hold a bare SHA-256; they are recognised by their missing
+ * `h1:` tag and upgraded the next time the plaintext is in hand: on a
+ * re-import of the same value, on a reveal, or in bulk via
+ * `backfillChecksums`.
  */
 
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, notLike } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isValidSecretKey } from './dotenv';
-import { openSecret, sealSecret, type SecretLocation } from './envelope';
+import {
+  EnvelopeError,
+  checksumFor,
+  checksumMatches,
+  isLegacyChecksum,
+  openSecret,
+  sealSecret,
+  type SecretLocation,
+} from './envelope';
 import { VaultNotFoundError } from './vault';
 
 const t = schema.weldpassSecrets;
@@ -126,6 +140,19 @@ export async function revealSecret(
 
   const { ciphertext, dekWrapped, ...secret } = row;
   const value = await openSecret(kek, locationOf(secret), { ciphertext, dekWrapped });
+
+  // Upgrade a pre-HMAC checksum while the plaintext is already in hand.
+  // Opportunistic: a failed write must not stop the reveal.
+  if (isLegacyChecksum(secret.checksum)) {
+    try {
+      const checksum = await checksumFor(kek, locationOf(secret), value);
+      await db.update(t).set({ checksum }).where(eq(t.id, secret.id));
+      secret.checksum = checksum;
+    } catch {
+      // Left legacy; the next reveal, re-import or backfill retries.
+    }
+  }
+
   return { secret, value };
 }
 
@@ -181,7 +208,8 @@ export interface UpsertResult {
  * An unchanged value is a no-op rather than a new version: people re-import the
  * same `.env` all the time, and a history full of identical entries makes the
  * real change impossible to find. The checksum comparison does this without
- * decrypting the stored value.
+ * decrypting the stored value. A legacy (bare SHA-256) checksum is compared by
+ * hashing the submitted value the old way, then upgraded in place.
  */
 export async function upsertSecret(
   db: Database,
@@ -245,7 +273,11 @@ export async function upsertSecret(
   }
 
   const noteChanged = input.note !== undefined && input.note !== existing.note;
-  if (existing.checksum === sealed.checksum && !noteChanged) {
+  const sameValue = await checksumMatches(existing.checksum, sealed.checksum, input.value);
+  if (sameValue && !noteChanged) {
+    if (isLegacyChecksum(existing.checksum)) {
+      await db.update(t).set({ checksum: sealed.checksum }).where(eq(t.id, existing.id));
+    }
     const secret = await requireSecret(db, input.environmentId, existing.id);
     return { secret, created: false, changed: false };
   }
@@ -472,4 +504,82 @@ export async function listSecretKeys(
     byEnvironment.set(row.environmentId, keys);
   }
   return byEnvironment;
+}
+
+// ---------------------------------------------------------------------------
+// Backfill
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite every pre-HMAC checksum in one project as a keyed one, on the current
+ * rows and on the history rows (which hold the same kind of digest). Idempotent
+ * and safe to re-run; rows that fail to open are counted, not fatal. Not wired
+ * to a route: call it from a one-off script or an operator task with the
+ * project's unwrapped KEK. Needs no migration, only the existing columns.
+ */
+export async function backfillChecksums(
+  db: Database,
+  kek: Uint8Array<ArrayBuffer>,
+  projectId: string,
+): Promise<{ secrets: number; versions: number; failed: number }> {
+  const result = { secrets: 0, versions: 0, failed: 0 };
+
+  // Includes soft-deleted rows: their digests are in a dump just the same.
+  const secretRows = await db
+    .select({
+      id: t.id,
+      projectId: t.projectId,
+      environmentId: t.environmentId,
+      key: t.key,
+      ciphertext: t.ciphertext,
+      dekWrapped: t.dekWrapped,
+      checksum: t.checksum,
+    })
+    .from(t)
+    .where(eq(t.projectId, projectId));
+  const locations = new Map(secretRows.map((row) => [row.id, locationOf(row)]));
+
+  for (const row of secretRows) {
+    if (!isLegacyChecksum(row.checksum)) continue;
+    try {
+      const value = await openSecret(kek, locationOf(row), row);
+      const checksum = await checksumFor(kek, locationOf(row), value);
+      await db.update(t).set({ checksum }).where(eq(t.id, row.id));
+      result.secrets++;
+    } catch (err) {
+      if (!(err instanceof EnvelopeError)) throw err;
+      result.failed++;
+    }
+  }
+
+  // A version row sits at its secret's location (a restore reuses the
+  // ciphertext as-is), so the same location opens and re-keys it.
+  const versionRows = await db
+    .select({
+      id: versions.id,
+      secretId: versions.secretId,
+      ciphertext: versions.ciphertext,
+      dekWrapped: versions.dekWrapped,
+    })
+    .from(versions)
+    .where(and(eq(versions.projectId, projectId), notLike(versions.checksum, 'h1:%')));
+
+  for (const row of versionRows) {
+    const location = locations.get(row.secretId);
+    if (!location) {
+      result.failed++;
+      continue;
+    }
+    try {
+      const value = await openSecret(kek, location, row);
+      const checksum = await checksumFor(kek, location, value);
+      await db.update(versions).set({ checksum }).where(eq(versions.id, row.id));
+      result.versions++;
+    } catch (err) {
+      if (!(err instanceof EnvelopeError)) throw err;
+      result.failed++;
+    }
+  }
+
+  return result;
 }
