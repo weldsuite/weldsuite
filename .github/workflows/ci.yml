@@ -256,6 +256,29 @@ jobs:
         working-directory: apps/workers/mcp-server
         run: pnpm test
 
+  # Tenant database lifecycle: provisioning and moves (workspace-worker,
+  # neon-provisioning) and the audit consumer that has to survive a move's lock
+  # (audit-log-worker). workspace-worker and neon-provisioning boot pglite
+  # (WASM Postgres, which crashes when many instances start at once;
+  # workspace-worker's vitest config also runs its test files one by one), so
+  # the three packages run one after the other on this runner.
+  unit-workspace-lifecycle:
+    name: Unit · workspace-worker + neon-provisioning + audit-log-worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Run Vitest · neon-provisioning
+        working-directory: packages/core/neon-provisioning
+        run: pnpm test
+      - name: Run Vitest · workspace-worker
+        working-directory: apps/workers/workspace-worker
+        run: pnpm test
+      - name: Run Vitest · audit-log-worker
+        working-directory: apps/workers/audit-log-worker
+        run: pnpm test
+
   unit-platform:
     name: Unit · platform
     runs-on: ubuntu-latest

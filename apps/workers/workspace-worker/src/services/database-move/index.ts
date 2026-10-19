@@ -13,3 +13,4 @@ export { createMoveDeps, retentionDaysFromEnv, DEFAULT_DATABASE_MOVE_RETENTION_D
 export * from './errors';
 export { describeFailure } from './failure';
 export * from './start';
+export { hasActiveMove } from './state';

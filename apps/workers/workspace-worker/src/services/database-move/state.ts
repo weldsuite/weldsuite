@@ -14,8 +14,9 @@
  * column it is stored in.
  */
 
-import { and, eq, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import {
+  ACTIVE_DATABASE_MOVE_STATUSES,
   workspaceDatabaseMoves,
   workspaces,
   type DatabaseMoveProgress,
@@ -64,6 +65,25 @@ export interface WorkspaceRow {
 export async function loadMove(db: MasterDatabase, moveId: string): Promise<MoveRow | undefined> {
   const [row] = await db.select().from(workspaceDatabaseMoves).where(eq(workspaceDatabaseMoves.id, moveId)).limit(1);
   return row;
+}
+
+/**
+ * Is a database move live for this workspace (queued up to and including
+ * switching, or being cancelled)? While one is, nothing may drop the
+ * workspace's database: the move owns it. Deleting a workspace defers on this.
+ */
+export async function hasActiveMove(db: MasterDatabase, workspaceId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: workspaceDatabaseMoves.id })
+    .from(workspaceDatabaseMoves)
+    .where(
+      and(
+        eq(workspaceDatabaseMoves.workspaceId, workspaceId),
+        inArray(workspaceDatabaseMoves.status, [...ACTIVE_DATABASE_MOVE_STATUSES]),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
 }
 
 export async function requireMove(db: MasterDatabase, moveId: string): Promise<MoveRow> {

@@ -47,6 +47,7 @@ import {
   type JournalSummary,
   type TenantSql,
 } from '../../lib/database-move';
+import { recordMoveCompleted } from './audit';
 import type { MoveDeps } from './deps';
 import { MoveCancelledError, MoveFlowError } from './errors';
 import { describeFailure } from './failure';
@@ -636,7 +637,11 @@ export async function verifyMove(
  */
 export async function switchToTarget(deps: MoveDeps, moveId: string): Promise<{ switched: true }> {
   const existing = await requireMove(deps.masterDb, moveId);
-  if (existing.status === 'completed') return { switched: true };
+  if (existing.status === 'completed') {
+    // A retry after the commit: make sure the trail has the row (a no-op when it already does).
+    await recordMoveCompleted(deps.masterDb, existing);
+    return { switched: true };
+  }
 
   const move = await advance(deps.masterDb, moveId, { step: 'switch', status: 'switching' }, deps.now());
   assertMovable(await loadWorkspace(deps.masterDb, move.workspaceId), move);
@@ -650,6 +655,7 @@ export async function switchToTarget(deps: MoveDeps, moveId: string): Promise<{ 
       'The workspace changed while the database was being copied; the switch was not applied',
     );
   }
+  await recordMoveCompleted(deps.masterDb, await requireMove(deps.masterDb, moveId));
   return { switched: true };
 }
 

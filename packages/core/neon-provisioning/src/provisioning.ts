@@ -146,6 +146,12 @@ export interface DropDatabaseOptions {
   ignoreMissing?: boolean;
 }
 
+/** One database of a shard and the bytes it occupies (`pg_database_size`). */
+export interface ShardDatabaseSize {
+  databaseName: string;
+  sizeBytes: number;
+}
+
 /** Which shards a move may land on; only ACTIVE shards in the region ever qualify. */
 interface ShardEligibility {
   shardId?: string;
@@ -1360,6 +1366,30 @@ export class DatabaseProvisioningService {
       console.warn(`[Provisioning] Golden version check failed for shard ${shard.id}:`, error);
       return null;
     }
+  }
+
+  /**
+   * Size on disk of every database in a shard (all but the system ones), for
+   * the admin console's "who is big" view. Runs one catalog query as the
+   * shard's admin role over a direct connection, which WAKES the shard's
+   * compute if it is suspended: callers expose it as an explicit action, never
+   * as part of a page load. Returns null when the shard has no admin access
+   * recorded or its admin URI cannot be resolved. A query failure throws; the
+   * error text never carries the URI (it is only ever passed to the driver).
+   */
+  async listShardDatabaseSizes(shard: NeonSharedProject): Promise<ShardDatabaseSize[] | null> {
+    const adminUrl = await this.shardAdminUrl(shard);
+    if (!adminUrl) return null;
+    const result = await neon(adminUrl).query(
+      `SELECT datname, pg_database_size(datname) AS size_bytes
+       FROM pg_database
+       WHERE datname NOT IN ('postgres', 'template0', 'template1')
+       ORDER BY size_bytes DESC, datname`,
+    );
+    return rowsOf(result).map((row) => ({
+      databaseName: String(row.datname),
+      sizeBytes: Number(row.size_bytes),
+    }));
   }
 
   /**

@@ -14,8 +14,10 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { onboardRoutes, runOnboard, onboardSchema, type OnboardResult } from './routes/onboard';
 import { clerkWebhookRoutes } from './routes/webhooks/clerk';
 import { backfillMailRoutes } from './routes/backfill-mail';
+import { adminDatabaseRoutes } from './routes/admin-databases';
 import { triggerPoolRefill } from './workflows/refill-pool';
 import { sweepScheduledDeletions } from './services/deletion-sweep';
+import { runDatabaseMoveSweep } from './services/database-move-sweep';
 import { onboardPartnerWorkspace } from './services/partner-onboarding';
 import type { PartnerOnboardResult } from '@weldsuite/core-domain/partners';
 
@@ -40,6 +42,10 @@ export interface Env {
   // Days the OLD database stays (read-only) after a move before the retention
   // sweep drops it (number as string — wrangler var). Defaults to 7.
   DATABASE_MOVE_RETENTION_DAYS?: string;
+  // Shared secret (32+ chars) of the admin console's calls to
+  // /api/internal/admin/* (database moves, live shard state). The console
+  // (apps/web/admin) holds the same value. Unset: those routes answer 503.
+  WORKSPACE_ADMIN_SECRET?: string;
   // Warm-pool watermarks (numbers as strings — wrangler vars). Shared slots
   // serve free workspaces, dedicated projects serve paid ones.
   POOL_TARGET_SHARED?: string;
@@ -120,6 +126,10 @@ app.route('/api/webhooks/clerk', clerkWebhookRoutes);
 // Backfill endpoints (M2M auth)
 app.route('/api/backfill', backfillMailRoutes);
 
+// Admin console API: database moves and live shard state (shared secret + admin identity, see
+// middleware/admin-auth.ts)
+app.route('/api/internal/admin', adminDatabaseRoutes);
+
 // 404 handler
 app.notFound((c) => {
   return c.json({ error: 'Not Found', path: c.req.path }, 404);
@@ -149,10 +159,13 @@ export default {
   //    for reacting quickly to a claim, NOT for polling Postgres: a settled pool
   //    is confirmed from KV and the tick opens no database at all.
   //  - "0 3 * * *"   — sweep workspaces whose 30-day "add payment or be
-  //    deleted" grace period elapsed (see services/deletion-sweep.ts).
+  //    deleted" grace period elapsed (see services/deletion-sweep.ts), and
+  //    drop the old databases of completed moves whose retention is over
+  //    (see services/database-move-sweep.ts, which never throws).
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     if (event.cron === DELETION_SWEEP_CRON) {
       ctx.waitUntil(sweepScheduledDeletions(env));
+      ctx.waitUntil(runDatabaseMoveSweep(env));
     } else {
       ctx.waitUntil(triggerPoolRefill(env));
     }

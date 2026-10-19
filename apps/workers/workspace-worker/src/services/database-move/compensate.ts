@@ -20,6 +20,7 @@ import { and, eq, ne } from 'drizzle-orm';
 import { workspaceDatabaseMoves } from '@weldsuite/db/schema/master';
 import { unlockDatabase } from '../../lib/database-move/guard';
 import { isPasswordAuthFailure } from '../../lib/database-move/pg-errors';
+import { recordMoveFailed } from './audit';
 import type { MoveDeps } from './deps';
 import { DatabaseMoveRequestError, MoveFlowError } from './errors';
 import { describeFailure } from './failure';
@@ -170,7 +171,7 @@ export async function compensateDatabaseMove(
     throw new MoveFlowError('COMPENSATION_INCOMPLETE', `Could not undo the move: ${problems.join('; ')}`, true);
   }
 
-  await db
+  const [closed] = await db
     .update(workspaceDatabaseMoves)
     .set({
       status: outcome,
@@ -178,7 +179,12 @@ export async function compensateDatabaseMove(
       targetDatabaseUrl: null,
       updatedAt: deps.now(),
     })
-    .where(and(eq(workspaceDatabaseMoves.id, moveId), ne(workspaceDatabaseMoves.status, 'completed')));
+    .where(and(eq(workspaceDatabaseMoves.id, moveId), ne(workspaceDatabaseMoves.status, 'completed')))
+    .returning({ id: workspaceDatabaseMoves.id });
+
+  // The admin trail says how the move ended, once per move (a repeated recovery writes the same row id again,
+  // which does nothing). A cancel is already on the trail from the cancel request.
+  if (closed && outcome === 'failed') await recordMoveFailed(db, move, error);
 
   await deps.purgeCaches({ workspaceId: move.workspaceId, clerkOrgId: workspace?.clerkOrgId ?? null });
   return { status: outcome, sourceUnlocked, targetReleased };

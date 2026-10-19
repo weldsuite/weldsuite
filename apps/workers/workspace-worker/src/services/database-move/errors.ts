@@ -93,3 +93,16 @@ export class MoveFlowError extends Error {
     this.name = 'MoveFlowError';
   }
 }
+
+/**
+ * A workspace's database may not be dropped while a move owns it. Raised by the
+ * deletion paths (the Clerk `organization.deleted` cascade) so they defer: the
+ * caller is told to try again, and the deletion goes through once the move has
+ * ended. Safe to show: it carries no data.
+ */
+export class DatabaseMoveActiveError extends Error {
+  constructor(readonly workspaceId: string) {
+    super('The workspace database is being moved; deleting it is deferred until the move ends');
+    this.name = 'DatabaseMoveActiveError';
+  }
+}

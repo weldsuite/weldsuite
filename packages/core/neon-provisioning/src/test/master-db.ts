@@ -56,7 +56,7 @@ export async function createMasterTestDb(): Promise<MasterTestDb> {
   return {
     db: db as unknown as ProvisioningMasterDb,
     reset: async () => {
-      await client.exec('TRUNCATE database_pool, workspaces, neon_shared_projects, workspace_database_moves CASCADE');
+      await client.exec('TRUNCATE database_pool, workspaces, neon_shared_projects, workspace_database_moves, admin_audit_events CASCADE');
     },
     close: () => client.close(),
   };

@@ -12,7 +12,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'node:util';
 import { eq } from 'drizzle-orm';
-import { workspaceDatabaseMoves, workspaces } from '@weldsuite/db/schema/master';
+import { adminAuditEvents, workspaceDatabaseMoves, workspaces } from '@weldsuite/db/schema/master';
 import type { MoveDeps } from '../services/database-move/deps';
 
 const holder = vi.hoisted(() => ({ deps: null as MoveDeps | null }));
@@ -99,6 +99,12 @@ async function moveRow(w: MoveWorld, moveId: string) {
   const [row] = await w.masterDb.select().from(workspaceDatabaseMoves).where(eq(workspaceDatabaseMoves.id, moveId));
   if (!row) throw new Error('no move row');
   return row;
+}
+
+/** The admin trail rows the move wrote itself (start/cancel/recover are the routes' and are not written here). */
+async function outcomeAudit(w: MoveWorld) {
+  const rows = await w.masterDb.select().from(adminAuditEvents);
+  return rows.filter((r) => r.action === 'database.move_complete' || r.action === 'database.move_fail');
 }
 
 async function workspaceRow(w: MoveWorld) {
@@ -212,6 +218,29 @@ describe('MoveDatabaseWorkflow · happy path', () => {
     // Nothing a step returned (they are stored by Cloudflare) holds a URL or a password.
     expect(inspect([...step.results.values()], { depth: 8 })).not.toMatch(/postgres|secret-/);
     expect(JSON.stringify(move)).not.toMatch(/postgres|secret-/);
+
+    // The admin trail has one `database.move_complete`, attributed to the admin who started the move.
+    const audit = await outcomeAudit(w);
+    expect(audit).toEqual([
+      expect.objectContaining({
+        workspaceId: WORKSPACE_ID,
+        targetType: 'workspace',
+        targetId: WORKSPACE_ID,
+        action: 'database.move_complete',
+        outcome: 'success',
+        actorEmail: 'admin@weldsuite.org',
+        reason: 'test',
+        error: null,
+        details: expect.objectContaining({
+          moveId,
+          kind: 'shard_to_dedicated',
+          from: { neonProjectId: SOURCE.project, databaseName: SOURCE.db },
+          to: { neonProjectId: TARGET.project, databaseName: TARGET.db },
+          oldDatabaseRetainedUntil: move.oldDatabaseRetainedUntil?.toISOString(),
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(audit)).not.toMatch(/postgres|secret-/);
   });
 
   it('moves a dedicated database to a shard, and restarts the dedicated source\'s compute', async () => {
@@ -382,6 +411,18 @@ describe('MoveDatabaseWorkflow · a move that cannot be verified', () => {
     expect(w.purges).toHaveLength(3);
     expect(step.names).toContain('compensate');
     expect(step.names).not.toContain('switch');
+
+    // One `database.move_fail` with the stored error, attributed to the admin who started the move.
+    expect(await outcomeAudit(w)).toEqual([
+      expect.objectContaining({
+        workspaceId: WORKSPACE_ID,
+        action: 'database.move_fail',
+        outcome: 'failure',
+        actorEmail: 'admin@weldsuite.org',
+        error: move.error,
+        details: expect.objectContaining({ moveId, kind: 'shard_to_dedicated', step: expect.any(String) }),
+      }),
+    ]);
   });
 
   it('fails when the source changed after the lock, even though the copy matches the first reading', async () => {
@@ -562,6 +603,8 @@ describe('MoveDatabaseWorkflow · cancel', () => {
     expect(w.purges).toHaveLength(2); // soft lock, undo
     expect(step.names).not.toContain('prepare-copy');
     expect(await workspaceRow(w)).toMatchObject({ neonProjectId: SOURCE.project, neonDatabaseName: SOURCE.db });
+    // A cancel is on the trail from the cancel request (the route), not as a failure.
+    expect(await outcomeAudit(w)).toEqual([]);
   });
 
   it('cancelled during the copy: stops within a few pages, source unlocked, target released', async () => {
@@ -668,6 +711,22 @@ describe('MoveDatabaseWorkflow · the switch', () => {
     expect(w.provisioning.releaseMoveTarget).not.toHaveBeenCalled();
     expect(guardState.log.filter((entry) => entry.startsWith('unlock'))).toEqual([]);
     expect(second.names).not.toContain('compensate');
+    // The first attempt died before it could record the completion: the retry records it, once.
+    expect((await outcomeAudit(w)).map((r) => r.action)).toEqual(['database.move_complete']);
+  });
+
+  it('records the completion once however often the switch step runs', async () => {
+    const w = await setup();
+    const moveId = await startMove(w, 'dedicated');
+    await launch(w, createFakeStep(), moveId);
+    expect(await outcomeAudit(w)).toHaveLength(1);
+
+    // A replay of the switch step after the commit (the step ran again) finds the row and writes nothing new.
+    const { switchToTarget } = await import('../services/database-move/steps');
+    await switchToTarget(w.deps, moveId);
+    await switchToTarget(w.deps, moveId);
+
+    expect(await outcomeAudit(w)).toHaveLength(1);
   });
 });
 
@@ -691,6 +750,8 @@ describe('MoveDatabaseWorkflow · undoing', () => {
     expect(row.status).toBe('failed');
     expect(row.error).toBe(failed.error);
     expect(guardState.locked.has(SOURCE.db)).toBe(false);
+    // And the trail still has one `database.move_fail`.
+    expect((await outcomeAudit(w)).map((r) => r.action)).toEqual(['database.move_fail']);
   });
 
   it('never undoes a completed move', async () => {
@@ -704,6 +765,7 @@ describe('MoveDatabaseWorkflow · undoing', () => {
     expect((await moveRow(w, moveId)).status).toBe('completed');
     expect(guardState.locked.has(SOURCE.db)).toBe(true); // the old database stays locked until the sweep drops it
     expect(w.provisioning.releaseMoveTarget).not.toHaveBeenCalled();
+    expect((await outcomeAudit(w)).map((r) => r.action)).toEqual(['database.move_complete']); // never a fail row
   });
 });
 
