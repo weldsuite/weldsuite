@@ -1,5 +1,5 @@
 /**
- * The header of the invoice panel: the title with its status, the edit and
+ * The header of the invoice panel: the title, the edit and
  * "more" actions (copy link, download PDF, record payment, send, credit note,
  * write-off, cancel), and the row of workflow buttons under the title
  * (finalize, apply credit).
@@ -15,7 +15,6 @@ import {
   HandCoins,
   Link as LinkIcon,
   Pencil,
-  ReceiptText,
   SendHorizontal,
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -27,23 +26,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { PanelAvatar, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
+import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import type { InvoiceCapabilities } from './invoice-capabilities';
-import { InvoiceStatusChip } from './invoice-status';
 import type { InvoiceStatusDialog } from './use-invoice-workflow';
-
-export function InvoiceAvatar({ isCreditMemo }: Readonly<{ isCreditMemo?: boolean }>) {
-  return (
-    <PanelAvatar
-      icon={isCreditMemo ? FileMinus : ReceiptText}
-      className="bg-emerald-100 text-emerald-600 dark:bg-emerald-900 dark:text-emerald-400"
-    />
-  );
-}
 
 export function InvoiceTitle({ invoice }: Readonly<{ invoice?: InvoiceWithTax }>) {
   const { t } = useI18n();
@@ -51,11 +40,8 @@ export function InvoiceTitle({ invoice }: Readonly<{ invoice?: InvoiceWithTax }>
   if (!invoice) return <div className="h-4 w-32 animate-pulse rounded bg-muted" />;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {invoice.invoiceNumber ?? t.accounting.statusLabels.invoice.fallback}
-      </span>
-      <span className="flex-shrink-0">
-        <InvoiceStatusChip status={invoice.status} />
       </span>
       {invoice.type === 'credit_note' ? (
         <span className="flex-shrink-0">

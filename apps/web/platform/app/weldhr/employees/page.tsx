@@ -93,7 +93,7 @@ export default function WeldHrEmployeesPage() {
               <span className="@lg:hidden">
                 <StatusBadge group="employee" status={emp.status} />
               </span>
-              {emp.startDate && <span className="@lg:hidden">{formatDate(emp.startDate)}</span>}
+              {emp.startDate && <span className="tabular-nums text-foreground @lg:hidden">{formatDate(emp.startDate)}</span>}
             </span>
           </span>
           {!emp.userId && (
@@ -135,7 +135,7 @@ export default function WeldHrEmployeesPage() {
       id: 'startDate',
       header: t('weldhr.employees.table.startDate'),
       width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[110px]'),
-      render: (emp) => <span className="block truncate text-muted-foreground">{formatDate(emp.startDate)}</span>,
+      render: (emp) => <span className={cn('block truncate tabular-nums', !emp.startDate && 'text-muted-foreground')}>{formatDate(emp.startDate)}</span>,
     },
   ];
 

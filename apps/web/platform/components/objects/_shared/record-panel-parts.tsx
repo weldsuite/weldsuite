@@ -7,11 +7,10 @@
  *   - `PanelRow`: a read-only line of the Details tab;
  *   - `PanelSection`: a titled block of the Details tab;
  *   - `PanelNotice`: a muted one-line note under the properties;
- *   - `RecordLoadFailed`: the body of a record that could not be read;
- *   - `PanelAvatar`: the rounded-square avatar next to the title.
+ *   - `RecordLoadFailed`: the body of a record that could not be read.
  */
 
-import { useCallback, type ComponentType, type ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -65,18 +64,6 @@ export function PanelNotice({ children }: Readonly<{ children: ReactNode }>) {
     <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground" role="status">
       {children}
     </p>
-  );
-}
-
-/** The rounded-square avatar every record panel shows next to its title. */
-export function PanelAvatar({
-  icon: Icon,
-  className,
-}: Readonly<{ icon: ComponentType<{ className?: string }>; className: string }>) {
-  return (
-    <div className={cn('flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg', className)}>
-      <Icon className="h-3.5 w-3.5" />
-    </div>
   );
 }
 

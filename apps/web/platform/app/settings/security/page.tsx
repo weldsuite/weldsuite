@@ -170,7 +170,7 @@ function buildSessionColumns({
         }
 
         return (
-          <span className="whitespace-nowrap text-sm text-muted-foreground font-mono">
+          <span className={`whitespace-nowrap text-sm tabular-nums${session.lastActiveAt ? '' : ' text-muted-foreground'}`}>
             {session.lastActiveAt
               ? formatDistanceToNow(session.lastActiveAt, { addSuffix: true })
               : ts.unknown}

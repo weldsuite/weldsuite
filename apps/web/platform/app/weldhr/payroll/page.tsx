@@ -333,7 +333,7 @@ function RecentRunsCard({ runs }: Readonly<{ runs: HrPayrollOverview['recentRuns
             {runs.map((run) => (
               <TableRow key={run.id}>
                 <TableCell>
-                  <Link to="/weldhr/payroll/runs/$runId" params={{ runId: run.id }} className="font-medium hover:underline">
+                  <Link to="/weldhr/payroll/runs/$runId" params={{ runId: run.id }} className="font-medium tabular-nums hover:underline">
                     {periodRange(run.periodStart, run.periodEnd)}
                   </Link>
                   {run.kind !== 'regular' && <span className="ml-2 text-xs text-muted-foreground">{t(`weldhr.payroll.runKind.${run.kind}`)}</span>}

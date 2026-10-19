@@ -289,7 +289,7 @@ export default function ActivitySettingsPage() {
                     )}
                     onClick={hasDetails ? () => toggleExpanded(log.id) : undefined}
                   >
-                    <TableCell className="text-sm font-mono text-muted-foreground">
+                    <TableCell className="text-sm tabular-nums">
                       {(() => {
                         const d = new Date(log.createdAt);
                         const fmt = d.getFullYear() === new Date().getFullYear()

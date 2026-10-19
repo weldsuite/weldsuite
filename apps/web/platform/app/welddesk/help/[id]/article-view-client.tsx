@@ -236,7 +236,7 @@ export function ArticleViewClient({ article }: Readonly<ArticleViewClientProps>)
                   <div className="flex items-center gap-3 text-sm">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">{th.created}:</span>
-                    <span className="text-foreground">
+                    <span className="text-foreground tabular-nums">
                       {format(new Date(article.createdAt), 'MMM d, yyyy')}
                     </span>
                   </div>
@@ -247,7 +247,7 @@ export function ArticleViewClient({ article }: Readonly<ArticleViewClientProps>)
                   <div className="flex items-center gap-3 text-sm">
                     <Clock className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">{th.updated}:</span>
-                    <span className="text-foreground">
+                    <span className="text-foreground tabular-nums">
                       {format(new Date(article.lastUpdated), 'MMM d, yyyy')}
                     </span>
                   </div>

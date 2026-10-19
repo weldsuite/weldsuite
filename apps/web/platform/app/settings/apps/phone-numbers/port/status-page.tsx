@@ -143,7 +143,7 @@ function Detail({ label, value }: Readonly<{ label: string; value: string | null
   return (
     <div className="grid grid-cols-3 gap-4 border-b py-2 last:border-b-0">
       <div className="text-sm text-muted-foreground">{label}</div>
-      <div className="col-span-2 text-sm">{value || '—'}</div>
+      <div className="col-span-2 text-sm tabular-nums">{value || '—'}</div>
     </div>
   );
 }

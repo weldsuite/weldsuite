@@ -362,7 +362,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
 
         {/* Last Run */}
         <div className="w-[100px]">
-          <span className="text-sm font-mono text-muted-foreground">{formatDate(sequence.lastExecutedAt)}</span>
+          <span className={`text-sm tabular-nums${sequence.lastExecutedAt ? '' : ' text-muted-foreground'}`}>{formatDate(sequence.lastExecutedAt)}</span>
         </div>
 
       </TabListRow>

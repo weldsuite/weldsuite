@@ -29,7 +29,6 @@ import {
   Scale,
   Tag,
   Wallet,
-  WalletCards,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -80,20 +79,12 @@ type Translations = ReturnType<typeof useI18n>['t'];
 
 // ─── Header ────────────────────────────────────────────────────────────────
 
-function LedgerAccountAvatar() {
-  return (
-    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gray-200 dark:bg-accent">
-      <WalletCards className="h-3.5 w-3.5 text-gray-600 dark:text-muted-foreground" aria-hidden />
-    </div>
-  );
-}
-
 function LedgerAccountTitle({ account, t }: Readonly<{ account?: Account; t: Translations }>) {
   if (!account) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   const ta = t.accounting.accounts;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         <span className="mr-2 font-mono">{account.code}</span>
         {account.name}
       </span>
@@ -431,7 +422,6 @@ export function LedgerAccountPanel(props: Readonly<ObjectPanelComponentProps>) {
     <>
       <EntityDetailView
         {...shell.entityDetailViewProps}
-        avatar={<LedgerAccountAvatar />}
         title={<LedgerAccountTitle account={account} t={t} />}
         actions={
           <LedgerAccountActions

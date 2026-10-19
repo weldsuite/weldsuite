@@ -71,7 +71,7 @@ export function TaxIdRevealLog({ open, onOpenChange, partyId }: Readonly<TaxIdRe
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.id}>
-                    <TableCell className="whitespace-nowrap">{formatDateTime(row.createdAt)}</TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">{formatDateTime(row.createdAt)}</TableCell>
                     <TableCell>{names.get(row.revealedBy) ?? row.revealedBy}</TableCell>
                     <TableCell>{fieldLabel(row.field)}</TableCell>
                     <TableCell className="text-muted-foreground">{reasonLabel(row.reason)}</TableCell>

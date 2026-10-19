@@ -182,7 +182,7 @@ function RecordingDateCell({ createdAt }: Readonly<{ createdAt: string }>) {
   return (
     <div className="w-[130px] flex-shrink-0">
       {createdAt ? (
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm tabular-nums">
           {formatDistanceToNow(new Date(createdAt), { addSuffix: true })}
         </span>
       ) : (

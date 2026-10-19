@@ -118,7 +118,7 @@ export function UsersSection() {
                     {user.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="py-2 text-muted-foreground">{user.lastActive}</TableCell>
+                <TableCell className="py-2 tabular-nums">{user.lastActive}</TableCell>
                 <TableCell className="py-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

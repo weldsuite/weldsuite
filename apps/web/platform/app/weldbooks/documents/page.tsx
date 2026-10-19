@@ -655,8 +655,8 @@ function OcrResultView({ result, matchedContactId, td }: Readonly<{ result: OcrR
         </CardHeader>
         <CardContent className="text-sm grid grid-cols-2 gap-2">
           <p><strong>{td.ocrFieldNumber}</strong> {result.invoiceNumber ?? '-'}</p>
-          <p><strong>{td.ocrFieldDate}</strong> {formatDate(result.invoiceDate, '-')}</p>
-          <p><strong>{td.ocrFieldDueDate}</strong> {formatDate(result.dueDate, '-')}</p>
+          <p><strong>{td.ocrFieldDate}</strong> <span className="tabular-nums">{formatDate(result.invoiceDate, '-')}</span></p>
+          <p><strong>{td.ocrFieldDueDate}</strong> <span className="tabular-nums">{formatDate(result.dueDate, '-')}</span></p>
           <p><strong>{td.ocrFieldCurrency}</strong> {result.currency ?? '-'}</p>
           {result.paymentReference && <p><strong>{td.ocrFieldReference}</strong> {result.paymentReference}</p>}
           {result.iban && <p><strong>{td.ocrFieldPaymentIban}</strong> {result.iban}</p>}

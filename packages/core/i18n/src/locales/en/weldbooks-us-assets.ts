@@ -129,12 +129,6 @@ const fixedAssets = {
       netBookValue: 'Net book value',
       status: 'Status',
     },
-    summaryTitle: 'Register as of {date}',
-    summaryHelp: 'The ledger book: what the assets cost, what has been depreciated and what they are worth on the books.',
-    summaryAssets: 'Assets',
-    summaryCost: 'Cost',
-    summaryDepreciation: 'Accumulated depreciation',
-    summaryNetBookValue: 'Net book value',
     netBookValueHelp: 'Cost less the depreciation posted to the ledger so far.',
   },
 

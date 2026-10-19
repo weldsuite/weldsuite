@@ -437,7 +437,7 @@ export function ExternalWebhooksSection() {
                     <TableCell>
                       <StatusBadge status={webhook.status} label={ts.status[webhook.status]} />
                     </TableCell>
-                    <TableCell className="text-[13.5px] font-mono text-muted-foreground">
+                    <TableCell className={cn("text-[13.5px] tabular-nums", !webhook.lastDeliveredAt && "text-muted-foreground")}>
                       {formatDate(webhook.lastDeliveredAt) ?? ts.never}
                     </TableCell>
                     <TableCell className="text-right">
@@ -627,7 +627,7 @@ export function ExternalWebhooksSection() {
                       <TableCell className="text-xs">{delivery.responseStatus ?? "—"}</TableCell>
                       <TableCell className="text-xs">{delivery.responseTimeMs ? `${delivery.responseTimeMs}ms` : "—"}</TableCell>
                       <TableCell className="text-xs">{delivery.attemptNumber}</TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">{formatDate(delivery.createdAt)}</TableCell>
+                      <TableCell className="text-xs tabular-nums">{formatDate(delivery.createdAt)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

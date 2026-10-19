@@ -47,7 +47,6 @@ import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import {
-  PanelAvatar,
   PanelRow,
   PanelSection,
   RecordLoadFailed,
@@ -83,21 +82,12 @@ const CERTIFICATE_TYPE = 'tax_exemption_certificate';
 /** The entity type the audit log files an exemption certificate under. */
 const CERTIFICATE_AUDIT_ENTITY = 'exemption_certificate';
 
-function CertificateAvatar() {
-  return (
-    <PanelAvatar
-      icon={FileCheck2}
-      className="bg-emerald-100 text-emerald-600 dark:bg-emerald-900 dark:text-emerald-400"
-    />
-  );
-}
-
 function CertificateTitle({ certificate }: Readonly<{ certificate?: ExemptionCertificate }>) {
   const { t } = useSetupTexts();
   if (!certificate) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         <CustomerName partyId={certificate.partyId} />
       </span>
       <span className="flex-shrink-0">
@@ -255,17 +245,20 @@ function CertificateDetailsTab({ certificate }: Readonly<{ certificate: Exemptio
             label={td.fields.expires}
             value={certificate.effectiveExpiresOn ?? t.certificates.expiry.none}
             renderValue={() => <CertificateExpiry certificate={certificate} />}
+            tabular
           />
-          <PanelRow icon={CalendarDays} label={td.fields.issuedOn} value={formatDate(certificate.issuedOn, '')} />
+          <PanelRow icon={CalendarDays} label={td.fields.issuedOn} value={formatDate(certificate.issuedOn, '')} tabular />
           <PanelRow
             icon={CalendarDays}
             label={td.fields.receivedOn}
             value={formatDate(certificate.receivedOn, '')}
+            tabular
           />
           <PanelRow
             icon={CalendarDays}
             label={td.fields.lastUsed}
             value={certificate.lastUsedOn ? formatDate(certificate.lastUsedOn) : t.certificates.expiry.neverUsed}
+            tabular
           />
           <PanelRow
             icon={FileCheck2}
@@ -424,7 +417,6 @@ function CertificatePanelContent(props: Readonly<ObjectPanelComponentProps>) {
       <EntityDetailView
         {...shell.entityDetailViewProps}
         contentClassName={tabBodyClassName(mode)}
-        avatar={<CertificateAvatar />}
         title={<CertificateTitle certificate={certificate} />}
         actions={
           <CertificateActions
@@ -491,7 +483,6 @@ export function TaxExemptionCertificatePanel(props: Readonly<ObjectPanelComponen
       panelProps={props}
       width={CERTIFICATE_PANEL_WIDTH}
       title={t.certificates.title}
-      avatar={<CertificateAvatar />}
     >
       <CertificatePanelContent {...props} />
     </SalesTaxPanelGate>

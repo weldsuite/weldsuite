@@ -16,7 +16,6 @@ import {
   AlignLeft,
   ArrowDownLeft,
   ArrowUpRight,
-  BookText,
   CalendarDays,
   EllipsisVertical,
   Layers,
@@ -81,19 +80,11 @@ function journalStatusLabel(status: string, t: Translations): string {
   return status;
 }
 
-function JournalEntryAvatar() {
-  return (
-    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900">
-      <BookText className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-    </div>
-  );
-}
-
 function JournalEntryTitle({ entry, t }: Readonly<{ entry?: JournalEntryDetail; t: Translations }>) {
   if (!entry) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {entry.entryNumber ?? t.accounting.statusLabels.journalEntry.fallback}
       </span>
       <span className={cn(PILL, statusPillClass(entry.status), 'flex-shrink-0')}>
@@ -240,7 +231,7 @@ function JournalEntryDetailsTab({ entry, t }: Readonly<{ entry: JournalEntryDeta
       <div className="space-y-1">
         <PropertyRow icon={ArrowDownLeft} label={tj.debit} value={formatMoney(entry.totalDebit)} readOnly />
         <PropertyRow icon={ArrowUpRight} label={tj.credit} value={formatMoney(entry.totalCredit)} readOnly />
-        <PropertyRow icon={CalendarDays} label={st('sweep.entities.fieldDate')} value={formatDate(entry.date)} readOnly />
+        <PropertyRow icon={CalendarDays} label={st('sweep.entities.fieldDate')} value={formatDate(entry.date)} tabular readOnly />
         <PropertyRow
           icon={AlignLeft}
           label={tj.descriptionLabel}
@@ -415,7 +406,6 @@ export function JournalEntryPanel(props: Readonly<ObjectPanelComponentProps>) {
     <EntityDetailView
       {...shell.entityDetailViewProps}
       contentClassName={tabBodyClassName(mode)}
-      avatar={<JournalEntryAvatar />}
       title={<JournalEntryTitle entry={entry} t={t} />}
       actions={
         <JournalEntryActions

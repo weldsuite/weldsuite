@@ -202,7 +202,7 @@ export function BillsStep({
                               </Badge>
                             ) : null}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap">
+                          <TableCell className="whitespace-nowrap tabular-nums">
                             {formatDate(bill.dueDate)}
                             {bill.daysOverdue > 0 ? (
                               <Badge variant="destructive" className="ml-2">

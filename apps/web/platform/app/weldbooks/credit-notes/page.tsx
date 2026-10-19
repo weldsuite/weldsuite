@@ -7,6 +7,7 @@ import {
   EmptyCell,
   RowAmount,
   RowDate,
+  RowText,
   RowTitle,
   StatusChip,
 } from '@/components/accounting/weldbooks-row-cells';
@@ -24,6 +25,8 @@ interface CreditNoteRow {
   contactName: string | null;
   issueDate: string | null;
   creditNoteForInvoiceId: string | null;
+  // Sent by books-api with the list; absent from older deploys.
+  creditNoteForInvoiceNumber?: string | null;
   total: string | number | null;
   currency: string | null;
   status: string;
@@ -81,9 +84,9 @@ export default function CreditNotesPage() {
               e.stopPropagation();
               openPanel({ type: 'invoice', id: sourceId });
             }}
-            className="text-primary hover:underline text-sm"
+            className="min-w-0 text-left"
           >
-            {tcn.viewSource}
+            <RowText>{cn.creditNoteForInvoiceNumber ?? tcn.viewSource}</RowText>
           </button>
         );
       },

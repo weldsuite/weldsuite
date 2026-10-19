@@ -120,7 +120,7 @@ function HealthReport() {
       header: tp('health.changed'),
       width: 'hidden md:block md:w-[200px]',
       render: (entry) => (
-        <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+        <span className={`whitespace-nowrap text-sm tabular-nums${entry.passwordChangedAt ? '' : ' text-muted-foreground'}`}>
           {entry.passwordChangedAt ? formatDateTime(entry.passwordChangedAt) : '—'}
         </span>
       ),

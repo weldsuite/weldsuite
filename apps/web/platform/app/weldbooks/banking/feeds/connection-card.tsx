@@ -352,7 +352,7 @@ export function ConnectionCard({ connection }: Readonly<{ connection: BankFeedCo
               <ul className="space-y-1 rounded-md border p-2 text-sm">
                 {warnings.map((warning, index) => (
                   <li key={`${warning.at}-${warning.code}-${index}`} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
-                    <time className="shrink-0 text-xs text-muted-foreground sm:w-40" dateTime={warning.at}>
+                    <time className="shrink-0 text-xs tabular-nums sm:w-40" dateTime={warning.at}>
                       {formatDateTime(warning.at)}
                     </time>
                     <span>{warning.message}</span>

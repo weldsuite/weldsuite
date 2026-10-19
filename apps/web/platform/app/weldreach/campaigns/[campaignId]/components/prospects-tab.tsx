@@ -138,7 +138,7 @@ export function ProspectsTab({
       header: t('reachEngage.enrollments.table.nextSend'),
       width: 'hidden md:block md:w-[160px]',
       render: (enrollment) => (
-        <span className="text-sm text-muted-foreground">
+        <span className={enrollment.nextSendAt ? 'text-sm tabular-nums' : 'text-sm text-muted-foreground'}>
           {enrollment.nextSendAt ? format.dateTime(enrollment.nextSendAt) : '—'}
         </span>
       ),

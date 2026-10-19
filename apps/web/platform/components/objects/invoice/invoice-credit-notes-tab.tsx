@@ -28,7 +28,7 @@ export function InvoiceCreditNotesTab({
                   <InvoiceStatusChip status={note.status} />
                 </span>
               </div>
-              <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm text-muted-foreground tabular-nums @max-[440px]:hidden">
+              <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums @max-[440px]:hidden">
                 {formatDate(note.issueDate)}
               </span>
               <span className="flex-shrink-0 text-right text-sm font-medium tabular-nums">

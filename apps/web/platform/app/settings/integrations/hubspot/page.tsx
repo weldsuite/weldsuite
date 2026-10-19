@@ -137,7 +137,7 @@ function ConnectionCard({
           <p className="text-xs text-muted-foreground">{t('sweep.settings.crmSync.deals')}</p>
         </div>
         <div className="text-center">
-          <p className="text-xs font-medium">{formatDate(connection.lastSyncAt) ?? t('sweep.settings.integrationConnectionCard.never')}</p>
+          <p className={`text-xs tabular-nums${connection.lastSyncAt ? '' : ' text-muted-foreground'}`}>{formatDate(connection.lastSyncAt) ?? t('sweep.settings.integrationConnectionCard.never')}</p>
           <p className="text-xs text-muted-foreground">{t('sweep.settings.crmSync.lastSync')}</p>
         </div>
       </div>

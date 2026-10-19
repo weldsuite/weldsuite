@@ -52,7 +52,7 @@ export function SupplierPanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t.fields.currency, value: supplier.currency },
               { label: t.fields.city, value: supplier.city },
               { label: t.fields.country, value: supplier.country },
-              { label: t.fields.created, value: formatPanelDate(supplier.createdAt) },
+              { label: t.fields.created, value: formatPanelDate(supplier.createdAt), tabular: true },
             ]
           : []
       }

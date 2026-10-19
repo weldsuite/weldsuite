@@ -259,7 +259,7 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
       {task.startDate && (
         <div className="flex items-center gap-2 mt-2.5">
           <CalendarClock className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatShort(task.startDate)}
           </span>
         </div>
@@ -269,7 +269,7 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
       {task.dueDate && (
         <div className="flex items-center gap-2 mt-2.5">
           <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatShort(task.dueDate)}
           </span>
         </div>
@@ -609,7 +609,7 @@ export function MyTasksPipeline({
                   {activeTask.dueDate && (
                     <div className="flex items-center gap-2 mt-2">
                       <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                      <span className="text-sm text-gray-600 dark:text-muted-foreground">{formatShort(activeTask.dueDate)}</span>
+                      <span className="text-sm tabular-nums">{formatShort(activeTask.dueDate)}</span>
                     </div>
                   )}
                 </div>

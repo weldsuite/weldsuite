@@ -183,7 +183,7 @@ export function DocumentsCard({ returnId, enabled }: Readonly<DocumentsCardProps
                             )}
                           </Button>
                         </TableCell>
-                        <TableCell>{formatDate(document.taxDate)}</TableCell>
+                        <TableCell className="tabular-nums">{formatDate(document.taxDate)}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap items-center gap-2">
                             <DocumentLink

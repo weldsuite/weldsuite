@@ -779,7 +779,7 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
           >
             {task.dueDate ? (
               <span className={cn(
-                "group-hover/field:underline",
+                "font-normal tabular-nums group-hover/field:underline",
                 task.dueDate < new Date() && task.status !== 'done' && "text-red-600 dark:text-red-400"
               )}>
                 {format(task.dueDate, 'MMM d, yyyy')}
@@ -838,7 +838,7 @@ function ScheduledSlotField({ task }: Readonly<{ task: Task }>) {
         <span className="text-sm text-muted-foreground">{t('sweep.shared.scheduled')}</span>
       </div>
       <div className="h-8 inline-flex items-center gap-2 text-sm">
-        <span>{display}</span>
+        <span className="tabular-nums">{display}</span>
         {autoScheduled === false && (
           <span
             className="inline-flex items-center gap-1 text-xs text-muted-foreground"
@@ -1669,7 +1669,7 @@ export function TaskDetailContent({
               <span className="text-sm text-muted-foreground">{t('sweep.shared.created')}</span>
             </div>
             <div className="flex-1 h-8 text-sm rounded-md px-2 -mx-2 flex items-center">
-              <span className="text-muted-foreground">
+              <span className="tabular-nums">
                 {format(task.createdAt, 'MMM d, yyyy')}
               </span>
             </div>

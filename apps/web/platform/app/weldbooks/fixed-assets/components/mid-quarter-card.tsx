@@ -84,7 +84,7 @@ export function MidQuarterCard({ report }: Readonly<{ report: MidQuarterReport }
                     {report.assets.map((asset) => (
                       <TableRow key={asset.assetId}>
                         <TableCell className="max-w-[240px] truncate font-medium">{asset.name}</TableCell>
-                        <TableCell className="whitespace-nowrap">{formatDate(asset.placedInServiceDate)}</TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums">{formatDate(asset.placedInServiceDate)}</TableCell>
                         <TableCell className="text-right tabular-nums">{asset.quarter}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatMoney(asset.basis)}</TableCell>
                         <TableCell>

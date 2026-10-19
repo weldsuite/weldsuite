@@ -363,13 +363,13 @@ export function FiscalDocumentCard({ invoice, canUpdate }: Readonly<FiscalDocume
               {current.authorizedAt && (
                 <div>
                   <dt className="text-xs uppercase text-muted-foreground">{tf.authorizedAt}</dt>
-                  <dd>{formatDateTime(current.authorizedAt)}</dd>
+                  <dd className="tabular-nums">{formatDateTime(current.authorizedAt)}</dd>
                 </div>
               )}
               {current.cancelledAt && (
                 <div>
                   <dt className="text-xs uppercase text-muted-foreground">{tf.cancelledAt}</dt>
-                  <dd>{formatDateTime(current.cancelledAt)}</dd>
+                  <dd className="tabular-nums">{formatDateTime(current.cancelledAt)}</dd>
                 </div>
               )}
               {current.cancelReason && (

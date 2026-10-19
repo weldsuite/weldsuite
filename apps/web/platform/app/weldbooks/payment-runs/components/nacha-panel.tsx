@@ -146,7 +146,7 @@ export function NachaPanel({ run, canManage }: Readonly<NachaPanelProps>) {
               </div>
               <div>
                 <dt className="text-muted-foreground">{tn.summary.effectiveDate}</dt>
-                <dd className="font-medium">{formatDate(summary.effectiveEntryDate)}</dd>
+                <dd className="font-medium tabular-nums">{formatDate(summary.effectiveEntryDate)}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{tn.summary.payments}</dt>

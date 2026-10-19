@@ -75,7 +75,7 @@ function DashboardContent() {
                           {e.jobTitle && <span className="text-muted-foreground"> · {e.jobTitle}</span>}
                         </span>
                       </Link>
-                      <span className="shrink-0 text-xs text-muted-foreground">{formatDate(e.startDate)}</span>
+                      <span className="shrink-0 text-xs tabular-nums">{formatDate(e.startDate)}</span>
                     </li>
                   ))}
                 </ul>

@@ -31,7 +31,7 @@ function displayValue(fieldType: string, value: unknown): React.ReactNode {
     case 'boolean':
       return value ? '✓' : '—';
     case 'date':
-      return typeof value === 'string' ? new Date(value).toLocaleDateString() : asText(value);
+      return typeof value === 'string' ? <span className="tabular-nums">{new Date(value).toLocaleDateString()}</span> : asText(value);
     case 'multi_select':
       return Array.isArray(value) ? (
         <div className="flex flex-wrap gap-1">

@@ -68,7 +68,7 @@ export function PendingTransactions({
             const negative = Number(row.amount) < 0;
             return (
               <TableRow key={row.id}>
-                <TableCell className="whitespace-nowrap">{formatDate(row.date)}</TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">{formatDate(row.date)}</TableCell>
                 <TableCell className="max-w-[360px] truncate">
                   {row.merchantName || row.description || (
                     <span className="text-muted-foreground">{t.pending.noDescription}</span>

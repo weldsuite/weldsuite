@@ -125,7 +125,7 @@ export function SuppressionsSection() {
                     <Badge variant="outline">{t(`reach.settings.suppressions.types.${row.type}`)}</Badge>
                   </TableCell>
                   <TableCell>{t(`reach.settings.suppressions.reasons.${row.reason}`)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">{format.date(row.createdAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{format.date(row.createdAt)}</TableCell>
                   {canUpdate && (
                     <TableCell>
                       <Button

@@ -917,28 +917,28 @@ function DomainSidebarDetails({
           {domain.registeredAt && (
             <div className="flex items-start gap-3">
               <span className="text-sm text-muted-foreground w-24 flex-shrink-0">{td.registered}</span>
-              <span className="text-sm text-foreground">{fmtDate(domain.registeredAt)}</span>
+              <span className="text-sm text-foreground tabular-nums">{fmtDate(domain.registeredAt)}</span>
             </div>
           )}
           {domain.expiresAt && (
             <div className="flex items-start gap-3">
               <span className="text-sm text-muted-foreground w-24 flex-shrink-0">{td.expires}</span>
-              <span className="text-sm text-foreground">{fmtDate(domain.expiresAt)}</span>
+              <span className="text-sm text-foreground tabular-nums">{fmtDate(domain.expiresAt)}</span>
             </div>
           )}
           {domain.renewedAt && (
             <div className="flex items-start gap-3">
               <span className="text-sm text-muted-foreground w-24 flex-shrink-0">{td.renewed}</span>
-              <span className="text-sm text-foreground">{fmtDate(domain.renewedAt)}</span>
+              <span className="text-sm text-foreground tabular-nums">{fmtDate(domain.renewedAt)}</span>
             </div>
           )}
           <div className="flex items-start gap-3">
             <span className="text-sm text-muted-foreground w-24 flex-shrink-0">{td.created}</span>
-            <span className="text-sm text-foreground">{fmtDate(domain.createdAt)}</span>
+            <span className="text-sm text-foreground tabular-nums">{fmtDate(domain.createdAt)}</span>
           </div>
           <div className="flex items-start gap-3">
             <span className="text-sm text-muted-foreground w-24 flex-shrink-0">{td.updated}</span>
-            <span className="text-sm text-foreground">{fmtDate(domain.updatedAt)}</span>
+            <span className="text-sm text-foreground tabular-nums">{fmtDate(domain.updatedAt)}</span>
           </div>
         </div>
       )}

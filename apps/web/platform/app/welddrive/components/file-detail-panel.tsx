@@ -217,9 +217,9 @@ export function FileDetailPanel({
     { icon: typeConfig.icon, label: t.welddrive.fileDetail.fields.type, value: <span className="capitalize">{file.fileType}</span> },
     { icon: HardDrive, label: t.welddrive.fileDetail.fields.size, value: file.fileSize !== null ? formatFileSize(file.fileSize) : '--' },
     { icon: HardDrive, label: t.welddrive.fileDetail.fields.source, value: <span className={cn(driveLabelClass, badgeClass)}>{driveSourceLabel(file, t)}</span> },
-    { icon: FileText, label: t.welddrive.fileDetail.fields.created, value: formatDate(file.createdAt) },
+    { icon: FileText, label: t.welddrive.fileDetail.fields.created, value: <span className="tabular-nums">{formatDate(file.createdAt)}</span> },
   ];
-  if (file.updatedAt) detailFields.push({ icon: FileText, label: t.welddrive.fileDetail.fields.updated, value: formatDate(file.updatedAt) });
+  if (file.updatedAt) detailFields.push({ icon: FileText, label: t.welddrive.fileDetail.fields.updated, value: <span className="tabular-nums">{formatDate(file.updatedAt)}</span> });
   if (file.mimeType) detailFields.push({ icon: FileText, label: t.welddrive.fileDetail.fields.mime, value: <span className="text-xs font-mono text-muted-foreground">{file.mimeType}</span> });
 
   return (

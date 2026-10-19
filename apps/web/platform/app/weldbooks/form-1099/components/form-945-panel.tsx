@@ -66,7 +66,7 @@ export function Form945Panel({ year, enabled }: Readonly<Form945PanelProps>) {
         <Card>
           <CardContent className="space-y-1 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tf.dueDate}</p>
-            <p className="text-2xl font-semibold">{formatDate(data.dueDate)}</p>
+            <p className="text-2xl font-semibold tabular-nums">{formatDate(data.dueDate)}</p>
           </CardContent>
         </Card>
       </div>
@@ -90,7 +90,7 @@ export function Form945Panel({ year, enabled }: Readonly<Form945PanelProps>) {
                 <TableRow key={month.month} className={month.amount === 0 ? 'text-muted-foreground' : undefined}>
                   <TableCell>{monthName(month.month)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(month.amount)}</TableCell>
-                  <TableCell>{month.amount === 0 ? '—' : formatDate(month.depositDue)}</TableCell>
+                  <TableCell className="tabular-nums">{month.amount === 0 ? '—' : formatDate(month.depositDue)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

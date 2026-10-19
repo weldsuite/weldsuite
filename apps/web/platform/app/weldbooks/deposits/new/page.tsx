@@ -163,7 +163,7 @@ function MakeDepositPage() {
                     data-testid={`select-payment-${p.paymentId}`}
                   />
                 </TableCell>
-                <TableCell className="whitespace-nowrap">{formatDate(p.date)}</TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">{formatDate(p.date)}</TableCell>
                 <TableCell>{p.contactName ?? '—'}</TableCell>
                 <TableCell>
                   {p.paymentMethod && p.paymentMethod in methodLabels

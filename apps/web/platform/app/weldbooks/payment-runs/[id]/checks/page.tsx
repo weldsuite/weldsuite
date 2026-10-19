@@ -225,7 +225,7 @@ export default function PrintChecksPage() {
                       </TableCell>
                       <TableCell className="font-medium tabular-nums">{check.checkNumber}</TableCell>
                       <TableCell>{check.payee.name}</TableCell>
-                      <TableCell className="whitespace-nowrap">{formatDate(check.date)}</TableCell>
+                      <TableCell className="whitespace-nowrap tabular-nums">{formatDate(check.date)}</TableCell>
                       <TableCell><CheckStatusBadge status={check.checkStatus} /></TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatMoney(check.amount)}

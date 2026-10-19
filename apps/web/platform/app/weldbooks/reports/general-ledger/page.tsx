@@ -150,7 +150,7 @@ export default function GeneralLedgerReportPage() {
                 </TableRow>
                 {report.lines.map((line) => (
                   <TableRow key={line.id}>
-                    <TableCell className="whitespace-nowrap">{formatDate(line.entryDate)}</TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">{formatDate(line.entryDate)}</TableCell>
                     <TableCell className="whitespace-nowrap">
                       {line.journalEntryId && line.entryNumber ? (
                         <Link

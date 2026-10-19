@@ -269,7 +269,7 @@ export function NoteEditorModal({
           <div className="flex items-center gap-4">
             <span>{note.author?.name || st('sweep.weldflow.noteEditorModal.unknownAuthor')}</span>
             <span>•</span>
-            <span>{format(note.updatedAt, 'MMM d, yyyy')}</span>
+            <span className="tabular-nums text-foreground">{format(note.updatedAt, 'MMM d, yyyy')}</span>
           </div>
         </div>
       </DialogContent>

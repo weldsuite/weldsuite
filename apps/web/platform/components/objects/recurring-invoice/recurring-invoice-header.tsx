@@ -4,7 +4,7 @@
  * last generation.
  */
 
-import { EllipsisVertical, Link as LinkIcon, Pause, Pencil, Play, RefreshCw, Repeat } from 'lucide-react';
+import { EllipsisVertical, Link as LinkIcon, Pause, Pencil, Play, RefreshCw } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
-import { PanelAvatar, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
+import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import type { RecurringInvoice } from '@/lib/api/domains/weldbooks';
 import type { GeneratedRecurringInvoice } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
@@ -22,18 +22,12 @@ import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { SalesTaxErrorNotice } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 import { RecurringStatusChip } from './recurring-invoice-tab-bodies';
 
-export function RecurringAvatar() {
-  return (
-    <PanelAvatar icon={Repeat} className="bg-violet-100 text-violet-600 dark:bg-violet-900 dark:text-violet-400" />
-  );
-}
-
 export function RecurringTitle({ recurring }: Readonly<{ recurring?: RecurringInvoice }>) {
   const { t } = useI18n();
   if (!recurring) return <div className="h-4 w-32 animate-pulse rounded bg-muted" />;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {recurring.name || t.accounting.recurringPage.defaultName}
       </span>
       <span className="flex-shrink-0">

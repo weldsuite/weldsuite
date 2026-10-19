@@ -272,7 +272,7 @@ function RepoRow({
 
       {/* Last synced */}
       <td className="px-4 py-3">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs tabular-nums">
           {formatRelativeTime(repo.lastSyncedAt)}
         </span>
       </td>
@@ -513,7 +513,7 @@ export default function GithubSettingsPage() {
                   </div>
                   {connection.installedAt && (
                     <p className="text-xs text-muted-foreground m-0">
-                      {github.installedAt} {formatRelativeTime(connection.installedAt)}
+                      {github.installedAt} <span className="text-foreground tabular-nums">{formatRelativeTime(connection.installedAt)}</span>
                     </p>
                   )}
                 </div>

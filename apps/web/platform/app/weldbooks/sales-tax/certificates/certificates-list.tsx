@@ -50,7 +50,10 @@ function CertificateRow({ certificate }: Readonly<{ certificate: ExemptionCertif
           <CertificateExpiry certificate={certificate} />
           {/* The side panel is narrow: "last used" is a wide-layout extra. */}
           <span className="@max-[520px]:hidden">
-            {tc.columns.lastUsed}: {certificate.lastUsedOn ? formatDate(certificate.lastUsedOn) : tc.expiry.neverUsed}
+            {tc.columns.lastUsed}:{' '}
+            <span className="tabular-nums text-foreground">
+              {certificate.lastUsedOn ? formatDate(certificate.lastUsedOn) : tc.expiry.neverUsed}
+            </span>
           </span>
         </div>
       </div>

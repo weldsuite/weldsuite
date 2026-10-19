@@ -305,7 +305,7 @@ export function FileListView({
 
           {/* Modified */}
           <div className="w-[130px]">
-            <span className="text-sm font-mono text-muted-foreground">
+            <span className="text-sm tabular-nums">
               {item.createdAt ? formatDate(item.createdAt) : ''}
             </span>
           </div>

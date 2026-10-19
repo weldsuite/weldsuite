@@ -138,6 +138,7 @@ export function BillDetailsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
           label={st('sweep.entities.fieldIssueDate')}
           value={formatDate(bill.issueDate)}
           placeholder={EMPTY}
+          tabular
           readOnly
         />
         <PropertyRow
@@ -145,6 +146,7 @@ export function BillDetailsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
           label={st('sweep.entities.fieldDueDate')}
           value={formatDate(bill.dueDate)}
           placeholder={EMPTY}
+          tabular
           readOnly
         />
         <PropertyRow icon={Hash} label={tb.reference} value={bill.externalReference} placeholder={EMPTY} readOnly />

@@ -140,7 +140,7 @@ function buildColumns(
       accessorKey: "date",
       header: () => <div className="text-right">{td.time}</div>,
       cell: ({ row }) => (
-        <div className="text-right text-sm text-muted-foreground">{row.original.date}</div>
+        <div className="text-right text-sm tabular-nums">{row.original.date}</div>
       ),
     },
     {

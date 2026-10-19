@@ -22,6 +22,7 @@ import type {
   RunVendorView,
 } from '@/lib/api/domains/weldbooks-payment-runs';
 import { useI18n } from '@/lib/i18n/provider';
+import { cn } from '@/lib/utils';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 const LIST_BORDER = 'border-t border-gray-200/70 dark:border-border';
@@ -124,11 +125,16 @@ function BillRow({ item }: Readonly<{ item: RunItemView }>) {
         <div className="truncate text-xs text-muted-foreground">{item.partyName}</div>
         {due ? (
           <div className="truncate text-xs text-muted-foreground @min-[560px]:hidden">
-            {tv.columns.due} {due}
+            {tv.columns.due} <span className="tabular-nums text-foreground">{due}</span>
           </div>
         ) : null}
       </div>
-      <span className="w-[110px] flex-shrink-0 whitespace-nowrap text-right text-sm text-muted-foreground @max-[559px]:hidden">
+      <span
+        className={cn(
+          'w-[110px] flex-shrink-0 whitespace-nowrap text-right text-sm tabular-nums @max-[559px]:hidden',
+          !due && 'text-muted-foreground',
+        )}
+      >
         {due ?? '—'}
       </span>
       <span className="w-[100px] flex-shrink-0 text-right text-sm tabular-nums @max-[559px]:hidden">

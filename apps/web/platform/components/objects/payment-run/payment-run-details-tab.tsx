@@ -90,7 +90,7 @@ function RunProperties({ run }: Readonly<{ run: PaymentRunDetail }>) {
         )}
       />
       <PropertyRow icon={Landmark} label={ts.bankAccount} value={bankAccount} placeholder={EMPTY} readOnly />
-      <PropertyRow icon={Calendar} label={ts.paymentDate} value={formatDate(run.paymentDate)} placeholder={EMPTY} readOnly />
+      <PropertyRow icon={Calendar} label={ts.paymentDate} value={formatDate(run.paymentDate)} placeholder={EMPTY} tabular readOnly />
       {withheld ? (
         <>
           <MoneyRow icon={Percent} label={ts.withheld} value={`-${formatMoney(run.withheldAmount)}`} />

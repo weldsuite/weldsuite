@@ -96,7 +96,7 @@ export function VersionHistorySheet({
           <p className="truncate text-sm font-medium">
             {version.label || t.versions.autoSnapshot}
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs tabular-nums">
             {formatDistanceToNow(new Date(version.createdAt), { addSuffix: true })}
           </p>
         </div>

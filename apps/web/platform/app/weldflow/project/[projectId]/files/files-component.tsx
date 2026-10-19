@@ -1070,7 +1070,7 @@ export default function FilesComponent({ projectId, initialFiles }: Readonly<Fil
         </div>
 
         <div className="w-[120px]">
-          <span className="text-sm text-gray-500">{formatDate(file.createdAt)}</span>
+          <span className="text-sm tabular-nums">{formatDate(file.createdAt)}</span>
         </div>
 
         <div className="relative z-10 w-[80px] flex justify-end gap-1">

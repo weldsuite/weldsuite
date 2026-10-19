@@ -83,7 +83,7 @@ export function EmployeeLeaveTab({ employeeId }: Readonly<{ employeeId: string }
           {requests.map((request) => (
             <TableRow key={request.id}>
               <TableCell>{request.leaveTypeName ?? '—'}</TableCell>
-              <TableCell>
+              <TableCell className="tabular-nums">
                 {formatDate(request.startDate)} – {formatDate(request.endDate)}
               </TableCell>
               <TableCell>{request.days}</TableCell>

@@ -40,7 +40,6 @@ import { InvoiceCreditNotesTab } from './invoice-credit-notes-tab';
 import { InvoiceDetailsTab } from './invoice-details-tab';
 import {
   InvoiceActionBar,
-  InvoiceAvatar,
   InvoiceHeaderActions,
   InvoiceTitle,
   recordPaymentLabel,
@@ -246,7 +245,6 @@ export function InvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
       <EntityDetailView
         {...shell.entityDetailViewProps}
         contentClassName={tabBodyClassName(mode)}
-        avatar={<InvoiceAvatar isCreditMemo={caps?.isCreditMemo} />}
         title={<InvoiceTitle invoice={invoice} />}
         actions={
           <InvoiceHeaderActions

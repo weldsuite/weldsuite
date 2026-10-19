@@ -75,7 +75,7 @@ export function AgencyOverviewCard({ agency, canCreate, openingAgencyId, onOpenR
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{to.nextPeriod}</p>
             {next ? (
               <>
-                <p className="text-sm font-medium">
+                <p className="text-sm font-medium tabular-nums">
                   {fill(to.periodRange, { start: formatDate(next.periodStart), end: formatDate(next.periodEnd) })}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
@@ -84,14 +84,14 @@ export function AgencyOverviewCard({ agency, canCreate, openingAgencyId, onOpenR
                 </div>
                 <p
                   className={cn(
-                    'flex items-center gap-1 text-sm',
+                    'flex items-center gap-1 text-sm tabular-nums',
                     returnDone
-                      ? 'text-muted-foreground'
+                      ? 'text-foreground'
                       : tone === 'overdue'
                         ? 'font-medium text-destructive'
                         : tone === 'soon'
                           ? 'font-medium text-amber-600 dark:text-amber-400'
-                          : 'text-muted-foreground',
+                          : 'text-foreground',
                   )}
                 >
                   <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -137,7 +137,7 @@ export function AgencyOverviewCard({ agency, canCreate, openingAgencyId, onOpenR
                     {fill(to.periodEnding, { date: formatDate(agency.lastFiled.periodEnd) })}
                   </Link>
                 </p>
-                <p className="text-xs text-muted-foreground tabular-nums">
+                <p className="text-xs tabular-nums">
                   {fill(to.filedOn, { date: formatDate(agency.lastFiled.filedAt) })}
                   {' · '}
                   {formatMoney(agency.lastFiled.totalDue)}
@@ -163,7 +163,7 @@ export function AgencyOverviewCard({ agency, canCreate, openingAgencyId, onOpenR
               </Button>
             ) : null}
             {action === 'upcoming' && next ? (
-              <p className="text-xs text-muted-foreground">{fill(to.startsOn, { date: formatDate(next.periodStart) })}</p>
+              <p className="text-xs tabular-nums">{fill(to.startsOn, { date: formatDate(next.periodStart) })}</p>
             ) : null}
           </div>
         </div>

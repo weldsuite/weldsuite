@@ -104,7 +104,7 @@ export function VendorBankSection({ contact }: Readonly<VendorBankSectionProps>)
               <ShieldCheck aria-hidden />
               {tb.verifiedBadge}
             </Badge>
-            <span className="text-muted-foreground">
+            <span className="tabular-nums">
               {tb.verifiedOn.replace('{date}', formatDate(contact.bankDetailsVerifiedAt)).replace('{name}', verifier ?? '')}
             </span>
           </div>

@@ -78,7 +78,7 @@ export function WarehousePanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t.fields.email, value: warehouse.contactEmail },
               { label: t.fields.phone, value: warehouse.contactPhone },
               { label: t.fields.timezone, value: warehouse.timezone },
-              { label: t.fields.created, value: formatPanelDate(warehouse.createdAt) },
+              { label: t.fields.created, value: formatPanelDate(warehouse.createdAt), tabular: true },
             ]
           : []
       }
