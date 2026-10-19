@@ -58,18 +58,11 @@ function chunkByLength(branches: readonly string[], maxChars: number): string[][
   return chunks;
 }
 
-/**
- * Count (and, up to `hashLimitRows`, checksum) the given tables. Pass a subset
- * to spread the work over several Workflow steps; results merge by table name.
- */
-export async function tableChecksums(
-  sql: TenantSql,
-  tables: ReadonlyArray<Pick<TableInfo, 'name' | 'columns'>>,
-  options: ChecksumOptions = {},
-): Promise<ChecksumMap> {
-  const hashLimit = options.hashLimitRows ?? DEFAULT_HASH_LIMIT_ROWS;
-  const result: ChecksumMap = {};
+type CheckedTable = Pick<TableInfo, 'name' | 'columns'>;
 
+/** Row counts of the given tables (hash still null), a UNION ALL of up to {@link COUNT_BRANCHES_PER_QUERY} per query. */
+async function countTables(sql: TenantSql, tables: readonly CheckedTable[]): Promise<ChecksumMap> {
+  const result: ChecksumMap = {};
   for (let start = 0; start < tables.length; start += COUNT_BRANCHES_PER_QUERY) {
     const chunk = tables.slice(start, start + COUNT_BRANCHES_PER_QUERY);
     const text = chunk
@@ -81,19 +74,41 @@ export async function tableChecksums(
       result[readString(row, 't')] = { count, hash: null };
     }
   }
+  return result;
+}
 
-  const toHash: Array<Pick<TableInfo, 'name' | 'columns'>> = [];
+/** Settle the hash of every empty table (`'0'`) and return the ones still to hash: non-empty, at most `hashLimit` rows. */
+function tablesToHash(tables: readonly CheckedTable[], counted: ChecksumMap, hashLimit: number): CheckedTable[] {
+  const toHash: CheckedTable[] = [];
   for (const table of tables) {
-    const entry = result[table.name];
+    const entry = counted[table.name];
     if (!entry) throw new Error(`No count returned for "${table.name}"`);
     if (entry.count === 0) entry.hash = '0';
     else if (entry.count <= hashLimit) toHash.push(table);
   }
+  return toHash;
+}
 
-  const branches = toHash.map((t) => {
-    const row = `ROW(${t.columns.map((c) => `r.${quoteIdent(c.name)}`).join(', ')})::text`;
-    return `SELECT ${quoteLiteral(t.name)} AS t, coalesce(sum(hashtextextended(${row}, 0)), 0)::text AS h FROM ${qualifiedTable(t.name)} r`;
-  });
+/** One table's branch of the hash query: its name and the sum of its row hashes. */
+function hashBranch(table: CheckedTable): string {
+  const columns = table.columns.map((c) => `r.${quoteIdent(c.name)}`).join(', ');
+  const row = `ROW(${columns})::text`;
+  return `SELECT ${quoteLiteral(table.name)} AS t, coalesce(sum(hashtextextended(${row}, 0)), 0)::text AS h FROM ${qualifiedTable(table.name)} r`;
+}
+
+/**
+ * Count (and, up to `hashLimitRows`, checksum) the given tables. Pass a subset
+ * to spread the work over several Workflow steps; results merge by table name.
+ */
+export async function tableChecksums(
+  sql: TenantSql,
+  tables: readonly CheckedTable[],
+  options: ChecksumOptions = {},
+): Promise<ChecksumMap> {
+  const hashLimit = options.hashLimitRows ?? DEFAULT_HASH_LIMIT_ROWS;
+  const result = await countTables(sql, tables);
+
+  const branches = tablesToHash(tables, result, hashLimit).map(hashBranch);
   for (const chunk of chunkByLength(branches, HASH_QUERY_MAX_CHARS)) {
     for (const row of await queryWithStableFormat(sql, chunk.join('\nUNION ALL\n'))) {
       const entry = result[readString(row, 't')];

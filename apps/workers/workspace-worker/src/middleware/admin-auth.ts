@@ -26,7 +26,7 @@ export type AdminVariables = { adminActor: AdminActor };
 /** A short secret is a misconfiguration, not a credential. */
 export const MIN_ADMIN_SECRET_LENGTH = 32;
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WHITESPACE = /\s/;
 const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 async function sha256(value: string): Promise<Uint8Array> {
@@ -42,6 +42,21 @@ export async function secretsMatch(provided: string, expected: string): Promise<
   return diff === 0;
 }
 
+/**
+ * True when `value` is shaped like an address: one `@`, something before it,
+ * and after it a dot with something on both sides, none of it whitespace. The
+ * same strings `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` accepts, checked with string
+ * operations because that pattern backtracks quadratically on a long domain.
+ */
+export function isEmailShaped(value: string): boolean {
+  const at = value.indexOf('@');
+  if (at < 1 || value.indexOf('@', at + 1) !== -1 || WHITESPACE.test(value)) return false;
+  const domain = value.slice(at + 1);
+  // The first dot with something before it must also have something after it.
+  const dot = domain.indexOf('.', 1);
+  return dot !== -1 && dot < domain.length - 1;
+}
+
 /** The admin identity from the request headers, or null when it is incomplete or malformed. */
 export function parseAdminActor(
   email: string | undefined,
@@ -49,7 +64,7 @@ export function parseAdminActor(
   role: string | undefined,
 ): AdminActor | null {
   const normalized = email?.trim().toLowerCase();
-  if (!normalized || normalized.length > 255 || !EMAIL_PATTERN.test(normalized)) return null;
+  if (!normalized || normalized.length > 255 || !isEmailShaped(normalized)) return null;
   const normalizedRole = role?.trim().toLowerCase();
   const matched = ADMIN_ROLES.find((candidate) => candidate === normalizedRole);
   if (!matched) return null;

@@ -15,7 +15,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
-  ACTIVE_DATABASE_MOVE_STATUSES,
   neonSharedProjects,
   workspaceDatabaseMoves,
   type DatabaseMoveKind,
@@ -27,7 +26,14 @@ import { getMasterDb, type MasterDatabase } from '../../db';
 import { generateId } from '../../lib/id';
 import { isUniqueViolation } from '../../lib/database-move/pg-errors';
 import { DatabaseMoveRequestError } from './errors';
-import { CANCELLABLE_MOVE_STATUSES, loadMove, loadWorkspace, updateMove } from './state';
+import {
+  CANCELLABLE_MOVE_STATUSES,
+  hasActiveMove,
+  loadMove,
+  loadWorkspace,
+  updateMove,
+  type WorkspaceRow,
+} from './state';
 
 /** `dedicated`, `shard:auto` (any other active shard in the region) or a shard id (`nsp_…`). */
 const TARGET_PATTERN = /^(dedicated|shard:auto|nsp_[a-z0-9]{1,30})$/;
@@ -73,24 +79,16 @@ function placementOf(
   return { kind, shardId: target };
 }
 
-/**
- * Validate and start a move. Throws {@link DatabaseMoveRequestError} for every
- * refusal (its `httpStatus` is a suggestion for the route).
- */
-export async function startDatabaseMove(
-  env: Env,
-  rawInput: StartDatabaseMoveInput,
-  options: StartDatabaseMoveOptions = {},
-): Promise<StartedDatabaseMove> {
-  const parsed = startDatabaseMoveInputSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    throw new DatabaseMoveRequestError('INVALID_INPUT', parsed.error.issues.map((i) => i.message).join('; '));
-  }
-  const input = parsed.data;
-  const db = options.masterDb ?? getMasterDb(env);
+/** Where a movable workspace's database lives now. */
+interface SourceDatabase {
+  neonProjectId: string;
+  neonBranchId: string;
+  neonRoleName: string;
+  neonDatabaseName: string;
+}
 
-  const workspace = await loadWorkspace(db, input.workspaceId);
-  if (!workspace) throw new DatabaseMoveRequestError('WORKSPACE_NOT_FOUND', 'Workspace not found');
+/** Refuse a workspace that is deleted, going away or has no database yet; otherwise say where its database is. */
+function requireSourceDatabase(workspace: WorkspaceRow): SourceDatabase {
   if (workspace.deletedAt) throw new DatabaseMoveRequestError('WORKSPACE_DELETED', 'The workspace is deleted');
   if (workspace.scheduledDeletionAt) {
     throw new DatabaseMoveRequestError(
@@ -109,38 +107,53 @@ export async function startDatabaseMove(
   ) {
     throw new DatabaseMoveRequestError('WORKSPACE_NOT_PROVISIONED', 'The workspace database is not provisioned yet');
   }
+  return { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName };
+}
 
-  const [active] = await db
-    .select({ id: workspaceDatabaseMoves.id })
-    .from(workspaceDatabaseMoves)
-    .where(
-      and(
-        eq(workspaceDatabaseMoves.workspaceId, workspace.id),
-        inArray(workspaceDatabaseMoves.status, [...ACTIVE_DATABASE_MOVE_STATUSES]),
-      ),
-    )
+/** Refuse a target shard that does not exist, is not active, or is in another region than the workspace. */
+async function requireUsableShard(db: MasterDatabase, shardId: string, region: string): Promise<void> {
+  const [shard] = await db
+    .select({ status: neonSharedProjects.status, region: neonSharedProjects.region })
+    .from(neonSharedProjects)
+    .where(eq(neonSharedProjects.id, shardId))
     .limit(1);
-  if (active) {
+  if (!shard) throw new DatabaseMoveRequestError('SHARD_NOT_FOUND', 'Shard not found');
+  if (shard.status !== 'active') {
+    throw new DatabaseMoveRequestError('SHARD_UNAVAILABLE', `That shard is ${shard.status}, not active`);
+  }
+  if (shard.region !== region) {
+    throw new DatabaseMoveRequestError('SHARD_UNAVAILABLE', 'That shard is in another region than the workspace');
+  }
+}
+
+/**
+ * Validate and start a move. Throws {@link DatabaseMoveRequestError} for every
+ * refusal (its `httpStatus` is a suggestion for the route).
+ */
+export async function startDatabaseMove(
+  env: Env,
+  rawInput: StartDatabaseMoveInput,
+  options: StartDatabaseMoveOptions = {},
+): Promise<StartedDatabaseMove> {
+  const parsed = startDatabaseMoveInputSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    throw new DatabaseMoveRequestError('INVALID_INPUT', parsed.error.issues.map((i) => i.message).join('; '));
+  }
+  const input = parsed.data;
+  const db = options.masterDb ?? getMasterDb(env);
+
+  const workspace = await loadWorkspace(db, input.workspaceId);
+  if (!workspace) throw new DatabaseMoveRequestError('WORKSPACE_NOT_FOUND', 'Workspace not found');
+  const source = requireSourceDatabase(workspace);
+
+  if (await hasActiveMove(db, workspace.id)) {
     throw new DatabaseMoveRequestError('MOVE_ALREADY_ACTIVE', 'This workspace already has a database move in progress');
   }
 
   const region = workspace.neonRegion || env.NEON_DEFAULT_REGION || 'aws-eu-central-1';
   const { kind, shardId } = placementOf(workspace.sharedProjectId, input.target);
 
-  if (shardId) {
-    const [shard] = await db
-      .select({ status: neonSharedProjects.status, region: neonSharedProjects.region })
-      .from(neonSharedProjects)
-      .where(eq(neonSharedProjects.id, shardId))
-      .limit(1);
-    if (!shard) throw new DatabaseMoveRequestError('SHARD_NOT_FOUND', 'Shard not found');
-    if (shard.status !== 'active') {
-      throw new DatabaseMoveRequestError('SHARD_UNAVAILABLE', `That shard is ${shard.status}, not active`);
-    }
-    if (shard.region !== region) {
-      throw new DatabaseMoveRequestError('SHARD_UNAVAILABLE', 'That shard is in another region than the workspace');
-    }
-  }
+  if (shardId) await requireUsableShard(db, shardId, region);
 
   const moveId = generateId('dbm');
   const row: NewWorkspaceDatabaseMove = {
@@ -149,10 +162,10 @@ export async function startDatabaseMove(
     kind,
     status: 'queued',
     requestedTarget: input.target,
-    sourceNeonProjectId: neonProjectId,
-    sourceNeonBranchId: neonBranchId,
-    sourceDatabaseName: neonDatabaseName,
-    sourceRoleName: neonRoleName,
+    sourceNeonProjectId: source.neonProjectId,
+    sourceNeonBranchId: source.neonBranchId,
+    sourceDatabaseName: source.neonDatabaseName,
+    sourceRoleName: source.neonRoleName,
     sourceSharedProjectId: workspace.sharedProjectId,
     sourceRegion: workspace.neonRegion,
     workflowInstanceId: moveId,

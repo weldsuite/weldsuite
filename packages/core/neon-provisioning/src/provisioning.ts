@@ -421,13 +421,15 @@ export class DatabaseProvisioningService {
     region: string,
     shards?: ShardEligibility,
   ): Promise<DatabasePool | null> {
+    const onlyShard = shards?.shardId ? sql`AND s.id = ${shards.shardId}` : sql``;
+    const exceptShard = shards?.excludeShardId ? sql`AND s.id <> ${shards.excludeShardId}` : sql``;
     const onEligibleShard = shards && kind === 'shared'
       ? sql`AND shared_project_id IN (
               SELECT s.id FROM neon_shared_projects s
               WHERE s.status = 'active'
                 AND s.region = ${region}
-                ${shards.shardId ? sql`AND s.id = ${shards.shardId}` : sql``}
-                ${shards.excludeShardId ? sql`AND s.id <> ${shards.excludeShardId}` : sql``}
+                ${onlyShard}
+                ${exceptShard}
             )`
       : sql``;
 
@@ -1661,9 +1663,10 @@ export class DatabaseProvisioningService {
       ? await this.prepareDedicatedMoveTarget(masterDb, workspaceId, region)
       : await this.prepareShardMoveTarget(masterDb, workspaceId, region, target);
 
+    const origin = prepared.poolId ? `pool slot ${prepared.poolId}` : 'newly created';
     console.log(
       `[Provisioning] Prepared ${prepared.kind} move target for ${workspaceId} ` +
-      `(project ${prepared.neonProjectId}, ${prepared.poolId ? `pool slot ${prepared.poolId}` : 'newly created'})`,
+      `(project ${prepared.neonProjectId}, ${origin})`,
     );
     return prepared;
   }

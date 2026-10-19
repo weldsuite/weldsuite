@@ -31,6 +31,7 @@ import type {
   ForeignKeyInfo,
   JournalSummary,
   MaterializedViewInfo,
+  SqlRow,
   TableInfo,
   TenantSql,
   TriggerEnabledMode,
@@ -207,6 +208,18 @@ export async function readSequences(sql: TenantSql): Promise<string[]> {
   return rows.map((row) => readString(row, 'name'));
 }
 
+/** `"schema"."__drizzle_migrations"` as a string literal, the argument `to_regclass` takes. */
+function journalRegclassLiteral(schema: string): string {
+  return quoteLiteral(`${quoteIdent(schema)}.${quoteIdent(JOURNAL_TABLE)}`);
+}
+
+/** The schema holding the journal: `public` wins when both have one. */
+function journalSchemaOf(located: SqlRow): JournalSummary['schema'] | null {
+  if (readBool(located, 'in_public')) return 'public';
+  if (readBool(located, 'in_drizzle')) return 'drizzle';
+  return null;
+}
+
 /**
  * Summarise the migrations journal: `count(*)` and `max(created_at)`. The
  * `tag` column only exists when `applyTenantMigrations` created the table, so
@@ -216,10 +229,10 @@ export async function readSequences(sql: TenantSql): Promise<string[]> {
 export async function readJournalSummary(sql: TenantSql): Promise<JournalSummary | null> {
   const [located] = await sql.query(`
     SELECT
-      (to_regclass(${quoteLiteral(`${quoteIdent('public')}.${quoteIdent(JOURNAL_TABLE)}`)}) IS NOT NULL) AS in_public,
-      (to_regclass(${quoteLiteral(`${quoteIdent('drizzle')}.${quoteIdent(JOURNAL_TABLE)}`)}) IS NOT NULL) AS in_drizzle`);
+      (to_regclass(${journalRegclassLiteral('public')}) IS NOT NULL) AS in_public,
+      (to_regclass(${journalRegclassLiteral('drizzle')}) IS NOT NULL) AS in_drizzle`);
   if (!located) return null;
-  const schema = readBool(located, 'in_public') ? 'public' : readBool(located, 'in_drizzle') ? 'drizzle' : null;
+  const schema = journalSchemaOf(located);
   if (!schema) return null;
   const [summary] = await sql.query(
     `SELECT count(*)::text AS count, max(created_at)::text AS max_created_at

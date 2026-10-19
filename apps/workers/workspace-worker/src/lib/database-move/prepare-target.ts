@@ -19,7 +19,16 @@
 import { readForeignKeys, readJournalSummary, readTables, readTriggers } from './catalog';
 import { JournalMismatchError, SchemaMismatchError, UnsupportedSchemaError } from './errors';
 import { qualifiedTable, quoteIdent } from './quote';
-import type { Catalog, ForeignKeyInfo, JournalSummary, SavedTargetState, SqlStatement, TenantSql, TriggerInfo } from './types';
+import type {
+  Catalog,
+  ForeignKeyInfo,
+  JournalSummary,
+  SavedTargetState,
+  SqlStatement,
+  TableInfo,
+  TenantSql,
+  TriggerInfo,
+} from './types';
 
 export interface PrepareTargetResult {
   /** Pass this to `finishTarget`; persist it with the Workflow state. */
@@ -54,6 +63,46 @@ function mergeForeignKeys(source: readonly ForeignKeyInfo[], target: readonly Fo
   return [...merged.values()];
 }
 
+/** What the source has that the target lacks: whole tables, and columns of tables both have. */
+function findSchemaGaps(
+  sourceTables: readonly TableInfo[],
+  targetByName: ReadonlyMap<string, TableInfo>,
+): { missingTables: string[]; missingColumns: Array<{ table: string; column: string }> } {
+  const missingTables: string[] = [];
+  const missingColumns: Array<{ table: string; column: string }> = [];
+  for (const table of sourceTables) {
+    const onTarget = targetByName.get(table.name);
+    if (!onTarget) {
+      missingTables.push(table.name);
+      continue;
+    }
+    const have = new Set(onTarget.columns.map((c) => c.name));
+    for (const column of table.columns) {
+      if (!have.has(column.name)) missingColumns.push({ table: table.name, column: column.name });
+    }
+  }
+  return { missingTables, missingColumns };
+}
+
+/**
+ * Source triggers carry the original mode. A target-only trigger cannot exist when the journals match;
+ * if one does, assume the default mode so it is switched back on at the end.
+ */
+function mergeTriggers(
+  source: readonly TriggerInfo[],
+  target: readonly TriggerInfo[],
+): { triggers: TriggerInfo[]; triggerTables: Set<string> } {
+  const triggers: TriggerInfo[] = [...source];
+  const triggerTables = new Set(triggers.map((t) => t.table));
+  for (const trigger of target) {
+    if (!triggers.some((t) => t.table === trigger.table && t.name === trigger.name)) {
+      triggers.push({ ...trigger, enabled: 'O' });
+      triggerTables.add(trigger.table);
+    }
+  }
+  return { triggers, triggerTables };
+}
+
 /**
  * @param targetSql connection to the target database
  * @param catalog the SOURCE catalog (`readCatalog(sourceSql)`), the definition of what the target must end up as
@@ -66,36 +115,14 @@ export async function prepareTargetForCopy(targetSql: TenantSql, catalog: Catalo
 
   const targetTables = await readTables(targetSql);
   const targetByName = new Map(targetTables.map((t) => [t.name, t]));
-  const missingTables: string[] = [];
-  const missingColumns: Array<{ table: string; column: string }> = [];
-  for (const table of catalog.tables) {
-    const onTarget = targetByName.get(table.name);
-    if (!onTarget) {
-      missingTables.push(table.name);
-      continue;
-    }
-    const have = new Set(onTarget.columns.map((c) => c.name));
-    for (const column of table.columns) {
-      if (!have.has(column.name)) missingColumns.push({ table: table.name, column: column.name });
-    }
-  }
+  const { missingTables, missingColumns } = findSchemaGaps(catalog.tables, targetByName);
   if (missingTables.length > 0 || missingColumns.length > 0) throw new SchemaMismatchError(missingTables, missingColumns);
 
   const sourceNames = new Set(catalog.tables.map((t) => t.name));
   const extraTargetTables = targetTables.map((t) => t.name).filter((name) => !sourceNames.has(name));
 
   const foreignKeys = mergeForeignKeys(catalog.foreignKeys, await readForeignKeys(targetSql));
-  // Source triggers carry the original mode. A target-only trigger cannot exist when the journals match;
-  // if one does, assume the default mode so it is switched back on at the end.
-  const triggers: TriggerInfo[] = [...catalog.triggers];
-  const triggerTables = new Set(triggers.map((t) => t.table));
-  const targetTriggers = await readTriggers(targetSql);
-  for (const trigger of targetTriggers) {
-    if (!triggers.some((t) => t.table === trigger.table && t.name === trigger.name)) {
-      triggers.push({ ...trigger, enabled: 'O' });
-      triggerTables.add(trigger.table);
-    }
-  }
+  const { triggers, triggerTables } = mergeTriggers(catalog.triggers, await readTriggers(targetSql));
 
   const statements: SqlStatement[] = [LOCK_TIMEOUT_STATEMENT];
   for (const fk of foreignKeys) {

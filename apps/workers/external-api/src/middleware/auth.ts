@@ -2,7 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { eq, and, isNull, or, gt } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { neon } from '@neondatabase/serverless';
-import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
+import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import postgres from 'postgres';
 import { apiKeys } from '@weldsuite/db/schema/api-keys';
 import { workspaceApiKeys } from '@weldsuite/db/schema/workspace-api-keys';
@@ -231,6 +231,99 @@ export async function getWorkspaceDetails(
 // API Key Validation
 // ============================================================================
 
+/** A key the tenant database confirmed is live: not deleted, not expired. */
+interface VerifiedTenantKey {
+  id: string;
+  keyType: 'workspace' | 'personal';
+  /** Owner of a personal key, null for a workspace key. */
+  userId: string | null;
+  scopes: string[];
+}
+
+type TenantHttpDb = NeonHttpDatabase<typeof tenantSchema>;
+
+/** Verify a workspace key live in the tenant database (revoked or expired keys are rejected). */
+async function verifyWorkspaceKey(
+  tenantDb: TenantHttpDb,
+  keyId: string,
+  now: Date,
+  moving: boolean,
+): Promise<VerifiedTenantKey | null> {
+  const [workspaceKey] = await tenantDb
+    .select()
+    .from(workspaceApiKeys)
+    .where(
+      and(
+        eq(workspaceApiKeys.id, keyId),
+        isNull(workspaceApiKeys.deletedAt),
+        or(isNull(workspaceApiKeys.expiresAt), gt(workspaceApiKeys.expiresAt, now))
+      )
+    )
+    .limit(1);
+
+  if (!workspaceKey) {
+    return null;
+  }
+
+  // Fire-and-forget lastUsedAt update (not while a database move copies it)
+  if (!moving) {
+    tenantDb
+      .update(workspaceApiKeys)
+      .set({ lastUsedAt: now })
+      .where(eq(workspaceApiKeys.id, workspaceKey.id))
+      .execute()
+      .catch(console.error);
+  }
+
+  return {
+    id: workspaceKey.id,
+    keyType: 'workspace',
+    userId: null,
+    scopes: (workspaceKey.scopes as string[]) || [],
+  };
+}
+
+/** Verify a personal key live in the tenant database (revoked or expired keys are rejected). */
+async function verifyPersonalKey(
+  tenantDb: TenantHttpDb,
+  keyId: string,
+  now: Date,
+  moving: boolean,
+): Promise<VerifiedTenantKey | null> {
+  const [personalKey] = await tenantDb
+    .select()
+    .from(apiKeys)
+    .where(
+      and(
+        eq(apiKeys.id, keyId),
+        isNull(apiKeys.deletedAt),
+        or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now))
+      )
+    )
+    .limit(1);
+
+  if (!personalKey) {
+    return null;
+  }
+
+  // Fire-and-forget lastUsedAt update (not while a database move copies it)
+  if (!moving) {
+    tenantDb
+      .update(apiKeys)
+      .set({ lastUsedAt: now })
+      .where(eq(apiKeys.id, personalKey.id))
+      .execute()
+      .catch(console.error);
+  }
+
+  return {
+    id: personalKey.id,
+    keyType: 'personal',
+    userId: personalKey.userId,
+    scopes: (personalKey.scopes as string[]) || [],
+  };
+}
+
 /**
  * Validate API key using KV-cached master lookups + workspace DB via Neon HTTP
  *
@@ -282,88 +375,25 @@ async function validateApiKey(
     const sql = neon(workspace.databaseUrl);
     const tenantDb = drizzleNeonHttp({ client: sql, schema: tenantSchema });
 
-    if (registryEntry.keyType === 'workspace') {
-      const [workspaceKey] = await tenantDb
-        .select()
-        .from(workspaceApiKeys)
-        .where(
-          and(
-            eq(workspaceApiKeys.id, registryEntry.tenantKeyId),
-            isNull(workspaceApiKeys.deletedAt),
-            or(isNull(workspaceApiKeys.expiresAt), gt(workspaceApiKeys.expiresAt, now))
-          )
-        )
-        .limit(1);
-
-      if (!workspaceKey) {
-        return null;
-      }
-
-      // Fire-and-forget lastUsedAt update (not while a database move copies it)
-      if (!moving) {
-        tenantDb
-          .update(workspaceApiKeys)
-          .set({ lastUsedAt: now })
-          .where(eq(workspaceApiKeys.id, workspaceKey.id))
-          .execute()
-          .catch(console.error);
-      }
-
-      return {
-        keyId: workspaceKey.id,
-        keyType: 'workspace',
-        workspaceId: registryEntry.workspaceId,
-        userId: null,
-        scopes: (workspaceKey.scopes as string[]) || [],
-        tier: workspace.tier,
-        databaseUrl: workspace.databaseUrl,
-        clerkOrgId: workspace.clerkOrgId,
-        licensedApps: workspace.licensedApps ?? null,
-        readOnly: workspace.readOnly ?? false,
-        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
-      };
-    } else {
-      // Personal key
-      const [personalKey] = await tenantDb
-        .select()
-        .from(apiKeys)
-        .where(
-          and(
-            eq(apiKeys.id, registryEntry.tenantKeyId),
-            isNull(apiKeys.deletedAt),
-            or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now))
-          )
-        )
-        .limit(1);
-
-      if (!personalKey) {
-        return null;
-      }
-
-      // Fire-and-forget lastUsedAt update (not while a database move copies it)
-      if (!moving) {
-        tenantDb
-          .update(apiKeys)
-          .set({ lastUsedAt: now })
-          .where(eq(apiKeys.id, personalKey.id))
-          .execute()
-          .catch(console.error);
-      }
-
-      return {
-        keyId: personalKey.id,
-        keyType: 'personal',
-        workspaceId: registryEntry.workspaceId,
-        userId: personalKey.userId,
-        scopes: (personalKey.scopes as string[]) || [],
-        tier: workspace.tier,
-        databaseUrl: workspace.databaseUrl,
-        clerkOrgId: workspace.clerkOrgId,
-        licensedApps: workspace.licensedApps ?? null,
-        readOnly: workspace.readOnly ?? false,
-        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
-      };
+    const verifyKey = registryEntry.keyType === 'workspace' ? verifyWorkspaceKey : verifyPersonalKey;
+    const key = await verifyKey(tenantDb, registryEntry.tenantKeyId, now, moving);
+    if (!key) {
+      return null;
     }
+
+    return {
+      keyId: key.id,
+      keyType: key.keyType,
+      workspaceId: registryEntry.workspaceId,
+      userId: key.userId,
+      scopes: key.scopes,
+      tier: workspace.tier,
+      databaseUrl: workspace.databaseUrl,
+      clerkOrgId: workspace.clerkOrgId,
+      licensedApps: workspace.licensedApps ?? null,
+      readOnly: workspace.readOnly ?? false,
+      readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
+    };
   } catch (error) {
     // The tenant database refused the key lookup because the workspace moved
     // (source set read-only, or its role password rotated). That is not a bad

@@ -112,6 +112,50 @@ async function releaseTarget(deps: MoveDeps, move: MoveRow): Promise<boolean> {
   return true;
 }
 
+/** How one part of the cleanup went: whether it did its work, and what to report when it failed. */
+interface CleanupPart {
+  done: boolean;
+  problem: string | null;
+}
+
+/** Unlock the source, when the move locked it and the workspace still points at it. Never throws. */
+async function unlockSourceIfLocked(
+  deps: MoveDeps,
+  move: MoveRow,
+  workspace: WorkspaceRow | undefined,
+  progress: DatabaseMoveProgress,
+): Promise<CleanupPart> {
+  // A workspace that is gone or no longer at the source has nothing to unlock through the workspace row.
+  if (!progress.lockStartedAt || !workspace || !workspaceIsAtSource(workspace, move)) {
+    return { done: false, problem: null };
+  }
+  try {
+    await unlockMoveSource(deps, move, workspace);
+    return { done: true, problem: null };
+  } catch (err) {
+    return { done: false, problem: `unlocking the source failed (${describeFailure(err)})` };
+  }
+}
+
+/** Release the target and record that on the row. Never throws. */
+async function releaseTargetOnce(deps: MoveDeps, move: MoveRow, progress: DatabaseMoveProgress): Promise<CleanupPart> {
+  try {
+    const released = await releaseTarget(deps, move);
+    // Remember it now: if the unlock failed, the retry must not drop the target a second time.
+    if (released) {
+      await updateMove(
+        deps.masterDb,
+        move.id,
+        { progress: { ...progress, targetReleasedAt: deps.now().toISOString() } },
+        deps.now(),
+      );
+    }
+    return { done: released, problem: null };
+  } catch (err) {
+    return { done: false, problem: `releasing the target failed (${describeFailure(err)})` };
+  }
+}
+
 /**
  * Close a move that will not switch. See the file header for the order and the
  * guarantees. Throws a retryable `COMPENSATION_INCOMPLETE` when the unlock or
@@ -140,33 +184,11 @@ export async function compensateDatabaseMove(
   // Say why while the cleanup runs, so a stuck cleanup still shows the cause.
   if (options.error !== undefined) await updateMove(db, moveId, { error: options.error }, deps.now());
 
-  const problems: string[] = [];
-  let sourceUnlocked = false;
-  let targetReleased = false;
-
   const progress = move.progress ?? emptyProgress();
-  if (progress.lockStartedAt) {
-    if (workspace && workspaceIsAtSource(workspace, move)) {
-      try {
-        await unlockMoveSource(deps, move, workspace);
-        sourceUnlocked = true;
-      } catch (err) {
-        problems.push(`unlocking the source failed (${describeFailure(err)})`);
-      }
-    }
-    // A workspace that is gone or no longer at the source has nothing to unlock through the workspace row.
-  }
+  const unlock = await unlockSourceIfLocked(deps, move, workspace, progress);
+  const release = await releaseTargetOnce(deps, move, progress);
 
-  try {
-    targetReleased = await releaseTarget(deps, move);
-    // Remember it now: if the unlock failed, the retry must not drop the target a second time.
-    if (targetReleased) {
-      await updateMove(db, moveId, { progress: { ...progress, targetReleasedAt: deps.now().toISOString() } }, deps.now());
-    }
-  } catch (err) {
-    problems.push(`releasing the target failed (${describeFailure(err)})`);
-  }
-
+  const problems = [unlock.problem, release.problem].filter((problem): problem is string => problem !== null);
   if (problems.length > 0) {
     throw new MoveFlowError('COMPENSATION_INCOMPLETE', `Could not undo the move: ${problems.join('; ')}`, true);
   }
@@ -187,7 +209,7 @@ export async function compensateDatabaseMove(
   if (closed && outcome === 'failed') await recordMoveFailed(db, move, error);
 
   await deps.purgeCaches({ workspaceId: move.workspaceId, clerkOrgId: workspace?.clerkOrgId ?? null });
-  return { status: outcome, sourceUnlocked, targetReleased };
+  return { status: outcome, sourceUnlocked: unlock.done, targetReleased: release.done };
 }
 
 export interface RecoverOptions {

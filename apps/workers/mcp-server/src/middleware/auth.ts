@@ -1,4 +1,4 @@
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { createClerkClient } from '@clerk/backend';
 import { eq, and, isNull } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -276,6 +276,69 @@ async function resolveClerkOrgId(
   }
 }
 
+type MemberPermissions =
+  | { ok: true; permissions: string[]; permissionDenies: string[]; role: string; roleId: string | null }
+  | { ok: false; response: Response };
+
+/**
+ * Resolve the user's effective permissions in the workspace's tenant database.
+ * On failure the result carries the JSON-RPC error response to send: a
+ * retryable 503 when the workspace's database moved, a 500 otherwise.
+ */
+async function resolveMemberPermissions(
+  c: Context<HonoEnv>,
+  workspace: CachedWorkspace,
+  userId: string,
+  clerkOrgId: string,
+): Promise<MemberPermissions> {
+  try {
+    const tenantDb = createTenantDb(workspace.databaseUrl);
+    const queries = createDrizzlePermissionQueries(tenantDb, tenantSchema, {
+      eq,
+      and,
+      isNull,
+    });
+    const resolved = await resolveEffectivePermissions(queries, userId);
+    return {
+      ok: true,
+      permissions: resolved.permissions,
+      permissionDenies: resolved.denies ?? [],
+      role: resolved.role,
+      roleId: resolved.roleId,
+    };
+  } catch (error) {
+    // The tenant database refused the lookup because the workspace moved (source
+    // set read-only, or its role password rotated): a retryable 503, not a 500.
+    // Only a classification is logged: the error's message can carry the query
+    // and the role name. A rotated password also kills the cached URL.
+    const moved = classifyMovedDatabaseError(error);
+    if (moved) {
+      console.warn(`[MCP Auth] workspace database moved (${moved}), org ${clerkOrgId}`);
+      if (moved === 'password_rotated') await forgetWorkspaceForOrg(c.env.API_CACHE, clerkOrgId);
+      return {
+        ok: false,
+        response: c.json(
+          {
+            jsonrpc: '2.0',
+            error: { code: -32603, message: workspaceMovingBody().error.message, data: { code: 'WORKSPACE_MOVING' } },
+            id: null,
+          },
+          503,
+          { 'Retry-After': String(WORKSPACE_MOVING_RETRY_AFTER_SECONDS) },
+        ),
+      };
+    }
+    console.error('[MCP Auth] Permission resolution failed:', error);
+    return {
+      ok: false,
+      response: c.json(
+        { jsonrpc: '2.0', error: { code: -32603, message: 'Could not resolve permissions.' }, id: null },
+        500,
+      ),
+    };
+  }
+}
+
 /**
  * Hono middleware enforcing Clerk OAuth authentication on the MCP endpoint.
  *
@@ -370,47 +433,9 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   // Authorization comes from the user's real workspace role — never from the
   // token. A member who cannot delete leads in the UI cannot delete them
   // through an AI assistant either.
-  let permissions: string[];
-  let permissionDenies: string[];
-  let role: string;
-  let roleId: string | null;
-  try {
-    const tenantDb = createTenantDb(workspace.databaseUrl);
-    const queries = createDrizzlePermissionQueries(tenantDb, tenantSchema, {
-      eq,
-      and,
-      isNull,
-    });
-    const resolved = await resolveEffectivePermissions(queries, userId);
-    permissions = resolved.permissions;
-    permissionDenies = resolved.denies ?? [];
-    role = resolved.role;
-    roleId = resolved.roleId;
-  } catch (error) {
-    // The tenant database refused the lookup because the workspace moved (source
-    // set read-only, or its role password rotated): a retryable 503, not a 500.
-    // Only a classification is logged: the error's message can carry the query
-    // and the role name. A rotated password also kills the cached URL.
-    const moved = classifyMovedDatabaseError(error);
-    if (moved) {
-      console.warn(`[MCP Auth] workspace database moved (${moved}), org ${clerkOrgId}`);
-      if (moved === 'password_rotated') await forgetWorkspaceForOrg(c.env.API_CACHE, clerkOrgId);
-      return c.json(
-        {
-          jsonrpc: '2.0',
-          error: { code: -32603, message: workspaceMovingBody().error.message, data: { code: 'WORKSPACE_MOVING' } },
-          id: null,
-        },
-        503,
-        { 'Retry-After': String(WORKSPACE_MOVING_RETRY_AFTER_SECONDS) },
-      );
-    }
-    console.error('[MCP Auth] Permission resolution failed:', error);
-    return c.json(
-      { jsonrpc: '2.0', error: { code: -32603, message: 'Could not resolve permissions.' }, id: null },
-      500,
-    );
-  }
+  const resolvedPermissions = await resolveMemberPermissions(c, workspace, userId, clerkOrgId);
+  if (!resolvedPermissions.ok) return resolvedPermissions.response;
+  const { permissions, permissionDenies, role, roleId } = resolvedPermissions;
 
   // No role means the Clerk user is not a member of this workspace. Treat it as
   // a hard failure rather than an empty tool list, so the cause is obvious.

@@ -114,12 +114,12 @@ export function buildReadStatement(
   const cap = assertPositiveInt(maxPageBytes, 'maxPageBytes');
   const pk = table.primaryKey;
   const orderBy = pk.map((c) => `t.${quoteIdent(c)}`).join(', ');
+  const cursorPlaceholders = pk.map((_, i) => `$${i + 1}`).join(', ');
   const innerColumns = table.columns
     .map((c) => (c.json ? `t.${quoteIdent(c.name)}::text AS ${quoteIdent(c.name)}` : `t.${quoteIdent(c.name)}`))
     .join(', ');
-  const where = cursorValues
-    ? `WHERE (${pk.map((c) => `t.${quoteIdent(c)}`).join(', ')}) > (${pk.map((_, i) => `$${i + 1}`).join(', ')})`
-    : '';
+  // Keyset paging: the key columns in key order, as a row value, against the cursor's values.
+  const where = cursorValues ? `WHERE (${orderBy}) > (${cursorPlaceholders})` : '';
   const keyColumns = pk.map((c, i) => `x.${quoteIdent(c)}::text AS k${i}`).join(', ');
   const orderColumns = pk.map((c, i) => `x.${quoteIdent(c)} AS o${i}`).join(', ');
   const windowOrder = pk.map((_, i) => `o${i}`).join(', ');

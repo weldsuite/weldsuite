@@ -65,8 +65,38 @@ export interface RestoreForeignKeysResult {
   remaining: number;
 }
 
-function stripNotValid(definition: string): string {
-  return definition.replace(/\s+NOT VALID\s*$/i, '');
+/** Whitespace, then `NOT VALID`, at the very end of a right-trimmed definition. */
+const NOT_VALID_SUFFIX = /\sNOT VALID$/i;
+const NOT_VALID_LENGTH = 'NOT VALID'.length;
+
+/**
+ * Drop the `NOT VALID` clause `pg_get_constraintdef` appends to a key that was
+ * never validated, together with the whitespace around it, so the clause can be
+ * added back once. Trims first and then checks the tail, rather than matching
+ * `\s+NOT VALID\s*$`, which rescans a long run of whitespace from every position
+ * inside it.
+ */
+export function stripNotValid(definition: string): string {
+  const trimmed = definition.trimEnd();
+  if (!NOT_VALID_SUFFIX.test(trimmed)) return definition;
+  return trimmed.slice(0, -NOT_VALID_LENGTH).trimEnd();
+}
+
+/**
+ * What one saved key still needs on the target. `present` is its validated flag
+ * there, or undefined when the target does not have it: a missing key is added
+ * `NOT VALID`, and a key that is not yet validated is validated if the source's was.
+ */
+function foreignKeyStatements(fk: ForeignKeyInfo, present: boolean | undefined): SqlStatement[] {
+  const table = qualifiedTable(fk.table);
+  const name = quoteIdent(fk.name);
+  const statements: SqlStatement[] = [];
+  if (present === undefined) {
+    statements.push({ text: `ALTER TABLE ${table} ADD CONSTRAINT ${name} ${stripNotValid(fk.definition)} NOT VALID` });
+  }
+  // A key that was NOT VALID on the source stays that way: validating would fail on rows the source already had.
+  if (fk.validated && present !== true) statements.push({ text: `ALTER TABLE ${table} VALIDATE CONSTRAINT ${name}` });
+  return statements;
 }
 
 /** Re-add and validate the saved foreign keys, skipping those already in place. */
@@ -81,15 +111,7 @@ export async function restoreForeignKeys(
 
   const pending: Array<{ fk: ForeignKeyInfo; statements: SqlStatement[] }> = [];
   for (const fk of saved.foreignKeys) {
-    const present = state.get(`${fk.table}\u0000${fk.name}`);
-    const table = qualifiedTable(fk.table);
-    const name = quoteIdent(fk.name);
-    const statements: SqlStatement[] = [];
-    if (present === undefined) {
-      statements.push({ text: `ALTER TABLE ${table} ADD CONSTRAINT ${name} ${stripNotValid(fk.definition)} NOT VALID` });
-    }
-    // A key that was NOT VALID on the source stays that way: validating would fail on rows the source already had.
-    if (fk.validated && present !== true) statements.push({ text: `ALTER TABLE ${table} VALIDATE CONSTRAINT ${name}` });
+    const statements = foreignKeyStatements(fk, state.get(`${fk.table}\u0000${fk.name}`));
     if (statements.length > 0) pending.push({ fk, statements });
   }
 

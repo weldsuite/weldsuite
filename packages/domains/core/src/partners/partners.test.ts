@@ -181,6 +181,43 @@ describe('invalidateWorkspaceContexts', () => {
     expect(workspaceCache.delete).toHaveBeenCalledWith('ws:org_1');
   });
 
+  it('deletes in a fixed order: org keys, then the database-only keys per org, then per workspace', async () => {
+    const order: string[] = [];
+    const workspaceCache = { delete: vi.fn(async (key: string) => void order.push(`kv ${key}`)) };
+    const apiCache = { delete: vi.fn(async (key: string) => void order.push(`api ${key}`)) };
+    await invalidateWorkspaceContexts(workspaceCache, ['org_1', 'org_2'], {
+      apiCache,
+      workspaceIds: ['ws_1', 'ws_2'],
+      databaseKeys: true,
+    });
+    expect(order).toEqual([
+      'kv ws:org_1',
+      'kv ws:org_2',
+      'kv ws:id:org_1',
+      'kv ws:id:org_2',
+      'kv wsid:ws_1',
+      'kv ws:id:ws_1',
+      'kv wsid:ws_2',
+      'kv ws:id:ws_2',
+      'api ws:ws_1',
+      'api ws:ws_2',
+      'api mcp:org:org_1',
+      'api mcp:org:org_2',
+    ]);
+  });
+
+  it('skips missing ids and deletes nothing without any', async () => {
+    const workspaceCache = kv();
+    const apiCache = kv();
+    await invalidateWorkspaceContexts(workspaceCache, [null, undefined, ''], {
+      apiCache,
+      workspaceIds: [null, undefined],
+      databaseKeys: true,
+    });
+    expect(workspaceCache.delete).not.toHaveBeenCalled();
+    expect(apiCache.delete).not.toHaveBeenCalled();
+  });
+
   it('survives a failing delete and a missing handle', async () => {
     const workspaceCache = { delete: vi.fn(async (_key: string): Promise<void> => { throw new Error('kv'); }) };
     const apiCache = kv();

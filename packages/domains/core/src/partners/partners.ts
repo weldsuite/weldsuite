@@ -410,18 +410,27 @@ export async function invalidateWorkspaceContexts(
   const quiet = (p: Promise<void>) => p.catch(() => undefined);
   const deletes: Array<Promise<void>> = [];
   if (kv) {
-    for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:${id}`)));
-    if (extra.databaseKeys) {
-      for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:id:${id}`)));
-      for (const id of workspaceIds) {
-        deletes.push(quiet(kv.delete(`wsid:${id}`)));
-        deletes.push(quiet(kv.delete(`ws:id:${id}`)));
-      }
+    for (const key of workspaceCacheKeys(orgIds, workspaceIds, extra.databaseKeys ?? false)) {
+      deletes.push(quiet(kv.delete(key)));
     }
   }
   if (extra.apiCache) {
-    for (const id of workspaceIds) deletes.push(quiet(extra.apiCache.delete(`ws:${id}`)));
-    for (const id of orgIds) deletes.push(quiet(extra.apiCache.delete(`mcp:org:${id}`)));
+    for (const key of apiCacheKeys(orgIds, workspaceIds)) deletes.push(quiet(extra.apiCache.delete(key)));
   }
   await Promise.all(deletes);
+}
+
+/** The `WORKSPACE_CACHE` keys to drop, in the order they are deleted. */
+function workspaceCacheKeys(orgIds: readonly string[], workspaceIds: readonly string[], databaseKeys: boolean): string[] {
+  const keys = orgIds.map((id) => `ws:${id}`);
+  if (databaseKeys) {
+    for (const id of orgIds) keys.push(`ws:id:${id}`);
+    for (const id of workspaceIds) keys.push(`wsid:${id}`, `ws:id:${id}`);
+  }
+  return keys;
+}
+
+/** The `API_CACHE` keys to drop (external-api, then mcp-server), in the order they are deleted. */
+function apiCacheKeys(orgIds: readonly string[], workspaceIds: readonly string[]): string[] {
+  return [...workspaceIds.map((id) => `ws:${id}`), ...orgIds.map((id) => `mcp:org:${id}`)];
 }
