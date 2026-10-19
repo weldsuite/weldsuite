@@ -1,4 +1,5 @@
-import { pgTable, varchar, text, timestamp, jsonb, numeric, index, unique } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, varchar, text, timestamp, jsonb, numeric, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export interface MemberProfileLink {
   label: string;
@@ -71,7 +72,10 @@ export const workspaceMembers = pgTable(
     index('workspace_members_user_idx').on(table.userId),
     index('workspace_members_clerk_invitation_idx').on(table.clerkInvitationId),
     index('workspace_members_member_type_idx').on(table.memberType),
-    unique('workspace_members_unique').on(table.userId),
+    // Live rows only: removing a member soft-deletes the row and keeps its
+    // user_id, so a table-wide unique would block re-inviting that person
+    // (both the `invited_<email>` placeholder and their real Clerk id).
+    uniqueIndex('workspace_members_unique').on(table.userId).where(sql`${table.deletedAt} IS NULL`),
   ]
 );
 

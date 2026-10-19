@@ -656,6 +656,26 @@ async function createClerkInvitation(
   return { id: invitation.id };
 }
 
+/**
+ * Revoke a Clerk invitation this request just created, when the member row
+ * that mirrors it could not be written. Without this the invitee still gets
+ * an invite email while the inviter sees an error. Best-effort: a failure is
+ * logged, the original error is still what the caller returns.
+ */
+async function revokeClerkInvitation(env: Env, orgId: string, invitationId: string): Promise<void> {
+  try {
+    const resp = await fetch(
+      `https://api.clerk.com/v1/organizations/${orgId}/invitations/${invitationId}/revoke`,
+      { method: 'POST', headers: clerkHeaders(env.CLERK_SECRET_KEY), body: JSON.stringify({}) },
+    );
+    if (!resp.ok && resp.status !== 404) {
+      console.error('[app-api/team-members] Clerk invitation rollback failed:', resp.status);
+    }
+  } catch (err) {
+    console.error('[app-api/team-members] Clerk invitation rollback failed:', err);
+  }
+}
+
 /** Insert the PENDING member row that mirrors a freshly created Clerk invitation. */
 async function insertPendingMember(
   db: Database,
@@ -764,17 +784,26 @@ app.post('/invite', async (c) => {
   }
 
   // Insert PENDING member record. memberType is preserved through to the
-  // accept handler.
-  const memberId = await insertPendingMember(db, {
-    email,
-    name,
-    roleName,
-    resolvedRoleId,
-    memberType,
-    isGuest,
-    clerkInvitationId: invitation.id,
-    invitingUserId,
-  });
+  // accept handler. If it fails, take the Clerk invitation back so the two
+  // don't disagree (the invitation.revoked webhook cleans up any row the
+  // invitation.created webhook already wrote).
+  let memberId: string;
+  try {
+    memberId = await insertPendingMember(db, {
+      email,
+      name,
+      roleName,
+      resolvedRoleId,
+      memberType,
+      isGuest,
+      clerkInvitationId: invitation.id,
+      invitingUserId,
+    });
+  } catch (err) {
+    console.error('[app-api/team-members] Pending member insert failed, revoking Clerk invitation:', err);
+    await revokeClerkInvitation(c.env, orgId, invitation.id);
+    return error.internal(c, 'Failed to create invitation');
+  }
 
   return success(c, { memberId, memberType, activated: false }, 201);
 });
