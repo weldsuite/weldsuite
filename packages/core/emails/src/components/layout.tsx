@@ -1,15 +1,16 @@
 import type { ReactNode } from "react";
-import {
-  Body,
-  Container,
-  Head,
-  Html,
-  Img,
-  Link,
-  Preview,
-  Section,
-  Text,
-} from "@react-email/components";
+// One package per component, never the `@react-email/components` barrel: in a
+// Worker bundle the barrel also runs code-block (Prism), markdown and tailwind
+// at startup, enough to push a worker over Cloudflare's startup CPU limit.
+import { Body } from "@react-email/body";
+import { Container } from "@react-email/container";
+import { Head } from "@react-email/head";
+import { Html } from "@react-email/html";
+import { Img } from "@react-email/img";
+import { Link } from "@react-email/link";
+import { Preview } from "@react-email/preview";
+import { Section } from "@react-email/section";
+import { Text } from "@react-email/text";
 import { logoUrlOf, type EmailBrand } from "../brand";
 import { emailStrings, rich, type EmailLocale } from "../i18n";
 import { theme } from "../theme";

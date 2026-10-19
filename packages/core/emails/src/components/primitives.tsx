@@ -9,7 +9,15 @@
  */
 
 import type { CSSProperties, ReactNode } from 'react';
-import { Button as REButton, Column, Heading as REHeading, Hr, Link, Row, Section, Text } from '@react-email/components';
+// Per-component packages, not the `@react-email/components` barrel (see layout.tsx).
+import { Button as REButton } from '@react-email/button';
+import { Column } from '@react-email/column';
+import { Heading as REHeading } from '@react-email/heading';
+import { Hr } from '@react-email/hr';
+import { Link } from '@react-email/link';
+import { Row } from '@react-email/row';
+import { Section } from '@react-email/section';
+import { Text } from '@react-email/text';
 import { theme } from '../theme';
 
 const { color, size, lineHeight, radius, space, font } = theme;
