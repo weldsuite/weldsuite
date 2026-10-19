@@ -204,6 +204,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/mail-threads',
     '/api/mail-weldmail',
     '/api/mailboxes',
+    // Inline images of read messages: sealed short-lived token, no session (TASK-905).
+    '/public/mail-inline',
   ]),
   mod('flow', 8804, ['weldflow', 'weldcrm', 'weldmail', 'weldchat', 'weldcalendar'], [
     '/api/digest-settings',
