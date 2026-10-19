@@ -33,6 +33,7 @@ import { upsertMailContacts, type MailContactsEnv } from './contacts';
 import { principalHasAccess, principalIsAdmin, toPrincipal, type MailCaller } from './access';
 import { isSenderDomainVerified } from './accounts';
 import { getDraft, softDeleteDraft } from './drafts';
+import { embedInlineImages, type InlineImageSource, type OutboundInlineImagesEnv } from './send-inline-images';
 import {
   OutboundDeniedError,
   checkOutbound,
@@ -53,7 +54,8 @@ export interface MailSendEnv
   extends cfEmail.WorkerEmailEnv,
     RecipientValidationEnv,
     MailContactsEnv,
-    OutboundGuardEnv {}
+    OutboundGuardEnv,
+    OutboundInlineImagesEnv {}
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 
@@ -95,6 +97,8 @@ export interface SendAttachmentInput {
   size: number;
   /** R2 object key returned by `POST /api/storage/generate-upload-url`. */
   fileKey: string;
+  /** Content-ID when the HTML shows this file inline (a scheduled message's embedded images). */
+  cid?: string;
 }
 
 export interface SendComposeInput {
@@ -163,6 +167,11 @@ export interface SendOptions {
    */
   extraAttachments?: InlineAttachment[];
   /**
+   * A quoted original's attachments (forward): the inline images its HTML
+   * references by `cid:` or by a public storage URL go out as inline parts.
+   */
+  quotedInlineImages?: InlineImageSource[];
+  /**
    * Refuse the send once the account has sent `dailySendLimit` messages since
    * UTC midnight (`DAILY_LIMIT_REACHED`). The public API sets it; the WeldMail
    * UI does not. Counted live from the SENT copies, because `sentToday` has no
@@ -188,6 +197,8 @@ export interface InlineAttachment {
   filename: string;
   contentType?: string;
   content: ArrayBuffer;
+  /** Content-ID of an inline image the HTML references as `cid:<cid>`. */
+  cid?: string;
 }
 
 /**
@@ -221,7 +232,7 @@ export async function findSentByIdempotencyKey(
   };
 }
 
-type ResolvedAttachment = { filename: string; contentType?: string; content: ArrayBuffer; fileKey: string };
+type ResolvedAttachment = { filename: string; contentType?: string; content: ArrayBuffer; fileKey: string; cid?: string };
 type MailAccountRow = typeof mailAccounts.$inferSelect;
 type TransmitResult = Awaited<ReturnType<typeof cfEmail.sendEmail>>;
 
@@ -398,6 +409,7 @@ function transmitEmail(
           filename: a.filename,
           contentType: a.contentType,
           content: a.content,
+          cid: a.cid,
         }))
       : undefined,
   });
@@ -518,7 +530,9 @@ async function persistAttachmentPointers(
           contentType: att.contentType || 'application/octet-stream',
           size: att.content.byteLength,
           storagePath: att.fileKey,
-          isInline: false,
+          // An inline image keeps its Content-ID, so the Sent copy shows it too.
+          isInline: !!att.cid,
+          contentId: att.cid ?? null,
           createdAt: now,
           updatedAt: now,
         });
@@ -624,13 +638,23 @@ export async function sendAndPersist(
   const body = prepareBody(data);
   await assertValidRecipients(env, data, opts?.dryRun);
 
+  // ---- Inline images: minted URLs and quoted `cid:`s become MIME parts --
+  // A quoted reading-pane URL expires within the hour; the recipient keeps the mail.
+  const inline = await embedInlineImages(env, db, body.html, {
+    workspaceId: orgId,
+    caller,
+    accountId,
+    quoted: opts?.quotedInlineImages,
+  });
+  body.html = inline.html;
+
   // ---- Outbound guard: sender, limits, cold-email screening ------------
   // (docs/plans/weldmail-outbound-abuse.md). Dry-run sends never reach
   // Cloudflare, so they are not counted.
   const reservation = opts?.dryRun ? null : await reserveOutbound(env, db, orgId, account, data, body, opts);
 
   // ---- Attachment resolution (R2) --------------------------------------
-  const extraAttachments = opts?.extraAttachments ?? [];
+  const extraAttachments = [...(opts?.extraAttachments ?? []), ...inline.parts];
   const resolvedAttachments = await resolveAttachmentsFor(env, orgId, data, extraAttachments, reservation);
 
   // ---- Send via Cloudflare ---------------------------------------------
@@ -808,7 +832,7 @@ async function resolveAttachments(
   orgId: string,
   data: SendComposeInput,
   extraBytes = 0,
-): Promise<{ filename: string; contentType?: string; content: ArrayBuffer; fileKey: string }[]> {
+): Promise<ResolvedAttachment[]> {
   let totalBytes =
     extraBytes +
     (data.body ? new TextEncoder().encode(data.body).byteLength : 0) +
@@ -822,7 +846,7 @@ async function resolveAttachments(
 
   const workspacePrefix = `workspaces/${orgId}/`;
 
-  const resolved: { filename: string; contentType?: string; content: ArrayBuffer; fileKey: string }[] = [];
+  const resolved: ResolvedAttachment[] = [];
   for (const att of data.attachments) {
     if (!att.fileKey.startsWith(workspacePrefix)) {
       throw new MailSendError(
@@ -845,6 +869,7 @@ async function resolveAttachments(
       contentType: att.contentType || obj.httpMetadata?.contentType,
       content: buf,
       fileKey: att.fileKey,
+      cid: att.cid,
     });
   }
   return resolved;
@@ -902,7 +927,7 @@ function formatForwardDate(date: Date, timeZone?: string, locale?: string): stri
   }
 }
 
-/** The original's own files, minus the ones the sender removed. Inline images stay in the HTML. */
+/** The original's own files, minus the ones the sender removed. Inline images go as inline parts (`quotedInlineImages`). */
 async function loadOriginalAttachments(
   env: MailSendEnv,
   db: Database,
@@ -1023,12 +1048,28 @@ export async function forwardAndPersist(
   let composedBody = data.body;
   let composedHtml = data.htmlBody;
   let extraAttachments: InlineAttachment[];
+  let quotedInlineImages: InlineImageSource[] | undefined;
   if (data.asAttachment) {
     // A stored raw message already carries its files; a rebuilt one gets them
     // from the attachment rows.
     extraAttachments = [buildEmlAttachment(original, original.rawMessage ? [] : originalFiles)];
   } else {
     extraAttachments = originalFiles;
+    // The quoted HTML references its images by `cid:` (or, stored before
+    // TASK-905, by public storage URL); they go out as inline parts.
+    if (original.htmlBody && original.hasAttachments) {
+      quotedInlineImages = await db
+        .select({
+          id: mailAttachments.id,
+          messageId: mailAttachments.messageId,
+          contentId: mailAttachments.contentId,
+          storagePath: mailAttachments.storagePath,
+          contentType: mailAttachments.contentType,
+          fileName: mailAttachments.fileName,
+        })
+        .from(mailAttachments)
+        .where(and(eq(mailAttachments.messageId, originalMessageId), isNull(mailAttachments.deletedAt)));
+    }
     const senderLabel =
       formatAddress(original.from as { email?: string; name?: string } | null) || 'Unknown';
     const toLabel = ((original.to as { email?: string; name?: string }[] | null) ?? [])
@@ -1084,6 +1125,7 @@ export async function forwardAndPersist(
     {
       ...opts,
       extraAttachments,
+      quotedInlineImages,
       outbound: { ...opts?.outbound, source: opts?.outbound?.source ?? 'forward', kind: 'forward' },
     },
   );

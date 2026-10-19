@@ -128,7 +128,8 @@ async function deriveTokenKeys(secret: string): Promise<TokenKeys> {
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  // `=` only ever appears as trailing padding in base64.
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
 function fromBase64Url(text: string): Uint8Array | null {
@@ -155,6 +156,22 @@ export async function sealInlineImageToken(secret: string, claims: InlineImageCl
   return toBase64Url(out);
 }
 
+/** The secret bindings inline-image tokens are sealed with (any worker Env with them fits). */
+export interface InlineImageSecretEnv {
+  MAIL_INLINE_IMAGE_SECRET?: string;
+  DATABASE_ENCRYPTION_KEY?: string;
+}
+
+/**
+ * The secret inline-image tokens are sealed with: `MAIL_INLINE_IMAGE_SECRET`,
+ * else `DATABASE_ENCRYPTION_KEY` (every API worker holds it; the token keys
+ * are derived from it under their own HKDF labels, so it never serves as the
+ * key itself). Rotating either only breaks URLs minted in the last hour.
+ */
+export function inlineImageSecret(env: InlineImageSecretEnv): string | undefined {
+  return env.MAIL_INLINE_IMAGE_SECRET || env.DATABASE_ENCRYPTION_KEY || undefined;
+}
+
 /**
  * The claims of a token that this secret sealed and that has not expired;
  * null for anything else (tampered, foreign, expired, malformed).
@@ -164,6 +181,17 @@ export async function openInlineImageToken(
   token: string,
   now: number = Date.now(),
 ): Promise<InlineImageClaims | null> {
+  const claims = await readInlineImageClaims(secret, token);
+  if (!claims || claims.e * 1000 <= now) return null;
+  return claims;
+}
+
+/**
+ * The claims of a token that this secret sealed, expired or not; null for a
+ * tampered, foreign or malformed one. Only for the send path, which checks
+ * the attachment itself: an expired token never serves an image.
+ */
+export async function readInlineImageClaims(secret: string, token: string): Promise<InlineImageClaims | null> {
   const bytes = fromBase64Url(token);
   if (!bytes || bytes.length <= 12 + 16) return null;
   const { aead } = await tokenKeys(secret);
@@ -190,7 +218,6 @@ export async function openInlineImageToken(
   ) {
     return null;
   }
-  if (claims.e * 1000 <= now) return null;
   return claims;
 }
 
@@ -226,6 +253,12 @@ function bareContentId(contentId: string): string {
   return contentId.trim().replace(/^</, '').replace(/>$/, '');
 }
 
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
+
 function safeDecode(text: string): string {
   try {
     return decodeURIComponent(text);
@@ -253,26 +286,10 @@ export async function rewriteInlineImages(
   attachments: InlineAttachmentRef[],
   signer: InlineImageSigner,
 ): Promise<string> {
-  if (!html || attachments.length === 0) return html;
   const owner =
     signer.workspaceId !== undefined ? { w: signer.workspaceId } : { p: signer.personalAccountId };
-  const usable = attachments.filter(
-    (a) => a.storagePath && isOwnedStorageKey(owner, a.storagePath) && isInlineImageType(a.contentType),
-  );
-  if (usable.length === 0) return html;
-
-  const byContentId = new Map<string, InlineAttachmentRef>();
-  const byKey = new Map<string, InlineAttachmentRef>();
-  for (const a of usable) {
-    if (a.contentId) byContentId.set(bareContentId(a.contentId), a);
-    byKey.set(a.storagePath!, a);
-  }
-
   const expiry = inlineImageExpiry(signer.now);
-  const minted = new Map<string, string>();
-  const urlFor = async (a: InlineAttachmentRef): Promise<string> => {
-    const cached = minted.get(a.id);
-    if (cached) return cached;
+  return swapInlineReferences(html, attachments, owner, async (a) => {
     const token = await sealInlineImageToken(signer.secret, {
       ...owner,
       a: a.id,
@@ -280,29 +297,94 @@ export async function rewriteInlineImages(
       t: a.contentType!.split(';')[0]!.trim().toLowerCase(),
       e: expiry,
     });
-    const url = `${signer.baseUrl.replace(/\/+$/, '')}${INLINE_IMAGE_PATH}/${token}`;
-    minted.set(a.id, url);
-    return url;
+    return `${withoutTrailingSlashes(signer.baseUrl)}${INLINE_IMAGE_PATH}/${token}`;
+  });
+}
+
+/**
+ * Swap a message's inline-image references (`cid:` by Content-ID, public
+ * storage URLs by key) for what `replacement` returns for the attachment,
+ * once per attachment. A null replacement, or a reference that matches none
+ * of the owner's image attachments given, is left as it is. The owner is a
+ * workspace (`w`) or a personal account (`p`), as in a token's claims.
+ */
+export async function swapInlineReferences<T extends InlineAttachmentRef>(
+  html: string,
+  attachments: T[],
+  owner: { w?: string; p?: string },
+  replacement: (attachment: T) => Promise<string | null>,
+): Promise<string> {
+  if (!html || attachments.length === 0) return html;
+  const usable = attachments.filter(
+    (a) => a.storagePath && isOwnedStorageKey(owner, a.storagePath) && isInlineImageType(a.contentType),
+  );
+  if (usable.length === 0) return html;
+
+  const byContentId = new Map<string, T>();
+  const byKey = new Map<string, T>();
+  for (const a of usable) {
+    if (a.contentId) byContentId.set(bareContentId(a.contentId), a);
+    byKey.set(a.storagePath!, a);
+  }
+
+  const resolved = new Map<string, string | null>();
+  const replace = async (a: T): Promise<string | null> => {
+    if (!resolved.has(a.id)) resolved.set(a.id, await replacement(a));
+    return resolved.get(a.id)!;
   };
 
   const swaps: Array<{ from: string; to: string }> = [];
+  const push = (from: string, to: string | null) => {
+    if (to !== null) swaps.push({ from, to });
+  };
   for (const match of html.matchAll(CID_REFERENCE)) {
     const id = match[1]!;
     const att = byContentId.get(id) ?? byContentId.get(safeDecode(id));
-    if (att) swaps.push({ from: match[0], to: await urlFor(att) });
+    if (att) push(match[0], await replace(att));
   }
   for (const match of html.matchAll(STORAGE_URL)) {
     const att = byKey.get(match[1]!) ?? byKey.get(safeDecode(match[1]!));
-    if (att) swaps.push({ from: match[0], to: await urlFor(att) });
+    if (att) push(match[0], await replace(att));
   }
-  if (swaps.length === 0) return html;
+  return replaceLongestFirst(html, swaps);
+}
 
+function replaceLongestFirst(html: string, swaps: Array<{ from: string; to: string }>): string {
   let out = html;
   // Longest first, so a reference that is a prefix of another is not cut short.
   for (const { from, to } of swaps.sort((x, y) => y.from.length - x.from.length)) {
     out = out.replaceAll(from, to);
   }
   return out;
+}
+
+// A minted URL as a reading route hands it out, whatever origin served it.
+const MINTED_URL = /https?:\/\/[^/"'\s<>()]+\/public\/mail-inline\/([A-Za-z0-9_-]+)/g;
+
+/** Every distinct minted inline-image URL in the HTML, with its token. */
+export function findInlineImageUrls(html: string): Array<{ url: string; token: string }> {
+  const seen = new Map<string, string>();
+  for (const match of html.matchAll(MINTED_URL)) seen.set(match[0], match[1]!);
+  return [...seen].map(([url, token]) => ({ url, token }));
+}
+
+function escapeRegExp(text: string): string {
+  return text.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+}
+
+/**
+ * Swap minted URLs: each `from` for its `to`; a null `to` drops the image (an
+ * `<img>` that shows it goes, any other use of the URL is emptied).
+ */
+export function replaceInlineImageUrls(html: string, swaps: Array<{ from: string; to: string | null }>): string {
+  let out = html;
+  for (const { from } of swaps.filter((s) => s.to === null)) {
+    out = out.replaceAll(new RegExp(String.raw`<img\b[^>]*${escapeRegExp(from)}[^>]*>`, 'gi'), '');
+  }
+  return replaceLongestFirst(
+    out,
+    swaps.map(({ from, to }) => ({ from, to: to ?? '' })),
+  );
 }
 
 /** The attachments a rewrite needs for these messages (live rows only). */

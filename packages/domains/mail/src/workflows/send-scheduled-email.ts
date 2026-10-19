@@ -65,7 +65,7 @@ export interface SendScheduledEmailParams {
 
 type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
 type MailMessageRow = typeof schema.mailMessages.$inferSelect;
-type ResolvedAttachment = { filename: string; contentType?: string; content: ArrayBuffer };
+type ResolvedAttachment = { filename: string; contentType?: string; content: ArrayBuffer; cid?: string };
 
 /**
  * Why the stored message must not be sent by this instance (or null when it may).
@@ -128,6 +128,8 @@ async function resolveAttachments(
         filename: row.fileName,
         contentType: row.contentType || undefined,
         content: await obj.arrayBuffer(),
+        // Inline images the stored HTML references as `cid:` (embedded at schedule time).
+        cid: row.isInline && row.contentId ? row.contentId : undefined,
       };
     }),
   );

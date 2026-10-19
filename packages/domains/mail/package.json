@@ -22,6 +22,7 @@
     "./outbound/policy-store": "./src/outbound/policy-store.ts",
     "./recipient-validation": "./src/recipient-validation.ts",
     "./send": "./src/send.ts",
+    "./send-inline-images": "./src/send-inline-images.ts",
     "./snooze": "./src/snooze.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
     "./text": "./src/text.ts",
