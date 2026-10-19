@@ -70,9 +70,11 @@ export interface EntityDetailViewProps {
 
   /**
    * Optional content rendered directly under the header row and above the
-   * tab strip. Use this for entity-level editors that belong above the tabs
-   * — e.g. the task panel's editable description, a contact's company line,
-   * a deal's pipeline-stage chips. Renders flush with the body's left edge.
+   * tab strip. Use this for short, entity-level bars that belong above the
+   * tabs — e.g. an invoice's action bar, a deal's pipeline-stage chips.
+   * Renders flush with the body's left edge. It does NOT scroll: content that
+   * can grow (a description, notes) belongs in `children`, or a tall one
+   * leaves the body below it no room and unreachable.
    */
   subheader?: React.ReactNode;
 
