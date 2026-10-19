@@ -34,7 +34,8 @@ export function socialContext(env: Env): SocialPublishingContext {
 }
 
 /**
- * Translate this worker's `workspaceId` into the Clerk org id.
+ * Translate the API session's `workspaceId` (`apiSession.workspaceId`) into the
+ * Clerk org id.
  *
  * Worth being explicit about, because the same name means different things
  * either side of this boundary: the API-key session's `workspaceId` is the

@@ -191,7 +191,7 @@ async function autoSchedulePost(
       post.scheduledAt instanceof Date
         ? post.scheduledAt.toISOString()
         : new Date(post.scheduledAt).toISOString();
-    const orgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+    const orgId = await resolveClerkOrgId(c.env, c.get('apiSession').workspaceId);
     if (!orgId) {
       throw new Error('Workspace is not linked to an organization');
     }
