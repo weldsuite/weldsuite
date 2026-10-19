@@ -121,8 +121,11 @@ export const workspaces = pgTable('workspaces', {
   // Neon database configuration
   neonProjectId: varchar('neon_project_id', { length: 100 }),
   neonDatabaseName: varchar('neon_database_name', { length: 100 }),
-  // Legacy: references neonSharedProjects for workspaces created under old shared architecture.
-  // New workspaces always have null. Only checked in deleteWorkspaceDatabase() for legacy cleanup.
+  // The shard (neonSharedProjects.id) this workspace's database lives in. Set by
+  // provisionSharedDatabase() and activateWarmSlot() when the database is in a
+  // shared shard; null for a dedicated Neon project; cleared on teardown by
+  // deleteWorkspaceDatabase(), which also uses it to tell shared from dedicated.
+  // It should agree with neonProjectId (the shard's Neon project id).
   sharedProjectId: varchar('shared_project_id', { length: 30 }).references(() => neonSharedProjects.id),
   neonBranchId: varchar('neon_branch_id', { length: 100 }),
   neonRoleName: varchar('neon_role_name', { length: 100 }),
