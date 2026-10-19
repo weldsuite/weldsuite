@@ -9,10 +9,14 @@
  *   y labels on the right, at round values (€0, €10K, €20K, €30K).
  *
  * A point without a value is a gap, so a running total stops at "now".
+ *
+ * A user's own overview chart can also draw the period as an `area` (the line
+ * over a soft fill) or as `bar`s (the comparison as grey bars beside them), in
+ * one of the theme's chart colours.
  */
 
-import { useMemo } from 'react';
-import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { useId, useMemo } from 'react';
+import { Area, Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@weldsuite/ui/components/chart';
 import { niceTicks, type SeriesPoint } from './dashboard-series';
 import { FOLLOWING_TOOLTIP_PROPS, FollowingTooltip } from './following-tooltip';
@@ -59,12 +63,26 @@ type Props = Readonly<{
   /** The text under each x end, from a `YYYY-MM` key. */
   formatTick: (month: string) => string;
   className?: string;
+  /** How the period draws; `line` by default. */
+  shape?: 'line' | 'area' | 'bar';
+  /** The period's colour; the dashboard's chart colour by default. */
+  color?: string;
 }>;
 
-export function ComparisonLineChart({ points, variant, label, compareLabel, formatTick, className }: Props) {
+export function ComparisonLineChart({
+  points,
+  variant,
+  label,
+  compareLabel,
+  formatTick,
+  className,
+  shape = 'line',
+  color = CURRENT_COLOR,
+}: Props) {
   const format = useChartFormat();
+  const fillId = `fill-${useId().replace(/:/g, '')}`;
   const config = {
-    value: { label, color: CURRENT_COLOR },
+    value: { label, color },
     compareValue: { label: compareLabel, color: COMPARISON_COLOR },
   } satisfies ChartConfig;
   const first = points[0]?.month;
@@ -87,7 +105,7 @@ export function ComparisonLineChart({ points, variant, label, compareLabel, form
 
   return (
     <ChartContainer config={config} className={className}>
-      <LineChart accessibilityLayer data={points} margin={{ top: 8, left: 0, right: 0, bottom: 0 }}>
+      <ComposedChart accessibilityLayer data={points} margin={{ top: 8, left: 0, right: 0, bottom: 0 }} barGap={2}>
         <CartesianGrid vertical={false} stroke="var(--border)" horizontalCoordinatesGenerator={gridLines} />
         <YAxis
           hide={!card}
@@ -122,7 +140,7 @@ export function ComparisonLineChart({ points, variant, label, compareLabel, form
         />
         <ChartTooltip
           {...FOLLOWING_TOOLTIP_PROPS}
-          cursor={{ stroke: 'var(--border)' }}
+          cursor={shape === 'bar' ? { fill: 'var(--muted)', opacity: 0.6 } : { stroke: 'var(--border)' }}
           content={(props) => (
             <FollowingTooltip active={props.active} coordinate={props.coordinate}>
               <ChartTooltipContent
@@ -137,7 +155,7 @@ export function ComparisonLineChart({ points, variant, label, compareLabel, form
                   return (
                     <MoneyTooltipRow
                       label={format.monthLong((isCurrent ? point.month : point.compareMonth) ?? '')}
-                      color={isCurrent ? CURRENT_COLOR : COMPARISON_COLOR}
+                      color={isCurrent ? color : COMPARISON_COLOR}
                       dashed={!isCurrent}
                       value={format.formatMoney(Number(value))}
                     />
@@ -147,7 +165,21 @@ export function ComparisonLineChart({ points, variant, label, compareLabel, form
             </FollowingTooltip>
           )}
         />
-        {hasComparison && (
+        {shape === 'area' && (
+          <defs>
+            <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-value)" stopOpacity={0.25} />
+              <stop offset="100%" stopColor="var(--color-value)" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+        )}
+        {hasComparison && shape === 'bar' && (
+          <Bar dataKey="compareValue" fill="var(--color-compareValue)" fillOpacity={0.35} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+        )}
+        {shape === 'bar' && (
+          <Bar dataKey="value" fill="var(--color-value)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
+        )}
+        {hasComparison && shape !== 'bar' && (
           <Line
             dataKey="compareValue"
             type="linear"
@@ -159,16 +191,30 @@ export function ComparisonLineChart({ points, variant, label, compareLabel, form
             isAnimationActive={false}
           />
         )}
-        <Line
-          dataKey="value"
-          type="linear"
-          stroke="var(--color-value)"
-          strokeWidth={2}
-          dot={false}
-          activeDot={{ r: 4, fill: CURRENT_COLOR, stroke: 'var(--background)', strokeWidth: 2 }}
-          isAnimationActive={false}
-        />
-      </LineChart>
+        {shape === 'area' && (
+          <Area
+            dataKey="value"
+            type="linear"
+            stroke="var(--color-value)"
+            strokeWidth={2}
+            fill={`url(#${fillId})`}
+            dot={false}
+            activeDot={{ r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
+            isAnimationActive={false}
+          />
+        )}
+        {shape === 'line' && (
+          <Line
+            dataKey="value"
+            type="linear"
+            stroke="var(--color-value)"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
+            isAnimationActive={false}
+          />
+        )}
+      </ComposedChart>
     </ChartContainer>
   );
 }

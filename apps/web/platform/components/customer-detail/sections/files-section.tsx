@@ -173,7 +173,7 @@ export function FilesSection(_props: Readonly<FilesSectionProps>) {
 
         {/* Uploaded */}
         <div className="w-[120px] flex-shrink-0">
-          <span className="text-sm text-muted-foreground">{formatDate(file.date)}</span>
+          <span className="text-sm tabular-nums">{formatDate(file.date)}</span>
         </div>
 
         {/* Actions */}

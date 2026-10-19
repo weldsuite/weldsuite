@@ -118,3 +118,9 @@ export {
   type DispatchWebhookDeliveriesResult,
   type RetryFailedWebhookDeliveriesResult,
 } from './webhook-delivery';
+export {
+  LEGACY_WEBHOOK_ENTITY_ALIASES,
+  listWebhookEvents,
+  legacyWebhookEventNames,
+  subscribedWebhookEventName,
+} from './webhook-events';

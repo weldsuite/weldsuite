@@ -3,6 +3,9 @@ import {
   Briefcase,
   User,
   MessageSquare,
+  CheckSquare,
+  FolderKanban,
+  IdCard,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -20,6 +23,13 @@ export const ENTITY_TYPES: EntityTypeConfig[] = [
   // Conversation fields are set by WeldDesk workflows (set_conversation_attribute);
   // authoring them here gives that step's picker a definition to choose.
   { value: 'conversation', label: 'Conversations', icon: MessageSquare, module: 'WeldDesk' },
+  // Values sync through flow-api's task create/PATCH and show in the task panel's Details list.
+  { value: 'task', label: 'Tasks', icon: CheckSquare, module: 'WeldFlow' },
+  // Stored in custom_field_values only (projects have no blob column); edited in
+  // the project's Settings › General page.
+  { value: 'project', label: 'Projects', icon: FolderKanban, module: 'WeldFlow' },
+  // Synced by hr-api's employee create/PATCH; shown on the employee Overview tab.
+  { value: 'employee', label: 'Employees', icon: IdCard, module: 'WeldHR' },
 ] as const;
 
 export const FIELD_TYPES = [

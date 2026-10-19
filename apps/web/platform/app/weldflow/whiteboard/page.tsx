@@ -89,7 +89,7 @@ export default function WhiteboardPage() {
                     {projectName}
                   </span>
                 )}
-                <span className="shrink-0 text-sm text-muted-foreground">{formatMediumDateNow(board.updatedAt)}</span>
+                <span className="shrink-0 text-sm tabular-nums">{formatMediumDateNow(board.updatedAt)}</span>
               </button>
             </li>
           );

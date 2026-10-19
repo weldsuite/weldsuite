@@ -10,6 +10,10 @@ import {
 } from './components';
 import { EntityGridProps, GridSortConfig } from './types';
 import { writeStoredGridSort } from './use-persisted-grid-sort';
+import {
+  useObjectPanelNavigationReporter,
+  type ObjectPanelListNavigation,
+} from '@/components/object-panel/use-object-panel-navigation';
 
 export function EntityGrid<TEntity>({
   config,
@@ -27,6 +31,7 @@ export function EntityGrid<TEntity>({
   hideToolbarFilter,
   toolbarActions,
   persistSort,
+  objectPanel,
 }: Readonly<EntityGridProps<TEntity>>) {
   const router = useRouter();
   const searchParamsHook = useSearchParams();
@@ -111,6 +116,13 @@ export function EntityGrid<TEntity>({
       initialSort={initialSort}
       onSortChange={handleSortChange}
     >
+      {objectPanel && (
+        <GridObjectPanelNavigation
+          objectPanel={objectPanel}
+          hasMore={hasMore}
+          onLoadMore={onLoadMore}
+        />
+      )}
       <div
         data-testid="entity-grid"
         data-testid-entity={config.entityName.toLowerCase()}
@@ -160,6 +172,29 @@ export function EntityGrid<TEntity>({
       </div>
     </GridProvider>
   );
+}
+
+// Registers the rows as shown (after the toolbar filters) as the previous /
+// next order of the panel a row opens.
+function GridObjectPanelNavigation<TEntity>({
+  objectPanel,
+  hasMore,
+  onLoadMore,
+}: Readonly<{
+  objectPanel: ObjectPanelListNavigation<TEntity>;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+}>) {
+  const { filteredEntities } = useGridContext<TEntity>();
+  const report = useObjectPanelNavigationReporter<TEntity>({
+    ...objectPanel,
+    hasMore,
+    loadMore: onLoadMore,
+  });
+  useEffect(() => {
+    report(filteredEntities);
+  }, [report, filteredEntities]);
+  return null;
 }
 
 // Wrapper component for selection bar to access context

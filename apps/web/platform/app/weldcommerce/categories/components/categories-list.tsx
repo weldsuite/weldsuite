@@ -65,6 +65,7 @@ export function CategoriesList({
         isLoading={isLoading}
         columns={columns}
         onRowClick={(c) => openObjectPanel({ type: 'category', id: c.id })}
+        objectPanel={{ type: 'category' }}
         onEdit={setEditing}
         onDelete={handleDelete}
         searchQuery={search}

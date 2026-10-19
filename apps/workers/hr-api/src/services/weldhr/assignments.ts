@@ -6,22 +6,35 @@
  * through them. Delete exists only to fix a mistake.
  */
 
-import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { displayNameOf, requireEmployee } from './employees';
-import { HrNotFoundError, assertDateOrder, companyNames, todayIso } from './shared';
+import { HrConflictError, HrNotFoundError, assertDateOrder, companyNames, todayIso } from './shared';
 
 const a = schema.hrClientAssignments;
 
+/** A live CRM company. One deleted in WeldCRM gets a readable 404 instead of "Company with ID … not found". */
 export async function requireCompany(db: Database, companyId: string) {
   const [row] = await db
-    .select({ id: schema.companies.id, name: schema.companies.displayName })
+    .select({ id: schema.companies.id, name: schema.companies.displayName, deletedAt: schema.companies.deletedAt })
     .from(schema.companies)
-    .where(and(eq(schema.companies.id, companyId), isNull(schema.companies.deletedAt)))
+    .where(eq(schema.companies.id, companyId))
     .limit(1);
   if (!row) throw new HrNotFoundError('Company', companyId);
-  return row;
+  if (row.deletedAt) throw new HrNotFoundError('Company', companyId, `${row.name || 'This company'} was deleted in WeldCRM`);
+  return { id: row.id, name: row.name };
+}
+
+/** Of these company ids, the ones deleted in WeldCRM. Their assignments are history, never active. */
+async function deletedCompanyIds(db: Database, companyIds: string[]) {
+  const ids = [...new Set(companyIds)];
+  if (ids.length === 0) return new Set<string>();
+  const rows = await db
+    .select({ id: schema.companies.id })
+    .from(schema.companies)
+    .where(and(inArray(schema.companies.id, ids), isNotNull(schema.companies.deletedAt)));
+  return new Set(rows.map((r) => r.id));
 }
 
 export async function requireAssignment(db: Database, id: string) {
@@ -32,6 +45,29 @@ export async function requireAssignment(db: Database, id: string) {
 
 function isActive(row: { startDate: string; endDate: string | null }, on: string) {
   return row.startDate <= on && (!row.endDate || row.endDate >= on);
+}
+
+/**
+ * One assignment per employee per client at a time: change the allocation of
+ * the running one, or end it before starting another.
+ */
+async function assertNoOverlappingAssignment(
+  db: Database,
+  employeeId: string,
+  companyId: string,
+  startDate: string,
+  endDate: string | null,
+  exceptId?: string,
+) {
+  const conditions: SQL[] = [
+    eq(a.employeeId, employeeId),
+    eq(a.companyId, companyId),
+    or(isNull(a.endDate), sql`${a.endDate} >= ${startDate}`)!,
+  ];
+  if (endDate) conditions.push(sql`${a.startDate} <= ${endDate}`);
+  if (exceptId) conditions.push(sql`${a.id} <> ${exceptId}`);
+  const [clash] = await db.select({ id: a.id }).from(a).where(and(...conditions)).limit(1);
+  if (clash) throw new HrConflictError('This employee is already assigned to this client for (part of) these dates');
 }
 
 export async function listAssignments(db: Database, filters: { employeeId?: string; companyId?: string; activeOnly?: boolean }) {
@@ -59,16 +95,23 @@ export async function listAssignments(db: Database, filters: { employeeId?: stri
     .where(and(isNull(schema.hrEmployees.deletedAt), ...conditions))
     .orderBy(desc(a.startDate), asc(schema.hrEmployees.lastName));
 
-  const names = await companyNames(db, rows.map((r) => r.assignment.companyId));
-  return rows.map((r) => ({
-    ...r.assignment,
-    companyName: names.get(r.assignment.companyId) ?? null,
-    employeeName: displayNameOf(r),
-    employeeJobTitle: r.jobTitle,
-    employeeAvatarUrl: r.avatarUrl,
-    employeeStatus: r.employeeStatus,
-    isActive: isActive(r.assignment, today),
-  }));
+  const companyIds = rows.map((r) => r.assignment.companyId);
+  const [names, deleted] = await Promise.all([companyNames(db, companyIds), deletedCompanyIds(db, companyIds)]);
+  return rows
+    .map((r) => {
+      const companyDeleted = deleted.has(r.assignment.companyId);
+      return {
+        ...r.assignment,
+        companyName: names.get(r.assignment.companyId) ?? null,
+        companyDeleted,
+        employeeName: displayNameOf(r),
+        employeeJobTitle: r.jobTitle,
+        employeeAvatarUrl: r.avatarUrl,
+        employeeStatus: r.employeeStatus,
+        isActive: !companyDeleted && isActive(r.assignment, today),
+      };
+    })
+    .filter((row) => !filters.activeOnly || row.isActive);
 }
 
 export async function createAssignment(
@@ -88,6 +131,7 @@ export async function createAssignment(
   assertDateOrder(input.startDate, input.endDate, 'Assignment');
   await requireEmployee(db, input.employeeId);
   await requireCompany(db, input.companyId);
+  await assertNoOverlappingAssignment(db, input.employeeId, input.companyId, input.startDate, input.endDate ?? null);
   if (input.isPrimary) await clearPrimary(db, input.employeeId);
   const [row] = await db
     .insert(a)
@@ -115,11 +159,12 @@ export async function updateAssignment(
   },
 ) {
   const existing = await requireAssignment(db, id);
-  assertDateOrder(
-    input.startDate ?? existing.startDate,
-    input.endDate !== undefined ? input.endDate : existing.endDate,
-    'Assignment',
-  );
+  const startDate = input.startDate ?? existing.startDate;
+  const endDate = input.endDate !== undefined ? input.endDate : existing.endDate;
+  assertDateOrder(startDate, endDate, 'Assignment');
+  if (input.startDate !== undefined || input.endDate !== undefined) {
+    await assertNoOverlappingAssignment(db, existing.employeeId, existing.companyId, startDate, endDate, id);
+  }
   if (input.isPrimary) await clearPrimary(db, existing.employeeId, id);
   const [row] = await db.update(a).set({ ...input, updatedAt: new Date() }).where(eq(a.id, id)).returning();
   return row!;
@@ -156,7 +201,9 @@ export async function listClientAccounts(db: Database) {
     })
     .from(a)
     .innerJoin(schema.hrEmployees, eq(schema.hrEmployees.id, a.employeeId))
-    .where(isNull(schema.hrEmployees.deletedAt))
+    // A company deleted in WeldCRM is no longer a client account; its assignments stay as history.
+    .innerJoin(schema.companies, eq(schema.companies.id, a.companyId))
+    .where(and(isNull(schema.hrEmployees.deletedAt), isNull(schema.companies.deletedAt)))
     .groupBy(a.companyId);
   const names = await companyNames(db, rows.map((r) => r.companyId));
   return rows

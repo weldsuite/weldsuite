@@ -18,6 +18,8 @@ export const weldhr = {
     selectClient: 'Kies een klantaccount',
     selectContact: 'Kies een contactpersoon',
     noResults: 'Geen resultaten',
+    noCompaniesHint: 'Klantaccounts zijn bedrijven in WeldCRM.',
+    openWeldCrm: 'Voeg er een toe in WeldCRM',
     save: 'Opslaan',
     saving: 'Opslaan…',
     cancel: 'Annuleren',

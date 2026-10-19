@@ -127,14 +127,6 @@ function daysUntil(value: string | null | undefined): number | null {
 
 // ─── Header ────────────────────────────────────────────────────────────────
 
-function DomainAvatar() {
-  return (
-    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900">
-      <Globe className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-    </div>
-  );
-}
-
 /**
  * Status labels live under `host.domainsList` (they're the same set the list
  * page uses for its status column and filters), so resolve them from there
@@ -153,7 +145,7 @@ function DomainTitle({ domain }: Readonly<{ domain?: Domain }>) {
   if (!domain) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-[15px] font-medium text-foreground">
+      <span className="relative top-px truncate text-[15px] font-medium text-foreground">
         {domain.fullDomain || `${domain.name}.${domain.tld}`}
       </span>
       <span className={cn(PILL, statusPillColor[status] ?? statusPillColor.active, 'flex-shrink-0')}>
@@ -353,6 +345,7 @@ function DomainDetailsTab({
         label={td.registered}
         value={formatDate(domain.registeredAt)}
         placeholder={td.notSet}
+        tabular
         readOnly
       />
       <PropertyRow
@@ -363,7 +356,7 @@ function DomainDetailsTab({
         readOnly
         renderValue={(value) => (
           <span className="flex flex-wrap items-center gap-2">
-            <span className="text-foreground">{value}</span>
+            <span className="tabular-nums text-foreground">{value}</span>
             {days !== null && days < 0 && (
               <span className={cn(PILL, 'gap-1 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950')}>
                 <AlertTriangle className="h-3 w-3" />
@@ -384,6 +377,7 @@ function DomainDetailsTab({
           icon={CalendarIcon}
           label={td.renewed}
           value={formatDate(domain.renewedAt)}
+          tabular
           readOnly
         />
       )}
@@ -405,8 +399,8 @@ function DomainDetailsTab({
           renderValue={(value) => <span className="capitalize text-foreground">{value}</span>}
         />
       )}
-      <PropertyRow icon={Clock} label={td.created} value={formatDate(domain.createdAt)} readOnly />
-      <PropertyRow icon={Clock} label={td.updated} value={formatDate(domain.updatedAt)} readOnly />
+      <PropertyRow icon={Clock} label={td.created} value={formatDate(domain.createdAt)} tabular readOnly />
+      <PropertyRow icon={Clock} label={td.updated} value={formatDate(domain.updatedAt)} tabular readOnly />
       <PropertyRow
         icon={CircleDot}
         label={td.domainId}
@@ -608,6 +602,7 @@ function DomainSettingsTab({
             icon={Clock}
             label={td.registrarSync}
             value={formatDate(domain.registrarSyncedAt)}
+            tabular
             readOnly
           />
         )}
@@ -746,7 +741,6 @@ export function DomainPanel(props: Readonly<ObjectPanelComponentProps>) {
     <>
       <EntityDetailView
         {...shell.entityDetailViewProps}
-        avatar={<DomainAvatar />}
         title={<DomainTitle domain={domain} />}
         actions={
           <DomainActions

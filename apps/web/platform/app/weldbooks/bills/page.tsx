@@ -9,6 +9,7 @@ import {
   type ColumnDef,
   type GroupConfig,
 } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
@@ -28,6 +29,10 @@ export default function BillsPage() {
   const [search, setSearch] = useState('');
   const { data, isLoading } = useAccountingBills({ search });
   const navigate = useNavigate();
+  // Each bill opens in the shared object panel (type 'bill'), the same
+  // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/bills');
   const { t } = useI18n();
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const tbp = t.accounting.billsPage;
@@ -92,7 +97,8 @@ export default function BillsPage() {
       isLoading={isLoading}
       columns={columns}
       groups={groups}
-      onRowClick={(bill) => navigate({ to: '/weldbooks/bills/$id', params: { id: bill.id } })}
+      onRowClick={(bill) => openPanel({ type: 'bill', id: bill.id })}
+      getRowLabel={(bill) => bill.billNumber ?? bill.contactName ?? bill.id}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tbp.searchPlaceholder}

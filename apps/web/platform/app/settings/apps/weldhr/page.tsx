@@ -37,7 +37,8 @@ export default function WeldHrSettingsPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    // `min-w-0`: never wider than the settings column, so the list's toolbar and row menus stay reachable.
+    <div className="min-w-0 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{ts.weldhr.title}</h1>
         <p className="text-muted-foreground">{ts.weldhr.description}</p>
@@ -45,7 +46,7 @@ export default function WeldHrSettingsPage() {
       {canManage ? (
         <>
           <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={setTab} overflow="dropdown" />
-          <div className="mt-6">
+          <div className="@container mt-6">
             {activeTab === 'departments' && <DepartmentsTab />}
             {activeTab === 'leave-types' && <LeaveTypesTab />}
           </div>

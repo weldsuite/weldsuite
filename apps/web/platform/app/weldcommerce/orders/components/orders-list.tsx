@@ -67,6 +67,7 @@ export function OrdersList({
         isLoading={isLoading}
         columns={columns}
         onRowClick={(o) => openObjectPanel({ type: 'order', id: o.id })}
+        objectPanel={{ type: 'order' }}
         onEdit={setEditing}
         onDelete={handleDelete}
         searchQuery={search}

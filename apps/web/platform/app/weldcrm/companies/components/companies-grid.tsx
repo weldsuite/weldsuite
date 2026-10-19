@@ -332,6 +332,7 @@ export function CompaniesGrid({
           availableLists={bulk.availableLists}
           listName={listContext?.listName}
           persistSort={!listContext}
+          objectPanel={{ type: 'company' }}
         />
       )}
       {companyDeleteDialog}

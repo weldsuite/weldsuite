@@ -13,8 +13,9 @@ import {
   RowText,
   RowTitle,
   StatusChip,
-  type ChipTone,
 } from '@/components/accounting/weldbooks-row-cells';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { AGENCY_STATUS_TONE } from '@/components/objects/sales-tax-agency/sales-tax-agency-model';
 import { useSalesTaxAgencies } from '@/hooks/queries/use-weldbooks-sales-tax-setup-queries';
 import { AGENCY_STATUSES, type AgencyStatus, type SalesTaxAgency } from '@/lib/api/domains/weldbooks-sales-tax-setup';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -22,13 +23,6 @@ import { salesTaxStateName } from '@/lib/weldbooks/us-sales-tax-states';
 import { dueDayText } from '../setup/format';
 import { SalesTaxSetupGate, useSalesTaxSetupAccess } from '../setup/setup-gate';
 import { useSetupTexts } from '../setup/setup-texts';
-
-const STATUS_TONE: Record<AgencyStatus, ChipTone> = {
-  registered: 'green',
-  pending: 'amber',
-  monitoring: 'blue',
-  closed: 'gray',
-};
 
 /** Registered agencies first, then pending, monitoring and closed; by state within each. */
 function sortAgencies(rows: readonly SalesTaxAgency[]): SalesTaxAgency[] {
@@ -53,6 +47,10 @@ function AgenciesList() {
   const { t, format } = useSetupTexts();
   const ta = t.agencies;
   const navigate = useNavigate();
+  // Each agency opens in the shared object panel (type 'sales_tax_agency'), the
+  // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/sales-tax/agencies');
   const { canCreate } = useSalesTaxSetupAccess();
   const { formatMoney, formatDate } = useWeldbooksFormat();
 
@@ -88,7 +86,7 @@ function AgenciesList() {
       id: 'status',
       header: ta.columns.status,
       width: 'w-[110px]',
-      render: (agency) => <StatusChip tone={STATUS_TONE[agency.status] ?? 'gray'}>{t.statuses[agency.status] ?? agency.status}</StatusChip>,
+      render: (agency) => <StatusChip tone={AGENCY_STATUS_TONE[agency.status] ?? 'gray'}>{t.statuses[agency.status] ?? agency.status}</StatusChip>,
     },
     {
       id: 'filing',
@@ -144,7 +142,7 @@ function AgenciesList() {
       items={rows}
       isLoading={agencies.isLoading}
       columns={columns}
-      onRowClick={(agency) => void navigate({ to: '/weldbooks/sales-tax/agencies/$id', params: { id: agency.id } })}
+      onRowClick={(agency) => openPanel({ type: 'sales_tax_agency', id: agency.id })}
       getRowLabel={(agency) => agency.name}
       filters={filters}
       applyFilters={applyStatusFilters}

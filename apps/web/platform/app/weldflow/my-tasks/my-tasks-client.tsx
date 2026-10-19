@@ -20,7 +20,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
@@ -605,6 +605,14 @@ export function MyTasksClient({
   const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
   const [groupBy, setGroupBy] = useState<'status' | 'priority' | 'dueDate' | 'project' | 'none'>('status');
+  // Previous / next in the open panel step through the list rows as shown,
+  // loading the next page past the last one. The board registers its own order.
+  const reportDisplayedTasks = useObjectPanelNavigationReporter<Task>({
+    type: 'task',
+    hasMore: hasNextPage,
+    loadMore: onLoadMore,
+    enabled: viewMode === 'list',
+  });
 
   // Drag-and-drop state for table view
   const dndSensors = useSensors(
@@ -1355,7 +1363,7 @@ export function MyTasksClient({
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
                 {task.dueDate ? (
-                  <span className="font-mono text-gray-600 dark:text-muted-foreground">{formatDateShort(task.dueDate)}</span>
+                  <span className="font-normal tabular-nums">{formatDateShort(task.dueDate)}</span>
                 ) : (
                   <span className="text-gray-400">—</span>
                 )}
@@ -1689,6 +1697,7 @@ export function MyTasksClient({
           >
             <EntityList<Task>
               items={visibleTasks}
+              onDisplayedItemsChange={reportDisplayedTasks}
               isLoading={false}
               error={null}
               headerColumns={headerColumns}

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -118,6 +118,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 export function ContactsSection({ customer, contacts }: Readonly<ContactsSectionProps>) {
   const t = useTranslations();
   const { open: openObjectPanel } = useObjectPanel();
+  // Previous / next in the person panel step through these contacts.
+  const reportDisplayedContacts = useObjectPanelNavigationReporter<CustomerContact>({ type: 'person' });
   const { mode, isExpanded, silentRefresh } = useCustomerDetailContext();
   const isPanel = (mode === 'panel' && !isExpanded) || mode === 'embedded';
   const unlinkContactMut = useUnlinkContactFromCustomer();
@@ -371,6 +373,7 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
     <>
       <EntityList<CustomerContact>
         items={contacts}
+        onDisplayedItemsChange={reportDisplayedContacts}
         isLoading={false}
         error={null}
         headerColumns={isPanel ? undefined : headerColumns}

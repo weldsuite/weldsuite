@@ -232,8 +232,8 @@ export function MemberAppPermissions({
               }
               renderExtra={(perm, object) => (
                 <span className="flex items-center gap-1.5 text-sm">
-                  {renderToggle(perm, `${extraActionLabel(perm.action)} ${object.objectName}`)}
-                  <span className="text-muted-foreground">{extraActionLabel(perm.action)}</span>
+                  {renderToggle(perm, `${extraActionLabel(perm.action, t)} ${object.objectName}`)}
+                  <span className="text-muted-foreground">{extraActionLabel(perm.action, t)}</span>
                 </span>
               )}
             />

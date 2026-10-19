@@ -1,26 +1,102 @@
 /**
  * Files routes — /api/files/*.
  *
- * Drive-native file store. Permissions: `files:read | create | update | delete`.
- * Entity events: `file:created | updated | deleted | moved | starred`.
+ * Drive-native file store. Permissions: `files:read | create | update | delete`
+ * open the door; which files a caller sees, and whether they may change them,
+ * follows the WeldDrive sharing rules (`@weldsuite/core-domain/drive-access`).
+ * A file the caller cannot see is a 404.
+ * Entity events: `file:created | updated | deleted | moved | starred | pinned | shared | unshared`.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
-import { publishEntityEvent } from '@weldsuite/entity-events';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import { computeChanges, publishEntityEvent } from '@weldsuite/entity-events';
 import {
   listFilesQuery,
   createFileSchema,
-  updateFileSchema,
+  updateDriveFileSchema,
   moveFileSchema,
 } from '@weldsuite/core-api-client/schemas/files';
+import { shareDriveItemSchema } from '@weldsuite/core-api-client/schemas/drive-shares';
+import { tagsToSpaces } from '@weldsuite/text';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import * as filesService from '@weldsuite/core-domain/files';
+import {
+  canEdit,
+  containerRole,
+  describeSharing,
+  fileRole,
+  isModuleFile,
+  isShareableMember,
+  removeShare,
+  upsertShare,
+  withFileAccess,
+  type DriveAccessIndex,
+  type DriveRole,
+} from '@weldsuite/core-domain/drive-access';
 import { normalizeGenericFiles, queryArray, type UnifiedFile } from '../../services/drive-aggregation';
+import { DRIVE_MODULE_FILE, DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+type FilesContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+type FileRow = NonNullable<Awaited<ReturnType<typeof filesService.getFile>>>;
+
+interface OpenedFile {
+  row: FileRow;
+  access: DriveAccessIndex;
+  role: DriveRole;
+}
+
+/**
+ * Load a live file and the caller's role on it; `edit` also needs owner or
+ * editor. Answers the error response instead when the file is missing or
+ * hidden (404) or only viewable (403).
+ */
+async function openFile(c: FilesContext, id: string, mode: 'view' | 'edit'): Promise<OpenedFile | Response> {
+  const row = await filesService.getFile(c.get('tenantDb'), id);
+  if (!row) return error.notFound(c, 'File', id);
+  const access = await driveAccess(c);
+  const role = fileRole(access, row);
+  if (!role) return error.notFound(c, 'File', id);
+  if (mode === 'edit' && !canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
+  return { row, access, role };
+}
+
+/** The error response, unless the caller may put a file in `folderId` (null: My Drive). */
+function checkDestination(c: FilesContext, access: DriveAccessIndex, folderId: string | null | undefined): Response | null {
+  if (!folderId) return null;
+  const role = containerRole(access, folderId);
+  if (!role) return error.notFound(c, 'Folder', folderId);
+  return canEdit(role) ? null : error.forbidden(c, DRIVE_VIEW_ONLY);
+}
+
+/** Who an opened file is open to, for the Share dialog. */
+function fileSharing(c: FilesContext, { row, access, role }: OpenedFile) {
+  return describeSharing(
+    c.get('tenantDb'),
+    access,
+    { kind: 'file', id: row.id, ownerId: row.uploadedById, generalAccess: row.generalAccess, parentId: row.folderId },
+    role,
+  );
+}
+
+/**
+ * The fields a file's activity shows as "from → to". The description is
+ * rich text, so it goes in as a short plain-text excerpt.
+ */
+function trackedFileFields(row: FileRow): Record<string, unknown> {
+  const description = filesService.fileDescription(row);
+  return {
+    name: row.fileName,
+    isStarred: row.isStarred,
+    isPublic: row.isPublic,
+    generalAccess: row.generalAccess,
+    description: description ? tagsToSpaces(description).replaceAll(/\s+/g, ' ').trim().slice(0, 200) : null,
+  };
+}
 
 // ============================================================================
 // GET / — list files in the drive store (with in-memory pagination over the
@@ -33,14 +109,17 @@ app.get('/', requirePermission('files:read'), zValidator('query', listFilesQuery
   const folderId = q.folderId || null;
   const rootOnly = folderIdRaw === '';
   try {
-    const rows = await filesService.listFiles(c.get('tenantDb'), {
-      folderId,
-      rootOnly,
-      type: q.type,
-      entityType: q.entityType,
-      entityId: q.entityId,
-    });
-    const normalized = normalizeGenericFiles(rows, c.env.R2_PUBLIC_URL);
+    const [rows, access] = await Promise.all([
+      filesService.listFiles(c.get('tenantDb'), {
+        folderId,
+        rootOnly,
+        type: q.type,
+        entityType: q.entityType,
+        entityId: q.entityId,
+      }),
+      driveAccess(c),
+    ]);
+    const normalized = normalizeGenericFiles(withFileAccess(access, rows), c.env.R2_PUBLIC_URL);
     const { items, pagination } = queryArray<UnifiedFile>(normalized, {
       page: q.page ?? 1,
       pageSize: q.pageSize ?? 30,
@@ -63,8 +142,9 @@ app.get('/', requirePermission('files:read'), zValidator('query', listFilesQuery
 app.get('/:id', requirePermission('files:read'), async (c) => {
   const id = c.req.param('id');
   try {
-    const row = await filesService.getFile(c.get('tenantDb'), id);
-    if (!row) return error.notFound(c, 'File', id);
+    const opened = await openFile(c, id, 'view');
+    if (opened instanceof Response) return opened;
+    const [row] = withFileAccess(opened.access, [opened.row]);
     return success(c, row);
   } catch (err) {
     console.error('[app-api/files] get failed:', err);
@@ -79,9 +159,12 @@ app.get('/:id', requirePermission('files:read'), async (c) => {
 app.post('/', requirePermission('files:create'), zValidator('json', createFileSchema), async (c) => {
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
+  const body = c.req.valid('json');
   try {
+    const denied = checkDestination(c, await driveAccess(c), body.folderId);
+    if (denied) return denied;
     const row = await filesService.createFile(c.get('tenantDb'), {
-      ...c.req.valid('json'),
+      ...body,
       uploadedById: userId,
     });
     publishEntityEvent({
@@ -109,10 +192,20 @@ app.post('/', requirePermission('files:create'), zValidator('json', createFileSc
 // PATCH /:id
 // ============================================================================
 
-app.patch('/:id', requirePermission('files:update'), zValidator('json', updateFileSchema), async (c) => {
+app.patch('/:id', requirePermission('files:update'), zValidator('json', updateDriveFileSchema), async (c) => {
   const id = c.req.param('id');
+  const body = c.req.valid('json');
   try {
-    const result = await filesService.updateFile(c.get('tenantDb'), id, c.req.valid('json'));
+    const opened = await openFile(c, id, 'edit');
+    if (opened instanceof Response) return opened;
+    if (body.folderId !== undefined && body.folderId !== opened.row.folderId) {
+      const denied = checkDestination(c, opened.access, body.folderId);
+      if (denied) return denied;
+    }
+    if (body.generalAccess !== undefined && isModuleFile(opened.row)) {
+      return error.badRequest(c, DRIVE_MODULE_FILE);
+    }
+    const result = await filesService.updateFile(c.get('tenantDb'), id, body);
     if (!result.ok) {
       if (result.reason === 'not_found') return error.notFound(c, 'File', id);
       if (result.reason === 'name_conflict') {
@@ -134,6 +227,8 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updateFi
           fileType: result.row.fileType,
           fileSize: result.row.fileSize,
         },
+        // e.g. name 'E2E image.png' → 'E2E renamed', shown in the file's activity
+        changes: computeChanges(trackedFileFields(result.previous), trackedFileFields(result.row)),
       });
       return success(c, result.row);
     }
@@ -152,6 +247,8 @@ app.delete('/:id', requirePermission('files:delete'), async (c) => {
   const workspaceId = c.get('workspaceId') || c.get('orgId');
   if (!workspaceId) return error.orgRequired(c);
   try {
+    const opened = await openFile(c, id, 'edit');
+    if (opened instanceof Response) return opened;
     const result = await filesService.softDeleteFile(c.get('tenantDb'), id);
     if (!result.ok) return error.notFound(c, 'File', id);
 
@@ -199,6 +296,8 @@ app.delete('/:id', requirePermission('files:delete'), async (c) => {
 app.post('/:id/star', requirePermission('files:update'), async (c) => {
   const id = c.req.param('id');
   try {
+    const opened = await openFile(c, id, 'view');
+    if (opened instanceof Response) return opened;
     const result = await filesService.toggleStar(c.get('tenantDb'), id);
     if (!result) return error.notFound(c, 'File', id);
     publishEntityEvent({
@@ -228,6 +327,9 @@ app.post('/:id/pin', requirePermission('files:update'), async (c) => {
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
   try {
+    // The pin shows for the whole workspace, so it is a change to the file.
+    const opened = await openFile(c, id, 'edit');
+    if (opened instanceof Response) return opened;
     const result = await filesService.togglePin(c.get('tenantDb'), id, userId);
     if (!result) return error.notFound(c, 'File', id);
     publishEntityEvent({
@@ -257,8 +359,9 @@ app.get('/:id/content', requirePermission('files:read'), async (c) => {
   const id = c.req.param('id');
   const wantsDownload = c.req.query('download') === '1';
   try {
-    const row = await filesService.getFile(c.get('tenantDb'), id);
-    if (!row) return error.notFound(c, 'File', id);
+    const opened = await openFile(c, id, 'view');
+    if (opened instanceof Response) return opened;
+    const { row } = opened;
     if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
     const key = row.fileKey || row.storagePath;
     if (!key) return error.notFound(c, 'File content', id);
@@ -289,8 +392,9 @@ app.get('/:id/content', requirePermission('files:read'), async (c) => {
 app.put('/:id/content', requirePermission('files:update'), async (c) => {
   const id = c.req.param('id');
   try {
-    const row = await filesService.getFile(c.get('tenantDb'), id);
-    if (!row) return error.notFound(c, 'File', id);
+    const opened = await openFile(c, id, 'edit');
+    if (opened instanceof Response) return opened;
+    const { row } = opened;
     if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
     const key = row.fileKey || row.storagePath;
     if (!key) return error.internal(c, 'File has no storage key');
@@ -327,6 +431,10 @@ app.post('/:id/move', requirePermission('files:update'), zValidator('json', move
   const id = c.req.param('id');
   const { folderId } = c.req.valid('json');
   try {
+    const opened = await openFile(c, id, 'edit');
+    if (opened instanceof Response) return opened;
+    const denied = checkDestination(c, opened.access, folderId);
+    if (denied) return denied;
     const result = await filesService.moveFile(c.get('tenantDb'), id, folderId);
     if (!result.ok) {
       if (result.reason === 'not_found_file') return error.notFound(c, 'File', id);
@@ -350,6 +458,90 @@ app.post('/:id/move', requirePermission('files:update'), zValidator('json', move
   } catch (err) {
     console.error('[app-api/files] move failed:', err);
     return error.internal(c, 'Failed to move file');
+  }
+});
+
+// ============================================================================
+// Sharing — /:id/shares
+// ============================================================================
+
+app.get('/:id/shares', requirePermission('files:read'), async (c) => {
+  const id = c.req.param('id');
+  try {
+    const opened = await openFile(c, id, 'view');
+    if (opened instanceof Response) return opened;
+    if (isModuleFile(opened.row)) return error.badRequest(c, DRIVE_MODULE_FILE);
+    return success(c, await fileSharing(c, opened));
+  } catch (err) {
+    console.error('[app-api/files] sharing failed:', err);
+    return error.internal(c, 'Failed to load sharing');
+  }
+});
+
+/** Share the file with a teammate, or change their role. Owner and editors only. */
+app.put('/:id/shares/:userId', requirePermission('files:update'), zValidator('json', shareDriveItemSchema), async (c) => {
+  const id = c.req.param('id');
+  const targetUserId = c.req.param('userId');
+  const { role } = c.req.valid('json');
+  const userId = c.get('userId');
+  if (!userId) return error.unauthorized(c);
+  try {
+    const db = c.get('tenantDb');
+    const opened = await openFile(c, id, 'edit');
+    if (opened instanceof Response) return opened;
+    const { row } = opened;
+    if (isModuleFile(row)) return error.badRequest(c, DRIVE_MODULE_FILE);
+    if (targetUserId === userId) return error.badRequest(c, 'You cannot share a file with yourself');
+    if (targetUserId === row.uploadedById) return error.badRequest(c, 'The owner already has access to this file');
+    if (!(await isShareableMember(db, targetUserId))) {
+      return error.badRequest(c, 'Files can only be shared with active members of this workspace');
+    }
+    const { previousRole } = await upsertShare(db, { kind: 'file', id }, { userId: targetUserId, role, sharedBy: userId });
+    publishEntityEvent({
+      c,
+      entityType: 'file',
+      entityId: id,
+      action: 'shared',
+      data: { id, name: row.fileName, folderId: row.folderId, userId: targetUserId, role, previousRole },
+    });
+    return success(c, await fileSharing(c, opened));
+  } catch (err) {
+    console.error('[app-api/files] share failed:', err);
+    return error.internal(c, 'Failed to share file');
+  }
+});
+
+/**
+ * Stop sharing the file with a teammate. Owner and editors may remove anyone;
+ * anyone may remove themselves (leave a file shared with them). Answers the
+ * updated sharing, or null once the caller can no longer see the file.
+ */
+app.delete('/:id/shares/:userId', requirePermission('files:read'), async (c) => {
+  const id = c.req.param('id');
+  const targetUserId = c.req.param('userId');
+  const userId = c.get('userId');
+  if (!userId) return error.unauthorized(c);
+  try {
+    const leaving = targetUserId === userId;
+    const opened = await openFile(c, id, leaving ? 'view' : 'edit');
+    if (opened instanceof Response) return opened;
+    if (!leaving && !(await hasContextPermission(c, 'files:update'))) {
+      return error.forbidden(c, 'Missing permission: files:update');
+    }
+    const removedRole = await removeShare(c.get('tenantDb'), { kind: 'file', id }, targetUserId);
+    if (!removedRole) return error.notFound(c, 'Share', targetUserId);
+    publishEntityEvent({
+      c,
+      entityType: 'file',
+      entityId: id,
+      action: 'unshared',
+      data: { id, name: opened.row.fileName, folderId: opened.row.folderId, userId: targetUserId, role: removedRole },
+    });
+    const after = await openFile(c, id, 'view');
+    return success(c, after instanceof Response ? null : await fileSharing(c, after));
+  } catch (err) {
+    console.error('[app-api/files] unshare failed:', err);
+    return error.internal(c, 'Failed to stop sharing file');
   }
 });
 

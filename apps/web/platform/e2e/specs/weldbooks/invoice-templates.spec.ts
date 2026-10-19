@@ -1,12 +1,14 @@
 /**
- * Spec for the invoice designer (/weldbooks/settings/invoice-templates).
+ * Spec for the invoice designer (/settings/entities/:id/invoice-templates).
  * Assumes the test workspace has an accounting entity and that the test user
  * may edit the accounting settings. It creates one template and deletes it
  * again, so the seeded data is left as it was.
  *
  * Verifies:
- *   1. The settings page links to the templates page.
- *   2. A template is created from a preset and opens in the designer.
+ *   1. The WeldBooks settings (the WeldBooks tab of the entity in Settings →
+ *      Entities, where /weldbooks/settings leads) link to the templates page.
+ *   2. A template is created from a preset and opens in the designer, still
+ *      in Settings.
  *   3. Adding a block enables Save, undo takes it back, Save persists.
  *   4. The new template shows up on the list and can be deleted.
  */
@@ -20,18 +22,16 @@ test.describe('WeldBooks · invoice templates', () => {
     await page.goto('/weldbooks/settings');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
     await page.getByRole('link', { name: /manage templates/i }).click();
-    await expect(page).toHaveURL(/\/weldbooks\/settings\/invoice-templates$/, { timeout: 10_000 });
-    await expect(page.getByRole('heading', { name: /^invoice templates$/i })).toBeVisible();
+    await expect(page).toHaveURL(/\/settings\/entities\/[^/]+\/invoice-templates$/, { timeout: 10_000 });
 
     // Either the header button or, on an empty list, the empty-state one.
-    await page
-      .getByRole('button', { name: /^(new template|create your first template)$/i })
-      .first()
-      .click();
+    const create = page.getByRole('button', { name: /^(new template|create your first template)$/i }).first();
+    await expect(create).toBeVisible({ timeout: 10_000 });
+    await create.click();
     await page.locator('#template-name').fill(name);
     await page.getByRole('button', { name: /create and design/i }).click();
 
-    await expect(page).toHaveURL(/\/weldbooks\/settings\/invoice-templates\/[^/]+$/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/settings\/entities\/[^/]+\/invoice-templates\/[^/]+$/, { timeout: 15_000 });
     const save = page.getByRole('button', { name: /^save$/i });
     await expect(save).toBeDisabled();
 

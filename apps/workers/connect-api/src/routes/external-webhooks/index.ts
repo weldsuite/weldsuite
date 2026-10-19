@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { listAllEvents, listCustomObjectEvents } from '@weldsuite/entity-events';
+import { listCustomObjectEvents, listWebhookEvents } from '@weldsuite/entity-events';
 import { listCustomObjects } from '@weldsuite/core-domain/custom-objects';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -118,7 +118,7 @@ const deliveriesQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(100).optional(),
 });
 
-// GET /events — the full entity-events catalog, for the create/edit event picker.
+// GET /events — the subscribable entity events, for the create/edit event picker.
 app.get('/events', requirePermission('webhooks:read'), async (c) => {
   const toEntry = (event: string, label?: string) => {
     const dotIdx = event.indexOf('.');
@@ -130,7 +130,10 @@ app.get('/events', requirePermission('webhooks:read'), async (c) => {
     };
   };
 
-  const events = listAllEvents().map((e) => toEntry(e));
+  // Legacy CRM names (customer.*, contact.*) are left out: nothing publishes
+  // them any more. Webhooks that still list them keep validating (isKnownEvent
+  // checks the full catalog) and are delivered the company/person events.
+  const events = listWebhookEvents().map((e) => toEntry(e));
 
   // WeldObjects events (`co_<slug>.created` …) exist only at runtime, so they
   // are appended from the tenant's own object rows. Only objects with events

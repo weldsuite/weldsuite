@@ -102,6 +102,8 @@ export function EntityList<T extends { id: string }>({
   isLoadingMore,
   onLoadMore,
 
+  onDisplayedItemsChange,
+
   // Sorting
   sortState,
   onSort,
@@ -240,6 +242,10 @@ export function EntityList<T extends { id: string }>({
 
     return result;
   }, [filteredItems, groups]);
+
+  useEffect(() => {
+    onDisplayedItemsChange?.(groupedItems.flatMap((g) => g.items));
+  }, [groupedItems, onDisplayedItemsChange]);
 
   // A search or filter is narrowing the list. With server-side (controlled)
   // search/filters `items` is already the narrowed set, so an empty list under

@@ -464,7 +464,7 @@ export function MeetingHistoryList({ filter, className, emptyStateClassName }: R
 
         {/* Date */}
         <div className="w-[180px]">
-          <span className="text-sm font-mono text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatMeetingDate(dateStr, t.historyPage)}
           </span>
         </div>

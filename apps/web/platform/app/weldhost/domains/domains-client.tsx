@@ -20,7 +20,12 @@ import { cn } from '@/lib/utils';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import type { HostDomain } from "@/lib/api/domains/weldhost";
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useObjectPanel, useObjectPanelStack, useObjectPanelUrlSync } from '@/components/object-panel';
+import {
+  useObjectPanel,
+  useObjectPanelNavigationReporter,
+  useObjectPanelStack,
+  useObjectPanelUrlSync,
+} from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 import { UsedByWeldReachBadge } from '../components/used-by-weldreach-badge';
@@ -50,6 +55,8 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
   // onto `/weldhost/domains`, and landing on that URL reopens the panel.
   useObjectPanelUrlSync('/weldhost/domains');
   const panelStack = useObjectPanelStack();
+  // Previous / next in the open panel step through the rows as shown.
+  const reportDisplayedDomains = useObjectPanelNavigationReporter<HostDomain>({ type: 'domain' });
   // Match on `type` rather than reading the stack tail: a panel pushed on top
   // of the domain panel would otherwise clear the row highlight, or — if its
   // id happened to collide — move it to the wrong row.
@@ -189,7 +196,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         {/* Expires */}
         <div className="w-[140px]">
           {domain.expiresAt ? (
-            <span className="text-sm text-gray-700 dark:text-muted-foreground">
+            <span className="text-sm tabular-nums">
               {new Date(domain.expiresAt).toLocaleDateString()}
             </span>
           ) : (
@@ -251,6 +258,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
   return (
     <EntityList<HostDomain>
       items={domains}
+      onDisplayedItemsChange={reportDisplayedDomains}
       isLoading={false}
       error={null}
       headerColumns={headerColumns}

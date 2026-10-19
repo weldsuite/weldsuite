@@ -99,7 +99,7 @@ export function ApprovalsClient() {
                       {post.scheduledAt && (
                         <p className="text-xs text-muted-foreground">
                           {t.social.posts.scheduledFor}:{' '}
-                          {formatDate(new Date(post.scheduledAt), 'MMM d, yyyy HH:mm')}
+                          <span className="text-foreground tabular-nums">{formatDate(new Date(post.scheduledAt), 'MMM d, yyyy HH:mm')}</span>
                           {post.timezone ? ` (${post.timezone})` : ''}
                         </p>
                       )}

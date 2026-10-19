@@ -36,6 +36,7 @@ interface FormState {
   isPaid: boolean;
   requiresApproval: boolean;
   defaultAllowanceDays: string;
+  blockOverAllowance: boolean;
   isActive: boolean;
 }
 
@@ -46,6 +47,7 @@ const EMPTY_FORM: FormState = {
   isPaid: true,
   requiresApproval: true,
   defaultAllowanceDays: '',
+  blockOverAllowance: false,
   isActive: true,
 };
 
@@ -89,14 +91,14 @@ export function LeaveTypesTab() {
             className="h-2.5 w-2.5 shrink-0 rounded-full border"
             style={{ backgroundColor: leaveType.color ?? undefined }}
           />
-          <span className="font-medium">{leaveType.name}</span>
+          <span className="min-w-0 truncate font-medium">{leaveType.name}</span>
         </div>
       ),
     },
     {
       id: 'paid',
       header: t('weldhr.settings.leaveTypes.paid'),
-      width: 'w-[90px]',
+      width: 'w-[70px]',
       render: (leaveType) => (
         <span className="text-muted-foreground">{leaveType.isPaid ? t('weldhr.common.yes') : t('weldhr.common.no')}</span>
       ),
@@ -104,7 +106,7 @@ export function LeaveTypesTab() {
     {
       id: 'approval',
       header: t('weldhr.settings.leaveTypes.requiresApproval'),
-      width: 'w-[140px]',
+      width: 'w-[110px]',
       render: (leaveType) => (
         <span className="text-muted-foreground">
           {leaveType.requiresApproval ? t('weldhr.common.yes') : t('weldhr.common.no')}
@@ -114,10 +116,13 @@ export function LeaveTypesTab() {
     {
       id: 'allowance',
       header: t('weldhr.settings.leaveTypes.allowance'),
-      width: 'w-[140px]',
+      width: 'w-[100px]',
       render: (leaveType) => (
         <span className="tabular-nums">
           {formatAllowance(leaveType.defaultAllowanceDays)}
+          {leaveType.overAllowance === 'block' && leaveType.defaultAllowanceDays !== null && (
+            <span className="block text-xs text-muted-foreground">{t('weldhr.settings.leaveTypes.blocksOverAllowance')}</span>
+          )}
         </span>
       ),
     },
@@ -141,6 +146,7 @@ export function LeaveTypesTab() {
                   isPaid: leaveType.isPaid,
                   requiresApproval: leaveType.requiresApproval,
                   defaultAllowanceDays: leaveType.defaultAllowanceDays?.toString() ?? '',
+                  blockOverAllowance: leaveType.overAllowance === 'block',
                   isActive: leaveType.isActive,
                 })
             : undefined
@@ -192,6 +198,7 @@ function LeaveTypeDialog({ form, onClose }: Readonly<{ form: FormState; onClose:
       isPaid: state.isPaid,
       requiresApproval: state.requiresApproval,
       defaultAllowanceDays: allowance === '' ? null : Number(allowance),
+      overAllowance: state.blockOverAllowance ? ('block' as const) : ('allow' as const),
       isActive: state.isActive,
     };
     try {
@@ -243,6 +250,21 @@ function LeaveTypeDialog({ form, onClose }: Readonly<{ form: FormState; onClose:
             />
             <p className="text-xs text-muted-foreground">{t('weldhr.settings.leaveTypes.allowanceHint')}</p>
           </div>
+
+          {/* Only meaningful with an allowance: unlimited types never run out. */}
+          {state.defaultAllowanceDays.trim() !== '' && (
+            <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+              <div className="space-y-1">
+                <Label htmlFor="leave-block">{t('weldhr.settings.leaveTypes.blockOverAllowance')}</Label>
+                <p className="text-xs text-muted-foreground">{t('weldhr.settings.leaveTypes.blockOverAllowanceHint')}</p>
+              </div>
+              <Switch
+                id="leave-block"
+                checked={state.blockOverAllowance}
+                onCheckedChange={(checked) => setState({ ...state, blockOverAllowance: checked })}
+              />
+            </div>
+          )}
 
           <div className="flex items-center justify-between gap-4 rounded-md border p-3">
             <Label htmlFor="leave-paid">{t('weldhr.settings.leaveTypes.paid')}</Label>

@@ -71,11 +71,11 @@ function PortalCardBody({
       <div className="flex items-center justify-between">
         <StatusBadge group="portalAccess" status={access.status} />
         <span className="text-xs text-muted-foreground">
-          {t('weldhr.portal.access.invitedAt')}: {formatDate(access.invitedAt)}
+          {t('weldhr.portal.access.invitedAt')}: <span className="tabular-nums text-foreground">{formatDate(access.invitedAt)}</span>
         </span>
       </div>
       <p className="text-xs text-muted-foreground">
-        {t('weldhr.portal.access.lastSignIn')}: {formatDateTime(access.lastLoginAt)}
+        {t('weldhr.portal.access.lastSignIn')}: <span className={access.lastLoginAt ? 'tabular-nums text-foreground' : 'tabular-nums'}>{formatDateTime(access.lastLoginAt)}</span>
       </p>
       <div className="flex flex-wrap gap-2">
         {access.status === 'revoked' ? (

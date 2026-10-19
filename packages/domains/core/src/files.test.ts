@@ -12,6 +12,8 @@ import {
   listFiles,
   softDeleteFile,
   toggleStar,
+  updateFile,
+  fileDescription,
   hasFileNameConflict,
   deduplicateFileName,
 } from './files';
@@ -115,5 +117,38 @@ describe('files service · pglite integration', () => {
     await toggleStar(db, f.id);
     const back = await getFile(db, f.id);
     expect(back?.isStarred).toBe(false);
+  });
+});
+
+describe('files service · names and descriptions', () => {
+  it('treats names that differ only in case as the same name', async () => {
+    const original = await createFile(db, baseParams({ fileName: 'contract-e2e.txt' }));
+    expect(await hasFileNameConflict(db, 'CONTRACT-E2E.TXT', null)).toBe(true);
+
+    const upload = await createFile(db, baseParams({ fileName: 'Contract-E2E.txt' }));
+    expect(upload.fileName).toBe('Contract-E2E (1).txt');
+
+    const other = await createFile(db, baseParams({ fileName: 'other-e2e.txt' }));
+    expect(await updateFile(db, other.id, { fileName: 'CONTRACT-E2E.TXT' })).toEqual({
+      ok: false,
+      reason: 'name_conflict',
+    });
+    // Changing only the case of a file's own name is not a conflict.
+    const recased = await updateFile(db, original.id, { fileName: 'Contract-e2e.txt' });
+    expect(recased.ok).toBe(true);
+  });
+
+  it('keeps the description in metadata next to what is already there, and clears it', async () => {
+    const f = await createFile(db, baseParams({ fileName: 'described.pdf', metadata: { welddoc: true } }));
+    expect(fileDescription(f)).toBeNull();
+
+    const saved = await updateFile(db, f.id, { description: '<p>Persist test</p>' });
+    expect(saved.ok && fileDescription(saved.row)).toBe('<p>Persist test</p>');
+    expect(saved.ok && saved.row.metadata?.welddoc).toBe(true);
+    expect(saved.ok && fileDescription(saved.previous)).toBeNull();
+
+    const cleared = await updateFile(db, f.id, { description: null });
+    expect(cleared.ok && fileDescription(cleared.row)).toBeNull();
+    expect(cleared.ok && cleared.row.metadata?.welddoc).toBe(true);
   });
 });

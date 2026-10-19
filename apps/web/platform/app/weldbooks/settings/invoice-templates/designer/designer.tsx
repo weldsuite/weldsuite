@@ -343,6 +343,7 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
       <DesignerProvider value={context}>
         <div className="flex h-full min-h-0 flex-1 flex-col bg-background">
           <DesignerTopBar
+            entityId={template.entityId}
             name={meta.name}
             onNameChange={(name) => setMeta((m) => ({ ...m, name }))}
             onNameBlur={() => setMeta((m) => (m.name.trim() === '' ? { ...m, name: savedMeta.name } : m))}

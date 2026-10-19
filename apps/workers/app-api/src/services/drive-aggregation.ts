@@ -5,16 +5,26 @@
  * whiteboards, mail, voip, meetings, social) and normalises them into a
  * single `UnifiedFile` shape so the frontend can render one feed.
  *
- * Mail attachments are the one source with per-record access: a mailbox is
- * open to its assigned users only (`@weldsuite/mail-domain/access`), so the
- * feed and its counters only include attachments from mailboxes the caller
- * may open.
+ * Two sources have per-record access, and the feed and its counters only
+ * include what the caller may open:
+ *   - drive files follow the WeldDrive sharing rules
+ *     (`@weldsuite/core-domain/drive-access`);
+ *   - mail attachments come from mailboxes the caller is assigned to
+ *     (`@weldsuite/mail-domain/access`).
  */
 
-import { and, eq, getTableColumns, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
 import { asText } from '@weldsuite/text';
+import { fileDescription } from '@weldsuite/core-domain/files';
+import {
+  isWorkspaceAdmin,
+  loadDriveAccess,
+  withFileAccess,
+  type DriveAccessFields,
+  type DriveAccessIndex,
+} from '@weldsuite/core-domain/drive-access';
 import { buildResultUrl } from './search';
 
 const {
@@ -53,7 +63,18 @@ export interface UnifiedFile {
   uploadedById: string | null;
   /** True when this drive file is a native WeldDoc (opens in the documents editor). */
   isWeldDoc?: boolean;
+  /** Drive files only: the record the file belongs to (e.g. `project`), null for plain uploads. */
+  entityType?: string | null;
+  /** Drive files only: the Details panel description (HTML). */
+  description?: string | null;
+  /** Drive files only: the caller's role on the file. */
+  accessRole?: DriveAccessFields['accessRole'];
+  /** Drive files only: the general access in force, counting the folders above the file. */
+  effectiveAccess?: DriveAccessFields['effectiveAccess'];
 }
+
+/** Drive files a module stores for one of its records (WeldFlow sheets and documents). */
+const PROJECT_ENTITY_TYPES = new Set(['project', 'project_document']);
 
 function buildNavigateUrl(
   entityType: string | null,
@@ -109,7 +130,7 @@ function guessFileType(mimeType: string | null, fileName: string | null): string
 // ============================================================================
 
 export function normalizeGenericFiles(
-  rows: (typeof schema.files.$inferSelect)[],
+  rows: ((typeof schema.files.$inferSelect) & Partial<DriveAccessFields>)[],
   r2PublicUrl?: string,
 ): UnifiedFile[] {
   const base = r2PublicUrl?.replace(/(?<!\/)\/+$/, '');
@@ -121,8 +142,10 @@ export function normalizeGenericFiles(
     fileSize: r.fileSize,
     url: r.url ?? (base && r.fileKey ? `${base}/${r.fileKey}` : null),
     thumbnailUrl: r.thumbnailUrl,
+    // Still `drive` (it lives in the files table and supports every Drive
+    // action), but a WeldFlow sheet or document is labelled as the project's.
     source: 'drive',
-    sourceLabel: 'My Drive',
+    sourceLabel: r.entityType && PROJECT_ENTITY_TYPES.has(r.entityType) ? 'Projects' : 'My Drive',
     navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id),
     folderId: r.folderId,
     isStarred: r.isStarred,
@@ -130,6 +153,10 @@ export function normalizeGenericFiles(
     updatedAt: r.updatedAt?.toISOString() ?? null,
     uploadedById: r.uploadedById,
     isWeldDoc: r.metadata?.welddoc === true,
+    entityType: r.entityType,
+    description: fileDescription(r),
+    accessRole: r.accessRole,
+    effectiveAccess: r.effectiveAccess,
   }));
 }
 
@@ -298,17 +325,27 @@ async function accessibleMailAttachments(db: Database, userId: string): Promise<
 }
 
 // ============================================================================
+// Drive file access
+// ============================================================================
+
+/** The Drive sharing rules for `userId`, unless the route already loaded them. */
+async function driveAccessFor(db: Database, userId: string, loaded?: DriveAccessIndex): Promise<DriveAccessIndex> {
+  return loaded ?? loadDriveAccess(db, { userId, isAdmin: await isWorkspaceAdmin(db, userId) });
+}
+
+// ============================================================================
 // /all aggregator
 // ============================================================================
 
 export async function aggregateAllFiles(
   db: Database,
-  params: { userId: string; source?: string; r2PublicUrl?: string },
+  params: { userId: string; source?: string; r2PublicUrl?: string; driveAccess?: DriveAccessIndex },
 ): Promise<UnifiedFile[]> {
   const shouldQuery = (s: string) => !params.source || params.source === s;
   const mailAttachmentsWhere = shouldQuery('mail')
     ? await accessibleMailAttachments(db, params.userId)
     : null;
+  const driveAccess = shouldQuery('drive') ? await driveAccessFor(db, params.userId, params.driveAccess) : null;
 
   const [
     genericFiles,
@@ -352,7 +389,7 @@ export async function aggregateAllFiles(
   ]);
 
   return [
-    ...normalizeGenericFiles(genericFiles, params.r2PublicUrl),
+    ...normalizeGenericFiles(driveAccess ? withFileAccess(driveAccess, genericFiles) : [], params.r2PublicUrl),
     ...normalizeProjectFiles(projectFilesRes),
     ...normalizeProjectDocuments(projectDocsRes),
     ...normalizeProjectWhiteboards(whiteboardsRes),
@@ -457,10 +494,17 @@ export interface DriveStats {
   bySource: Record<string, number>;
 }
 
-export async function aggregateStats(db: Database, userId: string): Promise<DriveStats> {
-  const mailAttachmentsWhere = await accessibleMailAttachments(db, userId);
+export async function aggregateStats(
+  db: Database,
+  userId: string,
+  loadedDriveAccess?: DriveAccessIndex,
+): Promise<DriveStats> {
+  const [mailAttachmentsWhere, driveAccess] = await Promise.all([
+    accessibleMailAttachments(db, userId),
+    driveAccessFor(db, userId, loadedDriveAccess),
+  ]);
   const [
-    genericCount,
+    driveRows,
     projectFilesCount,
     projectDocsCount,
     whiteboardsCount,
@@ -468,9 +512,19 @@ export async function aggregateStats(db: Database, userId: string): Promise<Driv
     voipCount,
     meetingsCount,
     socialCount,
-    recentGenericCount,
   ] = await Promise.all([
-    db.select({ count: sql<number>`count(*)::int` }).from(files).where(isNull(files.deletedAt)),
+    // Drive files are counted after the sharing rules, so only the columns they read.
+    db
+      .select({
+        id: files.id,
+        uploadedById: files.uploadedById,
+        folderId: files.folderId,
+        generalAccess: files.generalAccess,
+        entityType: files.entityType,
+        createdAt: files.createdAt,
+      })
+      .from(files)
+      .where(isNull(files.deletedAt)),
     db.select({ count: sql<number>`count(*)::int` }).from(projectFiles).where(and(isNull(projectFiles.deletedAt), eq(projectFiles.isFolder, false))),
     db.select({ count: sql<number>`count(*)::int` }).from(projectDocuments).where(isNull(projectDocuments.deletedAt)),
     db.select({ count: sql<number>`count(*)::int` }).from(projectWhiteboards).where(isNull(projectWhiteboards.deletedAt)),
@@ -483,13 +537,11 @@ export async function aggregateStats(db: Database, userId: string): Promise<Driv
     db.select({ count: sql<number>`count(*)::int` }).from(voipCalls).where(eq(voipCalls.isRecorded, true)),
     db.select({ count: sql<number>`count(*)::int` }).from(meetingBotSessions).where(isNotNull(meetingBotSessions.recordingStorageUrl)),
     db.select({ count: sql<number>`count(*)::int` }).from(socialMedia).where(ne(socialMedia.status, 'deleted')),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(files)
-      .where(and(isNull(files.deletedAt), sql`${files.createdAt} > now() - interval '7 days'`)),
   ]);
 
-  const drive = Number(genericCount[0]?.count || 0);
+  const visibleDrive = withFileAccess(driveAccess, driveRows);
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const drive = visibleDrive.length;
   const projects = Number(projectFilesCount[0]?.count || 0);
   const documents = Number(projectDocsCount[0]?.count || 0);
   const whiteboards = Number(whiteboardsCount[0]?.count || 0);
@@ -499,7 +551,7 @@ export async function aggregateStats(db: Database, userId: string): Promise<Driv
   const social = Number(socialCount[0]?.count || 0);
   return {
     totalFiles: drive + projects + documents + whiteboards + mail + voip + meetings + social,
-    recentCount: Number(recentGenericCount[0]?.count || 0),
+    recentCount: visibleDrive.filter((f) => f.createdAt.getTime() > weekAgo).length,
     bySource: { drive, projects, documents, whiteboards, mail, voip, meetings, social },
   };
 }
@@ -508,17 +560,37 @@ export async function aggregateStats(db: Database, userId: string): Promise<Driv
 // Trash helpers (cross-table — files + folders)
 // ============================================================================
 
-export async function listAllTrashedFileKeysForR2(db: Database): Promise<string[]> {
-  const rows = await db
-    .select({ fileKey: files.fileKey, storagePath: files.storagePath })
-    .from(files)
-    .where(isNotNull(files.deletedAt));
+export interface TrashedIds {
+  fileIds: string[];
+  folderIds: string[];
+}
+
+/** The rows `purgeTrashed` removes: the trashed files, and every file in a trashed folder. */
+function purgedFilesWhere(ids: TrashedIds): SQL | undefined {
+  const conditions: SQL[] = [];
+  if (ids.fileIds.length > 0) conditions.push(and(inArray(files.id, ids.fileIds), isNotNull(files.deletedAt))!);
+  if (ids.folderIds.length > 0) conditions.push(inArray(files.folderId, ids.folderIds));
+  return conditions.length > 0 ? or(...conditions) : undefined;
+}
+
+/** The R2 keys of what `purgeTrashed` removes, so the route deletes the objects first. */
+export async function listPurgedFileKeys(db: Database, ids: TrashedIds): Promise<string[]> {
+  const where = purgedFilesWhere(ids);
+  if (!where) return [];
+  const rows = await db.select({ fileKey: files.fileKey, storagePath: files.storagePath }).from(files).where(where);
   return rows.map((f) => f.fileKey || f.storagePath).filter(Boolean) as string[];
 }
 
-export async function emptyTrash(db: Database): Promise<void> {
-  await Promise.all([
-    db.delete(files).where(isNotNull(files.deletedAt)),
-    db.delete(folders).where(isNotNull(folders.deletedAt)),
-  ]);
+/**
+ * Permanently delete trashed files and folders. A folder goes with the files
+ * in it, as `purgeFolder` does. The caller has already narrowed the ids to
+ * what it may change.
+ */
+export async function purgeTrashed(db: Database, ids: TrashedIds): Promise<void> {
+  const where = purgedFilesWhere(ids);
+  // Files first: they reference their folder.
+  if (where) await db.delete(files).where(where);
+  if (ids.folderIds.length > 0) {
+    await db.delete(folders).where(and(inArray(folders.id, ids.folderIds), isNotNull(folders.deletedAt)));
+  }
 }

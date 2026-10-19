@@ -64,6 +64,19 @@ export {
   type PreviewPermission,
 } from './components/preview-view';
 export { ConnectingView } from './components/connecting-view';
+export {
+  ConnectionIndicator,
+  DEFAULT_CONNECTION_INDICATOR_LABELS,
+  type ConnectionIndicatorLabels,
+  type ConnectionIndicatorProps,
+} from './components/connection-indicator';
+export {
+  useConnectionQuality,
+  scoreLevel,
+  summarizeConnection,
+  type ConnectionLevel,
+  type ConnectionQuality,
+} from './hooks/use-connection-quality';
 export { PeoplePanel, type PeoplePanelProps } from './components/people-panel';
 export { PeopleEntityListPanel, type PeopleEntityListPanelProps } from './components/people-entity-list-panel';
 

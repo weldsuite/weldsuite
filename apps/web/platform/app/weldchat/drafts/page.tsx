@@ -258,7 +258,7 @@ export default function DraftsPage() {
           </span>
 
           <span className="w-[120px] flex-shrink-0">
-            <span className="text-sm text-gray-600 dark:text-muted-foreground">
+            <span className="text-sm tabular-nums">
               {formatRelative(draft.updatedAt, st)}
             </span>
           </span>

@@ -55,7 +55,7 @@ export function BillLineCard({ billItemId, billId, reclass, onReclassChange }: R
             </div>
             <div>
               <dt className="text-muted-foreground">{t.weldbooksUs.assets.fixedAssets.form.fields.acquisitionDate}</dt>
-              <dd>{formatDate(detail.issueDate)}</dd>
+              <dd className="tabular-nums">{formatDate(detail.issueDate)}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">{tf.linkedBill}</dt>

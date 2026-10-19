@@ -149,12 +149,12 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
 
         {/* Created */}
         <div className="w-[150px]">
-          <span className="text-sm text-muted-foreground">{formatDate(report.createdAt)}</span>
+          <span className="text-sm tabular-nums">{formatDate(report.createdAt)}</span>
         </div>
 
         {/* Last Modified */}
         <div className="w-[150px]">
-          <span className="text-sm text-muted-foreground">{formatDate(report.updatedAt)}</span>
+          <span className="text-sm tabular-nums">{formatDate(report.updatedAt)}</span>
         </div>
 
         <button

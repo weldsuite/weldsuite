@@ -7,11 +7,12 @@ import type { ClientApi, DataResponse } from '../types';
 import type {
   ListFilesQuery,
   CreateFileInput,
-  UpdateFileInput,
+  UpdateDriveFileInput,
   MoveFileInput,
   DriveFile,
   FilesListResponse,
 } from '../schemas/files';
+import type { DriveItemSharing, ShareDriveItemInput } from '../schemas/drive-shares';
 
 export function createFilesApi(api: ClientApi) {
   return {
@@ -25,7 +26,7 @@ export function createFilesApi(api: ClientApi) {
     create(input: CreateFileInput): Promise<DataResponse<DriveFile>> {
       return api.post<DataResponse<DriveFile>>('/files', input);
     },
-    update(id: string, input: UpdateFileInput): Promise<DataResponse<DriveFile>> {
+    update(id: string, input: UpdateDriveFileInput): Promise<DataResponse<DriveFile>> {
       return api.patch<DataResponse<DriveFile>>(`/files/${id}`, input);
     },
     delete(id: string): Promise<DataResponse<{ deleted: boolean }>> {
@@ -39,6 +40,18 @@ export function createFilesApi(api: ClientApi) {
         `/files/${id}/move`,
         input,
       );
+    },
+    /** Who the file is open to: its owner, general access and the people it is shared with. */
+    sharing(id: string): Promise<DataResponse<DriveItemSharing>> {
+      return api.get<DataResponse<DriveItemSharing>>(`/files/${id}/shares`);
+    },
+    /** Share the file with a teammate, or change the role they have. */
+    share(id: string, userId: string, input: ShareDriveItemInput): Promise<DataResponse<DriveItemSharing>> {
+      return api.put<DataResponse<DriveItemSharing>>(`/files/${id}/shares/${encodeURIComponent(userId)}`, input);
+    },
+    /** Stop sharing the file with a teammate (or, for yourself, leave it). */
+    unshare(id: string, userId: string): Promise<DataResponse<DriveItemSharing | null>> {
+      return api.delete<DataResponse<DriveItemSharing | null>>(`/files/${id}/shares/${encodeURIComponent(userId)}`);
     },
   };
 }

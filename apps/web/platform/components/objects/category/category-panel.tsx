@@ -18,7 +18,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Package, FolderTree, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import {
   useCommerceCategory,
   useCommerceCategoryProducts,
@@ -50,6 +50,10 @@ export function CategoryPanel(props: Readonly<ObjectPanelComponentProps>) {
 
   const { data: children } = useCommerceSubcategories(id, !!category);
   const childRows = children?.data ?? [];
+
+  // Previous / next in the product and category panels step through these rows.
+  useObjectPanelNavigationSource({ type: 'product', ids: memberRows.map((p) => p.id) });
+  useObjectPanelNavigationSource({ type: 'category', ids: childRows.map((c) => c.id) });
 
   const attach = useAttachCategoryProducts();
   const detach = useDetachCategoryProduct();
@@ -221,7 +225,7 @@ export function CategoryPanel(props: Readonly<ObjectPanelComponentProps>) {
               { label: t.fields.position, value: category.position },
               { label: t.fields.memberCount, value: memberRows.length },
               { label: t.panel.tabSubcategories, value: childRows.length },
-              { label: t.fields.created, value: formatPanelDate(category.createdAt) },
+              { label: t.fields.created, value: formatPanelDate(category.createdAt), tabular: true },
             ]
           : []
       }

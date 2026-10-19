@@ -115,11 +115,18 @@ type CoachingWrite = {
   visibility?: string;
 };
 
+function assertFollowUpAfterSession(sessionDate: string, followUpDate: string | null | undefined) {
+  if (followUpDate && followUpDate < sessionDate) {
+    throw new HrValidationError('The follow-up date cannot be before the session date');
+  }
+}
+
 export async function createCoachingLog(
   db: Database,
   input: CoachingWrite & { employeeId: string; sessionDate: string; topic: string },
   actorId: string,
 ) {
+  assertFollowUpAfterSession(input.sessionDate, input.followUpDate);
   await requireEmployee(db, input.employeeId);
   const coachUserId = input.coachUserId ?? actorId;
   let coachName = input.coachName ?? null;
@@ -138,7 +145,11 @@ export async function createCoachingLog(
 }
 
 export async function updateCoachingLog(db: Database, id: string, input: CoachingWrite) {
-  await requireCoachingLog(db, id);
+  const existing = await requireCoachingLog(db, id);
+  assertFollowUpAfterSession(
+    input.sessionDate ?? existing.sessionDate,
+    input.followUpDate !== undefined ? input.followUpDate : existing.followUpDate,
+  );
   const [row] = await db.update(co).set({ ...input, updatedAt: new Date() }).where(eq(co.id, id)).returning();
   return row!;
 }
@@ -265,6 +276,20 @@ function assertScores(criteria: HrEvaluationCriterion[], scores: HrEvaluationSco
   }
 }
 
+/**
+ * A submitted evaluation is final for the employee, so it needs every weighted
+ * criterion scored (the overall score would otherwise silently skip the rest)
+ * and a period that has started.
+ */
+function assertSubmittable(criteria: HrEvaluationCriterion[], scores: HrEvaluationScore[], periodStart: string | null | undefined) {
+  const scored = new Set(scores.map((s) => s.criterionId));
+  const missing = criteria.filter((c) => c.weight > 0 && !scored.has(c.id)).map((c) => c.label);
+  if (missing.length) throw new HrValidationError(`Score every criterion before submitting. Missing: ${missing.join(', ')}`);
+  if (periodStart && periodStart > new Date().toISOString().slice(0, 10)) {
+    throw new HrValidationError('An evaluation period that has not started yet cannot be submitted; save it as a draft');
+  }
+}
+
 export async function requireEvaluation(db: Database, id: string) {
   const [row] = await db.select().from(ev).where(and(eq(ev.id, id), isNull(ev.deletedAt))).limit(1);
   if (!row) throw new HrNotFoundError('Evaluation', id);
@@ -339,6 +364,7 @@ export async function createEvaluation(
   const form = await requireEvaluationForm(db, input.formId);
   const scores = input.scores ?? [];
   assertScores(form.criteria, scores);
+  if (input.submit) assertSubmittable(form.criteria, scores, input.periodStart);
   const evaluatorName = (await memberNames(db, [evaluatorUserId])).get(evaluatorUserId) ?? null;
   const [row] = await db
     .insert(ev)
@@ -390,6 +416,7 @@ export async function updateEvaluation(
     updatedAt: new Date(),
   };
   if (submit && existing.status === 'draft') {
+    assertSubmittable(existing.criteria, scores, input.periodStart !== undefined ? input.periodStart : existing.periodStart);
     patch.status = 'submitted';
     patch.submittedAt = new Date();
   }
@@ -444,13 +471,23 @@ type KpiDefinitionInput = {
   isActive?: boolean;
 };
 
+/** Percentages and durations cannot be negative; a plain number or an amount may be. */
+function assertKpiTarget(unit: string | undefined, target: number | null | undefined) {
+  if (target === null || target === undefined) return;
+  if ((unit === 'percent' || unit === 'seconds' || unit === 'minutes') && target < 0) {
+    throw new HrValidationError('The target of a percentage or duration KPI cannot be negative');
+  }
+}
+
 export async function createKpiDefinition(db: Database, input: KpiDefinitionInput & { name: string }) {
+  assertKpiTarget(input.unit ?? 'number', input.target);
   const [row] = await db.insert(kd).values({ id: generateId('hrkpi'), ...input }).returning();
   return row!;
 }
 
 export async function updateKpiDefinition(db: Database, id: string, input: KpiDefinitionInput) {
-  await requireKpiDefinition(db, id);
+  const existing = await requireKpiDefinition(db, id);
+  assertKpiTarget(input.unit ?? existing.unit, input.target !== undefined ? input.target : existing.target);
   const [row] = await db.update(kd).set({ ...input, updatedAt: new Date() }).where(eq(kd.id, id)).returning();
   return row!;
 }
@@ -697,18 +734,34 @@ function withAchievedDate<T extends MilestoneWrite>(input: T): T {
   return input;
 }
 
+/**
+ * Status and achieved date have to agree. An achieved date given with a
+ * planned or in-progress status means it was achieved, so the status follows;
+ * moving a milestone back to an open status (or to missed) drops its old
+ * achieved date; a missed milestone cannot be given one.
+ */
+function reconcileMilestone<T extends MilestoneWrite>(input: T, current: { status: string; achievedAt: string | null } = { status: 'planned', achievedAt: null }): T {
+  const status = input.status ?? current.status;
+  const achievedAt = input.achievedAt !== undefined ? input.achievedAt : current.achievedAt;
+  if (!achievedAt || status === 'achieved') return input;
+  const statusChangedOnly = input.status !== undefined && input.achievedAt === undefined;
+  if (statusChangedOnly) return { ...input, achievedAt: null };
+  if (status === 'missed') throw new HrValidationError('A missed milestone cannot have an achieved date');
+  return { ...input, status: 'achieved' };
+}
+
 export async function createMilestone(db: Database, input: MilestoneWrite & { employeeId: string; title: string }, createdBy: string) {
   await requireEmployee(db, input.employeeId);
   const [row] = await db
     .insert(ms)
-    .values({ id: generateId('hrmil'), ...withAchievedDate(input), createdBy })
+    .values({ id: generateId('hrmil'), ...reconcileMilestone(withAchievedDate(input)), createdBy })
     .returning();
   return row!;
 }
 
 export async function updateMilestone(db: Database, id: string, input: MilestoneWrite) {
   const existing = await requireMilestone(db, id);
-  const patch = existing.achievedAt ? input : withAchievedDate(input);
+  const patch = reconcileMilestone(existing.achievedAt ? input : withAchievedDate(input), existing);
   const [row] = await db.update(ms).set({ ...patch, updatedAt: new Date() }).where(eq(ms.id, id)).returning();
   return { milestone: row!, justAchieved: existing.status !== 'achieved' && row!.status === 'achieved' };
 }

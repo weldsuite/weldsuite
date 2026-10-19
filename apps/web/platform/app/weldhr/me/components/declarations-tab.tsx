@@ -101,7 +101,7 @@ export function MyDeclarationsTab({ canSubmit }: Readonly<{ canSubmit: boolean }
             <TableBody>
               {data.declarations.map((declaration) => (
                 <TableRow key={declaration.id}>
-                  <TableCell className="whitespace-nowrap">{formatDate(declaration.expenseDate)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{formatDate(declaration.expenseDate)}</TableCell>
                   <TableCell>
                     <span>{declaration.description}</span>
                     <Meta>{t(`weldhr.declarations.category.${declaration.category}`)}</Meta>

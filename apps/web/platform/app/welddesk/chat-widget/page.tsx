@@ -99,7 +99,7 @@ export default function ChatWidgetPage() {
 
         {/* Created */}
         <div className="w-[100px]">
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
+          <span className={`text-sm tabular-nums${widget.createdAt ? '' : ' text-muted-foreground'}`}>
             {widget.createdAt ? new Date(widget.createdAt).toLocaleDateString() : '—'}
           </span>
         </div>

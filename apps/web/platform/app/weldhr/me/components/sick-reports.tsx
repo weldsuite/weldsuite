@@ -93,13 +93,13 @@ export function SickHistoryCard() {
           <TableBody>
             {history.map((report) => (
               <TableRow key={report.id}>
-                <TableCell className="whitespace-nowrap">
+                <TableCell className="whitespace-nowrap tabular-nums">
                   {formatDate(report.startDate)}
                   {report.firstDay === 'half' && (
                     <span className="text-muted-foreground"> · {t('weldhr.absenteeism.halfFirstDay')}</span>
                   )}
                 </TableCell>
-                <TableCell className="whitespace-nowrap">{formatDate(report.endDate)}</TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">{formatDate(report.endDate)}</TableCell>
                 <TableCell className="tabular-nums">{formatDays(report.days)}</TableCell>
                 <TableCell>
                   <StatusBadge group="absence" status={report.status} />

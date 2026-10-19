@@ -126,7 +126,7 @@ export function AnnouncementsClient({
       sortable: true,
       width: '120px',
       render: (item) => (
-        <span className="text-sm">{formatDate(item.startDate, 'MMM dd, yyyy')}</span>
+        <span className="text-sm tabular-nums">{formatDate(item.startDate, 'MMM dd, yyyy')}</span>
       ),
     },
     {
@@ -135,7 +135,7 @@ export function AnnouncementsClient({
       sortable: true,
       width: '120px',
       render: (item) => (
-        <span className="text-sm">
+        <span className={`text-sm tabular-nums${item.endDate ? '' : ' text-muted-foreground'}`}>
           {item.endDate ? format(new Date(item.endDate), 'MMM dd, yyyy') : ta.noEndDate}
         </span>
       ),

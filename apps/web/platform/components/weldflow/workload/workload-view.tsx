@@ -20,7 +20,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { formatTaskNumber } from '@/lib/task-number';
@@ -974,6 +974,19 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     openObjectPanel({ type: 'task', id: task.id });
   };
 
+  // Previous / next in the task panel step through the listed tasks: members top to bottom,
+  // each one's dated tasks before its undated ones, the unassigned section last.
+  const sidebarMemberIds = showUnassigned ? [...visibleMembers.map((m) => m.id), UNASSIGNED_ID] : visibleMembers.map((m) => m.id);
+  useObjectPanelNavigationSource({
+    type: 'task',
+    ids: Array.from(new Set(
+      sidebarMemberIds
+        .filter((memberId) => expandedMembers.has(memberId))
+        .flatMap((memberId) => [...getScheduledTasks(memberId), ...getUnscheduledTasks(memberId)])
+        .map((task) => task.id),
+    )),
+  });
+
   // Show error state
   if (error) {
     return (
@@ -1431,7 +1444,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                   <div className="px-2 py-1.5">
                     <p className="text-sm font-medium leading-none truncate">{selectedMarker.label}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {formatMedium(selectedMarker.date)}
+                      <span className="tabular-nums text-foreground">{formatMedium(selectedMarker.date)}</span>
                       {(selectedMarker.date.getHours() !== 0 || selectedMarker.date.getMinutes() !== 0) && (
                         <span> {st('projects.gantt.atTime', { time: `${selectedMarker.date.getHours().toString().padStart(2, '0')}:${selectedMarker.date.getMinutes().toString().padStart(2, '0')}` })}</span>
                       )}

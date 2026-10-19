@@ -4,7 +4,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
   createHrCoachingLogSchema,
@@ -54,7 +53,7 @@ import {
   updateKpiValue,
   updateMilestone,
 } from '../../services/weldhr/performance';
-import { actor, db, emit, param } from './helpers';
+import { actor, hrJson, db, emit, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -105,13 +104,13 @@ coachingRoutes.get('/:coachingId', requirePermission('coaching:read'), async (c)
   return success(c, await requireCoachingLog(db(c), param(c, 'coachingId')));
 });
 
-coachingRoutes.post('/', requirePermission('coaching:create'), zValidator('json', createHrCoachingLogSchema), async (c) => {
+coachingRoutes.post('/', requirePermission('coaching:create'), hrJson(createHrCoachingLogSchema), async (c) => {
   const row = await createCoachingLog(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_coaching_log', 'created', row.id, { employeeId: row.employeeId, status: row.status }, coachingAudience(row));
   return success(c, row, 201);
 });
 
-coachingRoutes.patch('/:coachingId', requirePermission('coaching:update'), zValidator('json', updateHrCoachingLogSchema), async (c) => {
+coachingRoutes.patch('/:coachingId', requirePermission('coaching:update'), hrJson(updateHrCoachingLogSchema), async (c) => {
   const before = await requireCoachingLog(db(c), param(c, 'coachingId'));
   const row = await updateCoachingLog(db(c), before.id, c.req.valid('json'));
   emit(c, 'hr_coaching_log', 'updated', row.id, { employeeId: row.employeeId, status: row.status }, coachingAudience(before, row));
@@ -135,11 +134,11 @@ evaluationFormsRoutes.get('/', requirePermission('evaluations:read'), async (c) 
   return success(c, await listEvaluationForms(db(c), c.req.query('activeOnly') !== 'true'));
 });
 
-evaluationFormsRoutes.post('/', requirePermission('employees:manage'), zValidator('json', createHrEvaluationFormSchema), async (c) => {
+evaluationFormsRoutes.post('/', requirePermission('employees:manage'), hrJson(createHrEvaluationFormSchema), async (c) => {
   return success(c, await createEvaluationForm(db(c), c.req.valid('json')), 201);
 });
 
-evaluationFormsRoutes.patch('/:formId', requirePermission('employees:manage'), zValidator('json', updateHrEvaluationFormSchema), async (c) => {
+evaluationFormsRoutes.patch('/:formId', requirePermission('employees:manage'), hrJson(updateHrEvaluationFormSchema), async (c) => {
   return success(c, await updateEvaluationForm(db(c), param(c, 'formId'), c.req.valid('json')));
 });
 
@@ -173,7 +172,7 @@ evaluationsRoutes.get('/:evaluationId', requirePermission('evaluations:read'), a
   return success(c, await requireEvaluation(db(c), param(c, 'evaluationId')));
 });
 
-evaluationsRoutes.post('/', requirePermission('evaluations:create'), zValidator('json', createHrEvaluationSchema), async (c) => {
+evaluationsRoutes.post('/', requirePermission('evaluations:create'), hrJson(createHrEvaluationSchema), async (c) => {
   const row = await createEvaluation(db(c), c.req.valid('json'), actor(c));
   emit(
     c,
@@ -186,7 +185,7 @@ evaluationsRoutes.post('/', requirePermission('evaluations:create'), zValidator(
   return success(c, row, 201);
 });
 
-evaluationsRoutes.patch('/:evaluationId', requirePermission('evaluations:update'), zValidator('json', updateHrEvaluationSchema), async (c) => {
+evaluationsRoutes.patch('/:evaluationId', requirePermission('evaluations:update'), hrJson(updateHrEvaluationSchema), async (c) => {
   const before = await requireEvaluation(db(c), param(c, 'evaluationId'));
   const row = await updateEvaluation(db(c), before.id, c.req.valid('json'));
   const justSubmitted = before.status === 'draft' && row.status === 'submitted';
@@ -217,11 +216,11 @@ kpisRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
   );
 });
 
-kpisRoutes.post('/', requirePermission('employees:manage'), zValidator('json', createHrKpiDefinitionSchema), async (c) => {
+kpisRoutes.post('/', requirePermission('employees:manage'), hrJson(createHrKpiDefinitionSchema), async (c) => {
   return success(c, await createKpiDefinition(db(c), c.req.valid('json')), 201);
 });
 
-kpisRoutes.patch('/:kpiId', requirePermission('employees:manage'), zValidator('json', updateHrKpiDefinitionSchema), async (c) => {
+kpisRoutes.patch('/:kpiId', requirePermission('employees:manage'), hrJson(updateHrKpiDefinitionSchema), async (c) => {
   return success(c, await updateKpiDefinition(db(c), param(c, 'kpiId'), c.req.valid('json')));
 });
 
@@ -245,17 +244,17 @@ kpiValuesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
   );
 });
 
-kpiValuesRoutes.post('/', requirePermission('evaluations:create'), zValidator('json', createHrKpiValueSchema), async (c) => {
+kpiValuesRoutes.post('/', requirePermission('evaluations:create'), hrJson(createHrKpiValueSchema), async (c) => {
   const row = await createKpiValue(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_kpi_value', 'created', row.id, { employeeId: row.employeeId, companyId: row.companyId }, { client: row.sharedWithClient });
   return success(c, row, 201);
 });
 
-kpiValuesRoutes.post('/import', requirePermission('evaluations:create'), zValidator('json', importHrKpiValuesSchema), async (c) => {
+kpiValuesRoutes.post('/import', requirePermission('evaluations:create'), hrJson(importHrKpiValuesSchema), async (c) => {
   return success(c, await importKpiValues(db(c), c.req.valid('json'), actor(c)));
 });
 
-kpiValuesRoutes.patch('/:kpiValueId', requirePermission('evaluations:update'), zValidator('json', updateHrKpiValueSchema), async (c) => {
+kpiValuesRoutes.patch('/:kpiValueId', requirePermission('evaluations:update'), hrJson(updateHrKpiValueSchema), async (c) => {
   const before = await requireKpiValue(db(c), param(c, 'kpiValueId'));
   const row = await updateKpiValue(db(c), before.id, c.req.valid('json'));
   emit(c, 'hr_kpi_value', 'updated', row.id, { employeeId: row.employeeId, companyId: row.companyId }, {
@@ -289,7 +288,7 @@ milestonesRoutes.get('/', requirePermission('evaluations:read'), async (c) => {
   );
 });
 
-milestonesRoutes.post('/', requirePermission('evaluations:create'), zValidator('json', createHrMilestoneSchema), async (c) => {
+milestonesRoutes.post('/', requirePermission('evaluations:create'), hrJson(createHrMilestoneSchema), async (c) => {
   const row = await createMilestone(db(c), c.req.valid('json'), actor(c));
   emit(
     c,
@@ -302,7 +301,7 @@ milestonesRoutes.post('/', requirePermission('evaluations:create'), zValidator('
   return success(c, row, 201);
 });
 
-milestonesRoutes.patch('/:milestoneId', requirePermission('evaluations:update'), zValidator('json', updateHrMilestoneSchema), async (c) => {
+milestonesRoutes.patch('/:milestoneId', requirePermission('evaluations:update'), hrJson(updateHrMilestoneSchema), async (c) => {
   const before = await requireMilestone(db(c), param(c, 'milestoneId'));
   const { milestone, justAchieved } = await updateMilestone(db(c), before.id, c.req.valid('json'));
   emit(

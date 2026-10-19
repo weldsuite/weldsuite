@@ -34,7 +34,6 @@ export const navigation = {
       agedReceivables: 'Contas a receber por vencimento',
       agedPayables: 'Contas a pagar por vencimento',
       entities: 'Entidades',
-      settings: 'Configurações',
       fixedAssets: 'Ativo imobilizado',
       payroll: 'Folha de pagamento',
       fiscalPeriods: 'Períodos fiscais',

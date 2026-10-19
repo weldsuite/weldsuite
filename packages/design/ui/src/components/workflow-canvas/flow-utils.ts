@@ -15,6 +15,8 @@ export interface TriggerNodeData extends Record<string, unknown> {
   addStepLabel?: string;
   showAddPlaceholder?: boolean;
   locked?: boolean;
+  /** Translated summary shown instead of the trigger's own when `locked`. */
+  lockedSummary?: string;
   nodeId: string;
   onSelect?: () => void;
   onAddStep?: (sourceNodeId?: string) => void;
@@ -648,6 +650,7 @@ type WorkflowFlowOptions = {
     setupRequired?: string;
     addStep?: string;
     branchLabels?: BranchLabels;
+    lockedTriggerSummary?: string;
   };
 };
 
@@ -689,6 +692,7 @@ function buildTriggerNode(
       isLastNode: steps.length === 0,
       addStepLabel: options?.labels?.addStep,
       locked: options?.triggerLocked,
+      lockedSummary: options?.labels?.lockedTriggerSummary,
       nodeId: 'trigger',
       onSelect: callbacks?.onSelectTrigger,
       onAddStep: callbacks?.onAddStep,

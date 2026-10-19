@@ -1,4 +1,5 @@
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
+import { useReportObjectPanelActiveTab } from './object-panel-active-tab';
 import type { ObjectPanelTabDescriptor } from './types';
 
 interface ObjectPanelTabsProps {
@@ -14,6 +15,7 @@ interface ObjectPanelTabsProps {
  * same markup.
  */
 export function ObjectPanelTabs({ tabs, activeTab, onChange, className }: Readonly<ObjectPanelTabsProps>) {
+  useReportObjectPanelActiveTab(activeTab);
   const visible = tabs.filter((t) => !t.hidden);
   const mapped: PageTab[] = visible.map((t) => ({
     id: t.id,

@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Wallet } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   RowAmount,
@@ -36,6 +37,10 @@ function DepositsPage() {
   const { t } = useI18n();
   const td = t.weldbooksUs.banking.deposits;
   const navigate = useNavigate();
+  // Each deposit opens in the shared object panel (type 'deposit'), the same
+  // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/deposits');
   const { can } = usePermissions();
   const { formatMoney, formatDate, entityCurrency } = useWeldbooksFormat();
 
@@ -145,7 +150,8 @@ function DepositsPage() {
         isLoading={list.isLoading}
         columns={columns}
         getRowClassName={(deposit) => (deposit.status === 'void' ? 'opacity-60' : '')}
-        onRowClick={(deposit) => navigate({ to: '/weldbooks/deposits/$id', params: { id: deposit.id } })}
+        onRowClick={(deposit) => openPanel({ type: 'deposit', id: deposit.id })}
+        getRowLabel={(deposit) => deposit.memo || td.make.depositTitle}
         filters={filterConfigs}
         activeFilters={activeFilters}
         onFiltersChange={(next) => {

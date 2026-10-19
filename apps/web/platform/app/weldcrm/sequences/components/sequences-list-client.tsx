@@ -32,6 +32,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { TabListRow } from '@/components/objects/_shared/tab-list-row';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   EntityList,
@@ -109,17 +110,24 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
     return d.toLocaleDateString();
   };
 
-  const handleDelete = useCallback(async (id: string) => {
-    if (!confirm(t('crm.sequences.deleteConfirm'))) return;
+  // The row menu's Delete opens this dialog; its button does the DELETE.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDeleteId) return;
+    setIsDeleting(true);
     try {
       const client = await getClient();
-      await client.delete<void>(`/workflows/${id}`);
-      setSequences((prev) => prev.filter((s) => s.id !== id));
+      await client.delete<void>(`/workflows/${pendingDeleteId}`);
+      setSequences((prev) => prev.filter((s) => s.id !== pendingDeleteId));
+      setPendingDeleteId(null);
       toast.success(t('crm.sequences.deletedSuccess'));
     } catch {
       toast.error(t('crm.sequences.deleteFailed'));
+    } finally {
+      setIsDeleting(false);
     }
-  }, [getClient, t]);
+  }, [getClient, pendingDeleteId, t]);
 
   // Goes through the sequences `/launch` endpoint — not the generic
   // PATCH /workflows/:id/status — so the same "has steps / has people
@@ -138,10 +146,24 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
     }
   }, [getClient, t]);
 
+  // Pause and Resume use the sequence endpoints, the same ones as the editor's
+  // buttons: they also pause / restart the enrollments, which the generic
+  // PATCH /workflows/:id/status leaves running.
+  const handleResume = useCallback(async (id: string) => {
+    try {
+      const client = await getClient();
+      await client.post(`/sequences/${id}/resume`, {});
+      setSequences((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'active' } : s)));
+      toast.success(t('crm.sequences.resumedSuccess'));
+    } catch {
+      toast.error(t('crm.sequences.resumeFailed'));
+    }
+  }, [getClient, t]);
+
   const handlePause = useCallback(async (id: string) => {
     try {
       const client = await getClient();
-      await client.patch(`/workflows/${id}/status`, { status: 'paused' });
+      await client.post(`/sequences/${id}/pause`, {});
       setSequences((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'paused' } : s)));
       toast.success(t('crm.sequences.pausedSuccess'));
     } catch {
@@ -305,7 +327,13 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
               {t('crm.sequences.menuEditSteps')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {sequence.status !== 'active' && (
+            {sequence.status === 'paused' && (
+              <DropdownMenuItem onClick={() => handleResume(sequence.id)}>
+                <Play className="h-4 w-4 mr-2" />
+                {t('crm.sequences.menuResume')}
+              </DropdownMenuItem>
+            )}
+            {sequence.status !== 'active' && sequence.status !== 'paused' && (
               <DropdownMenuItem onClick={() => handleActivate(sequence.id)}>
                 <Play className="h-4 w-4 mr-2" />
                 {t('crm.sequences.menuActivate')}
@@ -318,7 +346,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(sequence.id)}>
+            <DropdownMenuItem className="text-red-600" onClick={() => setPendingDeleteId(sequence.id)}>
               <Trash2 className="h-4 w-4 mr-2" />
               {t('crm.sequences.menuDelete')}
             </DropdownMenuItem>
@@ -362,12 +390,12 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
 
         {/* Last Run */}
         <div className="w-[100px]">
-          <span className="text-sm font-mono text-muted-foreground">{formatDate(sequence.lastExecutedAt)}</span>
+          <span className={`text-sm tabular-nums${sequence.lastExecutedAt ? '' : ' text-muted-foreground'}`}>{formatDate(sequence.lastExecutedAt)}</span>
         </div>
 
       </TabListRow>
     ),
-    [router, handleActivate, handleDelete, handlePause, getStatusLabel, t]
+    [router, handleActivate, handleResume, handlePause, getStatusLabel, t]
   );
 
   return (
@@ -404,6 +432,20 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
           title: t('crm.sequences.noMatchingSequences'),
           description: t('crm.sequences.noMatchingDescription'),
         }}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null);
+        }}
+        title={t('crm.sequences.deleteTitle')}
+        description={t('crm.sequences.deleteConfirm')}
+        variant="destructive"
+        confirmLabel={t('crm.sequences.menuDelete')}
+        cancelLabel={t('crm.sequences.deleteCancel')}
+        loading={isDeleting}
+        onConfirm={confirmDelete}
       />
 
       {/* Create Sequence Dialog */}

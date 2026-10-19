@@ -59,6 +59,7 @@ export function SuppliersList({
         isLoading={isLoading}
         columns={columns}
         onRowClick={(s) => openObjectPanel({ type: 'supplier', id: s.id })}
+        objectPanel={{ type: 'supplier' }}
         onEdit={setEditing}
         onDelete={handleDelete}
         searchQuery={search}

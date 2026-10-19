@@ -16,6 +16,8 @@ const env = vi.hoisted(() => ({
   requests: [] as unknown[],
 }));
 
+// The live PDF preview has its own data and is not what these tests cover.
+vi.mock('./invoice-preview', () => ({ InvoicePreview: () => null }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/router', async () => {
   const { HrefLink } = await import('./test-utils');
@@ -27,6 +29,7 @@ vi.mock('@tanstack/react-router', async () => {
 });
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useCreateInvoice: () => ({ mutateAsync: env.createMutate }),
+  useSendInvoice: () => ({ mutateAsync: vi.fn() }),
   useUpdateInvoice: () => ({ mutateAsync: env.updateMutate }),
   useAccountingCustomer: () => ({ data: { data: { id: 'cus_1', name: 'Mumbai Traders', paymentTermsDays: 30, billingAddress: null, shippingAddress: null } } }),
   useAccountingCustomers: () => ({ data: { data: [{ id: 'cus_1', name: 'Mumbai Traders' }] } }),

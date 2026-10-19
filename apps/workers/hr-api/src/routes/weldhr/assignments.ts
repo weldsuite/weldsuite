@@ -3,7 +3,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createHrAssignmentSchema, updateHrAssignmentSchema } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { Env, Variables } from '../../types';
@@ -19,7 +18,7 @@ import {
 } from '../../services/weldhr/assignments';
 import { buildClientView } from '../../services/weldhr/client-view';
 import { listPortalAccess, loadPortalSettings } from '../../services/weldhr/portal';
-import { actor, db, emit, param } from './helpers';
+import { actor, hrJson, db, emit, param } from './helpers';
 
 export const assignmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -35,13 +34,13 @@ assignmentsRoutes.get('/', requirePermission('employees:read'), async (c) => {
   );
 });
 
-assignmentsRoutes.post('/', requirePermission('employees:update'), zValidator('json', createHrAssignmentSchema), async (c) => {
+assignmentsRoutes.post('/', requirePermission('employees:update'), hrJson(createHrAssignmentSchema), async (c) => {
   const row = await createAssignment(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_client_assignment', 'created', row.id, { employeeId: row.employeeId, companyId: row.companyId });
   return success(c, row, 201);
 });
 
-assignmentsRoutes.patch('/:assignmentId', requirePermission('employees:update'), zValidator('json', updateHrAssignmentSchema), async (c) => {
+assignmentsRoutes.patch('/:assignmentId', requirePermission('employees:update'), hrJson(updateHrAssignmentSchema), async (c) => {
   const row = await updateAssignment(db(c), param(c, 'assignmentId'), c.req.valid('json'));
   emit(c, 'hr_client_assignment', 'updated', row.id, { employeeId: row.employeeId, companyId: row.companyId });
   return success(c, row);

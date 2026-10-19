@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { toast } from 'sonner';
 import { Lock } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -23,6 +23,7 @@ import {
   useSaveKnowledgePageContent,
   useUpdateKnowledgePageMeta,
 } from '@/hooks/queries/use-knowledge-queries';
+import { DEFAULT_PAGE_TITLE } from './default-title';
 
 const AUTOSAVE_DELAY_MS = 1500;
 /** How many of this editor's own saves to remember when recognising their echo. */
@@ -90,14 +91,42 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   // content last compared against them — see the sync effect below.
   const sentContentRef = useRef<string[]>([]);
   const seenContentRef = useRef<{ pageId: string; contentJson: unknown } | null>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  // The title as last loaded or saved, so a blur without changes saves nothing.
+  const savedTitleRef = useRef('');
+  const autoFocusedPageRef = useRef<string | null>(null);
+
+  // A page created without a title is stored as "Untitled" (and older clients
+  // saved the translated placeholder). Show that as an empty field with the
+  // placeholder, so typing replaces it instead of landing inside the word.
+  const editableTitle = useCallback(
+    (stored: string | null | undefined) =>
+      !stored || stored === DEFAULT_PAGE_TITLE || stored === t.page.untitled ? '' : stored,
+    [t],
+  );
 
   // Sync local title/icon state whenever a different page loads.
   useEffect(() => {
     if (page) {
-      setTitle(page.title || '');
+      const loaded = editableTitle(page.title);
+      savedTitleRef.current = loaded;
+      setTitle(loaded);
       setIcon(page.icon || '');
     }
   }, [page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The title wraps instead of scrolling sideways: grow the textarea with its text.
+  const fitTitleHeight = useCallback(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+  useLayoutEffect(fitTitleHeight, [fitTitleHeight, title, page?.id]);
+  useEffect(() => {
+    window.addEventListener('resize', fitTitleHeight);
+    return () => window.removeEventListener('resize', fitTitleHeight);
+  }, [fitTitleHeight]);
 
   const breadcrumbAncestors = useMemo(() => {
     if (!page) return [];
@@ -155,8 +184,10 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const flushTitleSave = useCallback(
     (nextTitle: string) => {
       if (titleSaveTimeout.current) clearTimeout(titleSaveTimeout.current);
+      if (nextTitle.trim() === savedTitleRef.current.trim()) return;
+      savedTitleRef.current = nextTitle;
       updateMeta.mutate(
-        { id: pageId, data: { title: nextTitle.trim() || t.page.untitled } },
+        { id: pageId, data: { title: nextTitle.trim() || DEFAULT_PAGE_TITLE } },
         { onError: () => toast.error(t.page.updateError) },
       );
     },
@@ -164,12 +195,37 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   );
 
   const handleTitleChange = useCallback(
-    (value: string) => {
+    (raw: string) => {
+      // One-line title: a pasted line break becomes a space.
+      const value = raw.replaceAll(/\r?\n/g, ' ');
       setTitle(value);
       if (titleSaveTimeout.current) clearTimeout(titleSaveTimeout.current);
       titleSaveTimeout.current = setTimeout(() => flushTitleSave(value), AUTOSAVE_DELAY_MS);
     },
     [flushTitleSave],
+  );
+
+  // Enter leaves the title for the body, like Notion: the caret lands in the
+  // first block when it is an empty paragraph, else in a new one above it.
+  const handleTitleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+      e.preventDefault();
+      flushTitleSave(title);
+      const editor = editorRef.current;
+      if (!editor) return;
+      const [first] = editor.document;
+      const firstIsEmpty =
+        first?.type === 'paragraph' && Array.isArray(first.content) && first.content.length === 0;
+      if (first && firstIsEmpty) {
+        editor.setTextCursorPosition(first, 'start');
+      } else if (first) {
+        const [inserted] = editor.insertBlocks([{ type: 'paragraph' }], first, 'before');
+        if (inserted) editor.setTextCursorPosition(inserted, 'start');
+      }
+      editor.focus();
+    },
+    [flushTitleSave, title],
   );
 
   const handleContentChange = useCallback(
@@ -241,6 +297,19 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     };
   }, [pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The workspace permission and the teamspace role must both allow writing.
+  const space = spacesData?.data.find((s) => s.id === page?.spaceId);
+  const canWrite = canUpdate && (space?.canWrite ?? false);
+  const readOnly = !canWrite || !!page?.isLocked;
+
+  // A page without a title (a new one) opens with the caret in the title, once
+  // per page — and only once the teamspace says it is writable.
+  useEffect(() => {
+    if (!page || readOnly || autoFocusedPageRef.current === page.id) return;
+    autoFocusedPageRef.current = page.id;
+    if (editableTitle(page.title) === '') titleRef.current?.focus();
+  }, [page?.id, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   if (isError || !page) {
@@ -252,10 +321,6 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     );
   }
 
-  // The workspace permission and the teamspace role must both allow writing.
-  const space = spacesData?.data.find((s) => s.id === page.spaceId);
-  const canWrite = canUpdate && (space?.canWrite ?? false);
-  const readOnly = !canWrite || page.isLocked;
   const canJoinToEdit = !!space && !space.isMember && space.kind === 'team' && space.visibility === 'open';
 
   const handleJoin = async () => {
@@ -294,15 +359,18 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
         )}
 
         <div className="mx-auto max-w-[820px] px-12 pt-10 pb-24">
-          <div className="mb-2 flex items-center gap-3">
-            {icon && <span className="text-4xl leading-none">{icon}</span>}
-            <input
+          <div className="mb-2 flex items-start gap-3">
+            {icon && <span className="text-4xl leading-tight">{icon}</span>}
+            <textarea
+              ref={titleRef}
+              rows={1}
               value={title}
               onChange={(e) => handleTitleChange(e.target.value)}
+              onKeyDown={handleTitleKeyDown}
               onBlur={() => flushTitleSave(title)}
               placeholder={t.page.titlePlaceholder}
               disabled={readOnly}
-              className="w-full flex-1 bg-transparent text-4xl font-bold outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed"
+              className="w-full flex-1 resize-none overflow-hidden break-words bg-transparent text-4xl font-bold leading-tight outline-none placeholder:text-muted-foreground/50 disabled:cursor-not-allowed"
             />
           </div>
 

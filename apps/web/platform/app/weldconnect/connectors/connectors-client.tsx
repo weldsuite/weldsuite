@@ -479,7 +479,7 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Read
         )}
         {primary?.isConnected ? (
           <p>
-            {tc.lastSync}: {lastSync ?? tc.lastSyncNever}
+            {tc.lastSync}: <span className={lastSync ? 'text-foreground tabular-nums' : undefined}>{lastSync ?? tc.lastSyncNever}</span>
           </p>
         ) : null}
       </CardContent>

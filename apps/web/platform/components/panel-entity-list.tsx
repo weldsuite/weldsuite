@@ -28,6 +28,10 @@ import { cn } from '@/lib/utils';
 import { RowOverlayButton, ROW_CELL_PASSTHROUGH } from '@/components/shared/row-overlay-button';
 import { getTranslations } from '@/lib/i18n';
 import {
+  useObjectPanelNavigationReporter,
+  type ObjectPanelListNavigation,
+} from '@/components/object-panel';
+import {
   EntityList,
   type ColumnDef,
   type FilterConfig,
@@ -44,6 +48,11 @@ export interface PanelEntityListProps<T extends { id: string }> {
 
   /** Row click — typically opens the object panel for this record. */
   onRowClick?: (item: T) => void;
+  /**
+   * What `onRowClick` opens, so that panel's previous / next arrows step
+   * through these rows in the order shown.
+   */
+  objectPanel?: ObjectPanelListNavigation<T>;
   /** Adds an "Edit" entry to the row menu. */
   onEdit?: (item: T) => void;
   /** Adds a "Delete" entry to the row menu. */
@@ -93,6 +102,7 @@ export function PanelEntityList<T extends { id: string }>({
   error,
   columns,
   onRowClick,
+  objectPanel,
   onEdit,
   onDelete,
   filters = [],
@@ -115,6 +125,13 @@ export function PanelEntityList<T extends { id: string }>({
 }: Readonly<PanelEntityListProps<T>>) {
   const t = getTranslations('common');
   const hasRowMenu = !!onEdit || !!onDelete;
+  const reportDisplayedItems = useObjectPanelNavigationReporter<T>({
+    ...objectPanel,
+    type: objectPanel?.type ?? '',
+    hasMore,
+    loadMore: onLoadMore,
+    enabled: objectPanel !== undefined,
+  });
 
   // Header widths mirror the column widths so the sticky header lines up with
   // the custom rows below. EntityList always appends its own 40px gutter to the
@@ -220,6 +237,7 @@ export function PanelEntityList<T extends { id: string }>({
       hasMore={hasMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={onLoadMore}
+      onDisplayedItemsChange={objectPanel ? reportDisplayedItems : undefined}
       emptyState={emptyState}
       noResultsState={noResultsState}
     />

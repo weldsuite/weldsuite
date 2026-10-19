@@ -160,7 +160,7 @@ export function CampaignsClient() {
                       <p className="text-xs text-muted-foreground mt-1">{campaign.description}</p>
                     )}
                     {(campaign.startDate || campaign.endDate) && (
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs tabular-nums mt-1">
                         {campaign.startDate ? formatDate(new Date(campaign.startDate), 'MMM d') : '?'}
                         {' — '}
                         {campaign.endDate ? formatDate(new Date(campaign.endDate), 'MMM d, yyyy') : '?'}

@@ -185,7 +185,7 @@ export function LockExceptionsCard({ entityId, canUpdate }: Readonly<LockExcepti
                 <TableRow key={exception.id}>
                   <TableCell>{te.lockTypes[exception.lockType] ?? exception.lockType}</TableCell>
                   <TableCell>{memberName(exception.userId)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{formatDateTime(exception.endsAt)}</TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">{formatDateTime(exception.endsAt)}</TableCell>
                   <TableCell className="max-w-[260px] truncate" title={exception.reason}>
                     {exception.reason}
                   </TableCell>

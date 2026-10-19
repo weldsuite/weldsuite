@@ -1,4 +1,4 @@
-import { Folder, MoreVertical, Pencil, Trash2, FolderInput, Copy } from 'lucide-react';
+import { Folder, MoreVertical, Pencil, Trash2, FolderInput, Copy, UserPlus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 import type { DriveFolder } from '@/lib/api/domains/welddrive';
@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
+import { DriveRestrictedIcon } from './drive-file-card';
 
 interface DriveFolderCardProps {
   folder: DriveFolder;
@@ -20,10 +21,13 @@ interface DriveFolderCardProps {
   onDuplicate?: (folder: DriveFolder) => void;
   onMove?: (folder: DriveFolder) => void;
   onDelete?: (folder: DriveFolder) => void;
+  onShare?: (folder: DriveFolder) => void;
 }
 
-export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, onRename, onDuplicate, onMove, onDelete }: Readonly<DriveFolderCardProps>) {
+export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, onRename, onDuplicate, onMove, onDelete, onShare }: Readonly<DriveFolderCardProps>) {
   const { t } = useI18n();
+  // A viewer opens the folder; changing it is for its owner and editors.
+  const canChange = folder.accessRole !== 'viewer';
   return (
     <Button
       variant="ghost"
@@ -48,8 +52,9 @@ export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, on
       </div>
       <div className="p-3 flex items-center gap-1.5">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate" title={folder.name}>
-            {folder.name}
+          <p className="text-sm font-medium truncate flex items-center gap-1" title={folder.name}>
+            <span className="truncate">{folder.name}</span>
+            {folder.effectiveAccess === 'restricted' && <DriveRestrictedIcon />}
           </p>
           <p className="text-[11px] text-muted-foreground mt-0.5">{t.welddrive.common.folder}</p>
         </div>
@@ -61,26 +66,38 @@ export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, on
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48" sideOffset={4} onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem onClick={() => onRename?.(folder)}>
-                <Pencil className="h-4 w-4 mr-0.5" />
-                {t.welddrive.page.actions.rename}
-              </DropdownMenuItem>
+              {onShare && (
+                <DropdownMenuItem onClick={() => onShare(folder)}>
+                  <UserPlus className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.share}
+                </DropdownMenuItem>
+              )}
+              {canChange && (
+                <DropdownMenuItem onClick={() => onRename?.(folder)}>
+                  <Pencil className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.rename}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => onDuplicate?.(folder)}>
                 <Copy className="h-4 w-4 mr-0.5" />
                 {t.welddrive.page.actions.duplicate}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onMove?.(folder)}>
-                <FolderInput className="h-4 w-4 mr-0.5" />
-                {t.welddrive.page.actions.move}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-                onClick={() => onDelete?.(folder)}
-              >
-                <Trash2 className="h-4 w-4 mr-0.5" />
-                {t.welddrive.page.actions.moveToTrash}
-              </DropdownMenuItem>
+              {canChange && (
+                <>
+                  <DropdownMenuItem onClick={() => onMove?.(folder)}>
+                    <FolderInput className="h-4 w-4 mr-0.5" />
+                    {t.welddrive.page.actions.move}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
+                    onClick={() => onDelete?.(folder)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-0.5" />
+                    {t.welddrive.page.actions.moveToTrash}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

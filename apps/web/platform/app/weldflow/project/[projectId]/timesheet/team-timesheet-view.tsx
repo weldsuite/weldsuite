@@ -241,7 +241,7 @@ export function TeamTimesheetView({
                 <tbody className="divide-y divide-border">
                   {entries.map((entry) => (
                     <tr key={entry.id} className="hover:bg-muted/40">
-                      <td className="px-4 py-2 whitespace-nowrap tabular-nums text-muted-foreground">
+                      <td className="px-4 py-2 whitespace-nowrap tabular-nums">
                         {format(new Date(`${String(entry.date).slice(0, 10)}T00:00:00`), 'd MMM')}
                       </td>
                       <td className="px-4 py-2 whitespace-nowrap">{entry.userName}</td>

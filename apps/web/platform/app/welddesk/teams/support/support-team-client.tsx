@@ -266,7 +266,7 @@ export function SupportTeamClient({ teamData }: Readonly<SupportTeamClientProps>
       label: tm.created,
       sortable: true,
       render: (feedback) => (
-        <span className="text-sm text-muted-foreground">
+        <span className="text-sm tabular-nums">
           {format(feedback.createdAt, 'MMM d, yyyy')}
         </span>
       ),

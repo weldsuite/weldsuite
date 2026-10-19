@@ -13,6 +13,9 @@ export const weldhrSelf = {
       title: "Your HR profile isn't set up yet",
       description:
         'Ask your HR team to add you as an employee. Once they have, your leave, attendance, tasks and reviews show up here.',
+      descriptionAdmin:
+        'You are not an employee in WeldHR yet. Add yourself and your leave, attendance, tasks and reviews show up here.',
+      addMe: 'Add me as an employee',
     },
     header: {
       noJobTitle: 'No job title',

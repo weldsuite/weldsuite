@@ -16,7 +16,7 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrShift, useUpdateHrShift } from '@/hooks/queries/use-weldhr-queries';
-import { CompanyPicker, EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
+import { CompanyPicker, EmployeePicker, ErrorBanner, errorMessage, instantAt, minutesAfter } from '../../components/shared';
 
 /** The local calendar day (`YYYY-MM-DD`) of a UTC instant, matching `timeOf`. */
 function dateOf(iso: string): string {
@@ -27,6 +27,26 @@ function dateOf(iso: string): string {
 function timeOf(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * A shift's times as entered ("HH:mm"). An end at or before the start is the
+ * next morning: 22:00 → 06:00 is an eight-hour night shift. A break is
+ * optional, but needs both ends and has to sit inside the shift.
+ */
+function shiftWindow(start: string, end: string, breakStart: string, breakEnd: string) {
+  const shiftMinutes = start && end ? minutesAfter(start, end) : 0;
+  /** Minutes from the shift start to `time`, on the shift's own clock (past midnight for a night shift). */
+  const offset = (time: string) => (time === start ? 0 : minutesAfter(start, time));
+  const hasBreak = Boolean(breakStart || breakEnd);
+  const breakInside = Boolean(breakStart && breakEnd) && offset(breakStart) < offset(breakEnd) && offset(breakEnd) <= shiftMinutes;
+  return {
+    shiftMinutes,
+    endsNextDay: Boolean(start && end && end <= start),
+    offset,
+    hasBreak,
+    breakValid: !hasBreak || breakInside,
+  };
 }
 
 export function ShiftDialog({
@@ -68,9 +88,7 @@ export function ShiftDialog({
   const [failure, setFailure] = useState<string | null>(null);
 
   const pending = createShift.isPending || updateShift.isPending;
-  // A break is optional, but needs both ends and has to sit inside the shift ("HH:mm" compares as text).
-  const hasBreak = Boolean(breakStart || breakEnd);
-  const breakValid = !hasBreak || (Boolean(breakStart && breakEnd) && start <= breakStart && breakStart < breakEnd && breakEnd <= end);
+  const { shiftMinutes, endsNextDay, offset, hasBreak, breakValid } = shiftWindow(start, end, breakStart, breakEnd);
   const canSubmit = Boolean(employeeId && date && start && end) && breakValid && !pending;
 
   let submitLabel: string;
@@ -82,15 +100,15 @@ export function ShiftDialog({
     if (!employeeId || !date) return;
     setFailure(null);
     try {
-      const startsAt = new Date(`${date}T${start}`).toISOString();
-      const endsAt = new Date(`${date}T${end}`).toISOString();
+      const startsAt = instantAt(date, start);
+      const endsAt = instantAt(date, start, shiftMinutes);
       const details = {
         companyId,
         startsAt,
         endsAt,
         workType: workType.trim() || null,
-        breakStartsAt: hasBreak ? new Date(`${date}T${breakStart}`).toISOString() : null,
-        breakEndsAt: hasBreak ? new Date(`${date}T${breakEnd}`).toISOString() : null,
+        breakStartsAt: hasBreak ? instantAt(date, start, offset(breakStart)) : null,
+        breakEndsAt: hasBreak ? instantAt(date, start, offset(breakEnd)) : null,
         notes: notes.trim() || null,
       };
       if (shift) {
@@ -164,6 +182,7 @@ export function ShiftDialog({
             <div className="space-y-1.5">
               <Label htmlFor="hr-shift-end">{t('weldhr.attendance.schedule.form.end')}</Label>
               <Input id="hr-shift-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
+              {endsNextDay && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.schedule.form.nextDay')}</p>}
             </div>
           </div>
 

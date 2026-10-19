@@ -11,6 +11,7 @@
     "./channel-access": "./src/channel-access.ts",
     "./channel-members": "./src/channel-members.ts",
     "./create-channel": "./src/create-channel.ts",
+    "./dm-call-room": "./src/dm-call-room.ts",
     "./post-agent-message": "./src/post-agent-message.ts",
     "./post-system-message": "./src/post-system-message.ts",
     "./realtime/weldchat-call-publisher": "./src/realtime/weldchat-call-publisher.ts",

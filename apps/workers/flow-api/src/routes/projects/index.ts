@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
@@ -37,6 +37,17 @@ import {
   withMilestoneStats,
   withProjectStats,
 } from '@weldsuite/flow-domain/project-stats';
+import {
+  CustomFieldValidationError,
+  hydrateCustomFields,
+  hydrateCustomFieldsOne,
+} from '@weldsuite/core-domain/custom-field-values';
+import {
+  PROJECT_CUSTOM_FIELD_ENTITY,
+  prepareProjectCustomFields,
+  writeProjectCustomFields,
+  type PreparedProjectCustomFields,
+} from '../../lib/project-custom-fields';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projects;
@@ -248,8 +259,11 @@ app.get('/', async (c) => {
     let nextCursor: string | null = null;
     if (hasMore && data.length > 0) nextCursor = order ? `o:${offset + limit}` : data[data.length - 1].id;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    const stats = await getProjectStats(db, data.map((p) => p.id));
-    return list(c, withProjectStats(data, stats), cursorPagination(totalCount, hasMore, nextCursor));
+    const [stats, hydrated] = await Promise.all([
+      getProjectStats(db, data.map((p) => p.id)),
+      hydrateCustomFields(db, PROJECT_CUSTOM_FIELD_ENTITY, data),
+    ]);
+    return list(c, withProjectStats(hydrated, stats), cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/projects] list failed:', err);
     return error.internal(c, 'Failed to list projects');
@@ -674,21 +688,38 @@ app.get('/:id', requirePermission('projects:read'), async (c) => {
   try {
     const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!row) return error.notFound(c, 'Project', id);
-    const stats = await getProjectStats(db, [row.id]);
-    return success(c, withProjectStats([row], stats)[0]);
+    const [stats, hydrated] = await Promise.all([
+      getProjectStats(db, [row.id]),
+      hydrateCustomFieldsOne(db, PROJECT_CUSTOM_FIELD_ENTITY, row),
+    ]);
+    return success(c, withProjectStats([hydrated ?? row], stats)[0]);
   } catch (err) {
     console.error('[app-api/projects] get failed:', err);
     return error.internal(c, 'Failed to fetch project');
   }
 });
 
+/** Validate the body's customFields up front; a bad value answers 400 before any write. */
+async function prepareCustomFieldsOrError(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  customFields: Record<string, unknown> | null | undefined,
+): Promise<PreparedProjectCustomFields | null | Response> {
+  try {
+    return await prepareProjectCustomFields(c.get('tenantDb'), customFields);
+  } catch (err) {
+    if (err instanceof CustomFieldValidationError) return error.badRequest(c, err.message);
+    throw err;
+  }
+}
+
 app.post('/', requirePermission('projects:create'), zValidator('json', createProjectSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
+  const body = c.req.valid('json');
   // Allow-listed columns only (the schema is passthrough, the DB row is not), with
   // date strings coerced to Date so the timestamp columns bind.
   const writable = coerceTimestamps(
-    pickWritable(c.req.valid('json') as Record<string, unknown>, PROJECT_WRITABLE_FIELDS),
+    pickWritable(body as Record<string, unknown>, PROJECT_WRITABLE_FIELDS),
     PROJECT_TIMESTAMP_FIELDS,
   );
   if (!writable.ok) return error.badRequest(c, `Invalid date: ${writable.field}`);
@@ -696,12 +727,16 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createPro
   const id = generateId('prj');
   const now = new Date();
   try {
+    const customFields = await prepareCustomFieldsOrError(c, body.customFields);
+    if (customFields instanceof Response) return customFields;
+
     // Default the project manager to the creator so the owner-fallback in the
     // permissions endpoint resolves even if the membership row is ever missing.
     const projectManagerId = (data.projectManagerId as string | null | undefined) ?? userId ?? null;
     await db
       .insert(t)
       .values({ ...data, id, projectManagerId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    if (customFields) await writeProjectCustomFields(db, id, customFields);
 
     // Add the creator as an `owner` member so they can actually work in the
     // project they just created. Without this row the project is inaccessible
@@ -755,8 +790,9 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
   if (!(await canManageProject(c, id))) {
     return error.forbidden(c, 'You must be a project owner, admin, or manager to edit this project');
   }
+  const body = c.req.valid('json');
   const writable = coerceTimestamps(
-    pickWritable(c.req.valid('json') as Record<string, unknown>, PROJECT_WRITABLE_FIELDS),
+    pickWritable(body as Record<string, unknown>, PROJECT_WRITABLE_FIELDS),
     PROJECT_TIMESTAMP_FIELDS,
   );
   if (!writable.ok) return error.badRequest(c, `Invalid date: ${writable.field}`);
@@ -764,6 +800,8 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project', id);
+    const customFields = await prepareCustomFieldsOrError(c, body.customFields);
+    if (customFields instanceof Response) return customFields;
     // The project manager resolves to the owner role, so handing the seat to someone
     // else (or taking it) is an owner-level change, same rule as granting owner.
     const nextManagerId = data.projectManagerId as string | null | undefined;
@@ -772,6 +810,7 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
     }
     const update = { ...data, updatedAt: new Date() } as Partial<typeof t.$inferInsert>;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+    if (customFields) await writeProjectCustomFields(db, id, customFields);
     publishEntityEvent({
       c,
       entityType: 'project',

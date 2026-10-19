@@ -6,6 +6,7 @@ import { ConnectHeader } from './connect-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { Link, usePathname } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import { cn } from '@/lib/utils';
 import { WELDCONNECT_OUT_OF_SCOPE_SECTIONS } from '../mvp';
 
 /** Shown above pages that are outside the MVP scope (see `WELDCONNECT_OUT_OF_SCOPE_SECTIONS`). */
@@ -31,16 +32,31 @@ function OutOfScopeNotice() {
   );
 }
 
+/** List pages run edge to edge like every other platform list; the rest keep the page padding. */
+const LIST_PAGES = new Set([
+  '/weldconnect/workflows',
+  '/weldconnect/executions',
+  '/weldconnect/templates',
+  '/weldconnect/variables',
+  '/weldconnect/webhooks',
+]);
+
 interface ConnectLayoutClientProps {
   children: ReactNode;
 }
 
 export function ConnectLayoutClient({ children }: Readonly<ConnectLayoutClientProps>) {
+  const isListPage = LIST_PAGES.has(usePathname().replace(/\/$/, ''));
   return (
     <BreadcrumbProvider>
       <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
         <ConnectHeader />
-        <ModuleContent className="overflow-y-auto overflow-x-hidden px-3 md:px-4 pt-3 md:pt-4 subtle-scrollbar">
+        <ModuleContent
+          className={cn(
+            'overflow-y-auto overflow-x-hidden subtle-scrollbar',
+            !isListPage && 'px-3 md:px-4 pt-3 md:pt-4',
+          )}
+        >
           <OutOfScopeNotice />
           {children}
         </ModuleContent>

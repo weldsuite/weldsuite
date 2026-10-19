@@ -19,13 +19,14 @@ import {
   useHrEmployees,
 } from '@/hooks/queries/use-weldhr-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { emptyIcon } from '../../components/page-kit';
+import { cn } from '@/lib/utils';
+import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
 import {
   StatusBadge,
   errorMessage,
   formatDate,
   formatMinutes,
-  formatTime,
+  useFormatTime,
   shiftIsoDate,
   todayIso,
 } from '../../components/shared';
@@ -56,6 +57,8 @@ export function RecordsTab() {
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [dialogState, setDialogState] = useState<'create' | HrAttendanceRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrAttendanceRecord | null>(null);
+  const [confirmApproveAll, setConfirmApproveAll] = useState(false);
+  const formatTime = useFormatTime();
 
   const { data: employeesData } = useHrEmployees({ limit: 100 });
   const employeeOptions = employeesData?.data ?? [];
@@ -98,10 +101,12 @@ export function RecordsTab() {
   const rows = data?.data ?? [];
   const unapprovedVisible = canApprove ? rows.filter((r) => !r.approvedAt) : [];
 
+  /** Approves every unapproved record in the current (filtered) list, after the confirm dialog. */
   async function approveAllVisible() {
     if (unapprovedVisible.length === 0) return;
     try {
       await approve.mutateAsync(unapprovedVisible.map((r) => r.id));
+      setConfirmApproveAll(false);
     } catch (err) {
       toast.error(errorMessage(err, t('weldhr.attendance.records.approveFailed')));
     }
@@ -151,27 +156,35 @@ export function RecordsTab() {
     {
       id: 'date',
       header: t('weldhr.attendance.records.table.date'),
-      width: 'w-[100px]',
-      render: (r) => <span>{formatDate(r.date)}</span>,
+      width: cn(HR_COL.fixed, 'w-[96px]'),
+      render: (r) => <span className="block truncate tabular-nums">{formatDate(r.date)}</span>,
     },
     {
       id: 'employee',
       header: t('weldhr.attendance.records.table.employee'),
-      width: 'flex-1',
-      render: (r) => <span className="truncate font-medium">{r.employeeName}</span>,
+      width: HR_COL.main,
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{r.employeeName}</p>
+          {/* The times and worked hours, once the list is too narrow for their own columns. */}
+          <p className="truncate text-xs text-muted-foreground @4xl:hidden">
+            {formatTime(r.clockIn)} – {formatTime(r.clockOut)} · {formatMinutes(r.workedMinutes)}
+          </p>
+        </div>
+      ),
     },
     {
       id: 'client',
       header: t('weldhr.attendance.records.table.client'),
-      width: 'w-[140px]',
-      render: (r) => <span className="truncate text-muted-foreground">{r.companyName ?? '—'}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[130px]'),
+      render: (r) => <span className="block truncate text-muted-foreground">{r.companyName ?? '—'}</span>,
     },
     {
       id: 'time',
       header: `${t('weldhr.attendance.records.table.clockIn')} – ${t('weldhr.attendance.records.table.clockOut')}`,
-      width: 'w-[150px]',
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[150px]'),
       render: (r) => (
-        <span className="text-muted-foreground">
+        <span className={cn('block truncate tabular-nums', !r.clockIn && !r.clockOut && 'text-muted-foreground')}>
           {formatTime(r.clockIn)} – {formatTime(r.clockOut)}
         </span>
       ),
@@ -179,9 +192,9 @@ export function RecordsTab() {
     {
       id: 'worked',
       header: t('weldhr.attendance.records.table.worked'),
-      width: 'w-[130px]',
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[110px]'),
       render: (r) => (
-        <span>
+        <span className="block truncate">
           {formatMinutes(r.workedMinutes)}
           {r.lateMinutes > 0 && <span className="ml-1 text-xs text-destructive">+{r.lateMinutes}m</span>}
         </span>
@@ -190,22 +203,26 @@ export function RecordsTab() {
     {
       id: 'status',
       header: t('weldhr.attendance.records.table.status'),
-      width: 'w-[110px]',
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[100px]'),
       render: (r) => <StatusBadge group="attendance" status={r.status} />,
     },
     {
       id: 'source',
       header: t('weldhr.attendance.records.table.source'),
-      width: 'w-[90px]',
+      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[80px]'),
       render: (r) => <span className="text-muted-foreground">{t(`weldhr.attendance.records.source.${r.source}`)}</span>,
     },
     {
       id: 'approved',
       header: t('weldhr.attendance.records.table.approved'),
-      width: 'w-[130px]',
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[120px]'),
       render: (r) => {
         if (r.approvedAt) {
-          return <Badge variant="default">{r.approvedByName ?? '✓'}</Badge>;
+          return (
+            <Badge variant="default" className="max-w-full truncate">
+              {r.approvedByName ?? '✓'}
+            </Badge>
+          );
         }
         if (canApprove) {
           return (
@@ -231,53 +248,65 @@ export function RecordsTab() {
 
   return (
     <>
-      <PanelEntityList<HrAttendanceRecord>
-        items={rows}
-        isLoading={isLoading}
-        error={error}
-        columns={columns}
-        filters={filterConfigs}
-        activeFilters={activeFilters}
-        onFiltersChange={setActiveFilters}
-        onEdit={canWrite ? (r) => setDialogState(r) : undefined}
-        onDelete={canDelete ? (r) => setDeleteTarget(r) : undefined}
-        hasMore={data?.pagination.hasMore}
-        isLoadingMore={isFetching && !isLoading}
-        onLoadMore={() => setLimit((l) => l + PAGE_SIZE)}
-        actionButtons={
-          <div className="flex flex-wrap items-center gap-1.5">
-            {summary && (
-              <div className="mr-1 hidden items-center gap-2 border-r pr-2 text-xs text-muted-foreground lg:flex">
-                <span>
-                  <strong className="font-medium text-foreground">
-                    {summary.attendanceRate !== null && summary.attendanceRate !== undefined ? `${summary.attendanceRate}%` : '—'}
-                  </strong>{' '}
-                  {t('weldhr.attendance.records.summary.attendanceRate').toLowerCase()}
-                </span>
-                <span>
-                  <strong className="font-medium text-foreground">{formatMinutes(summary.workedMinutes)}</strong>{' '}
-                  {t('weldhr.attendance.records.summary.workedHours').toLowerCase()}
-                </span>
-                <span>
-                  <strong className="font-medium text-foreground">{summary.byStatus.absent ?? 0}</strong>{' '}
-                  {t('weldhr.attendance.records.summary.absences').toLowerCase()}
-                </span>
-              </div>
-            )}
-            {canApprove && unapprovedVisible.length > 0 && (
-              <Button size="sm" variant="outline" className="h-8" onClick={() => void approveAllVisible()} disabled={approve.isPending}>
-                <Check className="mr-1.5 h-4 w-4" />
-                {t('weldhr.attendance.records.approveSelected')}
-              </Button>
-            )}
-          </div>
-        }
-        createButton={canWrite ? { label: t('weldhr.attendance.records.addRecord'), onClick: () => setDialogState('create') } : undefined}
-        emptyState={{
-          icon: emptyIcon(CalendarClock),
-          title: t('weldhr.attendance.records.empty.title'),
-          description: t('weldhr.attendance.records.empty.description'),
-        }}
+      <HrListContainer>
+        <PanelEntityList<HrAttendanceRecord>
+          items={rows}
+          isLoading={isLoading}
+          error={error}
+          columns={columns}
+          filters={filterConfigs}
+          activeFilters={activeFilters}
+          onFiltersChange={setActiveFilters}
+          onEdit={canWrite ? (r) => setDialogState(r) : undefined}
+          onDelete={canDelete ? (r) => setDeleteTarget(r) : undefined}
+          hasMore={data?.pagination.hasMore}
+          isLoadingMore={isFetching && !isLoading}
+          onLoadMore={() => setLimit((l) => l + PAGE_SIZE)}
+          actionButtons={
+            <div className="flex flex-wrap items-center gap-1.5">
+              {summary && (
+                <div className="mr-1 hidden items-center gap-2 border-r pr-2 text-xs text-muted-foreground lg:flex">
+                  <span>
+                    <strong className="font-medium text-foreground">
+                      {summary.attendanceRate !== null && summary.attendanceRate !== undefined ? `${summary.attendanceRate}%` : '—'}
+                    </strong>{' '}
+                    {t('weldhr.attendance.records.summary.attendanceRate').toLowerCase()}
+                  </span>
+                  <span>
+                    <strong className="font-medium text-foreground">{formatMinutes(summary.workedMinutes)}</strong>{' '}
+                    {t('weldhr.attendance.records.summary.workedHours').toLowerCase()}
+                  </span>
+                  <span>
+                    <strong className="font-medium text-foreground">{summary.byStatus.absent ?? 0}</strong>{' '}
+                    {t('weldhr.attendance.records.summary.absences').toLowerCase()}
+                  </span>
+                </div>
+              )}
+              {canApprove && unapprovedVisible.length > 0 && (
+                <Button size="sm" variant="outline" className="h-8" onClick={() => setConfirmApproveAll(true)} disabled={approve.isPending}>
+                  <Check className="mr-1.5 h-4 w-4" />
+                  {t('weldhr.attendance.records.approveAllPending', { count: unapprovedVisible.length })}
+                </Button>
+              )}
+            </div>
+          }
+          createButton={canWrite ? { label: t('weldhr.attendance.records.addRecord'), onClick: () => setDialogState('create') } : undefined}
+          emptyState={{
+            icon: emptyIcon(CalendarClock),
+            title: t('weldhr.attendance.records.empty.title'),
+            description: t('weldhr.attendance.records.empty.description'),
+          }}
+        />
+      </HrListContainer>
+
+      <ConfirmDialog
+        open={confirmApproveAll}
+        onOpenChange={setConfirmApproveAll}
+        title={t('weldhr.attendance.records.approveAllConfirmTitle', { count: unapprovedVisible.length })}
+        description={t('weldhr.attendance.records.approveAllConfirmDescription')}
+        confirmLabel={t('weldhr.leave.requests.approve')}
+        cancelLabel={t('weldhr.common.cancel')}
+        onConfirm={approveAllVisible}
       />
 
       {dialogState && (

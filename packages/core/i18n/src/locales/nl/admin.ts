@@ -11,6 +11,9 @@ export const admin = {
     newPlan: 'Nieuw plan',
     auditGroup: 'Audit',
     activity: 'Activiteitenlogboek',
+    databases: 'Databases',
+    databasesGroup: 'Infrastructuur',
+    databasesOverview: 'Overzicht',
   },
 
   common: {
@@ -30,6 +33,7 @@ export const admin = {
     billing: 'Facturatie',
     members: 'Leden',
     activity: 'Activiteit',
+    database: 'Database',
   },
 
   status: {
@@ -395,5 +399,193 @@ export const admin = {
       synced: 'Gesynchroniseerd met Stripe',
     },
     history: 'Geschiedenis',
+  },
+
+  // Waar de databases van werkruimtes staan (taak 1150, fase 1: alleen lezen).
+  // Plaatshouders zoals {count} worden ingevuld met `fill()`.
+  databases: {
+    title: 'Databases',
+    description:
+      'Waar de databases van werkruimtes staan: de gedeelde shards, de dedicated Neon-projecten en de warme pool. Dit scherm leest alleen. Niets hier wijzigt een werkruimte.',
+    back: 'Alle databases',
+
+    summary: {
+      shards: 'Gedeelde shards',
+      capacity: 'Gebruikte shardcapaciteit',
+      dedicated: 'Dedicated projecten',
+      warmShared: 'Warme gedeelde databases',
+      warmDedicated: 'Warme dedicated projecten',
+      withoutDatabase: 'Zonder database',
+      withoutDatabaseFailed: '{count} mislukt',
+      withoutDatabaseNoneFailed: 'Geen mislukt',
+    },
+
+    placement: {
+      shared: 'Gedeeld',
+      dedicated: 'Dedicated',
+      none: 'Geen',
+    },
+
+    fillLevel: {
+      ok: 'Prima',
+      warning: 'Loopt vol',
+      full: 'Vol',
+    },
+    fillAria: '{count} van {max} databases gereserveerd',
+
+    provisioning: {
+      pending: 'In afwachting',
+      provisioning: 'Wordt ingericht',
+      ready: 'Gereed',
+      failed: 'Mislukt',
+    },
+
+    workspaceState: {
+      active: 'Actief',
+      scheduled: 'Verwijdering gepland',
+      inactive: 'Inactief',
+    },
+
+    drift: {
+      badge: 'Teller wijkt af',
+      badgeRecent: 'In beweging',
+      title: 'Tellerverschil',
+      breakdown: '{workspaces} werkruimtes, {teardown} in afbouw, {slots} warme databases',
+      higher:
+        'De shard telt {actual} databases, maar er zijn er maar {expected} te verklaren ({breakdown}). Mogelijk is een reservering blijven hangen, of bestaat er een database die de masterdatabase niet kent.',
+      lower:
+        'De shard telt {actual} databases, maar er zijn er {expected} te verklaren ({breakdown}). De teller staat te laag, dus de shard kan meer databases accepteren dan de bedoeling is.',
+      recent:
+        'De shard telt {actual} databases en er zijn er {expected} te verklaren ({breakdown}). De shard is in de afgelopen 15 minuten gewijzigd, dus mogelijk wordt er nog een database ingericht.',
+    },
+
+    shards: {
+      title: 'Gedeelde shards',
+      description:
+        'Neon-projecten die elk veel databases van werkruimtes bevatten. Een werkruimte staat op een shard als haar Neon-project er een van deze is.',
+      empty: 'Er zijn nog geen gedeelde shards.',
+      columns: {
+        shard: 'Shard',
+        region: 'Regio',
+        status: 'Status',
+        fill: 'Vulling',
+        workspaces: 'Werkruimtes',
+        warmSlots: 'Warme databases',
+        created: 'Aangemaakt',
+      },
+      status: {
+        active: 'Actief',
+        full: 'Vol',
+        disabled: 'Uitgeschakeld',
+      },
+    },
+
+    dedicated: {
+      title: 'Dedicated projecten',
+      description: 'Werkruimtes waarvan de database in een eigen Neon-project staat.',
+      empty: 'Geen enkele werkruimte heeft een dedicated project.',
+      columns: {
+        workspace: 'Werkruimte',
+        project: 'Neon-project',
+        region: 'Regio',
+        provisioned: 'Ingericht',
+        status: 'Status',
+      },
+      shardLinkDrift: 'Shardkoppeling ingesteld',
+      truncated: 'De eerste {shown} van {total} werkruimtes.',
+    },
+
+    pool: {
+      title: 'Warme pool',
+      description:
+        'Databases die vooraf zijn aangemaakt en gemigreerd, klaar om aan een nieuwe werkruimte te geven. Een uitgegeven database blijft hier staan als toegewezen tot de database van de werkruimte is opgeruimd.',
+      empty: 'De warme pool is leeg.',
+      kind: {
+        shared: 'Gedeeld',
+        dedicated: 'Dedicated',
+      },
+      status: {
+        available: 'Beschikbaar',
+        assigned: 'Toegewezen',
+        error: 'Fout',
+      },
+      summaryColumns: {
+        kind: 'Soort',
+        status: 'Status',
+        slots: 'Aantal',
+        schema: 'Schemaversies',
+      },
+      columns: {
+        slot: 'Pool-ID',
+        kind: 'Soort',
+        status: 'Status',
+        location: 'Shard of project',
+        region: 'Regio',
+        schema: 'Schema',
+        workspace: 'Werkruimte',
+        created: 'Aangemaakt',
+      },
+      schemaUnknown: 'onbekend',
+      listedNote:
+        'Alleen databases die nog niet zijn toegewezen staan in de lijst. Al aan een werkruimte toegewezen: {assigned}.',
+      truncated: 'De nieuwste {shown} van {total} niet-toegewezen databases.',
+      noUnassigned: 'Er wacht geen enkele database op toewijzing.',
+    },
+
+    shard: {
+      details: 'Details',
+      neonProject: 'Neon-project',
+      projectName: 'Projectnaam',
+      region: 'Regio',
+      mainBranch: 'Hoofdbranch',
+      host: 'Verbindingshost',
+      adminRole: 'Beheerrol',
+      created: 'Aangemaakt',
+      updated: 'Laatst gewijzigd',
+      fill: 'Vulling',
+      workspaces: {
+        title: 'Werkruimtes op deze shard',
+        empty: 'Er staat geen werkruimte op deze shard.',
+        columns: {
+          workspace: 'Werkruimte',
+          plan: 'Plan',
+          database: 'Database',
+          provisioning: 'Inrichting',
+          provisioned: 'Ingericht',
+          state: 'Status',
+        },
+        shardLinkDrift: 'Shardkoppeling wijkt af',
+        pendingTeardown:
+          'Verwijderde werkruimtes die hier nog een database hebben tot hun opruiming klaar is: {count}.',
+      },
+      slots: {
+        title: 'Pooldatabases op deze shard',
+        empty: 'Er zijn geen pooldatabases op deze shard.',
+      },
+    },
+
+    workspace: {
+      title: 'Waar deze database staat',
+      placement: 'Plaatsing',
+      hint: {
+        shared: 'De database staat in een gedeeld Neon-project, naast de databases van andere werkruimtes.',
+        dedicated: 'De werkruimte heeft een eigen Neon-project.',
+        none: 'Deze werkruimte heeft nog geen database: ze is nog niet ingericht, of het inrichten is mislukt.',
+      },
+      shard: 'Shard',
+      shardFill: 'Vulling van de shard',
+      neonProject: 'Neon-project',
+      databaseName: 'Database',
+      roleName: 'Rol',
+      branch: 'Branch',
+      region: 'Regio',
+      provisioning: 'Inrichting',
+      provisionedAt: 'Ingericht',
+      shardLink: 'Shardkoppeling',
+      shardLinkDrift:
+        'De shared_project_id van de werkruimte noemt {id}, wat niet klopt met waar de database staat. De plaatsing hierboven volgt het Neon-project-id.',
+      moveNote:
+        'Een werkruimte verplaatsen naar een andere shard of naar een dedicated project komt in een latere release.',
+    },
   },
 };

@@ -49,6 +49,13 @@ export const weldhrPeople = {
       title: 'No employees yet',
       description: 'Add your first employee to start building the directory.',
     },
+    validation: {
+      firstNameRequired: 'First name is required',
+      lastNameRequired: 'Last name is required',
+      emailRequired: 'Email is required',
+      emailInvalid: 'Enter a valid email address',
+      phoneInvalid: 'Enter a phone number with digits only, such as +31 20 123 4567',
+    },
     create: {
       title: 'New employee',
       member: 'Workspace member',
@@ -127,6 +134,7 @@ export const weldhrPeople = {
         location: 'Location',
         timezone: 'Timezone',
         weeklyHours: 'Weekly hours',
+        customFields: 'Custom fields',
         directReports: {
           title: 'Direct reports',
           empty: 'No direct reports.',

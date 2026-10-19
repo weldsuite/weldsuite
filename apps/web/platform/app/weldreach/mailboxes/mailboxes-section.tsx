@@ -166,7 +166,7 @@ export function MailboxesSection() {
                     >
                       {t('reach.mailboxes.list.sentToday', { sent: mailbox.sentToday, cap })}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                    <TableCell className={mailbox.lastSentAt ? 'whitespace-nowrap tabular-nums' : 'whitespace-nowrap text-muted-foreground'}>
                       {mailbox.lastSentAt ? format.relative(mailbox.lastSentAt) : t('reach.common.never')}
                     </TableCell>
                     <TableCell>

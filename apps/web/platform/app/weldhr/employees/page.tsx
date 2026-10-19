@@ -9,7 +9,8 @@ import type { HrEmployeeListItem } from '@weldsuite/app-api-client/domains/weldh
 import { useDebounce } from '@/hooks/use-debounce';
 import { PanelEntityList, type ColumnDef, type FilterConfig, type ActiveFilter, type GroupConfig } from '@/components/panel-entity-list';
 import { useHrDepartments, useHrEmployees } from '@/hooks/queries/use-weldhr-queries';
-import { emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
+import { cn } from '@/lib/utils';
+import { HR_COL, HrListContainer, emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
 import { EmployeeAvatar, StatusBadge, formatDate } from '../components/shared';
 import { CreateEmployeeDialog } from './components/create-employee-dialog';
 
@@ -77,13 +78,23 @@ export default function WeldHrEmployeesPage() {
     {
       id: 'name',
       header: t('weldhr.employees.table.name'),
-      width: 'flex-1',
+      width: HR_COL.main,
       render: (emp) => (
         <span className="flex min-w-0 items-center gap-2">
-          <EmployeeAvatar name={emp.displayName} src={emp.avatarUrl} className="h-6 w-6" />
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className="max-w-[70%] shrink-0 truncate font-medium">{emp.displayName}</span>
-            <span className="min-w-0 truncate text-xs text-muted-foreground">{emp.email}</span>
+          <EmployeeAvatar name={emp.displayName} src={emp.avatarUrl} className="h-6 w-6 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className="min-w-0 truncate font-medium">{emp.displayName}</span>
+              <span className="hidden min-w-0 truncate text-xs text-muted-foreground @2xl:inline">{emp.email}</span>
+            </span>
+            {/* Narrow list (phone): the job title, status and start date stack under the name. */}
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground @4xl:hidden">
+              {emp.jobTitle && <span className="min-w-0 truncate">{emp.jobTitle}</span>}
+              <span className="@lg:hidden">
+                <StatusBadge group="employee" status={emp.status} />
+              </span>
+              {emp.startDate && <span className="tabular-nums text-foreground @lg:hidden">{formatDate(emp.startDate)}</span>}
+            </span>
           </span>
           {!emp.userId && (
             <span
@@ -99,32 +110,32 @@ export default function WeldHrEmployeesPage() {
     {
       id: 'jobTitle',
       header: t('weldhr.employees.table.jobTitle'),
-      width: 'w-[160px]',
-      render: (emp) => <span className="text-muted-foreground">{emp.jobTitle ?? '—'}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[160px]'),
+      render: (emp) => <span className="block truncate text-muted-foreground">{emp.jobTitle ?? '—'}</span>,
     },
     {
       id: 'department',
       header: t('weldhr.employees.table.department'),
-      width: 'w-[150px]',
-      render: (emp) => <span className="text-muted-foreground">{emp.departmentName ?? '—'}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideMd, 'w-[140px]'),
+      render: (emp) => <span className="block truncate text-muted-foreground">{emp.departmentName ?? '—'}</span>,
     },
     {
       id: 'manager',
       header: t('weldhr.employees.table.manager'),
-      width: 'w-[150px]',
-      render: (emp) => <span className="text-muted-foreground">{emp.managerName ?? '—'}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[140px]'),
+      render: (emp) => <span className="block truncate text-muted-foreground">{emp.managerName ?? '—'}</span>,
     },
     {
       id: 'status',
       header: t('weldhr.employees.table.status'),
-      width: 'w-[120px]',
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[110px]'),
       render: (emp) => <StatusBadge group="employee" status={emp.status} />,
     },
     {
       id: 'startDate',
       header: t('weldhr.employees.table.startDate'),
-      width: 'w-[120px]',
-      render: (emp) => <span className="font-mono text-muted-foreground">{formatDate(emp.startDate)}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[110px]'),
+      render: (emp) => <span className={cn('block truncate tabular-nums', !emp.startDate && 'text-muted-foreground')}>{formatDate(emp.startDate)}</span>,
     },
   ];
 
@@ -132,30 +143,32 @@ export default function WeldHrEmployeesPage() {
 
   return (
     <>
-      <PanelEntityList<HrEmployeeListItem>
-        items={rows}
-        isLoading={isLoading && rows.length === 0}
-        error={error as Error | null}
-        columns={columns}
-        groups={groups}
-        onRowClick={(emp) => navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId: emp.id } })}
-        filters={filterConfigs}
-        activeFilters={filters}
-        onFiltersChange={setFilters}
-        searchQuery={search}
-        onSearchChange={setSearch}
-        searchPlaceholder={t('weldhr.employees.searchPlaceholder')}
-        createButton={createButton}
-        hasMore={hasMore}
-        isLoadingMore={isFetching}
-        onLoadMore={() => setCursor(data?.pagination?.cursor ?? undefined)}
-        emptyState={{
-          icon: emptyIcon(Users),
-          title: t('weldhr.employees.empty.title'),
-          description: t('weldhr.employees.empty.description'),
-          action: createButton,
-        }}
-      />
+      <HrListContainer>
+        <PanelEntityList<HrEmployeeListItem>
+          items={rows}
+          isLoading={isLoading && rows.length === 0}
+          error={error as Error | null}
+          columns={columns}
+          groups={groups}
+          onRowClick={(emp) => navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId: emp.id } })}
+          filters={filterConfigs}
+          activeFilters={filters}
+          onFiltersChange={setFilters}
+          searchQuery={search}
+          onSearchChange={setSearch}
+          searchPlaceholder={t('weldhr.employees.searchPlaceholder')}
+          createButton={createButton}
+          hasMore={hasMore}
+          isLoadingMore={isFetching}
+          onLoadMore={() => setCursor(data?.pagination?.cursor ?? undefined)}
+          emptyState={{
+            icon: emptyIcon(Users),
+            title: t('weldhr.employees.empty.title'),
+            description: t('weldhr.employees.empty.description'),
+            action: createButton,
+          }}
+        />
+      </HrListContainer>
 
       {creating && <CreateEmployeeDialog onClose={() => setCreating(false)} />}
     </>

@@ -25,6 +25,8 @@ export const weldhr = {
     selectClient: 'Select a client account',
     selectContact: 'Select a contact',
     noResults: 'No results',
+    noCompaniesHint: 'Client accounts are WeldCRM companies.',
+    openWeldCrm: 'Add one in WeldCRM',
     save: 'Save',
     saving: 'Saving…',
     cancel: 'Cancel',

@@ -93,9 +93,9 @@ export function WelddataLeadPanel(props: Readonly<ObjectPanelComponentProps>) {
       subtitle={subtitle ?? undefined}
       avatar={
         lead ? (
-          <Avatar className="h-7 w-7 rounded-lg border border-border">
-            {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} className="rounded-lg object-cover" />}
-            <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+          <Avatar className="size-[22px] !rounded-[8px] border border-border">
+            {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} className="!rounded-[8px] object-cover" />}
+            <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
               {initial}
             </AvatarFallback>
           </Avatar>

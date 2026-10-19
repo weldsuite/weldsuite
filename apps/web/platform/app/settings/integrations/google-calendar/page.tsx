@@ -193,7 +193,7 @@ export default function GoogleCalendarSettingsPage() {
                 {gcalConnection.lastSyncAt ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <p className="text-sm font-medium mt-2 font-mono cursor-default w-fit">
+                      <p className="text-sm mt-2 tabular-nums cursor-default w-fit">
                         {formatDate(gcalConnection.lastSyncAt, ts.never)}
                       </p>
                     </TooltipTrigger>
@@ -277,7 +277,7 @@ export default function GoogleCalendarSettingsPage() {
                               <span className="text-red-500">{log.errorMessage}</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-muted-foreground text-right font-mono">
+                          <TableCell className={`text-right tabular-nums${log.createdAt ? '' : ' text-muted-foreground'}`}>
                             {log.createdAt ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>

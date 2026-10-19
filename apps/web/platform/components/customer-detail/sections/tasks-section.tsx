@@ -37,7 +37,7 @@ import {
 } from '@/hooks/use-crm-tasks';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import type { TasksSectionProps } from '../types';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
@@ -107,6 +107,8 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [groupBy, setGroupBy] = useState<'status' | 'priority' | 'dueDate' | 'assignee' | 'none'>('dueDate');
   const { open: openObjectPanel } = useObjectPanel();
+  // Previous / next in the task panel step through these tasks, in group order.
+  const reportDisplayedTasks = useObjectPanelNavigationReporter<Task>({ type: 'task' });
 
   // Memoize available assignees for filters and dialog
   const availableAssignees = useMemo(() =>
@@ -445,7 +447,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow h-auto">
                 {task.dueDate ? (
-                  <span className="font-mono text-gray-600 dark:text-muted-foreground">{formatDate(task.dueDate)}</span>
+                  <span className="tabular-nums">{formatDate(task.dueDate)}</span>
                 ) : (
                   <span className="text-gray-400">—</span>
                 )}
@@ -628,7 +630,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
               </span>
             )}
             {task.dueDate && (
-              <span className="text-xs text-muted-foreground font-mono">{formatDate(task.dueDate)}</span>
+              <span className="text-xs tabular-nums">{formatDate(task.dueDate)}</span>
             )}
           </div>
         </div>
@@ -689,6 +691,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   return (
     <EntityList<Task>
       items={tasks}
+      onDisplayedItemsChange={reportDisplayedTasks}
       isLoading={isLoading}
       error={error}
       headerColumns={isPanel ? undefined : headerColumns}

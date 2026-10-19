@@ -176,9 +176,9 @@ export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
   );
 
   return (
-    <Card className="py-0">
-      <CardHeader className="flex flex-col items-stretch border-b p-0! sm:flex-row">
-        <div className="flex flex-1 flex-col justify-center gap-1 px-6 pt-4 pb-3 sm:py-0!">
+    <Card className="@container py-0">
+      <CardHeader className="flex flex-col items-stretch border-b p-0! @2xl:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 px-6 pt-4 pb-3 @2xl:py-0!">
           <CardTitle>{tc.analytics.title}</CardTitle>
           <CardDescription>
             {tc.analytics.description}
@@ -192,13 +192,13 @@ export function AnalyticsCard(_props: Readonly<{ isDemo?: boolean }> = {}) {
                 key={chart}
                 variant="ghost"
                 data-active={activeChart === chart}
-                className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-t-0 sm:border-l sm:px-8 sm:py-6"
+                className="relative z-30 flex min-w-0 flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 @2xl:border-t-0 @2xl:border-l @2xl:px-8 @2xl:py-6"
                 onClick={() => setActiveChart(chart)}
               >
                 <span className="text-xs text-muted-foreground">
                   {chartConfig[chart].label}
                 </span>
-                <span className="text-lg leading-none font-bold sm:text-3xl">
+                <span className="max-w-full truncate text-lg leading-none font-bold @2xl:text-3xl">
                   {total[key as keyof typeof total].toLocaleString()}
                 </span>
               </Button>
@@ -737,9 +737,9 @@ export function ProjectsCard({
               </span>
             </div>
 
-            {/* Due date — small mono */}
+            {/* Due date */}
             <div className="w-[70px]">
-              <span className="text-sm text-muted-foreground font-mono">{p.due}</span>
+              <span className="text-sm tabular-nums">{p.due}</span>
             </div>
           </ClickableRow>
         );
@@ -1331,7 +1331,7 @@ export function DeskAiActiveCard({
               <span className="text-sm font-mono text-muted-foreground tabular-nums">{a.turns}</span>
             </div>
             <div className="w-[50px] text-right">
-              <span className="text-sm font-mono text-muted-foreground">{a.started}</span>
+              <span className="text-sm tabular-nums">{a.started}</span>
             </div>
           </div>
         );
@@ -1424,7 +1424,7 @@ export function DeskAiResolvedCard({
               <span className="text-sm font-mono text-muted-foreground">{a.resolvedIn}</span>
             </div>
             <div className="w-[50px] text-right">
-              <span className="text-sm font-mono text-muted-foreground">{a.when}</span>
+              <span className="text-sm tabular-nums">{a.when}</span>
             </div>
           </div>
         );
@@ -1490,7 +1490,7 @@ export function DeskReviewsCard({
             <span className="text-xs text-muted-foreground">{r.source}</span>
           </div>
           <div className="w-[50px] text-right">
-            <span className="font-mono text-sm text-muted-foreground">{r.when}</span>
+            <span className="text-sm tabular-nums">{r.when}</span>
           </div>
         </div>
       ))}
@@ -1629,10 +1629,10 @@ export function CrmCard({
               )}
             </div>
 
-            {/* Due — mono */}
+            {/* Due */}
             <div className="w-[60px]">
               {task.due ? (
-                <span className="font-mono text-sm text-gray-600 dark:text-muted-foreground">{task.due}</span>
+                <span className="text-sm tabular-nums">{task.due}</span>
               ) : (
                 <span className="text-sm text-gray-400">—</span>
               )}
@@ -1696,14 +1696,14 @@ export function PipelineCard({
   }
   return (
     <CardShell action={isDemo ? <DemoBadge /> : null}>
-      <div className="flex gap-3 p-3">
+      <div className="flex gap-3 overflow-x-auto p-3">
         {PIPELINE_STAGES.map((stage) => {
           const stageDeals = rows.filter((d) => d.stage === stage.id);
           const stageTotal = stageDeals.reduce((sum, d) => sum + d.value, 0);
           return (
             <div
               key={stage.id}
-              className="flex-1 min-w-[140px] flex flex-col gap-2 min-h-0"
+              className="flex-1 min-w-[100px] flex flex-col gap-2 min-h-0"
             >
               {/* Stage header */}
               <div className="flex items-center justify-between gap-2 shrink-0">
@@ -1836,9 +1836,9 @@ export function SequencesCard({
               )}
             </div>
 
-            {/* Last run — mono */}
+            {/* Last run */}
             <div className="w-[70px]">
-              <span className="text-sm font-mono text-gray-500 dark:text-muted-foreground">{seq.lastRun}</span>
+              <span className={cn('text-sm tabular-nums', seq.lastRun === '—' && 'text-muted-foreground')}>{seq.lastRun}</span>
             </div>
           </div>
         );
@@ -1994,7 +1994,7 @@ export function ConnectCard({
 
             {/* Started — relative */}
             <div className="w-[60px] text-right">
-              <span className="text-sm text-muted-foreground">{e.startedAgo}</span>
+              <span className="text-sm tabular-nums">{e.startedAgo}</span>
             </div>
           </ClickableRow>
         );
@@ -2255,9 +2255,9 @@ export function MeetHistoryCard({
               )}
             </div>
 
-            {/* Date — mono */}
+            {/* Date */}
             <div className="w-[130px]">
-              <span className="text-sm font-mono text-gray-600 dark:text-muted-foreground truncate block">
+              <span className="text-sm tabular-nums truncate block">
                 {m.date}
               </span>
             </div>
@@ -2623,7 +2623,7 @@ export function HostCard({
             <div className="w-[70px]">
               <span className={cn('inline-block text-[11px] font-medium rounded px-2 py-0.5', s.color, s.bg)}>{tc.domainStatus[d.status]}</span>
             </div>
-            <div className="w-[70px] text-xs text-muted-foreground">{d.expires}</div>
+            <div className={cn('w-[70px] text-xs tabular-nums', d.expires === '—' && 'text-muted-foreground')}>{d.expires}</div>
             <div className="w-[80px] text-xs text-muted-foreground truncate">{d.registrar}</div>
           </div>
         );
@@ -2682,7 +2682,7 @@ export function DriveCard({
           </div>
           <div className="w-[60px] text-xs text-muted-foreground tabular-nums">{f.size}</div>
           <div className="w-[80px] text-xs text-muted-foreground truncate">{f.author}</div>
-          <div className="w-[60px] text-xs text-muted-foreground">{f.when}</div>
+          <div className="w-[60px] text-xs tabular-nums">{f.when}</div>
         </div>
       ))}
     </CardShell>
@@ -2804,9 +2804,9 @@ export function CallCard({
               </span>
             </div>
 
-            {/* Date — mono small */}
+            {/* Date */}
             <div className="w-[100px]">
-              <span className="text-sm font-mono text-gray-500 dark:text-muted-foreground truncate block">
+              <span className="text-sm tabular-nums truncate block">
                 {c.date}
               </span>
             </div>

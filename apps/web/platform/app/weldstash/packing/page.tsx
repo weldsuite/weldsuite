@@ -90,6 +90,7 @@ function PackingPageContent() {
         },
       ]}
       onRowClick={(row) => openObjectPanel({ type: 'pick-list', id: row.id })}
+      objectPanel={{ type: 'pick-list' }}
       emptyState={{
         icon: (
           <EmptyStateIllustration>

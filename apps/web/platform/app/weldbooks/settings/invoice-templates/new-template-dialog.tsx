@@ -88,7 +88,7 @@ export function NewTemplateDialog({ open, onOpenChange, entityId, defaultPaperSi
         document: presetTemplate(values.preset, values.paperSize, normalizeHex(values.accent)),
       });
       onOpenChange(false);
-      router.push(`/weldbooks/settings/invoice-templates/${created.id}`);
+      router.push(`/settings/entities/${entityId}/invoice-templates/${created.id}`);
     } catch (err) {
       toast.error(tn.failed, { description: err instanceof Error ? err.message : undefined });
     }

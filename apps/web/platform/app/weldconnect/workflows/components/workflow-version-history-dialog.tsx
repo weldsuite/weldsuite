@@ -127,7 +127,7 @@ export function WorkflowVersionHistoryDialog({ workflowId, open, onOpenChange }:
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {formatWhen(version.createdAt, language)}
+                          <span className="text-foreground tabular-nums">{formatWhen(version.createdAt, language)}</span>
                           {version.restoredFromVersion != null
                             ? ` · ${tv.restoredFromNote.replace('{version}', String(version.restoredFromVersion))}`
                             : ''}

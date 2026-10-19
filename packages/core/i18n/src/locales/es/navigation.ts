@@ -155,7 +155,6 @@ export const navigation = {
         agedReceivables: 'Cuentas por cobrar vencidas',
         agedPayables: 'Cuentas por pagar vencidas',
         entities: 'Entidades',
-        settings: 'Configuración',
       },
       agents: {
         allAgents: 'Todos los agentes',

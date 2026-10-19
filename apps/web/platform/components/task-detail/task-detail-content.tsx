@@ -95,7 +95,9 @@ import { TaskDurationField } from './task-duration-field';
 import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
+import { useObjectPanelNavigationSource } from '@/components/object-panel/use-object-panel-navigation';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
+import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -584,6 +586,12 @@ export interface TaskDetailContentProps {
    * contexts (e.g. the CRM record link on a CRM task).
    */
   alwaysShowFields?: string[];
+  /**
+   * Persist the task's full customFields map. When given, the workspace's
+   * task custom fields (Settings › Custom Fields › Tasks) render as rows in
+   * the Details list.
+   */
+  onSaveCustomFields?: (next: Record<string, unknown>) => Promise<void>;
 }
 
 type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
@@ -771,7 +779,7 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
           >
             {task.dueDate ? (
               <span className={cn(
-                "group-hover/field:underline",
+                "font-normal tabular-nums group-hover/field:underline",
                 task.dueDate < new Date() && task.status !== 'done' && "text-red-600 dark:text-red-400"
               )}>
                 {format(task.dueDate, 'MMM d, yyyy')}
@@ -830,7 +838,7 @@ function ScheduledSlotField({ task }: Readonly<{ task: Task }>) {
         <span className="text-sm text-muted-foreground">{t('sweep.shared.scheduled')}</span>
       </div>
       <div className="h-8 inline-flex items-center gap-2 text-sm">
-        <span>{display}</span>
+        <span className="tabular-nums">{display}</span>
         {autoScheduled === false && (
           <span
             className="inline-flex items-center gap-1 text-xs text-muted-foreground"
@@ -1032,6 +1040,7 @@ export function TaskDetailContent({
   onRemoveDependency,
   hiddenFields,
   alwaysShowFields,
+  onSaveCustomFields,
 }: Readonly<TaskDetailContentProps>) {
 /* eslint-enable @typescript-eslint/no-unused-vars */
   const t = useTranslations();
@@ -1660,7 +1669,7 @@ export function TaskDetailContent({
               <span className="text-sm text-muted-foreground">{t('sweep.shared.created')}</span>
             </div>
             <div className="flex-1 h-8 text-sm rounded-md px-2 -mx-2 flex items-center">
-              <span className="text-muted-foreground">
+              <span className="tabular-nums">
                 {format(task.createdAt, 'MMM d, yyyy')}
               </span>
             </div>
@@ -1670,6 +1679,15 @@ export function TaskDetailContent({
           {/* GitHub issue badge */}
           {task.githubIssueNumber != null && task.githubRepoLinkId != null && (
             <GithubIssueBadge task={task} />
+          )}
+
+          {onSaveCustomFields && (
+            <CustomFieldsSidebarSection
+              entityType="task"
+              values={(task as { customFields?: Record<string, unknown> }).customFields}
+              onSave={onSaveCustomFields}
+              layout="row"
+            />
           )}
 
           </div>
@@ -2009,6 +2027,8 @@ export function SubtasksSection({
   const directSubtasks = subtasks.filter(s => (s.depth ?? 0) === 0);
   const completedCount = directSubtasks.filter(s => s.status === 'done').length;
   const totalCount = directSubtasks.length;
+  // Previous / next in the task panel step through these subtasks, in the order shown.
+  useObjectPanelNavigationSource({ type: 'task', ids: subtasks.map((s) => s.id) });
 
   // When the selected task is a subtask, the chain it hangs from is shown
   // above it: the top-most ancestor is the tree root, every further ancestor

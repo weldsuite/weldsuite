@@ -1,48 +1,12 @@
-import { useEffect, useRef, useCallback, useReducer } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useUser } from '@clerk/clerk-react';
 import { usePathname } from '@/lib/router';
-import { Mic, MicOff, PhoneOff, Maximize, PictureInPicture2 } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
-import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
-import { useSpeakerOutput } from '@weldsuite/weldmeet-ui';
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const s = (seconds % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-}
-
-/**
- * Hidden audio playback for one remote participant.
- *
- * Remote sound is normally emitted by the <audio> elements inside the
- * MeetingRoomView tiles. When the call is minimized to this PiP widget (the user
- * navigated to another part of the app), that view is unmounted — so without
- * this sink the user would see the PiP but hear no one. Only mounted while the
- * PiP is the active surface, so it never double-plays alongside the tiles.
- */
-function RemotePiPAudio({ participant }: Readonly<{ participant: RTKParticipant | RTKSelf }>) {
-  const ref = useRef<HTMLAudioElement>(null);
-  useSpeakerOutput(ref);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (participant.audioEnabled && participant.audioTrack) {
-      el.srcObject = new MediaStream([participant.audioTrack]);
-      // autoPlay only fires on first mount; call play() so a freshly-mounted
-      // element actually resumes the stream.
-      el.play().catch(() => { /* autoplay blocked / already playing */ });
-    } else {
-      el.srcObject = null;
-    }
-  }, [participant.audioEnabled, participant.audioTrack]);
-  return <audio ref={ref} autoPlay />;
-}
+import { getTranslations } from '@/lib/i18n';
+import { MinimizedCallWidget, type MinimizedCallWidgetLabels } from '@/components/call';
 
 /**
  * Outer guard: render nothing when the WeldChatCall provider isn't reachable.
@@ -81,17 +45,11 @@ function isOnCallConversation(
   return !!channelMatch && channelMatch[1] === channelId;
 }
 
-/** Video source for the widget — prefer the first remote participant, fall back to self. */
-function pickVideoSource(remote: RTKParticipant | undefined, self: RTKSelf | undefined) {
-  if (remote?.videoEnabled && remote.videoTrack) {
-    return { videoTrack: remote.videoTrack, hasRemoteVideo: true };
-  }
-  if (self?.videoEnabled && self.videoTrack) {
-    return { videoTrack: self.videoTrack, hasRemoteVideo: false };
-  }
-  return { videoTrack: null, hasRemoteVideo: false };
-}
-
+/**
+ * The minimized chat call: the same <MinimizedCallWidget/> as a minimized
+ * WeldMeet meeting (app/weldmeet/components/meeting-pip-widget.tsx), fed by
+ * the WeldChat call context.
+ */
 function PiPCallWidgetInner() {
   const { t } = useI18n();
   const {
@@ -99,21 +57,25 @@ function PiPCallWidgetInner() {
     channelId,
     duration,
     isMuted,
+    isVideoOff,
+    isScreenSharing,
+    handRaised,
     isFullscreen,
     isPiP,
     meeting,
     toggleMute,
-    endCall,
+    toggleVideo,
+    startScreenShare,
+    stopScreenShare,
+    toggleHandRaise,
+    leaveCall,
     expandFromPiP,
-    toggleFullscreen,
   } = useWeldChatCall();
+  const navigate = useNavigate();
   const { user } = useUser();
   const pathname = usePathname();
   const { data: channelData } = useChannel(channelId ?? '');
   const { data: membersData } = useChannelMembers(channelId ?? '');
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hasAnimatedRef = useRef(false);
-  const [, forceUpdate] = useReducer((n: number) => n + 1, 0);
 
   const channel = channelData?.data;
   const isDm = channel?.type === 'dm';
@@ -124,283 +86,66 @@ function PiPCallWidgetInner() {
     ? otherMember?.name || otherMember?.email || t.weldchat.pipCallWidget.call
     : channel?.name || t.weldchat.pipCallWidget.call;
 
-  // Determine whether the user is currently viewing the call's own conversation.
+  // Show when: connected, not fullscreen, and either explicitly minimized OR
+  // navigated away from the call's conversation. Otherwise the inline room
+  // view is on screen (and plays the call's audio itself).
   const isOnCallPage = isOnCallConversation(pathname, channelId, otherMember?.userId);
-
-  const pipVideoRef = useRef<HTMLVideoElement | null>(null);
-  const pipActiveRef = useRef(false);
-
-  // Show PiP when: connected, not fullscreen, and either explicitly minimized OR navigated away
   const shouldShow = status === 'connected' && !isFullscreen && (isPiP || !isOnCallPage);
 
-  // Force re-render when participants change
-  useEffect(() => {
-    if (!meeting) return;
-    const tick = () => forceUpdate();
-    meeting.participants.joined.on('participantJoined', tick);
-    meeting.participants.joined.on('participantLeft', tick);
-    meeting.participants.joined.on('participantsCleared', tick);
-    // A remote's camera track changes (it is replaced after every reconnect).
-    meeting.participants.joined.on('videoUpdate', tick);
-    meeting.self.on('videoUpdate', tick);
-    return () => {
-      try {
-        meeting.participants.joined.removeListener?.('participantJoined', tick);
-        meeting.participants.joined.removeListener?.('participantLeft', tick);
-        meeting.participants.joined.removeListener?.('participantsCleared', tick);
-        meeting.participants.joined.removeListener?.('videoUpdate', tick);
-        meeting.self.removeListener?.('videoUpdate', tick);
-      } catch { /* ignore */ }
+  const labels = useMemo<MinimizedCallWidgetLabels>(() => {
+    const meet = getTranslations('weldmeet').pipWidget;
+    return {
+      ...meet,
+      open: t.weldchat.pipCallWidget.openCall,
+      leave: t.weldchat.pipCallWidget.leaveCall,
     };
-  }, [meeting]);
+  }, [t]);
 
-  // Get video source — prefer remote participant, fall back to self
-  const remoteParticipants = meeting?.participants?.joined?.toArray() || [];
-  const firstRemote = remoteParticipants[0];
-  const { videoTrack, hasRemoteVideo } = pickVideoSource(firstRemote, meeting?.self);
-
-  const enterNativePiP = useCallback(async () => {
-    const video = pipVideoRef.current;
-    if (!video || pipActiveRef.current) return;
-    if (!document.pictureInPictureEnabled) {
-      console.warn('[PiP] PictureInPicture not enabled in this browser');
-      return;
-    }
-
-    try {
-      // Set video source
-      if (videoTrack) {
-        video.srcObject = new MediaStream([videoTrack]);
-      } else {
-        // Audio-only: create a canvas with call info as video source
-        const canvas = document.createElement('canvas');
-        canvas.width = 320;
-        canvas.height = 180;
-        const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0, 0, 320, 180);
-        ctx.fillStyle = '#fff';
-        ctx.font = '16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(callLabel || t.weldchat.pipCallWidget.call, 160, 95);
-        video.srcObject = canvas.captureStream(1);
-      }
-
-      // Wait for video to be ready
-      await new Promise<void>((resolve) => {
-        if (video.readyState >= 2) { resolve(); return; }
-        video.onloadeddata = () => resolve();
-      });
-      await video.play();
-      await video.requestPictureInPicture();
-      pipActiveRef.current = true;
-    } catch (err) {
-      console.error('[PiP] Failed to enter PiP:', err);
-    }
-  }, [videoTrack, callLabel, t.weldchat.pipCallWidget.call]);
-
-  const exitNativePiP = useCallback(() => {
-    if (document.pictureInPictureElement && pipActiveRef.current) {
-      document.exitPictureInPicture().catch(() => {});
-    }
-    pipActiveRef.current = false;
-  }, []);
-
-  // Keep the hidden PiP video element primed and playing so the manual "Pop out"
-  // button can enter native PiP instantly (no auto-PiP — see note below).
-  useEffect(() => {
-    if (status !== 'connected') return;
-    const video = pipVideoRef.current;
-    if (!video) return;
-
-    if (videoTrack) {
-      video.srcObject = new MediaStream([videoTrack]);
+  // Back to the call's conversation, where the call shows inline (not
+  // fullscreen) — like a minimized meeting returns to its room page.
+  const otherMemberUserId = otherMember?.userId;
+  const channelType = channel?.type;
+  const handleExpand = useCallback(() => {
+    expandFromPiP();
+    if (!channelId || isOnCallPage) return;
+    if (channelType === 'dm') {
+      // A DM with yourself has no other member: it lives at your own user id.
+      const userId = otherMemberUserId || user?.id;
+      if (userId) void navigate({ to: '/weldchat/dm/$userId', params: { userId } });
+    } else if (channelType === 'group') {
+      void navigate({ to: '/weldchat/dm/group/$channelId', params: { channelId } });
     } else {
-      const canvas = document.createElement('canvas');
-      canvas.width = 320;
-      canvas.height = 180;
-      const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = '#111';
-      ctx.fillRect(0, 0, 320, 180);
-      ctx.fillStyle = '#fff';
-      ctx.font = '16px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(callLabel || 'Call', 160, 95);
-      video.srcObject = canvas.captureStream(1);
+      void navigate({ to: '/weldchat/$channelId', params: { channelId } });
     }
+  }, [expandFromPiP, channelId, isOnCallPage, channelType, otherMemberUserId, user?.id, navigate]);
 
-    video.play().catch(() => {});
-  }, [status, videoTrack, callLabel]);
-
-  // NOTE: Automatic native PiP on tab switch is intentionally NOT registered.
-  // We only want the in-app floating widget to follow the user around the
-  // platform; popping a separate browser PiP window out of the tab on every
-  // tab switch is unwanted. The native PiP window is now only entered when the
-  // user explicitly clicks the "Pop out" button (which calls enterNativePiP).
-  // We still listen for `leavepictureinpicture` so our state resets when the
-  // user closes that manually-opened window, and we exit PiP on unmount.
-  useEffect(() => {
-    if (status !== 'connected') return;
-
-    const onPiPLeave = () => { pipActiveRef.current = false; };
-
-    const video = pipVideoRef.current;
-    video?.addEventListener('leavepictureinpicture', onPiPLeave);
-
-    return () => {
-      video?.removeEventListener('leavepictureinpicture', onPiPLeave);
-      exitNativePiP();
-    };
-  }, [status, exitNativePiP]);
-
-  // Keep PiP video track in sync
-  useEffect(() => {
-    if (pipVideoRef.current && videoTrack) {
-      pipVideoRef.current.srcObject = new MediaStream([videoTrack]);
-    }
-  }, [videoTrack]);
-
-  // Exit PiP when call ends
-  useEffect(() => {
-    if (status !== 'connected') {
-      exitNativePiP();
-    }
-  }, [status, exitNativePiP]);
-
-  // Attach video
-  useEffect(() => {
-    if (!videoRef.current || !shouldShow) return;
-    if (videoTrack) {
-      const stream = new MediaStream([videoTrack]);
-      videoRef.current.srcObject = stream;
-    } else {
-      videoRef.current.srcObject = null;
-    }
-  }, [videoTrack, shouldShow]);
-
-  // Hidden video element backing the manual "Pop out" button (must always be in
-  // the DOM so enterNativePiP can attach a stream to it). We deliberately do NOT
-  // set `autopictureinpicture` here — that attribute is what made Chrome pop a
-  // native PiP window out of the tab automatically on tab switch, which is the
-  // behaviour we're removing. Native PiP is now only entered on explicit click.
-  const pipElement = (
-    <video
-      ref={pipVideoRef}
-      autoPlay
-      playsInline
-      // Fed only by a canvas capture or a video-only track: there is no audio.
-      muted
-      className="fixed top-0 left-0 w-[320px] h-[180px] opacity-0 pointer-events-none -z-50"
-    />
-  );
-
-  const displayName = firstRemote?.name || otherMember?.name || user?.fullName || '';
-  const displayInitial = (displayName || '?')[0].toUpperCase();
-  const displayPicture = firstRemote?.picture || otherMember?.picture || user?.imageUrl;
-
-  // Track first appearance for entrance animation
-  if (shouldShow && !hasAnimatedRef.current) hasAnimatedRef.current = true;
-  // Reset when call ends so next call gets the animation
-  if (status !== 'connected') hasAnimatedRef.current = false;
+  // Same as the room's hangup: leaves the call, which carries on for the others.
+  const handleLeave = useCallback(() => {
+    void leaveCall();
+  }, [leaveCall]);
 
   return (
-    <>
-    {pipElement}
-    {/* Remote audio — only while the PiP is the active surface (MeetingRoomView
-        is unmounted then, so its tiles aren't also playing). Without this the
-        minimized call is silent. */}
-    {shouldShow && remoteParticipants.map((p) => (
-      <RemotePiPAudio key={p.id} participant={p} />
-    ))}
-    <div className={cn(
-      "fixed bottom-4 right-4 z-[9999] w-[300px] rounded-2xl overflow-hidden shadow-2xl border border-border bg-background",
-      shouldShow ? "opacity-100" : "opacity-0 pointer-events-none sr-only",
-      !hasAnimatedRef.current && shouldShow && "animate-in slide-in-from-bottom-4 fade-in duration-300",
-    )}>
-      {/* Video / Avatar area */}
-      <div className="relative mx-2 mt-2 aspect-video rounded-xl overflow-hidden bg-muted flex items-center justify-center">
-        {/* Whole-area click target: a native button overlay (a wrapper can't be a
-            button because it also hosts the expand button below). */}
-        <button
-          type="button"
-          className="absolute inset-0 z-10 cursor-pointer rounded-xl focus-visible:outline-2 focus-visible:outline-ring"
-          aria-label={t.weldchat.pipCallWidget.expand}
-          onClick={() => {
-            expandFromPiP();
-            toggleFullscreen();
-          }}
-        />
-        {videoTrack ? (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className={cn("w-full h-full object-cover", !hasRemoteVideo && "-scale-x-100")}
-          />
-        ) : (
-          <Avatar className="h-14 w-14 !rounded-[16px]">
-            {displayPicture && <AvatarImage src={displayPicture} className="!rounded-[16px]" />}
-            <AvatarFallback className="text-xl bg-muted-foreground/20 text-foreground !rounded-[16px]">{displayInitial}</AvatarFallback>
-          </Avatar>
-        )}
-
-        {/* Expand button */}
-        <Button
-          variant="ghost"
-          className="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-background/70 hover:bg-muted/70 transition-colors"
-          onClick={() => {
-            expandFromPiP();
-            toggleFullscreen();
-          }}
-          title={t.weldchat.pipCallWidget.expand}
-        >
-          <Maximize className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-
-        {/* Name tag */}
-        <span className="absolute top-2 left-2 pointer-events-none text-foreground/80 text-xs font-medium bg-background/60 rounded-md px-1.5 py-0.5">
-          {callLabel}
-        </span>
-      </div>
-
-      {/* Controls bar */}
-      <div className="flex items-center justify-between px-3 py-2.5 bg-background">
-        <span className="text-xs text-muted-foreground font-mono">{formatDuration(duration)}</span>
-        <div className="flex items-center gap-2">
-          {document.pictureInPictureEnabled && (
-            <Button
-              variant="secondary"
-              size="icon"
-              className="h-8 w-8 rounded-[10px] border-0"
-              onClick={enterNativePiP}
-              title={t.weldchat.pipCallWidget.popOut}
-            >
-              <PictureInPicture2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            size="icon"
-            className={cn(
-              "h-8 w-8 rounded-[10px] border-0",
-              isMuted && "bg-red-100 hover:bg-red-200 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/30 dark:text-red-400"
-            )}
-            onClick={toggleMute}
-          >
-            {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-          </Button>
-          <Button
-            variant="destructive"
-            size="icon"
-            className="h-8 w-8 rounded-[10px]"
-            onClick={endCall}
-          >
-            <PhoneOff className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-    </div>
-    </>
+    <MinimizedCallWidget
+      status={status}
+      meeting={meeting}
+      title={callLabel}
+      appName="WeldChat"
+      duration={duration}
+      isMuted={isMuted}
+      isVideoOff={isVideoOff}
+      isScreenSharing={isScreenSharing}
+      handRaised={handRaised}
+      shouldShow={shouldShow}
+      playsRemoteAudio={shouldShow}
+      labels={labels}
+      toggleMute={toggleMute}
+      toggleVideo={toggleVideo}
+      startScreenShare={startScreenShare}
+      stopScreenShare={stopScreenShare}
+      toggleHandRaise={toggleHandRaise}
+      onLeave={handleLeave}
+      onExpand={handleExpand}
+      onPopOutClosed={expandFromPiP}
+    />
   );
 }

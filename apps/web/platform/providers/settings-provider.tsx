@@ -2,6 +2,7 @@
 import { useCallback, useMemo, createContext, useContext } from 'react';
 import { useRouter, usePathname } from '@/lib/router';
 import { useSettingsHotkey } from '@/hooks/use-settings-hotkey';
+import { useShortcutsHotkey } from '@/hooks/use-shortcuts-hotkey';
 interface SettingsContextType {
   openSettings: (section?: string) => void;
   closeSettings: () => void;
@@ -59,6 +60,10 @@ export function SettingsProvider({ children }: Readonly<SettingsProviderProps>) 
 
   // Setup keyboard shortcut for settings (Cmd/Ctrl + ,)
   useSettingsHotkey(openSettings);
+
+  // Cmd/Ctrl + / (or ?) opens the keyboard shortcuts page.
+  const openShortcuts = useCallback(() => openSettings('shortcuts'), [openSettings]);
+  useShortcutsHotkey(openShortcuts);
 
   const value = useMemo(() => ({ openSettings, closeSettings }), [openSettings, closeSettings]);
 

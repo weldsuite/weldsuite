@@ -80,7 +80,7 @@ export function useProspectColumns({
       header: t('reachEngage.prospects.table.added'),
       width: 'hidden lg:block lg:w-[120px]',
       render: (prospect) => (
-        <span className="text-sm text-muted-foreground">{format.date(prospect.createdAt)}</span>
+        <span className="text-sm tabular-nums">{format.date(prospect.createdAt)}</span>
       ),
     },
   ];

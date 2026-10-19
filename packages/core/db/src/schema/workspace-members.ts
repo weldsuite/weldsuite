@@ -71,6 +71,9 @@ export const workspaceMembers = pgTable(
     index('workspace_members_user_idx').on(table.userId),
     index('workspace_members_clerk_invitation_idx').on(table.clerkInvitationId),
     index('workspace_members_member_type_idx').on(table.memberType),
+    // Over every row, deleted ones included, so `user_id` always names one
+    // member. Re-adding a removed member frees their old row's id first:
+    // releaseRemovedMemberUserId in lib/workspace-members.ts.
     unique('workspace_members_unique').on(table.userId),
   ]
 );

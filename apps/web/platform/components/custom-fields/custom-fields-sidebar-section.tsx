@@ -32,7 +32,7 @@ import {
   Braces,
   type LucideIcon,
 } from 'lucide-react';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useCustomFields } from '@/hooks/use-custom-fields';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
@@ -61,6 +61,8 @@ interface CustomFieldsSidebarSectionProps {
    * read as part of the standard fields rather than a separate category.
    */
   layout?: 'stacked' | 'row';
+  /** Show the values without letting the viewer change them. */
+  readOnly?: boolean;
 }
 
 export function CustomFieldsSidebarSection({
@@ -70,31 +72,15 @@ export function CustomFieldsSidebarSection({
   onSaved,
   hideHeader,
   layout = 'stacked',
+  readOnly = false,
 }: Readonly<CustomFieldsSidebarSectionProps>) {
   const t = useTranslations();
-  const { getClient } = useAppApiClient();
-  const [fieldDefs, setFieldDefs] = useState<CustomFieldDefinition[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    setIsLoading(true);
-    void (async () => {
-      try {
-        const client = await getClient();
-        const query = entityType ? `?entityType=${encodeURIComponent(entityType)}` : '';
-        // app-api GET /api/custom-fields (was api-worker GET /settings/custom-fields).
-        const result = await client.get<{ data?: CustomFieldDefinition[] }>(`/custom-fields${query}`);
-        if (mounted && result.data) {
-          setFieldDefs(result.data);
-        }
-      } catch {
-        // Ignore errors loading custom fields
-      }
-      if (mounted) setIsLoading(false);
-    })();
-    return () => { mounted = false; };
-  }, [entityType, getClient]);
+  // Shared react-query cache (same key as the list grids' custom columns), so a
+  // field added or changed in Settings › Custom Fields shows up in an open
+  // record panel too: the settings mutations invalidate this key. The old
+  // mount-once fetch kept a panel on the definitions it first saw.
+  const { data: fieldDefsData, isLoading } = useCustomFields(entityType, !!entityType);
+  const fieldDefs: CustomFieldDefinition[] = fieldDefsData ?? [];
 
   const handleUpdateField = useCallback(async (slug: string, newValue: unknown) => {
     try {
@@ -126,6 +112,7 @@ export function CustomFieldsSidebarSection({
             def={def}
             value={values?.[def.slug]}
             onUpdate={handleUpdateField}
+            readOnly={readOnly}
             layout="row"
           />
         ))}
@@ -145,6 +132,7 @@ export function CustomFieldsSidebarSection({
               def={def}
               value={values?.[def.slug]}
               onUpdate={handleUpdateField}
+            readOnly={readOnly}
             />
           ))}
         </div>
@@ -159,6 +147,7 @@ export function CustomFieldsSidebarSection({
               def={def}
               value={values?.[def.slug]}
               onUpdate={handleUpdateField}
+            readOnly={readOnly}
             />
           ))}
         </div>
@@ -213,11 +202,13 @@ function EditableCustomField({
   value,
   onUpdate,
   layout = 'stacked',
+  readOnly = false,
 }: Readonly<{
   def: CustomFieldDefinition;
   value: unknown;
   onUpdate: (slug: string, value: unknown) => Promise<void>;
   layout?: 'stacked' | 'row';
+  readOnly?: boolean;
 }>) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState<string>('');
@@ -272,14 +263,15 @@ function EditableCustomField({
     def,
     value,
     hasValue: value != null && value !== '' && !(Array.isArray(value) && value.length === 0),
-    isSaving,
+    // Read-only reuses the controls' disabled state and never enters edit mode.
+    isSaving: isSaving || readOnly,
     isEditing,
     editValue,
     inputRef,
     onEditValueChange: setEditValue,
     onSave: handleSave,
     onCancel: handleCancel,
-    onStartEdit: handleStartEdit,
+    onStartEdit: readOnly ? () => {} : handleStartEdit,
     onImmediateSave: handleImmediateSave,
   };
 
@@ -513,7 +505,7 @@ function RowDisplayContent({
 }: Readonly<{ ctx: FieldContext; placeholder: string }>) {
   const { def, value, hasValue } = ctx;
   if (!hasValue) return <span className="text-muted-foreground/70">{placeholder}</span>;
-  if (def.fieldType === 'date') return <span>{new Date(String(value)).toLocaleDateString()}</span>;
+  if (def.fieldType === 'date') return <span className="tabular-nums">{new Date(String(value)).toLocaleDateString()}</span>;
   return <>{renderDisplayValue(def, value, hasValue)}</>;
 }
 
@@ -612,7 +604,7 @@ function LabeledField({ name, children }: Readonly<{ name: string; children: Rea
 function StackedDisplayContent({ ctx }: Readonly<{ ctx: FieldContext }>) {
   const { def, value, hasValue } = ctx;
   if (hasValue && def.fieldType === 'date') {
-    return <span className="text-sm">{new Date(String(value)).toLocaleDateString()}</span>;
+    return <span className="text-sm tabular-nums">{new Date(String(value)).toLocaleDateString()}</span>;
   }
   return <>{renderDisplayValue(def, value, hasValue)}</>;
 }

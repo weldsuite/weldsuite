@@ -11,14 +11,15 @@ import type { HrSelfOverview, HrSelfProfile } from '@weldsuite/app-api-client/do
 import { useMyHrClock, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
 import { MY_HR_PATHS, type MyHrPath } from '../../access';
 import { EmptyText, FieldGrid, KpiCard, KpiGrid, SectionCard } from '../../components/page-kit';
+import { useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { ErrorBanner, errorMessage, formatDate, formatDateTime, formatTime } from '../../components/shared';
 import { LeaveBalanceTiles } from './leave-balances';
 import { TabLoading } from './shared';
 import { UpcomingShiftsCard } from './shifts-card';
 
 /** Today's clock-ins read as a time, older ones as a date and time. */
-function formatSince(since: string): string {
-  return new Date(since).toDateString() === new Date().toDateString() ? formatTime(since) : formatDateTime(since);
+function formatSince(since: string, timeFormat: TimeFormat): string {
+  return new Date(since).toDateString() === new Date().toDateString() ? formatTime(since, timeFormat) : formatDateTime(since);
 }
 
 /** The overview below the header; each KPI card links to the My HR page behind it. */
@@ -111,7 +112,7 @@ export function MyOverviewTab({
               { label: t('weldhr.me.overview.profile.phone'), value: employee.phone },
               { label: t('weldhr.me.overview.profile.employeeNumber'), value: employee.employeeNumber },
               { label: t('weldhr.me.overview.profile.employmentType'), value: t(`weldhr.status.employmentType.${employee.employmentType}`) },
-              { label: t('weldhr.me.overview.profile.startDate'), value: formatDate(employee.startDate) },
+              { label: t('weldhr.me.overview.profile.startDate'), value: <span className="tabular-nums">{formatDate(employee.startDate)}</span> },
               { label: t('weldhr.me.overview.profile.location'), value: employee.location },
             ]}
           />
@@ -149,6 +150,7 @@ function KpiLink({ to, children }: Readonly<{ to: MyHrPath; children: ReactNode 
 
 function ClockCard({ clock }: Readonly<{ clock: HrSelfOverview['clock'] }>) {
   const t = useTranslations();
+  const timeFormat = useTimeFormat();
   const clockMutation = useMyHrClock();
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -174,7 +176,7 @@ function ClockCard({ clock }: Readonly<{ clock: HrSelfOverview['clock'] }>) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm">
             {clock.clockedIn && clock.since
-              ? t('weldhr.me.overview.clock.clockedInSince', { time: formatSince(clock.since) })
+              ? t('weldhr.me.overview.clock.clockedInSince', { time: formatSince(clock.since, timeFormat) })
               : t('weldhr.me.overview.clock.notClockedIn')}
           </p>
           <Button

@@ -10,7 +10,9 @@
     "./custom-field-query": "./src/custom-field-query.ts",
     "./custom-field-values": "./src/custom-field-values.ts",
     "./custom-objects": "./src/custom-objects.ts",
+    "./drive-access": "./src/drive-access.ts",
     "./files": "./src/files.ts",
+    "./folders": "./src/folders.ts",
     "./partners": "./src/partners/index.ts",
     "./workspaces": "./src/workspaces.ts"
   },

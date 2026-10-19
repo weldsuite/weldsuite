@@ -92,6 +92,7 @@ export default function MeetPeoplePage() {
         onLoadMore={handleLoadMore}
         hasMore={!!hasNextPage}
         isFetchingMore={isFetchingNextPage}
+        objectPanel={{ type: 'person' }}
       />
     </div>
   );

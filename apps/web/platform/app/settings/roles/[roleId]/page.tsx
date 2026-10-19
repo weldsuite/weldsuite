@@ -40,6 +40,18 @@ import {
   type MatrixPermission,
   type PermissionSection,
 } from '@/components/settings/app-permission-matrix';
+import {
+  roleNameProblem,
+  roleNameProblemFromError,
+  roleNameProblemKey,
+  type RoleNameProblem,
+} from '@/components/settings/role-name';
+
+/** A reserved name typed into the editor; the role's own saved name is never a problem. */
+function editedNameProblem(role: RoleDetail | null, name: string, roleId: string): RoleNameProblem | null {
+  if (!role || name.trim() === role.name) return null;
+  return roleNameProblem(name, [], roleId);
+}
 
 // ---------------------------------------------------------------------------
 // Page component
@@ -61,6 +73,8 @@ export default function RoleDetailPage() {
   // that has the object, and is saved back app-qualified.
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
+  // A name the server rejected (reserved or taken); cleared when the name is edited.
+  const [serverNameProblem, setServerNameProblem] = React.useState<RoleNameProblem | null>(null);
   const [initialGrants, setInitialGrants] = React.useState<Set<string>>(new Set());
   const [grantedPermissions, setGrantedPermissions] = React.useState<Set<string>>(new Set());
   const [grantedApps, setGrantedApps] = React.useState<Set<string>>(new Set());
@@ -108,8 +122,13 @@ export default function RoleDetailPage() {
     loadData();
   }, [loadData]);
 
+  // Reserved names are caught before saving; a duplicate is only known once
+  // the server answers.
+  const nameProblem = serverNameProblem ?? editedNameProblem(role, name, roleId);
+  const nameError = nameProblem ? t(roleNameProblemKey(nameProblem), { name: name.trim() }) : null;
+
   const handleSave = async () => {
-    if (!role?.canModify) return;
+    if (!role?.canModify || nameProblem) return;
 
     setSaving(true);
     try {
@@ -126,6 +145,11 @@ export default function RoleDetailPage() {
       toast.success(t('sweep.settings.roleDetail.updated'));
       loadData();
     } catch (error) {
+      const problem = roleNameProblemFromError(error);
+      if (problem) {
+        setServerNameProblem(problem);
+        return;
+      }
       console.error('Failed to save role:', error);
       toast.error(error instanceof Error ? error.message : t('sweep.settings.roleDetail.saveFailed'));
     } finally {
@@ -348,7 +372,7 @@ export default function RoleDetailPage() {
           </p>
         </div>
         {editable && (
-          <Button onClick={handleSave} disabled={saving || !hasChanges} size="sm" className="shadow-none">
+          <Button onClick={handleSave} disabled={saving || !hasChanges || Boolean(nameProblem)} size="sm" className="shadow-none">
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {t('sweep.settings.roleDetail.saveChanges')}
           </Button>
@@ -360,7 +384,21 @@ export default function RoleDetailPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
             <Label htmlFor="name">{t('sweep.settings.roleDetail.nameLabel')}</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setServerNameProblem(null);
+              }}
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? 'role-name-error' : undefined}
+            />
+            {nameError && (
+              <p id="role-name-error" className="text-xs text-destructive">
+                {nameError}
+              </p>
+            )}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="description">{t('sweep.settings.roleDetail.descriptionLabel')}</Label>
@@ -456,8 +494,8 @@ export default function RoleDetailPage() {
                 }
                 renderExtra={(perm, object) => (
                   <label className={cn('flex items-center gap-1.5 text-sm', editable ? 'cursor-pointer' : 'cursor-default')}>
-                    {renderCheckbox(perm, `${extraActionLabel(perm.action)} ${object.objectName}`)}
-                    <span className="text-muted-foreground">{extraActionLabel(perm.action)}</span>
+                    {renderCheckbox(perm, `${extraActionLabel(perm.action, t)} ${object.objectName}`)}
+                    <span className="text-muted-foreground">{extraActionLabel(perm.action, t)}</span>
                   </label>
                 )}
               />

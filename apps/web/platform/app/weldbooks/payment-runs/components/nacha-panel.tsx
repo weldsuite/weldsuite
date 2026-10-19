@@ -139,14 +139,14 @@ export function NachaPanel({ run, canManage }: Readonly<NachaPanelProps>) {
 
         {summary ? (
           <div className="space-y-3">
-            <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm @lg:grid-cols-2 @3xl:grid-cols-4">
               <div>
                 <dt className="text-muted-foreground">{tn.summary.fileName}</dt>
                 <dd className="break-all font-medium">{summary.fileName}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{tn.summary.effectiveDate}</dt>
-                <dd className="font-medium">{formatDate(summary.effectiveEntryDate)}</dd>
+                <dd className="font-medium tabular-nums">{formatDate(summary.effectiveEntryDate)}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">{tn.summary.payments}</dt>

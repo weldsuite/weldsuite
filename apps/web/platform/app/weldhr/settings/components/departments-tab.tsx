@@ -32,8 +32,10 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
-import { emptyIcon } from '../../components/page-kit';
+import { cn } from '@/lib/utils';
+import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
 import { ColorField } from './color-field';
+import { subtreeOf } from './department-tree';
 
 interface FormState {
   id: string | null;
@@ -93,9 +95,9 @@ export function DepartmentsTab() {
     {
       id: 'name',
       header: t('weldhr.settings.departments.name'),
-      width: 'flex-1',
+      width: HR_COL.main,
       render: (dept) => (
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span
             className="h-2.5 w-2.5 shrink-0 rounded-full border"
             style={{ backgroundColor: dept.color ?? undefined }}
@@ -103,6 +105,12 @@ export function DepartmentsTab() {
           <div className="min-w-0">
             <p className="truncate font-medium">{dept.name}</p>
             {dept.description && <p className="truncate text-xs text-muted-foreground">{dept.description}</p>}
+            {/* The parent, once the list is too narrow for its own column. */}
+            {dept.parentId && byId.get(dept.parentId) && (
+              <p className="truncate text-xs text-muted-foreground @2xl:hidden">
+                {t('weldhr.settings.departments.parent')}: {byId.get(dept.parentId)?.name}
+              </p>
+            )}
           </div>
         </div>
       ),
@@ -110,15 +118,16 @@ export function DepartmentsTab() {
     {
       id: 'parent',
       header: t('weldhr.settings.departments.parent'),
-      width: 'w-[180px]',
+      width: cn(HR_COL.fixed, HR_COL.hideMd, 'w-[140px]'),
       render: (dept) => (
-        <span className="text-muted-foreground">{dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}</span>
+        <span className="block truncate text-muted-foreground">{dept.parentId ? (byId.get(dept.parentId)?.name ?? '—') : '—'}</span>
       ),
     },
     {
       id: 'head',
       header: t('weldhr.settings.departments.head'),
-      width: 'w-[140px]',
+      // Shown from ~576px of list width, so it fits the narrow settings column.
+      width: cn(HR_COL.fixed, 'hidden @xl:block w-[120px]'),
       render: (dept) => (
         <span className="text-muted-foreground">
           {dept.headEmployeeId ? t('weldhr.settings.departments.headAssigned') : '—'}
@@ -128,31 +137,33 @@ export function DepartmentsTab() {
     {
       id: 'employeeCount',
       header: t('weldhr.settings.departments.employeeCount'),
-      width: 'w-[110px]',
+      width: cn(HR_COL.fixed, 'w-[90px]'),
       render: (dept) => <span className="tabular-nums">{dept.employeeCount}</span>,
     },
   ];
 
   return (
     <>
-      <PanelEntityList<HrDepartment>
-        items={items}
-        isLoading={isLoading}
-        error={error as Error | null}
-        columns={columns}
-        onEdit={canManage ? openEdit : undefined}
-        onDelete={canManage ? setDeleteTarget : undefined}
-        searchQuery={search}
-        onSearchChange={setSearch}
-        searchPlaceholder={t('weldhr.settings.departments.name')}
-        createButton={canManage ? { label: t('weldhr.settings.departments.add'), onClick: openCreate } : undefined}
-        emptyState={{
-          icon: emptyIcon(Building2),
-          title: t('weldhr.settings.departments.emptyTitle'),
-          description: t('weldhr.settings.departments.emptyDescription'),
-          action: canManage ? { label: t('weldhr.settings.departments.add'), onClick: openCreate } : undefined,
-        }}
-      />
+      <HrListContainer>
+        <PanelEntityList<HrDepartment>
+          items={items}
+          isLoading={isLoading}
+          error={error as Error | null}
+          columns={columns}
+          onEdit={canManage ? openEdit : undefined}
+          onDelete={canManage ? setDeleteTarget : undefined}
+          searchQuery={search}
+          onSearchChange={setSearch}
+          searchPlaceholder={t('weldhr.settings.departments.name')}
+          createButton={canManage ? { label: t('weldhr.settings.departments.add'), onClick: openCreate } : undefined}
+          emptyState={{
+            icon: emptyIcon(Building2),
+            title: t('weldhr.settings.departments.emptyTitle'),
+            description: t('weldhr.settings.departments.emptyDescription'),
+            action: canManage ? { label: t('weldhr.settings.departments.add'), onClick: openCreate } : undefined,
+          }}
+        />
+      </HrListContainer>
 
       {form && (
         <DepartmentDialog
@@ -163,7 +174,7 @@ export function DepartmentsTab() {
       )}
 
       {deleteTarget && (
-        <DeleteDepartmentDialog department={deleteTarget} onClose={() => setDeleteTarget(null)} />
+        <DeleteDepartmentDialog department={deleteTarget} departments={departments ?? []} onClose={() => setDeleteTarget(null)} />
       )}
     </>
   );
@@ -186,10 +197,15 @@ function DepartmentDialog({
   const isEdit = Boolean(state.id);
   const pending = createDept.isPending || updateDept.isPending;
 
-  const parentOptions = departments.filter((d) => d.id !== state.id);
+  // A department cannot sit under itself or anything below it (that would make a loop).
+  const ownSubtree = state.id ? subtreeOf(departments, state.id) : new Set<string>();
+  const parentOptions = departments.filter((d) => !ownSubtree.has(d.id));
+  const nameTaken = departments.some(
+    (d) => d.id !== state.id && d.name.trim().toLowerCase() === state.name.trim().toLowerCase(),
+  );
 
   async function submit() {
-    if (!state.name.trim()) return;
+    if (!state.name.trim() || nameTaken) return;
     setFailure(null);
     const payload = {
       name: state.name.trim(),
@@ -227,9 +243,11 @@ function DepartmentDialog({
             <Input
               id="dept-name"
               value={state.name}
+              aria-invalid={nameTaken}
               onChange={(e) => setState({ ...state, name: e.target.value })}
               autoFocus
             />
+            {nameTaken && <p className="text-xs text-destructive">{t('weldhr.settings.departments.nameTaken')}</p>}
           </div>
 
           <div className="space-y-1.5">
@@ -284,7 +302,7 @@ function DepartmentDialog({
           <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
             {t('weldhr.common.cancel')}
           </Button>
-          <Button type="button" onClick={() => void submit()} disabled={pending || !state.name.trim()}>
+          <Button type="button" onClick={() => void submit()} disabled={pending || !state.name.trim() || nameTaken}>
             {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {t('weldhr.common.save')}
           </Button>
@@ -294,10 +312,26 @@ function DepartmentDialog({
   );
 }
 
-function DeleteDepartmentDialog({ department, onClose }: Readonly<{ department: HrDepartment; onClose: () => void }>) {
+function DeleteDepartmentDialog({
+  department,
+  departments,
+  onClose,
+}: Readonly<{ department: HrDepartment; departments: HrDepartment[]; onClose: () => void }>) {
   const t = useTranslations();
   const deleteDept = useDeleteHrDepartment();
   const [failure, setFailure] = useState<string | null>(null);
+  const childCount = departments.filter((d) => d.parentId === department.id).length;
+  const parentName = department.parentId ? departments.find((d) => d.id === department.parentId)?.name ?? null : null;
+
+  // The server moves sub-departments up to this department's parent; say so before it happens.
+  let description = t('weldhr.settings.departments.deleteDescription', { name: department.name });
+  if (childCount > 0) {
+    description += ` ${
+      parentName
+        ? t('weldhr.settings.departments.deleteMovesChildren', { count: childCount, parent: parentName })
+        : t('weldhr.settings.departments.deleteMovesChildrenTop', { count: childCount })
+    }`;
+  }
 
   return (
     <>
@@ -305,7 +339,7 @@ function DeleteDepartmentDialog({ department, onClose }: Readonly<{ department: 
         open
         onOpenChange={(open) => !open && onClose()}
         title={t('weldhr.settings.departments.deleteTitle')}
-        description={t('weldhr.settings.departments.deleteDescription', { name: department.name })}
+        description={description}
         confirmLabel={t('weldhr.common.delete')}
         cancelLabel={t('weldhr.common.cancel')}
         variant="destructive"

@@ -1,6 +1,12 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/weldbooks/journal/[id]/page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+// A journal entry opens in the shared object panel on the journal list; the
+// old detail URL lands there with the panel expanded to fullscreen.
 export const Route = createFileRoute('/weldbooks/journal/$id/')({
-  component: PageComponent,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      href: `/weldbooks/journal?stack=journal_entry:${encodeURIComponent(params.id)}:fullscreen`,
+      replace: true,
+    });
+  },
 });

@@ -266,7 +266,31 @@ export function PermissionMatrixTable({
   );
 }
 
-/** "scope:all" → "Scope All" for the extras column. */
-export function extraActionLabel(action: string): string {
-  return action.replace(/[-:]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+/** "invite_external" → "Invite external": the fallback for an action without a translation. */
+export function humanizeAction(action: string): string {
+  const words = action.replace(/[-:_]+/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** "scope:all" / "invite_external" / "edit-self" → `scopeAll` / `inviteExternal` / `editSelf`. */
+function actionKey(action: string): string {
+  return action
+    .split(/[-:_]/)
+    .filter(Boolean)
+    .map((word, i) => (i === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join('');
+}
+
+/**
+ * Label for a non-standard action in the extras column: the translation under
+ * `settings.roles.extraActions`, else the action humanised, so a raw key such
+ * as `invite_external` never reaches the screen.
+ */
+export function extraActionLabel(action: string, t?: (key: string) => string): string {
+  if (t) {
+    const path = `settings.roles.extraActions.${actionKey(action)}`;
+    const label = t(path);
+    if (label && label !== path) return label;
+  }
+  return humanizeAction(action);
 }

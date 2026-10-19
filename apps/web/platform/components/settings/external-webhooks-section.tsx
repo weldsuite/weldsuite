@@ -100,14 +100,23 @@ interface EventPickerProps {
 
 function EventPicker({ events, selected, onToggle }: Readonly<EventPickerProps>) {
   const groups = React.useMemo(() => {
+    // An existing webhook can still list an event the picker no longer offers
+    // (a legacy name such as customer.created). Show it so it can be unticked.
+    const offered = new Set(events.map((e) => e.event))
+    const extra = selected
+      .filter((event) => !offered.has(event))
+      .map((event) => {
+        const dot = event.indexOf(".")
+        return { event, entity: event.slice(0, dot), action: event.slice(dot + 1) }
+      })
     const byEntity = new Map<string, typeof events>()
-    for (const e of events) {
+    for (const e of [...events, ...extra]) {
       const list = byEntity.get(e.entity) ?? []
       list.push(e)
       byEntity.set(e.entity, list)
     }
     return Array.from(byEntity.entries())
-  }, [events])
+  }, [events, selected])
 
   return (
     <div className="max-h-64 overflow-y-auto space-y-3 border rounded-md p-3">
@@ -428,7 +437,7 @@ export function ExternalWebhooksSection() {
                     <TableCell>
                       <StatusBadge status={webhook.status} label={ts.status[webhook.status]} />
                     </TableCell>
-                    <TableCell className="text-[13.5px] font-mono text-muted-foreground">
+                    <TableCell className={cn("text-[13.5px] tabular-nums", !webhook.lastDeliveredAt && "text-muted-foreground")}>
                       {formatDate(webhook.lastDeliveredAt) ?? ts.never}
                     </TableCell>
                     <TableCell className="text-right">
@@ -618,7 +627,7 @@ export function ExternalWebhooksSection() {
                       <TableCell className="text-xs">{delivery.responseStatus ?? "—"}</TableCell>
                       <TableCell className="text-xs">{delivery.responseTimeMs ? `${delivery.responseTimeMs}ms` : "—"}</TableCell>
                       <TableCell className="text-xs">{delivery.attemptNumber}</TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">{formatDate(delivery.createdAt)}</TableCell>
+                      <TableCell className="text-xs tabular-nums">{formatDate(delivery.createdAt)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

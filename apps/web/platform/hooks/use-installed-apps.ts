@@ -32,7 +32,13 @@ const APP_NAMES: Record<string, string> = {
   weldpass: 'WeldPass',
   weldreach: 'WeldReach',
   weldhr: 'WeldHR',
+  weldcall: 'WeldCall',
 };
+
+/** Display name of a first-party app code, or null for a code that isn't one. */
+export function getFirstPartyAppName(code: string): string | null {
+  return Object.prototype.hasOwnProperty.call(APP_NAMES, code) ? APP_NAMES[code] : null;
+}
 
 export const installedAppsKeys = {
   // Prefix used by mutation hooks to invalidate every workspace's list.

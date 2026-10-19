@@ -90,7 +90,7 @@ export function FeatureRequestCard({ request, onVoteUpdate }: Readonly<FeatureRe
         <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
           <span>{t('sweep.shared.submittedBy', { name: request.submitterName })}</span>
           <span>&bull;</span>
-          <span>{timeAgo}</span>
+          <span className="text-foreground tabular-nums">{timeAgo}</span>
         </div>
       </div>
     </div>

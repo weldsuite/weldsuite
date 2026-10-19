@@ -62,6 +62,7 @@ export function CustomersList({
         // `kind` doubles as the object-panel type — 'company' and 'person' are
         // both registered panels.
         onRowClick={(c) => openObjectPanel({ type: c.kind, id: c.id })}
+        objectPanel={{ type: (c) => c.kind }}
         onEdit={setEditing}
         onDelete={handleDelete}
         searchQuery={search}

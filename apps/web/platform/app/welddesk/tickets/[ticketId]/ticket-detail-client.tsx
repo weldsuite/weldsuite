@@ -1057,7 +1057,7 @@ function TicketSidebar({
                 </SidebarFieldRow>
               )}
               {isFieldVisible('created') && <SidebarFieldRow icon={CalendarDays} label={tp.fieldCreated}>
-                <span className="text-[13px] text-foreground h-8 flex items-center px-2 -mx-2">
+                <span className="text-[13px] text-foreground tabular-nums h-8 flex items-center px-2 -mx-2">
                   {format(new Date(ticket.date || new Date()), 'MMM d, h:mm a')}
                 </span>
               </SidebarFieldRow>}

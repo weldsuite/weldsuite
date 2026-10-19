@@ -91,6 +91,7 @@
     "./schemas/storage": "./src/schemas/storage.ts",
     "./domains/storage": "./src/domains/storage.ts",
     "./schemas/drive": "./src/schemas/drive.ts",
+    "./schemas/drive-shares": "./src/schemas/drive-shares.ts",
     "./domains/drive": "./src/domains/drive.ts",
     "./schemas/time-entries": "./src/schemas/time-entries.ts",
     "./schemas/task-tags": "./src/schemas/task-tags.ts",

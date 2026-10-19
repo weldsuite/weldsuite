@@ -1,4 +1,4 @@
-/** Attendance → Import: paste or upload a CSV, preview and validate client-side, then import. */
+/** Attendance → Import: paste or upload a CSV, preview it (parsed here, then checked by a server dry run), then import. */
 
 import { useMemo, useState } from 'react';
 import { Download, Upload } from 'lucide-react';
@@ -10,7 +10,8 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrAttendanceStatus, HrImportResult } from '@weldsuite/app-api-client/domains/weldhr';
 import type { ImportHrAttendanceInput } from '@weldsuite/app-api-client/schemas/weldhr';
-import { useImportHrAttendance } from '@/hooks/queries/use-weldhr-queries';
+import { useDebounce } from '@/hooks/use-debounce';
+import { useHrAttendanceImportCheck, useImportHrAttendance } from '@/hooks/queries/use-weldhr-queries';
 import { ErrorBanner, errorMessage } from '../../components/shared';
 import { readTextFile } from '@/lib/read-text-file';
 
@@ -63,6 +64,13 @@ type CsvColumns = {
   notes: number;
 };
 
+/** `YYYY-MM-DD` that is a real day: 2026-13-45 matches the pattern but is not one. */
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
 function cellAt(cells: string[], index: number): string {
   return index >= 0 ? (cells[index] ?? '') : '';
 }
@@ -97,7 +105,7 @@ function parseRow(cells: string[], i: number, columns: CsvColumns): ParsedRow {
   const notes = cellAt(cells, columns.notes);
 
   if (!employee) errors.push('missingEmployee');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) errors.push('missingDate');
+  if (!isCalendarDate(date)) errors.push('missingDate');
 
   const clockIn = toIsoDateTime(date, clockInRaw, 'invalidClockIn', errors);
   const clockOut = toIsoDateTime(date, clockOutRaw, 'invalidClockOut', errors);
@@ -127,6 +135,8 @@ function downloadTemplate() {
   URL.revokeObjectURL(url);
 }
 
+const PREVIEW_LIMIT = 20;
+
 export function ImportTab() {
   const t = useTranslations();
   const importAttendance = useImportHrAttendance();
@@ -155,7 +165,33 @@ export function ImportTab() {
     return lines.slice(1).map((cells, i) => parseRow(cells, i, columns));
   }, [csvText]);
 
-  const validRows = parsed.filter((r) => r.payload).map((r) => r.payload!);
+  // Rows that parse go to the server for a dry run, which knows what the browser cannot:
+  // whether the employee exists, and the time checks the import itself applies.
+  const parsedValid = useMemo(() => parsed.filter((r) => r.payload), [parsed]);
+  const validPayloads = useMemo(() => parsedValid.map((r) => r.payload!), [parsedValid]);
+  const debouncedRows = useDebounce(validPayloads, 400);
+  const { data: check, isFetching: checking } = useHrAttendanceImportCheck(debouncedRows);
+  const checkCurrent = debouncedRows === validPayloads && !checking;
+
+  /** CSV row number → why the server would refuse it. Dry-run rows are numbered by position among the parsed rows. */
+  const serverErrors = useMemo(() => {
+    const out = new Map<number, string>();
+    if (!check || !checkCurrent) return out;
+    for (const error of check.errors) {
+      const row = parsedValid[error.row - 1];
+      if (row) out.set(row.row, error.reason);
+    }
+    return out;
+  }, [check, checkCurrent, parsedValid]);
+
+  const importable = checkCurrent ? parsedValid.filter((r) => !serverErrors.has(r.row)) : [];
+
+  function rowProblems(row: ParsedRow): string[] {
+    const problems = row.errors.map((e) => t(`weldhr.attendance.import.parseErrors.${e}`));
+    const server = serverErrors.get(row.row);
+    if (server) problems.push(server);
+    return problems;
+  }
 
   function handleFile(file: File) {
     setFileName(file.name);
@@ -165,15 +201,37 @@ export function ImportTab() {
   }
 
   async function submit() {
-    if (validRows.length === 0) return;
+    if (importable.length === 0) return;
     setFailure(null);
     setResult(null);
     try {
-      const res = await importAttendance.mutateAsync({ rows: validRows });
-      setResult(res.data);
+      const res = await importAttendance.mutateAsync({ rows: importable.map((r) => r.payload!) });
+      // The server numbers rows by position in what was sent; show the CSV row numbers instead.
+      setResult({
+        ...res.data,
+        errors: res.data.errors.map((e) => ({ ...e, row: importable[e.row - 1]?.row ?? e.row })),
+      });
     } catch (err) {
       setFailure(errorMessage(err, t('weldhr.attendance.import.failed')));
     }
+  }
+
+  function renderCheck(row: ParsedRow) {
+    const problems = rowProblems(row);
+    if (problems.length > 0) {
+      return (
+        <div className="space-y-1">
+          <Badge variant="destructive">{t('weldhr.attendance.import.rowInvalid')}</Badge>
+          <ul className="space-y-0.5 text-xs text-destructive">
+            {problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+    if (!checkCurrent) return <span className="text-xs text-muted-foreground">{t('weldhr.attendance.import.checking')}</span>;
+    return <Badge variant="default">{t('weldhr.attendance.import.rowValid')}</Badge>;
   }
 
   return (
@@ -223,7 +281,11 @@ export function ImportTab() {
       <div>
         <div className="mb-2 flex items-center justify-between">
           <p className="text-sm font-medium">{t('weldhr.attendance.import.preview')}</p>
-          {parsed.length > 0 && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.import.previewHint')}</p>}
+          {parsed.length > PREVIEW_LIMIT && (
+            <p className="text-xs text-muted-foreground">
+              {t('weldhr.attendance.import.previewHint', { shown: PREVIEW_LIMIT, total: parsed.length })}
+            </p>
+          )}
         </div>
 
         {parsed.length === 0 ? (
@@ -231,7 +293,7 @@ export function ImportTab() {
             {t('weldhr.attendance.import.noRows')}
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg border">
+          <div className="overflow-x-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -240,12 +302,12 @@ export function ImportTab() {
                   <TableHead>{t('weldhr.attendance.records.form.date')}</TableHead>
                   <TableHead>{t('weldhr.attendance.records.form.clockIn')}</TableHead>
                   <TableHead>{t('weldhr.attendance.records.form.clockOut')}</TableHead>
-                  <TableHead>{t('weldhr.attendance.records.form.status')}</TableHead>
-                  <TableHead>{t('weldhr.common.status')}</TableHead>
+                  <TableHead>{t('weldhr.attendance.import.recordStatus')}</TableHead>
+                  <TableHead>{t('weldhr.attendance.import.check')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {parsed.slice(0, 20).map((row) => (
+                {parsed.slice(0, PREVIEW_LIMIT).map((row) => (
                   <TableRow key={row.row}>
                     <TableCell>{row.row}</TableCell>
                     <TableCell>{row.preview.employee || '—'}</TableCell>
@@ -253,15 +315,7 @@ export function ImportTab() {
                     <TableCell>{row.preview.clockIn || '—'}</TableCell>
                     <TableCell>{row.preview.clockOut || '—'}</TableCell>
                     <TableCell>{row.preview.status || '—'}</TableCell>
-                    <TableCell>
-                      {row.errors.length === 0 ? (
-                        <Badge variant="default">{t('weldhr.attendance.import.rowValid')}</Badge>
-                      ) : (
-                        <Badge variant="destructive" title={row.errors.map((e) => t(`weldhr.attendance.import.parseErrors.${e}`)).join('; ')}>
-                          {t('weldhr.attendance.import.rowInvalid')}
-                        </Badge>
-                      )}
-                    </TableCell>
+                    <TableCell>{renderCheck(row)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -289,10 +343,10 @@ export function ImportTab() {
       )}
 
       <div className="flex justify-end">
-        <Button onClick={() => void submit()} disabled={validRows.length === 0 || importAttendance.isPending}>
+        <Button onClick={() => void submit()} disabled={importable.length === 0 || importAttendance.isPending}>
           {importAttendance.isPending
             ? t('weldhr.attendance.import.submitting')
-            : t('weldhr.attendance.import.submit', { count: validRows.length })}
+            : t('weldhr.attendance.import.submit', { count: importable.length })}
         </Button>
       </div>
     </div>

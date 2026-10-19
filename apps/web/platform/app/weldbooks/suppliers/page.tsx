@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { Truck } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowAvatar, RowChip, RowText, RowTitle, StatusChip, type ChipTone } from '@/components/accounting/weldbooks-row-cells';
@@ -9,11 +8,13 @@ import {
   type FilterConfig,
   type ActiveFilter,
 } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useSupplierContacts } from '@/hooks/queries/use-weldbooks-1099-queries';
 import type { VendorTaxContact } from '@/lib/api/domains/weldbooks-1099';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { contactEmail, contactKindFilter, contactKindIcon, readKindFilter } from '../customers/components/contact-list-cells';
+import { QuickAddContactDialog } from '../customers/components/quick-add-contact-dialog';
 import { supplierTinStatus, type SupplierTinStatus } from './supplier-tax-status';
 
 interface SupplierRow extends VendorTaxContact {
@@ -31,7 +32,12 @@ const TIN_TONE: Record<Exclude<SupplierTinStatus, 'none'>, ChipTone> = {
 export default function AccountingSuppliersPage() {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
-  const navigate = useNavigate();
+  // A new contact is added in a popup, like WeldCRM's add company / person.
+  const [addOpen, setAddOpen] = useState(false);
+  // Each contact opens in the shared object panel (type 'weldbooks_contact'),
+  // the same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/suppliers');
   const { t } = useI18n();
   const tsp = t.accounting.suppliersPage;
   const ts = t.weldbooksUs.form1099.suppliers;
@@ -170,37 +176,45 @@ export default function AccountingSuppliersPage() {
   ];
 
   return (
-    <WeldbooksEntityList<SupplierRow>
-      items={suppliers}
-      isLoading={isLoading}
-      columns={columns}
-      onRowClick={(s) => navigate({ to: '/weldbooks/customers/$id', params: { id: s.id } })}
-      filters={filterConfigs}
-      searchQuery={search}
-      onSearchChange={setSearch}
-      activeFilters={filters}
-      onFiltersChange={setFilters}
-      searchPlaceholder={tsp.searchPlaceholder}
-      createButton={{
-        label: tsp.newSupplier,
-        onClick: () =>
-          // Same create form as customers — the role selector lets the user
-          // pick 'supplier' or 'both' at creation time.
-          navigate({ to: '/weldbooks/customers/add' }),
-      }}
-      emptyState={{
-        icon: (
-          <EmptyStateIllustration>
-            <Truck className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
-          </EmptyStateIllustration>
-        ),
-        title: tsp.noSuppliers,
-        description: tsp.emptyDescription,
-        action: {
+    <>
+      <WeldbooksEntityList<SupplierRow>
+        items={suppliers}
+        isLoading={isLoading}
+        columns={columns}
+        onRowClick={(s) => openPanel({ type: 'weldbooks_contact', id: s.id })}
+        getRowLabel={(s) => s.name}
+        filters={filterConfigs}
+        searchQuery={search}
+        onSearchChange={setSearch}
+        activeFilters={filters}
+        onFiltersChange={setFilters}
+        searchPlaceholder={tsp.searchPlaceholder}
+        createButton={{
           label: tsp.newSupplier,
-          onClick: () => navigate({ to: '/weldbooks/customers/add' }),
-        },
-      }}
-    />
+          onClick: () => setAddOpen(true),
+        }}
+        emptyState={{
+          icon: (
+            <EmptyStateIllustration>
+              <Truck className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            </EmptyStateIllustration>
+          ),
+          title: tsp.noSuppliers,
+          description: tsp.emptyDescription,
+          action: {
+            label: tsp.newSupplier,
+            onClick: () => setAddOpen(true),
+          },
+        }}
+      />
+
+      <QuickAddContactDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        role="supplier"
+        onCreated={(id) => id && openPanel({ type: 'weldbooks_contact', id })}
+        onOpenExisting={(id) => openPanel({ type: 'weldbooks_contact', id })}
+      />
+    </>
   );
 }

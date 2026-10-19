@@ -3,6 +3,8 @@
  */
 
 import type { Context } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import type { ZodIssue, ZodSchema } from 'zod';
 import { publishEntityEvent, type ActionFor, type DataFor, type EntityType } from '@weldsuite/entity-events';
 import { error } from '@weldsuite/worker-kit/response';
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -90,9 +92,85 @@ export function emitPortalConfig(c: HrContext, entity: string, id: string) {
   notifyPortal(c, { entity, action: 'updated', id, workspaceWide: true });
 }
 
+// ---------------------------------------------------------------------------
+// Request validation
+// ---------------------------------------------------------------------------
+
+/** `breakMinutes` → "Break minutes"; array indexes become "row 2" (1-based). */
+function fieldLabel(path: ReadonlyArray<string | number>): string {
+  const parts: string[] = [];
+  for (const segment of path) {
+    if (typeof segment === 'number') {
+      parts.push(`#${segment + 1}`);
+      continue;
+    }
+    const words = segment.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
+    parts.push(words);
+  }
+  const label = parts.join(' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function describeTooSmall(field: string, issue: Extract<ZodIssue, { code: 'too_small' }>): string {
+  if (issue.type === 'string') {
+    return Number(issue.minimum) <= 1 ? `${field} is required` : `${field} needs at least ${issue.minimum} characters`;
+  }
+  if (issue.type === 'array') return `${field} needs at least ${issue.minimum} item(s)`;
+  return `${field} must be ${issue.inclusive ? 'at least' : 'more than'} ${issue.minimum}`;
+}
+
+function describeTooBig(field: string, issue: Extract<ZodIssue, { code: 'too_big' }>): string {
+  if (issue.type === 'string') return `${field} can be at most ${issue.maximum} characters`;
+  if (issue.type === 'array') return `${field} can have at most ${issue.maximum} item(s)`;
+  return `${field} must be ${issue.inclusive ? 'at most' : 'less than'} ${issue.maximum}`;
+}
+
+const STRING_FORMATS: Record<string, string> = {
+  email: 'a valid email address',
+  url: 'a valid URL',
+  datetime: 'a date and time',
+};
+
+/** One readable sentence per Zod issue, instead of Zod's "Number must be greater than or equal to 0". */
+export function describeIssue(issue: ZodIssue): string {
+  const field = issue.path.length ? fieldLabel(issue.path) : 'Value';
+  switch (issue.code) {
+    case 'too_small':
+      return describeTooSmall(field, issue);
+    case 'too_big':
+      return describeTooBig(field, issue);
+    case 'invalid_type':
+      return issue.received === 'undefined' ? `${field} is required` : `${field} has the wrong type`;
+    case 'invalid_string': {
+      const format = typeof issue.validation === 'string' ? STRING_FORMATS[issue.validation] : undefined;
+      return format ? `${field} must be ${format}` : `${field}: ${issue.message}`;
+    }
+    case 'invalid_enum_value':
+      return `${field} must be one of ${issue.options.join(', ')}`;
+    default:
+      return `${field}: ${issue.message}`;
+  }
+}
+
+/**
+ * JSON body validator for the WeldHR routes. A failed body answers with the
+ * standard error envelope and readable messages, not the serialized ZodError
+ * the default `zValidator` hook sends; the raw issues stay in `details`.
+ */
+export function hrJson<T extends ZodSchema>(schema: T) {
+  return zValidator('json', schema, (result, c) => {
+    if (result.success) return undefined;
+    const messages = [...new Set(result.error.issues.map(describeIssue))];
+    return c.json({ error: { code: 'BAD_REQUEST', message: messages.join('. '), details: result.error.issues } }, 400);
+  });
+}
+
 /** Map service errors onto the standard envelope; `null` for anything else. */
 export function toHrErrorResponse(err: unknown, c: HrContext): Response | null {
-  if (err instanceof HrNotFoundError) return error.notFound(c, err.resource, err.id);
+  if (err instanceof HrNotFoundError) {
+    if (err.userMessage) return c.json({ error: { code: 'NOT_FOUND', message: err.userMessage } }, 404);
+    return error.notFound(c, err.resource, err.id);
+  }
   if (err instanceof HrValidationError) return error.badRequest(c, err.message, err.details);
   if (err instanceof HrConflictError) return error.conflict(c, err.message);
   if (err instanceof HrPayrollError) {

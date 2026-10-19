@@ -127,7 +127,7 @@ app.delete('/:id', requireScope('social_posts:write'), async (c) => {
   // PostPeer for this workspace, and cancelDeliveryBeforeDelete only swallows
   // the "already live, can't be recalled" case — everything else it rethrows,
   // and the row must not be deleted while the schedule might still be live.
-  const deleteOrgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+  const deleteOrgId = await resolveClerkOrgId(c.env, c.get('apiSession').workspaceId);
   if (!deleteOrgId) {
     return error.internal(c, 'Workspace is not linked to an organization');
   }
@@ -238,7 +238,7 @@ async function publishOrSchedule(
     .limit(1);
   if (!row) return error.notFound(c, 'SocialPost', id);
 
-  const orgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+  const orgId = await resolveClerkOrgId(c.env, c.get('apiSession').workspaceId);
   if (!orgId) {
     return error.internal(c, 'Workspace is not linked to an organization');
   }
@@ -299,7 +299,7 @@ app.post('/:id/cancel', requireScope('social_posts:write'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
 
-  const orgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+  const orgId = await resolveClerkOrgId(c.env, c.get('apiSession').workspaceId);
   if (!orgId) {
     return error.internal(c, 'Workspace is not linked to an organization');
   }

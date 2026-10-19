@@ -594,7 +594,7 @@ function renderDateCell(ctx: CellRenderCtx) {
     const text = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : null;
     return (
       <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact}>
-        {text ? <span className="text-[14px] text-foreground/80 truncate">{text}</span> : null}
+        {text ? <span className="text-[14px] text-foreground tabular-nums truncate">{text}</span> : null}
       </CellWrapper>
     );
   }

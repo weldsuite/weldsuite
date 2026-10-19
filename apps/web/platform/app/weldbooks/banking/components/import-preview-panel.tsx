@@ -140,7 +140,7 @@ export function ImportPreviewPanel({ preview, bankAccount }: Readonly<ImportPrev
               <TableBody>
                 {sample.map((line, index) => (
                   <TableRow key={`${line.externalId ?? ''}:${line.date}:${line.amount}:${index}`}>
-                    <TableCell className="whitespace-nowrap">{formatDate(line.date)}</TableCell>
+                    <TableCell className="whitespace-nowrap tabular-nums">{formatDate(line.date)}</TableCell>
                     <TableCell className="max-w-[420px] truncate">{line.description || line.counterpartyName || '—'}</TableCell>
                     {showCheck ? <TableCell>{line.checkNumber ?? ''}</TableCell> : null}
                     <TableCell

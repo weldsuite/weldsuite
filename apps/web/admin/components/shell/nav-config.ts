@@ -4,6 +4,7 @@ import {
   Building2,
   Coins,
   CreditCard,
+  Database,
   Flame,
   Globe,
   Handshake,
@@ -62,6 +63,7 @@ export function getNavAreas(): NavArea[] {
   const meetAiPricing = getTranslations('host').adminMeetAiPricing;
   const planPricing = getTranslations('host').adminPlanPricing;
   const billing = getTranslations('admin').nav;
+  const databases = getTranslations('admin').nav;
   const partners = partnersCopy().nav;
   return [
   {
@@ -83,6 +85,7 @@ export function getNavAreas(): NavArea[] {
           { title: 'Warmup network', href: '/warmup', icon: Flame },
           { title: 'Outbound mail', href: '/outbound-mail', icon: MailWarning },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
+          { title: databases.databases, href: '/databases', icon: Database },
           { title: billing.plans, href: '/plans', icon: CreditCard },
           { title: partners.jumpTo, href: '/partners', icon: Handshake },
           { title: billing.activity, href: '/activity', icon: History },
@@ -167,6 +170,18 @@ export function getNavAreas(): NavArea[] {
       {
         group: 'Tenants',
         items: [{ title: 'All Workspaces', href: '/workspaces', icon: Users }],
+      },
+    ],
+  },
+  {
+    key: 'databases',
+    name: databases.databases,
+    icon: Database,
+    href: '/databases',
+    groups: [
+      {
+        group: databases.databasesGroup,
+        items: [{ title: databases.databasesOverview, href: '/databases', icon: Database }],
       },
     ],
   },

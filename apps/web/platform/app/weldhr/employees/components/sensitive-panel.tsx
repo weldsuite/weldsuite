@@ -80,11 +80,11 @@ export function SensitivePanel({ employeeId }: Readonly<{ employeeId: string }>)
   );
 }
 
-function Field({ label, value }: Readonly<{ label: string; value: string | null | undefined }>) {
+function Field({ label, value, tabular }: Readonly<{ label: string; value: string | null | undefined; tabular?: boolean }>) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm">{value || '—'}</p>
+      <p className={tabular ? 'text-sm tabular-nums' : 'text-sm'}>{value || '—'}</p>
     </div>
   );
 }
@@ -99,7 +99,7 @@ function SensitiveView({ data, onEdit }: Readonly<{ data: HrEmployeeSensitive | 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Field label={t('weldhr.employees.detail.personalTab.fields.dateOfBirth')} value={formatDate(data?.dateOfBirth)} />
+        <Field label={t('weldhr.employees.detail.personalTab.fields.dateOfBirth')} value={formatDate(data?.dateOfBirth)} tabular />
         <Field label={t('weldhr.employees.detail.personalTab.fields.nationalId')} value={data?.nationalId} />
         <Field label={t('weldhr.employees.detail.personalTab.fields.taxId')} value={data?.taxId} />
         <Field label={t('weldhr.employees.detail.personalTab.fields.personalEmail')} value={data?.personalEmail} />

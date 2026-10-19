@@ -9,21 +9,12 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Progress } from '@weldsuite/ui/components/progress';
-import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import { Download, Plus, Star } from 'lucide-react';
 import {
   Table,
@@ -41,7 +32,7 @@ import type { BillingSubscriptionResponse, BillingInvoiceResponse, PhoneSubscrip
 import type { VoipPhoneNumber } from '@/lib/api/domains/call-intelligence';
 import type { HostDomain } from '@/lib/api/domains/weldhost';
 import { useSubscription, useInvoices, usePlanLimits, usePhoneSubscription, useCancelSubscription, useReactivateSubscription, useCreditsBalance, useCreditPackages, useBuyCredits } from '@/hooks/queries/use-billing-queries';
-import { useWorkspaceSettings, useUpdateWorkspaceSettings } from '@/hooks/queries/use-settings-queries';
+import { useWorkspaceSettings } from '@/hooks/queries/use-settings-queries';
 import { Billing } from '@/lib/api/types/apps/billing.types';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -55,27 +46,16 @@ import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { PaymentMethodsSection } from './payment-methods-section';
+import { BillingDetailsDialog } from './billing-details-dialog';
+import {
+  billingDetailsFromSettings,
+  formatBillingAddress,
+  formatBillingAmount,
+  hasPaidSubscription,
+  type WorkspaceBillingSettings,
+} from './billing-details';
 import { ManagedBillingView } from '@/components/partner/managed-billing-view';
 import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
-
-interface WorkspaceBusinessSettings {
-  email?: string;
-  legalName?: string;
-  name?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  country?: string;
-  city?: string;
-  postalCode?: string;
-  state?: string;
-  vatNumber?: string;
-}
-
-interface WorkspaceSettingsData extends WorkspaceBusinessSettings {
-  settings?: {
-    business?: WorkspaceBusinessSettings;
-  };
-}
 
 type BillingStrings = ReturnType<typeof useI18n>['t']['settings']['billing'];
 type Translate = ReturnType<typeof useTranslations>;
@@ -239,7 +219,7 @@ function buildDomainColumns(ts: BillingStrings, statusLabel: string): ColumnDef<
       cell: ({ row }) => {
         const domain = row.original;
         return (
-          <span className="text-sm text-muted-foreground">
+          <span className={`text-sm tabular-nums${domain.expiresAt ? '' : ' text-muted-foreground'}`}>
             {domain.expiresAt
               ? format(new Date(domain.expiresAt), 'MMM d, yyyy')
               : '—'}
@@ -369,20 +349,8 @@ function describePlanStatus(
   return subscription?.status || ts.accessDeniedPlans;
 }
 
-function formatBillingAddress(details: {
-  addressLine1: string;
-  city: string;
-  country: string;
-}): string {
-  if (!details.addressLine1) return '';
-  const parts = [details.addressLine1];
-  if (details.city) parts.push(details.city);
-  if (details.country) parts.push(details.country);
-  return parts.join(', ');
-}
-
 function DirectBillingSettings() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const st = useTranslations();
   const ts = t.settings.billing;
   const router = useRouter();
@@ -401,7 +369,6 @@ function DirectBillingSettings() {
   const cancelMutation = useCancelSubscription();
   const reactivateMutation = useReactivateSubscription();
   const buyCreditsMutation = useBuyCredits();
-  const updateWorkspaceMutation = useUpdateWorkspaceSettings();
 
   const creditsWallet = (creditsBalanceData?.data as { currentBalance?: number; isLow?: boolean } | undefined) ?? null;
   const creditPackages = (creditPackagesData?.data as Array<{
@@ -428,17 +395,11 @@ function DirectBillingSettings() {
   const [phoneNumbers, setPhoneNumbers] = useState<VoipPhoneNumber[]>([]);
   const [domains, setDomains] = useState<HostDomain[]>([]);
   const [billingDialogOpen, setBillingDialogOpen] = useState(false);
-  const [billingDetails, setBillingDetails] = useState({
-    email: '',
-    company: '',
-    addressLine1: '',
-    addressLine2: '',
-    country: '',
-    city: '',
-    postalCode: '',
-    state: '',
-    vatNumber: '',
-  });
+  // The card shows only what is saved; the dialog edits its own form copy.
+  const billingDetails = useMemo(
+    () => billingDetailsFromSettings(settingsData?.data as WorkspaceBillingSettings | null | undefined),
+    [settingsData],
+  );
 
   // Load phone numbers and domains
   useEffect(() => {
@@ -456,25 +417,6 @@ function DirectBillingSettings() {
       }
     });
   }, [canReadBilling, getClient]);
-
-  // Sync billing details from workspace settings
-  useEffect(() => {
-    if (settingsData?.data) {
-      const data = settingsData.data as WorkspaceSettingsData;
-      const ws = data.settings?.business || data;
-      setBillingDetails({
-        email: ws.email || '',
-        company: ws.legalName || ws.name || '',
-        addressLine1: ws.addressLine1 || '',
-        addressLine2: ws.addressLine2 || '',
-        country: ws.country || '',
-        city: ws.city || '',
-        postalCode: ws.postalCode || '',
-        state: ws.state || '',
-        vatNumber: ws.vatNumber || '',
-      });
-    }
-  }, [settingsData]);
 
   // Surface the outcome of a returning Stripe credit-topup checkout, then
   // strip the query param so a refresh doesn't re-toast.
@@ -538,36 +480,9 @@ function DirectBillingSettings() {
     }
   };
 
-  const handleUpdateBillingDetails = async () => {
-    try {
-      await updateWorkspaceMutation.mutateAsync({
-        settings: {
-          business: {
-            email: billingDetails.email,
-            legalName: billingDetails.company,
-            addressLine1: billingDetails.addressLine1,
-            addressLine2: billingDetails.addressLine2,
-            country: billingDetails.country,
-            city: billingDetails.city,
-            postalCode: billingDetails.postalCode,
-            state: billingDetails.state,
-            vatNumber: billingDetails.vatNumber,
-          },
-        },
-      });
-      toast.success(ts.messages.updateSuccess);
-      setBillingDialogOpen(false);
-    } catch {
-      toast.error(ts.messages.updateFailed);
-    }
-  };
-
-  const formatCurrency = (amount: number, currency: string = 'eur') => {
-    return new Intl.NumberFormat('nl-NL', {
-      style: 'currency',
-      currency: currency.toUpperCase(),
-    }).format(amount / 100);
-  };
+  // Amounts are in cents; format them in the UI language (en: "$0.00").
+  const formatCurrency = (amount: number, currency: string = 'eur') =>
+    formatBillingAmount(amount, currency, language);
 
   if (loading) {
     return <PageLoader fullScreen={false} />;
@@ -806,7 +721,7 @@ function DirectBillingSettings() {
                       <span className="text-sm">{formatCurrency(invoice.amount, invoice.currency)}</span>
                     </TableCell>
                     <TableCell className="h-[42px] py-0 px-3">
-                      <span className="text-sm text-muted-foreground">
+                      <span className={`text-sm tabular-nums${invoice.createdAt ? '' : ' text-muted-foreground'}`}>
                         {invoice.createdAt ? format(new Date(invoice.createdAt), 'do MMM yyyy') : '\u2014'}
                       </span>
                     </TableCell>
@@ -850,8 +765,8 @@ function DirectBillingSettings() {
         </div>
       </div>
 
-      {/* Cancel / Reactivate Subscription */}
-      {canManageBilling && subscription?.status === 'active' && (
+      {/* Cancel / Reactivate Subscription — only a paid Stripe subscription has anything to cancel. */}
+      {canManageBilling && subscription && hasPaidSubscription(subscription) && (
         <div>
           {subscription.cancelAtPeriodEnd ? (
             <Button variant="outline" onClick={handleReactivateSubscription}>
@@ -865,138 +780,12 @@ function DirectBillingSettings() {
         </div>
       )}
 
-      {/* Update Billing Details Dialog */}
-      <Dialog open={billingDialogOpen} onOpenChange={setBillingDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>{ts.updateBillingDetails}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            {/* Billing Email */}
-            <div className="space-y-2">
-              <Label htmlFor="billing-email">
-                {ts.billingEmail} <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="billing-email"
-                value={billingDetails.email}
-                onChange={(e) => setBillingDetails({ ...billingDetails, email: e.target.value })}
-                placeholder="email@example.com"
-              />
-            </div>
-
-            {/* Company */}
-            <div className="space-y-2">
-              <Label htmlFor="company">
-                {ts.companyName} <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="company"
-                value={billingDetails.company}
-                onChange={(e) => setBillingDetails({ ...billingDetails, company: e.target.value })}
-              />
-            </div>
-
-            {/* Address Line 1 */}
-            <div className="space-y-2">
-              <Label htmlFor="address1">
-                {ts.addressLine1} <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="address1"
-                value={billingDetails.addressLine1}
-                onChange={(e) => setBillingDetails({ ...billingDetails, addressLine1: e.target.value })}
-              />
-            </div>
-
-            {/* Address Line 2 */}
-            <div className="space-y-2">
-              <Label htmlFor="address2">{ts.addressLine2}</Label>
-              <Input
-                id="address2"
-                value={billingDetails.addressLine2}
-                onChange={(e) => setBillingDetails({ ...billingDetails, addressLine2: e.target.value })}
-              />
-            </div>
-
-            {/* Country & City */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="country">
-                  {ts.country} <span className="text-destructive">*</span>
-                </Label>
-                <Select
-                  value={billingDetails.country}
-                  onValueChange={(value) => setBillingDetails({ ...billingDetails, country: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t.settings.generalSettings.selectCountry} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NL">{st('sweep.settings.billingPage.countries.nl')}</SelectItem>
-                    <SelectItem value="BE">{st('sweep.settings.billingPage.countries.be')}</SelectItem>
-                    <SelectItem value="DE">{st('sweep.settings.billingPage.countries.de')}</SelectItem>
-                    <SelectItem value="FR">{st('sweep.settings.billingPage.countries.fr')}</SelectItem>
-                    <SelectItem value="GB">{st('sweep.settings.billingPage.countries.gb')}</SelectItem>
-                    <SelectItem value="US">{st('sweep.settings.billingPage.countries.us')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">
-                  {t.settings.generalSettings.city} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="city"
-                  value={billingDetails.city}
-                  onChange={(e) => setBillingDetails({ ...billingDetails, city: e.target.value })}
-                />
-              </div>
-            </div>
-
-            {/* Postal Code, State & VAT */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="postal">
-                  {t.settings.generalSettings.postalCode} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="postal"
-                  value={billingDetails.postalCode}
-                  onChange={(e) => setBillingDetails({ ...billingDetails, postalCode: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="state">{ts.state}</Label>
-                <Input
-                  id="state"
-                  value={billingDetails.state}
-                  onChange={(e) => setBillingDetails({ ...billingDetails, state: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vat">{ts.vatNumber}</Label>
-                <Input
-                  id="vat"
-                  value={billingDetails.vatNumber}
-                  onChange={(e) => setBillingDetails({ ...billingDetails, vatNumber: e.target.value })}
-                  placeholder="NL123456789B12"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3">
-            <Button variant="outline" onClick={() => setBillingDialogOpen(false)}>
-              {t.common.actions.cancel}
-            </Button>
-            <Button onClick={handleUpdateBillingDetails}>
-              {ts.updateBillingDetails}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Update Billing Details Dialog — edits its own copy of the saved details. */}
+      <BillingDetailsDialog
+        open={billingDialogOpen}
+        onOpenChange={setBillingDialogOpen}
+        details={billingDetails}
+      />
 
       {/* Buy Credits Dialog */}
       <Dialog open={buyCreditsOpen} onOpenChange={setBuyCreditsOpen}>

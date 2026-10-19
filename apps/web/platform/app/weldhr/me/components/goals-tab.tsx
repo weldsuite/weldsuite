@@ -64,7 +64,7 @@ export function MyGoalsTab() {
                     ? t('weldhr.me.goals.kpis.noTarget')
                     : t('weldhr.me.goals.kpis.target', { target: formatKpiValue(kpi.target, kpi.unit) })}
                 </p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                <p className="mt-0.5 text-[11px] tabular-nums">
                   {formatDate(kpi.periodStart)} – {formatDate(kpi.periodEnd)}
                 </p>
               </div>

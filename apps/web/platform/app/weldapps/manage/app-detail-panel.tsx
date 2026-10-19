@@ -177,7 +177,7 @@ function AppVersionsSection({
               <TableCell className="font-medium">{v.version}</TableCell>
               <TableCell className="capitalize">{v.status}</TableCell>
               <TableCell>{formatBytes(v.bundleSize)}</TableCell>
-              <TableCell>{new Date(v.createdAt).toLocaleDateString()}</TableCell>
+              <TableCell className="tabular-nums">{new Date(v.createdAt).toLocaleDateString()}</TableCell>
             </TableRow>
           ))}
         </TableBody>

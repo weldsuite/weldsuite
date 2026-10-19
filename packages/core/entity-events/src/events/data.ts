@@ -471,12 +471,24 @@ export interface FileEventData {
   mimeType?: string | null;
   /** Resulting pin state, sent on the `pinned` action. */
   isPinned?: boolean;
+  /** `shared` / `unshared`: the teammate (Clerk user id) and the role they got or lost. */
+  userId?: string;
+  role?: string;
+  /** `shared`: the role the teammate had before, null for a new share. */
+  previousRole?: string | null;
 }
 
 export interface FolderEventData {
   id: string;
   name: string;
   parentId?: string | null;
+  /** Who besides the people it is shared with may open it (`updated`). */
+  generalAccess?: string;
+  /** `shared` / `unshared`: the teammate (Clerk user id) and the role they got or lost. */
+  userId?: string;
+  role?: string;
+  /** `shared`: the role the teammate had before, null for a new share. */
+  previousRole?: string | null;
 }
 
 export interface DocEventData {

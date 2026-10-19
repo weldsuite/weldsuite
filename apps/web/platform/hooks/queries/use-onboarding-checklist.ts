@@ -62,7 +62,28 @@ const CHECKLIST_TASKS: ChecklistTask[] = [
 const onboardingChecklistKeys = {
   all: ['onboarding-checklist'] as const,
   data: () => [...onboardingChecklistKeys.all, 'data'] as const,
+  memberLimit: () => [...onboardingChecklistKeys.all, 'member-limit'] as const,
 };
+
+/** The task that cannot be done on a plan limited to a single member. */
+const INVITE_TASK_KEY = 'workspace_member_invited';
+
+/**
+ * The tasks shown for an app module: its own plus the general workspace tasks
+ * (CRM shows only its own, with no workspace-level tasks). "Invite a team
+ * member" is left out when the workspace is capped at one seat (the Free plan),
+ * so it neither shows as a step nor counts toward completion.
+ */
+export function checklistTasksFor(
+  appCode: string,
+  { seatLimit }: { seatLimit: number | null | undefined },
+): ChecklistTask[] {
+  const canInvite = seatLimit !== 1;
+  return CHECKLIST_TASKS.filter((task) => {
+    if (task.key === INVITE_TASK_KEY && !canInvite) return false;
+    return appCode === 'weldcrm' ? task.appCode === 'weldcrm' : task.appCode === appCode || task.appCode === null;
+  });
+}
 
 /**
  * Marks the checklist stale so the Getting Started card ticks off an item as
@@ -95,6 +116,24 @@ function useOnboardingChecklist() {
     staleTime: 60_000,
     // Items can be completed in another tab or by a teammate.
     refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * The workspace's enforced member limit (app-api `/member-limits`, the same
+ * number Invite Member checks). `null` when the plan is unlimited.
+ */
+function useChecklistSeatLimit() {
+  const { getClient } = useAppApiClient();
+
+  return useQuery({
+    queryKey: onboardingChecklistKeys.memberLimit(),
+    queryFn: async (): Promise<number | null> => {
+      const client = await getClient();
+      const res = await client.get<{ data?: { limit: number | null } }>('/member-limits');
+      return res?.data?.limit ?? null;
+    },
+    staleTime: 60_000,
   });
 }
 
@@ -144,8 +183,11 @@ export function useDismissOnboardingChecklist() {
  */
 export function useAppChecklistItems(appCode: string | null) {
   const { data, isLoading } = useOnboardingChecklist();
+  const { data: seatLimit, isLoading: seatLimitLoading } = useChecklistSeatLimit();
 
-  if (!appCode || isLoading || !data) {
+  // Wait for the seat limit too: otherwise a Free workspace would flash an
+  // "Invite a team member" step it cannot complete.
+  if (!appCode || isLoading || seatLimitLoading || !data) {
     return null;
   }
 
@@ -155,9 +197,7 @@ export function useAppChecklistItems(appCode: string | null) {
   }
 
   // Get tasks for this app + general tasks (CRM shows only its own — no workspace-level tasks)
-  const tasks = CHECKLIST_TASKS.filter((t) =>
-    appCode === 'weldcrm' ? t.appCode === 'weldcrm' : t.appCode === appCode || t.appCode === null
-  );
+  const tasks = checklistTasksFor(appCode, { seatLimit });
 
   const items: AppChecklistItem[] = tasks.map((task) => ({
     key: task.key,

@@ -10,13 +10,13 @@
  * ended, portal access revoked.
  */
 
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { HrChecklistTemplateItem } from '@weldsuite/db/schema';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import type { HrChecklistTemplateItem, HrEmployee } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { endAssignmentsFor } from './assignments';
 import { requireEmployee } from './employees';
-import { HrConflictError, HrNotFoundError, addDays, memberNames, todayIso } from './shared';
+import { HrConflictError, HrNotFoundError, HrValidationError, addDays, memberNames, todayIso } from './shared';
 
 const tpl = schema.hrChecklistTemplates;
 const chk = schema.hrChecklists;
@@ -140,14 +140,49 @@ export async function listChecklists(db: Database, filters: { employeeId?: strin
   });
 }
 
+/**
+ * Offboarding someone who has not started yet is refused unless forced, and
+ * offboarding needs a last working day: its tasks count back from it, and
+ * without one every task would be due today.
+ */
+function assertCanOffboard(employee: HrEmployee, input: { anchorDate?: string; force?: boolean }) {
+  const notStarted = employee.status === 'onboarding' || (employee.startDate !== null && employee.startDate > todayIso());
+  if (notStarted && !input.force) {
+    throw new HrConflictError(
+      'This employee has not started yet (still onboarding or a start date in the future). Send force: true to offboard them anyway',
+    );
+  }
+  if (!input.anchorDate && !employee.endDate) {
+    throw new HrValidationError("Set the last working day (anchorDate) or the employee's end date before starting offboarding");
+  }
+}
+
+/** The workspace login of the employee's manager, who gets the checklist's "manager" items. */
+async function managerUserIdOf(db: Database, employee: HrEmployee): Promise<string | null> {
+  if (!employee.managerId) return null;
+  const [manager] = await db
+    .select({ userId: schema.hrEmployees.userId })
+    .from(schema.hrEmployees)
+    .where(eq(schema.hrEmployees.id, employee.managerId))
+    .limit(1);
+  return manager?.userId ?? null;
+}
+
+/** Starting a checklist moves the employee to onboarding (unless already active) or offboarding. */
+function statusWhenStarting(kind: string, current: string): 'onboarding' | 'offboarding' | null {
+  if (kind === 'offboarding') return current === 'offboarding' ? null : 'offboarding';
+  return current === 'active' || current === 'onboarding' ? null : 'onboarding';
+}
+
 export async function startChecklist(
   db: Database,
   employeeId: string,
-  input: { templateId: string; anchorDate?: string },
+  input: { templateId: string; anchorDate?: string; force?: boolean },
   startedBy: string,
 ) {
   const employee = await requireEmployee(db, employeeId);
   const template = await requireTemplate(db, input.templateId);
+  if (template.kind === 'offboarding') assertCanOffboard(employee, input);
 
   const [running] = await db
     .select({ id: chk.id })
@@ -161,6 +196,8 @@ export async function startChecklist(
     (template.kind === 'onboarding' ? employee.startDate : employee.endDate) ??
     todayIso();
 
+  // The anchor stays on the checklist. An offboarding writes it to the employee's
+  // end date only when it completes (settleChecklist), so cancelling leaves no trace.
   const checklistId = generateId('hrchk');
   const [checklist] = await db
     .insert(chk)
@@ -171,27 +208,18 @@ export async function startChecklist(
       kind: template.kind,
       name: template.name,
       status: 'in_progress',
+      anchorDate: anchor,
       startedBy,
     })
     .returning();
 
-  // "manager" items go straight to the employee's manager when they have a workspace login.
-  let managerUserId: string | null = null;
-  if (employee.managerId) {
-    const [manager] = await db
-      .select({ userId: schema.hrEmployees.userId })
-      .from(schema.hrEmployees)
-      .where(eq(schema.hrEmployees.id, employee.managerId))
-      .limit(1);
-    managerUserId = manager?.userId ?? null;
-  }
-
-  const items = template.items ?? [];
+  const managerUserId = await managerUserIdOf(db, employee);
   const assigneeForRole = (role: string) => {
     if (role === 'manager') return managerUserId;
     if (role === 'employee') return employee.userId;
     return null;
   };
+  const items = template.items ?? [];
   if (items.length) {
     await db.insert(tsk).values(
       items.map((item, index) => ({
@@ -209,13 +237,40 @@ export async function startChecklist(
     );
   }
 
-  let statusPatch: 'onboarding' | 'offboarding' | null = 'offboarding';
-  if (template.kind === 'onboarding') statusPatch = employee.status === 'active' ? null : 'onboarding';
-  if (statusPatch && statusPatch !== employee.status) {
+  const statusPatch = statusWhenStarting(template.kind, employee.status);
+  if (statusPatch) {
     await db.update(schema.hrEmployees).set({ status: statusPatch, updatedAt: new Date() }).where(eq(schema.hrEmployees.id, employeeId));
   }
 
   return checklist!;
+}
+
+/**
+ * Undo the status an offboarding checklist set when it stops before it is
+ * done (cancelled or deleted): back to onboarding when an onboarding
+ * checklist is still running or the start date is still ahead, otherwise
+ * active.
+ */
+async function restoreStatusAfterOffboarding(db: Database, checklist: { id: string; employeeId: string; kind: string; status: string }) {
+  if (checklist.kind !== 'offboarding' || checklist.status === 'completed') return;
+  const employee = await requireEmployee(db, checklist.employeeId);
+  if (employee.status !== 'offboarding') return;
+  const [otherOffboarding] = await db
+    .select({ id: chk.id })
+    .from(chk)
+    .where(and(eq(chk.employeeId, employee.id), eq(chk.kind, 'offboarding'), eq(chk.status, 'in_progress'), ne(chk.id, checklist.id)))
+    .limit(1);
+  if (otherOffboarding) return;
+  const [onboarding] = await db
+    .select({ id: chk.id })
+    .from(chk)
+    .where(and(eq(chk.employeeId, employee.id), eq(chk.kind, 'onboarding'), eq(chk.status, 'in_progress')))
+    .limit(1);
+  const notStartedYet = employee.startDate !== null && employee.startDate > todayIso();
+  await db
+    .update(schema.hrEmployees)
+    .set({ status: onboarding || notStartedYet ? 'onboarding' : 'active', updatedAt: new Date() })
+    .where(eq(schema.hrEmployees.id, employee.id));
 }
 
 export async function addTask(
@@ -334,7 +389,8 @@ export async function settleChecklist(db: Database, checklistId: string): Promis
       outcome.employeeStatus = 'active';
     }
     if (checklist.kind === 'offboarding') {
-      const endDate = employee.endDate ?? todayIso();
+      // The last working day the offboarding was started with, unless HR set an end date themselves.
+      const endDate = employee.endDate ?? checklist.anchorDate ?? todayIso();
       await db
         .update(schema.hrEmployees)
         .set({ status: 'terminated', endDate, updatedAt: now })
@@ -353,19 +409,21 @@ export async function settleChecklist(db: Database, checklistId: string): Promis
 }
 
 export async function cancelChecklist(db: Database, checklistId: string) {
-  await requireChecklist(db, checklistId);
+  const existing = await requireChecklist(db, checklistId);
   const [row] = await db
     .update(chk)
     .set({ status: 'cancelled', updatedAt: new Date() })
     .where(eq(chk.id, checklistId))
     .returning();
+  await restoreStatusAfterOffboarding(db, existing);
   return row!;
 }
 
 export async function deleteChecklist(db: Database, checklistId: string) {
-  await requireChecklist(db, checklistId);
+  const existing = await requireChecklist(db, checklistId);
   await db.delete(tsk).where(eq(tsk.checklistId, checklistId));
   await db.delete(chk).where(eq(chk.id, checklistId));
+  await restoreStatusAfterOffboarding(db, existing);
 }
 
 /** Seed a sensible first onboarding + offboarding template for a new workspace. */

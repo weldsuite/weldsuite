@@ -10,20 +10,24 @@ const PAGE_PADDING_CLASS = 'px-4 md:px-6 pt-4 md:pt-[72px] pb-8';
 
 // Pick the content wrapper classes for the current settings page.
 function getContentWrapperClassName(pathname: string): string {
-  // Member detail, integrations listing + detail, new number page: full width
+  // Member detail, integrations listing + detail, new number page, an entity's
+  // invoice templates + their designer: full width
   if (
     /^\/settings\/team\/[^/]+$/.test(pathname) ||
     pathname === '/settings/integrations' ||
     /^\/settings\/integrations\/[^/]+$/.test(pathname) ||
-    pathname === '/settings/apps/phone-numbers/new-number'
+    pathname === '/settings/apps/phone-numbers/new-number' ||
+    /^\/settings\/entities\/[^/]+\/invoice-templates(\/[^/]+)?$/.test(pathname)
   ) {
     return FULL_WIDTH_CLASS;
   }
   // Plans page - allow internal width control
   if (pathname === '/settings/plans') return PAGE_PADDING_CLASS;
   // Every other settings page: one fixed column width. `w-full` matters, the
-  // wrapper is a flex item and would otherwise shrink to its content.
-  return `${PAGE_PADDING_CLASS} w-full max-w-[715px] mx-auto`;
+  // wrapper is a flex item and would otherwise shrink to its content;
+  // `min-w-0` keeps a wide child (table, chart, preview) from pushing it past
+  // the column, so the page clips or scrolls inside its own boxes instead.
+  return `${PAGE_PADDING_CLASS} w-full min-w-0 max-w-[715px] mx-auto`;
 }
 
 /**

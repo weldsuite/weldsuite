@@ -41,6 +41,7 @@ import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   ObjectPanelTabs,
   useObjectPanel,
+  useObjectPanelNavigationSource,
   useObjectPanelShell,
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
@@ -56,6 +57,8 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { MemberPropertyRow, PropertyRow } from '@/components/objects/_shared/property-row';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { ComingSoonTab } from '@/components/objects/_shared/coming-soon-tab';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -99,10 +102,10 @@ function opportunityInitial(name: string): string {
 }
 
 function OpportunityAvatar({ opportunity }: Readonly<{ opportunity?: Opportunity }>) {
-  if (!opportunity) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
+  if (!opportunity) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
   return (
-    <Avatar className="h-7 w-7 rounded-lg border border-border">
-      <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+    <Avatar className="size-[22px] !rounded-[8px] border border-border">
+      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
         {opportunityInitial(opportunity.name)}
       </AvatarFallback>
     </Avatar>
@@ -386,9 +389,15 @@ function formatDate(iso: string | undefined): string | null {
 export function OpportunityDetailsTab({
   opportunity,
   onUpdateField,
+  onUpdateFieldAsync,
 }: Readonly<{
   opportunity: Opportunity;
   onUpdateField: (patch: Partial<Opportunity>) => void;
+  /**
+   * Awaitable save, for the custom field rows (they report a failed save
+   * themselves). Custom fields render only when this is given.
+   */
+  onUpdateFieldAsync?: (patch: Partial<Opportunity>) => Promise<void>;
 }>) {
   const t = useTranslations();
   const statusOptions = useMemo(() => getStatusOptions(t), [t]);
@@ -501,6 +510,7 @@ export function OpportunityDetailsTab({
         icon={Calendar}
         label={t('sweep.entities.fieldActualClose')}
         value={formatDate(opportunity.actualCloseDate)}
+        tabular
         readOnly
       />
       <MemberPropertyRow
@@ -544,6 +554,7 @@ export function OpportunityDetailsTab({
         icon={Calendar}
         label={t('sweep.entities.fieldNextStepDate')}
         value={formatDate(opportunity.nextStepDate)}
+        tabular
         readOnly
       />
       <PropertyRow
@@ -559,6 +570,15 @@ export function OpportunityDetailsTab({
         value={opportunity.tags?.length ? opportunity.tags.join(', ') : null}
         readOnly
       />
+
+      {onUpdateFieldAsync && (
+        <CustomFieldsSidebarSection
+          entityType="opportunity"
+          values={opportunity.customFields}
+          onSave={(next) => onUpdateFieldAsync({ customFields: next })}
+          layout="row"
+        />
+      )}
     </div>
   );
 }
@@ -631,6 +651,8 @@ function OpportunityContactsTab({
     if (opportunity.primaryContactId) set.add(opportunity.primaryContactId);
     return Array.from(set);
   }, [opportunity.primaryContactId]);
+  // Previous / next in the person panel step through these contacts.
+  useObjectPanelNavigationSource({ type: 'person', ids });
 
   if (ids.length === 0) {
     return (
@@ -754,6 +776,15 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
     [opportunity, updateMut, t],
   );
 
+  // Custom fields: awaited, so the row can report a failed save itself.
+  const handleUpdateFieldAsync = useCallback(
+    async (patch: Partial<Opportunity>) => {
+      if (!opportunity) return;
+      await updateMut.mutateAsync({ id: opportunity.id, data: patch });
+    },
+    [opportunity, updateMut],
+  );
+
   const handleMarkWon = useCallback(() => {
     if (!opportunity) return;
     winMut.mutate(
@@ -778,16 +809,22 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
     );
   }, [opportunity, loseMut, t]);
 
+  // Delete asks first, like notes, tasks and files: the kebab item only opens
+  // the confirmation, the dialog's button does the DELETE.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const handleDelete = useCallback(() => {
+    if (opportunity) setConfirmDeleteOpen(true);
+  }, [opportunity]);
+  const confirmDelete = useCallback(async () => {
     if (!opportunity) return;
-    deleteMut.mutate(opportunity.id, {
-      onSuccess: () => {
-        toast.success(t('sweep.entities.opportunityDeleted'));
-        onClose();
-      },
-      onError: (err: unknown) =>
-        toast.error(err instanceof Error ? err.message : t('sweep.entities.deleteFailed')),
-    });
+    try {
+      await deleteMut.mutateAsync(opportunity.id);
+      setConfirmDeleteOpen(false);
+      toast.success(t('sweep.entities.opportunityDeleted'));
+      onClose();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('sweep.entities.deleteFailed'));
+    }
   }, [opportunity, deleteMut, onClose, t]);
 
   const initial: OpportunityTab['id'] = useMemo(() => {
@@ -824,6 +861,7 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
         <OpportunityDetailsTab
           opportunity={opportunity}
           onUpdateField={handleUpdateField}
+          onUpdateFieldAsync={handleUpdateFieldAsync}
         />
       )}
       {opportunity && activeTab === 'activity' && (
@@ -855,6 +893,17 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
             label={OPPORTUNITY_TABS.find((tab) => tab.id === activeTab)?.label ?? t('sweep.entities.comingSoon')}
           />
         )}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={t('sweep.entities.deleteDealTitle')}
+        description={t('sweep.entities.deleteDealDescription', { name: opportunity?.name ?? '' })}
+        variant="destructive"
+        confirmLabel={t('sweep.entities.delete')}
+        cancelLabel={t('sweep.entities.cancel')}
+        loading={deleteMut.isPending}
+        onConfirm={confirmDelete}
+      />
     </EntityDetailView>
   );
 }

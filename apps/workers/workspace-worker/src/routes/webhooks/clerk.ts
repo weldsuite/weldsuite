@@ -28,6 +28,7 @@ import {
   plans,
 } from '@weldsuite/db/schema/master';
 import { workspaceMembers } from '@weldsuite/db/schema';
+import { releaseRemovedMemberUserId } from '@weldsuite/db/lib/workspace-members';
 
 // ============================================================================
 // Clerk Webhook Types
@@ -509,6 +510,8 @@ async function activateInvitationMember(
   // the admin already entered a name (and possibly avatar) when sending the
   // invite. Prefer Clerk's values only when they're actually populated.
   console.log(`[Clerk Webhook] Activating invitation member ${pendingByEmail.id} (email: ${email}) for user ${userId} (role: ${preservedRole}, memberType: ${pendingByEmail.memberType})`);
+  // A returning member's removed row still holds their user id.
+  await releaseRemovedMemberUserId(tenantDb, userId);
   await tenantDb
     .update(workspaceMembers)
     .set({
@@ -538,6 +541,7 @@ async function insertFirstOrNewMember(
     .where(isNull(workspaceMembers.deletedAt));
   const insertRole = memberCount === 0 ? 'OWNER' : role;
   console.log(`[Clerk Webhook] No existing member found for user ${userId} / email ${email}, creating new ACTIVE member (role: ${insertRole}, existingCount: ${memberCount})`);
+  await releaseRemovedMemberUserId(tenantDb, userId);
   await tenantDb.insert(workspaceMembers).values({
     id: generateId('mbr'),
     userId, email, name, picture, role: insertRole,
@@ -894,6 +898,12 @@ async function handleInvitationAccepted(
     if (duplicate) {
       console.log(`[Clerk Webhook] Merging duplicate ACTIVE member ${duplicate.id} into invitation member ${pending.id} for invitation ${invitation.id}`);
       const preservedRole = pending.role === 'OWNER' || duplicate.role === 'OWNER' ? 'OWNER' : (duplicate.role ?? pending.role);
+      // Retire the duplicate first and free its user id: both rows can't hold it.
+      await tenantDb
+        .update(workspaceMembers)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(workspaceMembers.id, duplicate.id));
+      await releaseRemovedMemberUserId(tenantDb, duplicate.userId);
       await tenantDb
         .update(workspaceMembers)
         .set({
@@ -908,10 +918,6 @@ async function handleInvitationAccepted(
           updatedAt: new Date(),
         })
         .where(eq(workspaceMembers.id, pending.id));
-      await tenantDb
-        .update(workspaceMembers)
-        .set({ deletedAt: new Date(), updatedAt: new Date() })
-        .where(eq(workspaceMembers.id, duplicate.id));
     } else {
       console.log(`[Clerk Webhook] Invitation ${invitation.id} accepted, updating member ${pending.id} to ACTIVE`);
       await tenantDb

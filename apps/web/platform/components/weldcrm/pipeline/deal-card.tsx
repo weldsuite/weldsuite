@@ -234,7 +234,7 @@ export function DealCard({
       <div className="flex items-center gap-2 mt-2">
         <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
         {expectedCloseDate ? (
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatDealDate(expectedCloseDate)}
           </span>
         ) : (

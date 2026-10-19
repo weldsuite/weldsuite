@@ -54,7 +54,7 @@ function RunsList() {
       header: t('weldhr.payroll.common.period'),
       width: 'flex-1',
       render: (run) => (
-        <span className="block truncate font-medium">
+        <span className="block truncate font-medium tabular-nums">
           {periodRange(run.periodStart, run.periodEnd)}
           {run.kind !== 'regular' && <span className="ml-2 text-xs font-normal text-muted-foreground">{t(`weldhr.payroll.runKind.${run.kind}`)}</span>}
         </span>
@@ -70,7 +70,7 @@ function RunsList() {
       id: 'payDate',
       header: t('weldhr.payroll.common.payDate'),
       width: 'w-[110px]',
-      render: (run) => <span className="text-muted-foreground">{formatDate(run.payDate)}</span>,
+      render: (run) => <span className="tabular-nums">{formatDate(run.payDate)}</span>,
     },
     {
       id: 'employees',

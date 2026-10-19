@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { checkVatNumber } from './vat-number';
 
 // ============================================================================
 // Workspace settings — name + slug mutations for the active workspace.
@@ -108,57 +109,74 @@ export interface DeleteWorkspaceResult {
 // fans out to the master `digest_schedules.timezone` and the Stripe customer
 // record when any billing-relevant field is present.
 //
-// `name`, `locale`, `logo` and `settings` are accepted but NOT persisted: the
-// `workspace_settings` table has no such columns, so the legacy route's
-// `...data` spread silently dropped them. They stay in the schema so existing
-// callers (app/settings/billing/page.tsx posts `{ settings: { business } }`)
-// keep getting a 200 rather than a fresh 400. The authoritative mapping is
-// `WRITABLE_BLOB_FIELDS` in apps/workers/app-api/src/services/workspace-settings.ts.
+// The object is STRICT: a key the table has no column for is a 400, never a
+// 200 that stores nothing (the Billing dialog once posted
+// `{ settings: { business } }` and was told it had saved). Lengths follow the
+// column widths in packages/core/db/src/schema/workspace-settings.ts, and the
+// VAT number is checked against `country` with the shared `checkVatNumber`
+// (./vat-number.ts) the platform forms use too. The authoritative column
+// mapping is `WRITABLE_BLOB_FIELDS` in
+// apps/workers/app-api/src/services/workspace-settings.ts.
 // ============================================================================
 
-export const updateWorkspaceSettingsInput = z.object({
-  // Accepted-and-ignored (no backing column) — see note above.
-  name: z.string().optional(),
-  locale: z.string().optional(),
-  logo: z.string().optional(),
-  settings: z.record(z.any()).optional(),
+/** Optional text column: a string up to `max`, or null to clear it. */
+const optionalText = (max: number) => z.string().max(max).nullable().optional();
 
-  // Localisation defaults.
-  timezone: z.string().optional(),
-  currency: z.string().optional(),
-  language: z.string().optional(),
-  dateFormat: z.string().optional(),
-  timeFormat: z.string().optional(),
-  theme: z.string().optional(),
+export const updateWorkspaceSettingsInput = z
+  .object({
+    // Localisation defaults.
+    timezone: z.string().optional(),
+    currency: z.string().optional(),
+    language: z.string().optional(),
+    dateFormat: z.string().optional(),
+    timeFormat: z.string().optional(),
+    theme: z.string().optional(),
 
-  // Business information.
-  legalName: z.string().nullable().optional(),
-  tradingName: z.string().nullable().optional(),
-  contactFirstName: z.string().nullable().optional(),
-  contactLastName: z.string().nullable().optional(),
-  email: z.string().nullable().optional(),
-  phone: z.string().nullable().optional(),
+    // Business information.
+    legalName: optionalText(255),
+    tradingName: optionalText(255),
+    contactFirstName: optionalText(255),
+    contactLastName: optionalText(255),
+    // Empty string clears it like null does; anything else must be an address.
+    email: z
+      .union([z.literal(''), z.string().trim().max(255).email('Invalid email address')])
+      .nullable()
+      .optional(),
+    phone: optionalText(30),
 
-  // Address.
-  addressLine1: z.string().nullable().optional(),
-  addressLine2: z.string().nullable().optional(),
-  city: z.string().nullable().optional(),
-  state: z.string().nullable().optional(),
-  postalCode: z.string().nullable().optional(),
-  country: z.string().nullable().optional(),
+    // Address.
+    addressLine1: optionalText(255),
+    addressLine2: optionalText(255),
+    city: optionalText(100),
+    state: optionalText(100),
+    postalCode: optionalText(20),
+    country: optionalText(100),
 
-  // Tax / registration.
-  vatNumber: z.string().nullable().optional(),
-  registrationNumber: z.string().nullable().optional(),
+    // Tax / registration. The VAT format is checked in the refinement below.
+    vatNumber: optionalText(50),
+    registrationNumber: optionalText(50),
 
-  // Branding.
-  logoUrl: z.string().nullable().optional(),
-  websiteUrl: z.string().nullable().optional(),
-  primaryColor: z.string().nullable().optional(),
-  accentColor: z.string().nullable().optional(),
+    // Branding.
+    logoUrl: optionalText(500),
+    websiteUrl: optionalText(500),
+    primaryColor: optionalText(20),
+    accentColor: optionalText(20),
 
-  // Extensible JSON bag (printnode integration settings live here).
-  customSettings: z.record(z.unknown()).nullable().optional(),
-});
+    // Extensible JSON bag (printnode integration settings live here).
+    customSettings: z.record(z.unknown()).nullable().optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (!data.vatNumber) return;
+    const check = checkVatNumber(data.vatNumber, data.country);
+    if (check.valid) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['vatNumber'],
+      message: check.example
+        ? `Not a valid VAT number for ${check.prefix}. Example: ${check.example}`
+        : 'Not a valid VAT / tax ID: use letters and digits only',
+    });
+  });
 
 export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsInput>;

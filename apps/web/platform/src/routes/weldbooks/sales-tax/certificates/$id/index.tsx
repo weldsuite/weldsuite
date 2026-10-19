@@ -1,6 +1,12 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/weldbooks/sales-tax/certificates/[id]/page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+// An exemption certificate opens in the shared object panel on the certificates
+// list; the old detail URL lands there with the panel expanded to fullscreen.
 export const Route = createFileRoute('/weldbooks/sales-tax/certificates/$id/')({
-  component: PageComponent,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      href: `/weldbooks/sales-tax/certificates?stack=tax_exemption_certificate:${encodeURIComponent(params.id)}:fullscreen`,
+      replace: true,
+    });
+  },
 });

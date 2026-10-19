@@ -3,7 +3,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
@@ -31,7 +30,7 @@ import {
   updateTemplate,
   type ChecklistOutcome,
 } from '../../services/weldhr/lifecycle';
-import { actor, db, emit, param, type HrContext } from './helpers';
+import { actor, hrJson, db, emit, param, type HrContext } from './helpers';
 
 export const checklistTemplatesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -39,11 +38,11 @@ checklistTemplatesRoutes.get('/', requirePermission('employees:read'), async (c)
   return success(c, await listTemplates(db(c), c.req.query('kind') || undefined));
 });
 
-checklistTemplatesRoutes.post('/', requirePermission('employees:manage'), zValidator('json', createHrChecklistTemplateSchema), async (c) => {
+checklistTemplatesRoutes.post('/', requirePermission('employees:manage'), hrJson(createHrChecklistTemplateSchema), async (c) => {
   return success(c, await createTemplate(db(c), c.req.valid('json')), 201);
 });
 
-checklistTemplatesRoutes.patch('/:templateId', requirePermission('employees:manage'), zValidator('json', updateHrChecklistTemplateSchema), async (c) => {
+checklistTemplatesRoutes.patch('/:templateId', requirePermission('employees:manage'), hrJson(updateHrChecklistTemplateSchema), async (c) => {
   return success(c, await updateTemplate(db(c), param(c, 'templateId'), c.req.valid('json')));
 });
 
@@ -81,7 +80,7 @@ checklistsRoutes.get('/', requirePermission('employees:read'), async (c) => {
 checklistsRoutes.post(
   '/',
   requirePermission('employees:update'),
-  zValidator('json', startHrChecklistSchema.extend({ employeeId: z.string().min(1).max(30) })),
+  hrJson(startHrChecklistSchema.extend({ employeeId: z.string().min(1).max(30) })),
   async (c) => {
     const { employeeId, ...input } = c.req.valid('json');
     const checklist = await startChecklist(db(c), employeeId, input, actor(c));
@@ -103,14 +102,14 @@ checklistsRoutes.delete('/:checklistId', requirePermission('employees:update'), 
   return noContent(c);
 });
 
-checklistsRoutes.post('/:checklistId/tasks', requirePermission('employees:update'), zValidator('json', createHrChecklistTaskSchema), async (c) => {
+checklistsRoutes.post('/:checklistId/tasks', requirePermission('employees:update'), hrJson(createHrChecklistTaskSchema), async (c) => {
   const checklistId = param(c, 'checklistId');
   const task = await addTask(db(c), checklistId, c.req.valid('json'));
   emit(c, 'hr_checklist', 'updated', checklistId, { employeeId: task.employeeId });
   return success(c, task, 201);
 });
 
-checklistsRoutes.patch('/tasks/:taskId', requirePermission('employees:update'), zValidator('json', updateHrChecklistTaskSchema), async (c) => {
+checklistsRoutes.patch('/tasks/:taskId', requirePermission('employees:update'), hrJson(updateHrChecklistTaskSchema), async (c) => {
   const { task, outcome } = await updateTask(db(c), param(c, 'taskId'), c.req.valid('json'), actor(c));
   emit(c, 'hr_checklist', 'updated', task.checklistId, { employeeId: task.employeeId });
   emitOutcome(c, task.checklistId, outcome);

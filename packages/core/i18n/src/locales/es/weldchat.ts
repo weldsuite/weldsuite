@@ -574,16 +574,6 @@ export const weldchat = {
     thread: {
       title: 'Hilo',
     },
-    search: {
-      placeholder: 'Buscar mensajes...',
-      searchTip: 'Escribe al menos 2 caracteres para buscar',
-      searching: 'Buscando...',
-      noResults: 'No se encontraron mensajes',
-      hasFile: 'Tiene archivo',
-      pinned: 'Anclado',
-      date: 'Fecha',
-      afterDate: 'Después de la fecha (AAAA-MM-DD):',
-    },
     inviteAgent: {
       title: 'Invitar agente al canal',
       selectAgents: 'Seleccionar agentes…',
@@ -755,8 +745,8 @@ export const weldchat = {
     },
     pipCallWidget: {
       call: 'Llamada',
-      expand: 'Expandir',
-      popOut: 'Abrir en ventana',
+      openCall: 'Abrir llamada',
+      leaveCall: 'Salir de la llamada',
     },
     clipPlayer: {
       transcriptGenerated: 'Transcripción generada',
@@ -791,6 +781,17 @@ export const weldchat = {
     bookmarksGroupBy: {
       channel: 'Canal',
       none: 'Ninguno',
+    },
+    bookmarksPage: {
+      fromHeader: 'De',
+      messageHeader: 'Mensaje',
+      conversationHeader: 'Conversación',
+      sentHeader: 'Enviado',
+      directMessage: 'Mensaje directo',
+      noContent: 'Sin texto',
+      searchPlaceholder: 'Buscar elementos guardados...',
+      noResultsTitle: 'No se encontraron elementos guardados',
+      noResultsDescription: 'Prueba otra búsqueda u otro filtro',
     },
     switchCallDialog: {
       title: '¿Salir de la llamada actual?',

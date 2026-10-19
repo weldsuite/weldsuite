@@ -438,6 +438,42 @@ export async function kickParticipants(
   );
 }
 
+export interface RtkMeetingParticipant {
+  id: string;
+  customParticipantId: string;
+  /** ISO time RealtimeKit created the participant (and its token). */
+  createdAt: string;
+}
+
+/**
+ * Every participant ever added to the meeting (each holds a token that can
+ * join it), not just the ones connected now. Pages through the whole list.
+ */
+export async function listParticipants(
+  env: CloudflareRealtimeEnv,
+  meetingId: string,
+): Promise<RtkMeetingParticipant[]> {
+  const { client, accountId, appId } = realtime(env);
+  const perPage = 100;
+  const all: RtkMeetingParticipant[] = [];
+  for (let page = 1; ; page++) {
+    const res = await call('list RTK participants', () =>
+      client.realtimeKit.meetings.getMeetingParticipants(meetingId, {
+        account_id: accountId,
+        app_id: appId,
+        page_no: page,
+        per_page: perPage,
+      }),
+    );
+    const data = res.data ?? [];
+    for (const p of data) {
+      all.push({ id: p.id, customParticipantId: p.custom_participant_id, createdAt: p.created_at });
+    }
+    const total = res.paging?.total_count ?? all.length;
+    if (data.length < perPage || all.length >= total) return all;
+  }
+}
+
 export async function removeParticipant(
   env: CloudflareRealtimeEnv,
   meetingId: string,

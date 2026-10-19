@@ -4,6 +4,8 @@ import * as React from "react";
 import {
   X,
   ChevronLeft,
+  ChevronUp,
+  ChevronDown,
   Maximize,
   Minimize,
   PanelLeftOpen,
@@ -14,6 +16,21 @@ import { cn } from "../lib/utils";
 import { Button } from "./button";
 
 export type EntityDetailMode = "panel" | "fullscreen";
+
+/**
+ * Previous / next record in the list the view was opened from. A missing
+ * handler disables its arrow (start or end of the list).
+ */
+export interface EntityDetailNavigation {
+  onPrevious?: () => void;
+  onNext?: () => void;
+  /** Accessible names. Default to English. */
+  previousLabel?: string;
+  nextLabel?: string;
+  /** Keyboard shortcuts, shown in the tooltip and as `aria-keyshortcuts`. */
+  previousShortcut?: string;
+  nextShortcut?: string;
+}
 
 export interface EntityDetailViewProps {
   /**
@@ -68,6 +85,12 @@ export interface EntityDetailViewProps {
   onToggleExpand?: () => void;
   showExpandButton?: boolean;
   showCloseButton?: boolean;
+
+  /**
+   * Up / down arrows before the expand button that step to the previous / next
+   * record. Omit to hide them (the view wasn't opened from a list).
+   */
+  navigation?: EntityDetailNavigation;
 
   // Body
   tabs?: React.ReactNode;
@@ -198,6 +221,7 @@ export function EntityDetailView(props: Readonly<EntityDetailViewProps>) {
     onToggleExpand: handleToggleExpand,
     showExpandButton: props.showExpandButton ?? canExpand,
     showCloseButton: props.showCloseButton ?? true,
+    navigation: props.navigation,
   };
 
   // Non-overlay fullscreen (route-page case) renders inline in the caller's
@@ -221,6 +245,44 @@ interface HeaderRenderProps {
   onToggleExpand: () => void;
   showExpandButton: boolean;
   showCloseButton: boolean;
+  navigation?: EntityDetailNavigation;
+}
+
+function withShortcut(label: string, shortcut: string | undefined): string {
+  return shortcut ? `${label} (${shortcut})` : label;
+}
+
+function NavigationControls({ navigation }: Readonly<{ navigation: EntityDetailNavigation }>) {
+  const previousLabel = navigation.previousLabel ?? "Previous";
+  const nextLabel = navigation.nextLabel ?? "Next";
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="size-7"
+        onClick={navigation.onPrevious}
+        disabled={!navigation.onPrevious}
+        aria-label={previousLabel}
+        aria-keyshortcuts={navigation.previousShortcut}
+        title={withShortcut(previousLabel, navigation.previousShortcut)}
+      >
+        <ChevronUp className="size-4 text-muted-foreground" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="size-7"
+        onClick={navigation.onNext}
+        disabled={!navigation.onNext}
+        aria-label={nextLabel}
+        aria-keyshortcuts={navigation.nextShortcut}
+        title={withShortcut(nextLabel, navigation.nextShortcut)}
+      >
+        <ChevronDown className="size-4 text-muted-foreground" />
+      </Button>
+    </>
+  );
 }
 
 function HeaderControls({
@@ -229,12 +291,14 @@ function HeaderControls({
   onToggleExpand,
   showExpandButton,
   showCloseButton,
+  navigation,
 }: Readonly<Pick<
   HeaderRenderProps,
-  "onClose" | "isExpanded" | "onToggleExpand" | "showExpandButton" | "showCloseButton"
+  "onClose" | "isExpanded" | "onToggleExpand" | "showExpandButton" | "showCloseButton" | "navigation"
 >>) {
   return (
     <div className="flex items-center gap-1.5">
+      {navigation && <NavigationControls navigation={navigation} />}
       {showExpandButton && (
         <Button
           variant="ghost"
@@ -281,6 +345,7 @@ function HeaderRow({
   onToggleExpand,
   showExpandButton,
   showCloseButton,
+  navigation,
 }: Readonly<HeaderRenderProps>) {
   return (
     <div
@@ -334,6 +399,7 @@ function HeaderRow({
           onToggleExpand={onToggleExpand}
           showExpandButton={showExpandButton}
           showCloseButton={showCloseButton}
+          navigation={navigation}
         />
       </div>
     </div>
@@ -375,6 +441,7 @@ function AnimatedShell({
   onToggleExpand,
   showExpandButton,
   showCloseButton,
+  navigation,
   subheader,
   tabs,
   children,
@@ -428,6 +495,7 @@ function AnimatedShell({
       onToggleExpand={onToggleExpand}
       showExpandButton={showExpandButton}
       showCloseButton={showCloseButton}
+      navigation={navigation}
     />
   );
 
@@ -985,6 +1053,7 @@ function InlineFullscreenLayout({
   onToggleExpand,
   showExpandButton,
   showCloseButton,
+  navigation,
   subheader,
   tabs,
   children,
@@ -1012,6 +1081,7 @@ function InlineFullscreenLayout({
         onToggleExpand={onToggleExpand}
         showExpandButton={showExpandButton}
         showCloseButton={showCloseButton}
+        navigation={navigation}
       />
       <FullscreenBody
         subheader={subheader}

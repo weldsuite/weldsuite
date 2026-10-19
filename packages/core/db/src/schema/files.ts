@@ -8,6 +8,7 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { folders } from './folders';
+import type { DriveGeneralAccess } from './drive-shares';
 
 export const files = pgTable('files', {
   id: varchar('id', { length: 255 }).primaryKey(),
@@ -38,6 +39,13 @@ export const files = pgTable('files', {
 
   // Visibility & flags
   isPublic: boolean('is_public').notNull().default(false),
+
+  // Who besides the owner and the people it is shared with (`drive_shares`)
+  // may open it. Drive uploads only; a module's files follow the module.
+  generalAccess: varchar('general_access', { length: 20 })
+    .$type<DriveGeneralAccess>()
+    .notNull()
+    .default('workspace_edit'),
   isStarred: boolean('is_starred').notNull().default(false),
 
   // Pinning — workspace-wide, unlike isStarred which reads as a personal flag.

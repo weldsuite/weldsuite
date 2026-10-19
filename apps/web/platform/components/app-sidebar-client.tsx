@@ -1,5 +1,5 @@
 ﻿import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, usePathname, useRouter } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { Plus, Box, Puzzle } from 'lucide-react';
@@ -29,6 +29,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
+import { applyVisibleOrder, rememberAppCodes, sortByAppOrder } from '@/lib/apps/app-rail-order';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 
@@ -179,21 +180,15 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
   // Track if component is mounted (client-side only)
   const [mounted, setMounted] = useState(false);
 
-  // Sort apps based on saved order
-  const sortApps = (apps: InstalledApp[], order: string[]): InstalledApp[] => {
-    if (!order.length) return apps;
-    return [...apps].sort((a, b) => {
-      const indexA = order.indexOf(a.appCode);
-      const indexB = order.indexOf(b.appCode);
-      if (indexA === -1 && indexB === -1) return 0;
-      if (indexA === -1) return 1;
-      if (indexB === -1) return -1;
-      return indexA - indexB;
-    });
-  };
+  // Every app code shown this session, uninstalled ones included, so a
+  // reinstalled app returns to its old slot rather than the bottom.
+  const [initialKnownOrder] = useState(() =>
+    rememberAppCodes(initialAppOrder, installedApps.map((a) => a.appCode))
+  );
+  const knownOrderRef = useRef<string[]>(initialKnownOrder);
 
   const [orderedApps, setOrderedApps] = useState<InstalledApp[]>(() =>
-    sortApps(installedApps, initialAppOrder)
+    sortByAppOrder(installedApps, initialKnownOrder)
   );
   const [activeApp, setActiveApp] = useState<InstalledApp | null>(null);
 
@@ -204,10 +199,9 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
 
   // Update when installedApps changes (e.g., new app installed)
   useEffect(() => {
-    setOrderedApps(prev => {
-      const currentOrder = prev.map(a => a.appCode);
-      return sortApps(installedApps, currentOrder);
-    });
+    const known = rememberAppCodes(knownOrderRef.current, installedApps.map((a) => a.appCode));
+    knownOrderRef.current = known;
+    setOrderedApps(sortByAppOrder(installedApps, known));
   }, [installedApps]);
 
   const sensors = useSensors(
@@ -233,6 +227,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
     const newOrder = arrayMove(orderedApps, oldIndex, newIndex);
 
     setOrderedApps(newOrder);
+    knownOrderRef.current = applyVisibleOrder(knownOrderRef.current, newOrder.map((a) => a.appCode));
 
     // Persist to backend (fire and forget) — app-api PUT /api/user-preferences
     // (was api-worker PUT /settings/preferences).

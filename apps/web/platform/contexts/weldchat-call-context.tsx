@@ -41,6 +41,40 @@ const NOISE_SUPPRESSION_ENABLED =
   import.meta.env.VITE_NOISE_SUPPRESSION !== 'false' &&
   import.meta.env.VITE_DF3_NOISE_SUPPRESSION !== 'false';
 
+const NOISE_WORKLET_URL = '/df3-worklet-processor.js';
+
+let realtimeKit: Promise<typeof import('@cloudflare/realtimekit')> | null = null;
+
+/** The RealtimeKit SDK chunk, loaded once and shared by the prefetch and every call. */
+function loadRealtimeKit(): Promise<typeof import('@cloudflare/realtimekit')> {
+  realtimeKit ??= import('@cloudflare/realtimekit').catch((err: unknown) => {
+    realtimeKit = null;
+    throw err;
+  });
+  return realtimeKit;
+}
+
+let callAssetsRequested = false;
+
+/**
+ * Download what connecting a call needs before anyone clicks: the RealtimeKit
+ * SDK chunk and the RNNoise worker + worklet. Loading them on "accept" /
+ * "call" put seconds of downloading between the click and being connected,
+ * worst on the first call after a page load. Runs once per page (on idle,
+ * and again as soon as a call rings or starts in case idle never came).
+ */
+function prefetchCallAssets(): void {
+  loadRealtimeKit().catch(() => undefined);
+  if (callAssetsRequested || !NOISE_SUPPRESSION_ENABLED) return;
+  callAssetsRequested = true;
+  for (const url of [rnnoiseWorkerUrl, NOISE_WORKLET_URL]) {
+    // Read to the end so the response lands in the HTTP cache.
+    fetch(url)
+      .then((res) => res.arrayBuffer())
+      .catch(() => undefined);
+  }
+}
+
 /** One toast for the whole reconnect: "reconnecting" is replaced by "back in the call". */
 const RECONNECT_TOAST_ID = 'weldchat-reconnecting';
 
@@ -190,6 +224,16 @@ export interface IncomingCall {
 interface JoinChatCallResponse {
   data: {
     callId: string;
+    authToken: string;
+  };
+}
+
+/** `POST /chat-calls/:id/prepare` response: a token minted while the call rings. */
+interface PrepareChatCallResponse {
+  data: {
+    callId: string;
+    channelId: string;
+    callType: string;
     authToken: string;
   };
 }
@@ -434,6 +478,43 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const statusRef = useRef<CallStatus>(status);
   useEffect(() => { statusRef.current = status; }, [status]);
 
+  // Fetch the call SDK and noise-suppression files once the shell is idle, so
+  // the first call of the session does not download them after the click.
+  useEffect(() => {
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(prefetchCallAssets, { timeout: 10_000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const timer = setTimeout(prefetchCallAssets, 3_000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const getClientRef = useRef(getClient);
+  getClientRef.current = getClient;
+
+  // RealtimeKit tokens asked for while a call rings (POST /:id/prepare), by
+  // call id. Accepting connects with it straight away instead of waiting for
+  // the server to add us to the room first. Null when preparing failed: the
+  // accept then joins the usual way.
+  const preparedJoinsRef = useRef(new Map<string, Promise<string | null>>());
+
+  const prepareJoin = useCallback((id: string) => {
+    if (preparedJoinsRef.current.has(id)) return;
+    const prepared = (async () => {
+      const client = await getClientRef.current();
+      const res = await client.post<PrepareChatCallResponse>(`/chat-calls/${id}/prepare`, {});
+      return res.data.authToken;
+    })().catch(() => null);
+    preparedJoinsRef.current.set(id, prepared);
+  }, []);
+
+  /** The prepared token for `id` (waiting for one still on its way), used once. */
+  const takePreparedJoin = useCallback((id: string): Promise<string | null> => {
+    const prepared = preparedJoinsRef.current.get(id) ?? Promise.resolve(null);
+    preparedJoinsRef.current.delete(id);
+    return prepared;
+  }, []);
+
   const handleIncomingCallEvent = useCallback(
     (event: WorkspaceEvent<{
       callId: string;
@@ -452,13 +533,17 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         callerName: event.data.callerName,
         callerAvatar: event.data.callerAvatar,
       });
+      // While it rings, get everything accepting needs: the SDK files and a
+      // token for the room. Answering is then just connecting.
+      prefetchCallAssets();
+      prepareJoin(event.data.callId);
       // Busy (in a call or meeting): it still rings, but only as the toast. The
       // status stays what the live call needs, and accepting asks to switch.
       if (statusRef.current === 'idle' || statusRef.current === 'ended') {
         setStatus('ringing-incoming');
       }
     },
-    [],
+    [prepareJoin],
   );
 
   useTopic(user?.id ? `chat.user.${user.id}` : '', handleIncomingCallEvent);
@@ -524,6 +609,42 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     };
   }, [channelId, status, user?.id]);
 
+  /** Restore getUserMedia first, then dispose the suppressor. */
+  const releaseSuppressor = useCallback(() => {
+    try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
+    suppressorRestoreRef.current = null;
+    const suppressor = suppressorRef.current;
+    suppressorRef.current = null;
+    if (suppressor) {
+      suppressor.dispose().catch((err) => console.warn('[noise] dispose error:', err));
+    }
+  }, []);
+
+  /**
+   * Start what connecting needs that does not wait for the server: the SDK
+   * download and, with the mic on, the noise suppressor (its worklet and
+   * RNNoise worker build in the background). Called from the click, so all of
+   * it overlaps the API request instead of following it. Idempotent per call.
+   *
+   * Noise suppression path: getUserMedia is monkey-patched so RTK's internal
+   * mic acquisition flows through RNNoise (initMeeting then turns off RTK's
+   * browser-level NS so we don't double-process).
+   */
+  const prepareMedia = useCallback((audioOn: boolean) => {
+    prefetchCallAssets();
+    if (!NOISE_SUPPRESSION_ENABLED || !audioOn || suppressorRef.current) return;
+    const suppressor = createRnnoiseSuppressor({
+      workerUrl: rnnoiseWorkerUrl,
+      workletUrl: NOISE_WORKLET_URL,
+      // `import.meta.env.PROD` is Vite's build-time boolean, not a turbo-tracked
+      // process.env var — eslint-plugin-turbo doesn't distinguish the two.
+      logRtf: !import.meta.env.PROD,
+    });
+    suppressor.warm();
+    suppressorRef.current = suppressor;
+    suppressorRestoreRef.current = installGetUserMediaPatch(suppressor);
+  }, []);
+
   const cleanup = useCallback(() => {
     toast.dismiss(RECONNECT_TOAST_ID);
     if (meeting) {
@@ -537,14 +658,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         .then(() => meeting.leave())
         .catch(() => { /* ignore */ });
     }
-    // Restore getUserMedia first, then dispose the suppressor.
-    try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
-    suppressorRestoreRef.current = null;
-    const suppressor = suppressorRef.current;
-    suppressorRef.current = null;
-    if (suppressor) {
-      suppressor.dispose().catch((err) => console.warn('[noise] dispose error:', err));
-    }
+    releaseSuppressor();
     setMeeting(null);
     setCallId(null);
     setChannelId(null);
@@ -559,7 +673,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setHandRaisedParticipants(new Set());
     setIsPiP(false);
     setIsFullscreen(false);
-  }, [meeting]);
+  }, [meeting, releaseSuppressor]);
 
   /**
    * Leave the RealtimeKit room ahead of telling the backend about a leave: it
@@ -586,26 +700,13 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   }, []);
 
   const initMeeting = useCallback(async (authToken: string, type: 'voice' | 'video', audioOn = true, videoOn?: boolean) => {
-    // Noise suppression path: monkey-patch getUserMedia so RTK's internal
-    // mic acquisition flows through RNNoise, and turn off RTK's browser-level
-    // NS so we don't double-process.
-    const useNoiseSuppression = NOISE_SUPPRESSION_ENABLED && audioOn;
-    if (useNoiseSuppression) {
-      const suppressor = createRnnoiseSuppressor({
-        workerUrl: rnnoiseWorkerUrl,
-        workletUrl: '/df3-worklet-processor.js',
-        // `import.meta.env.PROD` is Vite's build-time boolean, not a turbo-tracked
-        // process.env var — eslint-plugin-turbo doesn't distinguish the two.
-         
-        logRtf: !import.meta.env.PROD,
-      });
-      suppressorRef.current = suppressor;
-      suppressorRestoreRef.current = installGetUserMediaPatch(suppressor);
-    }
+    // Usually already done from the click (see prepareMedia).
+    prepareMedia(audioOn);
+    const useNoiseSuppression = suppressorRef.current !== null;
 
-    const { default: RTK } = await import('@cloudflare/realtimekit');
     let m: RealtimeKitClient;
     try {
+      const { default: RTK } = await loadRealtimeKit();
       m = await RTK.init({
         authToken,
         defaults: {
@@ -617,11 +718,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         },
       });
     } catch (err) {
-      try { suppressorRestoreRef.current?.(); } catch { /* ignore */ }
-      suppressorRestoreRef.current = null;
-      const sup = suppressorRef.current;
-      suppressorRef.current = null;
-      sup?.dispose().catch(() => undefined);
+      releaseSuppressor();
       throw err;
     }
 
@@ -670,7 +767,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     await m.join();
     setMeeting(m);
     return m;
-  }, [cleanup, fireLeaveRequest, explainUnexpectedExit]);
+  }, [cleanup, fireLeaveRequest, explainUnexpectedExit, prepareMedia, releaseSuppressor]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -685,16 +782,71 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setIsMuted(false);
     setIsVideoOff(!videoOn);
     setStatus('connecting');
-    const client = await getClient();
-    // Single round-trip: creates the meeting + joins in one request.
-    const res = await client.post<JoinChatCallResponse>('/chat-calls/start-and-join', { channelId: chId, callType: type });
-    setCallId(res.data.callId);
-    await initMeeting(res.data.authToken, type, true, videoOn);
-  }, [getClient, initMeeting]);
+    // The SDK and the noise suppressor get ready while the request runs.
+    prepareMedia(true);
+    try {
+      const client = await getClient();
+      // Single round-trip: creates the call (in the DM's standing room) + joins.
+      const res = await client.post<JoinChatCallResponse>('/chat-calls/start-and-join', { channelId: chId, callType: type });
+      setCallId(res.data.callId);
+      await initMeeting(res.data.authToken, type, true, videoOn);
+    } catch (err) {
+      releaseSuppressor();
+      throw err;
+    }
+  }, [getClient, initMeeting, prepareMedia, releaseSuppressor]);
+
+  /**
+   * Connect to a call that rang for us. With a token prepared while it rang,
+   * RealtimeKit starts connecting at once and POST /join (which reuses that
+   * participant) only records the answer, in parallel. If the join is refused
+   * (the call ended while it rang), back out of the room again.
+   */
+  const joinRungCall = useCallback(async (id: string, preparedToken: string | null, type: 'voice' | 'video') => {
+    const videoOn = type === 'video';
+    try {
+      const client = await getClient();
+      const join = client.post<JoinChatCallResponse>(`/chat-calls/${id}/join`, {});
+      if (!preparedToken) {
+        const joinRes = await join;
+        await initMeeting(joinRes.data.authToken, type, true, videoOn);
+        return;
+      }
+      const connecting = initMeeting(preparedToken, type, true, videoOn);
+      // Awaited below; marked handled so a failure while the join is pending isn't reported as unhandled.
+      connecting.catch(() => undefined);
+      try {
+        await join;
+      } catch (err) {
+        // The answer never counted, so no /leave either.
+        callIdRef.current = null;
+        const m = await connecting.catch(() => null);
+        if (m) {
+          stopLocalMediaTracks(m);
+          await Promise.resolve().then(() => m.leave()).catch(() => { /* ignore */ });
+        }
+        cleanup();
+        toast.error(getTranslations('weldchat').calling.joinFailed);
+        throw err;
+      }
+      await connecting;
+    } catch (err) {
+      releaseSuppressor();
+      throw err;
+    }
+  }, [getClient, initMeeting, cleanup, releaseSuppressor]);
 
   const doJoinCall = useCallback(async (id: string) => {
+    prepareMedia(true);
     const client = await getClient();
-    const callRes = await client.get<ChatCallDetailResponse>(`/chat-calls/${id}`);
+    // A call that is ringing for us may already have its token.
+    const [callRes, preparedToken] = await Promise.all([
+      client.get<ChatCallDetailResponse>(`/chat-calls/${id}`).catch((err: unknown) => {
+        releaseSuppressor();
+        throw err;
+      }),
+      takePreparedJoin(id),
+    ]);
     const call = callRes.data;
     const type = call.callType as 'voice' | 'video';
 
@@ -709,9 +861,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setIsMuted(false);
     setIsVideoOff(!videoOn);
     setStatus('connecting');
-    const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${id}/join`, {});
-    await initMeeting(joinRes.data.authToken, type, true, videoOn);
-  }, [getClient, initMeeting]);
+    await joinRungCall(id, preparedToken, type);
+  }, [getClient, prepareMedia, releaseSuppressor, takePreparedJoin, joinRungCall]);
 
   // The latest closures, for a switch that only starts the call after the user
   // confirmed and the current one was left: the render that left it has run by
@@ -810,21 +961,21 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const doAcceptIncomingCall = useCallback(async (ic: IncomingCall) => {
     setIncomingCall((ringing) => (ringing?.callId === ic.callId ? null : ringing));
 
-    // Skip preview for incoming calls — join immediately
-    const client = await getClient();
-    const callRes = await client.get<ChatCallDetailResponse>(`/chat-calls/${ic.callId}`);
-    const call = callRes.data;
-    const type = (call.callType || ic.callType) as 'voice' | 'video';
-
+    // Skip preview for incoming calls — join immediately. The ring carried the
+    // call's type and channel, so there is nothing to fetch first.
+    const type = ic.callType;
+    const videoOn = type === 'video';
     setCallType(type);
-    setChannelId(call.channelId || ic.channelId);
+    setChannelId(ic.channelId);
     setCallId(ic.callId);
     setIsCallInitiator(false);
+    setIsMuted(false);
+    setIsVideoOff(!videoOn);
     setStatus('connecting');
+    prepareMedia(true);
 
-    const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${ic.callId}/join`, {});
-    await initMeeting(joinRes.data.authToken, type);
-  }, [getClient, initMeeting]);
+    await joinRungCall(ic.callId, await takePreparedJoin(ic.callId), type);
+  }, [prepareMedia, takePreparedJoin, joinRungCall]);
   const doAcceptIncomingCallRef = useRef(doAcceptIncomingCall);
   doAcceptIncomingCallRef.current = doAcceptIncomingCall;
 
@@ -883,6 +1034,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
 
   const declineCall = useCallback(async () => {
     if (!incomingCall) return;
+    preparedJoinsRef.current.delete(incomingCall.callId);
     const client = await getClient();
     try {
       await client.post(`/chat-calls/${incomingCall.callId}/decline`, {});

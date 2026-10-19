@@ -3,19 +3,9 @@ import { useMemo, useCallback, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
-import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import {
   Trash2,
-  EllipsisVertical,
   ExternalLink,
   Workflow as WorkflowIcon,
 } from 'lucide-react';
@@ -31,6 +21,16 @@ import {
 } from '@/components/entity-list';
 import { WebhookStatusBadge } from './webhook-status-badge';
 import { deriveWebhookStatus, webhookDisplayName } from './webhook-utils';
+import {
+  ConnectListRow,
+  ConnectRowCell,
+  ConnectRowMenu,
+  DESTRUCTIVE_MENU_ITEM,
+  RowChip,
+  RowDate,
+  RowText,
+  RowTitle,
+} from '../components/connect-list-row';
 
 /**
  * A webhook as /api/workflow-webhooks returns it. Webhook URLs come from the
@@ -85,7 +85,6 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
     { id: 'workflow', header: wc.columnWorkflow, width: 'w-[180px]' },
     { id: 'calls', header: wc.columnCalls, width: 'w-[100px]' },
     { id: 'created', header: wc.columnCreated, width: 'w-[120px]' },
-    { id: 'actions', header: '', width: 'w-[48px] flex-shrink-0' },
   ], [wc]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -130,84 +129,66 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
   }, [deleteWebhookMutation, pendingDelete, t.weldconnect.webhooks.toasts.deleted, t.weldconnect.webhooks.toasts.deleteFailed]);
 
   const renderRow = useCallback((webhook: WebhookView) => (
-    <div
+    <ConnectListRow
       key={webhook.id}
-      className="relative flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group border-b border-gray-200/70 dark:border-border"
-    >
-      <button
-        type="button"
-        onClick={() => router.push(`/weldconnect/webhooks/${webhook.id}`)}
-        className="min-w-[200px] flex-1 min-w-0 text-left after:absolute after:inset-0 after:content-['']"
-      >
-        <span className="flex items-center gap-2 text-sm font-medium truncate">
-          <span className="truncate">{webhookDisplayName(webhook)}</span>
+      label={webhookDisplayName(webhook)}
+      onOpen={() => router.push(`/weldconnect/webhooks/${webhook.id}`)}
+      menu={
+        <ConnectRowMenu label={t.weldconnect.variables.actionsLabel}>
+          <DropdownMenuItem onClick={() => router.push(`/weldconnect/webhooks/${webhook.id}`)}>
+            <ExternalLink className="mr-2 h-4 w-4" />
+            {t.weldconnect.webhooks.actions.viewDetails}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push(`/weldconnect/workflows/${webhook.workflowId}/edit`)}>
+            <WorkflowIcon className="mr-2 h-4 w-4" />
+            {t.weldconnect.webhookDetail.openInEditor}
+          </DropdownMenuItem>
           {!webhook.isManaged && (
-            <Badge variant="outline" className="text-[10px] font-normal shrink-0">
-              {wc.notLinked}
-            </Badge>
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className={DESTRUCTIVE_MENU_ITEM}
+                onClick={() => setPendingDelete(webhook)}
+                disabled={isPending}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                {t.weldconnect.webhooks.actions.delete}
+              </DropdownMenuItem>
+            </>
           )}
+        </ConnectRowMenu>
+      }
+    >
+      <ConnectRowCell width="min-w-[200px] flex-1">
+        <span title={webhook.externalUrl} className="flex min-w-0 items-center gap-2">
+          <RowTitle chips={!webhook.isManaged ? <RowChip tone="gray">{wc.notLinked}</RowChip> : undefined}>
+            {webhookDisplayName(webhook)}
+          </RowTitle>
         </span>
-        <span className="block text-xs text-muted-foreground font-mono truncate">{webhook.externalUrl}</span>
-      </button>
+      </ConnectRowCell>
 
-      <div className="w-[110px]">
+      <ConnectRowCell width="w-[110px]">
         <WebhookStatusBadge status={deriveWebhookStatus(webhook)} />
-      </div>
+      </ConnectRowCell>
 
-      <div className="w-[180px]">
-        <span className="text-sm text-muted-foreground truncate block">
-          {webhook.workflowName || '—'}
+      <ConnectRowCell width="w-[180px]">
+        <RowText>{webhook.workflowName}</RowText>
+      </ConnectRowCell>
+
+      <ConnectRowCell width="w-[100px]">
+        <RowText className="font-mono tabular-nums">{webhook.totalCalls ?? 0}</RowText>
+      </ConnectRowCell>
+
+      <ConnectRowCell width="w-[120px]">
+        <span
+          title={webhook.lastCalledAt
+            ? wc.lastCalled.replace('{date}', new Date(webhook.lastCalledAt).toLocaleDateString())
+            : undefined}
+        >
+          <RowDate>{new Date(webhook.createdAt).toLocaleDateString()}</RowDate>
         </span>
-      </div>
-
-      <div className="w-[100px]">
-        <span className="text-sm font-mono tabular-nums">{webhook.totalCalls ?? 0}</span>
-      </div>
-
-      <div className="w-[120px]">
-        <div className="text-sm">{new Date(webhook.createdAt).toLocaleDateString()}</div>
-        {webhook.lastCalledAt && (
-          <div className="text-xs text-muted-foreground">
-            {wc.lastCalled.replace('{date}', new Date(webhook.lastCalledAt).toLocaleDateString())}
-          </div>
-        )}
-      </div>
-
-      <div className="relative z-10 w-[48px] flex-shrink-0 flex justify-end">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <EllipsisVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>{t.weldconnect.variables.actionsLabel}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => router.push(`/weldconnect/webhooks/${webhook.id}`)}>
-              <ExternalLink className="mr-0.5 h-4 w-4" />
-              {t.weldconnect.webhooks.actions.viewDetails}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push(`/weldconnect/workflows/${webhook.workflowId}/edit`)}>
-              <WorkflowIcon className="mr-0.5 h-4 w-4" />
-              {t.weldconnect.webhookDetail.openInEditor}
-            </DropdownMenuItem>
-            {!webhook.isManaged && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-destructive"
-                  onClick={() => setPendingDelete(webhook)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="mr-0.5 h-4 w-4 text-red-600 dark:text-red-400" />
-                  {t.weldconnect.webhooks.actions.delete}
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
+      </ConnectRowCell>
+    </ConnectListRow>
   ), [isPending, router, t, wc.lastCalled, wc.notLinked]);
 
   return (

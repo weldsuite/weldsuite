@@ -5,16 +5,20 @@
  * of truth for the binary; the row holds metadata + storage key.
  */
 
-import { and, desc, eq, isNotNull, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
 const { files, folders } = schema;
 
 // ============================================================================
-// Name conflict helpers (ported verbatim from api-worker drive routes)
+// Name conflict helpers
 // ============================================================================
 
+/**
+ * Names compare case-insensitively: "Report.pdf" and "REPORT.PDF" in one
+ * folder would overwrite each other once downloaded to Windows or macOS.
+ */
 export async function hasFileNameConflict(
   db: Database,
   fileName: string,
@@ -22,7 +26,7 @@ export async function hasFileNameConflict(
   excludeFileId?: string,
 ): Promise<boolean> {
   const conditions = [
-    eq(files.fileName, fileName),
+    sql`lower(${files.fileName}) = lower(${fileName})`,
     isNull(files.deletedAt),
     folderId ? eq(files.folderId, folderId) : isNull(files.folderId),
   ];
@@ -145,10 +149,25 @@ export interface UpdateFileParams {
   folderId?: string | null;
   isStarred?: boolean;
   isPublic?: boolean;
+  /** The Details panel description (HTML), kept in `metadata.description`; null or '' clears it. */
+  description?: string | null;
+  /** Who besides the people it is shared with may open it (see `./drive-access`). */
+  generalAccess?: (typeof schema.files.$inferSelect)['generalAccess'];
+}
+
+/** The description a file row carries in its metadata, or null. */
+export function fileDescription(row: Pick<typeof schema.files.$inferSelect, 'metadata'>): string | null {
+  const value = row.metadata?.description;
+  return typeof value === 'string' && value !== '' ? value : null;
 }
 
 export type UpdateFileResult =
-  | { ok: true; row: typeof schema.files.$inferSelect }
+  | {
+      ok: true;
+      row: typeof schema.files.$inferSelect;
+      /** The row as it was before this update, for the event's change list. */
+      previous: typeof schema.files.$inferSelect;
+    }
   | { ok: false; reason: 'not_found' }
   | { ok: false; reason: 'name_conflict' };
 
@@ -177,10 +196,17 @@ export async function updateFile(
   if (params.folderId !== undefined) updates.folderId = params.folderId;
   if (params.isStarred !== undefined) updates.isStarred = params.isStarred;
   if (params.isPublic !== undefined) updates.isPublic = params.isPublic;
+  if (params.generalAccess !== undefined) updates.generalAccess = params.generalAccess;
+  if (params.description !== undefined) {
+    const metadata = { ...existing.metadata };
+    delete metadata.description;
+    if (params.description) metadata.description = params.description;
+    updates.metadata = metadata;
+  }
 
   await db.update(files).set(updates).where(eq(files.id, id));
   const [row] = await db.select().from(files).where(eq(files.id, id)).limit(1);
-  return { ok: true, row: row! };
+  return { ok: true, row: row!, previous: existing };
 }
 
 export interface SoftDeleteFileResult {
@@ -314,6 +340,15 @@ export function listTrashedFiles(db: Database) {
       .where(isNotNull(files.deletedAt))
       .orderBy(desc(files.deletedAt))
   );
+}
+
+export async function getTrashedFile(db: Database, id: string) {
+  const [row] = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, id), isNotNull(files.deletedAt)))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function restoreFile(db: Database, id: string) {

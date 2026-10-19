@@ -22,7 +22,7 @@ export function PaymentDetailsView({ country, details }: Readonly<{ country: HrP
       <ValueRow label={isNl ? t('weldhr.payroll.details.bsn') : t('weldhr.payroll.details.ssn')}>
         {details.nationalIdMasked && <span className="font-mono">{details.nationalIdMasked}</span>}
       </ValueRow>
-      <ValueRow label={t('weldhr.payroll.details.dateOfBirth')}>{details.dateOfBirth ? formatDate(details.dateOfBirth) : null}</ValueRow>
+      <ValueRow label={t('weldhr.payroll.details.dateOfBirth')}>{details.dateOfBirth ? <span className="tabular-nums">{formatDate(details.dateOfBirth)}</span> : null}</ValueRow>
       <ValueRow label={t('weldhr.payroll.details.accountHolder')}>{details.bankAccountHolder}</ValueRow>
       {isNl ? (
         <ValueRow label="IBAN">

@@ -26,8 +26,8 @@ export function ProfileCard({ detail, canEdit, onEdit }: Readonly<{ detail: HrPa
     { label: t('weldhr.payroll.common.employer'), value: `${employer.name} (${t(`weldhr.payroll.country.${employer.country}`)})` },
     { label: t('weldhr.payroll.common.schedule'), value: scheduleName ?? t('weldhr.payroll.employee.profile.noSchedule') },
     { label: t('weldhr.payroll.common.status'), value: <Badge variant={profile.status === 'active' ? 'default' : 'secondary'}>{t(`weldhr.payroll.employee.profile.statuses.${profile.status}`)}</Badge> },
-    { label: t('weldhr.payroll.employee.profile.startDate'), value: formatDate(profile.startDate) },
-    { label: t('weldhr.payroll.employee.profile.endDate'), value: formatDate(profile.endDate) },
+    { label: t('weldhr.payroll.employee.profile.startDate'), value: <span className="tabular-nums">{formatDate(profile.startDate)}</span> },
+    { label: t('weldhr.payroll.employee.profile.endDate'), value: <span className="tabular-nums">{formatDate(profile.endDate)}</span> },
   ];
 
   const nl = profile.nl;

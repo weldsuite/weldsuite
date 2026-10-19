@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Search, Bookmark } from 'lucide-react';
+import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Bookmark } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
 /** Hook point for decorating a sidebar group label; currently the identity. */
@@ -220,6 +220,29 @@ interface ActiveCallRecord {
 
 type ActiveCallChannels = Map<string, { type: 'voice' | 'video'; id: string }>;
 
+/**
+ * Sidebar row props for a conversation with a live call: the green row and its
+ * join button. Shared by channel, DM and group DM rows.
+ */
+function activeCallRowProps(
+  channelId: string,
+  activeCallChannels: ActiveCallChannels,
+  joinCall: ((callId: string) => void | Promise<void>) | undefined,
+  inCallChannelId: string | null,
+): Pick<MenuItemProps, 'activeCall' | 'activeCallType' | 'activeCallId' | 'onJoinCall' | 'inCall'> {
+  const call = activeCallChannels.get(channelId);
+  if (!call) return { activeCall: false };
+  return {
+    activeCall: true,
+    inCall: channelId === inCallChannelId,
+    activeCallType: call.type,
+    activeCallId: call.id,
+    onJoinCall: joinCall ? () => {
+      if (call.id) void joinCall(call.id);
+    } : undefined,
+  };
+}
+
 interface SectionEntry {
   id: string | null;
   name: string;
@@ -235,6 +258,10 @@ interface DmActionHandlers {
   setPendingArchive: (target: PendingArchive) => void;
   /** Identity for the "DM with yourself" row (a 1:1 DM that has no other member). */
   self: SelfIdentity;
+  activeCallChannels: ActiveCallChannels;
+  joinCall: ((callId: string) => void | Promise<void>) | undefined;
+  /** Conversation of the call the user is in (or joining), if any. */
+  inCallChannelId: string | null;
 }
 
 /**
@@ -371,6 +398,7 @@ function buildDmItems(dms: DmChannel[], handlers: DmActionHandlers): MenuItemPro
       badge: toBadge(dm.unreadMentionCount || 0),
       actions: buildDmActions(dm, dmLabel, handlers),
       id: dm.id,
+      ...activeCallRowProps(dm.id, handlers.activeCallChannels, handlers.joinCall, handlers.inCallChannelId),
     };
 
     if (!target) {
@@ -585,6 +613,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   );
 
   const activeCallChannels = buildActiveCallChannels(activeCallsList ?? [], callStatus, activeCallChannelId);
+  const inCallChannelId = callStatus === 'connected' || callStatus === 'connecting' ? activeCallChannelId : null;
 
   // Auto-assign newly created channel to pending section
   const prevChannelIdsRef = React.useRef<Set<string> | null>(null);
@@ -617,13 +646,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       icon: withStatusBadge(ch.type === 'private' ? Lock : Hash, getRowStatus(ch)),
       bold: !!hasUnread,
       badge: mentionCount > 0 ? `${mentionCount}` : undefined,
-      activeCall: activeCallChannels.has(ch.id),
-      activeCallType: activeCallChannels.get(ch.id)?.type,
-      activeCallId: activeCallChannels.get(ch.id)?.id,
-      onJoinCall: activeCallChannels.has(ch.id) && joinCall ? () => {
-        const callId = activeCallChannels.get(ch.id)?.id;
-        if (callId) joinCall(callId);
-      } : undefined,
+      ...activeCallRowProps(ch.id, activeCallChannels, joinCall, inCallChannelId),
       id: ch.id,
       actions: [
         {
@@ -676,6 +699,9 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     setPendingDelete,
     setPendingArchive,
     self,
+    activeCallChannels,
+    joinCall,
+    inCallChannelId,
   });
 
   // Entity-linked channels (tasks, projects, companies, …) are intentionally
@@ -787,7 +813,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   // Build menu groups
   const menuGroups: MenuGroupProps[] = [];
 
-  // Top navigation group (Activity / Drafts / Directories / Search / Saved items) — no label header.
+  // Top navigation group (Activity / Drafts / Directories / Saved items) — no label header.
   menuGroups.push({
     group: '',
     groupKey: 'weldchat:top-nav',
@@ -811,11 +837,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         title: t.directories ?? 'Directories',
         href: '/weldchat/directories',
         icon: BookUser,
-      },
-      {
-        title: st('sweep.weldchat.sidebar.search'),
-        href: '/weldchat/search',
-        icon: Search,
       },
       {
         title: st('sweep.weldchat.sidebar.savedItems'),

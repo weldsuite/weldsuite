@@ -333,8 +333,8 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
         {/* Last edited */}
         <div>
           <label className="text-sm font-medium mb-2 block">{t.helpdesk.knowledgeEditor.lastEdited}</label>
-          <div className="text-sm text-muted-foreground flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" />
+          <div className="text-sm tabular-nums flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
             {format(article.lastUpdated, 'MMM d, yyyy')}
           </div>
         </div>

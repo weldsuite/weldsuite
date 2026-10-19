@@ -156,3 +156,48 @@ describe('/api/invoices · entity base currency', () => {
     expect(omittedBody.data.status).toBe('draft');
   });
 });
+
+describe('/api/invoices · list', () => {
+  it('GET / names the invoice each credit note credits', async () => {
+    await db.insert(schema.entities).values({
+      id: 'ent_cn_list',
+      name: 'Credit Note List Co',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+      locale: 'nl-NL',
+    });
+
+    const { request } = createTestApp('/api/invoices', invoicesRoutes, {
+      context: { permissions: permissions('invoices:create', 'invoices:read'), tenantDb: db },
+    });
+    const create = async (extra: Record<string, unknown>) => {
+      const res = await request('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Accounting-Entity-Id': 'ent_cn_list' },
+        body: JSON.stringify({
+          contactId: 'ctt_cn',
+          issueDate: '2026-04-01',
+          dueDate: '2026-04-15',
+          items: [{ description: 'Work', quantity: '1', unitPrice: '10.00' }],
+          ...extra,
+        }),
+      });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { data: { id: string } }).data.id;
+    };
+
+    const sourceId = await create({});
+    await db.update(schema.invoices).set({ invoiceNumber: 'INV-CN-SRC' }).where(eq(schema.invoices.id, sourceId));
+    await create({ type: 'credit_note', creditNoteForInvoiceId: sourceId });
+
+    const res = await request('/api/invoices?type=credit_note', {
+      headers: { 'X-Accounting-Entity-Id': 'ent_cn_list' },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { creditNoteForInvoiceId: string | null; creditNoteForInvoiceNumber: string | null }[];
+    };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]).toMatchObject({ creditNoteForInvoiceId: sourceId, creditNoteForInvoiceNumber: 'INV-CN-SRC' });
+  });
+});

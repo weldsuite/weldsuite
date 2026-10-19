@@ -4,7 +4,6 @@
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
@@ -48,7 +47,7 @@ import {
   updateShift,
 } from '../../services/weldhr/time';
 import { addDays, todayIso } from '../../services/weldhr/shared';
-import { actor, db, emit, emitPortalConfig, param } from './helpers';
+import { actor, hrJson, db, emit, emitPortalConfig, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -66,11 +65,11 @@ shiftsRoutes.get('/', requirePermission('attendance:read'), async (c) => {
   return success(c, await listShifts(db(c), { from, to, employeeId: q.employeeId || undefined, companyId: q.companyId || undefined }));
 });
 
-shiftsRoutes.post('/', requirePermission('attendance:create'), zValidator('json', createHrShiftSchema), async (c) => {
+shiftsRoutes.post('/', requirePermission('attendance:create'), hrJson(createHrShiftSchema), async (c) => {
   return success(c, await createShift(db(c), c.req.valid('json'), actor(c)), 201);
 });
 
-shiftsRoutes.patch('/:shiftId', requirePermission('attendance:update'), zValidator('json', updateHrShiftSchema), async (c) => {
+shiftsRoutes.patch('/:shiftId', requirePermission('attendance:update'), hrJson(updateHrShiftSchema), async (c) => {
   return success(c, await updateShift(db(c), param(c, 'shiftId'), c.req.valid('json')));
 });
 
@@ -115,21 +114,22 @@ attendanceRoutes.get('/summary', requirePermission('attendance:read'), async (c)
   );
 });
 
-attendanceRoutes.post('/', requirePermission('attendance:create'), zValidator('json', createHrAttendanceSchema), async (c) => {
+attendanceRoutes.post('/', requirePermission('attendance:create'), hrJson(createHrAttendanceSchema), async (c) => {
   const row = await createAttendance(db(c), c.req.valid('json'), { createdBy: actor(c) });
   emit(c, 'hr_attendance', 'created', row.id, { employeeId: row.employeeId, status: row.status });
   return success(c, row, 201);
 });
 
-attendanceRoutes.post('/import', requirePermission('attendance:create'), zValidator('json', importHrAttendanceSchema), async (c) => {
-  const result = await importAttendance(db(c), c.req.valid('json').rows, actor(c));
+attendanceRoutes.post('/import', requirePermission('attendance:create'), hrJson(importHrAttendanceSchema), async (c) => {
+  const { rows, dryRun } = c.req.valid('json');
+  const result = await importAttendance(db(c), rows, actor(c), { dryRun });
   return success(c, result);
 });
 
 attendanceRoutes.post(
   '/approve',
   requirePermission('attendance:approve'),
-  zValidator('json', z.object({ ids: z.array(z.string().min(1).max(30)).min(1).max(1000) })),
+  hrJson(z.object({ ids: z.array(z.string().min(1).max(30)).min(1).max(1000) })),
   async (c) => {
     const approved = await approveAttendance(db(c), c.req.valid('json').ids, actor(c));
     for (const row of approved) emit(c, 'hr_attendance', 'approved', row.id, { employeeId: row.employeeId });
@@ -137,7 +137,7 @@ attendanceRoutes.post(
   },
 );
 
-attendanceRoutes.patch('/:attendanceId', requirePermission('attendance:update'), zValidator('json', updateHrAttendanceSchema), async (c) => {
+attendanceRoutes.patch('/:attendanceId', requirePermission('attendance:update'), hrJson(updateHrAttendanceSchema), async (c) => {
   const row = await updateAttendance(db(c), param(c, 'attendanceId'), c.req.valid('json'));
   emit(c, 'hr_attendance', 'updated', row.id, { employeeId: row.employeeId, status: row.status });
   return success(c, row);
@@ -160,13 +160,13 @@ leaveTypesRoutes.get('/', requirePermission('leave:read', 'employees:read'), asy
   return success(c, await listLeaveTypes(db(c), c.req.query('includeInactive') === 'true'));
 });
 
-leaveTypesRoutes.post('/', requirePermission('employees:manage'), zValidator('json', createHrLeaveTypeSchema), async (c) => {
+leaveTypesRoutes.post('/', requirePermission('employees:manage'), hrJson(createHrLeaveTypeSchema), async (c) => {
   const row = await createLeaveType(db(c), c.req.valid('json'));
   emitPortalConfig(c, 'hr_leave_type', row.id);
   return success(c, row, 201);
 });
 
-leaveTypesRoutes.patch('/:leaveTypeId', requirePermission('employees:manage'), zValidator('json', updateHrLeaveTypeSchema), async (c) => {
+leaveTypesRoutes.patch('/:leaveTypeId', requirePermission('employees:manage'), hrJson(updateHrLeaveTypeSchema), async (c) => {
   const row = await updateLeaveType(db(c), param(c, 'leaveTypeId'), c.req.valid('json'));
   emitPortalConfig(c, 'hr_leave_type', row.id);
   return success(c, row);
@@ -186,7 +186,7 @@ leaveAllowancesRoutes.get('/balances/:employeeId', requirePermission('leave:read
   return success(c, await leaveBalances(db(c), param(c, 'employeeId'), year));
 });
 
-leaveAllowancesRoutes.put('/', requirePermission('leave:update'), zValidator('json', setHrLeaveAllowanceSchema), async (c) => {
+leaveAllowancesRoutes.put('/', requirePermission('leave:update'), hrJson(setHrLeaveAllowanceSchema), async (c) => {
   return success(c, await setAllowance(db(c), c.req.valid('json')));
 });
 
@@ -205,7 +205,7 @@ leaveRequestsRoutes.get('/', requirePermission('leave:read'), async (c) => {
   );
 });
 
-leaveRequestsRoutes.post('/', requirePermission('leave:create'), zValidator('json', createHrLeaveRequestSchema), async (c) => {
+leaveRequestsRoutes.post('/', requirePermission('leave:create'), hrJson(createHrLeaveRequestSchema), async (c) => {
   const row = await createLeaveRequest(db(c), c.req.valid('json'), actor(c));
   emit(c, 'hr_leave_request', row.status === 'approved' ? 'approved' : 'created', row.id, {
     employeeId: row.employeeId,
@@ -217,7 +217,7 @@ leaveRequestsRoutes.post('/', requirePermission('leave:create'), zValidator('jso
 leaveRequestsRoutes.post(
   '/:leaveRequestId/review',
   requirePermission('leave:approve'),
-  zValidator('json', reviewHrLeaveRequestSchema),
+  hrJson(reviewHrLeaveRequestSchema),
   async (c) => {
     const row = await reviewLeaveRequest(db(c), param(c, 'leaveRequestId'), c.req.valid('json'), actor(c));
     emit(c, 'hr_leave_request', row.status === 'approved' ? 'approved' : 'rejected', row.id, {

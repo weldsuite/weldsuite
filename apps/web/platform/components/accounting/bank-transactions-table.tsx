@@ -45,7 +45,7 @@ function formatAmount(amount: string, currency: string, locale?: string | null):
 
 function createDateCell(formatDate: (value: string | null | undefined) => string) {
   return function renderDateCell(t: BankLine) {
-    return <span className="text-sm">{formatDate(t.date)}</span>;
+    return <span className="text-sm tabular-nums">{formatDate(t.date)}</span>;
   };
 }
 

@@ -55,17 +55,17 @@ function SlotEditor({
   const Preview = def?.HomeRender;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="text-base">{slotIndex === 0 ? tH.settingsPage.slot1 : tH.settingsPage.slot2}</CardTitle>
+    <Card className="min-w-0">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 min-w-0">
+        <CardTitle className="min-w-0 truncate text-base">{slotIndex === 0 ? tH.settingsPage.slot1 : tH.settingsPage.slot2}</CardTitle>
         {value && (
-          <Button variant="ghost" size="sm" onClick={() => onChange(null)} className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/40">
+          <Button variant="ghost" size="sm" onClick={() => onChange(null)} className="h-7 shrink-0 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/40">
             <Trash2 className="h-3.5 w-3.5" />
             {tH.settingsPage.delete}
           </Button>
         )}
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="min-w-0 space-y-5">
         <div>
           <Label className="mb-2 block">{tH.settingsPage.pickWidget}</Label>
           <Select value={value?.widgetId ?? ''} onValueChange={handlePickWidget}>
@@ -103,14 +103,14 @@ function SlotEditor({
 
         {value && SettingsForm && Preview ? (
           <>
-            <div>
+            <div className="min-w-0">
               <Label className="mb-2 block">{tH.settingsPage.preview}</Label>
               <SettingsForm
                 value={value.settings as never}
                 onChange={(next: unknown) => onChange({ widgetId: value.widgetId, settings: next as Record<string, unknown> })}
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <Preview settings={value.settings as never} />
             </div>
           </>

@@ -109,7 +109,7 @@ export function NewsClient({
       sortable: true,
       width: '120px',
       render: (item) => (
-        <span className="text-sm">{formatDate(item.publishDate, 'MMM dd, yyyy')}</span>
+        <span className="text-sm tabular-nums">{formatDate(item.publishDate, 'MMM dd, yyyy')}</span>
       ),
     },
     {

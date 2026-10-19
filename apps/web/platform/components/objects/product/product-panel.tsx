@@ -12,7 +12,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
-import { useObjectPanel } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import {
   useCommerceProduct,
   useCommerceProductCategories,
@@ -47,6 +47,8 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   const stockRows = stock?.data ?? [];
   const movementRows = movements?.data ?? [];
   const categoryRows = categories?.data ?? [];
+  // Previous / next in the category panel step through these categories.
+  useObjectPanelNavigationSource({ type: 'category', ids: categoryRows.map((c) => c.id) });
   const salesChannels = product?.salesChannels ?? [];
   const images = product?.images ?? [];
 
@@ -121,7 +123,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
             renderRight={(m) => (
               <span className="tabular-nums">
                 {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
-                <span className="ml-2 text-muted-foreground">{formatPanelDate(m.createdAt)}</span>
+                <span className="ml-2 text-foreground">{formatPanelDate(m.createdAt)}</span>
               </span>
             )}
           />
@@ -216,7 +218,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
             <img
               src={product.featuredImageUrl}
               alt=""
-              className="h-7 w-7 rounded-lg object-cover bg-muted"
+              className="size-[22px] rounded-[8px] object-cover bg-muted"
             />
           ) : undefined
         }
@@ -270,7 +272,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
                         .join(', ')
                     : t.products.salesChannelsNone,
                 },
-                { label: t.fields.created, value: formatPanelDate(product.createdAt) },
+                { label: t.fields.created, value: formatPanelDate(product.createdAt), tabular: true },
               ]
             : []
         }

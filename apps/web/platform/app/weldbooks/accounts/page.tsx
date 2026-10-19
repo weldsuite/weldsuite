@@ -18,6 +18,7 @@ import {
   type ActiveFilter,
   type GroupConfig,
 } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -36,6 +37,10 @@ interface AccountRow {
 export default function ChartOfAccountsPage() {
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const navigate = useNavigate();
+  // Each account opens in the shared object panel (type 'ledger_account'), the
+  // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/accounts');
   const { t } = useI18n();
   const tap = t.accounting.accountsPage;
   const { formatMoney } = useCurrentEntityCurrency();
@@ -152,7 +157,8 @@ export default function ChartOfAccountsPage() {
       isLoading={isLoading}
       columns={columns}
       groups={groups}
-      onRowClick={(acc) => navigate({ to: '/weldbooks/accounts/$id', params: { id: acc.id } })}
+      onRowClick={(acc) => openPanel({ type: 'ledger_account', id: acc.id })}
+      getRowLabel={(acc) => `${acc.code} ${acc.name}`}
       filters={filterConfigs}
       activeFilters={filters}
       onFiltersChange={setFilters}

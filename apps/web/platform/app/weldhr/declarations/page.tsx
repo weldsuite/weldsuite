@@ -71,7 +71,7 @@ export default function WeldHrDeclarationsPage() {
       id: 'date',
       header: t('weldhr.declarations.table.date'),
       width: 'w-[100px]',
-      render: (d) => <span className="text-muted-foreground">{formatDate(d.expenseDate)}</span>,
+      render: (d) => <span className="tabular-nums">{formatDate(d.expenseDate)}</span>,
     },
     {
       id: 'description',

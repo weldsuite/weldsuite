@@ -239,7 +239,9 @@ export default function SequenceEditorPage() {
       setLaunchOpen(false);
       const result = await launchSequence.mutateAsync(id);
       const count = result.data?.activated || 0;
-      toast.success(t.sequenceEditorPage.launchedSuccess.replace('{count}', String(count)));
+      const message =
+        count === 1 ? t.sequenceEditorPage.launchedSuccess : t.sequenceEditorPage.launchedSuccessPlural;
+      toast.success(message.replace('{count}', String(count)));
       router.push(`/weldcrm/sequences/${id}/people`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t.sequenceEditorPage.launchFailed);

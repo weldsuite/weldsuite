@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { VatNotAvailable } from './components/vat-not-available';
 import GstReturnPage from './gst-return-page';
@@ -33,10 +32,10 @@ import {
   RowText,
   RowTitle,
   StatusChip,
-  statusTone,
-  type ChipTone,
 } from '@/components/accounting/weldbooks-row-cells';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { vatStatusTone } from '@/components/objects/vat-return/vat-return-model';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
@@ -53,18 +52,15 @@ interface VatReturnRow {
   rubrieken?: Record<string, number> | null;
 }
 
-/** A stored VAT return or ICP declaration as the list takes it: the shared status tones, plus the calculated / reviewed stages. */
-function vatStatusTone(status: string): ChipTone {
-  if (status === 'calculated' || status === 'reviewed') return 'blue';
-  return statusTone(status);
-}
-
 export default function VatReturnsPage() {
   const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
   const { features, isResolved, isError: jurisdictionError } = useCurrentJurisdiction();
   const { data, isLoading } = useAccountingVatReturns();
   const calculateMutation = useCalculateVatReturn();
-  const navigate = useNavigate();
+  // Each return opens in the shared object panel (type 'vat_return'), the
+  // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/vat');
   const { t } = useI18n();
   const st = useTranslations();
   const tv = t.accounting.vat;
@@ -294,7 +290,7 @@ export default function VatReturnsPage() {
         items={returns}
         isLoading={false}
         columns={returnColumns}
-        onRowClick={(vr) => navigate({ to: '/weldbooks/vat/$id', params: { id: vr.id } })}
+        onRowClick={(vr) => openPanel({ type: 'vat_return', id: vr.id })}
         getRowLabel={(vr) => vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}
         filters={[]}
         createButton={{ label: tv.listNewReturn, onClick: openVatDialog }}

@@ -5,6 +5,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   RowAmount,
@@ -16,7 +17,7 @@ import {
   type ChipTone,
 } from '@/components/accounting/weldbooks-row-cells';
 import { useDebounce } from '@/hooks/use-debounce';
-import { useFixedAssetRegister, useFixedAssets } from '@/hooks/queries/use-weldbooks-assets-queries';
+import { useFixedAssets } from '@/hooks/queries/use-weldbooks-assets-queries';
 import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
 import { useLoadMorePages } from '@/lib/weldbooks/use-load-more-pages';
 import {
@@ -29,7 +30,6 @@ import { useI18n } from '@/lib/i18n/provider';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
-import { fill } from './text';
 
 const PAGE_SIZE = 25;
 
@@ -46,10 +46,14 @@ export default function FixedAssetsPage() {
   const tl = fa.list;
   const common = t.weldbooksUs.assets.common;
   const navigate = useNavigate();
+  // Each asset opens in the shared object panel (type 'fixed_asset'), the same
+  // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
+  const { open: openPanel } = useObjectPanel();
+  useObjectPanelUrlSync('/weldbooks/fixed-assets');
   const { can } = usePermissions();
   const { code } = useCurrentJurisdiction();
   const isUs = isUsJurisdictionCode(code);
-  const { formatMoney, formatDate, today } = useWeldbooksFormat();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
 
   const [search, setSearch] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
@@ -80,11 +84,7 @@ export default function FixedAssetsPage() {
     [list.items, activeFilters],
   );
 
-  const asOf = today();
-  const register = useFixedAssetRegister({ asOf, book: 'book' });
-  const totals = register.data?.totals;
-
-  const openAsset = (id: string) => void navigate({ to: '/weldbooks/fixed-assets/$id', params: { id } });
+  const openAsset = (id: string) => openPanel({ type: 'fixed_asset', id });
 
   const columns: ColumnDef<FixedAssetListItem>[] = [
     {
@@ -176,35 +176,6 @@ export default function FixedAssetsPage() {
 
   return (
     <div>
-      {totals ? (
-        <div className="p-4 pb-0 sm:px-6">
-          <Card data-testid="register-summary">
-            <CardContent className="py-4">
-              <p className="text-sm font-medium">{fill(tl.summaryTitle, { date: formatDate(asOf) })}</p>
-              <p className="text-xs text-muted-foreground">{tl.summaryHelp}</p>
-              <dl className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <div>
-                  <dt className="text-xs text-muted-foreground">{tl.summaryAssets}</dt>
-                  <dd className="text-lg font-semibold tabular-nums">{register.data?.lines.filter((line) => !line.disposed).length ?? 0}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{tl.summaryCost}</dt>
-                  <dd className="text-lg font-semibold tabular-nums">{formatMoney(totals.cost)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{tl.summaryDepreciation}</dt>
-                  <dd className="text-lg font-semibold tabular-nums">{formatMoney(totals.accumulatedDepreciation)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{tl.summaryNetBookValue}</dt>
-                  <dd className="text-lg font-semibold tabular-nums">{formatMoney(totals.netBookValue)}</dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
-
       {isError && list.items.length === 0 ? (
         <Card className="m-4 sm:m-6">
           <CardContent className="space-y-3 py-10 text-center">

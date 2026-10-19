@@ -19,6 +19,12 @@ export {
   
 } from './use-object-panel';
 
+export {
+  useObjectPanelNavigationSource,
+  useObjectPanelNavigationReporter,
+  type ObjectPanelListNavigation,
+} from './use-object-panel-navigation';
+
 export { ObjectPanelHost } from './object-panel-host';
 export { ObjectPanelTabs } from './object-panel-tabs';
 ;

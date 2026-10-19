@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSetAtom } from 'jotai';
 import { toast } from 'sonner';
 import { ArrowRightLeft, ListPlus } from 'lucide-react';
@@ -72,6 +72,17 @@ export function WelddataSearchGrid({
   const { data: listsResp } = useWelddataLists();
   const { open: openObjectPanel } = useObjectPanel();
   const cacheLead = useSetAtom(welddataLeadCacheAtom);
+
+  // The lead panel reads leads from this cache, so the panel's previous / next
+  // arrows can only reach rows that are in it: stash every loaded row.
+  useEffect(() => {
+    if (rows.length === 0) return;
+    cacheLead((prev) => {
+      const next = { ...prev };
+      for (const row of rows) next[row.id] = welddataLeadFromSearchRow(row);
+      return next;
+    });
+  }, [rows, cacheLead]);
 
   // "Add to CRM list" dialog state. Rows are stashed when the action fires;
   // the grid selection is cleared after a successful add.
@@ -227,6 +238,7 @@ export function WelddataSearchGrid({
         onLoadMore={onLoadMore}
         hasMore={hasMore}
         isFetchingMore={isFetchingMore}
+        objectPanel={{ type: 'welddata-lead' }}
       />
 
       <AddToCrmListDialog

@@ -225,7 +225,7 @@ export function CallsSection({ customer, activities }: Readonly<CallsSectionProp
 
         {/* Date */}
         <div className="w-[130px] flex-shrink-0">
-          <span className="text-sm text-muted-foreground">
+          <span className="text-sm tabular-nums">
             {formatDistanceToNow(new Date(call.createdAt), { addSuffix: true })}
           </span>
         </div>

@@ -1,6 +1,6 @@
 /** WeldHR employee detail: header, actions, and tabs (overview, personal, attendance, leave, payroll). */
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -15,7 +15,9 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/page-loader';
-import { useDeleteHrEmployee, useHrEmployee } from '@/hooks/queries/use-weldhr-queries';
+import { useDeleteHrEmployee, useHrEmployee, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
+import { useCustomFields } from '@/hooks/use-custom-fields';
+import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { useHrPayrollFlag } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { EmployeeAttendanceTab } from '../../components/employee-tabs/attendance-tab';
 import { EmployeeLeaveTab } from '../../components/employee-tabs/leave-tab';
@@ -142,6 +144,7 @@ export default function WeldHrEmployeeDetailPage() {
         <OverviewTab
           employee={employee}
           canManagePortal={canManagePortal}
+          canUpdate={canUpdate}
           showWorkspaceCard={canUpdate || can('team:create') || can('team:read')}
         />
       )}
@@ -171,13 +174,17 @@ export default function WeldHrEmployeeDetailPage() {
   );
 }
 
+type EmployeeDetail = NonNullable<ReturnType<typeof useHrEmployee>['data']>;
+
 function OverviewTab({
   employee,
   canManagePortal,
+  canUpdate,
   showWorkspaceCard,
 }: Readonly<{
-  employee: NonNullable<ReturnType<typeof useHrEmployee>['data']>;
+  employee: EmployeeDetail;
   canManagePortal: boolean;
+  canUpdate: boolean;
   showWorkspaceCard: boolean;
 }>) {
   const t = useTranslations();
@@ -188,9 +195,9 @@ function OverviewTab({
           fields={[
             { label: t('weldhr.employees.detail.overview.employeeNumber'), value: employee.employeeNumber },
             { label: t('weldhr.employees.detail.overview.pronouns'), value: employee.pronouns },
-            { label: t('weldhr.employees.create.startDate'), value: formatDate(employee.startDate) },
-            { label: t('weldhr.employees.detail.overview.probationEndDate'), value: formatDate(employee.probationEndDate) },
-            { label: t('weldhr.employees.detail.overview.endDate'), value: formatDate(employee.endDate) },
+            { label: t('weldhr.employees.create.startDate'), value: <span className="tabular-nums">{formatDate(employee.startDate)}</span> },
+            { label: t('weldhr.employees.detail.overview.probationEndDate'), value: <span className="tabular-nums">{formatDate(employee.probationEndDate)}</span> },
+            { label: t('weldhr.employees.detail.overview.endDate'), value: <span className="tabular-nums">{formatDate(employee.endDate)}</span> },
             { label: t('weldhr.employees.detail.overview.location'), value: employee.location },
             { label: t('weldhr.employees.detail.overview.timezone'), value: employee.timezone },
             {
@@ -223,8 +230,37 @@ function OverviewTab({
         )}
       </SectionCard>
 
+      <EmployeeCustomFieldsCard employee={employee} canUpdate={canUpdate} />
+
       {showWorkspaceCard && <EmployeeWorkspaceMemberCard employee={employee} />}
       {canManagePortal && <EmployeePortalAccessCard employeeId={employee.id} employeeStatus={employee.status} />}
     </div>
+  );
+}
+
+/** Settings › Custom Fields › Employees; hidden when the workspace has defined none. */
+function EmployeeCustomFieldsCard({ employee, canUpdate }: Readonly<{ employee: EmployeeDetail; canUpdate: boolean }>) {
+  const t = useTranslations();
+  const { data: definitions } = useCustomFields('employee');
+  const updateEmployee = useUpdateHrEmployee();
+
+  const handleSave = useCallback(
+    async (next: Record<string, unknown>) => {
+      await updateEmployee.mutateAsync({ id: employee.id, customFields: next });
+    },
+    [updateEmployee, employee.id],
+  );
+
+  if (!definitions?.length) return null;
+  return (
+    <SectionCard title={t('weldhr.employees.detail.overview.customFields')}>
+      <CustomFieldsSidebarSection
+        entityType="employee"
+        values={employee.customFields}
+        onSave={handleSave}
+        readOnly={!canUpdate}
+        hideHeader
+      />
+    </SectionCard>
   );
 }

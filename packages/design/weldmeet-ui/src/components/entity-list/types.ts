@@ -152,6 +152,13 @@ export interface EntityListProps<T extends { id: string }> {
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
 
+  /**
+   * Called with the rows as displayed (after local search, filters and
+   * grouping, in group order) whenever they change. Lets the caller step
+   * through them, e.g. previous / next in a detail panel.
+   */
+  onDisplayedItemsChange?: (items: readonly T[]) => void;
+
   // Sorting
   sortState?: SortState | null;
   onSort?: (columnId: string) => void;

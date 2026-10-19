@@ -1,13 +1,13 @@
-import { Link } from '@tanstack/react-router';
-import { FileCheck2, Plus } from 'lucide-react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { Plus } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { FilesIllustration, TabEmptyState } from '@/components/objects/_shared/tab-empty-state';
 import { useExemptionCertificates } from '@/hooks/queries/use-weldbooks-sales-tax-setup-queries';
 import { useSetupTexts } from '../setup/setup-texts';
-import { CertificatesTable } from './certificates-table';
+import { CertificatesList } from './certificates-list';
 
 export interface CustomerExemptionsTabProps {
   partyId: string;
@@ -16,7 +16,7 @@ export interface CustomerExemptionsTabProps {
 }
 
 /**
- * The customer page's Exemptions tab: the customer's certificates with status,
+ * The contact panel's Exemptions tab: the customer's certificates with status,
  * states and expiry, and a way to add one. The customer's default use (business
  * or personal) is edited on the contact form; it is shown here because it
  * decides how products taxed by use (software, for example) are charged.
@@ -25,6 +25,7 @@ export function CustomerExemptionsTab({ partyId, taxUse }: Readonly<CustomerExem
   const { t } = useSetupTexts();
   const te = t.exemptions;
   const { can } = usePermissions();
+  const navigate = useNavigate();
   const canRead = can('taxes:read');
   const canCreate = can('taxes:create');
   const query = useExemptionCertificates({ partyId }, { enabled: canRead });
@@ -54,16 +55,23 @@ export function CustomerExemptionsTab({ partyId, taxUse }: Readonly<CustomerExem
     );
   } else if (rows.length === 0) {
     body = (
-      <Card>
-        <CardContent className="space-y-3 py-8 text-center">
-          <FileCheck2 className="mx-auto h-9 w-9 text-muted-foreground" aria-hidden />
-          <p className="font-medium">{te.emptyTitle}</p>
-          <p className="mx-auto max-w-md text-sm text-muted-foreground">{te.emptyDescription}</p>
-        </CardContent>
-      </Card>
+      <TabEmptyState
+        illustration={<FilesIllustration />}
+        title={te.emptyTitle}
+        description={te.emptyDescription}
+        action={
+          canCreate
+            ? {
+                label: te.add,
+                onClick: () =>
+                  void navigate({ to: '/weldbooks/sales-tax/certificates/new', search: { partyId } }),
+              }
+            : undefined
+        }
+      />
     );
   } else {
-    body = <CertificatesTable certificates={rows} showCustomer={false} />;
+    body = <CertificatesList certificates={rows} />;
   }
 
   return (
