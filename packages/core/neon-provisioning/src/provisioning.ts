@@ -16,14 +16,17 @@
  */
 
 import { eq, and, isNull, sql } from 'drizzle-orm';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
-import { NeonClient, createNeonClient } from './client';
+import { NeonApiError, NeonClient, createNeonClient } from './client';
 import { workspaces, neonSharedProjects, databasePool, type DatabasePool, type NeonSharedProject } from '@weldsuite/db/schema/master';
+import type * as masterSchema from '@weldsuite/db/schema/master';
 import { workspaceMembers } from '@weldsuite/db/schema/workspace-members';
 import { workspaceInstalledApps } from '@weldsuite/db/schema/workspace-installed-apps';
 import { encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { generateId } from './lib/id';
+import { connectionUrlsFor, directUrlOf, type ConnectionUrls } from './lib/connection-urls';
 
 export interface ProvisioningEnv {
   NEON_API_KEY: string;
@@ -69,6 +72,87 @@ export interface WarmSlotResources {
 }
 
 /**
+ * The master database as the move helpers see it: any Drizzle Postgres driver
+ * (neon-http in the workers, pglite in tests) over the master schema.
+ */
+export type ProvisioningMasterDb = PgDatabase<PgQueryResultHKT, typeof masterSchema>;
+
+/** Where one tenant database lives. */
+export interface DatabaseCoordinates {
+  neonProjectId: string;
+  neonBranchId: string;
+  databaseName: string;
+  roleName: string;
+  /** The shard (`neon_shared_projects.id`) for a database inside a shard, null for a dedicated project. */
+  sharedProjectId: string | null;
+}
+
+/** Where a workspace database move should land. */
+export type MoveTargetRequest =
+  | { kind: 'dedicated' }
+  | {
+      kind: 'shard';
+      /** Land on exactly this shard (it must be active, in the region, with room). */
+      shardId?: string;
+      /** Any other active shard in the region: the one the database is leaving. */
+      excludeShardId?: string;
+    };
+
+export interface PrepareMoveTargetInput {
+  workspaceId: string;
+  target: MoveTargetRequest;
+  region: string;
+}
+
+/**
+ * A prepared move target: an empty-or-pre-migrated tenant database nothing
+ * points at yet. The URLs carry credentials: never log them, and encrypt them
+ * before persisting.
+ */
+export interface MoveTarget extends DatabaseCoordinates, ConnectionUrls {
+  kind: 'dedicated' | 'shard';
+  region: string;
+  /** The `database_pool` row the target was claimed from, null when freshly created. */
+  poolId: string | null;
+  /** The pool slot's schema version; null for a freshly created database (apply migrations). */
+  schemaVersion: string | null;
+  /** Neon endpoint id (`ep-…`) of the target's read-write compute. */
+  endpointId: string;
+}
+
+/** What `releaseMoveTarget` needs to undo a target: its coordinates and where it came from. */
+export interface ReleaseMoveTargetInput extends DatabaseCoordinates {
+  kind: 'dedicated' | 'shard';
+  poolId?: string | null;
+}
+
+/** A database to drop. Fields a legacy workspace row may lack are optional. */
+export interface DropDatabaseTarget {
+  neonProjectId: string;
+  neonBranchId?: string | null;
+  databaseName?: string | null;
+  roleName?: string | null;
+  /** Non-null means "a database inside this shard"; null/absent means "a whole dedicated project". */
+  sharedProjectId?: string | null;
+  /** The `database_pool` row to delete along with it. */
+  poolId?: string | null;
+}
+
+export interface DropDatabaseOptions {
+  /**
+   * Treat a Neon 404 (already deleted) as done instead of an error, so a retried
+   * step can finish a half-completed drop. Default false.
+   */
+  ignoreMissing?: boolean;
+}
+
+/** Which shards a move may land on; only ACTIVE shards in the region ever qualify. */
+interface ShardEligibility {
+  shardId?: string;
+  excludeShardId?: string;
+}
+
+/**
  * Per-shard golden template database: pre-migrated once, then warm slots are
  * created via `CREATE DATABASE ... TEMPLATE` (a storage-level copy, seconds)
  * instead of replaying the full migration journal (~2,600 statements over
@@ -105,6 +189,32 @@ function poolerHostOf(host: string): string {
 /** 48-hex-char random password (Workers-safe, URI-safe without encoding). */
 function generatePassword(): string {
   const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Neon project name of a workspace's dedicated project. Deliberately NOT
+ * `weldsuite-pool-*`, the prefix `apps/tools/migrate-databases/src/cleanup-pool.ts` reaps.
+ */
+function dedicatedProjectName(workspaceId: string): string {
+  return `weldsuite-${workspaceId.substring(0, 20)}`;
+}
+
+/**
+ * Postgres role/database name for a database created inside a shard for a move.
+ * Lowercase alnum + underscore, at most 63 characters, and unique per attempt:
+ * the old database stays in its shard until the retention sweep drops it, so a
+ * workspace moving back to a shard must not collide with its own leftover.
+ */
+function moveIdentifier(prefix: 'ws' | 'role', workspaceId: string, suffix: string): string {
+  const base = workspaceId.toLowerCase().replaceAll(/[^a-z0-9_]/g, '_').slice(0, 40);
+  return `${prefix}_${base}_${suffix}`;
+}
+
+/** 6 random hex characters. */
+function randomSuffix(): string {
+  const bytes = new Uint8Array(3);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -290,13 +400,31 @@ export class DatabaseProvisioningService {
    * step is a delta-applier and will catch the claimed DB up to the bundled
    * latest before any user traffic hits it (only exact-match slots get the
    * inline instant path). We prefer the freshest entry available.
+   *
+   * Only the `database_pool` row is touched, never `workspaces`: `activateWarmSlot`
+   * does the workspace assignment, `prepareMoveTarget` deliberately does not.
+   *
+   * `shards` (shared slots only) restricts the claim to slots on an ACTIVE shard
+   * in the region, narrowed by `shardId` / `excludeShardId`. Omitted, any shard
+   * qualifies, as it always has for signups.
    */
   private async claimFromPool(
     masterDb: any,
     workspaceId: string,
     kind: 'dedicated' | 'shared',
     region: string,
+    shards?: ShardEligibility,
   ): Promise<DatabasePool | null> {
+    const onEligibleShard = shards && kind === 'shared'
+      ? sql`AND shared_project_id IN (
+              SELECT s.id FROM neon_shared_projects s
+              WHERE s.status = 'active'
+                AND s.region = ${region}
+                ${shards.shardId ? sql`AND s.id = ${shards.shardId}` : sql``}
+                ${shards.excludeShardId ? sql`AND s.id <> ${shards.excludeShardId}` : sql``}
+            )`
+      : sql``;
+
     try {
       const result = await masterDb.execute(
         sql`UPDATE database_pool
@@ -308,6 +436,7 @@ export class DatabaseProvisioningService {
               WHERE status = 'available'
                 AND region = ${region}
                 AND kind = ${kind}
+                ${onEligibleShard}
               ORDER BY schema_version DESC NULLS LAST, created_at DESC
               LIMIT 1
               FOR UPDATE SKIP LOCKED
@@ -705,15 +834,9 @@ export class DatabaseProvisioningService {
     const roleName = sanitize(`role_${workspaceId}`);
 
     try {
-      // 2. Create the role first (it must exist to own the database), then the DB.
-      //    Both calls are applied asynchronously on the compute — we MUST wait for
-      //    the operations to settle before connecting, otherwise the provisioning
-      //    workflow can hit "role/database does not exist" when it opens the URI.
-      const roleRes = await this.neonClient.createRole(shard.neonProjectId, shard.mainBranchId, roleName);
-      await this.neonClient.waitForOperations(shard.neonProjectId, roleRes.operations);
-
-      const dbRes = await this.neonClient.createDatabase(shard.neonProjectId, shard.mainBranchId, dbName, roleName);
-      await this.neonClient.waitForOperations(shard.neonProjectId, dbRes.operations);
+      // 2. Create the role first (it must exist to own the database), then the DB,
+      //    waiting for both to settle before connecting.
+      await this.createRoleAndDatabase(shard.neonProjectId, shard.mainBranchId, dbName, roleName);
 
       const connectionUri = await this.neonClient.getConnectionUri(
         shard.neonProjectId,
@@ -798,6 +921,28 @@ export class DatabaseProvisioningService {
   }
 
   /**
+   * Create a role and the database it owns inside a shard, waiting for both
+   * Neon operations to settle. Both calls are applied asynchronously on the
+   * compute, so connecting before they finish yields "role/database does not
+   * exist". Returns the role's password as the API reported it (absent when the
+   * response carried none).
+   */
+  private async createRoleAndDatabase(
+    neonProjectId: string,
+    neonBranchId: string,
+    databaseName: string,
+    roleName: string,
+  ): Promise<{ rolePassword?: string }> {
+    const roleRes = await this.neonClient.createRole(neonProjectId, neonBranchId, roleName);
+    await this.neonClient.waitForOperations(neonProjectId, roleRes.operations);
+
+    const dbRes = await this.neonClient.createDatabase(neonProjectId, neonBranchId, databaseName, roleName);
+    await this.neonClient.waitForOperations(neonProjectId, dbRes.operations);
+
+    return { rolePassword: roleRes.role?.password };
+  }
+
+  /**
    * Release a previously-reserved shared-project slot: decrement the shard's
    * database count (and re-open it if it was 'full'), then drop the tenant
    * database + role. Used on provisioning failure and on losing the claim race.
@@ -822,8 +967,20 @@ export class DatabaseProvisioningService {
    * region, creating a fresh shard if none has room. Increments `databaseCount`
    * (flipping to 'full' at capacity) in a single statement so concurrent
    * signups can't overfill a shard past `maxDatabases`.
+   *
+   * `eligibility` narrows the choice for a database move: `shardId` pins one
+   * shard (and is never replaced by a brand-new shard when it has no room),
+   * `excludeShardId` skips the shard the database is leaving (a new shard may
+   * still be created, which is by definition a different one).
    */
-  private async claimSharedProject(masterDb: any, region: string): Promise<NeonSharedProject | null> {
+  private async claimSharedProject(
+    masterDb: any,
+    region: string,
+    eligibility: ShardEligibility = {},
+  ): Promise<NeonSharedProject | null> {
+    const onlyShard = eligibility.shardId ? sql`AND id = ${eligibility.shardId}` : sql``;
+    const exceptShard = eligibility.excludeShardId ? sql`AND id <> ${eligibility.excludeShardId}` : sql``;
+
     try {
       const result = await masterDb.execute(
         sql`UPDATE neon_shared_projects
@@ -835,6 +992,8 @@ export class DatabaseProvisioningService {
               WHERE status = 'active'
                 AND region = ${region}
                 AND database_count < max_databases
+                ${onlyShard}
+                ${exceptShard}
               ORDER BY database_count ASC
               LIMIT 1
               FOR UPDATE SKIP LOCKED
@@ -850,6 +1009,9 @@ export class DatabaseProvisioningService {
     } catch (error) {
       console.warn('[Provisioning] Shared-project claim failed, will try to create a new shard:', error);
     }
+
+    // A specifically requested shard is never swapped for a new one.
+    if (eligibility.shardId) return null;
 
     // No shard with room → create a new one (reserving this caller's slot).
     return this.createSharedProject(masterDb, region);
@@ -936,7 +1098,7 @@ export class DatabaseProvisioningService {
     slug?: string,
     seedSampleData?: boolean,
   ): Promise<ProvisioningResult> {
-    const projectName = `weldsuite-${workspaceId.substring(0, 20)}`;
+    const projectName = dedicatedProjectName(workspaceId);
 
     try {
       // Create new Neon project
@@ -1071,20 +1233,34 @@ export class DatabaseProvisioningService {
   /**
    * Return a previously claimed (but unused) shard capacity unit: decrement
    * the count and re-open the shard if the claim had flipped it to 'full'.
+   * A 'disabled' shard stays disabled.
    */
   async releaseShardCapacity(masterDb: any, shardId: string): Promise<void> {
     try {
-      await masterDb
-        .update(neonSharedProjects)
-        .set({
-          databaseCount: sql`GREATEST(${neonSharedProjects.databaseCount} - 1, 0)`,
-          status: 'active',
-          updatedAt: new Date(),
-        })
-        .where(eq(neonSharedProjects.id, shardId));
+      await this.decrementShardCount(masterDb, shardId);
     } catch (error) {
       console.warn(`[Provisioning] Failed to release capacity on shard ${shardId}:`, error);
     }
+  }
+
+  /**
+   * Give one database slot back to a shard: `database_count - 1`, never below 0,
+   * and a 'full' shard that now has room goes back to 'active'. An admin's
+   * 'disabled' is never overridden. The single place every release / drop path
+   * decrements, so they cannot disagree.
+   */
+  private async decrementShardCount(masterDb: ProvisioningMasterDb, shardId: string): Promise<void> {
+    await masterDb
+      .update(neonSharedProjects)
+      .set({
+        databaseCount: sql`GREATEST(${neonSharedProjects.databaseCount} - 1, 0)`,
+        status: sql`CASE WHEN ${neonSharedProjects.status} = 'full'
+                          AND ${neonSharedProjects.databaseCount} - 1 < ${neonSharedProjects.maxDatabases}
+                         THEN 'active'::neon_shared_project_status
+                         ELSE ${neonSharedProjects.status} END`,
+        updatedAt: new Date(),
+      })
+      .where(eq(neonSharedProjects.id, shardId));
   }
 
   /**
@@ -1422,6 +1598,350 @@ export class DatabaseProvisioningService {
     }
   }
 
+  // ==========================================================================
+  // DATABASE MOVES (TASK-1150)
+  //
+  // Building blocks for the workspace-worker Workflow that moves a workspace's
+  // tenant database between a shard and a dedicated Neon project, or between
+  // shards. None of them writes the `workspaces` row: the Workflow owns the
+  // switch. None of them logs a URL or a password.
+  // ==========================================================================
+
+  /**
+   * Get a tenant database ready to move INTO: a warm pool slot if one fits, else
+   * a freshly created database. Nothing points at it yet.
+   *
+   * - `dedicated`: claims a warm dedicated slot in the region, else creates a
+   *   project named `weldsuite-<workspaceId>` with the same compute settings
+   *   `provisionDedicatedProject` uses.
+   * - `shard`: claims a warm shared slot on an eligible shard, else creates a
+   *   role + database in one, reserving the shard slot (`database_count` + 1).
+   *   Eligible is an ACTIVE shard in the region: the given `shardId`, or any
+   *   except `excludeShardId`.
+   *
+   * A claimed slot is marked `assigned` to the workspace in `database_pool`; a
+   * created database comes back with `schemaVersion: null`, and the caller
+   * applies the migrations either way. Throws when nothing can be prepared,
+   * having released whatever it had reserved. The pool slot (and its seed rows)
+   * is NOT empty: the caller must not assume an empty target.
+   */
+  async prepareMoveTarget(masterDb: ProvisioningMasterDb, input: PrepareMoveTargetInput): Promise<MoveTarget> {
+    const { workspaceId, target, region } = input;
+    const prepared = target.kind === 'dedicated'
+      ? await this.prepareDedicatedMoveTarget(masterDb, workspaceId, region)
+      : await this.prepareShardMoveTarget(masterDb, workspaceId, region, target);
+
+    console.log(
+      `[Provisioning] Prepared ${prepared.kind} move target for ${workspaceId} ` +
+      `(project ${prepared.neonProjectId}, ${prepared.poolId ? `pool slot ${prepared.poolId}` : 'newly created'})`,
+    );
+    return prepared;
+  }
+
+  private async prepareDedicatedMoveTarget(
+    masterDb: ProvisioningMasterDb,
+    workspaceId: string,
+    region: string,
+  ): Promise<MoveTarget> {
+    const claimed = await this.claimFromPool(masterDb, workspaceId, 'dedicated', region);
+    if (claimed) return this.moveTargetFromPoolSlot(masterDb, claimed, 'dedicated');
+    return this.createDedicatedMoveTarget(workspaceId, region);
+  }
+
+  private async prepareShardMoveTarget(
+    masterDb: ProvisioningMasterDb,
+    workspaceId: string,
+    region: string,
+    request: { shardId?: string; excludeShardId?: string },
+  ): Promise<MoveTarget> {
+    const eligibility: ShardEligibility = { shardId: request.shardId, excludeShardId: request.excludeShardId };
+    const claimed = await this.claimFromPool(masterDb, workspaceId, 'shared', region, eligibility);
+    if (claimed) return this.moveTargetFromPoolSlot(masterDb, claimed, 'shard');
+    return this.createShardMoveTarget(masterDb, workspaceId, region, eligibility);
+  }
+
+  /**
+   * Describe a claimed pool slot as a move target. The slot's stored URL is the
+   * pooled one and the only place its role password is known, so the direct URL
+   * is derived from it. If describing it fails, the slot goes back to the pool
+   * untouched.
+   */
+  private async moveTargetFromPoolSlot(
+    masterDb: ProvisioningMasterDb,
+    claimed: DatabasePool,
+    kind: 'dedicated' | 'shard',
+  ): Promise<MoveTarget> {
+    try {
+      const branchId = claimed.neonBranchId ?? (await this.neonClient.getMainBranch(claimed.neonProjectId)).id;
+      const endpoint = await this.neonClient.getEndpoint(claimed.neonProjectId, branchId);
+      return {
+        kind,
+        neonProjectId: claimed.neonProjectId,
+        neonBranchId: branchId,
+        databaseName: claimed.databaseName,
+        roleName: claimed.roleName,
+        sharedProjectId: kind === 'shard' ? (claimed.sharedProjectId ?? null) : null,
+        region: claimed.region,
+        poolId: claimed.id,
+        pooledUrl: claimed.databaseUrl,
+        directUrl: directUrlOf(claimed.databaseUrl),
+        schemaVersion: claimed.schemaVersion ?? null,
+        endpointId: endpoint.id,
+      };
+    } catch (error) {
+      await this.returnPoolSlot(masterDb, claimed.id);
+      throw error;
+    }
+  }
+
+  /** Hand an untouched claimed slot back to the pool. Best-effort. */
+  private async returnPoolSlot(masterDb: ProvisioningMasterDb, poolId: string): Promise<void> {
+    try {
+      await masterDb
+        .update(databasePool)
+        .set({ status: 'available', assignedWorkspaceId: null, assignedAt: null })
+        .where(eq(databasePool.id, poolId));
+    } catch (error) {
+      console.warn(`[Provisioning] Failed to return pool slot ${poolId}:`, error);
+    }
+  }
+
+  /** A new dedicated project for a move, named like `provisionDedicatedProject`'s (never `weldsuite-pool-*`). */
+  private async createDedicatedMoveTarget(workspaceId: string, region: string): Promise<MoveTarget> {
+    const response = await this.neonClient.createProject(dedicatedProjectName(workspaceId), region, {
+      autoscalingLimitMinCu: 0.25,
+      autoscalingLimitMaxCu: 0.5,
+    });
+    const { project, branch } = response;
+
+    try {
+      const endpoint = response.endpoints[0];
+      const defaultRole = response.roles.find((r) => !r.protected);
+      if (!branch || !endpoint || !defaultRole) {
+        throw new Error('Project creation did not return expected resources');
+      }
+
+      const databaseName = response.databases.find((d) => d.name === 'neondb')?.name || 'neondb';
+      const roleName = defaultRole.name;
+      const password = response.connection_uris?.[0]?.connection_parameters.password
+        ?? (await this.neonClient.getRolePassword(project.id, branch.id, roleName)).password;
+
+      return {
+        kind: 'dedicated',
+        neonProjectId: project.id,
+        neonBranchId: branch.id,
+        databaseName,
+        roleName,
+        sharedProjectId: null,
+        region,
+        poolId: null,
+        ...connectionUrlsFor(endpoint.host, roleName, password, databaseName),
+        schemaVersion: null,
+        endpointId: endpoint.id,
+      };
+    } catch (error) {
+      // The project exists but cannot be used: do not leave a paid orphan behind.
+      await this.neonClient.deleteProject(project.id).catch(() => {});
+      throw error;
+    }
+  }
+
+  /**
+   * A new role + database for a move, inside a shard: the same path
+   * `provisionSharedDatabase` takes (role first, database owned by it), with a
+   * name that is unique per attempt. The shard slot is reserved atomically and
+   * released again if anything fails.
+   */
+  private async createShardMoveTarget(
+    masterDb: ProvisioningMasterDb,
+    workspaceId: string,
+    region: string,
+    eligibility: ShardEligibility,
+  ): Promise<MoveTarget> {
+    const shard = await this.claimSharedProject(masterDb, region, eligibility);
+    if (!shard) {
+      throw new Error(
+        eligibility.shardId
+          ? `Shard ${eligibility.shardId} cannot take another database (not active, full, or in another region)`
+          : 'No shared-project capacity available for the move target',
+      );
+    }
+    const branchId = shard.mainBranchId;
+    if (!branchId) {
+      await this.releaseShardCapacity(masterDb, shard.id);
+      throw new Error(`Shard ${shard.id} has no main branch recorded`);
+    }
+
+    const suffix = randomSuffix();
+    const databaseName = moveIdentifier('ws', workspaceId, suffix);
+    const roleName = moveIdentifier('role', workspaceId, suffix);
+
+    try {
+      const { rolePassword } = await this.createRoleAndDatabase(shard.neonProjectId, branchId, databaseName, roleName);
+      const endpoint = await this.neonClient.getEndpoint(shard.neonProjectId, branchId);
+      const password = rolePassword
+        ?? (await this.neonClient.getRolePassword(shard.neonProjectId, branchId, roleName)).password;
+
+      return {
+        kind: 'shard',
+        neonProjectId: shard.neonProjectId,
+        neonBranchId: branchId,
+        databaseName,
+        roleName,
+        sharedProjectId: shard.id,
+        region: shard.region || region,
+        poolId: null,
+        ...connectionUrlsFor(endpoint.host, roleName, password, databaseName),
+        schemaVersion: null,
+        endpointId: endpoint.id,
+      };
+    } catch (error) {
+      await this.releaseSharedSlot(masterDb, shard, databaseName, roleName);
+      throw error;
+    }
+  }
+
+  /**
+   * Undo a move target that was never switched to (a failed or cancelled move):
+   * drop it (database + role in a shard, the whole project when dedicated), give
+   * the shard slot back, and delete the `database_pool` row it was claimed from
+   * (the slot is used up, not returned: it has been migrated into and written
+   * to). Safe to run again after a partial run.
+   */
+  async releaseMoveTarget(masterDb: ProvisioningMasterDb, target: ReleaseMoveTargetInput): Promise<void> {
+    if (target.kind === 'shard' && !target.sharedProjectId) {
+      throw new Error('A shard move target needs its shard id to be released');
+    }
+    if (target.kind === 'dedicated' && target.sharedProjectId) {
+      throw new Error('A dedicated move target must not carry a shard id');
+    }
+    await this.dropDatabaseAt(masterDb, target, { ignoreMissing: true });
+    console.log(`[Provisioning] Released ${target.kind} move target in project ${target.neonProjectId}`);
+  }
+
+  /**
+   * Rotate a tenant role's password and return the new connection URLs. The
+   * old password stops working once Neon applies the change, which is what
+   * locks the old database during a move. Safe to run again: it just rotates
+   * again. The endpoint is resolved BEFORE the reset, so a failed lookup can
+   * never burn a password the caller then never sees.
+   */
+  async rotateRolePassword(coords: DatabaseCoordinates): Promise<ConnectionUrls> {
+    const endpoint = await this.neonClient.getEndpoint(coords.neonProjectId, coords.neonBranchId);
+    const { password, operations } = await this.neonClient.resetRolePassword(
+      coords.neonProjectId,
+      coords.neonBranchId,
+      coords.roleName,
+    );
+    await this.neonClient.waitForOperations(coords.neonProjectId, operations);
+
+    console.log(`[Provisioning] Rotated the password of role ${coords.roleName} in project ${coords.neonProjectId}`);
+    return connectionUrlsFor(endpoint.host, coords.roleName, password, coords.databaseName);
+  }
+
+  /**
+   * Restart a DEDICATED project's read-write compute, which ends every session
+   * on it, PgBouncer client sessions included, and wait for it to come back.
+   * Refuses a shard's project: that compute serves other tenants.
+   */
+  async restartDedicatedEndpoint(masterDb: ProvisioningMasterDb, neonProjectId: string): Promise<void> {
+    if (await this.isShardProject(masterDb, neonProjectId)) {
+      throw new Error(`Refusing to restart the endpoint of project ${neonProjectId}: it is a shared shard`);
+    }
+
+    const { endpoints } = await this.neonClient.listEndpoints(neonProjectId);
+    const readWrite = endpoints.filter((e) => e.type === 'read_write');
+    if (readWrite.length === 0) {
+      throw new NeonApiError(`No read-write endpoint found in project ${neonProjectId}`, 404);
+    }
+
+    for (const endpoint of readWrite) {
+      const operations = await this.neonClient.restartEndpoint(neonProjectId, endpoint.id);
+      await this.neonClient.waitForOperations(neonProjectId, operations);
+    }
+    console.log(`[Provisioning] Restarted the endpoint of dedicated project ${neonProjectId}`);
+  }
+
+  /**
+   * Drop a tenant database by its coordinates. In a shard (`sharedProjectId`
+   * set): drop the database and its role and give the slot back
+   * (`database_count - 1`, floored at 0; a 'full' shard reopens, a 'disabled'
+   * one stays disabled). Dedicated: delete the whole Neon project, after
+   * checking that it is not a shard. `poolId`, when given, also deletes that
+   * `database_pool` row (best-effort).
+   *
+   * The slot is counted back only when THIS call dropped the database, and right
+   * after it, so with `ignoreMissing` a retry after a partial run never counts
+   * it twice. Neither this nor `deleteWorkspaceDatabase` touches `workspaces`.
+   */
+  async dropDatabaseAt(
+    masterDb: ProvisioningMasterDb,
+    target: DropDatabaseTarget,
+    options: DropDatabaseOptions = {},
+  ): Promise<void> {
+    const ignoreMissing = options.ignoreMissing === true;
+
+    if (target.sharedProjectId) {
+      // Shared database: drop it and its role inside the shard.
+      let databaseDropped = true;
+      if (target.databaseName && target.neonBranchId) {
+        const { databaseName, neonBranchId } = target;
+        databaseDropped = await this.deleteOnNeon(
+          () => this.neonClient.deleteDatabase(target.neonProjectId, neonBranchId, databaseName),
+          ignoreMissing,
+        );
+      }
+      if (databaseDropped) {
+        await this.decrementShardCount(masterDb, target.sharedProjectId);
+      }
+      if (target.roleName && target.neonBranchId) {
+        const { roleName, neonBranchId } = target;
+        await this.deleteOnNeon(
+          () => this.neonClient.deleteRole(target.neonProjectId, neonBranchId, roleName),
+          ignoreMissing,
+        );
+      }
+    } else {
+      // Dedicated project: delete the entire Neon project. Never a shard's.
+      if (await this.isShardProject(masterDb, target.neonProjectId)) {
+        throw new Error(`Refusing to delete project ${target.neonProjectId} as a dedicated project: it is a shared shard`);
+      }
+      await this.deleteOnNeon(() => this.neonClient.deleteProject(target.neonProjectId), ignoreMissing);
+    }
+
+    if (target.poolId) {
+      try {
+        await masterDb.delete(databasePool).where(eq(databasePool.id, target.poolId));
+      } catch (poolErr) {
+        console.warn(`[Provisioning] Failed to delete pool row ${target.poolId}:`, poolErr);
+      }
+    }
+  }
+
+  /**
+   * Run a Neon delete. With `ignoreMissing`, a 404 (already gone) is a
+   * success that did nothing. Returns whether this call deleted something.
+   */
+  private async deleteOnNeon(operation: () => Promise<void>, ignoreMissing: boolean): Promise<boolean> {
+    try {
+      await operation();
+      return true;
+    } catch (error) {
+      if (ignoreMissing && error instanceof NeonApiError && error.status === 404) return false;
+      throw error;
+    }
+  }
+
+  /** Whether a Neon project is one of the shared shards tracked in `neon_shared_projects`. */
+  private async isShardProject(masterDb: ProvisioningMasterDb, neonProjectId: string): Promise<boolean> {
+    const rows = await masterDb
+      .select({ id: neonSharedProjects.id })
+      .from(neonSharedProjects)
+      .where(eq(neonSharedProjects.neonProjectId, neonProjectId))
+      .limit(1);
+    return rows.length > 0;
+  }
+
   /**
    * Delete database for a workspace (workspace deletion)
    */
@@ -1439,37 +1959,15 @@ export class DatabaseProvisioningService {
     }
 
     try {
-      if (workspace.sharedProjectId) {
-        // Shared database — delete database and role within the shared project
-        if (workspace.neonDatabaseName && workspace.neonBranchId) {
-          await this.neonClient.deleteDatabase(
-            workspace.neonProjectId,
-            workspace.neonBranchId,
-            workspace.neonDatabaseName
-          );
-        }
-
-        if (workspace.neonRoleName && workspace.neonBranchId) {
-          await this.neonClient.deleteRole(
-            workspace.neonProjectId,
-            workspace.neonBranchId,
-            workspace.neonRoleName
-          );
-        }
-
-        // Decrement shared project count
-        await masterDb
-          .update(neonSharedProjects)
-          .set({
-            databaseCount: sql`${neonSharedProjects.databaseCount} - 1`,
-            status: 'active',
-            updatedAt: new Date(),
-          })
-          .where(eq(neonSharedProjects.id, workspace.sharedProjectId));
-      } else {
-        // Dedicated project — delete entire Neon project
-        await this.neonClient.deleteProject(workspace.neonProjectId);
-      }
+      // A shared database (workspace.sharedProjectId set) is dropped from its
+      // shard; a dedicated one takes its whole Neon project with it.
+      await this.dropDatabaseAt(masterDb, {
+        neonProjectId: workspace.neonProjectId,
+        neonBranchId: workspace.neonBranchId,
+        databaseName: workspace.neonDatabaseName,
+        roleName: workspace.neonRoleName,
+        sharedProjectId: workspace.sharedProjectId,
+      });
 
       // Clear workspace database fields
       await masterDb
