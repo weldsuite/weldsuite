@@ -39,8 +39,8 @@ async function getClerkClient() {
 // sessions survive a password rotation on Neon, so without this a long-lived
 // process would keep writing to a database that was moved away (TASK-1150,
 // ADR DATA-016). A query that hits a moved database (rotated password, or the
-// read-only source) evicts the workspace at once, so the next request resolves
-// it from the master DB again.
+// read-only source) makes the next request resolve the workspace from the
+// master DB again, at once.
 
 interface CachedTenantPool {
   db: NeonDatabase<typeof tenantSchema>;
@@ -101,34 +101,56 @@ function retireTenantPool(entry: CachedTenantPool): void {
   (timer as unknown as { unref?: () => void }).unref?.();
 }
 
-/**
- * A tenant query refused because the workspace's database moved: the role's
- * password was rotated (28P01) or the source was set read-only (25006). The
- * message is matched too, because a driver may not expose the SQLSTATE.
- */
-function isMovedDatabaseError(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const { code, message } = error as { code?: unknown; message?: unknown };
-  if (code === '28P01' || code === '25006') return true;
-  return (
-    typeof message === 'string' &&
-    (message.includes('password authentication failed') || message.includes('read-only transaction'))
-  );
+function errorParts(error: unknown): { code?: unknown; message?: unknown } {
+  return typeof error === 'object' && error !== null ? (error as { code?: unknown; message?: unknown }) : {};
 }
 
 /**
- * Make the pool evict its workspace when a promise-style `query` (what drizzle
- * uses outside transactions) hits a moved database. Callback-style calls,
- * which pg uses internally, pass through untouched. A failure inside a
- * transaction is not seen here, but the workspace's next plain query evicts it,
- * and pools are recycled within POOL_MAX_AGE_MS anyway.
+ * The role's password was rotated (28P01). The message is matched too, because
+ * a driver may not expose the SQLSTATE.
  */
-function evictOnMovedDatabase(pool: Pool, workspace: WorkspaceConnection): void {
+function isRotatedPasswordError(error: unknown): boolean {
+  const { code, message } = errorParts(error);
+  return code === '28P01' || (typeof message === 'string' && message.includes('password authentication failed'));
+}
+
+/** The database was set read-only (25006): the move is locking the source, or has left it. */
+function isReadOnlyError(error: unknown): boolean {
+  const { code, message } = errorParts(error);
+  return code === '25006' || (typeof message === 'string' && message.includes('read-only transaction'));
+}
+
+/**
+ * Act on a moved-database error from `pool`, but only while the workspace still
+ * uses that pool: a retired pool, draining after a switch, must never evict the
+ * pool that replaced it.
+ *
+ * A rotated password means this pool's URL is dead, so it is evicted. A
+ * read-only database still accepts the URL, so only the workspace info is
+ * forgotten: the next call reads the master DB again and keeps this pool while
+ * the URL is unchanged (the source is still locked), or replaces it once the
+ * switch has pointed the workspace elsewhere. Evicting on every read-only error
+ * would open and retire a pool per failed write for as long as the lock lasts.
+ */
+function onMovedDatabaseError(pool: Pool, workspace: WorkspaceConnection, error: unknown): void {
+  if (tenantPoolCache.get(workspace.id)?.pool !== pool) return;
+  if (isRotatedPasswordError(error)) evictTenantDb(workspace.id, workspace.clerkOrgId);
+  else if (isReadOnlyError(error)) forgetWorkspaceInfo(workspace.id, workspace.clerkOrgId);
+}
+
+/**
+ * Watch the pool's promise-style `query` (what drizzle uses outside
+ * transactions) for moved-database errors. Callback-style calls, which pg uses
+ * internally, pass through untouched. A failure inside a transaction is not
+ * seen here, but the workspace's next plain query catches it, and pools are
+ * recycled within POOL_MAX_AGE_MS anyway.
+ */
+function watchForMovedDatabase(pool: Pool, workspace: WorkspaceConnection): void {
   const query = pool.query.bind(pool) as (...args: unknown[]) => unknown;
   const watched = (...args: unknown[]): unknown => {
     if (typeof args[args.length - 1] === 'function') return query(...args);
     return (query(...args) as Promise<unknown>).catch((error: unknown) => {
-      if (isMovedDatabaseError(error)) evictTenantDb(workspace.id, workspace.clerkOrgId);
+      onMovedDatabaseError(pool, workspace, error);
       throw error;
     });
   };
@@ -364,7 +386,7 @@ async function getOrCreateTenantPool(workspace: WorkspaceConnection): Promise<Ne
   pool.on('error', (error: Error) => {
     console.warn(`Tenant pool for ${workspace.id} lost a client:`, error.message);
   });
-  evictOnMovedDatabase(pool, workspace);
+  watchForMovedDatabase(pool, workspace);
   const db = drizzle({ client: pool, schema: tenantSchema });
   tenantPoolCache.set(workspace.id, { db, pool, fingerprint, createdAt: Date.now() });
   return db;
@@ -372,8 +394,8 @@ async function getOrCreateTenantPool(workspace: WorkspaceConnection): Promise<Ne
 
 /**
  * Retire a workspace's pooled tenant DB and forget its cached workspace info,
- * so the next call reads the master DB again and opens a fresh pool. The pools
- * call it themselves when a query hits a moved database; callers can too.
+ * so the next call reads the master DB again and opens a fresh pool. A pool
+ * calls it itself when a query hits a rotated password; callers can too.
  */
 export function evictTenantDb(workspaceId: string, clerkOrgId?: string | null): void {
   const entry = tenantPoolCache.get(workspaceId);
@@ -381,6 +403,11 @@ export function evictTenantDb(workspaceId: string, clerkOrgId?: string | null): 
     tenantPoolCache.delete(workspaceId);
     retireTenantPool(entry);
   }
+  forgetWorkspaceInfo(workspaceId, clerkOrgId);
+}
+
+/** Make the next call read the workspace from the master DB again; its pool stays. */
+function forgetWorkspaceInfo(workspaceId: string, clerkOrgId?: string | null): void {
   workspaceInfoCache.delete(`ws:${workspaceId}`);
   if (clerkOrgId) workspaceInfoCache.delete(`org:${clerkOrgId}`);
 }

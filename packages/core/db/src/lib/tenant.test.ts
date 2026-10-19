@@ -225,22 +225,75 @@ describe('tenant pool cache', () => {
     expect(pools.map((p) => p.ended)).toEqual([true, false]);
   });
 
-  it('evicts the workspace when a query hits a moved database (rotated password or read-only source)', async () => {
-    for (const error of [
-      Object.assign(new Error('boom'), { code: '28P01' }),
-      new Error("password authentication failed for user 'role_ws'"),
-      Object.assign(new Error('cannot execute INSERT in a read-only transaction'), { code: '25006' }),
-    ]) {
+  it('evicts the workspace and its pool when a query hits a rotated password', async () => {
+    for (const [id, error] of [
+      ['ws_q_code', Object.assign(new Error('boom'), { code: '28P01' })],
+      ['ws_q_message', new Error("password authentication failed for user 'role_ws'")],
+    ] as const) {
       pools.length = 0;
-      queue.push([{ workspace: workspace('ws_q', 'enc:1'), plan: null }]);
-      await getTenantDbByWorkspaceId('ws_q');
+      queue.push([{ workspace: workspace(id, 'enc:1'), plan: null }]);
+      await getTenantDbByWorkspaceId(id);
       queryBehaviour.error = error;
       await expect(pools[0]!.query('select 1')).rejects.toBe(error);
       queryBehaviour.error = null;
 
       // Evicted: the next call reads the master DB again (the empty queue says "not found").
-      await expect(getTenantDbByWorkspaceId('ws_q')).rejects.toThrow('Workspace not found or inactive');
+      await expect(getTenantDbByWorkspaceId(id)).rejects.toThrow('Workspace not found or inactive');
+      // And opens a new pool, even for an unchanged URL: the old one's password is dead.
+      queue.push([{ workspace: workspace(id, 'enc:1'), plan: null }]);
+      await getTenantDbByWorkspaceId(id);
+      expect(pools).toHaveLength(2);
     }
+  });
+
+  it('on a read-only database, reads the master DB again but keeps the pool until the URL changes', async () => {
+    const readOnly = Object.assign(new Error('cannot execute INSERT in a read-only transaction'), { code: '25006' });
+    queue.push([{ workspace: workspace('ws_ro', 'enc:1'), plan: null }]);
+    const first = await getTenantDbByWorkspaceId('ws_ro');
+
+    // The source is locked: same URL in the master DB, so the same pool.
+    queryBehaviour.error = readOnly;
+    await expect(pools[0]!.query('insert …')).rejects.toBe(readOnly);
+    queue.push([{ workspace: workspace('ws_ro', 'enc:1'), plan: null }]);
+    const during = await getTenantDbByWorkspaceId('ws_ro');
+    expect(queue).toHaveLength(0);
+    expect(during.db).toBe(first.db);
+    expect(pools).toHaveLength(1);
+
+    // The switch moved it: the next master read has the new URL, so a new pool.
+    await expect(pools[0]!.query('insert …')).rejects.toBe(readOnly);
+    queryBehaviour.error = null;
+    queue.push([{ workspace: workspace('ws_ro', 'enc:2'), plan: null }]);
+    const after = await getTenantDbByWorkspaceId('ws_ro');
+    expect(after.db).not.toBe(first.db);
+    expect(pools).toHaveLength(2);
+  });
+
+  it('never lets a retired pool evict the pool that replaced it', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    queue.push([{ workspace: workspace('ws_switch', 'enc:1'), plan: null }]);
+    await getTenantDbByWorkspaceId('ws_switch');
+    queue.push([{ workspace: workspace('ws_switch', 'enc:2'), plan: null }]);
+    const current = await getTenantDb('org_ws_switch');
+    expect(pools).toHaveLength(2);
+
+    // A request still holding the old db hits the rotated password, then the read-only source.
+    for (const error of [
+      Object.assign(new Error('boom'), { code: '28P01' }),
+      Object.assign(new Error('cannot execute UPDATE in a read-only transaction'), { code: '25006' }),
+    ]) {
+      queryBehaviour.error = error;
+      await expect(pools[0]!.query('update …')).rejects.toBe(error);
+    }
+    queryBehaviour.error = null;
+
+    // Still cached (the queue is empty, so a master read would throw), same pool, not retired.
+    const again = await getTenantDb('org_ws_switch');
+    expect(again.db).toBe(current.db);
+    expect(pools).toHaveLength(2);
+    vi.advanceTimersByTime(60_000);
+    expect(pools[0]!.ended).toBe(true);
+    expect(pools[1]!.ended).toBe(false);
   });
 
   it('keeps the workspace cached when a query fails for another reason', async () => {
