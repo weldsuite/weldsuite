@@ -1,10 +1,15 @@
-import { Boxes, Database, Layers, Server } from 'lucide-react';
+import { ArrowRightLeft, Boxes, Database, Layers, Server } from 'lucide-react';
 import { requireAdmin } from '@/lib/auth';
 import { getDatabasesOverview } from '@/lib/databases-data';
+import { computeMap } from '@/lib/database-moves-data';
+import { MAX_LIVE_PROJECT_IDS } from '@/lib/database-moves';
 import { shardFill } from '@/lib/databases';
 import { adminCopy, fill } from '@/lib/i18n';
+import { loadLiveDatabases } from '@/lib/workspace-worker';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import { SectionHeading, StatCard } from '@/components/databases/presentation';
+import { LiveStateNotice } from '@/components/databases/move-presentation';
+import { MovesTable } from '@/components/databases/moves-table';
 import { ShardsTable } from '@/components/databases/shards-table';
 import { DedicatedTable } from '@/components/databases/dedicated-table';
 import { PoolSlotsTable, PoolSummaryTable } from '@/components/databases/pool-tables';
@@ -13,13 +18,20 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Where workspace databases live: shared shards, dedicated Neon projects and the
- * warm pool. Read-only, and read from the master database only (task 1150,
- * phase 1). Every admin role may look, viewers included.
+ * warm pool, and the moves between them (task 1150). Placement and moves come
+ * from the master database; the compute columns come live from the workspace
+ * worker, which only asks the Neon API, so loading this page wakes nothing.
+ * Every admin role may look, viewers included; moves start from a workspace.
  */
 export default async function DatabasesPage() {
-  await requireAdmin();
+  const identity = await requireAdmin();
   const t = adminCopy().databases;
-  const { summary, shards, dedicated, pool } = await getDatabasesOverview();
+  const { summary, shards, dedicated, pool, moves } = await getDatabasesOverview();
+  const live = await loadLiveDatabases(
+    identity,
+    dedicated.rows.slice(0, MAX_LIVE_PROJECT_IDS).map((row) => row.neonProjectId),
+  );
+  const compute = computeMap(live);
 
   let withoutDatabaseHint: string | undefined;
   if (summary.withoutDatabase > 0) {
@@ -55,9 +67,29 @@ export default async function DatabasesPage() {
           <StatCard label={t.summary.withoutDatabase} value={summary.withoutDatabase} hint={withoutDatabaseHint} />
         </div>
 
+        <LiveStateNotice state={live} />
+
+        <section className="space-y-3">
+          <SectionHeading
+            icon={ArrowRightLeft}
+            title={t.moves.overviewTitle}
+            count={moves.active.length}
+            description={t.moves.overviewDescription}
+          />
+          <MovesTable rows={moves.active} emptyText={t.moves.noActive} />
+          {moves.recent.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t.moves.recentTitle}
+              </h3>
+              <MovesTable rows={moves.recent} emptyText={t.moves.noRecent} />
+            </div>
+          )}
+        </section>
+
         <section className="space-y-3">
           <SectionHeading icon={Layers} title={t.shards.title} count={shards.length} description={t.shards.description} />
-          <ShardsTable shards={shards} />
+          <ShardsTable shards={shards} compute={compute} />
         </section>
 
         <section className="space-y-3">
@@ -67,7 +99,7 @@ export default async function DatabasesPage() {
             count={dedicated.total}
             description={t.dedicated.description}
           />
-          <DedicatedTable dedicated={dedicated} />
+          <DedicatedTable dedicated={dedicated} compute={compute} />
         </section>
 
         <section className="space-y-3">
