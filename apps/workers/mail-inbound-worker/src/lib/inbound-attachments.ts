@@ -65,3 +65,41 @@ export function inboundAttachmentRecord(
     },
   };
 }
+
+/**
+ * The personal-mailbox twin of `inboundAttachmentRecord`: the R2 key and
+ * `personal_mail_attachments` row for one inbound attachment. The key sits
+ * under `personal/<personalAccountId>/`, never a workspace folder. Same rule:
+ * no `downloadUrl`; personal-api serves the bytes behind the owner check
+ * (`/api/mail/messages/:id/attachments/:attachmentId/download`) and inline
+ * images through short-lived URLs it mints on read, found by `contentId`.
+ */
+export function personalAttachmentRecord(
+  personalAccountId: string,
+  messageId: string,
+  index: number,
+  attachment: InboundAttachmentInput,
+  id: string,
+): InboundAttachmentRecord & {
+  row: InboundAttachmentRecord['row'] & { personalAccountId: string; contentDisposition: string | null };
+} {
+  const contentType = attachment.contentType || 'application/octet-stream';
+  const sanitizedName = attachment.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
+  const r2Key = `personal/${personalAccountId}/mail/attachments/${messageId}/${index + 1}_${sanitizedName}`;
+  return {
+    r2Key,
+    contentType,
+    row: {
+      id,
+      personalAccountId,
+      messageId,
+      fileName: attachment.fileName,
+      contentType,
+      size: attachment.content.length,
+      storagePath: r2Key,
+      isInline: attachment.disposition === 'inline',
+      contentId: bareContentId(attachment.contentId),
+      contentDisposition: attachment.disposition ?? null,
+    },
+  };
+}

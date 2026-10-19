@@ -181,6 +181,24 @@ export class PersonalApiClient {
     attachments: (id: string): Promise<DataResponse<MailAttachment[]>> =>
       this.request('GET', `/mail/messages/${encodeURIComponent(id)}/attachments`),
 
+    /**
+     * URL and auth header to download one attachment's bytes with (a file
+     * download, not a JSON call). 404 when the caller does not own it.
+     */
+    attachmentDownload: async (
+      id: string,
+      attachmentId: string,
+    ): Promise<{ url: string; headers: Record<string, string> }> => {
+      const token = await this.getToken();
+      if (!token) throw new Error('Authentication required');
+      return {
+        url: this.url(
+          `/mail/messages/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/download`,
+        ),
+        headers: { Authorization: `Bearer ${token}` },
+      };
+    },
+
     unreadCount: (): Promise<DataResponse<UnreadCount>> =>
       this.request('GET', '/mail/messages/unread-count'),
   };

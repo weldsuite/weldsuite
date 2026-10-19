@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bareContentId, inboundAttachmentRecord } from './inbound-attachments';
+import { bareContentId, inboundAttachmentRecord, personalAttachmentRecord } from './inbound-attachments';
 
 describe('inboundAttachmentRecord (TASK-905)', () => {
   const content = new Uint8Array([1, 2, 3, 4]);
@@ -43,5 +43,34 @@ describe('bareContentId', () => {
     expect(bareContentId('plain')).toBe('plain');
     expect(bareContentId('<>')).toBeNull();
     expect(bareContentId(undefined)).toBeNull();
+  });
+});
+
+describe('personalAttachmentRecord (TASK-905)', () => {
+  const content = new Uint8Array([1, 2, 3]);
+
+  it('keys the file under the personal account and stores no public URL', () => {
+    const { r2Key, row } = personalAttachmentRecord(
+      'pacc_1',
+      'pmsg_1',
+      1,
+      { fileName: 'photo 1.jpg', contentType: 'image/jpeg', content, contentId: '<photo@x>', disposition: 'inline' },
+      'attach_9',
+    );
+    expect(r2Key).toBe('personal/pacc_1/mail/attachments/pmsg_1/2_photo_1.jpg');
+    expect(row).toEqual({
+      id: 'attach_9',
+      personalAccountId: 'pacc_1',
+      messageId: 'pmsg_1',
+      fileName: 'photo 1.jpg',
+      contentType: 'image/jpeg',
+      size: 3,
+      storagePath: r2Key,
+      isInline: true,
+      contentId: 'photo@x',
+      contentDisposition: 'inline',
+    });
+    expect(row).not.toHaveProperty('downloadUrl');
+    expect(JSON.stringify(row)).not.toMatch(/https?:|workspaces\//);
   });
 });

@@ -44,6 +44,15 @@ export function isWorkspaceStorageKey(key: string, workspaceId: string): boolean
   return key.startsWith(`workspaces/${workspaceId}/`);
 }
 
+/**
+ * The personal-mailbox twin of `isWorkspaceStorageKey`: the inbound worker
+ * keys a personal account's files under `personal/<personalAccountId>/`.
+ */
+export function isPersonalStorageKey(key: string, personalAccountId: string): boolean {
+  if (!personalAccountId || key.includes('..')) return false;
+  return key.startsWith(`personal/${personalAccountId}/`);
+}
+
 /** The binding `deleteAttachment` reads (any worker Env with it fits). */
 export interface MailAttachmentsEnv {
   STORAGE?: R2Bucket;

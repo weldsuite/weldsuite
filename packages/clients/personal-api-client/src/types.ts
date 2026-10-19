@@ -68,6 +68,10 @@ export interface MailMessage {
   pendingVerification?: boolean;
 }
 
+/**
+ * An attachment row. No storage key or public URL (TASK-905): the bytes come
+ * from `mailMessages.attachmentDownload`, which only serves the owner.
+ */
 export interface MailAttachment {
   id: string;
   personalAccountId: string;
@@ -77,8 +81,6 @@ export interface MailAttachment {
   size: number;
   isInline?: boolean | null;
   contentId?: string | null;
-  downloadUrl?: string | null;
-  storagePath?: string | null;
   createdAt?: string | Date;
 }
 

@@ -10,6 +10,11 @@
  * Messages stored before the change still hold public URLs; those are swapped
  * the same way, matched on the attachment's storage key.
  *
+ * Personal mailboxes (personal-api) use the same token and rewrite, with a
+ * personal account as the owner instead of a workspace: their files sit under
+ * `personal/<personalAccountId>/`, and personal-api serves its own
+ * `GET /public/mail-inline/:token`.
+ *
  * The token is sealed (AES-GCM), not just signed: it carries the object key,
  * and the key must not leak while the bucket still has a public domain.
  * The IV is derived from the claims, so one image keeps one URL for an expiry
@@ -19,11 +24,11 @@
 import { and, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { isWorkspaceStorageKey } from './attachments';
+import { isPersonalStorageKey, isWorkspaceStorageKey } from './attachments';
 
 const { mailAttachments } = schema;
 
-/** Path mail-api serves inline images under (outside the /api/* auth chain). */
+/** Path mail-api and personal-api serve inline images under (outside the /api/* auth chain). */
 export const INLINE_IMAGE_PATH = '/public/mail-inline';
 
 /** A minted URL lives at least this long… */
@@ -31,10 +36,15 @@ export const INLINE_IMAGE_TTL_SECONDS = 60 * 60;
 /** …plus up to this much, so reads within one window mint the same URL. */
 const EXPIRY_WINDOW_SECONDS = 15 * 60;
 
-/** What a token proves: this workspace's attachment, at this key, until `e`. */
+/**
+ * What a token proves: this owner's attachment, at this key, until `e`. The
+ * owner is a workspace (`w`) or a personal account (`p`), never both.
+ */
 export interface InlineImageClaims {
-  /** Workspace id. */
-  w: string;
+  /** Workspace id, for workspace mail. */
+  w?: string;
+  /** Personal account id, for personal mail. */
+  p?: string;
   /** Attachment id. */
   a: string;
   /** Object key in the STORAGE bucket. */
@@ -45,16 +55,20 @@ export interface InlineImageClaims {
   e: number;
 }
 
+/** Whose mail a reading route rewrites: a workspace or a personal account. */
+export type InlineImageOwner =
+  | { workspaceId: string; personalAccountId?: never }
+  | { personalAccountId: string; workspaceId?: never };
+
 /** What a reading route passes to mint inline-image URLs. */
-export interface InlineImageSigner {
-  workspaceId: string;
+export type InlineImageSigner = InlineImageOwner & {
   /** Origin that serves INLINE_IMAGE_PATH, e.g. `https://mail-api.weldsuite.org`. */
   baseUrl: string;
   /** Secret the token keys are derived from. */
   secret: string;
   /** Clock override for tests (ms). */
   now?: number;
-}
+};
 
 /** The attachment fields a rewrite needs. */
 export interface InlineAttachmentRef {
@@ -165,8 +179,10 @@ export async function openInlineImageToken(
   } catch {
     return null;
   }
+  const owners = [claims?.w, claims?.p].filter((o) => o !== undefined);
   if (
-    typeof claims?.w !== 'string' ||
+    owners.length !== 1 ||
+    typeof owners[0] !== 'string' ||
     typeof claims.a !== 'string' ||
     typeof claims.k !== 'string' ||
     typeof claims.t !== 'string' ||
@@ -176,6 +192,17 @@ export async function openInlineImageToken(
   }
   if (claims.e * 1000 <= now) return null;
   return claims;
+}
+
+/**
+ * True when the token's key sits in its owner's folder. Each serving route
+ * also checks the owner kind is its own: mail-api serves workspace tokens
+ * only, personal-api personal ones only.
+ */
+export function isOwnedStorageKey(owner: { w?: string; p?: string }, key: string): boolean {
+  if (owner.w !== undefined) return owner.p === undefined && isWorkspaceStorageKey(key, owner.w);
+  if (owner.p !== undefined) return isPersonalStorageKey(key, owner.p);
+  return false;
 }
 
 /** Expiry for a URL minted now: at least the TTL, rounded up to the window. */
@@ -209,9 +236,10 @@ function safeDecode(text: string): string {
 
 // `cid:` up to the end of the attribute / url() value.
 const CID_REFERENCE = /cid:([^"'\s)<>]+)/gi;
-// An absolute URL whose path is a workspace mail-attachment key (the form the
-// inbound worker wrote before TASK-905), whatever host served it.
-const STORAGE_URL = /https?:\/\/[^/"'\s<>()]+\/(workspaces\/[^/"'\s<>()?#]+\/mail\/attachments\/[^"'\s<>()?#]+)/gi;
+// An absolute URL whose path is a workspace or personal mail-attachment key
+// (the form the inbound worker wrote before TASK-905), whatever host served it.
+const STORAGE_URL =
+  /https?:\/\/[^/"'\s<>()]+\/((?:workspaces|personal)\/[^/"'\s<>()?#]+\/mail\/attachments\/[^"'\s<>()?#]+)/gi;
 
 /**
  * Point a message's inline-image references at freshly minted URLs: `cid:`
@@ -226,8 +254,10 @@ export async function rewriteInlineImages(
   signer: InlineImageSigner,
 ): Promise<string> {
   if (!html || attachments.length === 0) return html;
+  const owner =
+    signer.workspaceId !== undefined ? { w: signer.workspaceId } : { p: signer.personalAccountId };
   const usable = attachments.filter(
-    (a) => a.storagePath && isWorkspaceStorageKey(a.storagePath, signer.workspaceId) && isInlineImageType(a.contentType),
+    (a) => a.storagePath && isOwnedStorageKey(owner, a.storagePath) && isInlineImageType(a.contentType),
   );
   if (usable.length === 0) return html;
 
@@ -244,7 +274,7 @@ export async function rewriteInlineImages(
     const cached = minted.get(a.id);
     if (cached) return cached;
     const token = await sealInlineImageToken(signer.secret, {
-      w: signer.workspaceId,
+      ...owner,
       a: a.id,
       k: a.storagePath!,
       t: a.contentType!.split(';')[0]!.trim().toLowerCase(),

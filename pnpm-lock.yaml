@@ -6053,6 +6053,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
         version: 4.20260113.0
+      '@electric-sql/pglite':
+        specifier: ^0.4.5
+        version: 0.4.5
       '@types/node':
         specifier: ^20
         version: 20.19.43

@@ -6,6 +6,13 @@
  * the outbound guard, idempotency, HTML sanitizing and thread stitching behave
  * identically no matter which endpoint the client used (`lib/send-errors.ts`
  * maps their refusals to responses).
+ *
+ * Attachments and inline images never go out as a storage URL (TASK-905): the
+ * bucket's public URL serves a file to anyone holding the link. Attachment
+ * rows come back without `storagePath` / `downloadUrl`, the bytes come from
+ * `GET /:id/attachments/:attachmentId/download` (owner only), and HTML bodies
+ * are returned with inline images pointing at short-lived
+ * `/public/mail-inline/:token` URLs (lib/inline-images.ts).
  */
 
 import { Hono } from 'hono';
@@ -15,6 +22,8 @@ import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-or
 import { getPersonalDb, personalSchema } from '../db';
 import { cursorPagination, error, list, success } from '../lib/response';
 import { mapSendError } from '../lib/send-errors';
+import { applyPersonalInlineImages, inlineImageSigner } from '../lib/inline-images';
+import { isPersonalStorageKey, toPublicAttachment } from '@weldsuite/mail-domain/attachments';
 import {
   PersonalMailSendError,
   forwardAndPersist,
@@ -194,6 +203,9 @@ app.get('/', zValidator('query', listQuery), async (c) => {
     const cursor = hasMore && data.length > 0 ? data[data.length - 1]!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
 
+    // A thread view renders these bodies, so their inline images are swapped too.
+    await applyPersonalInlineImages(personalDb, personalAccountId, data, inlineImageSigner(c, personalAccountId));
+
     return list(c, data, cursorPagination(totalCount, hasMore, cursor));
   } catch (err) {
     console.error('[personal-api/mail-messages] list failed:', err);
@@ -363,11 +375,73 @@ app.get('/:id/attachments', async (c) => {
       )
       .orderBy(asc(personalMailAttachments.createdAt));
 
-    return success(c, rows);
+    // Without the storage key and public URL: the bytes come from the download route below.
+    return success(c, rows.map(toPublicAttachment));
   } catch (err) {
     if (err instanceof PersonalMailSendError) return mapSendError(c, err);
     console.error('[personal-api/mail-messages] attachments failed:', err);
     return error.internal(c, 'Failed to list attachments');
+  }
+});
+
+/**
+ * The attachment's bytes, for the owner of the message only. Anything the
+ * caller cannot read (another account's message or attachment, a deleted one,
+ * a key outside their folder) is the same 404 as a missing one.
+ */
+app.get('/:id/attachments/:attachmentId/download', async (c) => {
+  const personalAccountId = c.get('personalAccountId');
+  if (!personalAccountId) return error.personalAccountRequired(c);
+
+  const id = c.req.param('id');
+  const attachmentId = c.req.param('attachmentId');
+
+  try {
+    const personalDb = getPersonalDb(c.env);
+    const [row] = await personalDb
+      .select({
+        fileName: personalMailAttachments.fileName,
+        contentType: personalMailAttachments.contentType,
+        storagePath: personalMailAttachments.storagePath,
+      })
+      .from(personalMailAttachments)
+      .innerJoin(personalMailMessages, eq(personalMailMessages.id, personalMailAttachments.messageId))
+      .where(
+        and(
+          eq(personalMailAttachments.id, attachmentId),
+          eq(personalMailAttachments.messageId, id),
+          eq(personalMailAttachments.personalAccountId, personalAccountId),
+          isNull(personalMailAttachments.deletedAt),
+          eq(personalMailMessages.personalAccountId, personalAccountId),
+          isNull(personalMailMessages.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!row) return error.notFound(c, 'Attachment', attachmentId);
+
+    if (!c.env.STORAGE) return error.unavailable(c, 'Storage binding not configured');
+
+    // A key outside the account's folder is never served, whatever the row says.
+    const object =
+      row.storagePath && isPersonalStorageKey(row.storagePath, personalAccountId)
+        ? await c.env.STORAGE.get(row.storagePath)
+        : null;
+    if (!object) return error.notFound(c, 'Attachment', attachmentId);
+
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': row.contentType || object.httpMetadata?.contentType || 'application/octet-stream',
+        // Always a download, never rendered on the API origin (the file is
+        // whatever a stranger mailed in).
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(row.fileName)}`,
+        'Content-Length': String(object.size),
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  } catch (err) {
+    console.error('[personal-api/mail-messages] attachment download failed:', err);
+    return error.internal(c, 'Failed to download attachment');
   }
 });
 
@@ -392,6 +466,7 @@ app.get('/:id', async (c) => {
       .limit(1);
 
     if (!row) return error.notFound(c, 'Message', id);
+    await applyPersonalInlineImages(personalDb, personalAccountId, [row], inlineImageSigner(c, personalAccountId));
     return success(c, row);
   } catch (err) {
     console.error('[personal-api/mail-messages] get failed:', err);
