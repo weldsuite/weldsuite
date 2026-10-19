@@ -130,6 +130,37 @@ function bundleHeaders(
   return headers;
 }
 
+/**
+ * A non-public bundle needs a link for this app, still valid, whose workspace
+ * still has access. Returns the link's expiry, or the response to send:
+ * anything but an expired link looks exactly like an unknown app.
+ */
+async function checkBundleLink(
+  c: BundleContext,
+  env: BundleEnv,
+  params: { master: ReturnType<typeof getMasterDb>; code: string; appId: string; token: string | null | undefined },
+): Promise<{ expiresAt: number } | Response> {
+  const unknownApp = () => notFound(`App '${params.code}' not found`);
+  if (!params.token) return unknownApp();
+
+  const verdict = await verifyBundleCapability(env, { appId: params.appId, token: params.token });
+  if (!verdict.ok) {
+    if (verdict.reason === 'expired') {
+      return jsonError(403, 'BUNDLE_LINK_EXPIRED', 'This app link has expired. Reload the app.');
+    }
+    if (verdict.reason === 'unconfigured') {
+      console.error('[app-api/public-user-apps] no bundle signing secret configured; refusing a gated bundle');
+    }
+    return unknownApp();
+  }
+
+  const allowed = await workspaceMayUseBundleCached(params.master, c.env.WORKSPACE_CACHE, {
+    appId: params.appId,
+    workspaceId: verdict.workspaceId,
+  });
+  return allowed ? { expiresAt: verdict.expiresAt } : unknownApp();
+}
+
 async function serveAsset(c: BundleContext, code: string, rest: string): Promise<Response> {
   const env = bundleEnv(c.env);
   if (!c.env.STORAGE) return jsonError(500, 'INTERNAL_ERROR', 'Storage is not configured');
@@ -153,25 +184,9 @@ async function serveAsset(c: BundleContext, code: string, rest: string): Promise
 
   let gatedUntilMs: number | null = null;
   if (bundle.requiresToken !== false) {
-    // Not public: needs a link for this app, still valid, whose workspace still
-    // has access. Anything else looks exactly like an unknown app.
-    if (!token) return notFound(`App '${code}' not found`);
-    const verdict = await verifyBundleCapability(env, { appId: bundle.appId, token });
-    if (!verdict.ok) {
-      if (verdict.reason === 'expired') {
-        return jsonError(403, 'BUNDLE_LINK_EXPIRED', 'This app link has expired. Reload the app.');
-      }
-      if (verdict.reason === 'unconfigured') {
-        console.error('[app-api/public-user-apps] no bundle signing secret configured; refusing a gated bundle');
-      }
-      return notFound(`App '${code}' not found`);
-    }
-    const allowed = await workspaceMayUseBundleCached(master, c.env.WORKSPACE_CACHE, {
-      appId: bundle.appId,
-      workspaceId: verdict.workspaceId,
-    });
-    if (!allowed) return notFound(`App '${code}' not found`);
-    gatedUntilMs = verdict.expiresAt;
+    const gate = await checkBundleLink(c, env, { master, code, appId: bundle.appId, token });
+    if (gate instanceof Response) return gate;
+    gatedUntilMs = gate.expiresAt;
   }
 
   // SPA fallback: no path or an extension-less path serves the entrypoint.

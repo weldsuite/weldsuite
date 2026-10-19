@@ -76,10 +76,11 @@ export async function getTenantDbBySlug(rawSlug: string) {
   // when it is unambiguous: a public URL must never land on whichever tenant
   // happens to share a prefix.
   if (!workspace) {
+    const legacyShape = `^${slug}-[0-9]{10,13}$`;
     const legacy = await masterDb
       .select(columns)
       .from(workspaces)
-      .where(sql`${workspaces.slug} ~ ${`^${slug}-[0-9]{10,13}$`}`)
+      .where(sql`${workspaces.slug} ~ ${legacyShape}`)
       .limit(2);
     workspace = legacy.length === 1 ? legacy[0] : undefined;
   }

@@ -38,7 +38,7 @@ type ClerkJwtPayload = {
  *
  * The consumer WeldMail web app's custom host is not recorded in the repo (its
  * API is api.weldmail.com, the app ships to the Pages projects `weldmail-web`
- * and `weldmail-web-test`), so it is matched by WELDMAIL_WEB_ORIGIN below:
+ * and `weldmail-web-test`), so it is matched by isWeldmailWebOrigin below:
  * https on weldmail.com or one subdomain label of it, or a deployment of one
  * of those two Pages projects. All of these hosts are WeldSuite's own (users
  * claim addresses on weldmail.com, never subdomains). Anything else goes in
@@ -51,8 +51,21 @@ export const PERSONAL_AUTHORIZED_PARTIES = [
   'http://localhost:3201',
 ] as const;
 
-const WELDMAIL_WEB_ORIGIN =
-  /^https:\/\/(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)?weldmail\.com|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)?weldmail-web(?:-test)?\.pages\.dev)$/;
+/** Hosts WeldMail web runs on; one extra subdomain label is allowed on each. */
+const WELDMAIL_WEB_HOSTS = ['weldmail.com', 'weldmail-web.pages.dev', 'weldmail-web-test.pages.dev'] as const;
+const HTTPS_HOST_ORIGIN = /^https:\/\/([a-z0-9.-]+)$/;
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** https on a WeldMail web host or one subdomain label of it (no port, no path). */
+function isWeldmailWebOrigin(origin: string): boolean {
+  const host = HTTPS_HOST_ORIGIN.exec(origin)?.[1];
+  if (!host) return false;
+  return WELDMAIL_WEB_HOSTS.some((base) => {
+    if (host === base) return true;
+    if (!host.endsWith(`.${base}`)) return false;
+    return DNS_LABEL.test(host.slice(0, -(base.length + 1)));
+  });
+}
 
 /** One concrete origin: scheme and host (+ port); no wildcard, no path. */
 const EXACT_ORIGIN =
@@ -77,7 +90,7 @@ export function isAuthorizedParty(azp: unknown, extraOrigins: readonly string[] 
   if (typeof azp !== 'string' || azp === '') return false;
   return (
     (PERSONAL_AUTHORIZED_PARTIES as readonly string[]).includes(azp) ||
-    WELDMAIL_WEB_ORIGIN.test(azp) ||
+    isWeldmailWebOrigin(azp) ||
     extraOrigins.includes(azp)
   );
 }

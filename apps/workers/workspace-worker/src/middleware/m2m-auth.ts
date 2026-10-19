@@ -124,6 +124,40 @@ async function readCachedPrincipal(kv: KVNamespace, cacheKey: string): Promise<M
   }
 }
 
+/** Verify the token with Clerk. Null (logged, never the token) when it does not authenticate. */
+async function verifyWithClerk(env: Env, token: string, tokenHash: string, now: number): Promise<M2mPrincipal | null> {
+  const ref = tokenHash.slice(0, 8);
+  try {
+    const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+    const verified = await clerk.m2m.verify({ token, machineSecretKey: env.CLERK_MACHINE_SECRET_KEY });
+
+    const expiresAt = toEpochMs(verified.expiration);
+    const expired = verified.expired || (expiresAt !== null && expiresAt <= now);
+    if (verified.revoked || expired || !verified.subject) {
+      console.warn(`[M2M Auth] Token rejected (ref ${ref}): revoked, expired or without a subject`);
+      return null;
+    }
+    return { machineId: verified.subject, scopes: verified.scopes ?? [], expiresAt };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 200) : 'unknown error';
+    console.warn(`[M2M Auth] Token verification failed (ref ${ref}): ${reason}`);
+    return null;
+  }
+}
+
+/** Cache a verified principal; a failing write must never turn a verified token into a 401. */
+function cachePrincipal(
+  kv: KVNamespace,
+  ctx: ExecutionContext,
+  cacheKey: string,
+  principal: M2mPrincipal,
+  now: number,
+): void {
+  const ttl = cacheTtlSeconds(principal.expiresAt, now);
+  if (ttl <= 0) return;
+  ctx.waitUntil(kv.put(cacheKey, JSON.stringify(principal), { expirationTtl: ttl }).catch(() => undefined));
+}
+
 export const m2mAuth = () => {
   return createMiddleware<{ Bindings: Env }>(async (c, next) => {
     const authHeader = c.req.header('Authorization');
@@ -145,34 +179,9 @@ export const m2mAuth = () => {
     }
 
     if (!principal) {
-      try {
-        const clerk = createClerkClient({ secretKey: c.env.CLERK_SECRET_KEY });
-        const verified = await clerk.m2m.verify({
-          token,
-          machineSecretKey: c.env.CLERK_MACHINE_SECRET_KEY,
-        });
-
-        const expiresAt = toEpochMs(verified.expiration);
-        if (verified.revoked || verified.expired || !verified.subject || (expiresAt !== null && expiresAt <= now)) {
-          console.warn(`[M2M Auth] Token rejected (ref ${tokenHash.slice(0, 8)}): revoked, expired or without a subject`);
-          return c.json({ error: 'Unauthorized' }, 401);
-        }
-
-        principal = { machineId: verified.subject, scopes: verified.scopes ?? [], expiresAt };
-      } catch (error) {
-        const reason = error instanceof Error ? error.message.slice(0, 200) : 'unknown error';
-        console.warn(`[M2M Auth] Token verification failed (ref ${tokenHash.slice(0, 8)}): ${reason}`);
-        return c.json({ error: 'Unauthorized' }, 401);
-      }
-
-      // Outside the try: a failing cache write must never turn a verified token into a 401.
-      const ttl = cacheTtlSeconds(principal.expiresAt, now);
-      if (ttl > 0) {
-        const write = c.env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(principal), { expirationTtl: ttl }).catch(
-          () => undefined,
-        );
-        c.executionCtx.waitUntil(write);
-      }
+      principal = await verifyWithClerk(c.env, token, tokenHash, now);
+      if (!principal) return c.json({ error: 'Unauthorized' }, 401);
+      cachePrincipal(c.env.WORKSPACE_CACHE, c.executionCtx, cacheKey, principal, now);
     }
 
     // Authorisation runs on every request, hit or miss: the allowlist can change

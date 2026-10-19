@@ -257,6 +257,55 @@ async function rotateTextRow(
   }
 }
 
+/** A v3 database_url must open for its own row; anything else is counted as failed. */
+async function verifyAadBoundUrl(
+  value: string,
+  workspaceId: string,
+  keyring: EncryptionKeyring,
+  counts: SweepCounts,
+  label: string,
+): Promise<void> {
+  try {
+    await decryptWorkspaceDatabaseUrl(value, workspaceId, keyring);
+  } catch {
+    // Sealed for another workspace, tampered with, or the wrong v2 key.
+    counts.failed++;
+    console.error(`    ${label}: v3 value does not open for this workspace`);
+  }
+}
+
+/**
+ * Decrypt a v1/v2 database_url and count it. Null (counted as failed) when it
+ * does not decrypt.
+ */
+async function openLegacyDatabaseUrl(
+  value: string,
+  isV2: boolean,
+  workspaceId: string,
+  keyring: EncryptionKeyring,
+  counts: SweepCounts,
+  label: string,
+): Promise<string | null> {
+  let plaintext: string;
+  try {
+    plaintext = await decryptWorkspaceDatabaseUrl(value, workspaceId, keyring);
+  } catch {
+    counts.failed++;
+    if (isV2) {
+      counts.v2++;
+      console.error(`    ${label}: v2 value does not decrypt`);
+    } else {
+      // Hex-pair-shaped value that isn't v1 ciphertext (or wrong key) — leave it.
+      counts.plaintext++;
+    }
+    return null;
+  }
+  if (isV2) counts.v2++;
+  else counts.v1++;
+  counts.aadPending++;
+  return plaintext;
+}
+
 /**
  * workspaces.database_url. v1/v2 values are decrypted and, with AAD writes on,
  * resealed as v3 bound to the row's id; otherwise v1 is rotated to v2 like any
@@ -276,19 +325,13 @@ async function rotateWorkspaceDatabaseUrlRow(
   const { table, idColumn, column } = target;
   if (typeof row.value !== 'string') return;
   const value = row.value;
+  const label = `${table}.${column} ${row.id}`;
   const keyring: EncryptionKeyring = { v1: keys.v1, v2: keys.v2 };
+  const toV3 = aad.aadWrites && aad.haveV2;
 
   if (isAadBound(value)) {
     counts.v3++;
-    if (aad.haveV2) {
-      try {
-        await decryptWorkspaceDatabaseUrl(value, row.id, keyring);
-      } catch {
-        // Sealed for another workspace, tampered with, or the wrong v2 key.
-        counts.failed++;
-        console.error(`    ${table}.${column} ${row.id}: v3 value does not open for this workspace`);
-      }
-    }
+    if (aad.haveV2) await verifyAadBoundUrl(value, row.id, keyring, counts, label);
     return;
   }
 
@@ -300,43 +343,19 @@ async function rotateWorkspaceDatabaseUrlRow(
 
   // A v2 value only has work to do when it is going to become v3; otherwise it is
   // counted and left alone, as for every other column.
-  if (isV2 && !(aad.aadWrites && aad.haveV2)) {
+  if (isV2 && !toV3) {
     counts.v2++;
     counts.aadPending++;
     return;
   }
 
-  let plaintext: string;
-  try {
-    plaintext = await decryptWorkspaceDatabaseUrl(value, row.id, keyring);
-  } catch {
-    if (isV2) {
-      counts.v2++;
-      counts.failed++;
-      console.error(`    ${table}.${column} ${row.id}: v2 value does not decrypt`);
-    } else {
-      // Hex-pair-shaped value that isn't v1 ciphertext (or wrong key) — leave it.
-      counts.failed++;
-      counts.plaintext++;
-    }
-    return;
-  }
-
-  if (isV2) counts.v2++;
-  else counts.v1++;
-  counts.aadPending++;
+  const plaintext = await openLegacyDatabaseUrl(value, isV2, row.id, keyring, counts, label);
+  if (plaintext === null || !execute) return;
 
   // Target format: v3 with AAD writes on; otherwise only v1 moves (to v2).
-  let rewrittenValue: string;
-  if (aad.aadWrites && aad.haveV2) {
-    if (!execute) return;
-    rewrittenValue = await encryptWorkspaceDatabaseUrl(plaintext, row.id, { ...keyring, aadWrites: true });
-  } else if (execute) {
-    // v1 only: a v2 value never gets past the early return above without AAD writes.
-    rewrittenValue = await encryptField(plaintext, { v2: keys.v2 });
-  } else {
-    return;
-  }
+  const rewrittenValue = toV3
+    ? await encryptWorkspaceDatabaseUrl(plaintext, row.id, { ...keyring, aadWrites: true })
+    : await encryptField(plaintext, { v2: keys.v2 });
 
   const result = await sql.unsafe(
     `UPDATE ${table} SET ${column} = $1 WHERE ${idColumn} = $2 AND ${column} = $3`,

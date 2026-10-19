@@ -286,31 +286,40 @@ export type ExactBody =
  * bounded by `expected`, which the caller has already capped.
  */
 export async function readBodyOfExactSize(request: Request, expected: number): Promise<ExactBody> {
-  const header = request.headers.get('content-length');
-  if (header !== null) {
-    const declared = Number(header);
-    if (!Number.isInteger(declared) || declared < 0) return { ok: false, reason: 'size_mismatch' };
-    if (declared > expected) return { ok: false, reason: 'too_large' };
-    if (declared !== expected) return { ok: false, reason: 'size_mismatch' };
-  }
+  const declared = checkDeclaredLength(request.headers.get('content-length'), expected);
+  if (declared) return { ok: false, reason: declared };
 
   const bytes = new Uint8Array(expected);
-  let offset = 0;
-  const body = request.body;
-  if (body) {
-    const reader = body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk: Uint8Array = value;
-      if (offset + chunk.byteLength > expected) {
-        await reader.cancel().catch(() => undefined);
-        return { ok: false, reason: 'too_large' };
-      }
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-  }
-  if (offset !== expected) return { ok: false, reason: 'size_mismatch' };
+  const read = request.body ? await readInto(request.body, bytes) : { ok: true as const, length: 0 };
+  if (!read.ok) return { ok: false, reason: 'too_large' };
+  if (read.length !== expected) return { ok: false, reason: 'size_mismatch' };
   return { ok: true, bytes };
+}
+
+/** Why a `Content-Length` header rules the body out, or null when it is absent or agrees. */
+function checkDeclaredLength(header: string | null, expected: number): 'too_large' | 'size_mismatch' | null {
+  if (header === null) return null;
+  const declared = Number(header);
+  if (!Number.isInteger(declared) || declared < 0) return 'size_mismatch';
+  if (declared > expected) return 'too_large';
+  return declared === expected ? null : 'size_mismatch';
+}
+
+/** Stream `body` into `target`, cancelling as soon as it would overflow. */
+async function readInto(
+  body: ReadableStream<Uint8Array>,
+  target: Uint8Array,
+): Promise<{ ok: true; length: number } | { ok: false }> {
+  const reader = body.getReader();
+  let offset = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return { ok: true, length: offset };
+    if (offset + value.byteLength > target.byteLength) {
+      await reader.cancel().catch(() => undefined);
+      return { ok: false };
+    }
+    target.set(value, offset);
+    offset += value.byteLength;
+  }
 }

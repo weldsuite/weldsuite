@@ -16,13 +16,14 @@ import { getMasterDb, getTenantDbForWorkspace, schema, masterSchema } from '../d
  * silently never matching.
  */
 function normalizeAllowedDomain(entry: string): string {
-  return entry
+  const withoutScheme = entry
     .trim()
     .toLowerCase()
-    .replace(/^[a-z][a-z\d+.-]*:\/\//, '')
-    .replace(/[/?#].*$/, '')
-    .replace(/:\d+$/, '')
-    .replace(/^\*?\./, '');
+    .replace(/^[a-z][a-z\d+.-]*:\/\//, '');
+  // Cut at the first path, query or fragment character (a plain search, no backtracking).
+  const end = withoutScheme.search(/[/?#]/);
+  const hostAndPort = end === -1 ? withoutScheme : withoutScheme.slice(0, end);
+  return hostAndPort.replace(/:\d+$/, '').replace(/^\*?\./, '');
 }
 
 /** True when the request Origin's host equals, or is a subdomain of, an allowed domain. */
