@@ -32,18 +32,24 @@
  * Permission prefix: `team:*` (plus `team:invite_external` for guest invites).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, isNotNull, notInArray } from 'drizzle-orm';
 import {
   requirePermission,
   hasContextPermission,
+  ensurePermissionsResolved,
   getPermissionsFromContext,
   resolveEffectivePermissions,
   createDrizzlePermissionQueries,
 } from '@weldsuite/permissions/server';
-import { hasAppPermission } from '@weldsuite/permissions';
+import {
+  SYSTEM_ROLES,
+  checkPermissionGrants,
+  getRoleRowPermissions,
+  hasAppPermission,
+} from '@weldsuite/permissions';
 import {
   inviteMemberSchema,
   updateMemberInput,
@@ -151,6 +157,46 @@ async function lookupRole(db: Database, roleId: string) {
     .where(and(eq(schema.roles.id, roleId), isNull(schema.roles.deletedAt)))
     .limit(1);
   return role ?? null;
+}
+
+/**
+ * Grant ceiling for member writes: whoever assigns a role or per-member extras
+ * must hold every permission that hands out. Without it a `team:update` /
+ * `team:create` holder promotes anyone, themselves included, past their own
+ * access, e.g. by assigning the system Owner role row, which resolves to `*`.
+ */
+async function refuseUngrantable(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  permissions: readonly string[],
+  alreadyGranted: readonly string[] = [],
+): Promise<Response | null> {
+  const grantor = await ensurePermissionsResolved(c);
+  if (!grantor) return error.unauthorized(c);
+  const check = checkPermissionGrants(grantor, permissions, alreadyGranted);
+  if (check.ok) return null;
+  return error.forbidden(c, 'You cannot grant permissions you do not hold yourself');
+}
+
+/** What assigning `tier` / custom role `roleId` grants. */
+async function rolePermissionsFor(db: Database, tier: string, roleId: string | null): Promise<string[]> {
+  if (!roleId) return [...(SYSTEM_ROLES[tier]?.permissions ?? [])];
+  const [role] = await db
+    .select({ permissions: schema.roles.permissions, isSystem: schema.roles.isSystem, name: schema.roles.name })
+    .from(schema.roles)
+    .where(and(eq(schema.roles.id, roleId), isNull(schema.roles.deletedAt)))
+    .limit(1);
+  return role ? getRoleRowPermissions(role) : [];
+}
+
+/** Guests and EMPLOYEE members get a fixed set, so only an INTERNAL invite hands out its role's grants. */
+async function refuseInviteRole(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: Database,
+  memberType: InviteMemberType,
+  role: InviteRole,
+): Promise<Response | null> {
+  if (memberType !== 'INTERNAL') return null;
+  return refuseUngrantable(c, await rolePermissionsFor(db, role.roleName, role.resolvedRoleId));
 }
 
 /** Permissions automatically granted to a fresh EXTERNAL_GUEST member. */
@@ -743,6 +789,8 @@ app.post('/invite', async (c) => {
   const inviteRole = await resolveInviteRole(db, memberType, roleId);
   if (!inviteRole) return error.notFound(c, 'Role', roleId ?? '');
   const { roleName, resolvedRoleId } = inviteRole;
+  const roleRefusal = await refuseInviteRole(c, db, memberType, inviteRole);
+  if (roleRefusal) return roleRefusal;
 
   const clerkRole = mapRoleToClerk(roleName);
 
@@ -900,6 +948,53 @@ function pickMemberFieldUpdates(
   return fields;
 }
 
+type MemberRow = typeof schema.workspaceMembers.$inferSelect;
+
+/**
+ * The role half of PATCH /:id: owner lock, ACTIVE-status guard, grant ceiling,
+ * Clerk sync. Writes `role` / `roleId` into `update`, or returns the refusal.
+ */
+async function applyMemberRoleChange(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: Database,
+  orgId: string,
+  member: MemberRow,
+  body: ReturnType<typeof updateMemberInput.parse>,
+  update: Record<string, unknown>,
+): Promise<Response | null> {
+  // Hard owner lock: the workspace OWNER can never be demoted via this
+  // endpoint. This also guarantees the workspace always retains its owner
+  // (the last-owner invariant) since ownership can't be reassigned here.
+  if (member.role === 'OWNER') {
+    return error.forbidden(c, 'Cannot change the role of the workspace owner.');
+  }
+  if (member.status !== 'ACTIVE') {
+    return error.badRequest(c, 'Can only update role of an active member.');
+  }
+  // An EMPLOYEE member's access is fixed (My HR + WeldChat); a role would
+  // not apply and would still raise their Clerk org role.
+  if (member.memberType === 'EMPLOYEE') {
+    return error.badRequest(c, 'Employee members have fixed access and no role. Invite them as a team member to give them a role.');
+  }
+
+  const change = await resolveMemberRoleChange(db, body);
+  if ('missingRoleId' in change) return error.notFound(c, 'Role', change.missingRoleId);
+  const { tier, roleIdValue } = change;
+  const refusal = await refuseUngrantable(c, await rolePermissionsFor(db, tier, roleIdValue));
+  if (refusal) return refusal;
+
+  if (
+    member.clerkMembershipId &&
+    !(await updateClerkMembershipRole(c.env, orgId, member.userId, tier))
+  ) {
+    return error.internal(c, 'Failed to update role in Clerk');
+  }
+
+  update.role = tier;
+  update.roleId = roleIdValue;
+  return null;
+}
+
 /**
  * PATCH /:id — update a member: role (Clerk + DB), display name, per-member
  * permission overrides, contracted hours.
@@ -936,38 +1031,17 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
 
   if (!member) return error.notFound(c, 'Member', memberId);
 
+  if (body.permissions !== undefined) {
+    const refusal = await refuseUngrantable(c, body.permissions, member.permissions ?? []);
+    if (refusal) return refusal;
+  }
+
   const update: Record<string, unknown> = { updatedAt: new Date() };
   const changingRole = Boolean(body.role || body.roleId);
 
   if (changingRole) {
-    // Hard owner lock: the workspace OWNER can never be demoted via this
-    // endpoint. This also guarantees the workspace always retains its owner
-    // (the last-owner invariant) since ownership can't be reassigned here.
-    if (member.role === 'OWNER') {
-      return error.forbidden(c, 'Cannot change the role of the workspace owner.');
-    }
-    if (member.status !== 'ACTIVE') {
-      return error.badRequest(c, 'Can only update role of an active member.');
-    }
-    // An EMPLOYEE member's access is fixed (My HR + WeldChat); a role would
-    // not apply and would still raise their Clerk org role.
-    if (member.memberType === 'EMPLOYEE') {
-      return error.badRequest(c, 'Employee members have fixed access and no role. Invite them as a team member to give them a role.');
-    }
-
-    const change = await resolveMemberRoleChange(db, body);
-    if ('missingRoleId' in change) return error.notFound(c, 'Role', change.missingRoleId);
-    const { tier, roleIdValue } = change;
-
-    if (
-      member.clerkMembershipId &&
-      !(await updateClerkMembershipRole(c.env, orgId, member.userId, tier))
-    ) {
-      return error.internal(c, 'Failed to update role in Clerk');
-    }
-
-    update.role = tier;
-    update.roleId = roleIdValue;
+    const refusal = await applyMemberRoleChange(c, db, orgId, member, body, update);
+    if (refusal) return refusal;
   }
 
   Object.assign(update, pickMemberFieldUpdates(body));

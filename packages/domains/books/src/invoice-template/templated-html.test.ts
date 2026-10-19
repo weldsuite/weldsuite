@@ -86,4 +86,18 @@ describe('generateTemplatedInvoiceHtml', () => {
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('fill-opacity="0.08"');
   });
+
+  it('escapes address lines and ignores a non-hex accent in the designed page and its mobile layout', () => {
+    const template = presetTemplate('modern', 'a4');
+    template.theme.accent = 'red;}</style><script>alert(9)</script>' as unknown as string;
+    const html = generateTemplatedInvoiceHtml(
+      template,
+      invoice({ billingAddress: { line1: '<script>alert(1)</script>', city: '"><img src=x onerror=alert(2)>', country: 'NL' } }),
+      entity({ address: { line1: '<iframe src=evil>', city: 'Amsterdam', country: 'NL' } }),
+    );
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<img src=x');
+    expect(html).not.toContain('<iframe');
+    expect(html).not.toContain('red;}');
+  });
 });

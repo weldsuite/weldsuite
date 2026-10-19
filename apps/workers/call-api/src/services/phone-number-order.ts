@@ -10,6 +10,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { upsertPhoneNumberRegistry } from '../lib/phone-registry';
+import { verifyPaidPhoneCheckout, type StripeEnv } from '../lib/stripe-checkout';
 import { isTelnyxConfigured, telnyxRequest, type TelnyxEnv } from '../lib/telnyx';
 import {
   telnyxOrderNeedsDocuments,
@@ -129,4 +130,83 @@ export async function fulfillPaidPhoneNumber(
   }
 
   return { id: existing?.id ?? voipId, alreadyFulfilled: false, status };
+}
+
+// ---------------------------------------------------------------------------
+// Payment-verified, idempotent entry point (used by /api/internal/telephony/
+// fulfill-number). The order itself is `fulfillPaidPhoneNumber` above; this
+// wrapper proves the payment first and makes a retried reference a no-op.
+// ---------------------------------------------------------------------------
+
+export interface FulfillCheckoutInput extends FulfillPaidPhoneNumberInput {
+  /** Stripe Checkout Session id (`cs_...`) of the completed phone checkout. */
+  checkoutSessionId: string;
+}
+
+const FULFILL_KEY_PREFIX = 'phone-fulfill:';
+/** Longer than any Telnyx order call, so a crashed isolate frees the claim. */
+const INFLIGHT_TTL_SECONDS = 120;
+/** Keep the outcome long enough to cover every Stripe webhook retry window. */
+const DONE_TTL_SECONDS = 60 * 60 * 24 * 90;
+
+type FulfillRecord =
+  | { state: 'inflight' }
+  | { state: 'done'; result: FulfillPaidPhoneNumberResult };
+
+export class PhoneFulfillInProgressError extends Error {
+  constructor() {
+    super('Fulfilment for this checkout is already in progress');
+    this.name = 'PhoneFulfillInProgressError';
+  }
+}
+
+async function readRecord(kv: KVNamespace, key: string): Promise<FulfillRecord | null> {
+  const raw = await kv.get(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as FulfillRecord;
+  } catch {
+    return null;
+  }
+}
+
+export async function fulfillPaidPhoneNumberForCheckout(
+  env: TelnyxEnv & StripeEnv,
+  input: FulfillCheckoutInput,
+): Promise<FulfillPaidPhoneNumberResult> {
+  const { checkoutSessionId, ...order } = input;
+
+  // 1. Independent proof of payment: org + number must match the paid session.
+  await verifyPaidPhoneCheckout(env, checkoutSessionId, {
+    clerkOrgId: order.clerkOrgId,
+    phoneNumber: order.phoneNumber,
+    countryCode: order.countryCode,
+    numberType: order.numberType,
+  });
+
+  // 2. Idempotent on the payment reference: a retry returns the first result
+  //    instead of buying again. (A number already present on the tenant is also
+  //    returned as `alreadyFulfilled` by fulfillPaidPhoneNumber, which covers a
+  //    lost KV record.)
+  const key = `${FULFILL_KEY_PREFIX}${checkoutSessionId}`;
+  const existing = await readRecord(env.WORKSPACE_CACHE, key);
+  if (existing?.state === 'done') return { ...existing.result, alreadyFulfilled: true };
+  if (existing?.state === 'inflight') throw new PhoneFulfillInProgressError();
+
+  await env.WORKSPACE_CACHE.put(key, JSON.stringify({ state: 'inflight' } satisfies FulfillRecord), {
+    expirationTtl: INFLIGHT_TTL_SECONDS,
+  });
+
+  try {
+    const result = await fulfillPaidPhoneNumber(env, order);
+    await env.WORKSPACE_CACHE.put(key, JSON.stringify({ state: 'done', result } satisfies FulfillRecord), {
+      expirationTtl: DONE_TTL_SECONDS,
+    });
+    return result;
+  } catch (err) {
+    // Let the caller's retry try again; the tenant-row check guards a
+    // half-completed order.
+    await env.WORKSPACE_CACHE.delete(key).catch(() => undefined);
+    throw err;
+  }
 }

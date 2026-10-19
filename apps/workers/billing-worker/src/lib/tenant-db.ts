@@ -10,6 +10,10 @@ import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import * as schema from '@weldsuite/db/schema';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import {
+  openCachedDatabaseUrl,
+  sealCachedDatabaseUrl,
+} from '@weldsuite/db/lib/workspace-url-cache';
 import type { Env } from '../index';
 import { getMasterDb, masterSchema } from './db';
 
@@ -19,6 +23,9 @@ interface CachedWorkspace {
   id: string;
   databaseUrl: string;
 }
+
+/** What lands in KV: the connection string sealed, never in the clear. */
+type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl'> & { databaseUrlSealed?: string };
 
 function createNeonTenantDb(connectionUrl: string): NeonHttpDatabase<typeof schema> {
   const sql = neon(connectionUrl);
@@ -34,9 +41,13 @@ export async function getTenantDbForWorkspace(
   env: Env,
   workspaceIdOrOrgId: string,
 ): Promise<NeonHttpDatabase<typeof schema>> {
-  const cacheKey = `ws:id:${workspaceIdOrOrgId}`;
-  const cached = await env.WORKSPACE_CACHE.get(cacheKey, 'json') as CachedWorkspace | null;
-  if (cached) return createNeonTenantDb(cached.databaseUrl);
+  // Sealed entry under its own prefix (the old plaintext key was `ws:id:<x>`). Distinct from
+  // `wsx:<org>` / `wsx:id:<id>`, which other workers write in a different shape.
+  const cacheKey = `wsx:bill:${workspaceIdOrOrgId}`;
+  const keyring = { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
+  const cached = await env.WORKSPACE_CACHE.get(cacheKey, 'json') as StoredWorkspace | null;
+  const cachedUrl = cached ? await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring) : null;
+  if (cachedUrl) return createNeonTenantDb(cachedUrl);
 
   const masterDb = getMasterDb(env);
   const [workspace] = await masterDb
@@ -65,14 +76,15 @@ export async function getTenantDbForWorkspace(
   const databaseUrl = await resolveDatabaseUrl(
     env.NEON_API_KEY,
     workspace as Parameters<typeof resolveDatabaseUrl>[1],
-    { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
+    keyring,
   );
 
-  await env.WORKSPACE_CACHE.put(
-    cacheKey,
-    JSON.stringify({ id: workspace.id, databaseUrl }),
-    { expirationTtl: KV_TTL_SECONDS },
-  );
+  // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
+  const databaseUrlSealed = await sealCachedDatabaseUrl(databaseUrl, keyring);
+  if (databaseUrlSealed) {
+    const stored: StoredWorkspace = { id: workspace.id, databaseUrlSealed };
+    await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(stored), { expirationTtl: KV_TTL_SECONDS });
+  }
 
   return createNeonTenantDb(databaseUrl);
 }

@@ -31,6 +31,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { ALPHANUMERIC, randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -588,7 +589,8 @@ app.post('/webhooks', requirePermission('orders:read'), zValidator('json', creat
   const userId = c.get('userId');
   const data = c.req.valid('json');
   const id = generateId('whk');
-  const secret = data.secret ?? generateId('whksec');
+  // HMAC signing key: generateId's 8 random characters are an id, not a secret.
+  const secret = data.secret ?? `whksec_${randomString(32, ALPHANUMERIC)}`;
   const now = new Date();
   try {
     const db = c.get('tenantDb');

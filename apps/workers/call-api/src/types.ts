@@ -21,6 +21,12 @@ export interface Env extends KitEnv {
    *  the same value the caller sends while it does. */
   INTERNAL_API_SECRET?: string;
 
+  /** Stripe secret key (same value as billing-worker in the same env). Used
+   *  only to re-read the Checkout Session that /api/internal/telephony/
+   *  fulfill-number is asked to fulfil, so a number is never bought on the
+   *  caller's word alone. Unset = every fulfilment is refused (503). */
+  STRIPE_SECRET_KEY?: string;
+
   /** Optional override for app-api's public base URL (e.g. a dev tunnel). The
    *  Telnyx AI assistant's lookup_crm tool URL (lib/desk-phone-tools
    *  `lookupCrmUrl`) maps the per-environment app-api host to call-api's own
@@ -36,9 +42,9 @@ export interface Env extends KitEnv {
   TELNYX_SIP_CONNECTION_ID?: string;
   /** Legacy secret slot carried over from api-worker (declared, never used there). */
   TELNYX_WEBHOOK_SECRET?: string;
-  /** Telnyx account public key (base64 Ed25519). When set,
-   *  /public/webhooks/telnyx enforces webhook signatures (recommended);
-   *  when unset, the receiver accepts unsigned requests (api-worker parity). */
+  /** Telnyx account public key (base64 Ed25519). REQUIRED:
+   *  /public/webhooks/telnyx verifies every webhook signature and rejects all
+   *  requests (401) while this is unset (fail closed). */
   TELNYX_PUBLIC_KEY?: string;
 }
 
