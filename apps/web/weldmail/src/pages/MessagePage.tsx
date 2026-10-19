@@ -15,6 +15,29 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Download one attachment with the session's bearer (TASK-905): rows carry no
+ * public URL, and personal-api only serves the file to the message's owner.
+ */
+async function downloadAttachment(messageId: string, file: MailAttachment): Promise<void> {
+  const { url, headers } = await personalApi.mailMessages.attachmentDownload(messageId, file.id);
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(res.status === 404 ? 'Attachment not available' : `Download failed (${res.status})`);
+  const href = URL.createObjectURL(await res.blob());
+  try {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = file.fileName;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // Give the browser a moment to start the download before the blob goes.
+    setTimeout(() => URL.revokeObjectURL(href), 10_000);
+  }
+}
+
 function addressLine(msg: MailMessage): string {
   return (msg.to ?? []).map((a) => a.name || a.email).join(', ');
 }
@@ -35,6 +58,7 @@ export function MessagePage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentNotice, setSentNotice] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -221,24 +245,23 @@ export function MessagePage() {
                 );
                 return (
                   <li key={file.id}>
-                    {file.downloadUrl ? (
-                      <a
-                        href={file.downloadUrl}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="flex max-w-[240px] items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm text-foreground hover:bg-muted"
-                      >
-                        {inner}
-                      </a>
-                    ) : (
-                      <span className="flex max-w-[240px] items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm text-muted-foreground">
-                        {inner}
-                      </span>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDownloadError(null);
+                        downloadAttachment(message.id, file).catch((err: unknown) =>
+                          setDownloadError(err instanceof Error ? err.message : 'Download failed'),
+                        );
+                      }}
+                      className="flex max-w-[240px] items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm text-foreground hover:bg-muted"
+                    >
+                      {inner}
+                    </button>
                   </li>
                 );
               })}
             </ul>
+            {downloadError && <p className="mt-2 text-sm text-destructive">{downloadError}</p>}
           </div>
         )}
 

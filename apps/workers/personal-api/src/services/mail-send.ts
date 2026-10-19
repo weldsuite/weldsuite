@@ -30,11 +30,12 @@ import {
 import { personalSchema, type PersonalDatabase } from '../db';
 import { generateId } from '../lib/id';
 import { sendEmail } from '../lib/cloudflare-email';
+import { forwardInlineImages, type ForwardInlineImage } from './forward-inline-images';
 import type { Env } from '../types';
 import type { PersonalEntitlements } from '../lib/billing';
 import { tagsToSpaces } from '@weldsuite/text';
 
-const { personalMailAccounts, personalMailMessages } = personalSchema;
+const { personalMailAccounts, personalMailAttachments, personalMailMessages } = personalSchema;
 
 export type PersonalMailAccountRow = typeof personalMailAccounts.$inferSelect;
 export type PersonalMailMessageRow = typeof personalMailMessages.$inferSelect;
@@ -86,6 +87,11 @@ export interface SendComposeInput {
    * `inReplyTo` is a message someone sent to this mailbox).
    */
   outbound?: { source?: CheckOutboundInput['source']; kind?: CheckOutboundInput['kind'] };
+  /**
+   * Inline images the server supplies (a forward's quoted original), sent as
+   * `cid:` parts. Never taken from a request body.
+   */
+  inlineImages?: ForwardInlineImage[];
 }
 
 export interface SendOutcome {
@@ -263,6 +269,12 @@ async function deliver(
       html: htmlBody,
       inReplyTo: input.inReplyTo,
       references: input.references,
+      attachments: input.inlineImages?.map((part) => ({
+        filename: part.filename,
+        contentType: part.contentType,
+        content: part.content,
+        cid: part.cid,
+      })),
     });
     return { providerMessageId: sent.messageId, pendingVerification: !!sent.pendingVerification };
   } catch (err) {
@@ -514,7 +526,8 @@ export async function sendAndPersist(
     isDraft: false,
     isSpam: false,
     isTrash: false,
-    hasAttachments: false,
+    hasAttachments: !!input.inlineImages?.length,
+    attachmentCount: input.inlineImages?.length ?? 0,
     inReplyTo: input.inReplyTo ? bracket(input.inReplyTo) : null,
     references: input.references?.map(bracket) ?? null,
     isReply: Boolean(input.inReplyTo),
@@ -529,6 +542,24 @@ export async function sendAndPersist(
   };
 
   const message = await storeSentCopy(db, account, input.idempotencyKey, values, now);
+  // The sent copy's inline images, so it shows them when read. The rows point
+  // at the original's objects (same owner folder); no bytes are copied.
+  if (message.id === id && input.inlineImages?.length) {
+    await db.insert(personalMailAttachments).values(
+      input.inlineImages.map((part) => ({
+        id: generateId('attach'),
+        personalAccountId,
+        messageId: id,
+        fileName: part.filename,
+        contentType: part.contentType,
+        size: part.size,
+        storagePath: part.storagePath,
+        isInline: true,
+        contentId: part.cid,
+        contentDisposition: 'inline',
+      })),
+    );
+  }
   return { message, pendingVerification };
 }
 
@@ -704,8 +735,14 @@ export async function forwardAndPersist(
     ? `${data.textBody ?? ''}\n\n---------- Forwarded message ----------\nFrom: ${senderLabel}\nDate: ${dateLabel}\nSubject: ${original.subject ?? ''}\nTo: ${recipientLabel}\n\n${original.textBody}`
     : data.textBody;
 
-  const htmlBody = original.htmlBody
-    ? `${data.htmlBody ?? ''}<br><br><div style="border-left:2px solid #ccc;padding-left:1em;color:#555"><p>---------- Forwarded message ----------</p><p><b>From:</b> ${senderLabel}<br><b>Date:</b> ${dateLabel}<br><b>Subject:</b> ${original.subject ?? ''}<br><b>To:</b> ${recipientLabel}</p>${original.htmlBody}</div>`
+  // The quote's inline images go out as cid: parts: its stored HTML points at
+  // the original's own files, which the recipient cannot otherwise reach.
+  const quoted = original.htmlBody
+    ? await forwardInlineImages(env.STORAGE, db, personalAccountId, original.id, original.htmlBody)
+    : null;
+
+  const htmlBody = quoted
+    ? `${data.htmlBody ?? ''}<br><br><div style="border-left:2px solid #ccc;padding-left:1em;color:#555"><p>---------- Forwarded message ----------</p><p><b>From:</b> ${senderLabel}<br><b>Date:</b> ${dateLabel}<br><b>Subject:</b> ${original.subject ?? ''}<br><b>To:</b> ${recipientLabel}</p>${quoted.html}</div>`
     : data.htmlBody;
 
   const outcome = await sendAndPersist(env, db, personalAccountId, entitlements, {
@@ -717,6 +754,7 @@ export async function forwardAndPersist(
     htmlBody,
     idempotencyKey: data.idempotencyKey,
     outbound: { kind: 'forward' },
+    inlineImages: quoted?.parts,
   });
 
   return { ...outcome, forwardedFrom: originalMessageId };

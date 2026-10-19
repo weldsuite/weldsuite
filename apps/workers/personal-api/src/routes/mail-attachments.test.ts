@@ -7,10 +7,13 @@
  *   owner's `personal/<personalAccountId>/` folder; everything else is a 404.
  * - Read HTML points inline images (`cid:` and older public URLs) at
  *   short-lived `/public/mail-inline/:token` URLs, which serve the image.
+ * - A forward sends the quoted original's inline images as `cid:` parts,
+ *   since the stored HTML points at files the recipient cannot reach.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
+import { eq } from 'drizzle-orm';
 import { sealInlineImageToken, inlineImageExpiry } from '@weldsuite/mail-domain/inline-images';
 import { personalSchema, type PersonalDatabase } from '../db';
 import { createPersonalPgliteDb } from '../test/personal-pglite';
@@ -20,6 +23,13 @@ const holder = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock('../db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../db')>()),
   getPersonalDb: () => holder.db,
+}));
+const sent = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>> }));
+vi.mock('../lib/cloudflare-email', () => ({
+  sendEmail: async (_env: unknown, params: Record<string, unknown>) => {
+    sent.calls.push(params);
+    return { messageId: `prov-${sent.calls.length}@weldmail.com` };
+  },
 }));
 
 const { mailMessagesRoutes } = await import('./mail-messages');
@@ -54,7 +64,12 @@ function fakeBucket() {
       reads.push(k);
       const o = objects.get(k);
       if (!o) return null;
-      return { body: new Response(o.body).body, size: o.body.length, httpMetadata: { contentType: o.type } };
+      return {
+        body: new Response(o.body).body,
+        size: o.body.length,
+        httpMetadata: { contentType: o.type },
+        arrayBuffer: async () => new TextEncoder().encode(o.body).buffer,
+      };
     },
   };
   return { bucket: bucket as unknown as R2Bucket, reads };
@@ -65,6 +80,7 @@ function buildApp() {
   app.route('/public/mail-inline', mailInlineImagesRoutes);
   app.use('/api/*', async (c, next) => {
     c.set('personalAccountId', c.req.header('x-test-account') ?? null);
+    c.set('entitlements', { plan: 'free', dailySendLimit: 100 } as Variables['entitlements']);
     await next();
   });
   app.route('/api/mail/messages', mailMessagesRoutes);
@@ -157,6 +173,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   storage = fakeBucket();
+  sent.calls = [];
 });
 
 describe('GET /api/mail/messages/:id/attachments', () => {
@@ -282,5 +299,91 @@ describe('inline images on read', () => {
       expect(res.status).toBe(404);
     }
     expect(storage.reads).toEqual([]);
+  });
+});
+
+describe('POST /api/mail/messages/:id/forward', () => {
+  const forward = (id: string, account: string) =>
+    app.request(
+      `/api/mail/messages/${id}/forward`,
+      {
+        method: 'POST',
+        headers: { 'x-test-account': account, 'content-type': 'application/json' },
+        body: JSON.stringify({ to: 'friend@example.com', htmlBody: '<p>FYI</p>' }),
+      },
+      env(),
+    );
+
+  it("sends the quote's inline images as cid: parts, and the sent copy shows them", async () => {
+    const res = await forward('pmsg_a', A);
+    expect(res.status).toBe(201);
+    expect(sent.calls).toHaveLength(1);
+    const call = sent.calls[0]!;
+    const html = call.html as string;
+    const parts = call.attachments as Array<{ cid: string; contentType: string; content: ArrayBuffer }>;
+
+    // The PDF is not an inline image; the logo keeps its Content-ID, the
+    // older public URL becomes a reference to its own part.
+    expect(parts.map((p) => p.cid).sort()).toEqual(['att_old@weldmail', 'logo@x']);
+    expect(parts.map((p) => new TextDecoder().decode(p.content)).sort()).toEqual(['logo-bytes', 'old-bytes']);
+    expect(html).toContain('cid:logo@x');
+    expect(html).toContain('cid:att_old@weldmail');
+    expect(html).not.toContain(PUBLIC_HOST);
+    expect(storage.reads.sort()).toEqual([LOGO_KEY, OLD_KEY].sort());
+
+    const { data: copy } = (await res.json()) as { data: { id: string; hasAttachments: boolean } };
+    expect(copy.hasAttachments).toBe(true);
+    const files = await get(`/api/mail/messages/${copy.id}/attachments`, A);
+    const { data: rows } = (await files.json()) as { data: Array<Record<string, unknown>> };
+    expect(rows.map((r) => r.contentId).sort()).toEqual(['att_old@weldmail', 'logo@x']);
+    expect(rows.every((r) => r.isInline === true && !('storagePath' in r))).toBe(true);
+
+    const read = await get(`/api/mail/messages/${copy.id}`, A);
+    const body = ((await read.json()) as { data: { htmlBody: string } }).data.htmlBody;
+    expect(mintedUrls(body)).toHaveLength(2);
+    expect(body).not.toContain('cid:logo@x');
+  });
+
+  it("never sends another account's files", async () => {
+    // B forwarding A's message is a 404, and nothing goes out.
+    expect((await forward('pmsg_a', B)).status).toBe(404);
+    // A row on B's message pointing into A's folder is not sent.
+    await db.insert(personalMailAttachments).values({
+      id: 'att_b_rogue',
+      personalAccountId: B,
+      messageId: 'pmsg_b',
+      fileName: 'x.png',
+      contentType: 'image/png',
+      size: 1,
+      contentId: 'rogue@x',
+      storagePath: LOGO_KEY,
+    });
+    await db
+      .update(personalMailMessages)
+      .set({ htmlBody: '<img src="cid:b@x"><img src="cid:rogue@x">' })
+      .where(eq(personalMailMessages.id, 'pmsg_b'));
+    expect((await forward('pmsg_b', B)).status).toBe(201);
+    const parts = sent.calls.at(-1)!.attachments as Array<{ cid: string }>;
+    expect(parts.map((p) => p.cid)).toEqual(['b@x']);
+    expect(storage.reads).not.toContain(LOGO_KEY);
+  });
+});
+
+describe('PATCH /api/mail/messages/:id', () => {
+  it('returns the body with the same inline-image URLs as a read', async () => {
+    const res = await app.request(
+      '/api/mail/messages/pmsg_a',
+      {
+        method: 'PATCH',
+        headers: { 'x-test-account': A, 'content-type': 'application/json' },
+        body: JSON.stringify({ isRead: true }),
+      },
+      env(),
+    );
+    expect(res.status).toBe(200);
+    const html = ((await res.json()) as { data: { htmlBody: string } }).data.htmlBody;
+    expect(html).not.toContain('cid:logo@x');
+    expect(html).not.toContain(PUBLIC_HOST);
+    expect(mintedUrls(html)).toHaveLength(2);
   });
 });

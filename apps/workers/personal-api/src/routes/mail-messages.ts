@@ -569,6 +569,9 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
       .where(eq(personalMailMessages.id, id))
       .returning();
 
+    // Clients replace the message they show with this row, so its body gets
+    // the same inline-image URLs as GET /:id.
+    await applyPersonalInlineImages(personalDb, personalAccountId, [updated!], inlineImageSigner(c, personalAccountId));
     return success(c, updated!);
   } catch (err) {
     console.error('[personal-api/mail-messages] patch failed:', err);
