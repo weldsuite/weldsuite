@@ -181,7 +181,8 @@ describe('bank accounts', () => {
 
     const [row] = await db.select().from(schema.bankAccounts).where(eq(schema.bankAccounts.id, checkingId));
     expect(row.accountNumberEncrypted).toBeTruthy();
-    expect(row.accountNumberEncrypted).not.toContain('6789');
+    // The full number, not the last four: four digits turn up in a hex ciphertext by chance.
+    expect(row.accountNumberEncrypted).not.toContain('000123456789');
 
     const [ledger] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, row.ledgerAccountId!));
     expect(ledger).toMatchObject({ type: 'asset', subtype: 'bank', normalSide: 'debit', entityId });
