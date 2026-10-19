@@ -56,6 +56,13 @@ export const blockEditor = {
   textSelection: {
     askAgent: 'Vraag de agent',
   },
+  selectionToolbar: {
+    body: 'Hoofdtekst',
+    text: 'Tekst',
+    highlight: 'Markeren',
+    askAgent: 'Vraag de agent',
+    linkPlaceholder: 'Plak of typ een link…',
+  },
   toolbar: {
     undo: 'Ongedaan maken',
     redo: 'Opnieuw',
