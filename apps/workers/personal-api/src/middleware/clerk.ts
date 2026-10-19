@@ -6,6 +6,13 @@
  * escaped newlines in wrangler secrets, JWKS fetch on Workers), fall back to
  * the same Web Crypto RS256 check billing-worker uses so a production Expo
  * session JWT still authenticates.
+ *
+ * Whichever path verified the token, its authorized party (`azp`) is checked
+ * afterwards against `PERSONAL_AUTHORIZED_PARTIES`, so a session token minted
+ * for another frontend on the same Clerk instance is refused. The check sits
+ * outside the verify-then-fall-back chain on purpose: a refusal inside
+ * `verifyToken` would only send the token on to the Web Crypto fallback, which
+ * checks the signature alone. Expo apps mint tokens with no `azp` and pass.
  */
 
 import { createMiddleware } from 'hono/factory';
@@ -17,8 +24,63 @@ type ClerkJwtPayload = {
   sub?: string;
   sid?: string;
   exp?: number;
+  azp?: unknown;
   [key: string]: unknown;
 };
+
+/**
+ * Browser origins that sign personal accounts in and call this API: the
+ * consumer WeldCalendar web app (apps/web/weldcalendar) and the local dev
+ * servers of WeldMail web (3200) and WeldCalendar web (3201). personal-api is
+ * outside @weldsuite/worker-kit, so this is its own list rather than the
+ * kit's FIRST_PARTY_ORIGINS (the platform, developer and partner portals do
+ * not call personal-api).
+ *
+ * The consumer WeldMail web app's custom host is not recorded in the repo (its
+ * API is api.weldmail.com, the app ships to the Pages projects `weldmail-web`
+ * and `weldmail-web-test`), so it is matched by WELDMAIL_WEB_ORIGIN below:
+ * https on weldmail.com or one subdomain label of it, or a deployment of one
+ * of those two Pages projects. All of these hosts are WeldSuite's own (users
+ * claim addresses on weldmail.com, never subdomains). Anything else goes in
+ * the `CLERK_AUTHORIZED_PARTIES` worker var (comma-separated origins).
+ */
+export const PERSONAL_AUTHORIZED_PARTIES = [
+  'https://weldcalendar.weldsuite.org',
+  'https://weldcalendar-test.weldsuite.org',
+  'http://localhost:3200',
+  'http://localhost:3201',
+] as const;
+
+const WELDMAIL_WEB_ORIGIN =
+  /^https:\/\/(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)?weldmail\.com|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)?weldmail-web(?:-test)?\.pages\.dev)$/;
+
+/** One concrete origin: scheme and host (+ port); no wildcard, no path. */
+const EXACT_ORIGIN =
+  /^(?:https?:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?|chrome-extension:\/\/[a-p]{32})$/;
+
+/** The extra origins configured in the `CLERK_AUTHORIZED_PARTIES` var. */
+export function parseExtraAuthorizedParties(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => EXACT_ORIGIN.test(entry));
+}
+
+/**
+ * Whether a verified token's `azp` claim names an origin allowed to use this
+ * API. No claim passes (native clients send no Origin, so Clerk omits it); a
+ * claim that is present but empty or not a string does not.
+ */
+export function isAuthorizedParty(azp: unknown, extraOrigins: readonly string[] = []): boolean {
+  if (azp === undefined || azp === null) return true;
+  if (typeof azp !== 'string' || azp === '') return false;
+  return (
+    (PERSONAL_AUTHORIZED_PARTIES as readonly string[]).includes(azp) ||
+    WELDMAIL_WEB_ORIGIN.test(azp) ||
+    extraOrigins.includes(azp)
+  );
+}
 
 function formatClerkError(err: unknown): string {
   if (err && typeof err === 'object') {
@@ -135,6 +197,18 @@ export const clerkMiddleware = () => {
 
       if (!payload.sub) {
         return c.json({ error: { code: 'UNAUTHORIZED', message: 'Invalid token payload' } }, 401);
+      }
+
+      const extraParties = parseExtraAuthorizedParties(
+        (c.env as Env & { CLERK_AUTHORIZED_PARTIES?: string }).CLERK_AUTHORIZED_PARTIES,
+      );
+      if (!isAuthorizedParty(payload.azp, extraParties)) {
+        // The origin only, never the token. Truncated: the claim is client-influenced.
+        console.warn(
+          `[personal-api] token refused, azp ${JSON.stringify(payload.azp).slice(0, 200)} is not an authorized party`,
+        );
+        c.set('entitlements', FREE_ENTITLEMENTS);
+        return c.json({ error: { code: 'UNAUTHORIZED', message: 'Token verification failed' } }, 401);
       }
 
       c.set('userId', payload.sub);

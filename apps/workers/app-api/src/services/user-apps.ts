@@ -302,24 +302,37 @@ export interface ResolvedBundle {
   appId: string;
   bundleKey: string;
   entrypoint: string;
+  /**
+   * False only for a public, approved app: its bundle is served at the plain
+   * URL. Everything else (private, unreviewed, rejected) needs a signed link
+   * (services/user-apps-bundle-access.ts). An entry without the flag counts as
+   * gated.
+   */
+  requiresToken?: boolean;
 }
 
 export const ASSET_CACHE_TTL_SECONDS = 60;
 
 export function assetCacheKey(code: string): string {
-  return `uapp-assets:${code}`;
+  // v2: entries now carry `requiresToken`; v1 entries (no flag, install-gated)
+  // are ignored instead of being read as gated for a public app.
+  return `uapp-assets:v2:${code}`;
+}
+
+/** True when the app's bundle is open to anyone: public AND approved by staff. */
+export function isPubliclyServable(app: { visibility: string; reviewStatus: string }): boolean {
+  return app.visibility === 'public' && app.reviewStatus === 'approved';
 }
 
 /**
  * Resolve an app code to its live bundle, KV-cached for 60s.
  *
- * The bundle host is unauthenticated (iframes can't send headers), so this
- * is the distribution gate: a bundle is only servable when the app is
- * publicly approved OR has at least one active install (a private app's own
- * workspace installs it before the iframe ever loads). An uploaded-but-
- * never-installed private app is not fetchable. Bundles are still static
- * client-side assets — data access is guarded by wsat_ tokens, not by
- * bundle secrecy.
+ * The bundle host is unauthenticated (iframes can't send headers), so the
+ * caller must enforce `requiresToken`: only a public, approved app is open to
+ * anyone. Every other bundle is served only behind a signed, workspace-bound
+ * link minted for a member of the authoring workspace or of a workspace that
+ * has the app installed (`private` = authoring workspace only). Resolving a
+ * code therefore no longer depends on whether any workspace installed it.
  */
 export async function resolveBundleForCode(
   master: MasterDatabase,
@@ -330,7 +343,7 @@ export async function resolveBundleForCode(
   const cached = (await kv.get(cacheKey, 'json')) as ResolvedBundle | null;
   if (cached) return cached;
 
-  const { userApps, userAppVersions, userAppInstalls } = masterSchema;
+  const { userApps, userAppVersions } = masterSchema;
   const [app] = await master
     .select({
       id: userApps.id,
@@ -345,16 +358,6 @@ export async function resolveBundleForCode(
     .limit(1);
   if (!app?.isActive || app.deletedAt || !app.currentVersionId) return null;
 
-  const publiclyApproved = app.visibility === 'public' && app.reviewStatus === 'approved';
-  if (!publiclyApproved) {
-    const [install] = await master
-      .select({ id: userAppInstalls.id })
-      .from(userAppInstalls)
-      .where(and(eq(userAppInstalls.appId, app.id), eq(userAppInstalls.status, 'active')))
-      .limit(1);
-    if (!install) return null;
-  }
-
   const [version] = await master
     .select({ bundleKey: userAppVersions.bundleKey, entrypoint: userAppVersions.entrypoint })
     .from(userAppVersions)
@@ -366,6 +369,7 @@ export async function resolveBundleForCode(
     appId: app.id,
     bundleKey: version.bundleKey,
     entrypoint: version.entrypoint,
+    requiresToken: !isPubliclyServable(app),
   };
   await kv.put(cacheKey, JSON.stringify(resolved), { expirationTtl: ASSET_CACHE_TTL_SECONDS });
   return resolved;

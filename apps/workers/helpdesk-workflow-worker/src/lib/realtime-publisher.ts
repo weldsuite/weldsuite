@@ -24,7 +24,7 @@ export async function publishMessageToConversation(
   },
 ): Promise<void> {
   if (!env.REALTIME) return;
-  const rt = new RealtimePublisher(env.REALTIME);
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
   await rt.conversationMessage(conversationId, {
     id: message.id,
     content: message.content,
@@ -44,7 +44,7 @@ export async function publishToRealtimeChannel(
   data: unknown,
 ): Promise<void> {
   if (!env.REALTIME) return;
-  const rt = new RealtimePublisher(env.REALTIME);
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
 
   // Parse channel name to determine target
   if (channelName.startsWith('conversation:')) {
@@ -68,7 +68,7 @@ export async function publishNewConversation(
   conversation: Record<string, unknown>,
 ): Promise<void> {
   if (!env.REALTIME) return;
-  const rt = new RealtimePublisher(env.REALTIME);
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
   await rt.helpdeskEvent(workspaceId, 'conversation_new', conversation);
 }
 
@@ -81,7 +81,7 @@ export async function publishWorkflowState(
   snapshot: WorkflowStateSnapshot,
 ): Promise<void> {
   if (!env.REALTIME) return;
-  const rt = new RealtimePublisher(env.REALTIME);
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
   await rt.conversationSystem(conversationId, 'workflow_state', snapshot);
 }
 

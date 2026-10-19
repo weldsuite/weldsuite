@@ -72,6 +72,9 @@ app.route('/api/shipping-rules', shippingRulesRoutes);
 app.route('/api/printnode', printNodeRoutes);
 app.route('/api/sendcloud', sendcloudRoutes);
 
+// Durable Object behind the public portal rate limits (PORTAL_RATE_LIMITER).
+export { PortalRateLimiter } from './durable-objects/portal-rate-limiter';
+
 export default {
   fetch: app.fetch,
 };

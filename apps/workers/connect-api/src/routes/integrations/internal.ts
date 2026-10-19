@@ -30,6 +30,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { secretMatches } from '@weldsuite/worker-kit/webhook-token';
 import { getMasterDb, getTenantDbForWorkspace, getWorkspaceForOrg, masterSchema, schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   triggerConnectionSync,
@@ -73,7 +74,7 @@ async function resolveInternal(c: Context<{ Bindings: Env; Variables: Variables 
     return { kind: 'passthrough' };
   }
 
-  if (!trusted && (!c.env.INTERNAL_API_SECRET || secret !== c.env.INTERNAL_API_SECRET)) {
+  if (!trusted && !secretMatches(secret, c.env.INTERNAL_API_SECRET)) {
     return { kind: 'response', response: error.unauthorized(c, 'Invalid internal secret') };
   }
 

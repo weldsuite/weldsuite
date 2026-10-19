@@ -137,7 +137,7 @@ export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
     throw new NonRetryableStepError('None of the recipients is a member of this workspace');
   }
 
-  const publisher = ctx.env.REALTIME ? new RealtimePublisher(ctx.env.REALTIME) : null;
+  const publisher = ctx.env.REALTIME ? new RealtimePublisher(ctx.env.REALTIME, { internalSecret: ctx.env.REALTIME_INTERNAL_SECRET }) : null;
   const notificationIds: string[] = [];
   const now = new Date();
   const category = asText(inputs.category || 'task');

@@ -27,6 +27,7 @@ import type {
   WebhookRegistration,
 } from '../sync/types';
 import type { OAuthTokens } from '@weldsuite/db/schema';
+import { secretMatches } from '@weldsuite/db/lib/timing-safe';
 
 const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -441,7 +442,7 @@ export class GoogleCalendarSyncAdapter implements CrmSyncAdapter {
   ): Promise<boolean> {
     try {
       const parsed = JSON.parse(secret) as { token: string };
-      return Promise.resolve(headers['x-goog-channel-token'] === parsed.token);
+      return Promise.resolve(secretMatches(headers['x-goog-channel-token'], parsed.token));
     } catch {
       return Promise.resolve(false);
     }

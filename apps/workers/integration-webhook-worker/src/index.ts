@@ -23,6 +23,7 @@ import type {
 import { upsertCompany, upsertPerson, softDeleteByMapping, resolveCompanyByExternalId, resolveEntityByExternalId, upsertNote, softDeleteNote, upsertTask, softDeleteTask, upsertListAndEntry, softDeleteListEntry } from './lib/sync';
 import { getValidAccessToken } from './lib/token';
 import { encryptField, maybeDecryptField, keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import { secretMatches } from '@weldsuite/db/lib/timing-safe';
 import {
   publishEntityEventRaw,
   matchAndDispatchIntegrationTriggers,
@@ -126,6 +127,8 @@ export interface Env extends BankFeedEnv {
   // analytics / search / webhooks (Phase 2–3).
   ENTITY_EVENTS?: Queue;
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 }
 
 /** Providers eligible for scheduled auto-sync (cron). Ecommerce connectors
@@ -281,7 +284,7 @@ app.get('/webhooks/meta/ads', (c) => {
   const token = c.req.query('hub.verify_token');
   const challenge = c.req.query('hub.challenge');
   const expected = c.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN || 'weldsuite-meta-ads';
-  if (mode === 'subscribe' && token === expected && challenge) {
+  if (mode === 'subscribe' && secretMatches(token, expected) && challenge) {
     return c.text(challenge);
   }
   return c.text('Forbidden', 403);
@@ -781,7 +784,7 @@ function isValidGcalChannelToken(
   if (!webhookSecret || !channelToken) return true;
   try {
     const parsed = JSON.parse(webhookSecret) as { token: string };
-    if (parsed.token !== channelToken) {
+    if (!secretMatches(channelToken, parsed.token)) {
       console.warn(`[Webhook/GoogleCalendar] Invalid channel token for ${connectionId}`);
       return false;
     }

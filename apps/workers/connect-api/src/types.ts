@@ -10,6 +10,8 @@ export interface Env extends KitEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   /** R2 bucket for files and documents (Moneybird attachment sync in the
    *  connector sync / webhook ingest, @weldsuite/connect-domain). */

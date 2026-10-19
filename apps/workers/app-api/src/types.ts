@@ -193,6 +193,8 @@ export interface Env {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
   /**
    * D1 schedule index (shared with workflow-worker and connect-api). app-api
    * keeps the WeldAgent routine index (`weldagent_routine_index`) in it; the
@@ -272,9 +274,9 @@ export interface Env {
   ADMIN_CONSOLE_URL?: string;
 
   // --- E2E test fixtures -------------------------------------------------
-  /** Secret that authorizes /test-fixtures/* requests. Set ONLY in
-   *  test/preview envs — never in production. The router also enforces
-   *  `ENVIRONMENT !== 'production'` as a belt-and-braces check. */
+  /** Secret that authorizes /test-fixtures/* requests. Set ONLY on the test
+   *  env — never in production. The router is also only served when
+   *  `ENVIRONMENT` is `development` or `test` (middleware/test-fixtures-guard). */
   TEST_FIXTURES_TOKEN?: string;
   /** Clerk org id of the SHARED E2E workspace. The teardown-workspace
    *  fixture refuses to destroy this org so a misfiring spec can never

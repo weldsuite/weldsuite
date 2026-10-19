@@ -11,6 +11,16 @@
  * report shows zero v1 values everywhere. Only after that may the v1 key be
  * removed from the secret stores.
  *
+ * workspaces.database_url (audit finding 657): with FIELD_ENCRYPTION_AAD_WRITES
+ * on, its v1 and v2 values are rewritten as v3 ("v3:iv:ciphertext", v2 key,
+ * AES-GCM AAD = workspaces:<id>:database_url) so a copy onto another workspace
+ * row no longer decrypts. Only turn it on once every worker that reads a tenant
+ * connection string has been redeployed with v3 support. Values already in v3
+ * are skipped, but each is opened with its own row id (needs the v2 key), so
+ * a swapped or tampered value is reported as failed. The update is a
+ * compare-and-swap on the value that was read, so re-running is safe.
+ * Without the flag database_url behaves like every other column (v1 -> v2).
+ *
  * Usage:
  *   pnpm rotate:key                    # dry-run report (master + all tenants)
  *   pnpm rotate:key:execute            # actually re-encrypt
@@ -19,7 +29,8 @@
  *   pnpm rotate:key -- --master-only   # skip tenant DBs
  *
  * Requires: MASTER_DATABASE_URL, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
- * DATABASE_ENCRYPTION_KEY_V2 (the last one only for --execute).
+ * DATABASE_ENCRYPTION_KEY_V2 (the last one only for --execute, or to verify v3
+ * values in a dry-run). Optional: FIELD_ENCRYPTION_AAD_WRITES=1 (see above).
  *
  * Never logs plaintext or key material.
  */
@@ -30,7 +41,16 @@ import postgres from 'postgres';
 import { eq, isNotNull, and } from 'drizzle-orm';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
-import { decrypt, encrypt, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import {
+  aadWritesEnabled,
+  decrypt,
+  decryptWorkspaceDatabaseUrl,
+  encrypt,
+  encryptField,
+  encryptWorkspaceDatabaseUrl,
+  isAadBound,
+  type EncryptionKeyring,
+} from '@weldsuite/db/lib/crypto';
 
 const V1_FORMAT = /^[0-9a-f]+:[0-9a-f]+$/i;
 const V2_FORMAT = /^v2:[0-9a-f]+:[0-9a-f]+$/i;
@@ -40,12 +60,24 @@ interface ColumnTarget {
   table: string;
   idColumn: string;
   column: string;
-  kind: 'text' | 'jsonb';
+  /** 'workspace-database-url' is text bound to its row id (AAD) when AAD writes are on. */
+  kind: 'text' | 'jsonb' | 'workspace-database-url';
+}
+
+/** Both keys, as the sweep always needs them (v2 is a placeholder in a dry-run without one). */
+type RotationKeys = { v1: string; v2: string };
+
+/** What the sweep may do to workspaces.database_url beyond the v1 -> v2 rotation. */
+interface AadPolicy {
+  /** FIELD_ENCRYPTION_AAD_WRITES: rewrite database_url as v3. */
+  aadWrites: boolean;
+  /** A real v2 key is configured, so v3 values can be opened and verified. */
+  haveV2: boolean;
 }
 
 /** Master DB encrypted columns. */
 const MASTER_TARGETS: ColumnTarget[] = [
-  { table: 'workspaces', idColumn: 'id', column: 'database_url', kind: 'text' },
+  { table: 'workspaces', idColumn: 'id', column: 'database_url', kind: 'workspace-database-url' },
   { table: 'neon_shared_projects', idColumn: 'id', column: 'admin_password_encrypted', kind: 'text' },
 ];
 
@@ -100,12 +132,14 @@ interface SweepCounts {
   v1: number; // legacy values found (rewritten when --execute)
   v2: number; // already rotated
   plaintext: number; // unencrypted values (reported, untouched)
-  failed: number; // v1-format values that failed to decrypt with the v1 key
+  failed: number; // v1-format values that failed to decrypt with the v1 key; v3 values that do not open for their row
   rewritten: number;
+  v3: number; // workspaces.database_url values already AAD-bound
+  aadPending: number; // workspaces.database_url values still v1/v2 (no AAD) when read
 }
 
 function newCounts(): SweepCounts {
-  return { v1: 0, v2: 0, plaintext: 0, failed: 0, rewritten: 0 };
+  return { v1: 0, v2: 0, plaintext: 0, failed: 0, rewritten: 0, v3: 0, aadPending: 0 };
 }
 
 function addCounts(into: SweepCounts, from: SweepCounts) {
@@ -114,6 +148,8 @@ function addCounts(into: SweepCounts, from: SweepCounts) {
   into.plaintext += from.plaintext;
   into.failed += from.failed;
   into.rewritten += from.rewritten;
+  into.v3 += from.v3;
+  into.aadPending += from.aadPending;
 }
 
 /**
@@ -122,7 +158,7 @@ function addCounts(into: SweepCounts, from: SweepCounts) {
  */
 async function rotateValue(
   value: string,
-  keys: Required<EncryptionKeyring>,
+  keys: RotationKeys,
   counts: SweepCounts,
 ): Promise<string | null> {
   if (V2_FORMAT.test(value)) {
@@ -151,7 +187,7 @@ async function rotateValue(
  *  matching how oauth_tokens / credentials store their fields). */
 async function rotateJsonb(
   obj: Record<string, unknown>,
-  keys: Required<EncryptionKeyring>,
+  keys: RotationKeys,
   counts: SweepCounts,
 ): Promise<Record<string, unknown> | null> {
   let changed = false;
@@ -204,9 +240,10 @@ async function rotateTextRow(
   sql: postgres.Sql,
   target: ColumnTarget,
   row: RawRow,
-  keys: Required<EncryptionKeyring>,
+  keys: RotationKeys,
   execute: boolean,
   counts: SweepCounts,
+  _aad: AadPolicy,
 ): Promise<void> {
   const { table, idColumn, column } = target;
   if (typeof row.value !== 'string') return;
@@ -220,13 +257,106 @@ async function rotateTextRow(
   }
 }
 
+/**
+ * workspaces.database_url. v1/v2 values are decrypted and, with AAD writes on,
+ * resealed as v3 bound to the row's id; otherwise v1 is rotated to v2 like any
+ * other column. v3 values are left alone (verified against their row when the
+ * v2 key is available). Idempotent, and the UPDATE only lands if the value is
+ * still the one that was read.
+ */
+async function rotateWorkspaceDatabaseUrlRow(
+  sql: postgres.Sql,
+  target: ColumnTarget,
+  row: RawRow,
+  keys: RotationKeys,
+  execute: boolean,
+  counts: SweepCounts,
+  aad: AadPolicy,
+): Promise<void> {
+  const { table, idColumn, column } = target;
+  if (typeof row.value !== 'string') return;
+  const value = row.value;
+  const keyring: EncryptionKeyring = { v1: keys.v1, v2: keys.v2 };
+
+  if (isAadBound(value)) {
+    counts.v3++;
+    if (aad.haveV2) {
+      try {
+        await decryptWorkspaceDatabaseUrl(value, row.id, keyring);
+      } catch {
+        // Sealed for another workspace, tampered with, or the wrong v2 key.
+        counts.failed++;
+        console.error(`    ${table}.${column} ${row.id}: v3 value does not open for this workspace`);
+      }
+    }
+    return;
+  }
+
+  const isV2 = V2_FORMAT.test(value);
+  if (!isV2 && !V1_FORMAT.test(value)) {
+    counts.plaintext++;
+    return;
+  }
+
+  // A v2 value only has work to do when it is going to become v3; otherwise it is
+  // counted and left alone, as for every other column.
+  if (isV2 && !(aad.aadWrites && aad.haveV2)) {
+    counts.v2++;
+    counts.aadPending++;
+    return;
+  }
+
+  let plaintext: string;
+  try {
+    plaintext = await decryptWorkspaceDatabaseUrl(value, row.id, keyring);
+  } catch {
+    if (isV2) {
+      counts.v2++;
+      counts.failed++;
+      console.error(`    ${table}.${column} ${row.id}: v2 value does not decrypt`);
+    } else {
+      // Hex-pair-shaped value that isn't v1 ciphertext (or wrong key) — leave it.
+      counts.failed++;
+      counts.plaintext++;
+    }
+    return;
+  }
+
+  if (isV2) counts.v2++;
+  else counts.v1++;
+  counts.aadPending++;
+
+  // Target format: v3 with AAD writes on; otherwise only v1 moves (to v2).
+  let rewrittenValue: string;
+  if (aad.aadWrites && aad.haveV2) {
+    if (!execute) return;
+    rewrittenValue = await encryptWorkspaceDatabaseUrl(plaintext, row.id, { ...keyring, aadWrites: true });
+  } else if (execute) {
+    // v1 only: a v2 value never gets past the early return above without AAD writes.
+    rewrittenValue = await encryptField(plaintext, { v2: keys.v2 });
+  } else {
+    return;
+  }
+
+  const result = await sql.unsafe(
+    `UPDATE ${table} SET ${column} = $1 WHERE ${idColumn} = $2 AND ${column} = $3`,
+    [rewrittenValue, row.id, value],
+  );
+  if (result.count === 0) {
+    console.error(`    ${table}.${column} ${row.id}: changed while sweeping, skipped (re-run)`);
+    return;
+  }
+  counts.rewritten++;
+}
+
 async function rotateJsonbRow(
   sql: postgres.Sql,
   target: ColumnTarget,
   row: RawRow,
-  keys: Required<EncryptionKeyring>,
+  keys: RotationKeys,
   execute: boolean,
   counts: SweepCounts,
+  _aad: AadPolicy,
 ): Promise<void> {
   const { table, idColumn, column } = target;
   if (row.value === null || typeof row.value !== 'object' || Array.isArray(row.value)) return;
@@ -240,16 +370,23 @@ async function rotateJsonbRow(
   }
 }
 
+const ROW_ROTATORS = {
+  text: rotateTextRow,
+  jsonb: rotateJsonbRow,
+  'workspace-database-url': rotateWorkspaceDatabaseUrlRow,
+} satisfies Record<ColumnTarget['kind'], unknown>;
+
 async function sweepTarget(
   sql: postgres.Sql,
   target: ColumnTarget,
-  keys: Required<EncryptionKeyring>,
+  keys: RotationKeys,
   execute: boolean,
   verbose: boolean,
+  aad: AadPolicy,
 ): Promise<SweepCounts> {
   const counts = newCounts();
   const { table, column, kind } = target;
-  const rotateRow = kind === 'text' ? rotateTextRow : rotateJsonbRow;
+  const rotateRow = ROW_ROTATORS[kind];
 
   let offset = 0;
   for (;;) {
@@ -259,16 +396,16 @@ async function sweepTarget(
     if (rows.length === 0) break;
 
     for (const row of rows) {
-      await rotateRow(sql, target, row, keys, execute, counts);
+      await rotateRow(sql, target, row, keys, execute, counts, aad);
     }
 
     if (rows.length < BATCH_SIZE) break;
     offset += BATCH_SIZE;
   }
 
-  if (verbose && (counts.v1 || counts.v2)) {
+  if (verbose && (counts.v1 || counts.v2 || counts.v3)) {
     console.log(
-      `    ${table}.${column}: v1=${counts.v1} v2=${counts.v2} plaintext=${counts.plaintext} rewritten=${counts.rewritten}`,
+      `    ${table}.${column}: v1=${counts.v1} v2=${counts.v2} v3=${counts.v3} plaintext=${counts.plaintext} rewritten=${counts.rewritten}`,
     );
   }
   return counts;
@@ -278,23 +415,27 @@ async function sweepDatabase(
   label: string,
   databaseUrl: string,
   targets: ColumnTarget[],
-  keys: Required<EncryptionKeyring>,
+  keys: RotationKeys,
   execute: boolean,
   verbose: boolean,
+  aad: AadPolicy,
 ): Promise<SweepCounts> {
   const counts = newCounts();
   const sql = postgres(databaseUrl, { max: 1, ssl: 'require', prepare: false });
   try {
     for (const target of targets) {
-      addCounts(counts, await sweepTarget(sql, target, keys, execute, verbose));
+      addCounts(counts, await sweepTarget(sql, target, keys, execute, verbose, aad));
     }
   } finally {
     await sql.end({ timeout: 5 });
   }
   let status = 'clean';
   if (counts.v1 !== 0) status = execute ? 'rotated' : 'NEEDS ROTATION';
+  if (counts.aadPending !== 0 && aad.aadWrites) status = execute ? 'rotated (AAD)' : 'NEEDS AAD UPGRADE';
+  const aadReport =
+    counts.v3 || counts.aadPending ? ` database_url: v3=${counts.v3} no-aad=${counts.aadPending}` : '';
   console.log(
-    `  ${label}: v1=${counts.v1} v2=${counts.v2} plaintext=${counts.plaintext} failed=${counts.failed} rewritten=${counts.rewritten} → ${status}`,
+    `  ${label}: v1=${counts.v1} v2=${counts.v2} plaintext=${counts.plaintext} failed=${counts.failed} rewritten=${counts.rewritten}${aadReport} → ${status}`,
   );
   return counts;
 }
@@ -335,9 +476,10 @@ async function sweepTenants(
   masterUrl: string,
   neonApiKey: string,
   keyring: EncryptionKeyring,
-  keys: Required<EncryptionKeyring>,
+  keys: RotationKeys,
   options: CliOptions,
   total: SweepCounts,
+  aad: AadPolicy,
 ): Promise<void> {
   const rows = await loadTenantRows(masterUrl, options.only);
 
@@ -348,7 +490,7 @@ async function sweepTenants(
       const url = await resolveDatabaseUrl(neonApiKey, w as never, keyring);
       addCounts(
         total,
-        await sweepDatabase(w.id, url, TENANT_TARGETS, keys, options.execute, options.verbose),
+        await sweepDatabase(w.id, url, TENANT_TARGETS, keys, options.execute, options.verbose, aad),
       );
     } catch (err) {
       console.error(`  ${w.id}: FAILED to connect/sweep — ${(err as Error).message}`);
@@ -361,6 +503,13 @@ function printTotals(total: SweepCounts, execute: boolean): void {
   console.log(
     `\nTOTAL: v1=${total.v1} v2=${total.v2} plaintext=${total.plaintext} failed=${total.failed} rewritten=${total.rewritten}`,
   );
+  if (total.v3 || total.aadPending) {
+    console.log(
+      `workspaces.database_url: AAD-bound (v3)=${total.v3} without AAD=${total.aadPending}${
+        execute && total.aadPending ? ' (upgraded above where AAD writes are on)' : ''
+      }`,
+    );
+  }
   if (total.v1 === 0 && total.failed === 0) {
     console.log('All encrypted values are on v2 — the v1 key can be retired.');
   } else if (!execute) {
@@ -383,10 +532,14 @@ async function main() {
   }
   // Dry-run works without a v2 key: rotateValue only encrypts on execute paths
   // that we never reach, but keep the type simple with a placeholder.
-  const keys: Required<EncryptionKeyring> = { v1, v2: v2 ?? '0'.repeat(64) };
+  const keys: RotationKeys = { v1, v2: v2 ?? '0'.repeat(64) };
+  const aad: AadPolicy = {
+    aadWrites: aadWritesEnabled(process.env.FIELD_ENCRYPTION_AAD_WRITES),
+    haveV2: Boolean(v2),
+  };
 
   console.log(
-    `Encryption-key rotation sweep — mode: ${options.execute ? 'EXECUTE' : 'dry-run'}`,
+    `Encryption-key rotation sweep — mode: ${options.execute ? 'EXECUTE' : 'dry-run'}, database_url AAD (v3) writes: ${aad.aadWrites ? 'ON' : 'off'}`,
   );
 
   const total = newCounts();
@@ -396,13 +549,13 @@ async function main() {
     console.log('\nMaster DB:');
     addCounts(
       total,
-      await sweepDatabase('master', masterUrl, MASTER_TARGETS, keys, options.execute, options.verbose),
+      await sweepDatabase('master', masterUrl, MASTER_TARGETS, keys, options.execute, options.verbose, aad),
     );
   }
 
   // Tenant DBs
   if (!options.masterOnly) {
-    await sweepTenants(masterUrl, neonApiKey, { v1, v2 }, keys, options, total);
+    await sweepTenants(masterUrl, neonApiKey, { v1, v2 }, keys, options, total, aad);
   }
 
   printTotals(total, options.execute);

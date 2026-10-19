@@ -152,6 +152,7 @@ async function deliverInApp<Env extends NotificationEnv>(
   try {
     await publishInAppNotification({
       realtime: env.REALTIME,
+      realtimeSecret: env.REALTIME_INTERNAL_SECRET,
       workspaceId,
       userId,
       notification: {

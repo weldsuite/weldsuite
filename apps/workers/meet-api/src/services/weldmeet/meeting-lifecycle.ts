@@ -19,7 +19,7 @@ export {
 } from '@weldsuite/meet-domain/meeting-lifecycle';
 
 function getPublisher(env: Env): RealtimePublisher {
-  return new RealtimePublisher(env.REALTIME!);
+  return new RealtimePublisher(env.REALTIME!, { internalSecret: env.REALTIME_INTERNAL_SECRET });
 }
 
 export async function publishSessionStarted(

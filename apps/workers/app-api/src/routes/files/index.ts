@@ -38,6 +38,7 @@ import {
 } from '@weldsuite/core-domain/drive-access';
 import { normalizeGenericFiles, queryArray, type UnifiedFile } from '../../services/drive-aggregation';
 import { DRIVE_MODULE_FILE, DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
+import { resolveStoredContent } from '../../lib/storage-upload';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type FilesContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -367,11 +368,19 @@ app.get('/:id/content', requirePermission('files:read'), async (c) => {
     if (!key) return error.notFound(c, 'File content', id);
     const obj = await c.env.STORAGE.get(key);
     if (!obj) return error.notFound(c, 'File content', id);
+    // `row.mimeType` is whatever the client declared at files.create, so it
+    // goes through the same allowlist as brokered uploads: html/svg/xml/js and
+    // unknown types are served as an octet-stream attachment, never inline.
+    const served = resolveStoredContent(
+      row.mimeType || obj.httpMetadata?.contentType || 'application/octet-stream',
+    );
     const headers: Record<string, string> = {
-      'Content-Type': row.mimeType || obj.httpMetadata?.contentType || 'application/octet-stream',
+      'Content-Type': served.contentType,
       'Content-Length': String(obj.size),
       'Cache-Control': 'private, no-cache',
+      'X-Content-Type-Options': 'nosniff',
     };
+    if (served.contentDisposition) headers['Content-Disposition'] = served.contentDisposition;
     if (wantsDownload) {
       const safeName = (row.fileName || `file-${id}`).replaceAll('"', '');
       const encoded = encodeURIComponent(safeName);
@@ -399,8 +408,12 @@ app.put('/:id/content', requirePermission('files:update'), async (c) => {
     const key = row.fileKey || row.storagePath;
     if (!key) return error.internal(c, 'File has no storage key');
     const body = await c.req.arrayBuffer();
+    const stored = resolveStoredContent(row.mimeType || 'application/octet-stream');
     await c.env.STORAGE.put(key, body, {
-      httpMetadata: { contentType: row.mimeType || 'application/octet-stream' },
+      httpMetadata: {
+        contentType: stored.contentType,
+        ...(stored.contentDisposition ? { contentDisposition: stored.contentDisposition } : {}),
+      },
     });
     const updated = await filesService.touchFileSize(c.get('tenantDb'), id, body.byteLength);
     publishEntityEvent({

@@ -19,9 +19,8 @@ vi.mock('drizzle-orm/neon-http', () => {
   return { drizzle: () => chain };
 });
 vi.mock('@neondatabase/serverless', () => ({ neon: () => ({}) }));
-vi.mock('@weldsuite/db/lib/neon-resolve', () => ({
-  resolveDatabaseUrl: async () => 'postgres://resolved/tenant',
-}));
+const resolveDatabaseUrl = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => 'postgres://resolved/tenant'));
+vi.mock('@weldsuite/db/lib/neon-resolve', () => ({ resolveDatabaseUrl }));
 
 import { sealCachedDatabaseUrl } from '@weldsuite/db/lib/workspace-url-cache';
 import { getWorkspaceContextForOrg } from './db';
@@ -76,6 +75,7 @@ const baseRow = {
 
 beforeEach(() => {
   rows.current = [baseRow];
+  resolveDatabaseUrl.mockClear();
 });
 
 describe('getWorkspaceContextForOrg · cache miss', () => {
@@ -105,6 +105,14 @@ describe('getWorkspaceContextForOrg · cache miss', () => {
     // And the sealed entry serves the next lookup without the master DB.
     rows.current = [];
     expect((await getWorkspaceContextForOrg(env, 'org_1')).id).toBe('ws_1');
+  });
+
+  it('hands the URL resolver the id of the row it read: the AAD of a v3 database_url', async () => {
+    rows.current = [{ ...baseRow, databaseUrl: 'v3:00:00' }];
+    const { env } = makeEnv();
+    await getWorkspaceContextForOrg(env, 'org_1');
+    expect(resolveDatabaseUrl).toHaveBeenCalledTimes(1);
+    expect(resolveDatabaseUrl.mock.calls[0]?.[1]).toMatchObject({ id: 'ws_1', databaseUrl: 'v3:00:00' });
   });
 
   it('caches nothing when the worker has no encryption key', async () => {

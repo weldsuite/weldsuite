@@ -536,7 +536,7 @@ app.post('/:id/pin', requirePermission('messages:update'), async (c) => {
     // `type: 'system'` message by the pinner), never the client.
     if (notify) {
       try {
-        const notice = await postPinNotice(db, c.env.REALTIME, {
+        const notice = await postPinNotice(db, c.env, {
           channelId: result.channelId,
           pinnedMessageId: id,
           userId,

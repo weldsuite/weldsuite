@@ -24,6 +24,10 @@ head_sampling_rate = 1
 # - CLERK_JWT_KEY: Clerk JWT public key (PEM format) for verifying platform user tokens
 # - ADMIN_CLERK_JWT_KEY: Admin Clerk JWT public key (PEM format) for verifying admin app tokens
 # - WIDGET_TOKEN_SECRET: Shared secret for verifying helpdesk widget customer tokens
+# - REALTIME_INTERNAL_SECRET: Required. Every /publish/* request must carry it in
+#                        the x-internal-secret header, service-binding callers
+#                        included; without it every publish answers 403. The same
+#                        value is set on every publishing worker and app.
 # - DATABASE_URL_MASTER: Neon master DB connection string (used by WorkspaceHub
 #                        presence alarm to persist offline to tenant DBs).
 # - NEON_API_KEY: Neon API key — used to resolve tenant DB URLs on cache miss.

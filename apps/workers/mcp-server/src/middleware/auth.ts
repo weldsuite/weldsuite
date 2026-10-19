@@ -182,9 +182,11 @@ export async function getWorkspaceForOrg(
 
   if (!row?.neonProjectId || !row?.neonBranchId || !row?.neonRoleName) return null;
 
+  // `id` binds a v3 (AAD) database_url to this workspace row.
   const databaseUrl = await resolveDatabaseUrl(
     neonApiKey,
     {
+      id: row.id,
       neonProjectId: row.neonProjectId,
       neonBranchId: row.neonBranchId,
       neonRoleName: row.neonRoleName,
@@ -230,6 +232,13 @@ async function verifyClerkToken(
       publishableKey: env.CLERK_PUBLISHABLE_KEY,
     });
 
+    // `acceptsToken: 'oauth_token'` is what keeps browser session JWTs out: Clerk
+    // classifies a bearer token that is not an OAuth access token (opaque `oat_`
+    // or an `at+jwt` JWT) as a type mismatch and signs the request out before
+    // any claim is read (auth.test.ts proves it with a validly signed session
+    // JWT). So there is no session `azp` to check here: the `authorizedParties`
+    // option is for session tokens (worker-kit's clerkMiddleware) and would only
+    // risk refusing OAuth access tokens issued to MCP clients.
     const requestState = await clerk.authenticateRequest(request, {
       acceptsToken: 'oauth_token',
       ...(env.CLERK_JWT_KEY ? { jwtKey: env.CLERK_JWT_KEY } : {}),

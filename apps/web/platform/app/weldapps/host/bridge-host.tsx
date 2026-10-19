@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
@@ -24,22 +24,8 @@ import {
   type ProxyFetchResponse,
   type WeldAppSurface,
 } from './protocol';
-import { APP_API_BASE, bootstrapFrameSrc } from './use-weld-app-source';
-
-/** Decode JWT `exp` (seconds) → ISO string; fall back to ~55s for Clerk sessions. */
-function tokenExpiresAt(token: string): string {
-  try {
-    const payload = token.split('.')[1];
-    if (!payload) throw new Error('missing payload');
-    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
-    if (typeof json.exp === 'number' && Number.isFinite(json.exp)) {
-      return new Date(json.exp * 1000).toISOString();
-    }
-  } catch {
-    // fall through
-  }
-  return new Date(Date.now() + 55_000).toISOString();
-}
+import { APP_API_BASE, bootstrapFrameSrc } from './frame-src';
+import { bridgeOrigins, type FrameKind } from './preview';
 
 /**
  * Apps on SDKs older than protocol 2 never send `mounted`; reveal them this
@@ -53,7 +39,20 @@ export interface BridgeHostOptions {
   appCode: string;
   appName: string;
   iframeRef: RefObject<HTMLIFrameElement | null>;
-  targetOrigin: string;
+  /**
+   * The exact origin the frame is pinned to: messages are posted only there and
+   * accepted only from it. Null (an unusable frame URL) makes the bridge ignore
+   * everything; there is no wildcard.
+   */
+  targetOrigin: string | null;
+  /**
+   * What the frame shows. A preview (`weld app dev`) is developer-chosen code:
+   * it gets proxied requests but never a token (`getToken`).
+   * Default: the published bundle.
+   */
+  frameKind?: FrameKind;
+  /** The frame runs in an opaque origin (sandbox without allow-same-origin). */
+  isolated?: boolean;
   usesPlatformSession: boolean;
   /** App-relative route; pushed to the app as `route` events. */
   path: string;
@@ -125,7 +124,19 @@ function createBridgeMethods(deps: BridgeMethodDeps): Map<string, BridgeMethodHa
     return { payload: response, transfer };
   };
 
-  const getTokenMethod: BridgeMethodHandler = async () => {
+  const getTokenMethod: BridgeMethodHandler = async (_payload, opts) => {
+    // Protocol 2 apps never ask. The legacy token path exists for already
+    // deployed protocol 1 community bundles only (a scoped, short-lived wsat_
+    // token, what the gateway would grant anyway). A preview frame
+    // (developer-chosen code on a localhost or tunnel origin) gets no credential
+    // at all, and the member's own platform session (Clerk JWT) never enters any
+    // frame: official apps use the `fetch` bridge only.
+    if (opts.frameKind === 'preview') {
+      throw new BridgeRequestError('Previews get no token: use @weldsuite/app-sdk with bridge protocol 2');
+    }
+    if (opts.usesPlatformSession) {
+      throw new BridgeRequestError('This app acts through the host: use @weldsuite/app-sdk with bridge protocol 2');
+    }
     const session = await mintLegacyToken();
     if (!session) throw new BridgeRequestError('Failed to mint session token');
     return { payload: session };
@@ -224,23 +235,23 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
   const live = useRef({ options, theme, language, user, getToken, router, sessionTokenMutation, pendingModal });
   live.current = { options, theme, language, user, getToken, router, sessionTokenMutation, pendingModal };
 
-  const { iframeRef, targetOrigin } = options;
+  const { iframeRef, targetOrigin, isolated = false } = options;
+  const origins = useMemo(() => bridgeOrigins(targetOrigin, isolated), [targetOrigin, isolated]);
 
   const post = useCallback(
     (message: unknown, transfer?: Transferable[]) => {
-      iframeRef.current?.contentWindow?.postMessage(message, { targetOrigin, transfer });
+      if (!origins) return;
+      iframeRef.current?.contentWindow?.postMessage(message, { targetOrigin: origins.postTarget, transfer });
     },
-    [iframeRef, targetOrigin],
+    [iframeRef, origins],
   );
 
-  /** Legacy (protocol 1 SDK) token path — only runs when an old bundle asks. */
+  /**
+   * Legacy (protocol 1 SDK) token path for community bundles — only runs when an
+   * old bundle asks. A scoped `wsat_` session token, never the platform session.
+   */
   const mintLegacyToken = useCallback(async () => {
-    const { options: opts, getToken: getClerkToken, sessionTokenMutation: mutation } = live.current;
-    if (opts.usesPlatformSession) {
-      const token = await getClerkToken();
-      if (!token) return null;
-      return { token, tokenExpiresAt: tokenExpiresAt(token), apiBaseUrl: APP_API_BASE };
-    }
+    const { options: opts, sessionTokenMutation: mutation } = live.current;
     const session = await mutation.mutateAsync(opts.appCode);
     return { token: session.token, tokenExpiresAt: session.expiresAt, apiBaseUrl: session.apiBaseUrl };
   }, []);
@@ -331,7 +342,9 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
     const handleMessage = (event: MessageEvent) => {
       const iframeWindow = iframeRef.current?.contentWindow;
       if (!iframeWindow || event.source !== iframeWindow) return;
-      if (targetOrigin !== '*' && event.origin !== targetOrigin) return;
+      // Pinned to the frame's exact origin: a frame that navigated elsewhere
+      // (or a preview on any other origin) is ignored, never proxied for.
+      if (!origins || event.origin !== origins.eventOrigin) return;
 
       const data = event.data as IncomingWeldAppMessage | undefined;
       if (!data || typeof data !== 'object' || !('type' in data)) return;
@@ -360,7 +373,7 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [iframeRef, targetOrigin, post, sendInit, proxyFetch, mintLegacyToken]);
+  }, [iframeRef, origins, post, sendInit, proxyFetch, mintLegacyToken]);
 
   // Theme: push the value, then the recomputed design tokens once the
   // platform has applied its theme class.
@@ -421,6 +434,8 @@ export function useBridgeHost(options: BridgeHostOptions): ReactNode {
           frameSrc={options.frameSrc}
           sandbox={options.sandbox}
           targetOrigin={targetOrigin}
+          frameKind={options.frameKind}
+          isolated={isolated}
           usesPlatformSession={options.usesPlatformSession}
           request={pendingModal.request}
           onClose={closeModal}
@@ -447,6 +462,8 @@ function WeldAppModal({
   frameSrc,
   sandbox,
   targetOrigin,
+  frameKind,
+  isolated,
   usesPlatformSession,
   request,
   onClose,
@@ -455,7 +472,9 @@ function WeldAppModal({
   appName: string;
   frameSrc: string;
   sandbox: string;
-  targetOrigin: string;
+  targetOrigin: string | null;
+  frameKind?: FrameKind;
+  isolated: boolean;
   usesPlatformSession: boolean;
   request: OpenModalRequest;
   onClose: (outcome: { dismissed: boolean; result?: unknown }) => void;
@@ -471,6 +490,8 @@ function WeldAppModal({
     appName,
     iframeRef,
     targetOrigin,
+    frameKind,
+    isolated,
     usesPlatformSession,
     path: request.path,
     surface: 'modal',

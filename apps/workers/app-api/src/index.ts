@@ -54,7 +54,8 @@ import { userPreferencesRoutes } from './routes/user-preferences';
 import { pushTokensRoutes } from './routes/push-tokens';
 import { workspacesRoutes } from './routes/workspaces';
 import { testFixturesRoutes } from './routes/_test-fixtures';
-import { publicUserAppsRoutes } from './routes/public-user-apps';
+import { testFixturesEnvironmentGate } from './middleware/test-fixtures-guard';
+import { bundleHostRejection, publicUserAppsRoutes } from './routes/public-user-apps';
 import { publicPartnerTerritoriesRoutes } from './routes/public-partner-territories';
 import { partnerRoutes } from './routes/partner';
 // Legacy api-worker phase-out (W3/W4) — surfaces ported from apps/api-worker.
@@ -86,9 +87,13 @@ const app = createModuleApi<Env, Variables>({ service: 'app-api', forwardModules
 // Clerk JWT on this request path.
 app.route('/', storageUploadTokenRoute);
 
-// CI-only test-fixtures router. Two-layer guard inside the router blocks
-// requests in production (env check) and without a valid X-Test-Token
-// header (token check). Mounted outside /api/* so no Clerk JWT is needed.
+// E2E test-fixtures router (seed + bulk reset of a tenant DB named by a header,
+// no Clerk JWT, hence outside /api/*). Served only when ENVIRONMENT is
+// explicitly 'development' or 'test': the gate answers 404 for production, a
+// missing or a misspelled ENVIRONMENT before the router is entered. Inside the
+// router the guard repeats the check, then requires X-Test-Token
+// (TEST_FIXTURES_TOKEN, constant-time compare).
+app.use('/test-fixtures/*', testFixturesEnvironmentGate());
 app.route('/test-fixtures', testFixturesRoutes);
 
 // The public help-center feed (/public/helpcenter, consumed by the
@@ -297,7 +302,12 @@ import { handleSearchIndexBatch } from './queue/search-index-consumer';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
 export default {
-  fetch: app.fetch,
+  // When USER_APP_BUNDLE_ORIGIN names a dedicated WeldApps bundle host, that
+  // host serves /public/user-apps/* and nothing else, so user-authored bundles
+  // never share an origin with the API. Checked before the Hono app because the
+  // module forwarder is its first middleware. A no-op while the var is unset.
+  fetch: (request: Request, env: Env, ctx?: ExecutionContext) =>
+    bundleHostRejection(request, env) ?? app.fetch(request, env, ctx),
   /**
    * Queue consumers:
    * - search-index* — semantic index (Phase 2 hub SUB_SEARCH)

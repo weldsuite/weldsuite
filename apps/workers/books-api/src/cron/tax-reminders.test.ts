@@ -237,14 +237,18 @@ describe('markers and in-app delivery', () => {
   });
 
   it('writes a notification row and publishes it live', async () => {
-    const calls: Array<{ url: string; body: Record<string, any> }> = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const calls: Array<{ url: string; secret: string | null; body: Record<string, any> }> = []; // eslint-disable-line @typescript-eslint/no-explicit-any
     const realtime = {
       fetch: async (url: string, init?: RequestInit) => {
-        calls.push({ url, body: JSON.parse(String(init?.body)) });
+        calls.push({
+          url,
+          secret: new Headers(init?.headers).get('x-internal-secret'),
+          body: JSON.parse(String(init?.body)),
+        });
         return new Response('{}', { status: 200 });
       },
     } as unknown as Fetcher;
-    const notifier = createInAppNotifier(db, { REALTIME: realtime }, 'org_1');
+    const notifier = createInAppNotifier(db, { REALTIME: realtime, REALTIME_INTERNAL_SECRET: 'rt-secret' }, 'org_1');
     await notifier.send('user_admin', {
       title: 'Sales tax return overdue: Texas Comptroller',
       body: 'The TX return is overdue.',
@@ -267,6 +271,8 @@ describe('markers and in-app delivery', () => {
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe('https://internal/publish/workspace');
+    // the realtime-worker refuses a publish without its internal secret
+    expect(calls[0]!.secret).toBe('rt-secret');
     expect(calls[0]!.body).toMatchObject({ workspaceId: 'org_1', topic: 'notification.user_admin', event: 'created' });
     expect(calls[0]!.body.data).toMatchObject({ id: row!.id, isRead: false, _access: { userIds: ['user_admin'] } });
 

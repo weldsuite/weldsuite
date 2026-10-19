@@ -23,7 +23,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
-import { commercePortalSlugMiddleware } from '@weldsuite/commerce-domain/portal-slug';
+import { commercePortalSlugMiddleware, readPortalSlug } from '@weldsuite/commerce-domain/portal-slug';
 import { commercePortalAuthMiddleware } from '../../middleware/commerce-portal-auth';
 import {
   consumeRateLimit,
@@ -75,6 +75,18 @@ function clientIp(c: { req: { header: (name: string) => string | undefined } }):
   );
 }
 
+/**
+ * The counter behind the rate limits could not be reached. Both sign-in
+ * endpoints refuse rather than run without a limit (fail closed): /auth/verify
+ * because an unlimited OTP check is a brute-force oracle, /auth/request because
+ * an unlimited one is an email-bombing and mail-cost lever. The status is the
+ * same for every email and every workspace, so it reveals nothing about who has
+ * access.
+ */
+function signInUnavailable(c: Context) {
+  return error.unavailable(c, 'Sign-in is temporarily unavailable, try again shortly');
+}
+
 async function requireEnabled(db: Database) {
   const settings = await loadPortalSettings(db);
   return isPortalEnabled(settings) ? settings : null;
@@ -104,15 +116,23 @@ app.post('/auth/request', zValidator('json', commercePortalAuthRequestSchema), a
   const workspaceId = c.get('workspaceId');
   const { email: rawEmail } = c.req.valid('json');
   const email = normalizeEmail(rawEmail);
-  const slug = c.req.query('slug') || c.req.header('X-Workspace-Slug') || '';
+  // The validated slug (the middleware already refused anything else), never
+  // the raw query / header, because it ends up in the link in the email.
+  const slug = readPortalSlug(c);
 
   try {
     const settings = await requireEnabled(db);
     if (!settings || !workspaceId) return success(c, GENERIC_AUTH_OK);
 
-    const emailAllowed = await consumeRateLimit(c.env, workspaceId, `e:${email}`);
-    const ipAllowed = await consumeRateLimit(c.env, workspaceId, `ip:${clientIp(c)}`);
-    if (!emailAllowed || !ipAllowed) return success(c, GENERIC_AUTH_OK);
+    // Per IP first, so a blocked IP neither spends an address's budget nor
+    // creates a counter per address it sprays. Over the limit looks exactly
+    // like "no access": the generic answer.
+    const ipOutcome = await consumeRateLimit(c.env, workspaceId, `ip:${clientIp(c)}`);
+    if (ipOutcome === 'unavailable') return signInUnavailable(c);
+    if (ipOutcome === 'limited') return success(c, GENERIC_AUTH_OK);
+    const emailOutcome = await consumeRateLimit(c.env, workspaceId, `e:${email}`);
+    if (emailOutcome === 'unavailable') return signInUnavailable(c);
+    if (emailOutcome === 'limited') return success(c, GENERIC_AUTH_OK);
 
     const accessRows = await db
       .select()
@@ -224,11 +244,27 @@ async function resolveChallengeEmail(
 async function loadMatchingChallenge(
   env: Env,
   args: { workspaceId: string; email: string; presentedHash: string; token?: string; otp?: string },
-): Promise<PortalChallenge | null> {
+): Promise<PortalChallenge | 'unavailable' | null> {
   const { workspaceId, email, presentedHash, token, otp } = args;
   const challenge = await kvGetJson<PortalChallenge>(env, otpKvKey(workspaceId, email));
   if (!challenge) return null;
   if (challenge.attempts >= MAX_VERIFY_ATTEMPTS) {
+    await deleteChallenge(env, challenge);
+    return null;
+  }
+
+  // `attempts` is a KV read-modify-write, so guesses sent in parallel all read
+  // the same value and all get checked. This per-challenge counter is atomic
+  // and is what really caps the guesses at MAX_VERIFY_ATTEMPTS per challenge.
+  const budget = await consumeRateLimit(
+    env,
+    workspaceId,
+    `verify-ch:${challenge.tokenHash}`,
+    MAX_VERIFY_ATTEMPTS,
+    OTP_TTL_SECONDS,
+  );
+  if (budget === 'unavailable') return 'unavailable';
+  if (budget === 'limited') {
     await deleteChallenge(env, challenge);
     return null;
   }
@@ -291,6 +327,26 @@ async function startCompanyPicker(
   return success(c, { token: null, pickerToken, needsCompanyPicker: true, companies });
 }
 
+/**
+ * The verify budgets: per client IP first, so a blocked IP cannot drain the
+ * workspace-wide budget, then per workspace across all IPs. Returns the
+ * refusal to send, or null when the request is within both.
+ */
+async function verifyBudgetRefusal(c: AppContext, workspaceId: string): Promise<Response | null> {
+  const budgets = [
+    { key: `verify-ip:${clientIp(c)}`, max: VERIFY_RATE_LIMIT_IP_MAX },
+    { key: 'verify-ws', max: VERIFY_RATE_LIMIT_WORKSPACE_MAX },
+  ];
+  for (const { key, max } of budgets) {
+    const outcome = await consumeRateLimit(c.env, workspaceId, key, max);
+    if (outcome === 'unavailable') return signInUnavailable(c);
+    if (outcome === 'limited') {
+      return c.json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }, 429);
+    }
+  }
+  return null;
+}
+
 app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), async (c) => {
   const db = c.get('tenantDb');
   const workspaceId = c.get('workspaceId');
@@ -298,13 +354,8 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
   if (!workspaceId) return error.unauthorized(c, 'Invalid or expired code');
 
   try {
-    // Per-IP first, so a blocked IP cannot drain the workspace-wide budget.
-    const ipAllowed = await consumeRateLimit(c.env, workspaceId, `verify-ip:${clientIp(c)}`, VERIFY_RATE_LIMIT_IP_MAX);
-    const workspaceAllowed =
-      ipAllowed && (await consumeRateLimit(c.env, workspaceId, 'verify-ws', VERIFY_RATE_LIMIT_WORKSPACE_MAX));
-    if (!ipAllowed || !workspaceAllowed) {
-      return c.json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }, 429);
-    }
+    const refusal = await verifyBudgetRefusal(c, workspaceId);
+    if (refusal) return refusal;
 
     const settings = await requireEnabled(db);
     if (!settings) return error.unauthorized(c, 'Invalid or expired code');
@@ -323,6 +374,7 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
       token: body.token,
       otp: body.otp,
     });
+    if (challenge === 'unavailable') return signInUnavailable(c);
     if (!challenge) return error.unauthorized(c, 'Invalid or expired code');
 
     const accessRows = await db

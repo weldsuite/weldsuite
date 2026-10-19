@@ -128,7 +128,7 @@ export interface PostChatMessageContext {
 }
 
 function getPublisher(env: Env): RealtimePublisher | null {
-  return env.REALTIME ? new RealtimePublisher(env.REALTIME) : null;
+  return env.REALTIME ? new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET }) : null;
 }
 
 /** Reject the send when the channel is missing or its feature flags / slow mode forbid it. */

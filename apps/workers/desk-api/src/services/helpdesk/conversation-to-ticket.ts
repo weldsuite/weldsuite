@@ -124,7 +124,7 @@ export async function linkConversationToTicket(
     });
 
     if (env.REALTIME) {
-      await new RealtimePublisher(env.REALTIME).conversationSystem(conversationId, 'ticket_linked', {
+      await new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET }).conversationSystem(conversationId, 'ticket_linked', {
         text: `Ticket created: ${subject}`,
         ticketId,
         ticketNumber,

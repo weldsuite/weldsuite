@@ -256,7 +256,7 @@ app.post('/messages', requirePermission('general:read'), async (c) => {
     // Publish real-time event
     if (c.env.REALTIME) {
       try {
-        const rt = new RealtimePublisher(c.env.REALTIME);
+        const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         await rt.supportEvent(orgId, 'message', message);
       } catch {
         // Non-critical — message is persisted regardless
@@ -374,7 +374,7 @@ app.post('/members', requirePermission('general:read'), async (c) => {
     // Publish real-time event
     if (c.env.REALTIME && newUserIds.length > 0) {
       try {
-        const rt = new RealtimePublisher(c.env.REALTIME);
+        const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         await rt.supportEvent(orgId, 'members_changed', { added: newUserIds });
       } catch {
         // Non-critical
@@ -448,7 +448,7 @@ app.delete('/members/:userId', requirePermission('general:read'), async (c) => {
     // Publish real-time event
     if (c.env.REALTIME) {
       try {
-        const rt = new RealtimePublisher(c.env.REALTIME);
+        const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         await rt.supportEvent(orgId, 'members_changed', { removed: [targetUserId] });
       } catch {
         // Non-critical

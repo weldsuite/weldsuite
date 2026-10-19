@@ -4,8 +4,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
 import postgres from 'postgres';
-import { apiKeys } from '@weldsuite/db/schema/api-keys';
-import { workspaceApiKeys } from '@weldsuite/db/schema/workspace-api-keys';
 import * as tenantSchema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
@@ -20,6 +18,7 @@ import type { TenantTier } from '@weldsuite/db/schema/master';
 import { error } from '../lib/response';
 import { workspaceRestrictions } from './licence';
 import { resolveClerkOrgId } from '../lib/social-context';
+import { sessionFromTenantKey } from './api-key-session';
 
 // KV cache TTL in seconds (5 minutes)
 const KV_TTL_SECONDS = 300;
@@ -32,13 +31,13 @@ const APP_TOKEN_KV_TTL_SECONDS = 60;
 // KV Cache Types
 // ============================================================================
 
-interface CachedRegistryEntry {
+export interface CachedRegistryEntry {
   workspaceId: string;
   keyType: string;
   tenantKeyId: string;
 }
 
-interface CachedWorkspaceDetails {
+export interface CachedWorkspaceDetails {
   databaseUrl: string;
   tier: TenantTier;
   /** Absent on entries cached before it was added; callers fall back to a lookup. */
@@ -214,9 +213,18 @@ export async function getWorkspaceDetails(
   if (!row?.neonProjectId || !row?.neonBranchId || !row?.neonRoleName) return null;
 
   // 3. Resolve connection URI — decrypt-first, fallback to Neon API
+  // `id` is the workspace row the URL was selected from: a v3 database_url is
+  // AAD-bound to it and refuses to open for any other workspace.
   const databaseUrl = await resolveDatabaseUrl(
     neonApiKey,
-    row as any,
+    {
+      id: workspaceId,
+      neonProjectId: row.neonProjectId,
+      neonBranchId: row.neonBranchId,
+      neonRoleName: row.neonRoleName,
+      neonDatabaseName: row.neonDatabaseName,
+      databaseUrl: row.databaseUrl,
+    },
     encryptionKey,
   );
 
@@ -252,7 +260,8 @@ export async function getWorkspaceDetails(
  * 1. Hash the incoming key
  * 2. KV-cached: key_hash → {workspaceId, keyType, tenantKeyId} from master registry
  * 3. KV-cached: workspaceId → {databaseUrl, tier} from master workspaces
- * 4. Always live: verify key in workspace DB (scopes, expiry, deletedAt)
+ * 4. Always live: verify key in workspace DB (scopes, expiry, deletedAt; for a
+ *    personal key also that its owner is still an active member)
  * 5. Fire-and-forget lastUsedAt update
  */
 async function validateApiKey(
@@ -283,88 +292,11 @@ async function validateApiKey(
       return null;
     }
 
-    // Step 3: Verify key in workspace DB (always live — catches revocations/expiry)
+    // Step 3: Verify key in workspace DB (always live — catches revocations/expiry,
+    // and for a personal key the owner leaving the workspace)
     const sql = neon(workspace.databaseUrl);
     const tenantDb = drizzleNeonHttp({ client: sql, schema: tenantSchema });
-
-    if (registryEntry.keyType === 'workspace') {
-      const [workspaceKey] = await tenantDb
-        .select()
-        .from(workspaceApiKeys)
-        .where(
-          and(
-            eq(workspaceApiKeys.id, registryEntry.tenantKeyId),
-            isNull(workspaceApiKeys.deletedAt),
-            or(isNull(workspaceApiKeys.expiresAt), gt(workspaceApiKeys.expiresAt, now))
-          )
-        )
-        .limit(1);
-
-      if (!workspaceKey) {
-        return null;
-      }
-
-      // Fire-and-forget lastUsedAt update
-      tenantDb
-        .update(workspaceApiKeys)
-        .set({ lastUsedAt: now })
-        .where(eq(workspaceApiKeys.id, workspaceKey.id))
-        .execute()
-        .catch(console.error);
-
-      return {
-        keyId: workspaceKey.id,
-        keyType: 'workspace',
-        workspaceId: registryEntry.workspaceId,
-        userId: null,
-        scopes: (workspaceKey.scopes as string[]) || [],
-        tier: workspace.tier,
-        databaseUrl: workspace.databaseUrl,
-        clerkOrgId: workspace.clerkOrgId,
-        licensedApps: workspace.licensedApps ?? null,
-        readOnly: workspace.readOnly ?? false,
-        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
-      };
-    } else {
-      // Personal key
-      const [personalKey] = await tenantDb
-        .select()
-        .from(apiKeys)
-        .where(
-          and(
-            eq(apiKeys.id, registryEntry.tenantKeyId),
-            isNull(apiKeys.deletedAt),
-            or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now))
-          )
-        )
-        .limit(1);
-
-      if (!personalKey) {
-        return null;
-      }
-
-      // Fire-and-forget lastUsedAt update
-      tenantDb
-        .update(apiKeys)
-        .set({ lastUsedAt: now })
-        .where(eq(apiKeys.id, personalKey.id))
-        .execute()
-        .catch(console.error);
-
-      return {
-        keyId: personalKey.id,
-        keyType: 'personal',
-        workspaceId: registryEntry.workspaceId,
-        userId: personalKey.userId,
-        scopes: (personalKey.scopes as string[]) || [],
-        tier: workspace.tier,
-        databaseUrl: workspace.databaseUrl,
-        clerkOrgId: workspace.clerkOrgId,
-        licensedApps: workspace.licensedApps ?? null,
-        readOnly: workspace.readOnly ?? false,
-        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
-      };
-    }
+    return await sessionFromTenantKey(tenantDb, registryEntry, workspace, now);
   } catch (error) {
     console.error('[API Auth] Error validating key:', error);
     return null;

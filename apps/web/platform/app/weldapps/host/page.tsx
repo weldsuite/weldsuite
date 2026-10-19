@@ -43,7 +43,7 @@ export default function WeldAppHostPage() {
   const { t } = useI18n();
   const wa = t.weldapps;
   const source = useWeldAppSource(appCode);
-  const { app, isLoading, previewUrl } = source;
+  const { app, isLoading, previewUrl, bundleError, refreshBundle } = source;
   const status = useWeldAppFrameStatus(appCode);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
 
@@ -114,6 +114,28 @@ export default function WeldAppHostPage() {
               <Button asChild>
                 <Link href="/appstore">{wa.host.browseAppStore}</Link>
               </Button>
+            </div>
+          </div>
+        </ModuleContent>
+      </div>
+    );
+  }
+
+  if (bundleError) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+        <AppHeader />
+        <ModuleContent>
+          <div className="flex flex-1 items-center justify-center p-8">
+            <div className="flex flex-col items-center text-center max-w-md gap-4">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                <Puzzle className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground mb-2">{wa.host.loadFailedTitle}</h2>
+                <p className="text-sm text-muted-foreground leading-relaxed">{wa.host.loadFailedDescription}</p>
+              </div>
+              <Button onClick={refreshBundle}>{wa.host.retry}</Button>
             </div>
           </div>
         </ModuleContent>

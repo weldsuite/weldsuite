@@ -305,7 +305,7 @@ export async function getTenantDb(clerkOrgId: string) {
   if (!dedicatedDb) {
     const databaseUrl = await resolveDatabaseUrl(
       process.env.NEON_API_KEY!,
-      { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl },
+      { id: workspace.id, neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl },
       { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
     );
     dedicatedDb = createTenantPool(databaseUrl);
@@ -360,7 +360,7 @@ export async function getTenantDbByWorkspaceId(workspaceId: string) {
   if (!dedicatedDb) {
     const databaseUrl = await resolveDatabaseUrl(
       process.env.NEON_API_KEY!,
-      { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl },
+      { id: workspace.id, neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: workspaceDbUrl },
       { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
     );
     dedicatedDb = createTenantPool(databaseUrl);
