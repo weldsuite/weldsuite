@@ -5,7 +5,7 @@
 
 import { EmailMessage } from 'cloudflare:email';
 import { CloudflareSendProvider } from '@weldsuite/email/providers/cloudflare';
-import { PendingVerificationError } from '@weldsuite/email';
+import { PendingVerificationError, type EmailAttachment } from '@weldsuite/email';
 import type { Env } from '../types';
 
 export interface SendEmailParams {
@@ -20,6 +20,8 @@ export interface SendEmailParams {
   headers?: Record<string, string>;
   inReplyTo?: string;
   references?: string[];
+  /** Files to send; one with a `cid` goes out as an inline part. */
+  attachments?: EmailAttachment[];
 }
 
 export interface SendEmailResponse {
@@ -62,6 +64,7 @@ export async function sendEmail(
       headers: params.headers,
       inReplyTo: params.inReplyTo,
       references: params.references,
+      attachments: params.attachments,
     });
     const pending = (result.metadata as { pendingRecipients?: string[] } | undefined)
       ?.pendingRecipients;

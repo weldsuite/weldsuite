@@ -16,6 +16,7 @@ import {
   INLINE_IMAGE_TTL_SECONDS,
   inlineImageExpiry,
   isInlineImageType,
+  isOwnedStorageKey,
   openInlineImageToken,
   rewriteInlineImages,
   sealInlineImageToken,
@@ -160,6 +161,68 @@ describe('rewriteInlineImages', () => {
       signer,
     );
     expect(minted(out)).toHaveLength(1);
+  });
+});
+
+describe('personal-mailbox owner', () => {
+  const PA = 'pacc_owner';
+  const personalSigner: InlineImageSigner = {
+    personalAccountId: PA,
+    baseUrl: 'https://mail-api.test',
+    secret: SECRET,
+    now: NOW,
+  };
+  const photo: InlineAttachmentRef = {
+    id: 'attach_photo',
+    messageId: 'pm1',
+    contentId: 'photo@x',
+    storagePath: `personal/${PA}/mail/attachments/pm1/1_photo.jpg`,
+    contentType: 'image/jpeg',
+  };
+
+  it('mints personal tokens for cid: references and legacy public URLs', async () => {
+    const html = `<img src="cid:photo@x"><img src="${PUBLIC_HOST}/${photo.storagePath}">`;
+    const out = await rewriteInlineImages(html, [photo], personalSigner);
+    expect(out).not.toContain('cid:');
+    expect(out).not.toContain(PUBLIC_HOST);
+    const urls = minted(out);
+    expect(urls).toHaveLength(2);
+    const opened = await openInlineImageToken(SECRET, urlToken(urls[0]!), NOW);
+    expect(opened).toMatchObject({ p: PA, a: 'attach_photo', k: photo.storagePath, t: 'image/jpeg' });
+    expect(opened!.w).toBeUndefined();
+  });
+
+  it("leaves another owner's files alone", async () => {
+    const html = `<img src="cid:photo@x"><img src="cid:ws@x">`;
+    const out = await rewriteInlineImages(
+      html,
+      [
+        { ...photo, storagePath: 'personal/pacc_other/mail/attachments/pm1/1_photo.jpg' },
+        { ...photo, id: 'attach_ws', contentId: 'ws@x', storagePath: `workspaces/${WS}/mail/attachments/m1/1_a.png` },
+      ],
+      personalSigner,
+    );
+    expect(out).toBe(html);
+    // …and a workspace signer does not mint for a personal key.
+    expect(await rewriteInlineImages(`<img src="cid:photo@x">`, [photo], signer)).toBe(`<img src="cid:photo@x">`);
+  });
+
+  it('checks a key against the owner the token names', () => {
+    expect(isOwnedStorageKey({ p: PA }, photo.storagePath!)).toBe(true);
+    expect(isOwnedStorageKey({ p: PA }, 'personal/pacc_other/mail/x.png')).toBe(false);
+    expect(isOwnedStorageKey({ p: PA }, `personal/${PA}/../pacc_other/x.png`)).toBe(false);
+    expect(isOwnedStorageKey({ p: PA }, `workspaces/${PA}/x.png`)).toBe(false);
+    expect(isOwnedStorageKey({ w: WS }, `workspaces/${WS}/x.png`)).toBe(true);
+    expect(isOwnedStorageKey({ w: WS }, `personal/${WS}/x.png`)).toBe(false);
+    expect(isOwnedStorageKey({ w: WS, p: PA }, `workspaces/${WS}/x.png`)).toBe(false);
+    expect(isOwnedStorageKey({}, `workspaces/${WS}/x.png`)).toBe(false);
+  });
+
+  it('refuses a token that names both owners, or neither', async () => {
+    const both = await sealInlineImageToken(SECRET, claims({ p: PA }));
+    expect(await openInlineImageToken(SECRET, both, NOW)).toBeNull();
+    const neither = await sealInlineImageToken(SECRET, claims({ w: undefined }));
+    expect(await openInlineImageToken(SECRET, neither, NOW)).toBeNull();
   });
 });
 

@@ -93,7 +93,7 @@ export async function embedInlineImages(
   }
 
   if (input.quoted?.length) {
-    out = await swapInlineReferences(out, input.quoted, input.workspaceId, async (source) => {
+    out = await swapInlineReferences(out, input.quoted, { w: input.workspaceId }, async (source) => {
       const cid = await parts.cidFor(source);
       return cid ? `cid:${cid}` : null;
     });

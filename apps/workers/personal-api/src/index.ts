@@ -18,6 +18,7 @@ import { mailMessagesRoutes } from './routes/mail-messages';
 import { mailLabelsRoutes } from './routes/mail-labels';
 import { mailDraftsRoutes } from './routes/mail-drafts';
 import { mailSubscriptionsRoutes } from './routes/mail-subscriptions';
+import { mailInlineImagesRoutes } from './routes/mail-inline-images';
 import { pushTokensRoutes } from './routes/push-tokens';
 import { calendarsRoutes } from './routes/calendars';
 import { calendarEventsRoutes } from './routes/calendar-events';
@@ -48,6 +49,10 @@ app.get('/health', (c) =>
     timestamp: new Date().toISOString(),
   }),
 );
+
+// Inline images of personal mail (TASK-905): no session, a sealed short-lived
+// token minted when the owner reads the message. Kept off the /api/* auth chain.
+app.route('/public/mail-inline', mailInlineImagesRoutes);
 
 // Clerk on all /api/* routes
 app.use('/api/*', clerkMiddleware());

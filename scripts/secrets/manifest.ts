@@ -82,6 +82,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_URL_PERSONAL",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Seals the short-lived inline-image URLs of read personal mail (TASK-905).
+    // Its own secret on purpose: personal-api does not hold
+    // DATABASE_ENCRYPTION_KEY, which mail-api falls back to.
+    "MAIL_INLINE_IMAGE_SECRET",
   ],
 
   // booking-portal is a Next.js app (not a Worker). Sync does not push secrets

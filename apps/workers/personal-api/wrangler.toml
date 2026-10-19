@@ -6,9 +6,18 @@
 #   DATABASE_URL_PERSONAL — Neon URL for shared personal DB
 #   CLERK_SECRET_KEY
 #   CLERK_JWT_KEY (optional)
+#   MAIL_INLINE_IMAGE_SECRET — seals the short-lived inline-image URLs of read
+#     mail (TASK-905). Unset: inline images keep cid: and do not show.
 #
 # Bindings:
 #   SEND_EMAIL — Cloudflare Email Sending ([[send_email]])
+#   STORAGE — the bucket mail-inbound-worker writes personal attachments to
+#     (personal/<personalAccountId>/…). Read only behind the owner check:
+#     attachment downloads and /public/mail-inline (TASK-905).
+#
+# PERSONAL_API_PUBLIC_URL is this worker's own origin: inline-image URLs in
+# read messages point at its /public/mail-inline. Unset in local dev, where
+# the request origin is used.
 #   OUTBOUND_LEDGER / OUTBOUND_PLATFORM / OUTBOUND_BACKSTOP — the outbound mail
 #     guard (docs/plans/weldmail-outbound-abuse.md): mail-api's Durable Objects
 #     bound by name, plus a per-sender burst limit for when the ledger is down
@@ -32,6 +41,10 @@ ENVIRONMENT = "development"
 
 [[send_email]]
 name = "SEND_EMAIL"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
 
 # Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): every send is
 # checked against the account's OutboundLedger (ledger key personal:<accountId>),
@@ -65,9 +78,14 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+PERSONAL_API_PUBLIC_URL = "https://personal-api-test.weldsuite.org"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
 
 # Outbound mail guard (test): mail-api's Durable Objects and the shared
 # per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
@@ -103,9 +121,14 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+PERSONAL_API_PUBLIC_URL = "https://personal-api.weldsuite.org"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
 
 # Outbound mail guard (production): mail-api's Durable Objects and the shared
 # per-sender backstop (docs/plans/weldmail-outbound-abuse.md).

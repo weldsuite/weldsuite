@@ -21,6 +21,15 @@ export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUN
   ENVIRONMENT: string;
   /** Cloudflare Email Sending binding — required for outbound mail. */
   SEND_EMAIL?: SendEmailBinding;
+  /**
+   * The storage bucket the inbound worker writes personal attachments to
+   * (`personal/<personalAccountId>/…`). Read only behind the owner check.
+   */
+  STORAGE?: R2Bucket;
+  /** This worker's public origin; inline-image URLs point at its `/public/mail-inline`. */
+  PERSONAL_API_PUBLIC_URL?: string;
+  /** Secret inline-image tokens are sealed with. Unset: inline images keep `cid:` and do not show. */
+  MAIL_INLINE_IMAGE_SECRET?: string;
 }
 
 export type PersonalAccountSummary = {

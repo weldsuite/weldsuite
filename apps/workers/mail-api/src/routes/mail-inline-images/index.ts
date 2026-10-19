@@ -13,8 +13,7 @@
 
 import { Hono } from 'hono';
 import { error } from '@weldsuite/worker-kit/response';
-import { isWorkspaceStorageKey } from '@weldsuite/mail-domain/attachments';
-import { isInlineImageType, openInlineImageToken } from '@weldsuite/mail-domain/inline-images';
+import { isInlineImageType, isOwnedStorageKey, openInlineImageToken } from '@weldsuite/mail-domain/inline-images';
 import { inlineImageSecret } from '../../lib/inline-images';
 import type { Env, Variables } from '../../types';
 
@@ -25,7 +24,8 @@ app.get('/:token', async (c) => {
   if (!secret || !c.env.STORAGE) return error.notFound(c, 'Image', 'inline');
 
   const claims = await openInlineImageToken(secret, c.req.param('token'));
-  if (!claims || !isWorkspaceStorageKey(claims.k, claims.w) || !isInlineImageType(claims.t)) {
+  // Workspace tokens only: personal-api serves personal mail's images.
+  if (!claims || claims.w === undefined || !isOwnedStorageKey(claims, claims.k) || !isInlineImageType(claims.t)) {
     return error.notFound(c, 'Image', 'inline');
   }
 
