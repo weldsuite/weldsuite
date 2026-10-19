@@ -56,6 +56,13 @@ export const blockEditor = {
   textSelection: {
     askAgent: 'Ask Agent',
   },
+  selectionToolbar: {
+    body: 'Body',
+    text: 'Text',
+    highlight: 'Highlight',
+    askAgent: 'Ask Agent',
+    linkPlaceholder: 'Paste or type a link…',
+  },
   toolbar: {
     undo: 'Undo',
     redo: 'Redo',

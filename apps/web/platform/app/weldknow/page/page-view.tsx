@@ -7,12 +7,14 @@ import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
 import { PageLoader } from '@/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { useMobileNavActionsOptional } from '@/contexts/mobile-nav-context';
 import {
   BlockEditor,
   type BlockEditorHandle,
   type BlockNoteEditorInstance,
 } from '@/components/block-editor/block-editor';
 import type { PageLinkSource } from '@/components/block-editor/slash-menu';
+import { HeadingOutline } from '@/components/block-editor/heading-outline';
 import type { Block, PartialBlock } from '@blocknote/core';
 import {
   useCreateKnowledgePage,
@@ -86,6 +88,9 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const contentSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentBlocksRef = useRef<Block[] | null>(null);
   const editorRef = useRef<BlockNoteEditorInstance | null>(null);
+  // The same editor as state, for the heading outline (which renders from it).
+  const [editor, setEditor] = useState<BlockNoteEditorInstance | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const blockEditorRef = useRef<BlockEditorHandle>(null);
   // Fingerprints of the content this editor recently saved, and the server
   // content last compared against them — see the sync effect below.
@@ -95,6 +100,21 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   // The title as last loaded or saved, so a blur without changes saves nothing.
   const savedTitleRef = useRef('');
   const autoFocusedPageRef = useRef<string | null>(null);
+
+  // The selection toolbar's "Ask Agent" opens the agent with the
+  // selected text prefilled.
+  const navActions = useMobileNavActionsOptional();
+  const selectionToolbar = useMemo(
+    () => ({
+      onAskAgent: navActions
+        ? (text: string) => {
+            navActions.setWeldAgentPrefill(text);
+            navActions.setShowWeldAgent(true);
+          }
+        : undefined,
+    }),
+    [navActions],
+  );
 
   // A page created without a title is stored as "Untitled" (and older clients
   // saved the translated placeholder). Show that as an empty field with the
@@ -350,8 +370,16 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
         )}
       </div>
 
-      {/* Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      {/* Body — the heading outline stays put over the left edge (centred on the window) while the page scrolls */}
+      <div className="relative flex-1 min-h-0">
+        {editor ? (
+          <HeadingOutline
+            editor={editor}
+            scrollRef={scrollRef}
+            className="absolute left-5 z-20 hidden -translate-y-1/2 lg:flex"
+          />
+        ) : null}
+      <div ref={scrollRef} className="h-full overflow-y-auto">
         {page.coverImage && (
           <div className="h-40 w-full overflow-hidden">
             <img src={page.coverImage} alt="" className="h-full w-full object-cover" />
@@ -398,11 +426,14 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
             entityId={page.id}
             onContentChange={handleContentChange}
             pageLinks={readOnly ? undefined : pageLinks}
-            onEditorReady={(editor) => {
-              editorRef.current = editor;
+            selectionToolbar={selectionToolbar}
+            onEditorReady={(ready) => {
+              editorRef.current = ready;
+              setEditor(ready);
             }}
           />
         </div>
+      </div>
       </div>
     </div>
   );

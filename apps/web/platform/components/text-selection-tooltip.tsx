@@ -56,7 +56,8 @@ export function TextSelectionTooltip() {
       const anchorNode = selection.anchorNode;
       const parentElement = anchorNode?.parentElement;
       if (parentElement) {
-        const closest = parentElement.closest('input, textarea, .weldagent-panel');
+        // Editors with their own selection toolbar (which has Ask Agent) handle it themselves
+        const closest = parentElement.closest('input, textarea, .weldagent-panel, [data-has-selection-toolbar]');
         if (closest) {
           clearSelection();
           return;
