@@ -87,6 +87,54 @@ describe('computeWorkspaceRestrictions', () => {
   });
 });
 
+describe('computeWorkspaceRestrictions · database move', () => {
+  it('makes a direct workspace read-only with reason database_move, still unlicensed-unrestricted', () => {
+    expect(
+      computeWorkspaceRestrictions({
+        billingMode: 'direct',
+        licence: null,
+        partnerStatus: null,
+        databaseMoveInProgress: true,
+      }),
+    ).toEqual({ licensedApps: null, readOnly: true, readOnlyReason: 'database_move' });
+  });
+
+  it("keeps a partner workspace's licensed apps and lets the move outrank its licence reason", () => {
+    expect(
+      computeWorkspaceRestrictions({
+        billingMode: 'partner',
+        licence: licence('active', ['weldcrm']),
+        partnerStatus: 'active',
+        databaseMoveInProgress: true,
+      }),
+    ).toEqual({ licensedApps: ['weldcrm'], readOnly: true, readOnlyReason: 'database_move' });
+    expect(
+      computeWorkspaceRestrictions({
+        billingMode: 'partner',
+        licence: licence('ended'),
+        partnerStatus: 'suspended',
+        databaseMoveInProgress: true,
+      }).readOnlyReason,
+    ).toBe('database_move');
+  });
+
+  it('changes nothing when no move is running (false, null or absent)', () => {
+    for (const databaseMoveInProgress of [false, null, undefined]) {
+      expect(
+        computeWorkspaceRestrictions({ billingMode: 'direct', licence: null, partnerStatus: null, databaseMoveInProgress }),
+      ).toEqual({ licensedApps: null, readOnly: false, readOnlyReason: null });
+      expect(
+        computeWorkspaceRestrictions({
+          billingMode: 'partner',
+          licence: licence('suspended'),
+          partnerStatus: 'active',
+          databaseMoveInProgress,
+        }).readOnlyReason,
+      ).toBe('licence_inactive');
+    }
+  });
+});
+
 describe('isReadOnlyRequestAllowed', () => {
   it('allows reads', () => {
     for (const method of ['GET', 'HEAD', 'OPTIONS', 'get']) {

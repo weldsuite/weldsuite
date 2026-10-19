@@ -14,7 +14,14 @@ import {
 } from '@weldsuite/permissions/server';
 import { createTenantDb } from '../api/db';
 import type { McpSession, HonoEnv } from '../lib/api-types';
+import {
+  WORKSPACE_MOVING_RETRY_AFTER_SECONDS,
+  classifyMovedDatabaseError,
+  databaseMoveInProgressSql,
+  workspaceMovingBody,
+} from '@weldsuite/worker-kit/workspace-moving';
 import { workspaceRestrictions } from '../lib/read-only';
+import { forgetWorkspaceForOrg, workspaceOrgCacheKey } from '../lib/workspace-cache';
 import { clerkFrontendApiUrl, protectedResourceMetadataUrl } from '../lib/well-known';
 
 const KV_TTL_SECONDS = 300;
@@ -81,11 +88,12 @@ interface CachedWorkspace {
    */
   licensedApps?: string[] | null;
   /**
-   * Partner suspended or licence inactive (writes are refused). Absent on
-   * entries cached before it was added, read as writable.
+   * Partner suspended, licence inactive or database being moved (writes are
+   * refused; a move is reason `database_move`, answered with a retryable 503).
+   * Absent on entries cached before it was added, read as writable.
    */
   readOnly?: boolean;
-  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | 'database_move' | null;
 }
 
 function getTierFromPlan(planSlug: string | null | undefined): TenantTier {
@@ -135,7 +143,7 @@ export async function getWorkspaceForOrg(
   neonApiKey: string,
   keyring?: string | EncryptionKeyring,
 ): Promise<CachedWorkspace | null> {
-  const cacheKey = `mcp:org:${clerkOrgId}`;
+  const cacheKey = workspaceOrgCacheKey(clerkOrgId);
   const cached = (await kv.get(cacheKey, 'json')) as CachedWorkspace | null;
   if (cached) return cached;
 
@@ -153,6 +161,7 @@ export async function getWorkspaceForOrg(
       licenceStatus: masterSchema.workspaceLicences.status,
       licenceApps: masterSchema.workspaceLicences.allowedApps,
       partnerStatus: masterSchema.partners.status,
+      databaseMoveInProgress: databaseMoveInProgressSql(),
     })
     .from(masterSchema.workspaces)
     .leftJoin(masterSchema.plans, eq(masterSchema.workspaces.planId, masterSchema.plans.id))
@@ -188,6 +197,7 @@ export async function getWorkspaceForOrg(
       licenceStatus: row.licenceStatus,
       licenceApps: row.licenceApps,
       partnerStatus: row.partnerStatus,
+      databaseMoveInProgress: row.databaseMoveInProgress,
     }),
   };
   await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
@@ -377,6 +387,24 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     role = resolved.role;
     roleId = resolved.roleId;
   } catch (error) {
+    // The tenant database refused the lookup because the workspace moved (source
+    // set read-only, or its role password rotated): a retryable 503, not a 500.
+    // Only a classification is logged: the error's message can carry the query
+    // and the role name. A rotated password also kills the cached URL.
+    const moved = classifyMovedDatabaseError(error);
+    if (moved) {
+      console.warn(`[MCP Auth] workspace database moved (${moved}), org ${clerkOrgId}`);
+      if (moved === 'password_rotated') await forgetWorkspaceForOrg(c.env.API_CACHE, clerkOrgId);
+      return c.json(
+        {
+          jsonrpc: '2.0',
+          error: { code: -32603, message: workspaceMovingBody().error.message, data: { code: 'WORKSPACE_MOVING' } },
+          id: null,
+        },
+        503,
+        { 'Retry-After': String(WORKSPACE_MOVING_RETRY_AFTER_SECONDS) },
+      );
+    }
     console.error('[MCP Auth] Permission resolution failed:', error);
     return c.json(
       { jsonrpc: '2.0', error: { code: -32603, message: 'Could not resolve permissions.' }, id: null },

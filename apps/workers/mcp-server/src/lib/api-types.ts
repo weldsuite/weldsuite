@@ -47,10 +47,11 @@ export interface McpSession {
   /**
    * True while the workspace is read-only (partner suspended or licence
    * inactive): the internal API refuses writes with 403 WORKSPACE_READ_ONLY.
-   * Absent = writable.
+   * Also true, with reason `database_move`, while its tenant database is being
+   * moved: writes are refused with 503 WORKSPACE_MOVING. Absent = writable.
    */
   readOnly?: boolean;
-  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | 'database_move' | null;
 }
 
 /**

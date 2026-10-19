@@ -4,6 +4,11 @@
  * Tenant resolution: Clerk org id → KV `ws:<org>` (300 s TTL) → on a miss,
  * the master DB row + `resolveDatabaseUrl`. Every API worker shares the
  * WORKSPACE_CACHE namespace, so a lookup cached by one worker serves all.
+ *
+ * A database move (TASK-1150) changes what a cached entry says: the workflow
+ * that drives it purges `ws:<org>` when the soft lock starts and again after the
+ * switch, and `forgetWorkspaceContext` drops the entry of a request that found
+ * its database gone (rotated password).
  */
 
 import { eq } from 'drizzle-orm';
@@ -15,6 +20,7 @@ import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import type { DbEnv } from './env';
 import { computeWorkspaceRestrictions, type ReadOnlyReason } from './read-only';
+import { databaseMoveInProgressSql } from './workspace-moving';
 
 export function getMasterDb(env: Pick<DbEnv, 'DATABASE_URL_MASTER'>): NeonHttpDatabase<typeof masterSchema> {
   const sql = neon(env.DATABASE_URL_MASTER);
@@ -47,8 +53,11 @@ interface CachedWorkspace {
   licensedApps: string[] | null;
   /**
    * True when the workspace may only be read: a partner-managed workspace whose
-   * partner is suspended or whose licence is not active. `licenceGate()` refuses
-   * writes with 403 WORKSPACE_READ_ONLY.
+   * partner is suspended or whose licence is not active (`licenceGate()` refuses
+   * writes with 403 WORKSPACE_READ_ONLY), or a workspace whose database is
+   * being moved, reason `database_move` (503 WORKSPACE_MOVING). The move flag
+   * is stored as the reason, so an entry cached before it existed simply reads
+   * as not moving.
    */
   readOnly: boolean;
   readOnlyReason: ReadOnlyReason | null;
@@ -71,24 +80,36 @@ function isCompleteEntry(cached: StoredWorkspace): boolean {
   return cached.licensedApps !== undefined;
 }
 
-async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
-  const cacheKey = `ws:${clerkOrgId}`;
-  // `suspended` and `readOnly` were added later: an entry cached before they
-  // existed omits them and reads as not-suspended / not read-only (it refreshes
-  // within KV_TTL_SECONDS).
-  const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null;
-  if (cached && isCompleteEntry(cached)) {
-    return {
-      ...cached,
-      suspended: cached.suspended ?? false,
-      readOnly: cached.readOnly ?? false,
-      readOnlyReason: cached.readOnly ? (cached.readOnlyReason ?? 'licence_inactive') : null,
-    };
-  }
+/** The KV key of a workspace's cached resolution (WORKSPACE_CACHE). */
+export function workspaceCacheKey(clerkOrgId: string): string {
+  return `ws:${clerkOrgId}`;
+}
 
-  const masterDb = getMasterDb(env);
-  // One query: the workspace, plus (for partner workspaces) its licence and the
-  // partner's payment standing. Direct workspaces join to nothing.
+/**
+ * Drop a workspace's cached resolution, so the next request reads the master DB
+ * again. For a request whose tenant database refused the cached URL (the role's
+ * password was rotated by a database move). Never throws: a failed purge only
+ * leaves the entry to expire on its own.
+ */
+export async function forgetWorkspaceContext(
+  env: Pick<DbEnv, 'WORKSPACE_CACHE'>,
+  clerkOrgId: string,
+): Promise<void> {
+  try {
+    await env.WORKSPACE_CACHE.delete(workspaceCacheKey(clerkOrgId));
+  } catch (err) {
+    console.warn('Could not purge a workspace cache entry:', err instanceof Error ? err.message : 'unknown error');
+  }
+}
+
+/**
+ * The master-DB row tenant resolution reads for a Clerk org: the workspace,
+ * plus (for partner workspaces) its licence and the partner's payment standing,
+ * plus whether a database move is blocking writes. One query, one round trip;
+ * direct workspaces join to nothing. Exported for the tests that run it on a
+ * real master schema.
+ */
+export async function selectWorkspaceForOrg(masterDb: AnyMasterDatabase, clerkOrgId: string) {
   const [workspace] = await masterDb
     .select({
       id: masterSchema.workspaces.id,
@@ -102,6 +123,7 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
       licenceStatus: masterSchema.workspaceLicences.status,
       licenceApps: masterSchema.workspaceLicences.allowedApps,
       partnerStatus: masterSchema.partners.status,
+      databaseMoveInProgress: databaseMoveInProgressSql(),
     })
     .from(masterSchema.workspaces)
     .leftJoin(
@@ -111,6 +133,26 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
     .leftJoin(masterSchema.partners, eq(masterSchema.partners.id, masterSchema.workspaces.partnerId))
     .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
     .limit(1);
+  return workspace;
+}
+
+async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
+  const cacheKey = workspaceCacheKey(clerkOrgId);
+  // `suspended` and `readOnly` were added later: an entry cached before they
+  // existed omits them and reads as not-suspended / not read-only (it refreshes
+  // within KV_TTL_SECONDS). The same goes for a database move, which is stored
+  // as `readOnlyReason: 'database_move'`.
+  const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null;
+  if (cached && isCompleteEntry(cached)) {
+    return {
+      ...cached,
+      suspended: cached.suspended ?? false,
+      readOnly: cached.readOnly ?? false,
+      readOnlyReason: cached.readOnly ? (cached.readOnlyReason ?? 'licence_inactive') : null,
+    };
+  }
+
+  const workspace = await selectWorkspaceForOrg(getMasterDb(env), clerkOrgId);
 
   if (!workspace) throw new Error(`Workspace not found for org: ${clerkOrgId}`);
   if (!workspace.neonProjectId || !workspace.neonBranchId || !workspace.neonRoleName) {
@@ -137,6 +179,7 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
       ? { status: workspace.licenceStatus, allowedApps: workspace.licenceApps }
       : null,
     partnerStatus: workspace.partnerStatus,
+    databaseMoveInProgress: workspace.databaseMoveInProgress,
   });
 
   const entry: CachedWorkspace = {

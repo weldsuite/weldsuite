@@ -70,6 +70,47 @@ describe('mcp-server · getWorkspaceForOrg', () => {
     expect(JSON.parse(store.get('mcp:org:org_1')!)).toMatchObject({ readOnly: true });
   });
 
+  it('marks a workspace whose database is being moved read-only with reason database_move, and caches it', async () => {
+    const { kv, store } = fakeKv();
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb({ ...baseRow, databaseMoveInProgress: true }), 'org_1', 'neon');
+    expect(out).toMatchObject({ licensedApps: null, readOnly: true, readOnlyReason: 'database_move' });
+    expect(JSON.parse(store.get('mcp:org:org_1')!)).toMatchObject({ readOnly: true, readOnlyReason: 'database_move' });
+  });
+
+  it('lets a move outrank a suspended partner and keeps the licensed apps', async () => {
+    const row = {
+      ...baseRow,
+      billingMode: 'partner',
+      licenceStatus: 'active',
+      licenceApps: ['weldcrm'],
+      partnerStatus: 'suspended',
+      databaseMoveInProgress: true,
+    };
+    const out = await getWorkspaceForOrg(fakeKv().kv, fakeMasterDb(row), 'org_1', 'neon');
+    expect(out).toMatchObject({ licensedApps: ['weldcrm'], readOnly: true, readOnlyReason: 'database_move' });
+  });
+
+  it('leaves a workspace writable when the row has no move (false, or a row without the column)', async () => {
+    for (const row of [{ ...baseRow, databaseMoveInProgress: false }, baseRow]) {
+      const out = await getWorkspaceForOrg(fakeKv().kv, fakeMasterDb(row), 'org_1', 'neon');
+      expect(out).toMatchObject({ readOnly: false, readOnlyReason: null });
+    }
+  });
+
+  it('serves a cached database_move entry as moving', async () => {
+    const { kv } = fakeKv({
+      workspaceId: 'ws_1',
+      name: 'Acme',
+      tier: 'business',
+      databaseUrl: 'postgres://cached',
+      licensedApps: null,
+      readOnly: true,
+      readOnlyReason: 'database_move',
+    });
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon');
+    expect(out).toMatchObject({ readOnly: true, readOnlyReason: 'database_move' });
+  });
+
   it('reads an entry cached before the new fields existed as unrestricted and writable', async () => {
     const { kv } = fakeKv({ workspaceId: 'ws_1', name: 'Acme', tier: 'business', databaseUrl: 'postgres://cached' });
     const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon');

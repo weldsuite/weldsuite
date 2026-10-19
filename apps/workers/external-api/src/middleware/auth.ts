@@ -13,6 +13,8 @@ import { keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto
 import type { ApiKeySession, HonoEnv } from '../types';
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import { error } from '../lib/response';
+import { classifyMovedDatabaseError, databaseMoveInProgressSql } from '@weldsuite/worker-kit/workspace-moving';
+import { forgetWorkspaceDetails, workspaceDetailsCacheKey } from '../lib/workspace-cache';
 import { workspaceRestrictions } from './licence';
 
 // KV cache TTL in seconds (5 minutes)
@@ -44,11 +46,12 @@ interface CachedWorkspaceDetails {
    */
   licensedApps?: string[] | null;
   /**
-   * Partner suspended or licence inactive (writes are refused). Absent on
-   * entries cached before it was added, read as writable.
+   * Partner suspended, licence inactive or database being moved (writes are
+   * refused; a move is reason `database_move`, answered with a retryable 503).
+   * Absent on entries cached before it was added, read as writable.
    */
   readOnly?: boolean;
-  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | 'database_move' | null;
 }
 
 interface CachedAppToken {
@@ -165,7 +168,7 @@ export async function getWorkspaceDetails(
   neonApiKey: string,
   encryptionKey?: string | EncryptionKeyring,
 ): Promise<CachedWorkspaceDetails | null> {
-  const cacheKey = `ws:${workspaceId}`;
+  const cacheKey = workspaceDetailsCacheKey(workspaceId);
 
   // 1. Check KV cache
   const cached = await kv.get(cacheKey, 'json') as CachedWorkspaceDetails | null;
@@ -185,6 +188,7 @@ export async function getWorkspaceDetails(
       licenceStatus: masterSchema.workspaceLicences.status,
       licenceApps: masterSchema.workspaceLicences.allowedApps,
       partnerStatus: masterSchema.partners.status,
+      databaseMoveInProgress: databaseMoveInProgressSql(),
     })
     .from(masterSchema.workspaces)
     .leftJoin(masterSchema.plans, eq(masterSchema.workspaces.planId, masterSchema.plans.id))
@@ -215,6 +219,7 @@ export async function getWorkspaceDetails(
       licenceStatus: row.licenceStatus,
       licenceApps: row.licenceApps,
       partnerStatus: row.partnerStatus,
+      databaseMoveInProgress: row.databaseMoveInProgress,
     }),
   };
   await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
@@ -240,6 +245,9 @@ async function validateApiKey(
   c: Context<HonoEnv>,
   apiKey: string
 ): Promise<ApiKeySession | null> {
+  // Known once the registry lookup has answered; names the cache entry to drop
+  // if the tenant database turns out to have moved.
+  let workspaceId: string | null = null;
   try {
     const keyHash = await hashApiKey(apiKey);
     const now = new Date();
@@ -257,12 +265,18 @@ async function validateApiKey(
     if (!registryEntry) {
       return null;
     }
+    workspaceId = registryEntry.workspaceId;
 
     // Step 2: Workspace details (KV-cached, resolves connection URI via Neon API on miss)
     const workspace = await getWorkspaceDetails(kv, masterDb, registryEntry.workspaceId, c.env.NEON_API_KEY, keyringFromEnv(c.env));
     if (!workspace) {
       return null;
     }
+
+    // A database move is copying this workspace's tenant database: this runs
+    // before the licence gate refuses writes, so it must not write either
+    // (a `lastUsedAt` landing in the source after the copy would be lost).
+    const moving = workspace.readOnlyReason === 'database_move';
 
     // Step 3: Verify key in workspace DB (always live — catches revocations/expiry)
     const sql = neon(workspace.databaseUrl);
@@ -285,13 +299,15 @@ async function validateApiKey(
         return null;
       }
 
-      // Fire-and-forget lastUsedAt update
-      tenantDb
-        .update(workspaceApiKeys)
-        .set({ lastUsedAt: now })
-        .where(eq(workspaceApiKeys.id, workspaceKey.id))
-        .execute()
-        .catch(console.error);
+      // Fire-and-forget lastUsedAt update (not while a database move copies it)
+      if (!moving) {
+        tenantDb
+          .update(workspaceApiKeys)
+          .set({ lastUsedAt: now })
+          .where(eq(workspaceApiKeys.id, workspaceKey.id))
+          .execute()
+          .catch(console.error);
+      }
 
       return {
         keyId: workspaceKey.id,
@@ -324,13 +340,15 @@ async function validateApiKey(
         return null;
       }
 
-      // Fire-and-forget lastUsedAt update
-      tenantDb
-        .update(apiKeys)
-        .set({ lastUsedAt: now })
-        .where(eq(apiKeys.id, personalKey.id))
-        .execute()
-        .catch(console.error);
+      // Fire-and-forget lastUsedAt update (not while a database move copies it)
+      if (!moving) {
+        tenantDb
+          .update(apiKeys)
+          .set({ lastUsedAt: now })
+          .where(eq(apiKeys.id, personalKey.id))
+          .execute()
+          .catch(console.error);
+      }
 
       return {
         keyId: personalKey.id,
@@ -347,6 +365,17 @@ async function validateApiKey(
       };
     }
   } catch (error) {
+    // The tenant database refused the key lookup because the workspace moved
+    // (source set read-only, or its role password rotated). That is not a bad
+    // key: let it reach the error handler, which answers 503 WORKSPACE_MOVING,
+    // instead of the 401 below. A rotated password also kills the cached URL.
+    const moved = classifyMovedDatabaseError(error);
+    if (moved) {
+      if (moved === 'password_rotated' && workspaceId) {
+        await forgetWorkspaceDetails(c.env.API_CACHE, workspaceId);
+      }
+      throw error;
+    }
     console.error('[API Auth] Error validating key:', error);
     return null;
   }

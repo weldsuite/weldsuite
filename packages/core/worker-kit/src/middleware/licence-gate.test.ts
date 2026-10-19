@@ -14,12 +14,12 @@ import { licenceGate } from './licence-gate';
 type GateVariables = {
   licensedApps?: readonly string[] | null;
   readOnly?: boolean;
-  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | 'database_move' | null;
 };
 
 function buildApp(
   licensedApps: readonly string[] | null | undefined,
-  readOnly?: { reason: 'partner_suspended' | 'licence_inactive' },
+  readOnly?: { reason: 'partner_suspended' | 'licence_inactive' | 'database_move' },
 ) {
   const app = new Hono<{ Variables: GateVariables }>();
   app.use('*', async (c, next) => {
@@ -119,6 +119,90 @@ describe('licenceGate · read-only workspaces', () => {
   it('does not touch writable workspaces', async () => {
     const res = await buildApp(['welddesk']).request('/api/tickets', { method: 'POST' });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('licenceGate · workspace database being moved', () => {
+  const movingApp = (licensedApps: readonly string[] | null = null) =>
+    buildApp(licensedApps, { reason: 'database_move' });
+
+  it('refuses every write with 503 WORKSPACE_MOVING and Retry-After', async () => {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const res = await movingApp().request('/api/tickets/t_1', { method });
+      expect(res.status, method).toBe(503);
+      expect(res.headers.get('Retry-After'), method).toBe('30');
+      expect(await res.json()).toEqual({
+        error: {
+          code: 'WORKSPACE_MOVING',
+          message: 'This workspace is being moved to a new database. Try again in a minute.',
+        },
+      });
+    }
+  });
+
+  it('still serves reads', async () => {
+    const app = movingApp();
+    for (const method of ['GET', 'HEAD', 'OPTIONS']) {
+      const res = await app.request('/api/tickets', { method });
+      expect(res.status, method).toBe(200);
+      expect(res.headers.get('Retry-After'), method).toBeNull();
+    }
+  });
+
+  it('lets the same exceptions through as the licence read-only mode: search and the user-level paths', async () => {
+    const app = movingApp();
+    for (const [method, path] of [
+      ['POST', '/api/search'],
+      ['POST', '/api/search/global'],
+      ['PATCH', '/api/me'],
+      ['PUT', '/api/user-preferences'],
+      ['PUT', '/api/notification-preferences'],
+      ['POST', '/api/push-tokens'],
+    ]) {
+      const res = await app.request(path!, { method });
+      expect(res.status, `${method} ${path}`).toBe(200);
+    }
+  });
+
+  it('refuses a write on a path that only looks like an exception (segment boundary, "export")', async () => {
+    const app = movingApp();
+    for (const [method, path] of [
+      ['POST', '/api/members'],
+      ['POST', '/api/search-index'],
+      ['POST', '/api/tickets/export'],
+    ]) {
+      const res = await app.request(path!, { method });
+      expect(res.status, `${method} ${path}`).toBe(503);
+    }
+  });
+
+  it('answers a move and a licence read-only the same way on the exceptions, and differently elsewhere', async () => {
+    const licenceReadOnly = buildApp(null, { reason: 'partner_suspended' });
+    const moving = movingApp();
+    expect((await licenceReadOnly.request('/api/search', { method: 'POST' })).status).toBe(200);
+    expect((await moving.request('/api/search', { method: 'POST' })).status).toBe(200);
+    expect((await licenceReadOnly.request('/api/tickets', { method: 'POST' })).status).toBe(403);
+    expect((await moving.request('/api/tickets', { method: 'POST' })).status).toBe(503);
+  });
+
+  it('applies to an unlicensed (null) and a licensed workspace alike', async () => {
+    for (const licensedApps of [null, ['welddesk']]) {
+      const res = await movingApp(licensedApps).request('/api/tickets', { method: 'POST' });
+      expect(res.status).toBe(503);
+    }
+  });
+
+  it('checks the app licence first, which a retry would not change', async () => {
+    const res = await movingApp(['welddesk']).request('/api/invoices', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: 'APP_NOT_LICENSED' } });
+  });
+
+  it('leaves the licence read-only answer (403 WORKSPACE_READ_ONLY, no Retry-After) alone', async () => {
+    const res = await buildApp(['welddesk'], { reason: 'partner_suspended' }).request('/api/tickets', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(res.headers.get('Retry-After')).toBeNull();
+    expect(await res.json()).toMatchObject({ error: { code: 'WORKSPACE_READ_ONLY' } });
   });
 });
 

@@ -69,6 +69,34 @@ describe('external-api · getWorkspaceDetails', () => {
     expect(JSON.parse(store.get('ws:ws_1')!)).toMatchObject({ readOnly: true, readOnlyReason: 'partner_suspended' });
   });
 
+  it('marks a workspace whose database is being moved read-only with reason database_move, and caches it', async () => {
+    const row = { ...baseRow, databaseMoveInProgress: true };
+    const { kv, store } = fakeKv();
+    const out = await getWorkspaceDetails(kv, fakeMasterDb(row), 'ws_1', 'neon');
+    expect(out).toMatchObject({ licensedApps: null, readOnly: true, readOnlyReason: 'database_move' });
+    expect(JSON.parse(store.get('ws:ws_1')!)).toMatchObject({ readOnly: true, readOnlyReason: 'database_move' });
+  });
+
+  it('lets a move outrank a suspended partner and keeps the licensed apps', async () => {
+    const row = {
+      ...baseRow,
+      billingMode: 'partner',
+      licenceStatus: 'active',
+      licenceApps: ['weldcrm'],
+      partnerStatus: 'suspended',
+      databaseMoveInProgress: true,
+    };
+    const out = await getWorkspaceDetails(fakeKv().kv, fakeMasterDb(row), 'ws_1', 'neon');
+    expect(out).toMatchObject({ licensedApps: ['weldcrm'], readOnly: true, readOnlyReason: 'database_move' });
+  });
+
+  it('leaves a workspace writable when the row has no move (false, or a row without the column)', async () => {
+    for (const row of [{ ...baseRow, databaseMoveInProgress: false }, baseRow]) {
+      const out = await getWorkspaceDetails(fakeKv().kv, fakeMasterDb(row), 'ws_1', 'neon');
+      expect(out).toMatchObject({ readOnly: false, readOnlyReason: null });
+    }
+  });
+
   it('reads an entry cached before the new fields existed as unrestricted and writable', async () => {
     const { kv } = fakeKv({ databaseUrl: 'postgres://cached', tier: 'business', hasApiAccess: true });
     const out = await getWorkspaceDetails(kv, fakeMasterDb(undefined), 'ws_1', 'neon');
