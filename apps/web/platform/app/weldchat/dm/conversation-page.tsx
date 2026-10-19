@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo, useRef, useEffect, lazy, Suspense } from 'react';
+import { useCallback, useMemo, useEffect, lazy, Suspense } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@tanstack/react-router';
@@ -38,45 +38,29 @@ export default function DmConversationPage() {
   const { mutate: markAsRead } = useMarkChannelAsRead();
   const { open: openObjectPanel, closeAll: closeAllObjectPanels } = useObjectPanel();
 
-  const initialOpen = useRef(localStorage.getItem('weldchat-dm-member-panel') !== 'false');
-  const [showMemberPanel, setShowMemberPanel] = useState(initialOpen.current);
-
   const { status: callStatus, channelId: callChannelId, isFullscreen, isPiP } = useWeldChatCall();
   const { isOpen: isEntitySheetOpen, close: closeEntitySheet } = useEntitySheet();
   const { rightPanel, setActiveChannelId } = useChatContext();
   const isOverlayPanelOpen = rightPanel === 'bookmarks' || rightPanel === 'filters';
 
-  const toggleMemberPanel = (open: boolean) => {
+  // The member panel is the registered `team-member` object panel. It never
+  // opens on its own: it starts closed on every DM and opens only when the
+  // person's name in the header is clicked.
+  const openMemberPanel = () => {
     window.dispatchEvent(new CustomEvent('member-detail-panel-user-toggle'));
-    setShowMemberPanel(open);
-    localStorage.setItem('weldchat-dm-member-panel', String(open));
-    // Reopening the member panel while an entity sheet is up would stack
+    // Opening the member panel while an entity sheet is up would stack
     // overlays again — dismiss the sheet so the member panel takes the slot.
-    if (open && isEntitySheetOpen) closeEntitySheet();
+    if (isEntitySheetOpen) closeEntitySheet();
+    openObjectPanel({ type: 'team-member', id: targetUserId });
   };
 
-  // Entity sheet (e.g. customer detail from an `@customer` mention) and the
-  // DM member-detail panel both float over the right edge — letting them
-  // coexist stacks two overlays. Close the member panel whenever the entity
-  // sheet opens; the channel header already renders the toggle button when
-  // `!showMemberPanel`, so the user can reopen it once the sheet is gone.
-  // Don't persist to localStorage — the user's saved preference is preserved.
+  // Entity sheet (e.g. customer detail from an `@customer` mention) and
+  // Bookmarks / Filters (the 480px right-panel slot) would stack a second
+  // panel next to the member panel. Close the member panel when either opens;
+  // the header button reopens it.
   useEffect(() => {
-    if (isEntitySheetOpen) {
-      setShowMemberPanel(false);
-    }
-  }, [isEntitySheetOpen]);
-
-  // Bookmarks / Filters render in the right-panel slot (480px, inside the
-  // content flex). The DM member-details panel is a separate fixed overlay
-  // on the right edge — letting both render would stack two panels. Close the
-  // member panel while bookmarks/filters is active; user can reopen it via
-  // the header toggle once they close the overlay panel.
-  useEffect(() => {
-    if (isOverlayPanelOpen) {
-      setShowMemberPanel(false);
-    }
-  }, [isOverlayPanelOpen]);
+    if (isEntitySheetOpen || isOverlayPanelOpen) closeAllObjectPanels();
+  }, [isEntitySheetOpen, isOverlayPanelOpen, closeAllObjectPanels]);
 
   const channel = data?.data;
 
@@ -98,17 +82,6 @@ export default function DmConversationPage() {
     return () => setActiveChannelId(null);
   }, [channelId, setActiveChannelId]);
   const isInCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === channelId && !isFullscreen && !isPiP;
-
-  // The member panel is the registered `team-member` object panel, driven
-  // through the object-panel stack like Person / Company / Channel. Keep the
-  // stack in sync with the saved show/hide preference for this page.
-  useEffect(() => {
-    if (showMemberPanel && targetUserId) {
-      openObjectPanel({ type: 'team-member', id: targetUserId });
-    } else {
-      closeAllObjectPanels();
-    }
-  }, [showMemberPanel, targetUserId, openObjectPanel, closeAllObjectPanels]);
 
   const { client } = useWeldChatRoom(channelId ?? null);
 
@@ -160,11 +133,7 @@ export default function DmConversationPage() {
   return (
     <div className="flex flex-col h-full">
       {!isInCall && (
-        <ChannelHeader
-          channel={channel}
-          showMemberPanel={showMemberPanel}
-          onToggleMemberPanel={() => toggleMemberPanel(true)}
-        />
+        <ChannelHeader channel={channel} onOpenMemberPanel={openMemberPanel} />
       )}
       {isInCall ? (
         <Suspense fallback={null}>

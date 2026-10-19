@@ -1,10 +1,9 @@
-import { Hash, Lock, Phone, Users, PanelLeftClose } from 'lucide-react';
+import { Hash, Lock, Phone } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { cn } from '@/lib/utils';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
-import { useObjectPanel, useObjectPanelStack } from '@/components/object-panel';
+import { useObjectPanel } from '@/components/object-panel';
 import { ActiveCallBanner } from './active-call-banner';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
@@ -40,29 +39,23 @@ interface ChannelHeaderChannel extends ChatChannel {
 
 interface ChannelHeaderProps {
   channel: ChannelHeaderChannel;
-  showMemberPanel?: boolean;
-  onToggleMemberPanel?: () => void;
+  /** DM only: opens the other person's member panel. */
+  onOpenMemberPanel?: () => void;
 }
 
 
-export function ChannelHeader({ channel, showMemberPanel, onToggleMemberPanel }: Readonly<ChannelHeaderProps>) {
+export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHeaderProps>) {
   const { t } = useI18n();
   const { startCall } = useWeldChatCall();
   const { isOpen: isEntitySheetOpen, close: closeEntitySheet } = useEntitySheet();
   const { getClient } = useAppApiClient();
   const { open: openObjectPanel } = useObjectPanel();
-  const objectStack = useObjectPanelStack();
   const isDm = channel.type === 'dm';
   const dmOther = isDm ? channel.otherMembers?.[0] : null;
 
-  // Regular & entity channels expose a single "open panel" button that
-  // launches the global ChannelPanel (same component as CompanyPanel).
-  // People / Bookmarks / Filters live as tabs inside that panel — they no
-  // longer get individual icons in this header.
-  const topPanel = objectStack.at(-1);
-  const channelPanelOpen =
-    !!topPanel && topPanel.type === 'channel' && topPanel.id === channel.id;
-
+  // Clicking the name in the header opens the side panel: the person's member
+  // panel in a DM, the global ChannelPanel (People / Bookmarks / Filters tabs)
+  // everywhere else. There is no separate panel button.
   const openChannelPanel = () => {
     if (isEntitySheetOpen) closeEntitySheet();
     openObjectPanel({ type: 'channel', id: channel.id, initialTab: 'people' });
@@ -79,74 +72,49 @@ export function ChannelHeader({ channel, showMemberPanel, onToggleMemberPanel }:
   const hasActiveCall = !!activeCallData?.data;
   const callButtonsDisabled = hasActiveCall;
 
-  // The vertical separator only makes sense when there's a button on BOTH
-  // sides of it. When the channel panel is open the PanelLeftClose icon
-  // disappears, and for non-DM channels there's no DM-only Users button —
-  // so without this guard the divider would float alone next to the call
-  // buttons.
-  const hasLeftSideButton =
-    (isDm && !!onToggleMemberPanel) || (!isDm && !channelPanelOpen);
-  const hasCallButton =
-    channel.videoCallsEnabled !== false || channel.voiceCallsEnabled !== false;
+  const openPanel = isDm ? onOpenMemberPanel : openChannelPanel;
+  const nameButtonClass =
+    'flex items-center gap-2 min-w-0 -mx-1.5 -my-1 px-1.5 py-1 rounded-md hover:bg-accent dark:hover:bg-accent/50 transition-colors cursor-pointer text-left';
 
   return (
     <>
       <div className="flex items-center justify-between px-4 py-2.5 border-b flex-shrink-0 max-md:gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {isDm ? (
-            <>
+            <button
+              type="button"
+              className={nameButtonClass}
+              onClick={openPanel}
+              disabled={!openPanel}
+              title={t.weldchat.channelHeader.showMemberDetails}
+            >
               <Avatar className="h-[26px] w-[26px] flex-shrink-0 !rounded-lg">
                 {dmOther?.picture && <AvatarImage src={dmOther.picture} className="!rounded-lg" />}
                 <AvatarFallback className="text-[11px] !rounded-lg">
                   {(dmOther?.name || dmOther?.email || '?')[0].toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <h2 data-testid="chat-channel-name" className="font-semibold truncate">
+              <span data-testid="chat-channel-name" className="font-semibold truncate">
                 {dmOther?.name || dmOther?.email || channel.name}
-              </h2>
-            </>
+              </span>
+            </button>
           ) : (
-            <>
+            <button
+              type="button"
+              className={nameButtonClass}
+              onClick={openPanel}
+              title={t.weldchat.channelHeader.showMembers}
+            >
               {channel.type === 'private' ? (
                 <Lock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               ) : (
                 <Hash className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               )}
-              <h2 data-testid="chat-channel-name" className="text-[15px] font-semibold truncate">{channel.name}</h2>
-              {channel.topic && (
-                <span className="text-sm text-muted-foreground truncate hidden md:block">
-                  — {channel.topic}
-                </span>
-              )}
-            </>
+              <span data-testid="chat-channel-name" className="text-[15px] font-semibold truncate">{channel.name}</span>
+            </button>
           )}
         </div>
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
-          {isDm && onToggleMemberPanel && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn('h-8 w-8', showMemberPanel && 'bg-accent')}
-              onClick={onToggleMemberPanel}
-              title={t.weldchat.channelHeader.showMemberDetails}
-            >
-              <Users className="h-4 w-4" />
-            </Button>
-          )}
-          {!isDm && !channelPanelOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={openChannelPanel}
-              title={t.weldchat.channelHeader.showMembers}
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </Button>
-          )}
-          {hasLeftSideButton && hasCallButton && (
-            <div className="h-[19px] w-px bg-gray-200/70 dark:bg-secondary/70 shrink-0 mx-0.5" />
-          )}
           {channel.videoCallsEnabled !== false && (
             <Button
               variant="ghost"
