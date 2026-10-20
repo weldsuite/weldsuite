@@ -1,8 +1,8 @@
 /**
  * What the audit consumer does with each failure: an event whose tenant
- * database is locked by a database move is retried later instead of being
- * dropped; every other failure keeps its old behaviour (retry, drop after 3
- * retries).
+ * database is locked by a database move is sent back onto the queue with a
+ * growing delay, without using up the consumer's max_retries; every other
+ * failure is retried at once and ends in the dead-letter queue.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,23 +13,26 @@ import type { EntityEventMessage } from '../lib/entity-events';
 vi.mock('./event-processor', () => ({ processEntityEvent: vi.fn() }));
 
 import {
-  LOCKED_RETRY_DELAY_SECONDS,
-  OTHER_MAX_RETRIES,
+  LOCKED_MAX_RETRIES,
+  lockedRetryDelaySeconds,
   processAuditBatch,
+  type AuditQueueMessage,
 } from './batch-processor';
 
-const env = {} as Env;
+const send = vi.fn();
+const env = { AUDIT_EVENTS: { send } } as unknown as Env;
 
 interface FakeMessage {
-  body: EntityEventMessage;
+  body: AuditQueueMessage;
   attempts: number;
   ack: ReturnType<typeof vi.fn>;
   retry: ReturnType<typeof vi.fn>;
 }
 
-function message(id: string, attempts = 1): FakeMessage {
+function message(id: string, attempts = 1, auditLockRetries?: number): FakeMessage {
   return {
     body: {
+      ...(auditLockRetries === undefined ? {} : { auditLockRetries }),
       id,
       eventType: 'customer:created',
       entityType: 'customer',
@@ -44,9 +47,11 @@ function message(id: string, attempts = 1): FakeMessage {
   };
 }
 
-function batchOf(...messages: FakeMessage[]): MessageBatch<EntityEventMessage> {
-  return { messages, queue: 'audit-events', ackAll: vi.fn(), retryAll: vi.fn() } as unknown as MessageBatch<EntityEventMessage>;
+function batchOf(...messages: FakeMessage[]): MessageBatch<AuditQueueMessage> {
+  return { messages, queue: 'audit-events', ackAll: vi.fn(), retryAll: vi.fn() } as unknown as MessageBatch<AuditQueueMessage>;
 }
+
+const locked = () => Object.assign(new Error('boom'), { code: '28P01' });
 
 /** A Drizzle-style failure: the wrapper carries the SQL and its parameters, the cause is the driver error. */
 function drizzleFailure(cause: unknown): Error {
@@ -59,6 +64,7 @@ function drizzleFailure(cause: unknown): Error {
 let consoleSpies: ReturnType<typeof vi.spyOn>[];
 
 beforeEach(() => {
+  send.mockReset().mockResolvedValue(undefined);
   consoleSpies = [
     vi.spyOn(console, 'log').mockImplementation(() => {}),
     vi.spyOn(console, 'warn').mockImplementation(() => {}),
@@ -90,26 +96,63 @@ describe('processAuditBatch', () => {
     ['a read-only database (message only)', new Error('cannot execute INSERT in a read-only transaction')],
     ['a rotated password wrapped by Drizzle', drizzleFailure(Object.assign(new Error('boom'), { code: '28P01' }))],
     ['a read-only database wrapped by Drizzle', drizzleFailure(new Error('cannot execute INSERT in a read-only transaction'))],
-  ])('retries %s after the delay instead of dropping the event', async (_name, failure) => {
+  ])('re-queues %s with a delay instead of dropping the event', async (_name, failure) => {
     const m = message('evt_locked', 2);
 
     await processAuditBatch(batchOf(m), env, async () => {
       throw failure;
     });
 
-    expect(m.retry).toHaveBeenCalledTimes(1);
-    expect(m.retry).toHaveBeenCalledWith({ delaySeconds: LOCKED_RETRY_DELAY_SECONDS });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'evt_locked', auditLockRetries: 1 }),
+      { delaySeconds: lockedRetryDelaySeconds(1) },
+    );
+    expect(m.ack).toHaveBeenCalledTimes(1);
+    expect(m.retry).not.toHaveBeenCalled();
+  });
+
+  it('backs off: 1, 2, 4, 8 minutes, then 15 minutes, about four hours in all', () => {
+    expect([1, 2, 3, 4, 5, 6].map(lockedRetryDelaySeconds)).toEqual([60, 120, 240, 480, 900, 900]);
+    let total = 0;
+    for (let retry = 1; retry <= LOCKED_MAX_RETRIES; retry++) total += lockedRetryDelaySeconds(retry);
+    expect(total).toBeGreaterThan(3 * 60 * 60);
+  });
+
+  it('counts lock retries in the body, not in the consumer attempts', async () => {
+    const m = message('evt_locked', 1, 4);
+
+    await processAuditBatch(batchOf(m), env, async () => {
+      throw locked();
+    });
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ auditLockRetries: 5 }), {
+      delaySeconds: lockedRetryDelaySeconds(5),
+    });
+    expect(m.ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to a normal retry once the lock budget is spent, so the event ends in the DLQ', async () => {
+    const m = message('evt_locked', 1, LOCKED_MAX_RETRIES);
+
+    await processAuditBatch(batchOf(m), env, async () => {
+      throw locked();
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(m.retry).toHaveBeenCalledWith();
     expect(m.ack).not.toHaveBeenCalled();
   });
 
-  it('keeps retrying a locked event however many attempts it has had (the consumer max_retries ends it)', async () => {
-    const m = message('evt_locked', 9);
+  it('retries the message itself when the re-queue fails', async () => {
+    send.mockRejectedValueOnce(new Error('queue unavailable'));
+    const m = message('evt_locked');
 
     await processAuditBatch(batchOf(m), env, async () => {
-      throw Object.assign(new Error('boom'), { code: '28P01' });
+      throw locked();
     });
 
-    expect(m.retry).toHaveBeenCalledWith({ delaySeconds: 120 });
+    expect(m.retry).toHaveBeenCalledTimes(1);
     expect(m.ack).not.toHaveBeenCalled();
   });
 
@@ -125,23 +168,20 @@ describe('processAuditBatch', () => {
     expect(m.ack).not.toHaveBeenCalled();
   });
 
-  it(`drops any other failure after ${OTHER_MAX_RETRIES} retries, so a raised max_retries does not multiply them`, async () => {
-    const lastRetry = message('evt_last', OTHER_MAX_RETRIES);
-    const exhausted = message('evt_exhausted', OTHER_MAX_RETRIES + 1);
+  it('never acks a failed event away: after max_retries the consumer moves it to the DLQ', async () => {
+    const m = message('evt_late', 3, 4);
 
-    await processAuditBatch(batchOf(lastRetry, exhausted), env, async () => {
+    await processAuditBatch(batchOf(m), env, async () => {
       throw new Error('Workspace not found for org: org_gone');
     });
 
-    expect(lastRetry.retry).toHaveBeenCalledTimes(1);
-    expect(lastRetry.ack).not.toHaveBeenCalled();
-    expect(exhausted.ack).toHaveBeenCalledTimes(1);
-    expect(exhausted.retry).not.toHaveBeenCalled();
+    expect(m.retry).toHaveBeenCalledTimes(1);
+    expect(m.ack).not.toHaveBeenCalled();
   });
 
   it('treats every message of a batch on its own', async () => {
     const written = message('evt_a');
-    const locked = message('evt_b');
+    const lockedEvent = message('evt_b');
     const broken = message('evt_c');
     const outcome: Record<string, Error | null> = {
       evt_a: null,
@@ -149,13 +189,14 @@ describe('processAuditBatch', () => {
       evt_c: new Error('something else'),
     };
 
-    await processAuditBatch(batchOf(written, locked, broken), env, async (event) => {
+    await processAuditBatch(batchOf(written, lockedEvent, broken), env, async (event) => {
       const failure = outcome[event.id];
       if (failure) throw failure;
     });
 
     expect(written.ack).toHaveBeenCalledTimes(1);
-    expect(locked.retry).toHaveBeenCalledWith({ delaySeconds: 120 });
+    expect(lockedEvent.ack).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
     expect(broken.retry).toHaveBeenCalledWith();
   });
 
