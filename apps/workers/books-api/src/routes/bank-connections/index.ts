@@ -142,6 +142,35 @@ function syncBillingLater(c: AppContext, billing: BankConnectionBilling) {
   );
 }
 
+/**
+ * Bill a connection that a link just added to the count (new, or a disconnected
+ * one brought back). Above the included ones the charge must go through before
+ * the link is kept; otherwise the quantity is aligned in the background.
+ */
+async function billLinkedConnection(
+  c: AppContext,
+  billing: BankConnectionBilling,
+  link: { view: ConnectionView; entityId: string; billed: boolean; created: boolean },
+) {
+  if (!link.billed) {
+    syncBillingLater(c, billing);
+    return;
+  }
+  try {
+    await billing.sync();
+  } catch (err) {
+    // Not billed, so not kept: revoke at the provider and drop (or disconnect) it again.
+    const ctx = createFeedContext(c);
+    const undo = link.created
+      ? deleteConnection(ctx, link.view.id, link.entityId)
+      : disconnectConnection(ctx, link.view.id, link.entityId);
+    await undo.catch((cleanup) =>
+      console.error('[books-api/bank-connections] removing an unbilled connection failed:', cleanup),
+    );
+    throw err;
+  }
+}
+
 /** Event payload: identifiers and status only, never tokens, account numbers or transaction data. */
 function eventData(view: ConnectionView): Record<string, unknown> {
   return {
@@ -260,22 +289,7 @@ app.post('/complete', requirePermission('banking:create'), zValidator('json', co
       userId: c.get('userId') ?? null,
     });
     // A disconnected connection the link brought back counts again, just like a new one.
-    if (created || restored) {
-      if (billed) {
-        try {
-          await billing.sync();
-        } catch (err) {
-          // Not billed, so not kept: revoke at the provider and drop (or disconnect) it again.
-          const undo = created ? deleteConnection(ctx, view.id, entityId) : disconnectConnection(ctx, view.id, entityId);
-          await undo.catch((cleanup) =>
-            console.error('[books-api/bank-connections] removing an unbilled connection failed:', cleanup),
-          );
-          throw err;
-        }
-      } else {
-        syncBillingLater(c, billing);
-      }
-    }
+    if (created || restored) await billLinkedConnection(c, billing, { view, entityId, billed, created });
     publishEntityEvent({
       c,
       entityType: 'bank_connection',
