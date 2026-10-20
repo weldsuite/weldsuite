@@ -3,7 +3,12 @@
  * went wrong, plus the provider's wording when it sent one (books-api only
  * forwards provider messages that carry no credentials).
  */
-import { isBankFeedRequestError } from '@/lib/api/domains/weldbooks-bank-feeds';
+import {
+  BANK_CONNECTION_BILLING_ADMIN_REQUIRED,
+  BANK_CONNECTION_LIMIT_REACHED,
+  BANK_CONNECTION_PAYMENT_METHOD_REQUIRED,
+  isBankFeedRequestError,
+} from '@/lib/api/domains/weldbooks-bank-feeds';
 import { BankFeedLaunchError } from './launchers';
 import type { FeedTexts, FormatText } from './feed-texts';
 
@@ -47,6 +52,22 @@ export function describeFeedError(
   }
 
   if (isBankFeedRequestError(err)) {
+    switch (err.code) {
+      case BANK_CONNECTION_LIMIT_REACHED:
+        return withDetail(texts.limitReached, null);
+      case BANK_CONNECTION_BILLING_ADMIN_REQUIRED:
+        return withDetail(texts.billingAdminRequired, null);
+      case BANK_CONNECTION_PAYMENT_METHOD_REQUIRED:
+        return withDetail(texts.paymentMethodRequired, null);
+      case 'PAYMENT_FAILED':
+        return withDetail(texts.paymentFailed, null);
+      case 'BILLING_UNAVAILABLE':
+      case 'BILLING_PROVIDER_ERROR':
+      case 'BILLING_BUSY':
+        return withDetail(texts.billingUnavailable, null);
+      default:
+        break;
+    }
     switch (err.status) {
       case 400:
         return withDetail(texts.badRequest, err.message);

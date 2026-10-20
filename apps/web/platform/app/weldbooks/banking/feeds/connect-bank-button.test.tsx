@@ -300,3 +300,72 @@ describe('ConnectBankButton', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('not set up yet')));
   });
 });
+
+describe('ConnectBankButton above the connections the plan includes', () => {
+  const billing = { connections: 1, included: 1, billedExtra: 0, unitAmountCents: 500, currency: 'eur', hasPaymentMethod: true, canAddPaid: true };
+
+  function requestError(status: number, code: string) {
+    return Object.assign(new Error(code), { status, code });
+  }
+
+  function respondWithBilling() {
+    api.get.mockImplementation(async (path: string) => {
+      if (path.startsWith('/bank-connections/providers')) return { data: { country: 'US', providers: [makeProvider('plaid', 'plaid_link')] } };
+      if (path === '/bank-connections/billing') return { data: billing };
+      return { data: [] };
+    });
+  }
+
+  it('says what an extra connection costs, and starts the link once the user agrees', async () => {
+    const user = userEvent.setup();
+    respondWithBilling();
+    let sessions = 0;
+    api.post.mockImplementation(async (path: string) => {
+      if (path === '/bank-connections/link-session') {
+        sessions += 1;
+        if (sessions === 1) throw requestError(402, 'BANK_CONNECTION_LIMIT_REACHED');
+        return { data: { provider: 'plaid', kind: 'plaid_link', token: 'link-extra', historyDays: 730 } };
+      }
+      return { data: {} };
+    });
+    const plaid = installPlaid();
+
+    renderWithProviders(<ConnectBankButton />);
+    const button = await screen.findByRole('button', { name: 'Connect bank' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Add a paid bank connection?' });
+    expect(dialog).toHaveTextContent('Your plan includes 1 bank connection, and it is in use.');
+    expect(dialog).toHaveTextContent('€5.00 per month');
+    expect(plaid.handler.open).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Add for €5.00/month' }));
+
+    await waitFor(() => expect(plaid.handler.open).toHaveBeenCalled());
+    expect(api.post).toHaveBeenLastCalledWith('/bank-connections/link-session', {
+      provider: 'plaid',
+      mode: 'create',
+      redirectUrl: CALLBACK,
+      acceptExtraCharge: true,
+    });
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('explains when only an admin can add a paid connection', async () => {
+    const user = userEvent.setup();
+    respondWithBilling();
+    api.post.mockRejectedValue(requestError(403, 'BILLING_ADMIN_REQUIRED'));
+
+    renderWithProviders(<ConnectBankButton />);
+    const button = await screen.findByRole('button', { name: 'Connect bank' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Only workspace admins can add a bank connection that is billed on top of your plan. Ask an admin to connect this bank.',
+      ),
+    );
+  });
+});

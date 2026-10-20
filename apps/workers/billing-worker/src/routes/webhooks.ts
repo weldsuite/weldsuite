@@ -34,6 +34,7 @@ import { grantCredits } from '@weldsuite/credits';
 import { isPartnerStatementInvoice } from '@weldsuite/core-domain/partners';
 import { handlePartnerInvoicePaid, handlePartnerInvoiceVoided } from '../services/partner-billing';
 import { handleReachInvoiceEvent, handleReachSubscriptionEvent } from '../services/reach-billing-webhooks';
+import { isBankConnectionInvoice, isBankConnectionSubscription } from '../services/bank-connection-billing';
 import {
   RealtimeRegistrar,
   RealtimeRegistrarError,
@@ -588,6 +589,9 @@ async function handleSubscriptionUpdated(
   // WeldReach inbox subscription: its status is mirrored onto workspace_app_access
   if (await handleReachSubscriptionEvent(masterDb, subscription)) return;
 
+  // WeldBooks extra bank connections: no plan or seat state, nothing stored
+  if (isBankConnectionSubscription(subscription)) return;
+
   // Phone and agents subscriptions have no plan/seat state to sync
   if (await isNonPlanSubscription(masterDb, subscription)) return;
 
@@ -809,6 +813,9 @@ async function handleSubscriptionDeleted(
 
   // WeldReach inbox subscription: workspace_app_access.billing_status -> canceled
   if (await handleReachSubscriptionEvent(masterDb, subscription)) return;
+
+  // WeldBooks extra bank connections: nothing stored, so nothing to clear
+  if (isBankConnectionSubscription(subscription)) return;
 
   // Check if this is a phone subscription
   const [phoneWorkspace] = await masterDb
@@ -1038,6 +1045,9 @@ async function handleInvoicePaid(
   // WeldReach inbox subscription: billing_status -> active, no plan credits
   if (await handleReachInvoiceEvent(masterDb, invoice, 'paid')) return;
 
+  // WeldBooks extra bank connections: no plan credits
+  if (isBankConnectionInvoice(invoice)) return;
+
   // Check if this invoice belongs to a phone subscription — skip credit sync
   const [phoneWorkspace] = await masterDb
     .select({ id: workspaces.id })
@@ -1256,6 +1266,12 @@ async function handleInvoicePaymentFailed(
   // WeldReach inbox subscription: billing_status -> past_due (the grace period
   // before campaigns pause counts from there). The invoice is still recorded.
   if (await handleReachInvoiceEvent(masterDb, invoice, 'failed')) {
+    await handleInvoiceUpsert(masterDb, invoice);
+    return;
+  }
+
+  // WeldBooks extra bank connections: Stripe's own retries handle it; the invoice is recorded
+  if (isBankConnectionInvoice(invoice)) {
     await handleInvoiceUpsert(masterDb, invoice);
     return;
   }

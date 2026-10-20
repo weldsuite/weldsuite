@@ -72,6 +72,7 @@
     "./schemas/weldhr-payroll": "./src/schemas/weldhr-payroll.ts",
     "./schemas/weldpass-passwords": "./src/schemas/weldpass-passwords.ts",
     "./schemas/reach": "./src/schemas/reach.ts",
+    "./schemas/bank-connection-billing": "./src/schemas/bank-connection-billing.ts",
     "./schemas/outbound-mail": "./src/schemas/outbound-mail.ts",
     "./schemas/account": "./src/schemas/account.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
