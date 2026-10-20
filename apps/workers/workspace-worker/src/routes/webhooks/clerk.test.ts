@@ -3,7 +3,8 @@
  * owns the workspace's database the cascade changes nothing and answers a
  * retryable 500 (Svix redelivers); once the move is over it goes through and
  * drops the database as before. A teardown that fails is answered 500 too, so
- * it is retried rather than lost. Real master schema (PGlite), the webhook
+ * it is retried rather than lost; the workspace is stamped `deleted_at` once,
+ * on the first delivery that goes through. Real master schema (PGlite), the webhook
  * signed with a real Svix signature, the Neon drop a spy.
  */
 
@@ -117,13 +118,21 @@ async function startMove(): Promise<string> {
 }
 
 describe('organization.deleted and database moves', () => {
-  it('soft-deletes the workspace and drops its database when no move is running', async () => {
+  it('soft-deletes the workspace, stamps deleted_at and drops its database when no move is running', async () => {
     const res = await deliverOrganizationDeleted();
 
     expect(res).toEqual({ status: 200, json: { received: true } });
-    expect((await workspace()).isActive).toBe(false);
+    expect(await workspace()).toMatchObject({ isActive: false, deletedAt: expect.any(Date) });
     expect(deleteWorkspaceDatabase).toHaveBeenCalledTimes(1);
     expect(deleteWorkspaceDatabase).toHaveBeenCalledWith(expect.anything(), WORKSPACE_ID);
+  });
+
+  it('keeps a deleted_at that is already there (the scheduled-deletion sweep stamps it before the webhook lands)', async () => {
+    const stampedAt = new Date('2026-10-01T03:00:00.000Z');
+    await world.masterDb.update(workspaces).set({ deletedAt: stampedAt }).where(eq(workspaces.id, WORKSPACE_ID));
+
+    expect((await deliverOrganizationDeleted()).status).toBe(200);
+    expect((await workspace()).deletedAt).toEqual(stampedAt);
   });
 
   it.each(['queued', 'copying', 'switching', 'cancelling'] as const)(
@@ -136,7 +145,7 @@ describe('organization.deleted and database moves', () => {
 
       expect(res.status).toBe(500);
       expect(res.json).toMatchObject({ code: 'DATABASE_MOVE_ACTIVE' });
-      expect((await workspace()).isActive).toBe(true);
+      expect(await workspace()).toMatchObject({ isActive: true, deletedAt: null });
       expect(deleteWorkspaceDatabase).not.toHaveBeenCalled();
     },
   );
@@ -168,12 +177,15 @@ describe('organization.deleted and database moves', () => {
 
     expect(failed.status).toBe(500);
     expect(failed.json.error).not.toContain('Neon is unavailable');
-    expect((await workspace()).isActive).toBe(false);
+    const afterFailure = await workspace();
+    expect(afterFailure).toMatchObject({ isActive: false, deletedAt: expect.any(Date) });
 
     const retried = await deliverOrganizationDeleted();
 
     expect(retried).toEqual({ status: 200, json: { received: true } });
     expect(deleteWorkspaceDatabase).toHaveBeenCalledTimes(2);
+    // The redelivery keeps the first stamp: the teardown retry sweep counts its margin from it.
+    expect((await workspace()).deletedAt).toEqual(afterFailure.deletedAt);
   });
 
   it('looks again right before the drop: a move started after the first check still stops it', async () => {

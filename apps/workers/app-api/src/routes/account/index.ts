@@ -154,16 +154,22 @@ app.post('/delete', zValidator('json', deleteAccountInput), async (c) => {
     // Delete the Clerk org of every workspace the caller was the sole member
     // of. The `organization.deleted` webhook soft-deletes the workspace and
     // tears down its Neon database; the direct isActive flip below covers
-    // workspaces without a Clerk org (or a missed webhook).
+    // workspaces without a Clerk org (or a missed webhook). Only a delete Clerk
+    // confirmed marks the workspace deleted (`deleted_at`, a stamp the webhook
+    // already wrote is kept): workspace-worker's teardown retry sweep tears
+    // down the database of a deleted workspace, so an org that still exists
+    // must not get it.
     for (const ws of status.workspacesToDelete) {
       const [row] = await db
-        .select({ clerkOrgId: workspaces.clerkOrgId })
+        .select({ clerkOrgId: workspaces.clerkOrgId, deletedAt: workspaces.deletedAt })
         .from(workspaces)
         .where(eq(workspaces.id, ws.workspaceId));
 
+      let orgDeleted = false;
       if (row?.clerkOrgId) {
         try {
           await clerk.organizations.deleteOrganization(row.clerkOrgId);
+          orgDeleted = true;
         } catch (err) {
           console.error(
             `[app-api/account] Failed to delete Clerk org for workspace ${ws.workspaceId}:`,
@@ -172,9 +178,14 @@ app.post('/delete', zValidator('json', deleteAccountInput), async (c) => {
         }
       }
 
+      const now = new Date();
       await db
         .update(workspaces)
-        .set({ isActive: false, updatedAt: new Date() })
+        .set({
+          isActive: false,
+          ...(orgDeleted ? { deletedAt: row?.deletedAt ?? now } : {}),
+          updatedAt: now,
+        })
         .where(eq(workspaces.id, ws.workspaceId));
     }
 
