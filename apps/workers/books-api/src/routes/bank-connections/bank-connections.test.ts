@@ -87,9 +87,13 @@ const sent: Array<{ eventType: string; data: Record<string, unknown> }> = [];
 
 const env = { ENTITY_EVENTS: { send: async (m: { eventType: string; data: Record<string, unknown> }) => void sent.push(m) } } as unknown as Partial<Env>;
 
-function client(perms: string[] = ['*'], headers: Record<string, string> = { 'X-Accounting-Entity-Id': ENTITY }) {
+function client(
+  perms: string[] = ['*'],
+  headers: Record<string, string> = { 'X-Accounting-Entity-Id': ENTITY },
+  factorVerificationAge: readonly [number, number] | null = [0, 0],
+) {
   const { request } = createTestApp('/api/bank-connections', bankConnectionsRoutes, {
-    context: { tenantDb: db, permissions: permissions(...perms), orgId: 'org_test', workspaceId: 'ws_1' },
+    context: { tenantDb: db, permissions: permissions(...perms), orgId: 'org_test', workspaceId: 'ws_1', factorVerificationAge },
     env,
   });
   return async (path: string, init: { method?: string; body?: unknown } = {}) => {
@@ -504,5 +508,28 @@ describe('connections the plan includes and extra charges', () => {
     expect((await api('/billing')).json?.data).toBeNull();
     state.billing = atLimit;
     expect((await api('/billing')).json?.data).toEqual(atLimit);
+  });
+});
+
+describe('second factor before a link', () => {
+  const linkBody = { provider: 'plaid', redirectUrl: 'https://app.example/weldbooks/banking/callback' };
+  const headers = { 'X-Accounting-Entity-Id': ENTITY };
+
+  it('refuses a user without a second factor, and asks to confirm a stale one, in every mode', async () => {
+    const noMfa = await client(['*'], headers, [0, -1])('/link-session', { method: 'POST', body: linkBody });
+    expect(noMfa.status).toBe(403);
+    expect(noMfa.json?.error?.code).toBe('MFA_REQUIRED');
+
+    const stale = await client(['*'], headers, [0, 30])('/link-session', { method: 'POST', body: { ...linkBody, mode: 'reauth', connectionId: 'bkc_any' } });
+    expect(stale.status).toBe(403);
+    expect(stale.json?.error?.code).toBe('REVERIFICATION_REQUIRED');
+
+    expect((await client(['*'], headers, [0, 3])('/link-session', { method: 'POST', body: linkBody })).status).toBe(201);
+  });
+
+  it('checks permission before the second factor', async () => {
+    const res = await client(['banking:read'], headers, [0, -1])('/link-session', { method: 'POST', body: linkBody });
+    expect(res.status).toBe(403);
+    expect(res.json?.error?.code).not.toBe('MFA_REQUIRED');
   });
 });

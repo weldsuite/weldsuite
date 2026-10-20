@@ -617,6 +617,14 @@ charge at `link-session`, checks again before completing, and removes a new
 connection billing refuses. The subscription's webhooks skip the plan, seat
 and credit handling.
 
+**Second factor** (20 October 2026): starting a bank link (any mode) takes a
+second factor verified in the last 10 minutes, read from Clerk's `fva` claim
+(worker-kit `requireSecondFactor`). Without one books-api answers
+`MFA_REQUIRED` and the platform sends the user to Settings → Security to set
+up an authenticator app; a stale one gets `REVERIFICATION_REQUIRED`, which
+Clerk's `useReverification` dialog answers. A passkey is a sign-in method in
+Clerk, not a second factor, so it does not count.
+
 Data: `bank_connections` (`entity_id, provider, provider_connection_id,
 institution_id, institution_name, status, credentials_encrypted, sync_cursor,
 last_synced_at, last_error, consent_expires_at, created_by`) and on

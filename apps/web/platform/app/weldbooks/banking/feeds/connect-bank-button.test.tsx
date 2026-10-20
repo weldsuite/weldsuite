@@ -17,6 +17,11 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   }),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
+// Clerk's second-factor confirmation needs a ClerkProvider; the calls go straight through here.
+vi.mock('./use-second-factor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./use-second-factor')>()),
+  useWithSecondFactor: <A extends unknown[], R>(call: (...args: A) => Promise<R>) => call,
+}));
 vi.mock('sonner', () => ({ toast }));
 const navigateAway = vi.hoisted(() => vi.fn());
 vi.mock('./navigate-away', () => ({ navigateAway }));
@@ -365,6 +370,26 @@ describe('ConnectBankButton above the connections the plan includes', () => {
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
         'Only workspace admins can add a bank connection that is billed on top of your plan. Ask an admin to connect this bank.',
+      ),
+    );
+  });
+});
+
+describe('ConnectBankButton without two-step verification', () => {
+  it('points to the security settings when the account has no second factor', async () => {
+    const user = userEvent.setup();
+    respond({ country: 'US', providers: [makeProvider('plaid', 'plaid_link')] });
+    api.post.mockRejectedValue(Object.assign(new Error('MFA_REQUIRED'), { status: 403, code: 'MFA_REQUIRED' }));
+
+    renderWithProviders(<ConnectBankButton />);
+    const button = await screen.findByRole('button', { name: 'Connect bank' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Connecting a bank needs two-step verification. Set up an authenticator app on your account first.',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Set up two-step verification' }) }),
       ),
     );
   });

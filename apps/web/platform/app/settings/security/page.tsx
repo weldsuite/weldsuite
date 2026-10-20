@@ -40,6 +40,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 import { DeleteAccountSection } from './delete-account-section';
 import { PasskeysSection } from './passkeys-section';
+import { TwoFactorSection } from './two-factor-section';
 import { parseSessionDevice } from './session-device';
 
 const SESSIONS_PAGE_SIZE = 10;
@@ -357,6 +358,9 @@ export default function SecuritySettingsPage() {
       </div>
 
       <div className="space-y-8">
+        {/* Two-step verification */}
+        <TwoFactorSection />
+
         {/* Passkeys */}
         <PasskeysSection />
 

@@ -61,6 +61,10 @@ export function describeFeedError(
         return withDetail(texts.paymentMethodRequired, null);
       case 'PAYMENT_FAILED':
         return withDetail(texts.paymentFailed, null);
+      case 'MFA_REQUIRED':
+        return withDetail(texts.mfaRequired, null);
+      case 'REVERIFICATION_REQUIRED':
+        return withDetail(texts.reverificationFailed, null);
       case 'BILLING_UNAVAILABLE':
       case 'BILLING_PROVIDER_ERROR':
       case 'BILLING_BUSY':

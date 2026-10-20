@@ -11,7 +11,16 @@ type AuthVariables = {
   userId: string;
   orgId: string | null;
   sessionId: string;
+  factorVerificationAge?: readonly [number, number] | null;
 };
+
+const isFactorAge = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= -1;
+
+/** Clerk's `fva` claim, `[first factor age, second factor age]` in minutes, when it is well formed. */
+export function parseFactorVerificationAge(fva: unknown): readonly [number, number] | null {
+  if (!Array.isArray(fva) || fva.length !== 2 || !isFactorAge(fva[0]) || !isFactorAge(fva[1])) return null;
+  return [fva[0], fva[1]];
+}
 
 export const clerkMiddleware = () => {
   return createMiddleware<{ Bindings: KitEnv; Variables: AuthVariables }>(async (c, next) => {
@@ -42,12 +51,14 @@ export const clerkMiddleware = () => {
         o?: { id?: string };
         org_id?: string;
         sid?: string;
+        fva?: unknown;
       };
       const orgId = claims.o?.id || claims.org_id || null;
 
       c.set('userId', payload.sub);
       c.set('orgId', orgId);
       c.set('sessionId', claims.sid || '');
+      c.set('factorVerificationAge', parseFactorVerificationAge(claims.fva));
 
       await next();
     } catch (err) {
