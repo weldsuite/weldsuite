@@ -18,7 +18,7 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@tanstack/react-router', () => ({
-  useRouter: () => ({ history: { push: vi.fn() } }),
+  useRouter: () => ({ navigate: vi.fn() }),
   Link: ({ to, children, ...rest }: { to: string; children: ReactNode }) => (
     <a href={to} {...rest}>
       {children}

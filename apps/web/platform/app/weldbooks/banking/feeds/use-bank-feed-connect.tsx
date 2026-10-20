@@ -14,6 +14,7 @@ import { useRouter } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
 import {
   useCompleteBankFeedLink,
   useCreateBankFeedLinkSession,
@@ -166,7 +167,7 @@ export function useBankFeedConnect(
       const message = feedErrorText(describeFeedError(err, t, 'link'), t, format);
       if (code === BANK_CONNECTION_PAYMENT_METHOD_REQUIRED) {
         toast.error(message, {
-          action: { label: t.errors.openBilling, onClick: () => router.history.push(BILLING_SETTINGS_PATH) },
+          action: { label: t.errors.openBilling, onClick: () => void router.navigate({ href: BILLING_SETTINGS_PATH }) },
         });
         return;
       }
@@ -181,7 +182,7 @@ export function useBankFeedConnect(
       const mode = request.mode ?? 'create';
       const connectionId = mode === 'create' ? undefined : request.connection?.id;
       const redirectUrl = bankFeedRedirectUrl(window.location.origin);
-      const returnTo = safeReturnPath(returnToOption ?? window.location.pathname, FEEDS_PATH);
+      const returnTo = safeReturnPath(returnToOption ?? stripWorkspacePrefix(window.location.pathname), FEEDS_PATH);
 
       setPhase('starting');
       try {

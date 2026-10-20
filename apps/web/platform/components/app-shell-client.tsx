@@ -1,6 +1,7 @@
 
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
+import { isWorkspaceScopedPath } from '@/lib/workspace-url';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { ComposeProvider } from '@/contexts/compose-context';
 import { PinnedNoteProvider } from '@/contexts/pinned-note-context';
@@ -116,20 +117,9 @@ function detectEmbeddedRoute(): boolean {
 
 /** Routes rendered without PlatformShell (no sidebar). */
 function isMinimalPath(pathname: string): boolean {
-  return (
-    pathname.startsWith('/preview') ||
-    /^\/builder\/[^/]+$/.test(pathname) ||
-    pathname === '/welcome' ||
-    pathname.startsWith('/auth/') ||
-    pathname === '/onboarding' ||
-    pathname === '/invite' ||
-    pathname.startsWith('/invite/') ||
-    // The vendor-facing W-9 form: no shell, no sign-in, the token in the link is the credential.
-    pathname.startsWith('/w9/') ||
-    // A /w/{workspace} link only resolves its workspace and redirects.
-    pathname.startsWith('/w/') ||
-    pathname === '/call-room'
-  );
+  // Pages outside a workspace (sign-in, onboarding, invites, the W-9 form,
+  // `/preview`, a `/w/{workspace}` link that only resolves and redirects, …).
+  return !isWorkspaceScopedPath(pathname) || /^\/builder\/[^/]+$/.test(pathname);
 }
 
 interface AppShellClientProps {

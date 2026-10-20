@@ -26,6 +26,7 @@ import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entit
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
 interface Jurisdiction {
   code: string;
@@ -142,7 +143,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const startUsSetup = () => {
     onOpenChange(false);
     // The full form lives in settings; its back button returns to WeldBooks.
-    sessionStorage.setItem('settings-return-url', globalThis.location.pathname);
+    sessionStorage.setItem('settings-return-url', stripWorkspacePrefix(globalThis.location.pathname));
     router.push('/settings/entities/add');
   };
   const jurisdictionOptions = jurisdictions.length > 0 ? jurisdictions : FALLBACK_JURISDICTIONS;

@@ -90,7 +90,7 @@ export default function WorkspaceLinkPage() {
 
     startedRef.current = true;
     if (workspace.id === orgId) {
-      router.history.replace(link.target);
+      void router.navigate({ href: link.target, replace: true });
       return;
     }
 

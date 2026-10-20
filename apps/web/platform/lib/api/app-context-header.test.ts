@@ -43,6 +43,12 @@ describe('installAppContextHeader', () => {
     expect(headerOf(1)).toBe('workspace');
   });
 
+  it('reads the module past a /w/{workspace} prefix', async () => {
+    goTo('/w/acme/weldcrm/companies');
+    await window.fetch('https://app-api.test/api/companies');
+    expect(headerOf(0)).toBe('weldcrm');
+  });
+
   it('tags requests to module workers too', async () => {
     goTo('/weldcrm');
     await window.fetch('https://pass-api.test/api/weldpass/projects');
