@@ -71,7 +71,8 @@ export function createFakeNeon() {
       database: { name },
       operations: finished,
     })),
-    deleteDatabase: vi.fn(async (_projectId: string, _branchId: string, _name: string) => {}),
+    getDatabase: vi.fn(async (_projectId: string, _branchId: string, name: string) => ({ database: { name } })),
+    deleteDatabase: vi.fn(async (_projectId: string, _branchId: string, _name: string) => finished),
 
     getConnectionUri: vi.fn(async (
       projectId: string,

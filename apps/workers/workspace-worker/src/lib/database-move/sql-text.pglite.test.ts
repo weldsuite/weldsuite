@@ -62,15 +62,30 @@ afterAll(async () => {
 describe('readJournalSummary', () => {
   it('asks to_regclass about public and drizzle, then summarises the public journal', async () => {
     const { sql, log } = recording(source.sql);
-    expect(await readJournalSummary(sql)).toEqual({ schema: 'public', count: 2, maxCreatedAt: '1700000100000' });
+    expect(await readJournalSummary(sql)).toEqual({
+      schema: 'public',
+      count: 2,
+      maxCreatedAt: '1700000100000',
+      migrations: [
+        { tag: '0000_init', hash: 'hash-0', createdAt: '1700000000000' },
+        { tag: '0001_more', hash: 'hash-1', createdAt: '1700000100000' },
+      ],
+    });
     expect(log.queries.map((q) => q.text)).toMatchInlineSnapshot(`
       [
         "
           SELECT
             (to_regclass('"public"."__drizzle_migrations"') IS NOT NULL) AS in_public,
-            (to_regclass('"drizzle"."__drizzle_migrations"') IS NOT NULL) AS in_drizzle",
-        "SELECT count(*)::text AS count, max(created_at)::text AS max_created_at
-           FROM "public"."__drizzle_migrations"",
+            (to_regclass('"drizzle"."__drizzle_migrations"') IS NOT NULL) AS in_drizzle,
+            EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = '__drizzle_migrations'
+                    AND column_name = 'tag') AS public_tag,
+            EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+                    AND column_name = 'tag') AS drizzle_tag",
+        "SELECT tag, hash, created_at::text AS created_at
+           FROM "public"."__drizzle_migrations"
+           ORDER BY id",
       ]
     `);
   });
@@ -83,16 +98,23 @@ describe('readJournalSummary', () => {
       INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('h', 5);
     `);
     const inDrizzle = recording(target.sql);
-    expect(await readJournalSummary(inDrizzle.sql)).toEqual({ schema: 'drizzle', count: 1, maxCreatedAt: '5' });
+    // drizzle's migrator creates the table without a tag column: the tag reads as null.
+    expect(await readJournalSummary(inDrizzle.sql)).toEqual({
+      schema: 'drizzle',
+      count: 1,
+      maxCreatedAt: '5',
+      migrations: [{ tag: null, hash: 'h', createdAt: '5' }],
+    });
     expect(inDrizzle.log.queries.map((q) => q.text.trim().split('\n')[0])).toMatchInlineSnapshot(`
       [
         "SELECT",
-        "SELECT count(*)::text AS count, max(created_at)::text AS max_created_at",
+        "SELECT NULL::text AS tag, hash, created_at::text AS created_at",
       ]
     `);
     expect(inDrizzle.log.queries[1]?.text).toMatchInlineSnapshot(`
-      "SELECT count(*)::text AS count, max(created_at)::text AS max_created_at
-           FROM "drizzle"."__drizzle_migrations""
+      "SELECT NULL::text AS tag, hash, created_at::text AS created_at
+           FROM "drizzle"."__drizzle_migrations"
+           ORDER BY id"
     `);
 
     await target.exec('DROP TABLE drizzle.__drizzle_migrations');

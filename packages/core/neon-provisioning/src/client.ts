@@ -324,16 +324,18 @@ export class NeonClient {
   }
 
   /**
-   * Delete a database
+   * Delete a database. Returns the operations Neon started: the database (and
+   * its ownership of objects) is only gone once they finish.
    */
   async deleteDatabase(
     projectId: string,
     branchId: string,
     databaseName: string
-  ): Promise<void> {
-    await this.call(() =>
-      this.api.deleteProjectBranchDatabase(projectId, branchId, databaseName)
+  ): Promise<NeonOperationRef[]> {
+    const data = await this.call((): Promise<{ data: { operations?: NeonOperationRef[] } }> =>
+      this.api.deleteProjectBranchDatabase(projectId, branchId, databaseName) as never
     );
+    return data?.operations ?? [];
   }
 
   /**

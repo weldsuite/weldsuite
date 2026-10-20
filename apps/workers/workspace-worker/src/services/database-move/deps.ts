@@ -16,10 +16,11 @@ import { invalidateWorkspaceContexts } from '@weldsuite/core-domain/partners';
 import { createProvisioningService, type DatabaseProvisioningService } from '@weldsuite/neon-provisioning';
 import type { Env } from '../../index';
 import { getMasterDb, type MasterDatabase } from '../../db';
+import type { TenantJournalEntry } from '@weldsuite/db/lib/tenant-journal';
 import { MIGRATION_JOURNAL } from '../../generated/tenant-migrations';
 import { neonTenantSql } from '../../lib/database-move/neon-sql';
 import type { TenantSql } from '../../lib/database-move/types';
-import { applyTenantMigrations, type ApplyMigrationsResult } from '../../lib/tenant-migrations';
+import { applyTenantMigrations, bundledJournalEntries, type ApplyMigrationsResult } from '../../lib/tenant-migrations';
 import { MoveFlowError } from './errors';
 
 /** The provisioning methods a move uses. A test supplies a fake with just these. */
@@ -28,11 +29,12 @@ export type MoveProvisioning = Pick<
   'prepareMoveTarget' | 'releaseMoveTarget' | 'rotateRolePassword' | 'restartDedicatedEndpoint'
 >;
 
-/** What the bundled tenant migrations leave a database at: the shape of `readJournalSummary`, minus the schema. */
+/** The bundled tenant journal: its entries (what a database is judged against), and its size and newest `when` for messages. */
 export interface BundledJournal {
   count: number;
   /** `max(created_at)` as text. */
   maxCreatedAt: string | null;
+  entries: TenantJournalEntry[];
 }
 
 export interface WorkspaceCacheTarget {
@@ -70,10 +72,14 @@ export function retentionDaysFromEnv(env: Pick<Env, 'DATABASE_MOVE_RETENTION_DAY
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DATABASE_MOVE_RETENTION_DAYS;
 }
 
-/** The journal a freshly migrated database ends with: entry count and the newest `when`. */
+/** The journal a freshly migrated database ends with: its entries, entry count and the newest `when`. */
 export function bundledJournalSummary(): BundledJournal {
   const newest = MIGRATION_JOURNAL.reduce((max, entry) => Math.max(max, entry.when), 0);
-  return { count: MIGRATION_JOURNAL.length, maxCreatedAt: MIGRATION_JOURNAL.length > 0 ? String(newest) : null };
+  return {
+    count: MIGRATION_JOURNAL.length,
+    maxCreatedAt: MIGRATION_JOURNAL.length > 0 ? String(newest) : null,
+    entries: bundledJournalEntries(),
+  };
 }
 
 const POSTGRES_URL = /^postgres(?:ql)?:\/\//;

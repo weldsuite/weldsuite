@@ -15,6 +15,7 @@
  * depend on how a driver parses json, arrays or bigints.
  */
 
+import type { RecordedMigration } from '@weldsuite/db/lib/tenant-journal';
 import { TENANT_SCHEMA, quoteIdent, quoteLiteral } from './quote';
 import {
   asStringArray,
@@ -220,26 +221,52 @@ function journalSchemaOf(located: SqlRow): JournalSummary['schema'] | null {
   return null;
 }
 
+/** Whether the journal table in `schema` has the `tag` column (only `applyTenantMigrations` creates it). */
+function journalTagColumnLiteral(schema: string): string {
+  return `EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_schema = ${quoteLiteral(schema)} AND table_name = ${quoteLiteral(JOURNAL_TABLE)}
+              AND column_name = 'tag')`;
+}
+
+function newestCreatedAt(migrations: readonly RecordedMigration[]): string | null {
+  let newest: bigint | null = null;
+  for (const { createdAt } of migrations) {
+    if (createdAt === null) continue;
+    const value = BigInt(createdAt);
+    if (newest === null || value > newest) newest = value;
+  }
+  return newest === null ? null : newest.toString();
+}
+
 /**
- * Summarise the migrations journal: `count(*)` and `max(created_at)`. The
- * `tag` column only exists when `applyTenantMigrations` created the table, so
- * it is deliberately not part of the comparison. Looks in `public` first (where
- * both migration runners put it), then in drizzle's default `drizzle` schema.
+ * Read the migrations journal: every row's `tag`, `hash` and `created_at`, so it
+ * can be judged migration by migration (`matchTenantJournal`). The `tag` column
+ * only exists when `applyTenantMigrations` created the table; elsewhere it reads
+ * as null. Looks in `public` first (where both migration runners put it), then
+ * in drizzle's default `drizzle` schema.
  */
 export async function readJournalSummary(sql: TenantSql): Promise<JournalSummary | null> {
   const [located] = await sql.query(`
     SELECT
       (to_regclass(${journalRegclassLiteral('public')}) IS NOT NULL) AS in_public,
-      (to_regclass(${journalRegclassLiteral('drizzle')}) IS NOT NULL) AS in_drizzle`);
+      (to_regclass(${journalRegclassLiteral('drizzle')}) IS NOT NULL) AS in_drizzle,
+      ${journalTagColumnLiteral('public')} AS public_tag,
+      ${journalTagColumnLiteral('drizzle')} AS drizzle_tag`);
   if (!located) return null;
   const schema = journalSchemaOf(located);
   if (!schema) return null;
-  const [summary] = await sql.query(
-    `SELECT count(*)::text AS count, max(created_at)::text AS max_created_at
-     FROM ${quoteIdent(schema)}.${quoteIdent(JOURNAL_TABLE)}`,
+  const tag = readBool(located, `${schema}_tag`) ? 'tag' : 'NULL::text AS tag';
+  const rows = await sql.query(
+    `SELECT ${tag}, hash, created_at::text AS created_at
+     FROM ${quoteIdent(schema)}.${quoteIdent(JOURNAL_TABLE)}
+     ORDER BY id`,
   );
-  if (!summary) return null;
-  return { schema, count: readInt(summary, 'count'), maxCreatedAt: readNullableString(summary, 'max_created_at') };
+  const migrations: RecordedMigration[] = rows.map((row) => ({
+    tag: readNullableString(row, 'tag'),
+    hash: readNullableString(row, 'hash'),
+    createdAt: readNullableString(row, 'created_at'),
+  }));
+  return { schema, count: migrations.length, maxCreatedAt: newestCreatedAt(migrations), migrations };
 }
 
 /** Read the whole catalog of a tenant database. */
