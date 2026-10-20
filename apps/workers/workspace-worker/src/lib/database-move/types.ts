@@ -8,6 +8,8 @@
  * outputs.
  */
 
+import type { RecordedMigration } from '@weldsuite/db/lib/tenant-journal';
+
 /** Values the engine ever binds as query parameters. */
 export type SqlParam = string | number | boolean | null;
 
@@ -78,13 +80,19 @@ export interface MaterializedViewInfo {
   populated: boolean;
 }
 
-/** The migrations journal, compared between source and target by count and newest `created_at`, never by tag. */
+/**
+ * The migrations journal. Judged against the bundled tenant journal with
+ * `matchTenantJournal` (each row by tag, hash or created_at); `count` and
+ * `maxCreatedAt` are kept for messages.
+ */
 export interface JournalSummary {
   /** Schema the `__drizzle_migrations` table lives in (`public`, else `drizzle`). */
   schema: string;
   count: number;
   /** `max(created_at)` as text (a bigint), null for an empty journal. */
   maxCreatedAt: string | null;
+  /** Every row, in id order. `tag` is null where drizzle's migrator wrote the row, or the column does not exist. */
+  migrations: RecordedMigration[];
 }
 
 export interface Catalog {

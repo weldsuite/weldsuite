@@ -128,7 +128,15 @@ describe('readCatalog', () => {
       { name: 'account_totals', populated: true },
     ]);
     expect(catalog.sequences).toEqual([]); // the journal's own serial does not count
-    expect(catalog.journal).toEqual({ schema: 'public', count: 2, maxCreatedAt: '1700000100000' });
+    expect(catalog.journal).toEqual({
+      schema: 'public',
+      count: 2,
+      maxCreatedAt: '1700000100000',
+      migrations: [
+        { tag: '0000_init', hash: 'hash-0', createdAt: '1700000000000' },
+        { tag: '0001_more', hash: 'hash-1', createdAt: '1700000100000' },
+      ],
+    });
   });
 
   it('reads a slice of the tables by name', async () => {
@@ -158,7 +166,8 @@ describe('readCatalog', () => {
       ALTER TABLE public.__drizzle_migrations SET SCHEMA drizzle;
     `);
     const catalog = await readCatalog(source.sql);
-    expect(catalog.journal).toEqual({ schema: 'drizzle', count: 2, maxCreatedAt: '1700000100000' });
+    expect(catalog.journal).toMatchObject({ schema: 'drizzle', count: 2, maxCreatedAt: '1700000100000' });
+    expect(catalog.journal?.migrations.map((m) => m.tag)).toEqual(['0000_init', '0001_more']);
   });
 });
 
@@ -552,6 +561,37 @@ describe('journal and schema checks', () => {
     await target.exec('ALTER TABLE __drizzle_migrations DROP COLUMN tag');
     await expect(prepareTargetForCopy(target.sql, await readCatalog(source.sql))).resolves.toMatchObject({
       truncatedTables: 9,
+    });
+  });
+
+  describe('given the bundled journal', () => {
+    const journal = [
+      { tag: '0000_init', when: 1700000000000, hash: 'hash-0' },
+      { tag: '0001_more', when: 1700000100000, hash: 'hash-1' },
+    ];
+
+    it('matches a target whose rows drizzle wrote (no tag, hash only) to a tagged source', async () => {
+      await target.exec('ALTER TABLE __drizzle_migrations DROP COLUMN tag');
+      await expect(prepareTargetForCopy(target.sql, await readCatalog(source.sql), journal)).resolves.toMatchObject({
+        truncatedTables: 9,
+      });
+    });
+
+    it('refuses a target that repeats one migration where another is missing, although the counts agree', async () => {
+      await target.exec(`
+        DELETE FROM __drizzle_migrations WHERE tag = '0000_init';
+        INSERT INTO __drizzle_migrations (hash, created_at, tag) VALUES ('hash-1', 1700000100000, '0001_more');
+      `);
+      const error = await prepareTargetForCopy(target.sql, await readCatalog(source.sql), journal).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(JournalMismatchError);
+      expect(error).toMatchObject({ source: { count: 2 }, target: { count: 2 } });
+    });
+
+    it('refuses a target with a row the journal does not know', async () => {
+      await target.exec(`INSERT INTO __drizzle_migrations (hash, created_at, tag) VALUES ('hash-x', 1, 'branch_only')`);
+      await expect(prepareTargetForCopy(target.sql, await readCatalog(source.sql), journal)).rejects.toBeInstanceOf(
+        JournalMismatchError,
+      );
     });
   });
 

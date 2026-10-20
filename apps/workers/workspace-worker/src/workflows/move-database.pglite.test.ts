@@ -31,6 +31,7 @@ import {
   CLERK_ORG_ID,
   CRASHED,
   FIXTURE_JOURNAL,
+  FIXTURE_JOURNAL_ENTRIES,
   SECRET_PREFIX,
   SOURCE,
   TARGET,
@@ -474,13 +475,20 @@ describe('MoveDatabaseWorkflow · a move that cannot be verified', () => {
 
 describe('MoveDatabaseWorkflow · refusing to start the downtime', () => {
   it('fails early, with nothing created or locked, when the source is behind the bundled migrations', async () => {
-    const w = await setup({ bundledJournal: { count: FIXTURE_JOURNAL.count + 1, maxCreatedAt: '1700000200000' } });
+    const w = await setup({
+      bundledJournal: {
+        count: FIXTURE_JOURNAL.count + 1,
+        maxCreatedAt: '1700000200000',
+        entries: [...FIXTURE_JOURNAL_ENTRIES, { tag: '0002_new', when: 1700000200000, hash: 'hash-2' }],
+      },
+    });
     const moveId = await startMove(w, 'dedicated');
 
     await expect(launch(w, createFakeStep(), moveId)).rejects.toThrow(/not at the bundled migration level/);
 
     const move = await moveRow(w, moveId);
     expect(move.status).toBe('failed');
+    expect(move.error).toContain('1 migration(s) missing (0002_new)');
     expect(move.error).toContain('source: 2 entries');
     expect(move.error).toContain('bundled: 3 entries');
     expect(w.provisioning.prepareMoveTarget).not.toHaveBeenCalled();
@@ -492,7 +500,7 @@ describe('MoveDatabaseWorkflow · refusing to start the downtime', () => {
   });
 
   it('does not retry a failure a retry cannot fix', async () => {
-    const w = await setup({ bundledJournal: { count: 99, maxCreatedAt: '1' } });
+    const w = await setup({ bundledJournal: { count: 99, maxCreatedAt: '1', entries: [] } });
     const moveId = await startMove(w, 'dedicated');
     const step = createFakeStep();
 

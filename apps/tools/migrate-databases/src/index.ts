@@ -7,7 +7,9 @@ import postgres from 'postgres';
 import { eq, isNotNull, and } from 'drizzle-orm';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import { describeJournalGap, isAtJournalLevel } from '@weldsuite/db/lib/tenant-journal';
 import { partitionByActiveMove, workspacesWithActiveMove } from './lib/active-moves';
+import { applySkippedMigrations, checkJournal, loadTenantJournal, type TenantJournal } from './lib/journal-gap';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,6 +23,10 @@ interface CliOptions {
   only: string | null;
   verbose: boolean;
   redact: boolean;
+  /** Also apply journal migrations drizzle's migrator skipped (merged with an older timestamp). */
+  applySkipped: boolean;
+  /** Only report each workspace's journal gap; changes nothing. */
+  checkJournal: boolean;
 }
 
 // The repo is public, so CI logs are world-readable. Tenant identities stay out
@@ -36,6 +42,8 @@ function parseArgs(): CliOptions {
     only: null,
     verbose: false,
     redact: redactByDefault(),
+    applySkipped: false,
+    checkJournal: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -50,6 +58,10 @@ function parseArgs(): CliOptions {
       options.redact = true;
     } else if (arg === '--show-workspaces') {
       options.redact = false;
+    } else if (arg === '--apply-skipped') {
+      options.applySkipped = true;
+    } else if (arg === '--check-journal') {
+      options.checkJournal = true;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -72,6 +84,10 @@ Options:
   --verbose          Show detailed migration output
   --redact           Hide workspace names, IDs and database hosts
   --show-workspaces  Show workspace details (overrides --redact)
+  --check-journal    Only report, per workspace, journal migrations it has not
+                     applied (connects to every tenant; changes nothing)
+  --apply-skipped    After migrating, also apply journal migrations drizzle
+                     skipped because they were merged with an older timestamp
   --help, -h         Show this help message
 
 Workspace details are redacted by default in CI (CI / GITHUB_ACTIONS set) so
@@ -83,11 +99,19 @@ A workspace whose database is being moved to another Neon project or shard
 skipped, not failed: its old database is locked read-only on purpose. It is
 migrated by the next run, wherever it lives by then.
 
+drizzle's migrator applies only migrations newer than the newest one a database
+has recorded, so a migration merged with an older timestamp is skipped for good.
+After migrating, every workspace is checked migration by migration against the
+journal; a gap is reported as a warning (never a failure). --apply-skipped
+applies the missing migrations, each in its own transaction.
+
 Examples:
   pnpm migrate                    # Run migrations on all workspace databases
   pnpm migrate:dry-run            # List all workspaces and their databases
   pnpm migrate -- --only org_123  # Migrate only workspace org_123
   pnpm migrate -- --verbose       # Run with detailed output
+  pnpm migrate -- --check-journal # Report skipped migrations, change nothing
+  pnpm migrate -- --apply-skipped # Migrate, then apply skipped migrations
 `);
 }
 
@@ -103,6 +127,10 @@ interface MigrationResult {
   workspaceName: string;
   success: boolean;
   error?: string;
+  /** Journal migrations still not applied after this run (one line), when any. */
+  journalGap?: string;
+  /** Skipped migrations this run applied (with --apply-skipped). */
+  appliedSkipped?: string[];
 }
 
 /** A workspace left out of the run because a database move owns its database right now. */
@@ -182,11 +210,20 @@ async function getWorkspaces(
   return { workspaces: resolved, skipped: skipped.map((w) => ({ id: w.id, name: w.name })) };
 }
 
+interface MigrateWorkspaceOptions {
+  verbose: boolean;
+  journal: TenantJournal;
+  applySkipped: boolean;
+  /** Run nothing: only report the journal gap. */
+  checkOnly: boolean;
+}
+
 async function migrateWorkspace(
   workspace: WorkspaceInfo,
   migrationsFolder: string,
-  verbose: boolean
+  options: MigrateWorkspaceOptions,
 ): Promise<MigrationResult> {
+  const { verbose, journal } = options;
   let client: postgres.Sql | null = null;
 
   try {
@@ -200,18 +237,30 @@ async function migrateWorkspace(
       onnotice: verbose ? (msg) => console.log(`  Notice: ${sanitizeMessage(msg.message)}`) : () => {},
     });
 
-    const db = drizzle(client);
+    if (!options.checkOnly) {
+      const db = drizzle(client);
 
-    if (verbose) {
-      console.log(`  Running migrations from: ${migrationsFolder}`);
+      if (verbose) {
+        console.log(`  Running migrations from: ${migrationsFolder}`);
+      }
+
+      await migrate(db, { migrationsFolder, migrationsSchema: 'public' });
     }
 
-    await migrate(db, { migrationsFolder, migrationsSchema: 'public' });
+    // drizzle only applies migrations newer than the newest recorded one: look for any it skipped.
+    let match = await checkJournal(client, journal);
+    let appliedSkipped: string[] | undefined;
+    if (options.applySkipped && !options.checkOnly && match.missing.length > 0) {
+      appliedSkipped = await applySkippedMigrations(client, journal, match);
+      match = await checkJournal(client, journal);
+    }
 
     return {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
       success: true,
+      ...(isAtJournalLevel(match) ? {} : { journalGap: describeJournalGap(match) }),
+      ...(appliedSkipped ? { appliedSkipped } : {}),
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -282,23 +331,27 @@ function printWorkspaceList(workspaceList: WorkspaceInfo[]): void {
 async function runMigrations(
   workspaceList: WorkspaceInfo[],
   migrationsFolder: string,
-  verbose: boolean
+  options: MigrateWorkspaceOptions,
 ): Promise<{ results: MigrationResult[]; labels: Map<string, string> }> {
   const results: MigrationResult[] = [];
   const labels = new Map<string, string>();
   let current = 0;
+  const verb = options.checkOnly ? 'Checking' : 'Migrating';
 
   for (const workspace of workspaceList) {
     current++;
     const label = workspaceLabel(current, workspace.name, workspace.id);
     labels.set(workspace.id, label);
-    console.log(`[${current}/${workspaceList.length}] Migrating: ${label}`);
+    console.log(`[${current}/${workspaceList.length}] ${verb}: ${label}`);
 
-    const result = await migrateWorkspace(workspace, migrationsFolder, verbose);
+    const result = await migrateWorkspace(workspace, migrationsFolder, options);
     results.push(result);
 
     if (result.success) {
-      console.log(`  Status: SUCCESS\n`);
+      console.log(`  Status: SUCCESS`);
+      if (result.appliedSkipped?.length) console.log(`  Applied skipped: ${result.appliedSkipped.join(', ')}`);
+      if (result.journalGap) console.log(`  Journal: ${result.journalGap}`);
+      console.log('');
     } else {
       console.log(`  Status: FAILED`);
       console.log(`  Error:  ${result.error}\n`);
@@ -308,7 +361,27 @@ async function runMigrations(
   return { results, labels };
 }
 
-function printSummary(results: MigrationResult[], labels: Map<string, string>, skippedCount: number): void {
+/** Workspaces still missing journal migrations: a warning (a GitHub annotation in CI), never a failure. */
+function printJournalGaps(results: MigrationResult[], labels: Map<string, string>, applySkipped: boolean): void {
+  const gaps = results.filter((r) => r.success && r.journalGap);
+  if (gaps.length === 0) return;
+  console.log(`\nWorkspaces missing journal migrations (${gaps.length}):`);
+  for (const r of gaps) console.log(`  - ${labels.get(r.workspaceId) ?? r.workspaceId}: ${r.journalGap}`);
+  if (!applySkipped) console.log('  Run with --apply-skipped to apply the missing migrations.');
+  if (process.env.GITHUB_ACTIONS) {
+    console.log(
+      `::warning title=Tenant migrations skipped::${gaps.length} workspace(s) miss journal migrations ` +
+        `drizzle skipped (merged with an older timestamp). See the run log; apply with --apply-skipped.`,
+    );
+  }
+}
+
+function printSummary(
+  results: MigrationResult[],
+  labels: Map<string, string>,
+  skippedCount: number,
+  applySkipped: boolean,
+): void {
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
@@ -320,6 +393,9 @@ function printSummary(results: MigrationResult[], labels: Map<string, string>, s
   console.log(`  Failed:     ${failed.length}`);
   // Not part of Total and never a failure: the next run migrates these workspaces.
   console.log(`  Skipped:    ${skippedCount} (database move in progress)`);
+  console.log(`  Journal gaps: ${results.filter((r) => r.success && r.journalGap).length}`);
+
+  printJournalGaps(results, labels, applySkipped);
 
   if (failed.length > 0) {
     console.log('\nFailed workspaces:');
@@ -357,10 +433,14 @@ async function main(): Promise<void> {
   const migrationsFolder = path.resolve(__dirname, '../../../../packages/core/db/drizzle/tenant-migrations');
   console.log(`Migrations folder: ${migrationsFolder}`);
 
+  const journal = loadTenantJournal(migrationsFolder);
+
   if (options.dryRun) {
     console.log('Mode: DRY RUN (no migrations will be executed)\n');
+  } else if (options.checkJournal) {
+    console.log('Mode: CHECK JOURNAL (connects to every tenant, changes nothing)\n');
   } else {
-    console.log('Mode: LIVE (migrations will be applied)\n');
+    console.log(`Mode: LIVE (migrations will be applied${options.applySkipped ? ', skipped ones too' : ''})\n`);
   }
 
   if (redactWorkspaces) {
@@ -400,12 +480,17 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Run migrations
-    console.log('Starting migrations...\n');
-    const { results, labels } = await runMigrations(workspaceList, migrationsFolder, options.verbose);
+    // Run migrations (or, with --check-journal, only look)
+    console.log(options.checkJournal ? 'Checking journals...\n' : 'Starting migrations...\n');
+    const { results, labels } = await runMigrations(workspaceList, migrationsFolder, {
+      verbose: options.verbose,
+      journal,
+      applySkipped: options.applySkipped,
+      checkOnly: options.checkJournal,
+    });
 
     // Print summary (exits with code 1 when any workspace failed)
-    printSummary(results, labels, skipped.length);
+    printSummary(results, labels, skipped.length, options.applySkipped);
   } finally {
     await masterClient.end();
   }

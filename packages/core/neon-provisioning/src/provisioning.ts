@@ -965,9 +965,29 @@ export class DatabaseProvisioningService {
   ): Promise<void> {
     await this.releaseShardCapacity(masterDb, shard.id);
     if (shard.mainBranchId) {
-      await this.neonClient.deleteDatabase(shard.neonProjectId, shard.mainBranchId, dbName).catch(() => {});
-      await this.neonClient.deleteRole(shard.neonProjectId, shard.mainBranchId, roleName).catch(() => {});
+      await this.dropDatabaseAndRoleBestEffort(shard.neonProjectId, shard.mainBranchId, dbName, roleName);
     }
+  }
+
+  /**
+   * Drop a database, then its owner role, ignoring failures. The role owns the
+   * database until Neon has finished deleting it, so the role is only deleted
+   * after the delete's operations finish (otherwise it fails with
+   * ROLE_OWNS_OBJECTS and the role is left behind).
+   */
+  private async dropDatabaseAndRoleBestEffort(
+    neonProjectId: string,
+    branchId: string,
+    databaseName: string,
+    roleName: string,
+  ): Promise<void> {
+    try {
+      const operations = await this.neonClient.deleteDatabase(neonProjectId, branchId, databaseName);
+      await this.neonClient.waitForOperations(neonProjectId, operations);
+    } catch {
+      // best-effort: a database that is already gone, or a delete still running, leaves the role for later
+    }
+    await this.neonClient.deleteRole(neonProjectId, branchId, roleName).catch(() => {});
   }
 
   /**
@@ -1316,8 +1336,7 @@ export class DatabaseProvisioningService {
     } catch (error) {
       console.error('[Provisioning] Failed to create warm shared slot resources:', error);
       if (shard.mainBranchId) {
-        await this.neonClient.deleteDatabase(shard.neonProjectId, shard.mainBranchId, dbName).catch(() => {});
-        await this.neonClient.deleteRole(shard.neonProjectId, shard.mainBranchId, roleName).catch(() => {});
+        await this.dropDatabaseAndRoleBestEffort(shard.neonProjectId, shard.mainBranchId, dbName, roleName);
       }
       return null;
     }
@@ -1623,8 +1642,7 @@ export class DatabaseProvisioningService {
           console.warn('[Provisioning] Failed to release warm shared slot resources:', err);
         }
       }
-      await this.neonClient.deleteDatabase(res.neonProjectId, res.neonBranchId, res.databaseName).catch(() => {});
-      await this.neonClient.deleteRole(res.neonProjectId, res.neonBranchId, res.roleName).catch(() => {});
+      await this.dropDatabaseAndRoleBestEffort(res.neonProjectId, res.neonBranchId, res.databaseName, res.roleName);
     } else {
       await this.neonClient.deleteProject(res.neonProjectId).catch(() => {});
     }
@@ -1919,10 +1937,14 @@ export class DatabaseProvisioningService {
       let databaseDropped = true;
       if (target.databaseName && target.neonBranchId) {
         const { databaseName, neonBranchId } = target;
-        databaseDropped = await this.deleteOnNeon(
-          () => this.neonClient.deleteDatabase(target.neonProjectId, neonBranchId, databaseName),
-          ignoreMissing,
-        );
+        databaseDropped = await this.deleteOnNeon(async () => {
+          // Neon can accept a delete of a database it already dropped, and a retried release must never count
+          // the slot back twice: only a database Neon still has is deleted (a missing one is a 404 here).
+          await this.neonClient.getDatabase(target.neonProjectId, neonBranchId, databaseName);
+          const operations = await this.neonClient.deleteDatabase(target.neonProjectId, neonBranchId, databaseName);
+          // The role owns the database until the delete has finished; deleting it before fails (ROLE_OWNS_OBJECTS).
+          await this.neonClient.waitForOperations(target.neonProjectId, operations);
+        }, ignoreMissing);
       }
       if (databaseDropped) {
         await this.decrementShardCount(masterDb, target.sharedProjectId);

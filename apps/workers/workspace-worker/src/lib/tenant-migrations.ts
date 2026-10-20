@@ -7,6 +7,7 @@
 
 import { sql as rawSql } from 'drizzle-orm';
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import { matchTenantJournal, type TenantJournalEntry } from '@weldsuite/db/lib/tenant-journal';
 import { MIGRATION_JOURNAL, MIGRATION_SQL, MIGRATION_HASHES } from '../generated/tenant-migrations';
 
 /** Latest bundled migration tag — the pool's target schema version. */
@@ -48,16 +49,25 @@ export async function applyTenantMigrations(
       tag text
     )
   `));
+  // drizzle's own migrator creates the table without it.
+  await db.execute(rawSql.raw(`ALTER TABLE "__drizzle_migrations" ADD COLUMN IF NOT EXISTS tag text`));
 
-  // Check which migrations are already applied (idempotent on retry)
-  const applied = await db.execute(rawSql.raw(
-    `SELECT tag FROM "__drizzle_migrations" WHERE tag IS NOT NULL`
+  // Which migrations are already applied (idempotent on retry). A row may name its migration by tag (written
+  // here), by hash or only by created_at (drizzle's migrator), so every row is matched against the journal; a
+  // migration already recorded is never applied or recorded again.
+  const recorded = await db.execute(rawSql.raw(
+    `SELECT tag, hash, created_at::text AS created_at FROM "__drizzle_migrations"`
   ));
-  const appliedTags = new Set(
-    (applied.rows as Array<{ tag: string }>).map((r) => r.tag)
+  const match = matchTenantJournal(
+    (recorded.rows as Array<{ tag: string | null; hash: string | null; created_at: string | null }>).map((r) => ({
+      tag: r.tag,
+      hash: r.hash,
+      createdAt: r.created_at,
+    })),
+    bundledJournalEntries(),
   );
-
-  const pending = MIGRATION_JOURNAL.filter((m) => !appliedTags.has(m.tag));
+  const missing = new Set(match.missing.map((entry) => entry.tag));
+  const pending = MIGRATION_JOURNAL.filter((m) => missing.has(m.tag));
 
   if (pending.length === 0) {
     return { applied: 0, skipped: MIGRATION_JOURNAL.length, remaining: 0 };
@@ -78,8 +88,12 @@ export async function applyTenantMigrations(
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
-    for (const stmt of statements) {
-      await db.execute(rawSql.raw(stmt));
+    for (const [index, stmt] of statements.entries()) {
+      try {
+        await db.execute(rawSql.raw(stmt));
+      } catch (error) {
+        throw new TenantMigrationError(m.tag, index + 1, statements.length, error);
+      }
     }
 
     const hash = MIGRATION_HASHES[m.tag];
@@ -91,5 +105,35 @@ export async function applyTenantMigrations(
     appliedCount++;
   }
 
-  return { applied: appliedCount, skipped: appliedTags.size, remaining: pending.length - appliedCount };
+  return { applied: appliedCount, skipped: match.applied.size, remaining: pending.length - appliedCount };
+}
+
+/** The bundled journal as `matchTenantJournal` takes it. */
+export function bundledJournalEntries(): TenantJournalEntry[] {
+  return MIGRATION_JOURNAL.map((m) => ({ tag: m.tag, when: m.when, hash: MIGRATION_HASHES[m.tag] ?? '' }));
+}
+
+/** SQLSTATE of a driver error, when it has one. */
+function sqlStateOf(error: unknown): string | null {
+  const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && code.length > 0 ? code : null;
+}
+
+/**
+ * A statement of a tenant migration failed. Names the migration and the
+ * statement, with the SQLSTATE only: a driver message can quote values.
+ */
+export class TenantMigrationError extends Error {
+  constructor(
+    readonly tag: string,
+    readonly statement: number,
+    readonly statements: number,
+    cause: unknown,
+  ) {
+    const state = sqlStateOf(cause);
+    super(`Tenant migration ${tag} failed at statement ${statement} of ${statements}${state ? ` (SQLSTATE ${state})` : ''}`, {
+      cause,
+    });
+    this.name = 'TenantMigrationError';
+  }
 }
