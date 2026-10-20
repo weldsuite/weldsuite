@@ -608,7 +608,8 @@ export async function disconnectConnection(ctx: FeedContext, connectionId: strin
     .update(bankAccounts)
     .set({ feedStatus: 'disconnected', updatedAt: timestamp })
     .where(and(eq(bankAccounts.feedConnectionId, row.id), isNull(bankAccounts.deletedAt)));
-  await ctx.index.setActive(row.id, false, null);
+  // Nothing arrives for it any more, and without an index row it no longer counts toward the plan's connections.
+  await ctx.index.remove(row.id);
   return connectionViewById(ctx, row.id);
 }
 

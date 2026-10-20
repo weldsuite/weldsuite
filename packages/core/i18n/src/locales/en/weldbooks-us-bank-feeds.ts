@@ -166,6 +166,19 @@ export const weldbooksUsBankFeeds = {
     reconnected: '{bank} reconnected.',
     accountsAdded: 'Accounts updated for {bank}.',
     syncStarted: 'First sync started. New transactions show up in a moment.',
+    /** Confirming a connection above the ones the plan includes. */
+    extra: {
+      title: 'Add a paid bank connection?',
+      included: {
+        one: 'Your plan includes {count} bank connection, and it is in use.',
+        other: 'Your plan includes {count} bank connections, and all of them are in use.',
+      },
+      price:
+        'Each extra bank connection costs {price} per month on top of your plan. One connection is one bank login, with every account you have at that bank.',
+      billing: 'Billing starts today. Disconnect the bank to stop paying for it.',
+      confirm: 'Add for {price}/month',
+      cancel: 'Cancel',
+    },
   },
 
   mapping: {
@@ -286,5 +299,12 @@ export const weldbooksUsBankFeeds = {
     stripeNotConfigured: 'Stripe bank connections are not set up in this environment.',
     providerWindow: 'The bank connection window reported a problem.',
     detail: 'Reported: {detail}',
+    limitReached: 'The bank connections your plan includes are all in use.',
+    billingAdminRequired:
+      'Only workspace admins can add a bank connection that is billed on top of your plan. Ask an admin to connect this bank.',
+    paymentMethodRequired: 'Add a payment method in your billing settings before adding a paid bank connection.',
+    paymentFailed: 'The payment for the extra bank connection did not go through. Check your payment method and try again.',
+    billingUnavailable: 'Billing could not be checked right now. Try again in a few minutes.',
+    openBilling: 'Open billing',
   },
 };

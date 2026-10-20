@@ -20,6 +20,7 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 vi.mock('@tanstack/react-router', () => ({
+  useRouter: () => ({ history: { push: vi.fn() } }),
   Link: ({ to, children, ...rest }: { to: string; children: ReactNode }) => (
     <a href={to} {...rest}>
       {children}

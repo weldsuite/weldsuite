@@ -167,6 +167,19 @@ export const weldbooksUsBankFeeds = {
     reconnected: '{bank} is opnieuw gekoppeld.',
     accountsAdded: 'Rekeningen bijgewerkt voor {bank}.',
     syncStarted: 'Eerste synchronisatie gestart. Nieuwe transacties verschijnen zo.',
+    /** Een koppeling bevestigen boven de koppelingen die het abonnement bevat. */
+    extra: {
+      title: 'Betaalde bankkoppeling toevoegen?',
+      included: {
+        one: 'Je abonnement bevat {count} bankkoppeling, en die is in gebruik.',
+        other: 'Je abonnement bevat {count} bankkoppelingen, en die zijn allemaal in gebruik.',
+      },
+      price:
+        'Elke extra bankkoppeling kost {price} per maand bovenop je abonnement. Eén koppeling is één login bij een bank, met alle rekeningen die je bij die bank hebt.',
+      billing: 'De kosten gaan vandaag in. Ontkoppel de bank om er niet meer voor te betalen.',
+      confirm: 'Toevoegen voor {price}/maand',
+      cancel: 'Annuleren',
+    },
   },
 
   mapping: {
@@ -289,5 +302,12 @@ export const weldbooksUsBankFeeds = {
     stripeNotConfigured: 'Stripe-bankkoppelingen zijn in deze omgeving niet ingesteld.',
     providerWindow: 'Het koppelvenster van de bank meldde een probleem.',
     detail: 'Gemeld: {detail}',
+    limitReached: 'De bankkoppelingen in je abonnement zijn allemaal in gebruik.',
+    billingAdminRequired:
+      'Alleen beheerders van de workspace kunnen een bankkoppeling toevoegen die bovenop het abonnement wordt gefactureerd. Vraag een beheerder om deze bank te koppelen.',
+    paymentMethodRequired: 'Voeg eerst een betaalmethode toe in je factuurinstellingen voordat je een betaalde bankkoppeling toevoegt.',
+    paymentFailed: 'De betaling voor de extra bankkoppeling is niet gelukt. Controleer je betaalmethode en probeer het opnieuw.',
+    billingUnavailable: 'De facturering kon nu niet worden gecontroleerd. Probeer het over een paar minuten opnieuw.',
+    openBilling: 'Naar facturering',
   },
 };

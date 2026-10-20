@@ -10,18 +10,25 @@
  * and uses `useBankLinkOutcome` for what follows.
  */
 import { useCallback, useState, type ReactNode } from 'react';
+import { useRouter } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   useCompleteBankFeedLink,
   useCreateBankFeedLinkSession,
+  useFetchBankConnectionBilling,
   useSyncBankFeed,
 } from '@/hooks/queries/use-weldbooks-bank-feeds-queries';
-import type {
-  BankFeedConnection,
-  BankFeedLinkMode,
-  BankFeedProviderOption,
-  BankFeedProviders,
+import {
+  BANK_CONNECTION_LIMIT_REACHED,
+  BANK_CONNECTION_PAYMENT_METHOD_REQUIRED,
+  isBankFeedRequestError,
+  type BankConnectionBillingSummary,
+  type BankFeedConnection,
+  type BankFeedLinkMode,
+  type BankFeedProviderOption,
+  type BankFeedProviders,
 } from '@/lib/api/domains/weldbooks-bank-feeds';
 import { AccountMappingDialog } from './account-mapping-dialog';
 import { describeFeedError, feedErrorText } from './describe-error';
@@ -40,7 +47,26 @@ export interface ConnectRequest {
   /** Providers that need the bank chosen up front (Enable Banking). */
   institution?: { id?: string; name: string; country: string };
   psuType?: 'business' | 'personal';
+  /** The user agreed to pay for a connection above the plan's included ones. */
+  acceptExtraCharge?: boolean;
 }
+
+/** A new connection waiting for the user to agree to its monthly price. */
+interface ExtraChargeOffer {
+  request: ConnectRequest;
+  billing: BankConnectionBillingSummary;
+}
+
+/** `500, 'eur'` -> "€5.00" in the user's language. */
+export function formatMonthlyPrice(cents: number, currency: string, language: string): string {
+  try {
+    return new Intl.NumberFormat(language, { style: 'currency', currency: currency.toUpperCase() }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  }
+}
+
+const BILLING_SETTINGS_PATH = '/settings/billing';
 
 /**
  * The request that signs an existing connection in again (`reauth`) or adds
@@ -112,12 +138,15 @@ export function useBankFeedConnect(
   /** Render this once, anywhere: it holds the account mapping dialog. */
   dialogs: ReactNode;
 } {
-  const { t, format } = useFeedTexts();
+  const { t, format, plural, language } = useFeedTexts();
+  const router = useRouter();
   const createSession = useCreateBankFeedLinkSession();
   const completeLink = useCompleteBankFeedLink();
+  const fetchBilling = useFetchBankConnectionBilling();
   const outcome = useBankLinkOutcome();
   const [phase, setPhase] = useState<ConnectPhase>('idle');
   const [mapping, setMapping] = useState<BankFeedConnection | null>(null);
+  const [offer, setOffer] = useState<ExtraChargeOffer | null>(null);
   const { mutateAsync: createAsync } = createSession;
   const { mutateAsync: completeAsync } = completeLink;
   const { defaultBankAccountId, returnTo: returnToOption, onLinked } = options;
@@ -139,6 +168,7 @@ export function useBankFeedConnect(
           redirectUrl,
           institution: request.institution,
           psuType: request.psuType,
+          acceptExtraCharge: request.acceptExtraCharge,
         });
 
         setPhase('launching');
@@ -167,22 +197,67 @@ export function useBankFeedConnect(
         onLinked?.(done.connection);
       } catch (err) {
         setPhase('idle');
-        toast.error(feedErrorText(describeFeedError(err, t, 'link'), t, format));
+        const code = isBankFeedRequestError(err) ? err.code : null;
+        // Over what the plan includes: say what it costs and let the user agree first.
+        if (code === BANK_CONNECTION_LIMIT_REACHED && mode === 'create' && !request.acceptExtraCharge) {
+          const billing = await fetchBilling().catch(() => null);
+          if (billing) {
+            setOffer({ request, billing });
+            return;
+          }
+        }
+        const message = feedErrorText(describeFeedError(err, t, 'link'), t, format);
+        if (code === BANK_CONNECTION_PAYMENT_METHOD_REQUIRED) {
+          toast.error(message, {
+            action: { label: t.errors.openBilling, onClick: () => router.history.push(BILLING_SETTINGS_PATH) },
+          });
+          return;
+        }
+        toast.error(message);
       }
     },
-    [phase, returnToOption, defaultBankAccountId, createAsync, completeAsync, outcome, onLinked, t, format],
+    [phase, returnToOption, defaultBankAccountId, createAsync, completeAsync, fetchBilling, outcome, onLinked, router, t, format],
   );
 
-  const dialogs = mapping ? (
-    <AccountMappingDialog
+  const offerPrice = offer ? formatMonthlyPrice(offer.billing.unitAmountCents, offer.billing.currency, language) : '';
+  const offerDialog = offer ? (
+    <ConfirmDialog
       open
       onOpenChange={(open) => {
-        if (!open) setMapping(null);
+        if (!open) setOffer(null);
       }}
-      connection={mapping}
-      defaultBankAccountId={defaultBankAccountId}
+      title={t.connect.extra.title}
+      description={
+        <>
+          {plural(offer.billing.included, t.connect.extra.included)} {format(t.connect.extra.price, { price: offerPrice })}{' '}
+          {t.connect.extra.billing}
+        </>
+      }
+      confirmLabel={format(t.connect.extra.confirm, { price: offerPrice })}
+      cancelLabel={t.connect.extra.cancel}
+      onConfirm={() => {
+        const { request } = offer;
+        setOffer(null);
+        void connect({ ...request, acceptExtraCharge: true });
+      }}
     />
   ) : null;
+
+  const dialogs = (
+    <>
+      {mapping ? (
+        <AccountMappingDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setMapping(null);
+          }}
+          connection={mapping}
+          defaultBankAccountId={defaultBankAccountId}
+        />
+      ) : null}
+      {offerDialog}
+    </>
+  );
 
   return { connect, phase, busy: phase !== 'idle', dialogs };
 }
