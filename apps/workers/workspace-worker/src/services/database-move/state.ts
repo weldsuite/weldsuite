@@ -240,7 +240,8 @@ export interface SwitchResult {
 
 /**
  * The switch: one `db.batch` (one transaction) that swaps the workspace to the
- * target with a compare-and-set on the source coordinates, and marks the move
+ * target with a compare-and-set on the source coordinates and on the move still
+ * being `switching`, and marks the move
  * `completed` only if that swap took effect. The second statement is guarded by
  * an EXISTS on the workspace now carrying the target coordinates, so a lost
  * compare-and-set leaves the move row untouched instead of recording a switch
@@ -286,6 +287,14 @@ export async function switchWorkspace(
           eq(workspaces.id, move.workspaceId),
           eq(workspaces.neonProjectId, move.sourceNeonProjectId),
           eq(workspaces.neonDatabaseName, move.sourceDatabaseName),
+          // Only while the move is still switching: a Workflow retry of this
+          // step after a forced recovery (source unlocked, target dropped, row
+          // failed) must not point the workspace at the dropped target.
+          sql`exists (
+            select 1 from ${workspaceDatabaseMoves}
+            where ${workspaceDatabaseMoves.id} = ${move.id}
+              and ${workspaceDatabaseMoves.status} = 'switching'
+          )`,
         ),
       )
       .returning({ id: workspaces.id }),
