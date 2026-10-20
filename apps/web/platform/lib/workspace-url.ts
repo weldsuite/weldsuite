@@ -58,6 +58,38 @@ export function sameOriginPath(path: string, origin: string): string {
   }
 }
 
+/**
+ * Top-level segments of pages that are not inside a workspace: sign-in,
+ * onboarding and invites (they pick or create one), the vendor W-9 form and
+ * the mobile call room (a token in the link is the credential), the `/preview`
+ * mirror, the `/welcome` redirect, and `/w` itself.
+ */
+const NON_WORKSPACE_SEGMENTS: ReadonlySet<string> = new Set([
+  'auth',
+  'onboarding',
+  'invite',
+  'w9',
+  'w',
+  'preview',
+  'welcome',
+  'call-room',
+]);
+
+/** Whether an in-app pathname belongs to a workspace, so a link to it names one. */
+export function isWorkspaceScopedPath(pathname: string): boolean {
+  const first = pathname.split('/', 2)[1] ?? '';
+  return !NON_WORKSPACE_SEGMENTS.has(first);
+}
+
+/**
+ * The in-app path of a browser pathname: `/w/acme/weldcrm` → `/weldcrm`.
+ * For code that reads `window.location.pathname` instead of the router's
+ * location; other pathnames are returned as they are.
+ */
+export function stripWorkspacePrefix(pathname: string): string {
+  return parseWorkspacePath(pathname)?.rest ?? pathname;
+}
+
 /** `/w/{ref}{path}`: a link to `path` inside the given workspace. */
 export function workspacePath(ref: string, path = '/'): string {
   const inner = path.startsWith('/') ? path : '/' + path;

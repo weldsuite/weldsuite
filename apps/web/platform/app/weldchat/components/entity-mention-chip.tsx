@@ -26,6 +26,7 @@ import {
 import type { EntitySheetType } from '@/components/entity-sheet/types';
 import { useEntityTitle } from '../hooks/use-entity-title';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 /**
  * Per-type color palette. Keeps the same design as user mentions (blue) but
@@ -91,7 +92,7 @@ export function EntityMentionChip({ type, id, fallbackLabel }: Readonly<EntityMe
         // to opening the in-app sheet instead of a blank new tab.
         const href = pageHrefForEntity(type, id);
         if (href) {
-          window.open(href, '_blank', 'noopener');
+          window.open(toPublicPath(href), '_blank', 'noopener');
           return;
         }
       }

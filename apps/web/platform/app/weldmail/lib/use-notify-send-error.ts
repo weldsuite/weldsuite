@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
 import { describeSendError, type SendFailure } from './send-error';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 /** The app store page where an owner or admin asks for WeldReach access. */
 export const WELDREACH_ACCESS_PATH = '/appstore/weldreach';
@@ -41,7 +42,7 @@ export function useNotifySendError() {
             ? {
                 label: sending.weldreach.action,
                 // A new tab, so the message being written stays open.
-                onClick: () => window.open(WELDREACH_ACCESS_PATH, '_blank', 'noopener'),
+                onClick: () => window.open(toPublicPath(WELDREACH_ACCESS_PATH), '_blank', 'noopener'),
               }
             : undefined,
       });

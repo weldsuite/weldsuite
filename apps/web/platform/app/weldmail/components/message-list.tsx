@@ -68,6 +68,7 @@ import {
 } from '@/hooks/queries/use-mail-queries';
 import { isSystemLabel } from '../lib/label-config';
 import { useI18n } from '@/lib/i18n/provider';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 type EmailMessage = MailTypes.Email;
 
@@ -850,7 +851,7 @@ export function MessageList({
           {t.mail.messageList.findEmailsFromSender}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          window.open(threadMessageUrl, '_blank');
+          window.open(toPublicPath(threadMessageUrl), '_blank');
         }}>
           <ExternalLink className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.openInNewWindow}
@@ -1043,7 +1044,7 @@ export function MessageList({
           {t.mail.messageList.findEmailsFromSender}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          window.open(itemMessageUrl, '_blank');
+          window.open(toPublicPath(itemMessageUrl), '_blank');
         }}>
           <ExternalLink className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.openInNewWindow}

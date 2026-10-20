@@ -36,6 +36,7 @@ import { useFetchVoiceToken } from '@/hooks/queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useOrganization } from '@clerk/clerk-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 function formatPhoneDisplay(number: string): string {
   if (!number) return '';
@@ -1028,7 +1029,7 @@ export function GlobalCallPanel() {
 
   const handleConfigureNumber = () => {
     setIsDialerOpen(false);
-    window.location.href = '/settings/apps/phone-numbers';
+    window.location.href = toPublicPath('/settings/apps/phone-numbers');
   };
 
   if (!mounted || (!isDialerOpen && !callState)) return null;

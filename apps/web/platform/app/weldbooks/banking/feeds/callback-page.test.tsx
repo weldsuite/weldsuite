@@ -14,8 +14,8 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
-const push = vi.hoisted(() => vi.fn());
-vi.mock('@tanstack/react-router', () => ({ useRouter: () => ({ history: { push } }) }));
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock('@tanstack/react-router', () => ({ useRouter: () => ({ navigate }) }));
 
 import BankFeedsCallbackPage from './callback-page';
 import { readPendingLink, savePendingLink } from './launchers';
@@ -43,7 +43,7 @@ beforeEach(() => {
   api.get.mockReset().mockResolvedValue({ data: [makeBankAccount()] });
   api.post.mockReset().mockResolvedValue(completeResponse());
   toast.success.mockReset();
-  push.mockReset();
+  navigate.mockReset();
   window.sessionStorage.clear();
 });
 
@@ -99,7 +99,7 @@ describe('BankFeedsCallbackPage', () => {
       connectionId: undefined,
     });
     expect(await screen.findByRole('dialog', { name: 'Link your ING accounts' })).toBeInTheDocument();
-    expect(push).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('returns to the page the link started from when nothing needs mapping (a reconnect)', async () => {
@@ -116,7 +116,7 @@ describe('BankFeedsCallbackPage', () => {
 
     renderWithProviders(<BankFeedsCallbackPage />);
 
-    await waitFor(() => expect(push).toHaveBeenCalledWith('/weldbooks/banking/feeds'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ href: '/weldbooks/banking/feeds' }));
     expect(api.post).toHaveBeenCalledWith('/bank-connections/complete', {
       provider: 'ponto',
       payload: { code: 'again', redirectUrl: REDIRECT_URL },

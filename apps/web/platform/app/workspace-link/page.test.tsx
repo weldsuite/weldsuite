@@ -14,7 +14,7 @@ const clerk = vi.hoisted(() => ({
   setActive: vi.fn(),
 }));
 
-const historyReplace = vi.hoisted(() => vi.fn());
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock('@clerk/clerk-react', () => ({
   useAuth: () => ({ isLoaded: true, isSignedIn: clerk.isSignedIn, orgId: clerk.orgId }),
@@ -32,7 +32,7 @@ vi.mock('@clerk/clerk-react', () => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-  useRouter: () => ({ history: { replace: historyReplace } }),
+  useRouter: () => ({ navigate }),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -77,7 +77,7 @@ beforeEach(() => {
   clerk.hasNextPage = false;
   clerk.fetchNext.mockReset();
   clerk.setActive.mockReset().mockResolvedValue(undefined);
-  historyReplace.mockReset();
+  navigate.mockReset();
   sessionStorage.clear();
   localStorage.clear();
 });
@@ -91,7 +91,7 @@ describe('WorkspaceLinkPage', () => {
     openLink('/w/acme/weldcrm/customers?tab=notes#n1');
     await renderPage();
 
-    expect(historyReplace).toHaveBeenCalledWith('/weldcrm/customers?tab=notes#n1');
+    expect(navigate).toHaveBeenCalledWith({ href: '/weldcrm/customers?tab=notes#n1', replace: true });
     expect(clerk.setActive).not.toHaveBeenCalled();
   });
 
@@ -137,7 +137,7 @@ describe('WorkspaceLinkPage', () => {
     openLink('/w/acme//evil.example/path');
     await renderPage();
 
-    expect(historyReplace).toHaveBeenCalledWith('/');
+    expect(navigate).toHaveBeenCalledWith({ href: '/', replace: true });
   });
 
   it('sends a signed-out visitor to sign in and back to the link', async () => {
