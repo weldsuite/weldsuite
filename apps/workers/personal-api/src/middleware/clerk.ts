@@ -30,37 +30,49 @@ type ClerkJwtPayload = {
 
 /**
  * Browser origins that sign personal accounts in and call this API: the
- * consumer WeldCalendar web app (apps/web/weldcalendar) and the local dev
- * servers of WeldMail web (3200) and WeldCalendar web (3201). personal-api is
- * outside @weldsuite/worker-kit, so this is its own list rather than the
- * kit's FIRST_PARTY_ORIGINS (the platform, developer and partner portals do
- * not call personal-api).
+ * consumer WeldMail web (apps/web/weldmail) and WeldCalendar web
+ * (apps/web/weldcalendar) apps, and their local dev servers (3200, 3201).
+ * personal-api is outside @weldsuite/worker-kit, so this is its own list
+ * rather than the kit's FIRST_PARTY_ORIGINS (the platform, developer and
+ * partner portals do not call personal-api).
  *
- * The consumer WeldMail web app's custom host is not recorded in the repo (its
- * API is api.weldmail.com, the app ships to the Pages projects `weldmail-web`
- * and `weldmail-web-test`), so it is matched by isWeldmailWebOrigin below:
- * https on weldmail.com or one subdomain label of it, or a deployment of one
- * of those two Pages projects. All of these hosts are WeldSuite's own (users
- * claim addresses on weldmail.com, never subdomains). Anything else goes in
+ * Exact custom domains are listed here; the Pages projects (and their branch
+ * previews) are matched by isPersonalWebOrigin below. Keep both in step with
+ * the projects' domains (`wrangler pages project list`). Anything else goes in
  * the `CLERK_AUTHORIZED_PARTIES` worker var (comma-separated origins).
  */
 export const PERSONAL_AUTHORIZED_PARTIES = [
+  // WeldMail web (Pages projects weldmail-web / weldmail-web-test)
+  'https://mail.weldmail.com',
+  'https://weldmail.weldsuite.org',
+  'https://weldmail-test.weldsuite.org',
+  // WeldCalendar web, once its custom domains are attached (README)
   'https://weldcalendar.weldsuite.org',
   'https://weldcalendar-test.weldsuite.org',
   'http://localhost:3200',
   'http://localhost:3201',
 ] as const;
 
-/** Hosts WeldMail web runs on; one extra subdomain label is allowed on each. */
-const WELDMAIL_WEB_HOSTS = ['weldmail.com', 'weldmail-web.pages.dev', 'weldmail-web-test.pages.dev'] as const;
+/**
+ * Hosts the consumer web apps are served from; one extra subdomain label is
+ * allowed on each (Pages branch previews, other weldmail.com hosts). All are
+ * WeldSuite's own: users claim addresses on weldmail.com, never subdomains.
+ */
+const PERSONAL_WEB_HOSTS = [
+  'weldmail.com',
+  'weldmail-web.pages.dev',
+  'weldmail-web-test.pages.dev',
+  'weldcalendar-web.pages.dev',
+  'weldcalendar-web-test.pages.dev',
+] as const;
 const HTTPS_HOST_ORIGIN = /^https:\/\/([a-z0-9.-]+)$/;
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
-/** https on a WeldMail web host or one subdomain label of it (no port, no path). */
-function isWeldmailWebOrigin(origin: string): boolean {
+/** https on a consumer web host or one subdomain label of it (no port, no path). */
+function isPersonalWebOrigin(origin: string): boolean {
   const host = HTTPS_HOST_ORIGIN.exec(origin)?.[1];
   if (!host) return false;
-  return WELDMAIL_WEB_HOSTS.some((base) => {
+  return PERSONAL_WEB_HOSTS.some((base) => {
     if (host === base) return true;
     if (!host.endsWith(`.${base}`)) return false;
     return DNS_LABEL.test(host.slice(0, -(base.length + 1)));
@@ -90,7 +102,7 @@ export function isAuthorizedParty(azp: unknown, extraOrigins: readonly string[] 
   if (typeof azp !== 'string' || azp === '') return false;
   return (
     (PERSONAL_AUTHORIZED_PARTIES as readonly string[]).includes(azp) ||
-    isWeldmailWebOrigin(azp) ||
+    isPersonalWebOrigin(azp) ||
     extraOrigins.includes(azp)
   );
 }

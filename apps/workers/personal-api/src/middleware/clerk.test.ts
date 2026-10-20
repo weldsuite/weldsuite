@@ -82,10 +82,14 @@ describe('personal-api clerkMiddleware', () => {
 
     it.each([
       ['weldmail.com', 'https://weldmail.com'],
-      ['a weldmail.com subdomain', 'https://app.weldmail.com'],
+      ['WeldMail web production (mail.weldmail.com)', 'https://mail.weldmail.com'],
+      ['WeldMail web on weldsuite.org', 'https://weldmail.weldsuite.org'],
+      ['WeldMail web test on weldsuite.org', 'https://weldmail-test.weldsuite.org'],
       ['the WeldMail Pages project', 'https://weldmail-web.pages.dev'],
       ['a WeldMail test Pages deployment', 'https://develop.weldmail-web-test.pages.dev'],
-    ])('accepts a token whose azp is %s (WeldMail web)', async (_label, azp) => {
+      ['the WeldCalendar Pages project', 'https://weldcalendar-web.pages.dev'],
+      ['the WeldCalendar test Pages project', 'https://weldcalendar-web-test.pages.dev'],
+    ])('accepts a token whose azp is %s (consumer web apps)', async (_label, azp) => {
       expect((await call(sign({ azp }))).status).toBe(200);
     });
 
