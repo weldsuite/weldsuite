@@ -41,7 +41,8 @@
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
 
-name = "weldsuite-mail-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-mail-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

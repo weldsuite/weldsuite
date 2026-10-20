@@ -162,6 +162,11 @@ pnpm deploy:test          # test workers (app-api-test.weldsuite.org, etc.)
 **Two worker environments:** `test` (`[env.test]`, hostnames `*-test.weldsuite.org`) and
 `production` (`[env.production]`). Push `develop` to deploy test; push `main` to
 deploy production. `wrangler.toml` in this repo has the real D1/KV/R2 IDs.
+The top-level (no `--env`) config is for `wrangler dev` only and is named
+`<worker>-dev`, never a deployed name, so a `wrangler deploy` / `secret put` /
+`tail` without `--env` cannot reach production. Always pass `--env test` or
+`--env production`; `packages/core/api-modules/src/wrangler-config.test.ts`
+fails CI if a config breaks this.
 
 ### DB Migrations (`apps/tools/migrate-databases`)
 ```bash

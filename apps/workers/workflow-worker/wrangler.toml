@@ -60,7 +60,8 @@
 # Per-env KV ids + queue/service names mirror api-worker; fill the REPLACE_ME
 # ids before deploying each environment.
 
-name = "weldsuite-workflow"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-workflow-dev"
 main = "src/index.ts"
 compatibility_date = "2025-01-10"
 compatibility_flags = ["nodejs_compat"]

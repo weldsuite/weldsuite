@@ -20,7 +20,8 @@
 #     branding on the OAuth consent screen instead of WeldSuite's.)
 #   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
 
-name = "weldsuite-social-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-social-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
