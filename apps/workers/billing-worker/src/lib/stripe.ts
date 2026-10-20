@@ -502,6 +502,8 @@ export async function retrievePaymentIntent(
 
 export interface StripeCustomerResponse {
   id: string;
+  /** Currency the customer is billed in; null until its first subscription or invoice. */
+  currency?: string | null;
   invoice_settings?: {
     default_payment_method?: string | { id: string } | null;
   };

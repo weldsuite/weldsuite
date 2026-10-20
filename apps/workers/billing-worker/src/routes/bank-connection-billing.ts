@@ -15,13 +15,13 @@
 
 import { Hono, type Context } from 'hono';
 import {
-  BANK_CONNECTION_EXTRA_CURRENCY,
-  BANK_CONNECTION_EXTRA_PRICE_CENTS,
+  bankConnectionExtraPrice,
   type BankConnectionBillingSummary,
 } from '@weldsuite/app-api-client/schemas/bank-connection-billing';
 import type { Env } from '../index';
 import { clerkJwtAuth } from '../middleware/auth';
 import { getMasterDb } from '../lib/db';
+import { retrieveCustomer } from '../lib/stripe';
 import {
   countBankConnections,
   findBankConnectionSubscription,
@@ -67,6 +67,14 @@ function billingFailure(c: AppContext, label: string, err: unknown) {
 
 const isAdmin = (c: AppContext) => c.get('orgRole') === 'org:admin';
 
+/** The customer's billing currency (null until its first subscription or invoice) and whether a card is on file. */
+async function customerBilling(stripeKey: string, customerId: string) {
+  const customer = await retrieveCustomer(stripeKey, customerId);
+  const currency = customer.currency ?? null;
+  const hasPaymentMethod = Boolean(await findOffSessionPaymentMethod(stripeKey, customerId, { adopt: false }));
+  return { currency, hasPaymentMethod };
+}
+
 // ============================================================================
 // GET /status
 // ============================================================================
@@ -89,18 +97,15 @@ bankConnectionBillingRoutes.get('/status', async (c) => {
     const subscription = atLimit
       ? await findBankConnectionSubscription(c.env.STRIPE_SECRET_KEY, customerId, workspace.id)
       : null;
-    const hasPaymentMethod =
-      atLimit && customerId
-        ? Boolean(await findOffSessionPaymentMethod(c.env.STRIPE_SECRET_KEY, customerId, { adopt: false }))
-        : false;
+    const customer = atLimit && customerId ? await customerBilling(c.env.STRIPE_SECRET_KEY, customerId) : null;
 
     const summary: BankConnectionBillingSummary = {
       connections,
       included,
       billedExtra: subscription ? subscriptionQuantity(subscription) : 0,
-      unitAmountCents: BANK_CONNECTION_EXTRA_PRICE_CENTS,
-      currency: BANK_CONNECTION_EXTRA_CURRENCY,
-      hasPaymentMethod,
+      // The price in the currency Stripe will charge this customer in.
+      ...bankConnectionExtraPrice(customer?.currency),
+      hasPaymentMethod: customer?.hasPaymentMethod ?? false,
       canAddPaid: isAdmin(c),
     };
     return c.json({ data: summary });

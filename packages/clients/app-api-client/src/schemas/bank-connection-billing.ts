@@ -28,6 +28,17 @@ export const BANK_CONNECTION_LIMIT_REACHED = 'BANK_CONNECTION_LIMIT_REACHED';
 export const BANK_CONNECTION_PAYMENT_METHOD_REQUIRED = 'PAYMENT_METHOD_REQUIRED';
 export const BANK_CONNECTION_BILLING_ADMIN_REQUIRED = 'BILLING_ADMIN_REQUIRED';
 
+/**
+ * What an extra connection costs a customer billed in `currency` (the Stripe
+ * customer's currency). Stripe charges a customer in its own currency, and one
+ * without a currency yet gets the price's own (EUR).
+ */
+export function bankConnectionExtraPrice(currency: string | null | undefined): { unitAmountCents: number; currency: string } {
+  return currency?.toLowerCase() === 'usd'
+    ? { unitAmountCents: BANK_CONNECTION_EXTRA_USD_PRICE_CENTS, currency: 'usd' }
+    : { unitAmountCents: BANK_CONNECTION_EXTRA_PRICE_CENTS, currency: BANK_CONNECTION_EXTRA_CURRENCY };
+}
+
 /** The plan's included connections: a non-negative whole number, else the default. */
 export function resolveIncludedBankConnections(features: Record<string, unknown> | null | undefined): number {
   const value = features?.includedBankConnections;

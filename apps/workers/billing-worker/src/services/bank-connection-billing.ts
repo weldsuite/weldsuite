@@ -22,7 +22,8 @@
  *    seat or credit handling (`isBankConnectionSubscription`).
  *  - The price is created lazily (EUR, with a USD currency option for
  *    customers billed in dollars) and found again through a `lookup_key`,
- *    unless `STRIPE_PRICE_BANK_CONNECTION` pins one.
+ *    unless `STRIPE_PRICE_BANK_CONNECTION` pins one. Stripe bills a customer in
+ *    its own currency, so the price shown is the one for the customer's.
  */
 
 import { countDistinct, eq, sql } from 'drizzle-orm';
@@ -245,7 +246,10 @@ export async function syncBankConnectionQuantity(
       'metadata[workspaceId]': workspace.id,
       'metadata[clerkOrgId]': clerkOrgId,
     },
-    { idempotencyKey: `bank-connections:${workspace.id}:${target}:${paymentMethodId}` },
+    // One key per attempt: the lock and the lookup above already prevent a second
+    // subscription, and a key reused within Stripe's 24 hours would replay an
+    // earlier, since cancelled subscription instead of creating one.
+    { idempotencyKey: `bank-connections:${workspace.id}:${target}:${crypto.randomUUID()}` },
   );
   return done;
 }

@@ -153,8 +153,28 @@ describe('GET /status', () => {
 
     const res = await call('GET', '/status');
 
-    expect((await body(res)).data).toMatchObject({ connections: 4, included: 3, billedExtra: 1, hasPaymentMethod: true, canAddPaid: true });
+    expect((await body(res)).data).toMatchObject({
+      connections: 4,
+      included: 3,
+      billedExtra: 1,
+      unitAmountCents: 500,
+      currency: 'eur',
+      hasPaymentMethod: true,
+      canAddPaid: true,
+    });
     expect(writes()).toEqual([]);
+  });
+
+  it('quotes the price in the currency the customer is billed in', async () => {
+    useDb([[workspace()], [{ count: 1 }]]);
+    stubStripe({
+      'GET /v1/subscriptions': { data: [planSubscription] },
+      'GET /v1/customers/cus_1': { ...customerWithCard, currency: 'usd' },
+    });
+
+    const res = await call('GET', '/status');
+
+    expect((await body(res)).data).toMatchObject({ unitAmountCents: 500, currency: 'usd', hasPaymentMethod: true });
   });
 });
 
@@ -196,7 +216,8 @@ describe('POST /sync', () => {
       'metadata[type]': 'weldbooks_bank_connections',
       'metadata[workspaceId]': 'ws_1',
     });
-    expect(created[0]?.idempotencyKey).toBe('bank-connections:ws_1:1:pm_1');
+    // Unique per attempt, so a later subscription the same day is never answered with a cancelled one.
+    expect(created[0]?.idempotencyKey).toMatch(/^bank-connections:ws_1:1:[0-9a-f-]{36}$/);
   });
 
   it('raises the quantity of an existing subscription', async () => {
