@@ -131,9 +131,8 @@ export class TenantMigrationError extends Error {
     cause: unknown,
   ) {
     const state = sqlStateOf(cause);
-    super(`Tenant migration ${tag} failed at statement ${statement} of ${statements}${state ? ` (SQLSTATE ${state})` : ''}`, {
-      cause,
-    });
+    const suffix = state ? ' (SQLSTATE ' + state + ')' : '';
+    super(`Tenant migration ${tag} failed at statement ${statement} of ${statements}${suffix}`, { cause });
     this.name = 'TenantMigrationError';
   }
 }

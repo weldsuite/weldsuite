@@ -218,62 +218,63 @@ interface MigrateWorkspaceOptions {
   checkOnly: boolean;
 }
 
+/** A connection to the workspace's tenant database (SSL: Neon requires it). */
+function connectTenant(workspace: WorkspaceInfo, verbose: boolean): postgres.Sql {
+  if (verbose) {
+    console.log(`  Connecting to database...`);
+  }
+  return postgres(workspace.databaseUrl, {
+    max: 1,
+    onnotice: verbose ? (msg) => console.log(`  Notice: ${sanitizeMessage(msg.message)}`) : () => {},
+  });
+}
+
+async function runDrizzleMigrations(client: postgres.Sql, migrationsFolder: string, verbose: boolean): Promise<void> {
+  if (verbose) {
+    console.log(`  Running migrations from: ${migrationsFolder}`);
+  }
+  await migrate(drizzle(client), { migrationsFolder, migrationsSchema: 'public' });
+}
+
+/**
+ * drizzle only applies migrations newer than the newest one recorded: what is
+ * still missing after it ran, after applying it first when asked to.
+ */
+async function reconcileJournal(
+  client: postgres.Sql,
+  options: MigrateWorkspaceOptions,
+): Promise<Pick<MigrationResult, 'journalGap' | 'appliedSkipped'>> {
+  const result: Pick<MigrationResult, 'journalGap' | 'appliedSkipped'> = {};
+  let match = await checkJournal(client, options.journal);
+  if (options.applySkipped && !options.checkOnly && match.missing.length > 0) {
+    result.appliedSkipped = await applySkippedMigrations(client, options.journal, match);
+    match = await checkJournal(client, options.journal);
+  }
+  if (!isAtJournalLevel(match)) {
+    result.journalGap = describeJournalGap(match);
+  }
+  return result;
+}
+
 async function migrateWorkspace(
   workspace: WorkspaceInfo,
   migrationsFolder: string,
   options: MigrateWorkspaceOptions,
 ): Promise<MigrationResult> {
-  const { verbose, journal } = options;
+  const identity = { workspaceId: workspace.id, workspaceName: workspace.name };
   let client: postgres.Sql | null = null;
 
   try {
-    if (verbose) {
-      console.log(`  Connecting to database...`);
-    }
-
-    // Create connection with SSL (Neon requires SSL)
-    client = postgres(workspace.databaseUrl, {
-      max: 1,
-      onnotice: verbose ? (msg) => console.log(`  Notice: ${sanitizeMessage(msg.message)}`) : () => {},
-    });
-
+    client = connectTenant(workspace, options.verbose);
     if (!options.checkOnly) {
-      const db = drizzle(client);
-
-      if (verbose) {
-        console.log(`  Running migrations from: ${migrationsFolder}`);
-      }
-
-      await migrate(db, { migrationsFolder, migrationsSchema: 'public' });
+      await runDrizzleMigrations(client, migrationsFolder, options.verbose);
     }
-
-    // drizzle only applies migrations newer than the newest recorded one: look for any it skipped.
-    let match = await checkJournal(client, journal);
-    let appliedSkipped: string[] | undefined;
-    if (options.applySkipped && !options.checkOnly && match.missing.length > 0) {
-      appliedSkipped = await applySkippedMigrations(client, journal, match);
-      match = await checkJournal(client, journal);
-    }
-
-    return {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      success: true,
-      ...(isAtJournalLevel(match) ? {} : { journalGap: describeJournalGap(match) }),
-      ...(appliedSkipped ? { appliedSkipped } : {}),
-    };
+    return { ...identity, success: true, ...(await reconcileJournal(client, options)) };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      success: false,
-      error: sanitizeMessage(errorMessage),
-    };
+    return { ...identity, success: false, error: sanitizeMessage(errorMessage) };
   } finally {
-    if (client) {
-      await client.end();
-    }
+    await client?.end();
   }
 }
 
