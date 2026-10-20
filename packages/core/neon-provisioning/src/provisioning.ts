@@ -1933,29 +1933,7 @@ export class DatabaseProvisioningService {
     const ignoreMissing = options.ignoreMissing === true;
 
     if (target.sharedProjectId) {
-      // Shared database: drop it and its role inside the shard.
-      let databaseDropped = true;
-      if (target.databaseName && target.neonBranchId) {
-        const { databaseName, neonBranchId } = target;
-        databaseDropped = await this.deleteOnNeon(async () => {
-          // Neon can accept a delete of a database it already dropped, and a retried release must never count
-          // the slot back twice: only a database Neon still has is deleted (a missing one is a 404 here).
-          await this.neonClient.getDatabase(target.neonProjectId, neonBranchId, databaseName);
-          const operations = await this.neonClient.deleteDatabase(target.neonProjectId, neonBranchId, databaseName);
-          // The role owns the database until the delete has finished; deleting it before fails (ROLE_OWNS_OBJECTS).
-          await this.neonClient.waitForOperations(target.neonProjectId, operations);
-        }, ignoreMissing);
-      }
-      if (databaseDropped) {
-        await this.decrementShardCount(masterDb, target.sharedProjectId);
-      }
-      if (target.roleName && target.neonBranchId) {
-        const { roleName, neonBranchId } = target;
-        await this.deleteOnNeon(
-          () => this.neonClient.deleteRole(target.neonProjectId, neonBranchId, roleName),
-          ignoreMissing,
-        );
-      }
+      await this.dropShardDatabaseAndRole(masterDb, { ...target, sharedProjectId: target.sharedProjectId }, ignoreMissing);
     } else {
       // Dedicated project: delete the entire Neon project. Never a shard's.
       if (await this.isShardProject(masterDb, target.neonProjectId)) {
@@ -1971,6 +1949,53 @@ export class DatabaseProvisioningService {
         console.warn(`[Provisioning] Failed to delete pool row ${target.poolId}:`, poolErr);
       }
     }
+  }
+
+  /** `dropDatabaseAt` for a database inside a shard: the database, the slot back, then its role. */
+  private async dropShardDatabaseAndRole(
+    masterDb: ProvisioningMasterDb,
+    target: DropDatabaseTarget & { sharedProjectId: string },
+    ignoreMissing: boolean,
+  ): Promise<void> {
+    const { neonProjectId, neonBranchId, databaseName, roleName } = target;
+    const deletion =
+      databaseName && neonBranchId
+        ? await this.deleteShardDatabase(neonProjectId, neonBranchId, databaseName, ignoreMissing)
+        : { dropped: true };
+    if (deletion.dropped) {
+      await this.decrementShardCount(masterDb, target.sharedProjectId);
+    }
+    // Counted back, but the role may still own the database: let the caller retry, which deletes the role.
+    if (deletion.waitFailed !== undefined) throw deletion.waitFailed;
+    if (roleName && neonBranchId) {
+      await this.deleteOnNeon(() => this.neonClient.deleteRole(neonProjectId, neonBranchId, roleName), ignoreMissing);
+    }
+  }
+
+  /**
+   * Delete a database inside a shard, if Neon still has it. `dropped` is true
+   * when this call deleted it, so the caller counts the slot back exactly once:
+   * Neon can accept a delete of a database it already dropped, so a missing one
+   * is found first (a 404, ignored with `ignoreMissing`). The role owns the
+   * database until the delete has finished, so the delete's operations are
+   * awaited; a wait that fails still means `dropped` (the delete was accepted,
+   * and a retry would find the database gone), with the error in `waitFailed`.
+   */
+  private async deleteShardDatabase(
+    neonProjectId: string,
+    branchId: string,
+    databaseName: string,
+    ignoreMissing: boolean,
+  ): Promise<{ dropped: boolean; waitFailed?: unknown }> {
+    const outcome: { waitFailed?: unknown } = {};
+    const dropped = await this.deleteOnNeon(async () => {
+      await this.neonClient.getDatabase(neonProjectId, branchId, databaseName);
+      const operations = await this.neonClient.deleteDatabase(neonProjectId, branchId, databaseName);
+      await this.neonClient.waitForOperations(neonProjectId, operations).catch((error: unknown) => {
+        outcome.waitFailed = error ?? new Error('Waiting for the database delete failed');
+      });
+    }, ignoreMissing);
+    return { dropped, ...outcome };
   }
 
   /**
