@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import { useDatabaseStatus, useFinalizeOnboarding, useRetryProvisioning } from '@/hooks/use-onboarding';
 import { getTranslations } from '@/lib/i18n';
+import { workspacePath } from '@/lib/workspace-url';
 
 const MAX_POLL_ATTEMPTS = 90; // 3 minutes max
 
@@ -206,7 +207,7 @@ export function ProvisioningScreen({ skipRetry = false }: Readonly<ProvisioningS
 
       // Hard redirect to ensure fresh cookies are sent to the server
       setTimeout(() => {
-        window.location.href = '/';
+        window.location.href = orgId ? workspacePath(orgId, '/') : '/';
       }, 1000);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

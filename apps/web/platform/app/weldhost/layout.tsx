@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weld
 import { Button } from '@weldsuite/ui/components/button';
 import { Globe } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 export default function HostLayout({
   children,
@@ -37,14 +38,14 @@ export default function HostLayout({
           <CardContent className="flex flex-col gap-2 sm:flex-row">
             <Button
               className="w-full sm:w-auto"
-              onClick={() => { window.location.href = '/appstore/weldhost'; }}
+              onClick={() => { window.location.href = toPublicPath('/appstore/weldhost'); }}
             >
               {th.install}
             </Button>
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={() => { window.location.href = '/'; }}
+              onClick={() => { window.location.href = toPublicPath('/'); }}
             >
               {th.goHome}
             </Button>

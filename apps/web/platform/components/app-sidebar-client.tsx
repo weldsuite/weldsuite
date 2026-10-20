@@ -31,6 +31,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { applyVisibleOrder, rememberAppCodes, sortByAppOrder } from '@/lib/apps/app-rail-order';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
+import { useWorkspaceHref } from '@/lib/workspace-url-rewrite';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 
 /** Path this app's sidebar icon links to — WeldApps (`appType: 'user'`) are
@@ -169,6 +170,8 @@ interface AppSidebarClientProps {
 export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readonly<AppSidebarClientProps>) {
   const pathname = usePathname();
   const router = useRouter();
+  // Plain <a> tags (dnd-kit needs the node) are outside the router's rewrite.
+  const workspaceHref = useWorkspaceHref();
   const { t } = useI18n();
   const { getClient } = useAppApiClient();
   const { prefetch: prefetchApp, cancel: cancelPrefetch } = useAppPrefetch();
@@ -322,7 +325,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
                   <SortableAppItem
                     key={app.id}
                     app={app}
-                    href={appPath}
+                    href={workspaceHref(appPath)}
                     icon={icon}
                     isActive={isActive(appPath)}
                     onClick={handleAppClick(appPath)}
@@ -400,7 +403,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
         <Tooltip>
           <TooltipTrigger asChild>
             <a
-              href="/agents"
+              href={workspaceHref('/agents')}
               onClick={handleAppClick('/agents')}
               onMouseEnter={() => router.prefetch('/agents')}
               onFocus={() => router.prefetch('/agents')}

@@ -2,25 +2,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { Loader2 } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
 import { setPendingOrganization } from '@/lib/pending-organization';
+import { findWorkspace, parseWorkspacePath, sameOriginPath } from '@/lib/workspace-url';
 import {
-  findWorkspace,
-  parseWorkspacePath,
-  sameOriginPath,
-  workspacePath,
-  type WorkspaceRef,
-} from '@/lib/workspace-url';
-
-interface Membership extends WorkspaceRef {
-  name: string;
-}
+  WorkspaceLinkProblem,
+  type WorkspaceLinkMembership as Membership,
+} from '@/components/workspace/workspace-link-problem';
 
 type Status = 'resolving' | 'not-found' | 'error';
 
 /**
  * `/w/{ref}/…` (FE-013): open the inner path in the workspace the link names.
+ *
+ * Only reached with the kill switch off (`VITE_WORKSPACE_IN_URL=false`): with
+ * the router rewrite on, `/w/{ref}` is stripped before routing and the shell's
+ * workspace check (components/workspace-url-gate.tsx) does this job.
  *
  * Clerk keeps the active organization per tab, so activating the linked
  * workspace here does not move the user's other tabs. When it is already the
@@ -120,39 +117,5 @@ export default function WorkspaceLinkPage() {
     );
   }
 
-  const title = status === 'error' ? t.common.workspaceLink.errorTitle : t.common.workspaceLink.notFoundTitle;
-  const description =
-    status === 'error' ? t.common.workspaceLink.errorDescription : t.common.workspaceLink.notFoundDescription;
-  const target = link?.target ?? '/';
-
-  return (
-    <div className="flex min-h-screen w-full items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-6 text-center">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="text-muted-foreground">{description}</p>
-        </div>
-        {status === 'not-found' && memberships.length > 0 && (
-          <div className="space-y-2 text-left">
-            <p className="text-sm font-medium">{t.common.workspaceLink.openIn}</p>
-            <ul className="divide-y rounded-md border">
-              {memberships.map((m) => (
-                <li key={m.id}>
-                  <a
-                    href={workspacePath(m.slug ?? m.id, target)}
-                    className="block px-4 py-3 text-sm hover:bg-muted"
-                  >
-                    {m.name}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <Button asChild variant="outline">
-          <a href="/">{t.common.workspaceLink.goHome}</a>
-        </Button>
-      </div>
-    </div>
-  );
+  return <WorkspaceLinkProblem status={status} memberships={memberships} target={link?.target ?? '/'} />;
 }

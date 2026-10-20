@@ -2,6 +2,8 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
 import { isWorkspaceScopedPath } from '@/lib/workspace-url';
+import { useWorkspaceUrlGate } from '@/components/workspace-url-gate';
+import { WorkspaceLinkProblem } from '@/components/workspace/workspace-link-problem';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { ComposeProvider } from '@/contexts/compose-context';
 import { PinnedNoteProvider } from '@/contexts/pinned-note-context';
@@ -138,6 +140,8 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   // Captured once per page load so a just-created workspace survives the
   // reload even if Clerk's session still has the previous org (or none).
   const [pendingOrgId] = useState(() => peekPendingOrganization());
+  // A `/w/{workspace}` URL decides which org this tab is in (FE-013).
+  const workspaceUrl = useWorkspaceUrlGate(pathname);
 
   // Activate the right org when Clerk hasn't (or has the wrong one).
   // Creating a workspace from the user menu stashes the new org id in
@@ -147,7 +151,7 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   // dropped the user back into the workspace they just left.
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
-    if (bootstrapsOwnOrg(pathname)) return;
+    if (bootstrapsOwnOrg(pathname) || workspaceUrl.ownsActivation) return;
     if (!orgListLoaded || !setActive || orgActivationRef.current) return;
 
     const firstOrgId = userMemberships?.data?.[0]?.organization?.id;
@@ -176,7 +180,17 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
       .catch(() => {
         orgActivationRef.current = false;
       });
-  }, [isLoaded, isSignedIn, orgId, orgListLoaded, userMemberships?.data, setActive, pathname, pendingOrgId]);
+  }, [
+    isLoaded,
+    isSignedIn,
+    orgId,
+    orgListLoaded,
+    userMemberships?.data,
+    setActive,
+    pathname,
+    pendingOrgId,
+    workspaceUrl.ownsActivation,
+  ]);
 
   // `?embedded=1` strips the platform shell (workspace + module sidebars) so a
   // page can be iframed inside another panel as if it were standalone — used
@@ -198,6 +212,16 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
     // viewport. Without this they collapse to content height and leave
     // empty space below.
     if (isEmbeddedRoute) {
+      if (workspaceUrl.status === 'blocked') return null;
+      if (workspaceUrl.status === 'not-found' || workspaceUrl.status === 'error') {
+        return (
+          <WorkspaceLinkProblem
+            status={workspaceUrl.status}
+            memberships={workspaceUrl.memberships}
+            target={workspaceUrl.target}
+          />
+        );
+      }
       return (
         <div className="h-screen w-full flex flex-col overflow-hidden">
           <CommandPalette />
@@ -214,9 +238,24 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   }
 
   if (!isSignedIn) {
-    window.location.href = `/auth/login?callbackUrl=${encodeURIComponent(pathname)}`;
+    // The browser path, so signing in returns to the workspace the URL names.
+    const here = window.location.pathname + window.location.search;
+    window.location.href = `/auth/login?callbackUrl=${encodeURIComponent(here)}`;
     return null;
   }
+
+  if (workspaceUrl.status === 'not-found' || workspaceUrl.status === 'error') {
+    return (
+      <WorkspaceLinkProblem
+        status={workspaceUrl.status}
+        memberships={workspaceUrl.memberships}
+        target={workspaceUrl.target}
+      />
+    );
+  }
+  // Still settling which workspace this tab is in: render nothing rather
+  // than a page whose queries run against the previous one.
+  if (workspaceUrl.status === 'blocked') return null;
 
   // Wait while we activate a just-created workspace (or an org-less session
   // that still has memberships). Don't flash the previous workspace, and

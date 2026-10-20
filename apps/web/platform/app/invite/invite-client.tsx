@@ -8,6 +8,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { setPendingOrganization } from '@/lib/pending-organization';
+import { workspacePath } from '@/lib/workspace-url';
 import { pickInvitation } from './pick-invitation';
 
 interface InviteClientProps {
@@ -92,7 +93,7 @@ function enterWorkspaceSoon(orgId: string | undefined) {
     // storage unavailable — the reload below still happens
   }
   setTimeout(() => {
-    window.location.href = '/';
+    window.location.href = orgId ? workspacePath(orgId, '/') : '/';
   }, 1500);
 }
 

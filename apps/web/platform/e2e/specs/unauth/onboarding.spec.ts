@@ -173,9 +173,10 @@ test.describe('Onboarding — new-user signup + workspace creation', () => {
     // Confirm the first provisioning step label is visible.
     await expect(page.getByText('Creating your database')).toBeVisible();
 
-    // Wait for the hard redirect to '/'. The provisioning hook polls
-    // /onboarding/database-status and does window.location.href = '/' when done.
-    await page.waitForURL('/', { timeout: 200_000 });
+    // Wait for the hard redirect to the new workspace's home. The provisioning
+    // hook polls /onboarding/database-status and, when done, opens
+    // `/w/{orgId}/`, which the shell swaps for `/w/{slug}/` (FE-013).
+    await page.waitForURL(/\/w\/[^/]+\/$/, { timeout: 200_000 });
 
     // Capture the Clerk org id for teardown. At this point setActive has run
     // so Clerk.organization.id should be populated.

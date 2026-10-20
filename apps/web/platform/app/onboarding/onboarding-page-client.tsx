@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useAuth, useUser, useOrganizationList } from '@clerk/clerk-react';
 import { PageLoader } from '@/components/page-loader';
 import { track } from '@/lib/analytics';
+import { workspacePath } from '@/lib/workspace-url';
 import {
   useOnboardingStatus,
   useDatabaseStatus,
@@ -28,8 +29,9 @@ export function OnboardingPageClient({ detectedCountry }: Readonly<{ detectedCou
     if (!memberships || memberships.length === 0) return;
     if (!orgList.setActive) return;
     setIsActivatingOrg(true);
-    orgList.setActive({ organization: memberships[0].organization.id })
-      .then(() => { window.location.href = '/'; })
+    const joinedOrgId = memberships[0].organization.id;
+    orgList.setActive({ organization: joinedOrgId })
+      .then(() => { window.location.href = workspacePath(joinedOrgId, '/'); })
       .catch(() => { setIsActivatingOrg(false); });
     // orgList is a new object every render; depending on the whole object
     // would re-run this effect on every render instead of only on data change.
@@ -65,7 +67,7 @@ export function OnboardingPageClient({ detectedCountry }: Readonly<{ detectedCou
   if (orgId) {
     if (dbStatus?.provisioned && dbStatus?.migrated && onboardingStatus?.completed) {
       // Already completed - redirect
-      window.location.href = '/';
+      window.location.href = workspacePath(orgId, '/');
       return null;
     }
     return <ProvisioningScreen />;

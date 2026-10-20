@@ -1,8 +1,26 @@
 # Workspace in the URL, step 2 (FE-013)
 
-Status: PR 1 done (helpers, raw path readers, `router.history` calls, lint
-rule, rewrite spike). Next: PR 2. ADR: `FE-013` in `weldsuite-documentation`
-("Platform URLs name the workspace, as `/w/{slug}/…`", Proposed).
+Status: implemented in one PR (#1225), not the four below. ADR: `FE-013` in
+`weldsuite-documentation` ("Platform URLs name the workspace, as `/w/{slug}/…`",
+Proposed; flips to Accepted when #1225 merges). The rewrite is **on by
+default**; `VITE_WORKSPACE_IN_URL=false` at build time is the kill switch.
+
+How it landed, against the design below:
+- Store, rewrite, `toPublicPath()` / `useWorkspaceHref()`:
+  `apps/web/platform/lib/workspace-url-rewrite.ts`. The rewrite is wired in
+  `src/main.tsx`.
+- The shell check: a pure decision table in `lib/workspace-url-gate.ts` and the
+  hook in `components/workspace-url-gate.tsx`, used by `AppShellClient`. The
+  not-found/error screen is `components/workspace/workspace-link-problem.tsx`,
+  shared with the `/w/$workspace` page, which now only runs with the kill
+  switch off. With the rewrite on, the router strips `/w/` before routing, so
+  that route is never matched.
+- §4: the `lib/router` wrappers needed no change. A `to` that already names a
+  workspace goes through `input` like any other URL, and the shell activates
+  it.
+- §6 iframe: nothing builds an `?embedded=1` URL any more, so there was
+  nothing to change.
+- Signing out returns to the browser URL (`callbackUrl` keeps `/w/{slug}`).
 
 ## Spike result (PR 1): rewrites work, with four rules
 

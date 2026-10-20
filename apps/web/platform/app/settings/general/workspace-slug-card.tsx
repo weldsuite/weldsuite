@@ -33,6 +33,7 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { useCurrentMember } from '@/hooks/use-current-member';
 import { SLUG_REGEX } from '@weldsuite/app-api-client/schemas/workspace-settings';
 import { useI18n } from '@/lib/i18n/provider';
+import { stripWorkspacePrefix, workspacePath } from '@/lib/workspace-url';
 
 function formatTemplate(
   tpl: string,
@@ -79,10 +80,12 @@ export function WorkspaceSlugCard() {
       // Force a clean reload — the slug is part of public URLs (helpcenter,
       // booking) and several singletons cache the workspace object. A full
       // reload is the simplest safe reset and also picks up the new Clerk
-      // org slug.
+      // org slug. It reloads into the new slug's URL (FE-013): the old one
+      // no longer names this workspace.
       await organization?.reload().catch(() => {});
+      const here = stripWorkspacePrefix(window.location.pathname) + window.location.search + window.location.hash;
       setTimeout(() => {
-        window.location.reload();
+        window.location.replace(workspacePath(trimmedNew, here));
       }, 600);
     } catch (err) {
       const message = err instanceof Error ? err.message : ts.errorToast;
@@ -138,6 +141,7 @@ export function WorkspaceSlugCard() {
                   <li>{formatTemplate(ts.impactBookingPages, { currentSlug, newSlug: trimmedNew || '…' })}</li>
                   <li>{formatTemplate(ts.impactHelpcenter, { currentSlug, newSlug: trimmedNew || '…' })}</li>
                   <li>{formatTemplate(ts.impactWeldmail, { currentSlug, newSlug: trimmedNew || '…' })}</li>
+                  <li>{formatTemplate(ts.impactPlatformLinks, { currentSlug })}</li>
                   <li>{ts.impactExternal}</li>
                 </ul>
                 <p>{formatTemplate(ts.warningOutro, { currentSlug })}</p>

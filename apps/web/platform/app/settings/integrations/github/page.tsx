@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useSearchParams } from '@/lib/router';
+import { Link, useSearchParams } from '@/lib/router';
 import {
   Loader2,
   Unplug,
@@ -228,12 +228,12 @@ function RepoRow({
           <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
         </a>
         {repo.projectId && (
-          <a
+          <Link
             href={`/weldflow/project/${repo.projectId}`}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-0.5 block"
           >
             {github.linkedRepos.columns.project}
-          </a>
+          </Link>
         )}
       </td>
 

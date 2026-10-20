@@ -234,6 +234,7 @@ export const settings = {
         impactBookingPages: 'Booking pages — public URLs change from …/booking/{currentSlug}/… to …/booking/{newSlug}/…. Old links will 404.',
         impactHelpcenter: 'Help Center — your default subdomain changes from {currentSlug}.welddesk.org to {newSlug}.welddesk.org. Custom domains are unaffected.',
         impactWeldmail: 'WeldMail — every email address at @{currentSlug}.weldmail.com becomes invalid. Inbound mail to the old domain will bounce.',
+        impactPlatformLinks: 'WeldSuite links — links copied with /w/{currentSlug}/ in them stop working; they open a page that lists your workspaces instead.',
         impactExternal: 'Bookmarks, integrations, embed snippets, QR codes — anything outside WeldSuite that points to your current slug needs to be updated by hand.',
         warningOutro: 'This action cannot be undone automatically. Type {currentSlug} below to confirm.',
         newSlugLabel: 'New slug',
