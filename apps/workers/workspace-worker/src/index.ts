@@ -18,6 +18,7 @@ import { adminDatabaseRoutes } from './routes/admin-databases';
 import { triggerPoolRefill } from './workflows/refill-pool';
 import { sweepScheduledDeletions } from './services/deletion-sweep';
 import { runDatabaseMoveSweep } from './services/database-move-sweep';
+import { sweepUnfinishedTeardowns } from './services/teardown-sweep';
 import { onboardPartnerWorkspace } from './services/partner-onboarding';
 import type { PartnerOnboardResult } from '@weldsuite/core-domain/partners';
 
@@ -162,12 +163,15 @@ export default {
   //    for reacting quickly to a claim, NOT for polling Postgres: a settled pool
   //    is confirmed from KV and the tick opens no database at all.
   //  - "0 3 * * *"   — sweep workspaces whose 30-day "add payment or be
-  //    deleted" grace period elapsed (see services/deletion-sweep.ts), and
-  //    drop the old databases of completed moves whose retention is over
-  //    (see services/database-move-sweep.ts, which never throws).
+  //    deleted" grace period elapsed (see services/deletion-sweep.ts), retry
+  //    the database teardowns of deleted workspaces that never finished (see
+  //    services/teardown-sweep.ts), and drop the old databases of completed
+  //    moves whose retention is over (see services/database-move-sweep.ts).
+  //    The last two never throw.
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     if (event.cron === DELETION_SWEEP_CRON) {
       ctx.waitUntil(sweepScheduledDeletions(env));
+      ctx.waitUntil(sweepUnfinishedTeardowns(env));
       ctx.waitUntil(runDatabaseMoveSweep(env));
     } else {
       ctx.waitUntil(triggerPoolRefill(env));
