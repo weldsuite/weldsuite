@@ -10,6 +10,7 @@ import { GuardError } from './errors';
 import {
   countOtherSessions,
   currentDatabaseName,
+  endOwnSession,
   lockDatabase,
   probeReadOnly,
   terminateOtherSessions,
@@ -110,5 +111,42 @@ describe('countOtherSessions and currentDatabaseName', () => {
     const { sql, recorded } = fakeSql(() => [{ name: 'neondb' }]);
     expect(await currentDatabaseName(sql)).toBe('neondb');
     expect(recorded.queries[0]?.text).toContain('current_database()');
+  });
+});
+
+describe('endOwnSession', () => {
+  const failingSql = (error: unknown): TenantSql => ({
+    query: () => Promise.reject(error),
+    transaction: () => Promise.reject(error),
+  });
+
+  it('terminates only its own client backend', async () => {
+    const { sql, recorded } = fakeSql(() => [{ terminated: true }]);
+    expect(await endOwnSession(sql)).toBe(true);
+    const text = recorded.queries[0]?.text ?? '';
+    expect(text).toContain('pg_terminate_backend(pid)');
+    expect(text).toContain('pid = pg_backend_pid()');
+    expect(text).toContain("backend_type = 'client backend'");
+  });
+
+  it('leaves a session that is not a client backend alone (no row)', async () => {
+    const { sql } = fakeSql(() => []);
+    expect(await endOwnSession(sql)).toBe(false);
+  });
+
+  it('takes the server ending the session mid-query as success', async () => {
+    const byCode = Object.assign(new Error('boom'), { code: '57P01' });
+    const byMessage = new Error('terminating connection due to administrator command');
+    const closed = new Error('Connection terminated unexpectedly');
+    for (const error of [byCode, byMessage, closed]) {
+      expect(await endOwnSession(failingSql(error))).toBe(true);
+    }
+  });
+
+  it('passes any other failure on', async () => {
+    const denied = Object.assign(new Error('permission denied to terminate process'), { code: '42501' });
+    await expect(endOwnSession(failingSql(denied))).rejects.toBe(denied);
+    const network = new TypeError('fetch failed');
+    await expect(endOwnSession(failingSql(network))).rejects.toBe(network);
   });
 });

@@ -184,6 +184,9 @@ describe('MoveDatabaseWorkflow · happy path', () => {
     expect(await databasesMatch(w)).toBe(true);
     expect(guardState.locked.has(SOURCE.db)).toBe(true);
     expect(guardState.log.filter((entry) => entry.startsWith('unlock'))).toEqual([]);
+    // Nothing restarts a shard's compute, so each lock part ends its own session too, and the
+    // probe only runs after that: the neon-http proxy would otherwise hand it a pre-lock session.
+    expect(guardState.log).toEqual([`lock:${SOURCE.db}`, 'terminate', 'end-own', 'terminate', 'end-own', 'probe']);
     expect(w.provisioning.rotateRolePassword).toHaveBeenCalledTimes(1);
     expect(w.provisioning.releaseMoveTarget).not.toHaveBeenCalled();
     expect(w.provisioning.restartDedicatedEndpoint).not.toHaveBeenCalled(); // a shard's compute serves other tenants

@@ -26,6 +26,7 @@ import {
   census,
   compareChecksums,
   copyTable,
+  endOwnSession,
   finishTarget,
   journalsMatch,
   lockDatabase,
@@ -289,7 +290,9 @@ export async function softLock(deps: MoveDeps, moveId: string): Promise<StepOk> 
  *     row with a compare-and-set on the source, and purge the caches: requests
  *     holding the old URL now fail within about a second, and a read resolved
  *     after the purge works against the (soon read-only) source;
- *  4. make the database read-only for new sessions and end the open ones.
+ *  4. make the database read-only for new sessions and end the open ones,
+ *     this connection's own last: it was opened before the read-only default,
+ *     and the neon-http proxy would hand it to the next request on the URL.
  * A retry rotates again and rewrites the URL, which is harmless.
  */
 export async function lockSourcePartOne(deps: MoveDeps, moveId: string): Promise<{ found: number; terminated: number }> {
@@ -325,19 +328,23 @@ export async function lockSourcePartOne(deps: MoveDeps, moveId: string): Promise
   const source = deps.connect(urls.directUrl);
   await lockDatabase(source, move.sourceDatabaseName);
   const { found, terminated } = await terminateOtherSessions(source);
+  await endOwnSession(source);
   return { found, terminated };
 }
 
 /**
- * Lock, part 2 (after a short pause): end the sessions that reconnected, restart
- * a DEDICATED source's compute (ends PgBouncer client sessions that survive a
- * rotation; never done for a shard, whose compute serves other tenants), check
- * that a fresh session really is read-only, and only then say `locked`.
+ * Lock, part 2 (after a short pause): end the sessions that reconnected and this
+ * connection's own, restart a DEDICATED source's compute (ends PgBouncer client
+ * sessions that survive a rotation; never done for a shard, whose compute
+ * serves other tenants), check that a fresh session really is read-only, and
+ * only then say `locked`.
  */
 export async function lockSourcePartTwo(deps: MoveDeps, moveId: string): Promise<{ restarted: boolean }> {
   const move = await advance(deps.masterDb, moveId, { step: 'lock-source-verify' }, deps.now());
   const { source } = await sourceContext(deps, move);
   await terminateOtherSessions(source);
+  // The proxy may have handed this step a session from before the lock (part 1 retried, or ended early).
+  await endOwnSession(source);
 
   const dedicated = move.sourceSharedProjectId === null;
   if (dedicated) await deps.provisioning.restartDedicatedEndpoint(deps.masterDb, move.sourceNeonProjectId);
