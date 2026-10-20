@@ -26,8 +26,12 @@ export const RATE_LIMIT_TTL_SECONDS = 15 * 60;
 export const RATE_LIMIT_MAX = 5;
 /** Wrong guesses a challenge survives before it is invalidated. */
 export const MAX_VERIFY_ATTEMPTS = 8;
-/** Verify calls per 15 minutes: per client IP, and per workspace across all IPs. */
-export const VERIFY_RATE_LIMIT_IP_MAX = 20;
+/**
+ * Failed verify calls per 15 minutes: per buyer email (OTP path), and per
+ * workspace across all buyers. Not per IP: buyers reach the worker through the
+ * portal's Next server, so they all share its egress IP.
+ */
+export const VERIFY_RATE_LIMIT_EMAIL_MAX = 20;
 export const VERIFY_RATE_LIMIT_WORKSPACE_MAX = 200;
 
 export interface PortalChallenge {
@@ -130,6 +134,24 @@ export async function storeChallenge(
 export async function deleteChallenge(env: PortalKvEnv, challenge: PortalChallenge): Promise<void> {
   await kvDelete(env, otpKvKey(challenge.workspaceId, challenge.email));
   await kvDelete(env, `cportal:tok:${challenge.tokenHash}`);
+}
+
+/** True while `key` is under `max` hits in the current window. Counts nothing. */
+export async function underRateLimit(
+  env: PortalKvEnv,
+  workspaceId: string,
+  key: string,
+  max: number,
+): Promise<boolean> {
+  const current = await kvGetJson<{ count: number }>(env, rateLimitKvKey(workspaceId, key));
+  return (current?.count ?? 0) < max;
+}
+
+/** Count one hit against `key`, e.g. a failed attempt gated by `underRateLimit`. */
+export async function recordRateLimitHit(env: PortalKvEnv, workspaceId: string, key: string): Promise<void> {
+  const rlKey = rateLimitKvKey(workspaceId, key);
+  const current = (await kvGetJson<{ count: number }>(env, rlKey)) ?? { count: 0 };
+  await kvPutJson(env, rlKey, { count: current.count + 1 }, RATE_LIMIT_TTL_SECONDS);
 }
 
 export async function consumeRateLimit(

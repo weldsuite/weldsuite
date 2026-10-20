@@ -44,7 +44,9 @@ import {
   type PortalChallenge,
   type PortalPicker,
   type PortalSession,
-  VERIFY_RATE_LIMIT_IP_MAX,
+  recordRateLimitHit,
+  underRateLimit,
+  VERIFY_RATE_LIMIT_EMAIL_MAX,
   VERIFY_RATE_LIMIT_WORKSPACE_MAX,
 } from '@weldsuite/commerce-domain/portal-tokens';
 import { sendPortalMagicLinkEmail } from '../../services/commerce-portal-mail';
@@ -298,23 +300,32 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
   if (!workspaceId) return error.unauthorized(c, 'Invalid or expired code');
 
   try {
-    // Per-IP first, so a blocked IP cannot drain the workspace-wide budget.
-    const ipAllowed = await consumeRateLimit(c.env, workspaceId, `verify-ip:${clientIp(c)}`, VERIFY_RATE_LIMIT_IP_MAX);
-    const workspaceAllowed =
-      ipAllowed && (await consumeRateLimit(c.env, workspaceId, 'verify-ws', VERIFY_RATE_LIMIT_WORKSPACE_MAX));
-    if (!ipAllowed || !workspaceAllowed) {
+    // Only failed attempts count, keyed on the workspace and, for the guessable
+    // OTP, on the buyer's email. Not on IP: every buyer arrives through the
+    // portal's Next server, so an IP key would let 20 junk codes lock out all
+    // buyers, and successful sign-ins would use up the budget too.
+    const limits: Array<[key: string, max: number]> = [['verify-ws', VERIFY_RATE_LIMIT_WORKSPACE_MAX]];
+    if (body.otp && body.email) {
+      limits.push([`verify-e:${normalizeEmail(body.email)}`, VERIFY_RATE_LIMIT_EMAIL_MAX]);
+    }
+    const allowed = await Promise.all(limits.map(([key, max]) => underRateLimit(c.env, workspaceId, key, max)));
+    if (allowed.includes(false)) {
       return c.json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }, 429);
     }
+    const failed = async () => {
+      for (const [key] of limits) await recordRateLimitHit(c.env, workspaceId, key);
+      return error.unauthorized(c, 'Invalid or expired code');
+    };
 
     const settings = await requireEnabled(db);
     if (!settings) return error.unauthorized(c, 'Invalid or expired code');
 
     const presented = body.token || body.otp;
-    if (!presented) return error.unauthorized(c, 'Invalid or expired code');
+    if (!presented) return failed();
     const presentedHash = await sha256Hex(presented);
 
     const email = await resolveChallengeEmail(c.env, body, presentedHash);
-    if (!email) return error.unauthorized(c, 'Invalid or expired code');
+    if (!email) return failed();
 
     const challenge = await loadMatchingChallenge(c.env, {
       workspaceId,
@@ -323,7 +334,7 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
       token: body.token,
       otp: body.otp,
     });
-    if (!challenge) return error.unauthorized(c, 'Invalid or expired code');
+    if (!challenge) return failed();
 
     const accessRows = await db
       .select()
@@ -335,7 +346,7 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
         ),
       );
 
-    if (accessRows.length === 0) return error.unauthorized(c, 'Invalid or expired code');
+    if (accessRows.length === 0) return failed();
 
     await deleteChallenge(c.env, challenge);
 

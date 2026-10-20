@@ -19,7 +19,7 @@ import {
   rateLimitKvKey,
   sha256Hex,
   storeChallenge,
-  VERIFY_RATE_LIMIT_IP_MAX,
+  VERIFY_RATE_LIMIT_EMAIL_MAX,
   VERIFY_RATE_LIMIT_WORKSPACE_MAX,
   type PortalChallenge,
 } from '@weldsuite/commerce-domain/portal-tokens';
@@ -387,15 +387,27 @@ describe('/public/commerce-portal · OTP brute force', () => {
     expect(correct.status).toBe(401);
   });
 
-  it('rate limits /auth/verify per IP', async () => {
+  it('rate limits failed OTP verifies per email, not for other buyers', async () => {
     await enablePortal();
     const kv = new MemoryKV();
-    for (let i = 0; i < VERIFY_RATE_LIMIT_IP_MAX; i++) {
-      const res = await verify(kv, { otp: '999999', email: `spray${i}@example.com` });
+    for (let i = 0; i < VERIFY_RATE_LIMIT_EMAIL_MAX; i++) {
+      const res = await verify(kv, { otp: '999999', email: 'spray@example.com' });
       expect(res.status).toBe(401);
     }
-    const blocked = await verify(kv, { otp: '999999', email: 'spray-last@example.com' });
+    const blocked = await verify(kv, { otp: '999999', email: 'spray@example.com' });
     expect(blocked.status).toBe(429);
+    const other = await verify(kv, { otp: '999999', email: 'other@example.com' });
+    expect(other.status).toBe(401);
+  });
+
+  it('does not count successful verifies against the limits', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('counted');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+    expect((await verify(kv, { otp: OTP, email })).status).toBe(200);
+    expect(kv.has(rateLimitKvKey('org_test_default', 'verify-ws'))).toBe(false);
+    expect(kv.has(rateLimitKvKey('org_test_default', `verify-e:${email}`))).toBe(false);
   });
 
   it('rate limits /auth/verify per workspace across IPs', async () => {
