@@ -351,9 +351,15 @@ async function handleOrganizationDeleted(
   // mid-copy. Defer the whole cascade (nothing is changed yet) and let Svix redeliver.
   if (await hasActiveMove(masterDb, workspace.id)) throw new DatabaseMoveActiveError(workspace.id);
 
+  // Every Clerk org deletion ends here (workspace settings, account deletion,
+  // the scheduled-deletion sweep, the Clerk dashboard), so this is where the
+  // workspace is marked deleted. A stamp that is already there (the sweep's,
+  // or an earlier delivery's) is kept: the teardown retry sweep
+  // (services/teardown-sweep.ts) counts its margin from it.
+  const now = new Date();
   await masterDb
     .update(workspaces)
-    .set({ isActive: false, updatedAt: new Date() })
+    .set({ isActive: false, deletedAt: workspace.deletedAt ?? now, updatedAt: now })
     .where(eq(workspaces.id, workspace.id));
 
   await masterDb
