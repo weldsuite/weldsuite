@@ -19,6 +19,7 @@
  */
 
 import { directUrlOf } from '@weldsuite/neon-provisioning';
+import { describeJournalGap, isAtJournalLevel, matchTenantJournal } from '@weldsuite/db/lib/tenant-journal';
 import type { MoveTargetRequest } from '@weldsuite/neon-provisioning';
 import type { DatabaseMoveProgress, DatabaseMoveVerification } from '@weldsuite/db/schema/master';
 import {
@@ -26,6 +27,7 @@ import {
   census,
   compareChecksums,
   copyTable,
+  endOwnSession,
   finishTarget,
   journalsMatch,
   lockDatabase,
@@ -148,11 +150,15 @@ export async function checkSource(deps: MoveDeps, moveId: string): Promise<{ tab
   // A lock that rotates the password but cannot store the new URL strands the workspace.
   await deps.encryptUrl('postgresql://check:check@check.invalid/check', move.workspaceId);
 
+  // Judged migration by migration, not by count and newest row: drizzle's migrator skips a migration merged with
+  // an older timestamp, and two runners record rows differently, so counts can agree while the schema does not.
   const journal = await readJournalSummary(source);
-  if (!journal || journal.count !== deps.bundledJournal.count || journal.maxCreatedAt !== deps.bundledJournal.maxCreatedAt) {
+  const match = journal ? matchTenantJournal(journal.migrations, deps.bundledJournal.entries) : null;
+  if (!match || !isAtJournalLevel(match)) {
+    const gap = match ? describeJournalGap(match) : 'no migrations journal';
     throw new MoveFlowError(
       'SOURCE_NOT_CURRENT',
-      `The source database is not at the bundled migration level (source: ${describeJournal(journal)}; ` +
+      `The source database is not at the bundled migration level: ${gap} (source: ${describeJournal(journal)}; ` +
         `bundled: ${describeJournal(deps.bundledJournal)}). Apply the tenant migrations to it first.`,
     );
   }
@@ -256,7 +262,9 @@ export async function checkTargetLevel(deps: MoveDeps, moveId: string): Promise<
   const target = await connectTarget(deps, move);
   const sourceJournal = await readJournalSummary(source);
   const targetJournal = await readJournalSummary(target);
-  if (!journalsMatch(sourceJournal, targetJournal)) throw new JournalMismatchError(sourceJournal, targetJournal);
+  if (!journalsMatch(sourceJournal, targetJournal, deps.bundledJournal.entries)) {
+    throw new JournalMismatchError(sourceJournal, targetJournal);
+  }
   return { journalEntries: sourceJournal?.count ?? 0 };
 }
 
@@ -289,7 +297,9 @@ export async function softLock(deps: MoveDeps, moveId: string): Promise<StepOk> 
  *     row with a compare-and-set on the source, and purge the caches: requests
  *     holding the old URL now fail within about a second, and a read resolved
  *     after the purge works against the (soon read-only) source;
- *  4. make the database read-only for new sessions and end the open ones.
+ *  4. make the database read-only for new sessions and end the open ones,
+ *     this connection's own last: it was opened before the read-only default,
+ *     and the neon-http proxy would hand it to the next request on the URL.
  * A retry rotates again and rewrites the URL, which is harmless.
  */
 export async function lockSourcePartOne(deps: MoveDeps, moveId: string): Promise<{ found: number; terminated: number }> {
@@ -325,19 +335,23 @@ export async function lockSourcePartOne(deps: MoveDeps, moveId: string): Promise
   const source = deps.connect(urls.directUrl);
   await lockDatabase(source, move.sourceDatabaseName);
   const { found, terminated } = await terminateOtherSessions(source);
+  await endOwnSession(source);
   return { found, terminated };
 }
 
 /**
- * Lock, part 2 (after a short pause): end the sessions that reconnected, restart
- * a DEDICATED source's compute (ends PgBouncer client sessions that survive a
- * rotation; never done for a shard, whose compute serves other tenants), check
- * that a fresh session really is read-only, and only then say `locked`.
+ * Lock, part 2 (after a short pause): end the sessions that reconnected and this
+ * connection's own, restart a DEDICATED source's compute (ends PgBouncer client
+ * sessions that survive a rotation; never done for a shard, whose compute
+ * serves other tenants), check that a fresh session really is read-only, and
+ * only then say `locked`.
  */
 export async function lockSourcePartTwo(deps: MoveDeps, moveId: string): Promise<{ restarted: boolean }> {
   const move = await advance(deps.masterDb, moveId, { step: 'lock-source-verify' }, deps.now());
   const { source } = await sourceContext(deps, move);
   await terminateOtherSessions(source);
+  // The proxy may have handed this step a session from before the lock (part 1 retried, or ended early).
+  await endOwnSession(source);
 
   const dedicated = move.sourceSharedProjectId === null;
   if (dedicated) await deps.provisioning.restartDedicatedEndpoint(deps.masterDb, move.sourceNeonProjectId);
@@ -416,7 +430,7 @@ export async function prepareCopy(deps: MoveDeps, moveId: string): Promise<CopyP
   const { source } = await sourceContext(deps, move);
   const target = await connectTarget(deps, move);
   const catalog = await readCatalog(source);
-  const prepared = await prepareTargetForCopy(target, catalog);
+  const prepared = await prepareTargetForCopy(target, catalog, deps.bundledJournal.entries);
   const nonEmpty = await census(source, catalog.tables);
   const plan = planCopy(catalog, nonEmpty);
 

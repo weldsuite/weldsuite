@@ -600,6 +600,57 @@ describe('releaseMoveTarget', () => {
     expect(await databaseCount('nsp_a')).toBe(3);
   });
 
+  it('does not count back a database Neon no longer has, even though it would accept the delete', async () => {
+    await seedShard('nsp_a', { databaseCount: 4 });
+    fake.getDatabase.mockRejectedValueOnce(new NeonApiError('database not found', 404));
+
+    await service.releaseMoveTarget(db, shardCoords);
+
+    expect(fake.deleteDatabase).not.toHaveBeenCalled();
+    expect(fake.deleteRole).toHaveBeenCalledTimes(1);
+    expect(await databaseCount('nsp_a')).toBe(4);
+  });
+
+  it('waits for the database delete to finish before deleting the role that owns it', async () => {
+    await seedShard('nsp_a', { databaseCount: 4 });
+
+    await service.releaseMoveTarget(db, shardCoords);
+
+    const deleted = fake.deleteDatabase.mock.invocationCallOrder[0]!;
+    const waited = fake.waitForOperations.mock.invocationCallOrder.find((order) => order > deleted);
+    expect(waited).toBeDefined();
+    expect(fake.deleteRole.mock.invocationCallOrder[0]!).toBeGreaterThan(waited!);
+    expect(await databaseCount('nsp_a')).toBe(3);
+  });
+
+  it('counts nothing when the delete operation fails and the database is still there; the retry counts it once', async () => {
+    await seedShard('nsp_a', { databaseCount: 4 });
+    fake.waitForOperations.mockRejectedValueOnce(new Error('Neon operation op-1 ended with status failed'));
+
+    await expect(service.releaseMoveTarget(db, shardCoords)).rejects.toThrow('ended with status failed');
+    expect(await databaseCount('nsp_a')).toBe(4);
+    expect(fake.deleteRole).not.toHaveBeenCalled(); // it still owns the database
+
+    // The retry still finds the database: it deletes it again, counts it back once, then deletes the role.
+    await service.releaseMoveTarget(db, shardCoords);
+    expect(fake.deleteDatabase).toHaveBeenCalledTimes(2);
+    expect(await databaseCount('nsp_a')).toBe(3);
+    expect(fake.deleteRole).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the slot back when the wait times out but Neon confirms the database is gone', async () => {
+    await seedShard('nsp_a', { databaseCount: 4 });
+    fake.waitForOperations.mockRejectedValueOnce(new NeonApiError('Timed out waiting for operations', 504));
+    fake.getDatabase
+      .mockResolvedValueOnce({ database: { name: shardCoords.databaseName } }) // before the delete
+      .mockRejectedValueOnce(new NeonApiError('database not found', 404)); // asked again after the failed wait
+
+    await service.releaseMoveTarget(db, shardCoords);
+
+    expect(await databaseCount('nsp_a')).toBe(3);
+    expect(fake.deleteRole).toHaveBeenCalledTimes(1);
+  });
+
   it('finishes a half-done release: the database is gone, the role is not', async () => {
     await seedShard('nsp_a', { databaseCount: 4 });
     fake.deleteDatabase.mockRejectedValueOnce(new NeonApiError('database not found', 404));

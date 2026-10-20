@@ -664,7 +664,11 @@ describe('deps helpers', () => {
 
   it('summarises the bundled journal the way readJournalSummary does: entry count and newest created_at as text', () => {
     const newest = Math.max(...MIGRATION_JOURNAL.map((m) => m.when));
-    expect(bundledJournalSummary()).toEqual({ count: MIGRATION_JOURNAL.length, maxCreatedAt: String(newest) });
+    const bundled = bundledJournalSummary();
+    expect(bundled).toMatchObject({ count: MIGRATION_JOURNAL.length, maxCreatedAt: String(newest) });
+    // Every entry, with the hash drizzle's migrator would have recorded, for the migration-by-migration check.
+    expect(bundled.entries).toHaveLength(MIGRATION_JOURNAL.length);
+    expect(bundled.entries.every((entry) => /^[0-9a-f]{64}$/.test(entry.hash))).toBe(true);
   });
 });
 

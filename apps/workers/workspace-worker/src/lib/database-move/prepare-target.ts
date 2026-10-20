@@ -16,6 +16,7 @@
  * no-ops. Do not re-run it once copying has started: it truncates.
  */
 
+import { matchTenantJournal, type TenantJournalEntry } from '@weldsuite/db/lib/tenant-journal';
 import { readForeignKeys, readJournalSummary, readTables, readTriggers } from './catalog';
 import { JournalMismatchError, SchemaMismatchError, UnsupportedSchemaError } from './errors';
 import { qualifiedTable, quoteIdent } from './quote';
@@ -44,9 +45,24 @@ export interface PrepareTargetResult {
 /** Fail fast when a lock cannot be taken; the target has no traffic, so any wait means something unexpected holds it. */
 const LOCK_TIMEOUT_STATEMENT: SqlStatement = { text: `SET LOCAL lock_timeout = '30s'` };
 
-export function journalsMatch(source: JournalSummary | null, target: JournalSummary | null): boolean {
+/**
+ * Source and target were migrated to the same point. Given the bundled journal,
+ * each side is judged migration by migration (`matchTenantJournal`): the same
+ * migrations applied, and no row on either side the journal does not know. Two
+ * runners write these rows differently (tag vs hash only), so without the
+ * journal only the old summary check is left: count and newest `created_at`.
+ */
+export function journalsMatch(
+  source: JournalSummary | null,
+  target: JournalSummary | null,
+  journal?: readonly TenantJournalEntry[],
+): boolean {
   if (!source || !target) return false;
-  return source.count === target.count && source.maxCreatedAt === target.maxCreatedAt;
+  if (!journal) return source.count === target.count && source.maxCreatedAt === target.maxCreatedAt;
+  const onSource = matchTenantJournal(source.migrations, journal);
+  const onTarget = matchTenantJournal(target.migrations, journal);
+  if (onSource.unknown.length > 0 || onTarget.unknown.length > 0) return false;
+  return onSource.applied.size === onTarget.applied.size && [...onSource.applied].every((tag) => onTarget.applied.has(tag));
 }
 
 /** Refuse a schema the engine cannot copy faithfully. Throws {@link UnsupportedSchemaError}. */
@@ -106,12 +122,19 @@ function mergeTriggers(
 /**
  * @param targetSql connection to the target database
  * @param catalog the SOURCE catalog (`readCatalog(sourceSql)`), the definition of what the target must end up as
+ * @param journal the bundled tenant journal, to compare the two journals migration by migration
  */
-export async function prepareTargetForCopy(targetSql: TenantSql, catalog: Catalog): Promise<PrepareTargetResult> {
+export async function prepareTargetForCopy(
+  targetSql: TenantSql,
+  catalog: Catalog,
+  journal?: readonly TenantJournalEntry[],
+): Promise<PrepareTargetResult> {
   assertCopySupported(catalog);
 
   const targetJournal = await readJournalSummary(targetSql);
-  if (!journalsMatch(catalog.journal, targetJournal)) throw new JournalMismatchError(catalog.journal, targetJournal);
+  if (!journalsMatch(catalog.journal, targetJournal, journal)) {
+    throw new JournalMismatchError(catalog.journal, targetJournal);
+  }
 
   const targetTables = await readTables(targetSql);
   const targetByName = new Map(targetTables.map((t) => [t.name, t]));

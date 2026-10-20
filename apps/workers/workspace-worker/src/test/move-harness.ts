@@ -32,7 +32,8 @@ import { createMasterTestDb } from '@weldsuite/neon-provisioning/test/master-db'
 import type { Env } from '../index';
 import type { MasterDatabase } from '../db';
 import type { SqlParam, SqlRow, TenantSql } from '../lib/database-move/types';
-import type { MoveDeps } from '../services/database-move/deps';
+import type { TenantJournalEntry } from '@weldsuite/db/lib/tenant-journal';
+import type { BundledJournal, MoveDeps } from '../services/database-move/deps';
 import { startDatabaseMove } from '../services/database-move/start';
 import { createFixturePair } from './move-fixture';
 import { createPgliteTenant, type PgliteTenant } from './pglite-tenant-sql';
@@ -59,6 +60,17 @@ export const TARGET = {
 
 /** The journal the fixture databases carry (see FIXTURE_SCHEMA_SQL). */
 export const FIXTURE_JOURNAL = { count: 2, maxCreatedAt: '1700000100000' } as const;
+
+/** The same journal entry by entry, as the bundle would list it. */
+export const FIXTURE_JOURNAL_ENTRIES: readonly TenantJournalEntry[] = [
+  { tag: '0000_init', when: 1700000000000, hash: 'hash-0' },
+  { tag: '0001_more', when: 1700000100000, hash: 'hash-1' },
+];
+
+/** What `deps.bundledJournal` reports by default: the journal the fixture databases carry. */
+export function fixtureBundledJournal(): BundledJournal {
+  return { ...FIXTURE_JOURNAL, entries: [...FIXTURE_JOURNAL_ENTRIES] };
+}
 
 // ── Master ───────────────────────────────────────────────────────────────
 
@@ -238,6 +250,11 @@ export function createGuardModule() {
       guardState.log.push('terminate');
       return { found: 0, terminated: 0, failed: 0 };
     },
+    endOwnSession: async (sql: TenantSql) => {
+      await sql.query('SELECT 1');
+      guardState.log.push('end-own');
+      return true;
+    },
     countOtherSessions: async () => 0,
   };
 }
@@ -272,7 +289,7 @@ export interface WorldOptions {
   /** Where the workspace lives now. Default: on shard `nsp_src`; null for a dedicated database. */
   sourceShard?: string | null;
   /** The journal `deps.bundledJournal` reports. Default: the fixture's. */
-  bundledJournal?: { count: number; maxCreatedAt: string | null };
+  bundledJournal?: BundledJournal;
   retentionDays?: number;
   /** Fixed clock; default real time. */
   now?: () => Date;
@@ -338,7 +355,7 @@ async function buildWorld(
     encryptUrl: (url, workspaceId) => encryptWorkspaceDatabaseUrl(url, workspaceId, KEYRING),
     decryptUrl: (stored, workspaceId) =>
       stored.startsWith('postgres') ? Promise.resolve(stored) : decryptWorkspaceDatabaseUrl(stored, workspaceId, KEYRING),
-    bundledJournal: options.bundledJournal ?? { ...FIXTURE_JOURNAL },
+    bundledJournal: options.bundledJournal ?? fixtureBundledJournal(),
     purgeCaches: async (target) => {
       purges.push(target);
     },
