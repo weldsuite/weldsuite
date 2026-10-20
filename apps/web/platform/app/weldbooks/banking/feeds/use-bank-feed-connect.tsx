@@ -11,6 +11,7 @@
  */
 import { useCallback, useState, type ReactNode } from 'react';
 import { useRouter } from '@tanstack/react-router';
+import { isReverificationCancelledError } from '@clerk/clerk-react/errors';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -36,6 +37,7 @@ import { bankFeedRedirectUrl, FEEDS_PATH, mappedAccounts, unmappedAccounts } fro
 import { useFeedTexts } from './feed-texts';
 import { launcherFor, safeReturnPath } from './launchers';
 import { navigateAway } from './navigate-away';
+import { MFA_REQUIRED, SECURITY_SETTINGS_PATH, useWithSecondFactor } from './use-second-factor';
 
 export type ConnectPhase = 'idle' | 'starting' | 'launching' | 'completing';
 
@@ -148,13 +150,23 @@ export function useBankFeedConnect(
   const [mapping, setMapping] = useState<BankFeedConnection | null>(null);
   const [offer, setOffer] = useState<ExtraChargeOffer | null>(null);
   const { mutateAsync: createAsync } = createSession;
+  // Starting a link asks for the second factor again when it is not fresh.
+  const startSession = useWithSecondFactor(createAsync);
   const { mutateAsync: completeAsync } = completeLink;
   const { defaultBankAccountId, returnTo: returnToOption, onLinked } = options;
 
   /** A link that did not get through: offer a paid connection, or say what went wrong. */
   const failed = useCallback(
     async (err: unknown, request: ConnectRequest) => {
+      // The user closed Clerk's confirmation: nothing went wrong.
+      if (isReverificationCancelledError(err)) return;
       const code = isBankFeedRequestError(err) ? err.code : null;
+      if (code === MFA_REQUIRED) {
+        toast.error(t.errors.mfaRequired, {
+          action: { label: t.errors.setUpMfa, onClick: () => router.history.push(SECURITY_SETTINGS_PATH) },
+        });
+        return;
+      }
       // Over what the plan includes: say what it costs and let the user agree first.
       if (code === BANK_CONNECTION_LIMIT_REACHED && (request.mode ?? 'create') === 'create' && !request.acceptExtraCharge) {
         const billing = await fetchBilling().catch(() => null);
@@ -185,7 +197,7 @@ export function useBankFeedConnect(
 
       setPhase('starting');
       try {
-        const session = await createAsync({
+        const session = await startSession({
           provider: request.provider.id,
           mode,
           connectionId,
@@ -224,7 +236,7 @@ export function useBankFeedConnect(
         await failed(err, request);
       }
     },
-    [phase, returnToOption, defaultBankAccountId, createAsync, completeAsync, failed, outcome, onLinked],
+    [phase, returnToOption, defaultBankAccountId, startSession, completeAsync, failed, outcome, onLinked],
   );
 
   const offerPrice = offer ? formatMonthlyPrice(offer.billing.unitAmountCents, offer.billing.currency, language) : '';

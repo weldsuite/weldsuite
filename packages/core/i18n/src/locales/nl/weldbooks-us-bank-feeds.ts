@@ -309,5 +309,8 @@ export const weldbooksUsBankFeeds = {
     paymentFailed: 'De betaling voor de extra bankkoppeling is niet gelukt. Controleer je betaalmethode en probeer het opnieuw.',
     billingUnavailable: 'De facturering kon nu niet worden gecontroleerd. Probeer het over een paar minuten opnieuw.',
     openBilling: 'Naar facturering',
+    mfaRequired: 'Voor het koppelen van een bank is verificatie in twee stappen nodig. Stel eerst een authenticator-app in op je account.',
+    setUpMfa: 'Verificatie in twee stappen instellen',
+    reverificationFailed: 'Je identiteit kon niet worden bevestigd. Probeer het opnieuw.',
   },
 };

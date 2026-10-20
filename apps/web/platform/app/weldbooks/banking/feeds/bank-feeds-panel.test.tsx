@@ -18,6 +18,11 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   }),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
+// Clerk's second-factor confirmation needs a ClerkProvider; the calls go straight through here.
+vi.mock('./use-second-factor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./use-second-factor')>()),
+  useWithSecondFactor: <A extends unknown[], R>(call: (...args: A) => Promise<R>) => call,
+}));
 vi.mock('sonner', () => ({ toast }));
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ history: { push: vi.fn() } }),

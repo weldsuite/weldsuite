@@ -306,5 +306,8 @@ export const weldbooksUsBankFeeds = {
     paymentFailed: 'The payment for the extra bank connection did not go through. Check your payment method and try again.',
     billingUnavailable: 'Billing could not be checked right now. Try again in a few minutes.',
     openBilling: 'Open billing',
+    mfaRequired: 'Connecting a bank needs two-step verification. Set up an authenticator app on your account first.',
+    setUpMfa: 'Set up two-step verification',
+    reverificationFailed: 'Your identity could not be confirmed. Try again.',
   },
 };
