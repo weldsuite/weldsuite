@@ -15,7 +15,8 @@
 # Secrets (not in the manifest yet):
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 
-name = "weldsuite-data-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-data-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

@@ -2,7 +2,8 @@
 # Orchestrator-only: consumes ENTITY_EVENTS and enqueues to matching subscriber queues.
 # No business logic (no DB writes, no HTTP, no Workflow.create).
 
-name = "weldsuite-entity-events"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-entity-events-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

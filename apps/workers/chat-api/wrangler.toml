@@ -33,7 +33,8 @@
 # CF_ACCOUNT_ID, R2_PUBLIC_URL, AGENT_RUNTIME_URL and AGENT_COMPUTER_ENABLED
 # are [vars] (values copied from app-api).
 
-name = "weldsuite-chat-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-chat-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

@@ -25,7 +25,8 @@
 # schedule index: launch / resume / enrol wake the send sweep), FLAGSHIP (the
 # `weldreach-sending` kill switch that GET /v1/reach/access reports) and the existing
 # STORAGE (raw inbound replies). The access gate reads master over DATABASE_URL_MASTER.
-name = "weldsuite-mcp-server"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-mcp-server-dev"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]

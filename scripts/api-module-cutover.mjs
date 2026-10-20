@@ -49,7 +49,7 @@ edit('apps/workers/app-api/wrangler.toml', (s) => {
   // 2. Service bindings, after the PASS_API binding of each environment.
   if (s.includes(`binding = "${mod.binding}"`)) return s;
   const envs = [
-    { table: '[[services]]', anchor: 'binding = "PASS_API"\nservice = "weldsuite-pass-api"\n', service: script },
+    { table: '[[services]]', anchor: 'binding = "PASS_API"\nservice = "weldsuite-pass-api-dev"\n', service: `${script}-dev` },
     { table: '[[env.test.services]]', anchor: 'binding = "PASS_API"\nservice = "weldsuite-pass-api-test"\n', service: `${script}-test` },
     { table: '[[env.production.services]]', anchor: 'binding = "PASS_API"\nservice = "weldsuite-pass-api"\n', service: script },
   ];
