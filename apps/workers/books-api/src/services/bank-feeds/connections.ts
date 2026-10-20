@@ -215,6 +215,17 @@ export async function connectionViewById(ctx: FeedContext, id: string, options: 
 
 // ── Link ───────────────────────────────────────────────────────────────────
 
+/**
+ * A disconnected connection no longer counts toward the plan's connections (its
+ * index row is gone), so it comes back only through a new link, which is checked
+ * and billed like any other. Reconnecting it in place would skip that.
+ */
+function assertNotDisconnected(row: ConnectionRow): void {
+  if (row.status === 'disconnected') {
+    throw new FeedServiceError('conflict', 'This bank connection was disconnected. Connect the bank again as a new connection.');
+  }
+}
+
 export async function createLinkSession(
   ctx: FeedContext,
   args: {
@@ -239,6 +250,7 @@ export async function createLinkSession(
     if (!args.connectionId) throw new FeedServiceError('bad_request', 'connectionId is required to reconnect or add accounts');
     const row = await requireConnection(ctx.db, args.connectionId);
     if (row.provider !== provider.id) throw new FeedServiceError('bad_request', 'The connection belongs to another provider');
+    assertNotDisconnected(row);
     stored = await toStoredConnection(ctx, row);
   }
 
@@ -279,7 +291,7 @@ function mergeFeedAccounts(existing: StoredFeedAccount[], incoming: StoredFeedAc
 export async function completeLink(
   ctx: FeedContext,
   args: { providerId: string; payload: unknown; connectionId?: string; entityId: string; userId: string | null },
-): Promise<{ view: ConnectionView; created: boolean }> {
+): Promise<{ view: ConnectionView; created: boolean; restored: boolean }> {
   let provider;
   try {
     provider = ctx.getProvider(args.providerId);
@@ -294,6 +306,7 @@ export async function completeLink(
   if (args.connectionId) {
     existing = await requireConnection(ctx.db, args.connectionId, args.entityId);
     if (existing.provider !== provider.id) throw new FeedServiceError('bad_request', 'The connection belongs to another provider');
+    assertNotDisconnected(existing);
     payload = { ...payload, connection: await toStoredConnection(ctx, existing) };
   }
 
@@ -389,7 +402,10 @@ export async function completeLink(
     });
   }
 
+  // A disconnected connection that the same link brings back (a duplicate, above) counts toward the plan again.
+  let restored = false;
   if (!INACTIVE_STATUSES.has(status)) {
+    restored = existing?.status === 'disconnected';
     const intervalHours = provider.capabilities.webhooks ? 24 : 6;
     await ctx.index.upsert(
       (connection.indexKeys ?? [connection.providerConnectionId]).map((key) => ({
@@ -404,7 +420,7 @@ export async function completeLink(
     );
   }
 
-  return { view: await connectionViewById(ctx, id, { suggestions: true }), created: !args.connectionId && !existing };
+  return { view: await connectionViewById(ctx, id, { suggestions: true }), created: !args.connectionId && !existing, restored };
 }
 
 // ── Mapping ────────────────────────────────────────────────────────────────

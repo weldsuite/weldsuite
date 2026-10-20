@@ -398,6 +398,11 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Extra origins whose Clerk tokens are accepted (`azp`), on top of the
+# first-party list in @weldsuite/worker-kit/cors: the WeldPass browser
+# extension's pinned `chrome-extension://<id>` (apps/web/weldpass-extension
+# README, "Clerk configuration"). Empty refuses the extension's tokens.
+CLERK_AUTHORIZED_PARTIES = ""
 # Partner portal (apps/web/partner): links in partner emails.
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
@@ -608,6 +613,11 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# Extra origins whose Clerk tokens are accepted (`azp`), on top of the
+# first-party list in @weldsuite/worker-kit/cors: the WeldPass browser
+# extension's pinned `chrome-extension://<id>` (apps/web/weldpass-extension
+# README, "Clerk configuration"). Empty refuses the extension's tokens.
+CLERK_AUTHORIZED_PARTIES = ""
 # Partner portal (apps/web/partner): links in partner emails.
 PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over

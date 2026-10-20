@@ -43,7 +43,9 @@ export function useUserAppBundleLink(appCode: string | undefined, options: { ena
   const { orgId } = useAuth();
 
   const query = useQuery({
-    queryKey: ['user-apps', 'bundle-link', orgId ?? 'none', appCode ?? ''],
+    // Outside the `['user-apps']` prefix on purpose: install, uninstall and consent invalidate
+    // that prefix, and a refetch would mint a new link and reload every open frame of the app.
+    queryKey: ['weldapp-bundle-link', orgId ?? 'none', appCode ?? ''],
     enabled: Boolean(appCode) && options.enabled,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 60 * 60 * 1000,

@@ -142,6 +142,35 @@ function syncBillingLater(c: AppContext, billing: BankConnectionBilling) {
   );
 }
 
+/**
+ * Bill a connection that a link just added to the count (new, or a disconnected
+ * one brought back). Above the included ones the charge must go through before
+ * the link is kept; otherwise the quantity is aligned in the background.
+ */
+async function billLinkedConnection(
+  c: AppContext,
+  billing: BankConnectionBilling,
+  link: { view: ConnectionView; entityId: string; billed: boolean; created: boolean },
+) {
+  if (!link.billed) {
+    syncBillingLater(c, billing);
+    return;
+  }
+  try {
+    await billing.sync();
+  } catch (err) {
+    // Not billed, so not kept: revoke at the provider and drop (or disconnect) it again.
+    const ctx = createFeedContext(c);
+    const undo = link.created
+      ? deleteConnection(ctx, link.view.id, link.entityId)
+      : disconnectConnection(ctx, link.view.id, link.entityId);
+    await undo.catch((cleanup) =>
+      console.error('[books-api/bank-connections] removing an unbilled connection failed:', cleanup),
+    );
+    throw err;
+  }
+}
+
 /** Event payload: identifiers and status only, never tokens, account numbers or transaction data. */
 function eventData(view: ConnectionView): Record<string, unknown> {
   return {
@@ -252,28 +281,15 @@ app.post('/complete', requirePermission('banking:create'), zValidator('json', co
     const { billed } = body.connectionId
       ? { billed: false }
       : await checkNewConnection(billing, { accepted: false, requireAcceptance: false });
-    const { view, created } = await completeLink(ctx, {
+    const { view, created, restored } = await completeLink(ctx, {
       providerId: body.provider,
       payload: body.payload,
       connectionId: body.connectionId,
       entityId,
       userId: c.get('userId') ?? null,
     });
-    if (created) {
-      if (billed) {
-        try {
-          await billing.sync();
-        } catch (err) {
-          // Not billed, so not kept: revoke at the provider and drop it again.
-          await deleteConnection(ctx, view.id, entityId).catch((cleanup) =>
-            console.error('[books-api/bank-connections] removing an unbilled connection failed:', cleanup),
-          );
-          throw err;
-        }
-      } else {
-        syncBillingLater(c, billing);
-      }
-    }
+    // A disconnected connection the link brought back counts again, just like a new one.
+    if (created || restored) await billLinkedConnection(c, billing, { view, entityId, billed, created });
     publishEntityEvent({
       c,
       entityType: 'bank_connection',
