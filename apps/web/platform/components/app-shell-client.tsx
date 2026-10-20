@@ -2,7 +2,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
 import { isWorkspaceScopedPath } from '@/lib/workspace-url';
-import { useWorkspaceUrlGate } from '@/components/workspace-url-gate';
+import { useWorkspaceUrlGate, type WorkspaceUrlGate } from '@/components/workspace-url-gate';
 import { WorkspaceLinkProblem } from '@/components/workspace/workspace-link-problem';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { ComposeProvider } from '@/contexts/compose-context';
@@ -124,6 +124,20 @@ function isMinimalPath(pathname: string): boolean {
   return !isWorkspaceScopedPath(pathname) || /^\/builder\/[^/]+$/.test(pathname);
 }
 
+/**
+ * What the shell renders instead of the page while a `/w/{workspace}` URL is
+ * unsettled (FE-013): nothing while the tab may still be in the previous
+ * workspace (its queries would use that token), the workspace list when the
+ * URL's workspace can't be opened. `undefined` renders the page.
+ */
+function renderWorkspaceUrlHold(gate: WorkspaceUrlGate): React.ReactElement | null | undefined {
+  if (gate.status === 'blocked') return null;
+  if (gate.status === 'not-found' || gate.status === 'error') {
+    return <WorkspaceLinkProblem status={gate.status} memberships={gate.memberships} target={gate.target} />;
+  }
+  return undefined;
+}
+
 interface AppShellClientProps {
   children: React.ReactNode;
 }
@@ -206,22 +220,17 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   // Determine if this is a minimal route (no PlatformShell with sidebar)
   const isMinimalRoute = isEmbeddedRoute || isMinimalPath(pathname);
 
+  // The URL's workspace isn't the tab's yet, or can't be (embedded pages
+  // included; pages outside a workspace never get here, the gate is off).
+  const workspaceUrlHold = renderWorkspaceUrlHold(workspaceUrl);
+  if (workspaceUrlHold !== undefined) return workspaceUrlHold;
+
   if (isMinimalRoute) {
     // Embedded routes need an h-screen / flex wrapper so the weldflow
     // (and other module) layouts — which use `h-full` — fill the iframe
     // viewport. Without this they collapse to content height and leave
     // empty space below.
     if (isEmbeddedRoute) {
-      if (workspaceUrl.status === 'blocked') return null;
-      if (workspaceUrl.status === 'not-found' || workspaceUrl.status === 'error') {
-        return (
-          <WorkspaceLinkProblem
-            status={workspaceUrl.status}
-            memberships={workspaceUrl.memberships}
-            target={workspaceUrl.target}
-          />
-        );
-      }
       return (
         <div className="h-screen w-full flex flex-col overflow-hidden">
           <CommandPalette />
@@ -243,19 +252,6 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
     window.location.href = `/auth/login?callbackUrl=${encodeURIComponent(here)}`;
     return null;
   }
-
-  if (workspaceUrl.status === 'not-found' || workspaceUrl.status === 'error') {
-    return (
-      <WorkspaceLinkProblem
-        status={workspaceUrl.status}
-        memberships={workspaceUrl.memberships}
-        target={workspaceUrl.target}
-      />
-    );
-  }
-  // Still settling which workspace this tab is in: render nothing rather
-  // than a page whose queries run against the previous one.
-  if (workspaceUrl.status === 'blocked') return null;
 
   // Wait while we activate a just-created workspace (or an org-less session
   // that still has memberships). Don't flash the previous workspace, and

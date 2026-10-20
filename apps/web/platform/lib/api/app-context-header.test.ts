@@ -27,9 +27,13 @@ describe('installAppContextHeader', () => {
 
   beforeEach(() => originalFetch.mockClear());
 
-  it('tags app-api requests with the module in the URL', async () => {
-    goTo('/weldcrm/companies');
-    await window.fetch('https://app-api.test/api/companies');
+  it.each([
+    ['app-api requests', '/weldcrm/companies', 'https://app-api.test/api/companies'],
+    ['requests past a /w/{workspace} prefix', '/w/acme/weldcrm/companies', 'https://app-api.test/api/companies'],
+    ['module worker requests', '/weldcrm', 'https://pass-api.test/api/weldpass/projects'],
+  ])('tags %s with the module in the URL', async (_label, pathname, url) => {
+    goTo(pathname);
+    await window.fetch(url);
     expect(headerOf(0)).toBe('weldcrm');
   });
 
@@ -41,18 +45,6 @@ describe('installAppContextHeader', () => {
     expect(first.get('Authorization')).toBe('Bearer t');
     expect(first.get('X-Weld-App')).toBe('welddesk');
     expect(headerOf(1)).toBe('workspace');
-  });
-
-  it('reads the module past a /w/{workspace} prefix', async () => {
-    goTo('/w/acme/weldcrm/companies');
-    await window.fetch('https://app-api.test/api/companies');
-    expect(headerOf(0)).toBe('weldcrm');
-  });
-
-  it('tags requests to module workers too', async () => {
-    goTo('/weldcrm');
-    await window.fetch('https://pass-api.test/api/weldpass/projects');
-    expect(headerOf(0)).toBe('weldcrm');
   });
 
   it('does not treat a lookalike host as an API origin', async () => {

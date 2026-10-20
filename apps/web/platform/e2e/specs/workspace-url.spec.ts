@@ -48,6 +48,7 @@ test.describe('Workspace in the URL', () => {
 
   test('a link to another workspace switches this tab to it', async ({ page }) => {
     const other = process.env.TEST_SECOND_WORKSPACE_SLUG;
+    // Skipped: Needs the test user in a second workspace, named by TEST_SECOND_WORKSPACE_SLUG.
     test.skip(!other, 'TEST_SECOND_WORKSPACE_SLUG is not set');
 
     await page.goto('/');
