@@ -25,7 +25,12 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY_V2?: string;
   /** Shared KV namespace for workspace URL caching (same binding as api-worker). */
   WORKSPACE_CACHE?: KVNamespace;
-  /** Shared secret for authenticating /publish/* calls from non-binding callers (e.g. the admin Next.js app on Vercel). */
+  /**
+   * Shared secret every /publish/* caller must send in `x-internal-secret`:
+   * the workers publishing over their REALTIME service binding as well as HTTP
+   * callers (admin console, meeting portal, Discord bot). Required: with it
+   * unset every /publish/* request is refused (403). See lib/internal-auth.ts.
+   */
   REALTIME_INTERNAL_SECRET?: string;
 }
 

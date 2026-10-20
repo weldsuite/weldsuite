@@ -205,9 +205,9 @@ describe('createModuleApi · a database that moved under the request', () => {
 });
 
 describe('resolveCorsOrigin', () => {
-  it('echoes first-party and welddesk origins, denies the rest', () => {
+  it('echoes first-party origins, denies the rest (tenant welddesk.org hosts included)', () => {
     expect(resolveCorsOrigin('http://localhost:3000')).toBe('http://localhost:3000');
-    expect(resolveCorsOrigin('https://acme.welddesk.org')).toBe('https://acme.welddesk.org');
+    expect(resolveCorsOrigin('https://acme.welddesk.org')).toBeNull();
     expect(resolveCorsOrigin('https://evil.example.com')).toBeNull();
     expect(resolveCorsOrigin(undefined)).toBeNull();
   });

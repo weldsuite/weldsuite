@@ -64,6 +64,9 @@ export interface Env {
   // AES-256 key for encrypting connection strings (64-char hex)
   DATABASE_ENCRYPTION_KEY: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
+  // "1" → new `workspaces.database_url` values are sealed AAD-bound (v3). Leave
+  // unset until EVERY reader is deployed; see packages/core/db/src/lib/crypto.ts.
+  FIELD_ENCRYPTION_AAD_WRITES?: string;
   // Cloudflare API token + account id for Email Routing provisioning.
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;

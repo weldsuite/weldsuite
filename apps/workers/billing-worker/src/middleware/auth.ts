@@ -3,15 +3,23 @@
  *
  * Verifies Clerk JWT tokens for API routes.
  * Extracts userId and orgId from the JWT claims.
+ *
+ * The caller is app-api or a module worker forwarding the user's own session
+ * token, so the token's authorized party (`azp`) is the page origin the user
+ * signed in on (or absent for the native apps). It must be a first-party origin
+ * (the same list the API workers' CORS uses), so a session token minted for
+ * another frontend on the same Clerk instance is refused here too.
  */
 
 import { createMiddleware } from 'hono/factory';
+import { isAuthorizedParty, parseExtraAuthorizedParties } from '@weldsuite/worker-kit/cors';
 import type { Env } from '../index';
 import { orgIdFromClerkPayload, orgRoleFromClerkPayload, type ClerkJwtOrgClaims } from '../lib/clerk-org';
 
 interface JwtPayload extends ClerkJwtOrgClaims {
   sub: string;
   org_slug?: string;
+  azp?: unknown;
   iat?: number;
   exp?: number;
 }
@@ -47,6 +55,17 @@ export const clerkJwtAuth = () => {
 
       if (!payload.sub) {
         return c.json({ error: 'Invalid token: missing subject' }, 401);
+      }
+
+      const extraParties = parseExtraAuthorizedParties(
+        (c.env as Env & { CLERK_AUTHORIZED_PARTIES?: string }).CLERK_AUTHORIZED_PARTIES,
+      );
+      if (!isAuthorizedParty(payload.azp, extraParties)) {
+        // The origin only, never the token. Truncated: the claim is client-influenced.
+        console.warn(
+          `[Billing Worker] token refused, azp ${JSON.stringify(payload.azp).slice(0, 200)} is not an authorized party`,
+        );
+        return c.json({ error: 'Invalid or expired token' }, 401);
       }
 
       c.set('userId', payload.sub);

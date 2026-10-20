@@ -11,7 +11,7 @@
 
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
-import { decryptField, encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
+import { decryptWorkspaceDatabaseUrl, encryptWorkspaceDatabaseUrl, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { invalidateWorkspaceContexts } from '@weldsuite/core-domain/partners';
 import { createProvisioningService, type DatabaseProvisioningService } from '@weldsuite/neon-provisioning';
 import type { Env } from '../../index';
@@ -49,10 +49,14 @@ export interface MoveDeps {
   connect(connectionString: string): TenantSql;
   /** Apply the bundled migrations to the database at `connectionString`, at most `statementBudget` statements per call. */
   migrate(connectionString: string, statementBudget: number): Promise<ApplyMigrationsResult>;
-  /** Encrypt a connection string for storage (keyring v2 when present). Throws when no key is configured. */
-  encryptUrl(connectionString: string): Promise<string>;
-  /** Decrypt a stored connection string; a stored plaintext one passes through. */
-  decryptUrl(stored: string): Promise<string>;
+  /**
+   * Encrypt a workspace's connection string for storage (keyring v2 when present;
+   * AAD-bound to the workspace once FIELD_ENCRYPTION_AAD_WRITES is on). Throws
+   * when no key is configured.
+   */
+  encryptUrl(connectionString: string, workspaceId: string): Promise<string>;
+  /** Decrypt a workspace's stored connection string; a stored plaintext one passes through. */
+  decryptUrl(stored: string, workspaceId: string): Promise<string>;
   bundledJournal: BundledJournal;
   /** Drop every cached copy of the workspace's tenant resolution. Never throws. */
   purgeCaches(target: WorkspaceCacheTarget): Promise<void>;
@@ -101,13 +105,13 @@ export function createMoveDeps(env: Env): MoveDeps {
     connect: neonTenantSql,
     migrate: (connectionString, statementBudget) =>
       applyTenantMigrations(drizzleNeonHttp({ client: neon(connectionString) }), { statementBudget }),
-    async encryptUrl(connectionString) {
+    async encryptUrl(connectionString, workspaceId) {
       // A move never stores a credential in plaintext, whatever the provisioning fallback does.
       if (!hasKey) throw new MoveFlowError('NOT_CONFIGURED', 'DATABASE_ENCRYPTION_KEY is not configured');
-      return encryptField(connectionString, keyring);
+      return encryptWorkspaceDatabaseUrl(connectionString, workspaceId, keyring);
     },
-    async decryptUrl(stored) {
-      return POSTGRES_URL.test(stored) ? stored : decryptField(stored, keyring);
+    async decryptUrl(stored, workspaceId) {
+      return POSTGRES_URL.test(stored) ? stored : decryptWorkspaceDatabaseUrl(stored, workspaceId, keyring);
     },
     bundledJournal: bundledJournalSummary(),
     purgeCaches: ({ workspaceId, clerkOrgId }) =>

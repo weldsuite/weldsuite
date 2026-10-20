@@ -1,8 +1,28 @@
 /**
  * KV helpers for the B2B commerce portal: magic-link / OTP challenges and
  * buyer sessions. Tokens are stored hashed (SHA-256 hex); only the buyer
- * ever sees the plaintext.
+ * ever sees the plaintext. Rate limits are NOT in KV (it has no atomic
+ * increment): they live in ./portal-rate-limit and are re-exported here.
  */
+
+export {
+  applyRateLimitHit,
+  applyRateLimitRelease,
+  consumeRateLimit,
+  RATE_LIMIT_MAX,
+  RATE_LIMIT_TTL_SECONDS,
+  rateLimitKey,
+  RateLimitCounter,
+  releaseRateLimit,
+  REQUEST_RATE_LIMIT_WORKSPACE_MAX,
+  type PortalRateLimitEnv,
+  type RateLimitCounterStore,
+  type RateLimitCounterStub,
+  type RateLimitNamespace,
+  type RateLimitOutcome,
+  type RateLimitState,
+  type RateLimitVerdict,
+} from './portal-rate-limit';
 
 /** The KV binding the portal token helpers read and write. */
 export interface PortalKvEnv {
@@ -22,14 +42,13 @@ export interface PortalOriginEnv {
 
 export const OTP_TTL_SECONDS = 15 * 60;
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
-export const RATE_LIMIT_TTL_SECONDS = 15 * 60;
-export const RATE_LIMIT_MAX = 5;
 /** Wrong guesses a challenge survives before it is invalidated. */
 export const MAX_VERIFY_ATTEMPTS = 8;
 /**
  * Failed verify calls per 15 minutes: per buyer email (OTP path), and per
  * workspace across all buyers. Not per IP: buyers reach the worker through the
- * portal's Next server, so they all share its egress IP.
+ * portal's Next server, so they all share its egress IP. A slot is reserved up
+ * front and released when the sign-in succeeds, so only failures count.
  */
 export const VERIFY_RATE_LIMIT_EMAIL_MAX = 20;
 export const VERIFY_RATE_LIMIT_WORKSPACE_MAX = 200;
@@ -77,10 +96,6 @@ export function pickerKvKey(tokenHash: string): string {
   return `cportal:pick:${tokenHash}`;
 }
 
-export function rateLimitKvKey(workspaceId: string, email: string): string {
-  return `cportal:rl:${workspaceId}:${email.trim().toLowerCase()}`;
-}
-
 export async function sha256Hex(value: string): Promise<string> {
   const data = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest('SHA-256', data);
@@ -93,9 +108,34 @@ export function randomToken(bytes = 32): string {
   return [...buf].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export function randomOtp(): string {
-  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000;
-  return String(n).padStart(6, '0');
+const OTP_MODULUS = 1_000_000;
+const UINT32_VALUES = 0x1_0000_0000;
+/**
+ * Draws at or above this are discarded. 2^32 is not a multiple of 10^6, so
+ * `draw % 10^6` would make the codes 000000-967295 slightly more likely than
+ * the rest; accepting only draws below the largest multiple of 10^6 under 2^32
+ * makes all 10^6 codes exactly equally likely. About 0.02% of draws are redrawn.
+ */
+export const OTP_REJECTION_LIMIT = UINT32_VALUES - (UINT32_VALUES % OTP_MODULUS);
+/** Draws before giving up: (0.0002)^32 is zero in practice, only a broken RNG gets there. */
+const OTP_MAX_DRAWS = 32;
+
+/** Fills the array with random 32-bit values. Overridable for tests only. */
+export type RandomFill = (buffer: Uint32Array) => void;
+
+const cryptoFill: RandomFill = (buffer) => {
+  crypto.getRandomValues(buffer);
+};
+
+/** A uniformly random 6-digit code (zero padded), by rejection sampling. */
+export function randomOtp(fill: RandomFill = cryptoFill): string {
+  const draw = new Uint32Array(1);
+  for (let attempt = 0; attempt < OTP_MAX_DRAWS; attempt++) {
+    fill(draw);
+    const value = draw[0]!;
+    if (value < OTP_REJECTION_LIMIT) return String(value % OTP_MODULUS).padStart(6, '0');
+  }
+  throw new Error('Random source did not produce a usable value');
 }
 
 export async function kvGetJson<T>(env: PortalKvEnv, key: string): Promise<T | null> {
@@ -134,35 +174,4 @@ export async function storeChallenge(
 export async function deleteChallenge(env: PortalKvEnv, challenge: PortalChallenge): Promise<void> {
   await kvDelete(env, otpKvKey(challenge.workspaceId, challenge.email));
   await kvDelete(env, `cportal:tok:${challenge.tokenHash}`);
-}
-
-/** True while `key` is under `max` hits in the current window. Counts nothing. */
-export async function underRateLimit(
-  env: PortalKvEnv,
-  workspaceId: string,
-  key: string,
-  max: number,
-): Promise<boolean> {
-  const current = await kvGetJson<{ count: number }>(env, rateLimitKvKey(workspaceId, key));
-  return (current?.count ?? 0) < max;
-}
-
-/** Count one hit against `key`, e.g. a failed attempt gated by `underRateLimit`. */
-export async function recordRateLimitHit(env: PortalKvEnv, workspaceId: string, key: string): Promise<void> {
-  const rlKey = rateLimitKvKey(workspaceId, key);
-  const current = (await kvGetJson<{ count: number }>(env, rlKey)) ?? { count: 0 };
-  await kvPutJson(env, rlKey, { count: current.count + 1 }, RATE_LIMIT_TTL_SECONDS);
-}
-
-export async function consumeRateLimit(
-  env: PortalKvEnv,
-  workspaceId: string,
-  email: string,
-  max: number = RATE_LIMIT_MAX,
-): Promise<boolean> {
-  const key = rateLimitKvKey(workspaceId, email);
-  const current = (await kvGetJson<{ count: number }>(env, key)) ?? { count: 0 };
-  if (current.count >= max) return false;
-  await kvPutJson(env, key, { count: current.count + 1 }, RATE_LIMIT_TTL_SECONDS);
-  return true;
 }

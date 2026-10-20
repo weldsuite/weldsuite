@@ -60,7 +60,7 @@ app.post('/', zValidator('json', createAccessRequestSchema), async (c) => {
     });
 
     if (!result.deduped && workspaceId && c.env.REALTIME && result.insertedNotifications.length > 0) {
-      const realtime = new RealtimePublisher(c.env.REALTIME);
+      const realtime = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
       // Publish each admin's full notification row to their personal
       // `notification.{userId}` topic so the bell updates live.
       const promise = Promise.allSettled(
@@ -116,7 +116,7 @@ app.patch(
       }
 
       if (workspaceId && c.env.REALTIME) {
-        const realtime = new RealtimePublisher(c.env.REALTIME);
+        const realtime = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         const promise = Promise.allSettled([
           // Push the full requester-facing notification row so their bell updates live.
           realtime.notify(

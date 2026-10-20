@@ -1,5 +1,6 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
+import type { PortalRateLimiter } from './durable-objects/portal-rate-limiter';
 
 /**
  * commerce-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -10,6 +11,13 @@ export interface Env extends KitEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /**
+   * Atomic counters for the public commerce portal limits (/auth/request,
+   * /auth/verify). Optional in the type so tests and `wrangler dev` without
+   * it still compile, but the portal REFUSES sign-in requests without it (it
+   * fails closed, see routes/public-commerce-portal).
+   */
+  PORTAL_RATE_LIMITER?: DurableObjectNamespace<PortalRateLimiter>;
 
   // --- Commerce portal mails (services/commerce-portal-mail.ts, @weldsuite/emails) -
   /** Cloudflare Email Service binding for outbound mail (commerce portal

@@ -288,6 +288,8 @@ export interface Env extends KitEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Sent as x-internal-secret on every realtime-worker /publish/* call. */
+  REALTIME_INTERNAL_SECRET?: string;
 }
 
 export type Variables = KitVariables;

@@ -3,10 +3,15 @@
  *
  * Since the Discord bot runs on Hetzner (not Cloudflare), it can't use
  * the RealtimePublisher service binding. Instead, it calls the
- * realtime-worker's HTTP endpoints directly.
+ * realtime-worker's HTTP endpoints directly, authenticating every request
+ * with REALTIME_INTERNAL_SECRET (the realtime-worker refuses a publish
+ * without it).
  */
 
 import { getEnv } from './env.js';
+
+/** Header the realtime-worker reads the internal secret from (REALTIME_INTERNAL_SECRET_HEADER in @weldsuite/realtime/server). */
+const INTERNAL_SECRET_HEADER = 'x-internal-secret';
 
 function getRealtimeUrl(): string {
   try {
@@ -14,6 +19,27 @@ function getRealtimeUrl(): string {
   } catch {
     return process.env.REALTIME_WORKER_URL || '';
   }
+}
+
+function getRealtimeSecret(): string {
+  try {
+    return getEnv().REALTIME_INTERNAL_SECRET || '';
+  } catch {
+    return process.env.REALTIME_INTERNAL_SECRET || '';
+  }
+}
+
+/**
+ * Request headers for a publish, or null (with a warning) when the secret is
+ * not configured: the realtime-worker would answer 403 anyway.
+ */
+function publishHeaders(): Record<string, string> | null {
+  const secret = getRealtimeSecret();
+  if (!secret) {
+    console.warn('[Realtime] REALTIME_INTERNAL_SECRET not set, skipping publish');
+    return null;
+  }
+  return { 'Content-Type': 'application/json', [INTERNAL_SECRET_HEADER]: secret };
 }
 
 /**
@@ -30,11 +56,13 @@ export async function publishHelpdeskEvent(
     console.warn('[Realtime] REALTIME_WORKER_URL not set, skipping publish');
     return;
   }
+  const headers = publishHeaders();
+  if (!headers) return;
 
   try {
     const res = await fetch(`${url}/publish/workspace`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         workspaceId,
         topic: 'helpdesk',
@@ -58,11 +86,13 @@ export async function publishConversationEvent(
 ): Promise<void> {
   const url = getRealtimeUrl();
   if (!url) return;
+  const headers = publishHeaders();
+  if (!headers) return;
 
   try {
     await fetch(`${url}/publish/conversation/${conversationId}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch (err) {

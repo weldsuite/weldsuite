@@ -159,7 +159,7 @@ describe('MoveDatabaseWorkflow · happy path', () => {
     expect(after.databaseProvisionedAt).toEqual(before.databaseProvisionedAt);
     // The stored URL is the (encrypted) pooled target URL.
     expect(after.databaseUrl).not.toContain('postgres');
-    expect(await w.deps.decryptUrl(after.databaseUrl ?? '')).toBe(
+    expect(await w.deps.decryptUrl(after.databaseUrl ?? '', WORKSPACE_ID)).toBe(
       connectionUrl({ role: TARGET.role, password: `${SECRET_PREFIX}target-0`, db: TARGET.db, pooled: true }),
     );
 
@@ -302,7 +302,7 @@ describe('MoveDatabaseWorkflow · happy path', () => {
     const outcome = await Promise.race([launch(w, step, moveId), step.crashed]);
     expect(outcome).toBe(CRASHED);
 
-    const stored = await w.deps.decryptUrl((await workspaceRow(w)).databaseUrl ?? '');
+    const stored = await w.deps.decryptUrl((await workspaceRow(w)).databaseUrl ?? '', WORKSPACE_ID);
     expect(stored).toBe(
       connectionUrl({ role: SOURCE.role, password: `${SECRET_PREFIX}rotated-1`, db: SOURCE.db, pooled: true }),
     );
@@ -404,7 +404,7 @@ describe('MoveDatabaseWorkflow · a move that cannot be verified', () => {
     expect(guardState.locked.has(SOURCE.db)).toBe(false);
     const ws = await workspaceRow(w);
     expect(ws).toMatchObject({ neonProjectId: SOURCE.project, neonDatabaseName: SOURCE.db, sharedProjectId: SOURCE.shard });
-    await expect(w.deps.connect(directOf(await w.deps.decryptUrl(ws.databaseUrl ?? ''))).query('SELECT 1')).resolves.toBeDefined();
+    await expect(w.deps.connect(directOf(await w.deps.decryptUrl(ws.databaseUrl ?? '', WORKSPACE_ID))).query('SELECT 1')).resolves.toBeDefined();
 
     expect(w.provisioning.releaseMoveTarget).toHaveBeenCalledTimes(1);
     expect(w.provisioning.releaseMoveTarget).toHaveBeenCalledWith(

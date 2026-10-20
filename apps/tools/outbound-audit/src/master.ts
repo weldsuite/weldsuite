@@ -68,6 +68,7 @@ export async function tenantDatabaseUrl(row: WorkspaceRow, env: NodeJS.ProcessEn
   return resolveDatabaseUrl(
     env.NEON_API_KEY ?? '',
     {
+      id: row.id,
       neonProjectId: row.neonProjectId,
       neonBranchId: row.neonBranchId,
       neonRoleName: row.neonRoleName,

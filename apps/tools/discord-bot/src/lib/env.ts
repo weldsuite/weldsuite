@@ -26,6 +26,8 @@ export interface Env {
 
   // Realtime (for publishing events to platform UI)
   REALTIME_WORKER_URL?: string;
+  /** Same value as the realtime-worker's REALTIME_INTERNAL_SECRET; it refuses every publish without it. */
+  REALTIME_INTERNAL_SECRET?: string;
 }
 
 let _env: Env | null = null;
@@ -43,6 +45,7 @@ export function getEnv(): Env {
     NEON_API_KEY: requiredEnv('NEON_API_KEY'),
     DATABASE_ENCRYPTION_KEY: process.env.DATABASE_ENCRYPTION_KEY,
     REALTIME_WORKER_URL: process.env.REALTIME_WORKER_URL,
+    REALTIME_INTERNAL_SECRET: process.env.REALTIME_INTERNAL_SECRET,
   };
 
   return _env;

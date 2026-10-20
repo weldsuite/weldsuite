@@ -46,7 +46,7 @@ async function notifyNewDm(
 ): Promise<void> {
   if (c.env.REALTIME) {
     try {
-      const rt = new RealtimePublisher(c.env.REALTIME);
+      const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
       await rt.chatUserDmNew(orgId, recipientUserId, { channelId, senderName, preview: '' });
     } catch (e) {
       console.error('[app-api/chat-dm] realtime publish failed:', e);

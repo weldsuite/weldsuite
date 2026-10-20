@@ -160,7 +160,7 @@ function isAiStepAwaitingFollowUp(wfStep: WorkflowStepDef, outcome: StepOutcome)
 export class ConversationWorkflow extends WorkflowEntrypoint<Env, ConversationWorkflowParams> {
   async run(event: WorkflowEvent<ConversationWorkflowParams>, step: WorkflowStep) {
     const params = event.payload;
-    const rt = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME) : null;
+    const rt = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME, { internalSecret: this.env.REALTIME_INTERNAL_SECRET }) : null;
 
     // ------------------------------------------------------------------
     // Step 1: Match triggers and load workflow definitions

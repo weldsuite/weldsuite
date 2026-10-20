@@ -941,7 +941,7 @@ async function runSteps(
 export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceEnv, ExecuteSequenceParams> {
   async run(event: WorkflowEvent<ExecuteSequenceParams>, step: WorkflowStep) {
     const params = event.payload;
-    const rt = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME) : null;
+    const rt = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME, { internalSecret: this.env.REALTIME_INTERNAL_SECRET }) : null;
 
     // Pause/unenroll gate. Checked before the first step and again after every
     // delay (and before finalising), which is where a run spends its time: a

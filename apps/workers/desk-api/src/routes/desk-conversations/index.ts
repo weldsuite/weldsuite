@@ -71,7 +71,7 @@ async function publishDeskChange(
   authors: Map<string, DeskAuthorInfo>,
 ) {
   if (!c.env.REALTIME) return;
-  const rt = new RealtimePublisher(c.env.REALTIME);
+  const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
   const orgId = c.get('workspaceId');
   const jobs: Promise<unknown>[] = [
     rt.publish(orgId, 'desk_conversation', 'updated', conversation, message.authorId ?? 'system'),

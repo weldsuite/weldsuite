@@ -14,15 +14,22 @@ import { createTestApp } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
+  consumeRateLimit,
   MAX_VERIFY_ATTEMPTS,
   otpKvKey,
-  rateLimitKvKey,
+  RATE_LIMIT_MAX,
+  rateLimitKey,
+  REQUEST_RATE_LIMIT_WORKSPACE_MAX,
   sha256Hex,
   storeChallenge,
   VERIFY_RATE_LIMIT_EMAIL_MAX,
   VERIFY_RATE_LIMIT_WORKSPACE_MAX,
   type PortalChallenge,
 } from '@weldsuite/commerce-domain/portal-tokens';
+import {
+  createMemoryRateLimitNamespace,
+  createUnreachableRateLimitNamespace,
+} from '../../testing/memory-rate-limiter';
 import type { Env } from '../../types';
 
 let db: Database;
@@ -57,6 +64,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS commerce_portal_access_person_company_uidx
 
 class MemoryKV {
   private store = new Map<string, string>();
+  private puts = new Map<string, number>();
+  /** The portal's rate-limit counters (Durable Object stand-in) travel with the KV, one pair per test. */
+  readonly limiter = createMemoryRateLimitNamespace();
 
   async get(key: string, type?: string): Promise<unknown> {
     const raw = this.store.get(key);
@@ -66,7 +76,12 @@ class MemoryKV {
   }
 
   async put(key: string, value: string): Promise<void> {
+    this.puts.set(key, (this.puts.get(key) ?? 0) + 1);
     this.store.set(key, value);
+  }
+
+  putCount(key: string): number {
+    return this.puts.get(key) ?? 0;
   }
 
   async delete(key: string): Promise<void> {
@@ -86,10 +101,18 @@ function uid(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 }
 
-function portalApp(kv: MemoryKV, workspaceId = 'org_test_default') {
+/** `limiter`: the counters to bind (default: the KV's own); null = no binding at all. */
+function portalApp(
+  kv: MemoryKV,
+  workspaceId = 'org_test_default',
+  limiter: Env['PORTAL_RATE_LIMITER'] | null = kv.limiter as unknown as Env['PORTAL_RATE_LIMITER'],
+) {
   return createTestApp('/public/commerce-portal', publicCommercePortalRoutes, {
     context: { tenantDb: db, workspaceId },
-    env: { WORKSPACE_CACHE: kv as unknown as KVNamespace },
+    env: {
+      WORKSPACE_CACHE: kv as unknown as KVNamespace,
+      ...(limiter ? { PORTAL_RATE_LIMITER: limiter } : {}),
+    },
   });
 }
 
@@ -406,19 +429,96 @@ describe('/public/commerce-portal · OTP brute force', () => {
     const { email, accessId } = await seedBuyer('counted');
     await seedOtpChallenge(kv, 'org_test_default', accessId, email);
     expect((await verify(kv, { otp: OTP, email })).status).toBe(200);
-    expect(kv.has(rateLimitKvKey('org_test_default', 'verify-ws'))).toBe(false);
-    expect(kv.has(rateLimitKvKey('org_test_default', `verify-e:${email}`))).toBe(false);
+    // The slots were reserved for the attempt and given back once it succeeded.
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'verify-ws'))?.count ?? 0).toBe(0);
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', `verify-e:${email}`))?.count ?? 0).toBe(0);
+  });
+
+  it('counts a failed verify, but not the successful one after it', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('mixed');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+    expect((await verify(kv, { otp: '000000', email })).status).toBe(401);
+    expect((await verify(kv, { otp: OTP, email })).status).toBe(200);
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'verify-ws'))?.count).toBe(1);
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', `verify-e:${email}`))?.count).toBe(1);
   });
 
   it('rate limits /auth/verify per workspace across IPs', async () => {
     await enablePortal();
     const kv = new MemoryKV();
-    await kv.put(
-      rateLimitKvKey('org_test_default', 'verify-ws'),
-      JSON.stringify({ count: VERIFY_RATE_LIMIT_WORKSPACE_MAX }),
-    );
+    const env = { PORTAL_RATE_LIMITER: kv.limiter };
+    for (let i = 0; i < VERIFY_RATE_LIMIT_WORKSPACE_MAX; i++) {
+      await consumeRateLimit(env, 'org_test_default', 'verify-ws', VERIFY_RATE_LIMIT_WORKSPACE_MAX);
+    }
     const res = await verify(kv, { otp: '999999', email: 'someone@example.com' });
     expect(res.status).toBe(429);
+  });
+
+  it('lets exactly the cap of failures through when one email is guessed in parallel (atomic limit)', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const burst = VERIFY_RATE_LIMIT_EMAIL_MAX + 10;
+    const statuses = (
+      await Promise.all(Array.from({ length: burst }, () => verify(kv, { otp: '999999', email: 'par@example.com' })))
+    ).map((res) => res.status);
+    expect(statuses.filter((s) => s === 401)).toHaveLength(VERIFY_RATE_LIMIT_EMAIL_MAX);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(10);
+    // Refused attempts hold no slot of the workspace budget.
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'verify-ws'))?.count).toBe(VERIFY_RATE_LIMIT_EMAIL_MAX);
+  });
+
+  it('caps parallel guesses against ONE challenge at MAX_VERIFY_ATTEMPTS (the KV attempts counter races)', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('parallel');
+    const challenge = await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+
+    // 15 wrong guesses at once: all fit in the per-email budget, so only the
+    // per-challenge counter stands between them and the OTP.
+    const guesses = Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(6, '0'));
+    const responses = await Promise.all(guesses.map((otp) => verify(kv, { otp, email })));
+    expect(responses.every((res) => res.status === 401)).toBe(true);
+
+    const budget = kv.limiter.peek(rateLimitKey('org_test_default', `verify-ch:${challenge.tokenHash}`));
+    expect(budget?.count).toBe(MAX_VERIFY_ATTEMPTS);
+    // The challenge is spent: even the right code no longer works (still under
+    // the per-email cap, so that is not what refuses it).
+    const right = await verify(kv, { otp: OTP, email });
+    expect(right.status).toBe(401);
+  });
+
+  it('refuses /auth/verify (503) when the rate-limit binding is missing', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('nobinding');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+
+    const res = await portalApp(kv, 'org_test_default', null).request('/public/commerce-portal/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp: OTP, email }),
+    });
+    expect(res.status).toBe(503);
+    // Even the right code is refused, and the challenge is untouched.
+    expect(kv.has(otpKvKey('org_test_default', email))).toBe(true);
+  });
+
+  it('refuses /auth/verify (503) when the counter cannot be reached', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('unreachable');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+
+    const unreachable = createUnreachableRateLimitNamespace() as unknown as Env['PORTAL_RATE_LIMITER'];
+    const res = await portalApp(kv, 'org_test_default', unreachable).request('/public/commerce-portal/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp: OTP, email }),
+    });
+    expect(res.status).toBe(503);
+    expect(((await kv.get(otpKvKey('org_test_default', email), 'json')) as PortalChallenge).attempts).toBe(0);
   });
 
   it('scopes the challenge to the workspace: another workspace cannot verify it', async () => {
@@ -431,6 +531,86 @@ describe('/public/commerce-portal · OTP brute force', () => {
     expect(res.status).toBe(401);
     const stored = (await kv.get(otpKvKey('org_test_default', email), 'json')) as PortalChallenge;
     expect(stored.attempts).toBe(0);
+  });
+});
+
+describe('/public/commerce-portal · /auth/request limits', () => {
+  function requestCode(kv: MemoryKV, email: string, limiter?: Env['PORTAL_RATE_LIMITER'] | null) {
+    return portalApp(kv, 'org_test_default', limiter).request('/public/commerce-portal/auth/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async function seedInvited(label: string) {
+    const email = `${label}.${uid('e')}@example.com`;
+    const { companyId } = await seedCompany(`${label} Co`);
+    const personId = await seedPerson(email, `${label} Buyer`);
+    await linkPerson(personId, companyId);
+    await seedAccess({ personId, companyId, email, status: 'invited' });
+    return email;
+  }
+
+  it('issues exactly RATE_LIMIT_MAX codes when one address is asked for in parallel, and always answers generically', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const email = await seedInvited('bomb');
+
+    const responses = await Promise.all(Array.from({ length: 12 }, () => requestCode(kv, email)));
+    expect(responses.map((res) => res.status)).toEqual(Array(12).fill(200));
+    for (const res of responses) expect(((await res.json()) as { data: { ok: boolean } }).data.ok).toBe(true);
+
+    expect(kv.putCount(otpKvKey('org_test_default', email))).toBe(RATE_LIMIT_MAX);
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', `e:${email}`))?.count).toBe(RATE_LIMIT_MAX);
+    // The address is checked first: its refused requests are not charged to the workspace.
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'request-ws'))?.count).toBe(RATE_LIMIT_MAX);
+  });
+
+  it('does not put different buyers on one budget (they all share the portal server IP)', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const emails = await Promise.all(Array.from({ length: RATE_LIMIT_MAX + 3 }, (_, i) => seedInvited(`buyer${i}`)));
+    for (const email of emails) await requestCode(kv, email);
+    for (const email of emails) expect(kv.has(otpKvKey('org_test_default', email))).toBe(true);
+  });
+
+  it('caps code requests per workspace across addresses, answering generically', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const env = { PORTAL_RATE_LIMITER: kv.limiter };
+    for (let i = 0; i < REQUEST_RATE_LIMIT_WORKSPACE_MAX; i++) {
+      await consumeRateLimit(env, 'org_test_default', 'request-ws', REQUEST_RATE_LIMIT_WORKSPACE_MAX);
+    }
+    const email = await seedInvited('capped');
+    const res = await requestCode(kv, email);
+    expect(res.status).toBe(200);
+    expect(kv.has(otpKvKey('org_test_default', email))).toBe(false);
+  });
+
+  it('refuses (503) when the rate-limit binding is missing, and issues no challenge', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const email = await seedInvited('nobind');
+    const res = await requestCode(kv, email, null);
+    expect(res.status).toBe(503);
+    expect(kv.has(otpKvKey('org_test_default', email))).toBe(false);
+  });
+
+  it('refuses (503) when the counter cannot be reached, and issues no challenge', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const email = await seedInvited('unreach');
+    const res = await requestCode(kv, email, createUnreachableRateLimitNamespace() as unknown as Env['PORTAL_RATE_LIMITER']);
+    expect(res.status).toBe(503);
+    expect(kv.has(otpKvKey('org_test_default', email))).toBe(false);
+  });
+
+  it('answers a disabled portal generically without touching the counters', async () => {
+    await db.delete(schema.commercePortalSettings);
+    const kv = new MemoryKV();
+    const res = await requestCode(kv, 'anyone@example.com', null);
+    expect(res.status).toBe(200);
   });
 });
 

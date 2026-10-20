@@ -195,6 +195,8 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
   const databaseUrl = await resolveDatabaseUrl(
     env.NEON_API_KEY,
     {
+      // The AAD of a v3 `database_url`: the row's own id, never a caller-supplied one.
+      id: workspace.id,
       neonProjectId: workspace.neonProjectId,
       neonBranchId: workspace.neonBranchId,
       neonRoleName: workspace.neonRoleName,

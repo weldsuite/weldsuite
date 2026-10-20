@@ -1,8 +1,11 @@
 /**
- * CI-only seed + reset endpoints.
+ * E2E seed + reset endpoints.
  *
- * NEVER mounted in production. Two-layer guard in `test-fixtures-guard.ts`:
- * env != production AND `X-Test-Token` header matches the secret.
+ * Served only in the `development` and `test` environments: `index.ts` puts
+ * an environment gate in front of the mount (404 anywhere else, a missing or
+ * misspelled `ENVIRONMENT` included), and `test-fixtures-guard.ts` repeats
+ * that check, then requires an `X-Test-Token` header equal to
+ * `TEST_FIXTURES_TOKEN` (constant-time compare).
  *
  * Seed endpoints reuse the same service functions / route patterns the
  * real API routes use, so what gets created in tests matches what the

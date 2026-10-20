@@ -23,7 +23,7 @@ import { workspaces, plans, workspaceCredits, creditTransactions, digestSchedule
 import { mailDomains } from '@weldsuite/db/schema/mail-domains';
 import { mailAccounts } from '@weldsuite/db/schema/mail-accounts';
 import { mailLabels } from '@weldsuite/db/schema/mail-labels';
-import { encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
+import { encryptWorkspaceDatabaseUrl, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import type { Env } from '../index';
 import { getMasterDb } from '../db';
 import { generateId } from '../lib/id';
@@ -238,10 +238,15 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
         updatedAt: new Date(),
       };
 
-      // Store connection URL — encrypted if key is available
+      // Store connection URL — encrypted if key is available. Bound to this
+      // workspace's id (v3) once FIELD_ENCRYPTION_AAD_WRITES is on.
       if (this.env.DATABASE_ENCRYPTION_KEY || this.env.DATABASE_ENCRYPTION_KEY_V2) {
         try {
-          const encrypted = await encryptField(databaseUrl, keyringFromEnv(this.env));
+          const encrypted = await encryptWorkspaceDatabaseUrl(
+            databaseUrl,
+            workspaceId,
+            keyringFromEnv(this.env),
+          );
           updateData.databaseUrl = encrypted;
           console.log(`[Provision] Encrypted connection string stored`);
         } catch (encryptError) {

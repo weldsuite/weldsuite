@@ -375,7 +375,7 @@ async function getOrCreateTenantPool(workspace: WorkspaceConnection): Promise<Ne
   }
   const databaseUrl = await resolveDatabaseUrl(
     process.env.NEON_API_KEY!,
-    { neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: storedUrl },
+    { id: workspace.id, neonProjectId, neonBranchId, neonRoleName, neonDatabaseName, databaseUrl: storedUrl },
     { v1: process.env.DATABASE_ENCRYPTION_KEY, v2: process.env.DATABASE_ENCRYPTION_KEY_V2 },
   );
 

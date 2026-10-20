@@ -15,8 +15,8 @@
  * tenant key is a live credential. Both writes are therefore paired here.
  */
 
-import { eq } from 'drizzle-orm';
-import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { and, eq, isNull } from 'drizzle-orm';
+import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
 /** Key material returned by {@link generateApiKey}. */
@@ -137,4 +137,50 @@ export async function unregisterApiKey(
   } catch (err) {
     console.error('[app-api/api-keys] Failed to remove key from master registry:', err);
   }
+}
+
+export interface RevokeMemberApiKeysParams {
+  /** The workspace's tenant DB: personal keys live in its `api_keys` table. */
+  tenantDb: Database;
+  masterDb: MasterDatabase;
+  /** Clerk user id of the member who left the workspace. */
+  userId: string;
+}
+
+/**
+ * Revoke every live personal key of a member who is leaving the workspace.
+ *
+ * A personal key is the member's own credential, so it goes when the member
+ * does: the tenant rows are soft-deleted (`deletedAt`, the same revoke
+ * `DELETE /api/api-keys/:id` does) and each key's master `api_key_registry`
+ * entry is dropped through the same {@link unregisterApiKey}. The tenant DB is
+ * one workspace's, so only that workspace's keys are touched; the member's keys
+ * in other workspaces are other databases.
+ *
+ * Defence in depth: external-api already refuses a personal key whose owner is
+ * not an active member (live, on every request), which also covers removals
+ * that never pass through here (a Clerk webhook, a seat-limit sweep). This
+ * makes the revocation visible and permanent in the key list and the registry.
+ *
+ * Workspace keys (`workspace_api_keys`) belong to the workspace, not to the
+ * person who created them, and are left alone.
+ *
+ * Returns the number of keys revoked.
+ */
+export async function revokeMemberApiKeys({
+  tenantDb,
+  masterDb,
+  userId,
+}: RevokeMemberApiKeysParams): Promise<number> {
+  const now = new Date();
+  const revoked = await tenantDb
+    .update(schema.apiKeys)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(and(eq(schema.apiKeys.userId, userId), isNull(schema.apiKeys.deletedAt)))
+    .returning({ id: schema.apiKeys.id });
+
+  for (const { id } of revoked) {
+    await unregisterApiKey(masterDb, id);
+  }
+  return revoked.length;
 }

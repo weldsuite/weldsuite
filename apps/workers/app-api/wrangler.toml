@@ -49,9 +49,9 @@ head_sampling_rate = 1
 # - CLOUDFLARE_ACCOUNT_ID (optional alias of the CF_ACCOUNT_ID [vars] value)
 #   (WeldHost /api/domains and its Realtime Register secrets moved to host-api.)
 #   (WeldData's LEMLIST_API_KEY / FINDYMAIL_API_KEY / PROSPEO_API_KEY moved to data-api.)
-# - TEST_FIXTURES_TOKEN (test + preview envs ONLY; gates /test-fixtures/*.
-#   Never set this in the production env — the worker's middleware also
-#   blocks the route when ENVIRONMENT === 'production' as a second layer.)
+# - TEST_FIXTURES_TOKEN (test env ONLY; gates /test-fixtures/*. Never set
+#   this in the production env — the router is also only served when
+#   ENVIRONMENT is "development" or "test", and 404s everywhere else.)
 # - TEST_WORKSPACE_ID (test + preview envs ONLY; Clerk org id of the shared
 #   E2E workspace. /test-fixtures/teardown-workspace refuses to destroy this
 #   org. Set via `wrangler secret put TEST_WORKSPACE_ID --env test|preview`.
@@ -121,6 +121,16 @@ EMAIL_TRANSPORT = "cloudflare"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# Dedicated origin that serves WeldApp bundles (/public/user-apps/*), on its own
+# registrable domain so user code never runs on the API origin, e.g.
+# "https://weldappcontent.net" or, one origin per app,
+# "https://{code}.weldappcontent.net". Empty keeps bundles on this worker's own
+# host. When set, bundles are served ONLY there and the platform build needs the
+# same value as VITE_USER_APP_BUNDLE_ORIGIN. Optional secret
+# USER_APP_BUNDLE_SIGNING_KEY signs private-bundle links (else derived from
+# INTERNAL_API_SECRET); optional var USER_APP_FRAME_ANCESTORS adds frame-ancestors
+# sources beyond the platform origins.
+USER_APP_BUNDLE_ORIGIN = ""
 # WeldSuite staff are emailed here when a workspace asks for access to an app
 # that is on request only (WeldReach). Template: internal.app-access-requested.
 ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
@@ -401,6 +411,9 @@ WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# Dedicated WeldApp bundle origin (see the top-level [vars] block). Empty keeps
+# bundles on this worker's own host.
+USER_APP_BUNDLE_ORIGIN = ""
 # WeldSuite staff are emailed here when a workspace asks for access to an app
 # that is on request only (WeldReach). Template: internal.app-access-requested.
 ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
@@ -608,6 +621,9 @@ WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# Dedicated WeldApp bundle origin (see the top-level [vars] block). Empty keeps
+# bundles on this worker's own host.
+USER_APP_BUNDLE_ORIGIN = ""
 # WeldSuite staff are emailed here when a workspace asks for access to an app
 # that is on request only (WeldReach). Template: internal.app-access-requested.
 ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"

@@ -75,7 +75,7 @@ function sourceCoordinates(move: MoveRow) {
 export async function unlockMoveSource(deps: MoveDeps, move: MoveRow, workspace: WorkspaceRow): Promise<void> {
   const dbName = move.sourceDatabaseName;
   if (workspace.databaseUrl) {
-    const stored = await deps.decryptUrl(workspace.databaseUrl);
+    const stored = await deps.decryptUrl(workspace.databaseUrl, move.workspaceId);
     try {
       await unlockDatabase(deps.connect(directUrlOf(stored)), dbName);
       return;
@@ -85,7 +85,7 @@ export async function unlockMoveSource(deps: MoveDeps, move: MoveRow, workspace:
   }
 
   const urls = await deps.provisioning.rotateRolePassword(sourceCoordinates(move));
-  const encrypted = await deps.encryptUrl(urls.pooledUrl);
+  const encrypted = await deps.encryptUrl(urls.pooledUrl, move.workspaceId);
   if (!(await setSourceDatabaseUrl(deps.masterDb, move, encrypted, deps.now()))) {
     throw new MoveFlowError('WORKSPACE_CHANGED', 'The workspace no longer points at the source database');
   }

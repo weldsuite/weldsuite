@@ -42,6 +42,8 @@ export interface RealtimeFetcher {
 export type MeetingLifecycleEnv = Omit<CloudflareRealtimeEnv, 'WORKSPACE_CACHE'> & {
   WORKSPACE_CACHE?: RealtimeKvNamespace & { delete(key: string): Promise<void> };
   REALTIME?: RealtimeFetcher;
+  /** The realtime-worker's `REALTIME_INTERNAL_SECRET`, sent with every publish. */
+  REALTIME_INTERNAL_SECRET?: string;
 };
 
 // ============================================================================
@@ -187,7 +189,7 @@ async function publishEnded(
   data: { meetingId: string; sessionId: string; duration: number; status: string },
 ): Promise<void> {
   if (!env.REALTIME || !orgId) return;
-  const rt = new RealtimePublisher(env.REALTIME);
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
   await rt.entityUpdated(
     orgId,
     'meeting_session',

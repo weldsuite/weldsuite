@@ -15,6 +15,8 @@ export interface Env extends KitEnv {
   /** realtime-worker service binding for live WorkspaceHub fan-out (also the
    *  in-app channel of @weldsuite/notifications). */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   /** R2 bucket for project files, documents, sheets, task attachments and
    *  task-import payloads. */

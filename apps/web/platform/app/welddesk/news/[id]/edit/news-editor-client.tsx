@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
+import { sanitizeArticleHtml } from '@/lib/sanitize-article-html';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface Command {
@@ -175,7 +176,8 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
   // Initialize content on mount only
   useEffect(() => {
     if (contentRef.current && !contentRef.current.innerHTML) {
-      contentRef.current.innerHTML = content;
+      // Allowlist, so a body loaded from storage can never run script in the editor.
+      contentRef.current.innerHTML = sanitizeArticleHtml(content);
       const paragraphs = contentRef.current.querySelectorAll('p');
       paragraphs.forEach((p) => {
         p.setAttribute('dir', 'ltr');
