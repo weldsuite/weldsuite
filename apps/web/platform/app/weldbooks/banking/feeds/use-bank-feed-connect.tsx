@@ -151,6 +151,30 @@ export function useBankFeedConnect(
   const { mutateAsync: completeAsync } = completeLink;
   const { defaultBankAccountId, returnTo: returnToOption, onLinked } = options;
 
+  /** A link that did not get through: offer a paid connection, or say what went wrong. */
+  const failed = useCallback(
+    async (err: unknown, request: ConnectRequest) => {
+      const code = isBankFeedRequestError(err) ? err.code : null;
+      // Over what the plan includes: say what it costs and let the user agree first.
+      if (code === BANK_CONNECTION_LIMIT_REACHED && (request.mode ?? 'create') === 'create' && !request.acceptExtraCharge) {
+        const billing = await fetchBilling().catch(() => null);
+        if (billing) {
+          setOffer({ request, billing });
+          return;
+        }
+      }
+      const message = feedErrorText(describeFeedError(err, t, 'link'), t, format);
+      if (code === BANK_CONNECTION_PAYMENT_METHOD_REQUIRED) {
+        toast.error(message, {
+          action: { label: t.errors.openBilling, onClick: () => router.history.push(BILLING_SETTINGS_PATH) },
+        });
+        return;
+      }
+      toast.error(message);
+    },
+    [fetchBilling, router, t, format],
+  );
+
   const connect = useCallback(
     async (request: ConnectRequest) => {
       if (phase !== 'idle') return;
@@ -197,26 +221,10 @@ export function useBankFeedConnect(
         onLinked?.(done.connection);
       } catch (err) {
         setPhase('idle');
-        const code = isBankFeedRequestError(err) ? err.code : null;
-        // Over what the plan includes: say what it costs and let the user agree first.
-        if (code === BANK_CONNECTION_LIMIT_REACHED && mode === 'create' && !request.acceptExtraCharge) {
-          const billing = await fetchBilling().catch(() => null);
-          if (billing) {
-            setOffer({ request, billing });
-            return;
-          }
-        }
-        const message = feedErrorText(describeFeedError(err, t, 'link'), t, format);
-        if (code === BANK_CONNECTION_PAYMENT_METHOD_REQUIRED) {
-          toast.error(message, {
-            action: { label: t.errors.openBilling, onClick: () => router.history.push(BILLING_SETTINGS_PATH) },
-          });
-          return;
-        }
-        toast.error(message);
+        await failed(err, request);
       }
     },
-    [phase, returnToOption, defaultBankAccountId, createAsync, completeAsync, fetchBilling, outcome, onLinked, router, t, format],
+    [phase, returnToOption, defaultBankAccountId, createAsync, completeAsync, failed, outcome, onLinked],
   );
 
   const offerPrice = offer ? formatMonthlyPrice(offer.billing.unitAmountCents, offer.billing.currency, language) : '';
