@@ -120,6 +120,16 @@ describe('useWorkspaceUrlGate', () => {
     expect(sessionStorage.getItem('weldsuite:pending-org')).toBe('org_globex');
   });
 
+  it('activates in place without an active org, and leaves no pending org behind', async () => {
+    clerk.orgId = null;
+    clerk.orgSlug = null;
+    openUrl('/w/globex/weldcrm/customers');
+    await renderGate();
+    expect(clerk.setActive).toHaveBeenCalledWith({ organization: 'org_globex' });
+    expect(location.replace).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('weldsuite:pending-org')).toBeNull();
+  });
+
   it('shows the workspace list for a workspace the user is not in', async () => {
     openUrl('/w/initech/weldcrm/customers');
     const { result } = await renderGate();

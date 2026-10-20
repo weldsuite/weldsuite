@@ -107,7 +107,11 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
     setPendingOrganization(activateOrgId);
     setActive({ organization: activateOrgId })
       .then(() => {
-        if (!switching) return; // nothing loaded yet: Clerk's orgId updates and the URL is ready
+        if (!switching) {
+          // No reload to survive, and a stale id would win a later bare-path load.
+          clearPendingOrganization();
+          return; // nothing loaded yet: Clerk's orgId updates and the URL is ready
+        }
         dropPersistedQueryCache();
         window.location.replace(window.location.href);
       })
