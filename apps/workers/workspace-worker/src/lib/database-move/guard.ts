@@ -76,6 +76,44 @@ export async function terminateOtherSessions(sql: TenantSql): Promise<TerminateR
   return { found: rows.length, terminated, failed: rows.length - terminated };
 }
 
+/** SQLSTATEs and driver words for "the server ended this session", which ending one's own session produces. */
+const SESSION_ENDED_CODES = new Set(['57P01', '57P02', '57P03', '08003', '08006']);
+const SESSION_ENDED_MESSAGE = /terminating connection|connection terminated|server closed the connection/i;
+
+function isSessionEnded(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const { code, message } = err as { code?: unknown; message?: unknown };
+  if (typeof code === 'string' && SESSION_ENDED_CODES.has(code)) return true;
+  return typeof message === 'string' && SESSION_ENDED_MESSAGE.test(message);
+}
+
+/**
+ * End this connection's own session too. Over neon-http the proxy keeps the
+ * backend for the next request on the same URL, and the session that ran
+ * {@link lockDatabase} was opened before it, so it is still read-write: a later
+ * {@link probeReadOnly} on that URL can be handed it and see `off` (seen on the
+ * first test move from a shard: the lock check failed twice and passed only on
+ * its third attempt, 42 s later). A shard's compute is never restarted, so
+ * nothing else would end it.
+ *
+ * The backend ends while the query runs, so an error saying so is the expected
+ * answer. A session that is not a client backend (PGlite's single user) is left
+ * alone. Returns whether the session was ended.
+ */
+export async function endOwnSession(sql: TenantSql): Promise<boolean> {
+  try {
+    const rows = await sql.query(
+      `SELECT pg_terminate_backend(pid) AS terminated
+       FROM pg_stat_activity
+       WHERE pid = pg_backend_pid() AND backend_type = 'client backend'`,
+    );
+    return rows.some((row) => readBool(row, 'terminated'));
+  } catch (err) {
+    if (isSessionEnded(err)) return true;
+    throw err;
+  }
+}
+
 /** How many other client sessions are still connected (the drain check after `terminateOtherSessions`). */
 export async function countOtherSessions(sql: TenantSql): Promise<number> {
   const [row] = await sql.query(

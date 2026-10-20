@@ -233,6 +233,11 @@ export function createGuardModule() {
       guardState.log.push('terminate');
       return { found: 0, terminated: 0, failed: 0 };
     },
+    endOwnSession: async (sql: TenantSql) => {
+      await sql.query('SELECT 1');
+      guardState.log.push('end-own');
+      return true;
+    },
     countOtherSessions: async () => 0,
   };
 }
