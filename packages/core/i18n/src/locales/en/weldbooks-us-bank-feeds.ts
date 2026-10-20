@@ -166,6 +166,18 @@ export const weldbooksUsBankFeeds = {
     reconnected: '{bank} reconnected.',
     accountsAdded: 'Accounts updated for {bank}.',
     syncStarted: 'First sync started. New transactions show up in a moment.',
+    /** Shown before the provider's window opens: what the user agrees to. */
+    consent: {
+      withProviderPolicy:
+        'By continuing, you agree that WeldSuite and {provider} access your bank account and transaction data to keep your books, as described in the {weldsuitePolicy} and the {providerPolicy}.',
+      withoutProviderPolicy:
+        'By continuing, you agree that WeldSuite and {provider} access your bank account and transaction data to keep your books, as described in the {weldsuitePolicy}.',
+      weldsuitePolicy: 'WeldSuite Privacy Policy',
+      providerPolicies: {
+        plaid: 'Plaid End User Privacy Policy',
+        stripe_fc: 'Stripe Privacy Policy',
+      },
+    },
     /** Confirming a connection above the ones the plan includes. */
     extra: {
       title: 'Add a paid bank connection?',

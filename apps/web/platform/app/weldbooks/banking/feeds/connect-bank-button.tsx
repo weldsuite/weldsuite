@@ -60,11 +60,8 @@ export function useConnectBankLauncher({
       if (repair) void flow.connect(repair);
       return;
     }
-    const only = options.length === 1 ? options[0] : undefined;
-    if (only && !only.requiresInstitution) {
-      void flow.connect({ provider: only });
-      return;
-    }
+    // A new link always shows the dialog first, even with one provider: it says
+    // what the user agrees to before the provider's window opens.
     setPickerOpen(true);
   };
 
@@ -104,10 +101,11 @@ export function useConnectBankLauncher({
 
 /**
  * One button for every bank feed link. Which provider opens depends on the
- * entity's country and on what is configured: with one provider the link
- * starts at once, with several (or a bank to choose) a small dialog comes
- * first. Each provider then runs its own launcher, and all of them end in the
- * same account mapping step.
+ * entity's country and on what is configured. A new link starts with a small
+ * dialog (the provider when there is a choice, the bank where the provider
+ * needs it, and the consent notice); reconnecting and adding accounts go
+ * straight to the provider. Each provider then runs its own launcher, and all
+ * of them end in the same account mapping step.
  */
 export function ConnectBankButton({
   mode = 'create',
