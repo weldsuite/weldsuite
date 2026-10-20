@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { SYSTEM_ROLES } from '@weldsuite/permissions';
 import { teamMembersRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -119,6 +120,22 @@ describe('per-member permission overrides', () => {
     expect(res.status).toBe(403);
     const toAdmin = await patchMember(app('roles:read'), 'wm_target', { role: 'ADMIN' });
     expect(toAdmin.status).toBe(403);
+  });
+
+  it('refuses lifting a deny on a key the caller does not hold', async () => {
+    await db
+      .update(schema.workspaceMembers)
+      .set({ permissionDenies: ['secrets:reveal', 'welddesk:tickets:read'] })
+      .where(eq(schema.workspaceMembers.id, 'wm_target'));
+
+    const lift = await patchMember(app(), 'wm_target', { permissionDenies: ['welddesk:tickets:read'] });
+    expect(lift.status).toBe(403);
+
+    // Adding a deny, or lifting one the caller holds, still works.
+    const add = await patchMember(app('tickets:read'), 'wm_target', {
+      permissionDenies: ['secrets:reveal', 'weldcrm:companies:read'],
+    });
+    expect(add.status).toBe(200);
   });
 
   it('rejects a non-array permissionDenies', async () => {

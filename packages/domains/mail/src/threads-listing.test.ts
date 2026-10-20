@@ -109,6 +109,23 @@ describe('user label folders (TASK-900)', () => {
   });
 });
 
+describe('thread order', () => {
+  it('sorts a thread by its newest message, a sent reply included', async () => {
+    const accountId = await seedAccount();
+    const day = (n: number) => new Date(Date.UTC(2026, 9, n));
+    const older = await seedMessage(accountId, ['INBOX'], { threadId: 'thread_older', sentDate: day(1) });
+    const newer = await seedMessage(accountId, ['INBOX'], { threadId: 'thread_newer', sentDate: day(2) });
+    expect(await threadIdsIn(accountId, 'inbox')).toEqual([newer, older]);
+
+    // A reply in Sent (not Inbox) lifts the older conversation to the top.
+    const reply = await seedMessage(accountId, ['SENT'], { threadId: 'thread_older', sentDate: day(3) });
+    expect(await threadIdsIn(accountId, 'inbox')).toEqual([reply, newer]);
+    // A deleted message does not count towards the date.
+    await db.update(mailMessages).set({ deletedAt: new Date() }).where(eq(mailMessages.id, reply));
+    expect(await threadIdsIn(accountId, 'inbox')).toEqual([newer, older]);
+  });
+});
+
 describe('starred and important folders (TASK-898)', () => {
   it('a star set from the toolbar shows in Starred and on the thread', async () => {
     const accountId = await seedAccount();
