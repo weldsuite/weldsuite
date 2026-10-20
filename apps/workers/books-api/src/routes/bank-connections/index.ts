@@ -17,6 +17,8 @@
  *
  * Responses never carry provider tokens or full account numbers, and neither do
  * the entity events. Permissions: banking:read | create | update | manage.
+ * Starting a link also takes a recently verified second factor (403
+ * MFA_REQUIRED / REVERIFICATION_REQUIRED, worker-kit `requireSecondFactor`).
  *
  * The plan includes a number of connections (one bank login each); a new one
  * above that needs `acceptExtraCharge` at link-session, a workspace admin and a
@@ -30,6 +32,7 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { enabledProviders } from '@weldsuite/bank-feeds';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { requireSecondFactor } from '@weldsuite/worker-kit/middleware/second-factor';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -208,7 +211,10 @@ app.get('/institutions', requirePermission('banking:read'), async (c) => {
 });
 
 // POST /link-session
-app.post('/link-session', requirePermission('banking:create'), zValidator('json', linkSessionSchema), async (c) => {
+// A second factor verified in the last 10 minutes, for every mode: a link (new or
+// renewed) opens the bank's data to this workspace. `/complete` needs no check of
+// its own, since it can only finish a link a session started here.
+app.post('/link-session', requirePermission('banking:create'), requireSecondFactor(), zValidator('json', linkSessionSchema), async (c) => {
   const body = c.req.valid('json');
   try {
     // Reconnecting or adding accounts stays within the same bank login: only a new one can cost extra.

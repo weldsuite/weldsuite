@@ -39,6 +39,8 @@ export interface TestContext {
   orgId: string | null;
   workspaceId: string;
   sessionId: string;
+  /** Clerk's `fva` claim; defaults to both factors just verified, so `requireSecondFactor` passes. */
+  factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
   /**
    * Pre-resolved permissions cached on the context. When set, the
@@ -82,6 +84,7 @@ const defaultContext = (): TestContext => ({
   orgId: 'org_test_default',
   workspaceId: 'org_test_default',
   sessionId: 'sess_test_default',
+  factorVerificationAge: [0, 0],
   tenantDb: createMockDb(),
 });
 
@@ -113,6 +116,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     set('userId', ctx.userId);
     set('orgId', ctx.orgId);
     set('sessionId', ctx.sessionId);
+    set('factorVerificationAge', ctx.factorVerificationAge);
     set('tenantDb', ctx.tenantDb);
     set('workspaceId', ctx.workspaceId);
     // Cache the pre-resolved permissions so `requirePermission` bypasses its
