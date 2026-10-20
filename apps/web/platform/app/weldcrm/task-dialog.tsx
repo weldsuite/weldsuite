@@ -814,7 +814,7 @@ function RecordPopover({
   isSearching: boolean;
   onSearchChange: ((value: string) => void) | undefined;
   onChange: (company: CompanyOption | null) => void;
-  /** Badge each option as company/person; off when the list holds one kind (e.g. projects). */
+  /** Badge each option as company/person; off when the caller passes no people (e.g. a project list). */
   showKind: boolean;
 }>) {
   const tCrm = getTranslations('crm');
@@ -1569,7 +1569,7 @@ export function TaskDialog({
                 isSearching={isSearchingRecords}
                 onSearchChange={onRecordSearchChange ? handleRecordSearch : undefined}
                 onChange={handleRecordChange}
-                showKind={normalizedCompanies.length > 0 && normalizedPeople.length > 0}
+                showKind={availablePeople !== NO_PEOPLE}
               />
             )}
           </div>
