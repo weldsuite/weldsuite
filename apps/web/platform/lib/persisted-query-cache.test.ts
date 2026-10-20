@@ -93,7 +93,7 @@ describe('workspaceCacheStorage', () => {
 
   it('drops writes when signed out', () => {
     workspaceCacheStorage('org_acme', localStorage, () => NOW).setItem('ignored', 'data');
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
   });
 
   it("reads and removes only the workspace's own entry", () => {

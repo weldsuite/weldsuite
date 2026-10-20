@@ -27,7 +27,7 @@ import {
 import { toast } from 'sonner';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
-import { removeQueryCache } from '@/lib/persisted-query-cache';
+import { removeQueryCache, setWritableQueryCacheOrg } from '@/lib/persisted-query-cache';
 import type { WorkspaceDeletionStatus } from '@weldsuite/app-api-client/schemas/workspace-settings';
 
 export function DeleteWorkspaceSection() {
@@ -77,8 +77,13 @@ export function DeleteWorkspaceSection() {
         ?.map((m) => m.organization.id)
         .find((id) => id && id !== deletedOrgId);
       // The deleted workspace's persisted cache is dead data; the next
-      // workspace hydrates from its own entry (FE-014).
-      if (deletedOrgId) removeQueryCache(deletedOrgId);
+      // workspace hydrates from its own entry (FE-014). Stop this page's
+      // writes first, or a pending one would put the entry back before the
+      // reload (Clerk's org may not change at all when this was the last one).
+      if (deletedOrgId) {
+        setWritableQueryCacheOrg(null);
+        removeQueryCache(deletedOrgId);
+      }
       if (nextOrgId && orgList.setActive) {
         await orgList.setActive({ organization: nextOrgId }).catch(() => {});
       }
