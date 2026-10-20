@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-const clerk = vi.hoisted(() => ({ confirmations: 0 }));
+const clerk = vi.hoisted(() => ({ confirmations: 0, twoFactorEnabled: false }));
 // Clerk's hook, as it behaves: a returned reverification hint opens the dialog
 // (here: confirmed at once) and the call is made one more time.
 vi.mock('@clerk/clerk-react', () => ({
+  useUser: () => ({ user: { twoFactorEnabled: clerk.twoFactorEnabled } }),
   useReverification:
     <A extends unknown[], R>(fetcher: (...args: A) => Promise<R>) =>
     async (...args: A) => {
@@ -40,6 +41,21 @@ describe('useWithSecondFactor', () => {
     expect(await result.current('a')).toBe('ok');
     expect(clerk.confirmations).toBe(1);
     expect(call).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks for the code of a user who has a second factor but did not use it this session', async () => {
+    // Signed in with a passkey, or set up the authenticator app after signing in.
+    clerk.confirmations = 0;
+    clerk.twoFactorEnabled = true;
+    const call = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(requestError(403, 'MFA_REQUIRED'))
+      .mockResolvedValueOnce('ok');
+    const { result } = renderHook(() => useWithSecondFactor(call));
+
+    expect(await result.current()).toBe('ok');
+    expect(clerk.confirmations).toBe(1);
+    clerk.twoFactorEnabled = false;
   });
 
   it('reports a confirmation books-api still refuses, and leaves other errors alone', async () => {

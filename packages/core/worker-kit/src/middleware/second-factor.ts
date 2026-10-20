@@ -4,10 +4,13 @@
  * last `maxAgeMinutes`, read from Clerk's `fva` claim (clerkMiddleware).
  *
  * Unlike Clerk's own reverification check, this never falls back to the first
- * factor for a user without a second factor: such a user is refused with
- * MFA_REQUIRED and has to set one up first. A stale second factor gets
- * REVERIFICATION_REQUIRED, which the client answers by letting the user confirm
- * it again (Clerk's `useReverification`) and retrying.
+ * factor. No second factor verified in this session at all (`fva[1] === -1`)
+ * gets MFA_REQUIRED. That is a user without one, but also one who signed in
+ * with a passkey or set one up after signing in; the claim cannot tell them
+ * apart, the client can (`user.twoFactorEnabled`): it sends the second group to
+ * confirm their second factor, the first to set one up. A stale second factor
+ * gets REVERIFICATION_REQUIRED, which the client answers by letting the user
+ * confirm it again (Clerk's `useReverification`) and retrying.
  *
  *   403 { error: { code: 'MFA_REQUIRED' } }
  *   403 { error: { code: 'REVERIFICATION_REQUIRED', details: { level: 'second_factor', afterMinutes } } }
@@ -41,7 +44,12 @@ export const requireSecondFactor = (options: { maxAgeMinutes?: number } = {}) =>
     const result = checkSecondFactor(c.get('factorVerificationAge'), maxAgeMinutes);
     if (result === MFA_REQUIRED) {
       return c.json(
-        { error: { code: MFA_REQUIRED, message: 'Set up two-step verification on your account to do this.' } },
+        {
+          error: {
+            code: MFA_REQUIRED,
+            message: 'No second factor was verified in this session. Confirm it, or set up two-step verification first.',
+          },
+        },
         403,
       );
     }
