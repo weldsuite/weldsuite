@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyRateLimitHit,
+  applyRateLimitRelease,
   consumeRateLimit,
   RATE_LIMIT_MAX,
   RATE_LIMIT_TTL_SECONDS,
   rateLimitKey,
   RateLimitCounter,
+  releaseRateLimit,
   type RateLimitCounterStore,
   type RateLimitNamespace,
   type RateLimitState,
@@ -185,6 +187,7 @@ function fakeNamespace(): RateLimitNamespace & { calls: Array<{ name: string; ma
           calls.push({ name, max, windowSeconds });
           return (await counter).hit(max, windowSeconds);
         },
+        release: async () => (await counter).release(),
       };
     },
   };
@@ -233,10 +236,46 @@ describe('consumeRateLimit', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const broken: RateLimitNamespace = {
       idFromName: (name) => ({ name }) as unknown as DurableObjectId,
-      get: () => ({ hit: () => Promise.reject(new Error('boom')) }),
+      get: () => ({ hit: () => Promise.reject(new Error('boom')), release: () => Promise.reject(new Error('boom')) }),
     };
     expect(await consumeRateLimit({ PORTAL_RATE_LIMITER: broken }, 'ws_1', 'ip:1.1.1.1')).toBe('unavailable');
     expect(await consumeRateLimit({ PORTAL_RATE_LIMITER: fakeNamespace() }, 'ws_1', 'x', 0)).toBe('unavailable');
+    error.mockRestore();
+  });
+});
+
+describe('applyRateLimitRelease', () => {
+  const live: RateLimitState = { count: 2, windowStart: 1_000, windowMs: 60_000 };
+
+  it('gives back one hit of a live window', () => {
+    expect(applyRateLimitRelease(live, 2_000)).toEqual({ ...live, count: 1 });
+  });
+
+  it('never goes below zero, and leaves a finished or missing window alone', () => {
+    const empty = { ...live, count: 0 };
+    expect(applyRateLimitRelease(empty, 2_000)).toBe(empty);
+    expect(applyRateLimitRelease(live, 61_000)).toBe(live);
+    expect(applyRateLimitRelease(null, 2_000)).toBeNull();
+  });
+});
+
+describe('releaseRateLimit', () => {
+  it('hands a reserved slot back, so only the attempts that keep theirs count', async () => {
+    const env = { PORTAL_RATE_LIMITER: fakeNamespace() };
+    expect(await consumeRateLimit(env, 'ws_1', 'verify-e:a@example.com', 1)).toBe('allowed');
+    expect(await consumeRateLimit(env, 'ws_1', 'verify-e:a@example.com', 1)).toBe('limited');
+    await releaseRateLimit(env, 'ws_1', 'verify-e:a@example.com');
+    expect(await consumeRateLimit(env, 'ws_1', 'verify-e:a@example.com', 1)).toBe('allowed');
+  });
+
+  it('is best effort: a missing binding or a failing counter does not throw', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const broken: RateLimitNamespace = {
+      idFromName: (name) => ({ name }) as unknown as DurableObjectId,
+      get: () => ({ hit: () => Promise.reject(new Error('boom')), release: () => Promise.reject(new Error('boom')) }),
+    };
+    await expect(releaseRateLimit({}, 'ws_1', 'k')).resolves.toBeUndefined();
+    await expect(releaseRateLimit({ PORTAL_RATE_LIMITER: broken }, 'ws_1', 'k')).resolves.toBeUndefined();
     error.mockRestore();
   });
 });

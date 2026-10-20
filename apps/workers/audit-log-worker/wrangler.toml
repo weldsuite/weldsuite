@@ -24,16 +24,22 @@ ENVIRONMENT = "development"
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
-# Queue: this worker consumes audit events.
-# max_retries is explicit and generous (the default is 3): an event produced just before a
-# database move locks its tenant database is retried every 120 s (services/batch-processor.ts),
-# and 10 retries cover about 20 minutes of lock. Every other failure is dropped after 3 retries
-# there, as before.
+# Queue: this worker consumes audit events, and produces onto the same queue.
+# An event whose tenant database is locked by a database move is sent back with a growing
+# delay (services/batch-processor.ts, ~4 hours in all), so a lock wait never uses up
+# max_retries. Every other failure is retried 3 times, then moved to the dead-letter queue
+# instead of being deleted. Create the DLQ once per environment before deploying:
+#   wrangler queues create audit-events-dlq-dev   (and -test, and audit-events-dlq)
+[[queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-dev"
+
 [[queues.consumers]]
 queue = "audit-events-dev"
 max_batch_size = 10
 max_batch_timeout = 1
-max_retries = 10
+max_retries = 3
+dead_letter_queue = "audit-events-dlq-dev"
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -47,11 +53,16 @@ ENVIRONMENT = "test"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
 [[env.test.queues.consumers]]
 queue = "audit-events-test"
 max_batch_size = 10
 max_batch_timeout = 1
-max_retries = 10
+max_retries = 3
+dead_letter_queue = "audit-events-dlq-test"
 
 [env.test.observability]
 enabled = true
@@ -69,11 +80,16 @@ ENVIRONMENT = "production"
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
 
+[[env.production.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events"
+
 [[env.production.queues.consumers]]
 queue = "audit-events"
 max_batch_size = 10
 max_batch_timeout = 1
-max_retries = 10
+max_retries = 3
+dead_letter_queue = "audit-events-dlq"
 
 [env.production.observability]
 enabled = true

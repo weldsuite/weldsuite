@@ -41,6 +41,11 @@ export class PortalRateLimiter extends DurableObject {
     return this.counter.hit(max, windowSeconds);
   }
 
+  /** Give back one hit of the current window. Called over RPC by `releaseRateLimit`. */
+  release(): Promise<void> {
+    return this.counter.release();
+  }
+
   async alarm(): Promise<void> {
     await this.counter.alarm();
   }

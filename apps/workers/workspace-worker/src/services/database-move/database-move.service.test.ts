@@ -36,7 +36,7 @@ import { bundledJournalSummary, retentionDaysFromEnv } from './deps';
 import { MoveCancelledError, MoveFlowError } from './errors';
 import { describeFailure, isPermanentFailure, storedMessageOf } from './failure';
 import { requestMoveCancel, startDatabaseMove } from './start';
-import { advance, writeProgress } from './state';
+import { advance, switchWorkspace, writeProgress } from './state';
 import { checksumGroupsOf, prepareTarget, targetRequestOf } from './steps';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 180_000 });
@@ -361,6 +361,30 @@ async function lockedMove(over: Partial<typeof workspaceDatabaseMoves.$inferInse
   guardState.locked.add(SOURCE.db);
   return moveId;
 }
+
+describe('switchWorkspace', () => {
+  const retainedUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  it('swaps the workspace to the target and completes a switching move', async () => {
+    await setup();
+    const moveId = await lockedMove({ status: 'switching' });
+
+    expect(await switchWorkspace(world.masterDb, await moveRow(moveId), retainedUntil)).toEqual({ switched: true });
+    expect(await workspaceRow()).toMatchObject({ neonProjectId: TARGET.project, neonDatabaseName: TARGET.db });
+    expect(await moveRow(moveId)).toMatchObject({ status: 'completed', targetDatabaseUrl: null });
+  });
+
+  it('leaves the workspace alone when the move was recovered while the switch waited on a retry', async () => {
+    await setup();
+    const moveId = await lockedMove({ status: 'switching' });
+    const stale = await moveRow(moveId);
+    await setMove(moveId, { status: 'failed' });
+
+    expect(await switchWorkspace(world.masterDb, stale, retainedUntil)).toEqual({ switched: false });
+    expect(await workspaceRow()).toMatchObject({ neonProjectId: SOURCE.project, neonDatabaseName: SOURCE.db });
+    expect(await moveRow(moveId)).toMatchObject({ status: 'failed' });
+  });
+});
 
 describe('compensateDatabaseMove', () => {
   it('unlocks the source with the URL the workspace holds, releases the target and closes the row', async () => {

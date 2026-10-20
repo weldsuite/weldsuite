@@ -44,7 +44,9 @@ import {
   type PortalChallenge,
   type PortalPicker,
   type PortalSession,
-  VERIFY_RATE_LIMIT_IP_MAX,
+  releaseRateLimit,
+  REQUEST_RATE_LIMIT_WORKSPACE_MAX,
+  VERIFY_RATE_LIMIT_EMAIL_MAX,
   VERIFY_RATE_LIMIT_WORKSPACE_MAX,
 } from '@weldsuite/commerce-domain/portal-tokens';
 import { sendPortalMagicLinkEmail } from '../../services/commerce-portal-mail';
@@ -65,14 +67,6 @@ const GENERIC_AUTH_OK = { ok: true as const };
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
-}
-
-function clientIp(c: { req: { header: (name: string) => string | undefined } }): string {
-  return (
-    c.req.header('CF-Connecting-IP') ||
-    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ||
-    'unknown'
-  );
 }
 
 /**
@@ -124,15 +118,22 @@ app.post('/auth/request', zValidator('json', commercePortalAuthRequestSchema), a
     const settings = await requireEnabled(db);
     if (!settings || !workspaceId) return success(c, GENERIC_AUTH_OK);
 
-    // Per IP first, so a blocked IP neither spends an address's budget nor
-    // creates a counter per address it sprays. Over the limit looks exactly
+    // Per address first, so one bombarded address cannot drain the workspace's
+    // budget, then per workspace across all addresses (mail cost, spraying).
+    // Not per IP: every buyer arrives through the portal's Next server, so an
+    // IP key would put all of them on one budget. Over the limit looks exactly
     // like "no access": the generic answer.
-    const ipOutcome = await consumeRateLimit(c.env, workspaceId, `ip:${clientIp(c)}`);
-    if (ipOutcome === 'unavailable') return signInUnavailable(c);
-    if (ipOutcome === 'limited') return success(c, GENERIC_AUTH_OK);
     const emailOutcome = await consumeRateLimit(c.env, workspaceId, `e:${email}`);
     if (emailOutcome === 'unavailable') return signInUnavailable(c);
     if (emailOutcome === 'limited') return success(c, GENERIC_AUTH_OK);
+    const workspaceOutcome = await consumeRateLimit(
+      c.env,
+      workspaceId,
+      'request-ws',
+      REQUEST_RATE_LIMIT_WORKSPACE_MAX,
+    );
+    if (workspaceOutcome === 'unavailable') return signInUnavailable(c);
+    if (workspaceOutcome === 'limited') return success(c, GENERIC_AUTH_OK);
 
     const accessRows = await db
       .select()
@@ -328,23 +329,42 @@ async function startCompanyPicker(
 }
 
 /**
- * The verify budgets: per client IP first, so a blocked IP cannot drain the
- * workspace-wide budget, then per workspace across all IPs. Returns the
- * refusal to send, or null when the request is within both.
+ * The verify budgets, counting failed attempts only: for the guessable OTP per
+ * buyer email, then per workspace across all buyers. Not per IP: every buyer
+ * arrives through the portal's Next server, so an IP key would let a few junk
+ * codes lock out all of them.
+ *
+ * Each budget is reserved atomically up front, so parallel guesses cannot all
+ * slip past a check-then-count; the caller releases the reservation once the
+ * sign-in succeeds, so successful sign-ins use up nothing. Returns the refusal
+ * to send (holding no slot), or the reservation.
  */
-async function verifyBudgetRefusal(c: AppContext, workspaceId: string): Promise<Response | null> {
-  const budgets = [
-    { key: `verify-ip:${clientIp(c)}`, max: VERIFY_RATE_LIMIT_IP_MAX },
-    { key: 'verify-ws', max: VERIFY_RATE_LIMIT_WORKSPACE_MAX },
-  ];
+async function reserveVerifyBudget(
+  c: AppContext,
+  workspaceId: string,
+  body: { otp?: string; email?: string },
+): Promise<Response | { release: () => Promise<void> }> {
+  const budgets: Array<{ key: string; max: number }> = [];
+  if (body.otp && body.email) {
+    budgets.push({ key: `verify-e:${normalizeEmail(body.email)}`, max: VERIFY_RATE_LIMIT_EMAIL_MAX });
+  }
+  budgets.push({ key: 'verify-ws', max: VERIFY_RATE_LIMIT_WORKSPACE_MAX });
+
+  const reserved: string[] = [];
+  const release = async () => {
+    await Promise.all(reserved.map((key) => releaseRateLimit(c.env, workspaceId, key)));
+  };
   for (const { key, max } of budgets) {
     const outcome = await consumeRateLimit(c.env, workspaceId, key, max);
-    if (outcome === 'unavailable') return signInUnavailable(c);
-    if (outcome === 'limited') {
-      return c.json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }, 429);
+    if (outcome === 'allowed') {
+      reserved.push(key);
+      continue;
     }
+    await release();
+    if (outcome === 'unavailable') return signInUnavailable(c);
+    return c.json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }, 429);
   }
-  return null;
+  return { release };
 }
 
 app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), async (c) => {
@@ -354,18 +374,23 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
   if (!workspaceId) return error.unauthorized(c, 'Invalid or expired code');
 
   try {
-    const refusal = await verifyBudgetRefusal(c, workspaceId);
-    if (refusal) return refusal;
+    const reservation = await reserveVerifyBudget(c, workspaceId, body);
+    if (reservation instanceof Response) return reservation;
+    const failed = () => error.unauthorized(c, 'Invalid or expired code');
 
     const settings = await requireEnabled(db);
-    if (!settings) return error.unauthorized(c, 'Invalid or expired code');
+    if (!settings) {
+      // A disabled portal is not a guess: nothing to count.
+      await reservation.release();
+      return error.unauthorized(c, 'Invalid or expired code');
+    }
 
     const presented = body.token || body.otp;
-    if (!presented) return error.unauthorized(c, 'Invalid or expired code');
+    if (!presented) return failed();
     const presentedHash = await sha256Hex(presented);
 
     const email = await resolveChallengeEmail(c.env, body, presentedHash);
-    if (!email) return error.unauthorized(c, 'Invalid or expired code');
+    if (!email) return failed();
 
     const challenge = await loadMatchingChallenge(c.env, {
       workspaceId,
@@ -374,8 +399,11 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
       token: body.token,
       otp: body.otp,
     });
-    if (challenge === 'unavailable') return signInUnavailable(c);
-    if (!challenge) return error.unauthorized(c, 'Invalid or expired code');
+    if (challenge === 'unavailable') {
+      await reservation.release();
+      return signInUnavailable(c);
+    }
+    if (!challenge) return failed();
 
     const accessRows = await db
       .select()
@@ -387,9 +415,11 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
         ),
       );
 
-    if (accessRows.length === 0) return error.unauthorized(c, 'Invalid or expired code');
+    if (accessRows.length === 0) return failed();
 
     await deleteChallenge(c.env, challenge);
+    // The code was right: this attempt is not a failure, give its slots back.
+    await reservation.release();
 
     if (body.accessId) {
       const chosen = accessRows.find((r) => r.id === body.accessId);

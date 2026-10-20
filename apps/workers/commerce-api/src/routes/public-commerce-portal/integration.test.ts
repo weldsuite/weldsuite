@@ -19,9 +19,10 @@ import {
   otpKvKey,
   RATE_LIMIT_MAX,
   rateLimitKey,
+  REQUEST_RATE_LIMIT_WORKSPACE_MAX,
   sha256Hex,
   storeChallenge,
-  VERIFY_RATE_LIMIT_IP_MAX,
+  VERIFY_RATE_LIMIT_EMAIL_MAX,
   VERIFY_RATE_LIMIT_WORKSPACE_MAX,
   type PortalChallenge,
 } from '@weldsuite/commerce-domain/portal-tokens';
@@ -409,15 +410,39 @@ describe('/public/commerce-portal · OTP brute force', () => {
     expect(correct.status).toBe(401);
   });
 
-  it('rate limits /auth/verify per IP', async () => {
+  it('rate limits failed OTP verifies per email, not for other buyers', async () => {
     await enablePortal();
     const kv = new MemoryKV();
-    for (let i = 0; i < VERIFY_RATE_LIMIT_IP_MAX; i++) {
-      const res = await verify(kv, { otp: '999999', email: `spray${i}@example.com` });
+    for (let i = 0; i < VERIFY_RATE_LIMIT_EMAIL_MAX; i++) {
+      const res = await verify(kv, { otp: '999999', email: 'spray@example.com' });
       expect(res.status).toBe(401);
     }
-    const blocked = await verify(kv, { otp: '999999', email: 'spray-last@example.com' });
+    const blocked = await verify(kv, { otp: '999999', email: 'spray@example.com' });
     expect(blocked.status).toBe(429);
+    const other = await verify(kv, { otp: '999999', email: 'other@example.com' });
+    expect(other.status).toBe(401);
+  });
+
+  it('does not count successful verifies against the limits', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('counted');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+    expect((await verify(kv, { otp: OTP, email })).status).toBe(200);
+    // The slots were reserved for the attempt and given back once it succeeded.
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'verify-ws'))?.count ?? 0).toBe(0);
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', `verify-e:${email}`))?.count ?? 0).toBe(0);
+  });
+
+  it('counts a failed verify, but not the successful one after it', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('mixed');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+    expect((await verify(kv, { otp: '000000', email })).status).toBe(401);
+    expect((await verify(kv, { otp: OTP, email })).status).toBe(200);
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'verify-ws'))?.count).toBe(1);
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', `verify-e:${email}`))?.count).toBe(1);
   });
 
   it('rate limits /auth/verify per workspace across IPs', async () => {
@@ -431,17 +456,17 @@ describe('/public/commerce-portal · OTP brute force', () => {
     expect(res.status).toBe(429);
   });
 
-  it('lets exactly the cap through when /auth/verify is hit in parallel (atomic IP limit)', async () => {
+  it('lets exactly the cap of failures through when one email is guessed in parallel (atomic limit)', async () => {
     await enablePortal();
     const kv = new MemoryKV();
-    const burst = VERIFY_RATE_LIMIT_IP_MAX + 10;
+    const burst = VERIFY_RATE_LIMIT_EMAIL_MAX + 10;
     const statuses = (
-      await Promise.all(
-        Array.from({ length: burst }, (_, i) => verify(kv, { otp: '999999', email: `par${i}@example.com` })),
-      )
+      await Promise.all(Array.from({ length: burst }, () => verify(kv, { otp: '999999', email: 'par@example.com' })))
     ).map((res) => res.status);
-    expect(statuses.filter((s) => s === 401)).toHaveLength(VERIFY_RATE_LIMIT_IP_MAX);
+    expect(statuses.filter((s) => s === 401)).toHaveLength(VERIFY_RATE_LIMIT_EMAIL_MAX);
     expect(statuses.filter((s) => s === 429)).toHaveLength(10);
+    // Refused attempts hold no slot of the workspace budget.
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'verify-ws'))?.count).toBe(VERIFY_RATE_LIMIT_EMAIL_MAX);
   });
 
   it('caps parallel guesses against ONE challenge at MAX_VERIFY_ATTEMPTS (the KV attempts counter races)', async () => {
@@ -450,20 +475,17 @@ describe('/public/commerce-portal · OTP brute force', () => {
     const { email, accessId } = await seedBuyer('parallel');
     const challenge = await seedOtpChallenge(kv, 'org_test_default', accessId, email);
 
-    // 20 wrong guesses at once: all fit in the per-IP budget, so only the
+    // 15 wrong guesses at once: all fit in the per-email budget, so only the
     // per-challenge counter stands between them and the OTP.
-    const guesses = Array.from({ length: 20 }, (_, i) => String(i + 1).padStart(6, '0'));
+    const guesses = Array.from({ length: 15 }, (_, i) => String(i + 1).padStart(6, '0'));
     const responses = await Promise.all(guesses.map((otp) => verify(kv, { otp, email })));
     expect(responses.every((res) => res.status === 401)).toBe(true);
 
     const budget = kv.limiter.peek(rateLimitKey('org_test_default', `verify-ch:${challenge.tokenHash}`));
     expect(budget?.count).toBe(MAX_VERIFY_ATTEMPTS);
-    // The challenge is spent: even the right code no longer works (from a fresh IP, so the IP cap is not what refuses it).
-    const right = await portalApp(kv).request('/public/commerce-portal/auth/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.9' },
-      body: JSON.stringify({ otp: OTP, email }),
-    });
+    // The challenge is spent: even the right code no longer works (still under
+    // the per-email cap, so that is not what refuses it).
+    const right = await verify(kv, { otp: OTP, email });
     expect(right.status).toBe(401);
   });
 
@@ -530,7 +552,7 @@ describe('/public/commerce-portal · /auth/request limits', () => {
     return email;
   }
 
-  it('issues exactly RATE_LIMIT_MAX codes when one IP asks in parallel, and always answers generically', async () => {
+  it('issues exactly RATE_LIMIT_MAX codes when one address is asked for in parallel, and always answers generically', async () => {
     await enablePortal();
     const kv = new MemoryKV();
     const email = await seedInvited('bomb');
@@ -540,18 +562,30 @@ describe('/public/commerce-portal · /auth/request limits', () => {
     for (const res of responses) expect(((await res.json()) as { data: { ok: boolean } }).data.ok).toBe(true);
 
     expect(kv.putCount(otpKvKey('org_test_default', email))).toBe(RATE_LIMIT_MAX);
-    // The IP is checked first: once it is over the cap the address is not charged any more.
     expect(kv.limiter.peek(rateLimitKey('org_test_default', `e:${email}`))?.count).toBe(RATE_LIMIT_MAX);
-    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'ip:unknown'))?.count).toBe(RATE_LIMIT_MAX);
+    // The address is checked first: its refused requests are not charged to the workspace.
+    expect(kv.limiter.peek(rateLimitKey('org_test_default', 'request-ws'))?.count).toBe(RATE_LIMIT_MAX);
   });
 
-  it('does not create a counter per address for a blocked IP spraying addresses', async () => {
+  it('does not put different buyers on one budget (they all share the portal server IP)', async () => {
     await enablePortal();
     const kv = new MemoryKV();
-    for (let i = 0; i < RATE_LIMIT_MAX; i++) await requestCode(kv, `spray${i}@example.com`);
-    const before = kv.limiter.names().length;
-    await Promise.all(Array.from({ length: 10 }, (_, i) => requestCode(kv, `more${i}@example.com`)));
-    expect(kv.limiter.names()).toHaveLength(before);
+    const emails = await Promise.all(Array.from({ length: RATE_LIMIT_MAX + 3 }, (_, i) => seedInvited(`buyer${i}`)));
+    for (const email of emails) await requestCode(kv, email);
+    for (const email of emails) expect(kv.has(otpKvKey('org_test_default', email))).toBe(true);
+  });
+
+  it('caps code requests per workspace across addresses, answering generically', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const env = { PORTAL_RATE_LIMITER: kv.limiter };
+    for (let i = 0; i < REQUEST_RATE_LIMIT_WORKSPACE_MAX; i++) {
+      await consumeRateLimit(env, 'org_test_default', 'request-ws', REQUEST_RATE_LIMIT_WORKSPACE_MAX);
+    }
+    const email = await seedInvited('capped');
+    const res = await requestCode(kv, email);
+    expect(res.status).toBe(200);
+    expect(kv.has(otpKvKey('org_test_default', email))).toBe(false);
   });
 
   it('refuses (503) when the rate-limit binding is missing, and issues no challenge', async () => {

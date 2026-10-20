@@ -19,7 +19,7 @@
  * and unified); we've collapsed both into `listThreadsByLabel`.
  */
 
-import { and, asc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import {
@@ -309,16 +309,6 @@ export async function listThreadsByLabel(
     baseConditions.push(sql`${threadKey} NOT IN ${anyMessageOfThread(excludeCondition)}`);
   }
 
-  // A thread sorts by its newest message of any kind, so the reply you sent
-  // (SENT, not INBOX) lifts the conversation in the inbox like it does in Gmail.
-  const latestDateExpr = sql<string>`MAX((
-    SELECT MAX(COALESCE(newest.received_date, newest.sent_date, newest.created_at))
-    FROM mail_messages newest
-    WHERE newest.account_id = ${mailMessages.accountId}
-      AND COALESCE(newest.thread_id, newest.id) = COALESCE(${mailMessages.threadId}, ${mailMessages.id})
-      AND newest.deleted_at IS NULL
-  ))`;
-
   // ---- count distinct threads -----------------------------------------
   const [countRow] = await db
     .select({
@@ -329,16 +319,48 @@ export async function listThreadsByLabel(
   const totalCount = countRow?.count ?? 0;
 
   // ---- paginate the thread IDs ----------------------------------------
-  const threadRows = await db
+  // A thread sorts by its newest message of any kind, so the reply you sent
+  // (SENT, not INBOX) lifts the conversation in the inbox like it does in Gmail.
+  // That date comes from one grouped pass over the scoped accounts, joined to
+  // the matching threads. A correlated subquery per matching message would
+  // rescan the account each time: no index covers COALESCE(thread_id, id).
+  const matchingThreads = db
     .select({
-      accountId: mailMessages.accountId,
-      threadId: threadIdExpr,
-      latestDate: latestDateExpr,
+      accountId: sql<string>`${mailMessages.accountId}`.as('match_account_id'),
+      threadId: sql<string>`${threadIdExpr}`.as('match_thread_key'),
     })
     .from(mailMessages)
     .where(and(...baseConditions))
     .groupBy(mailMessages.accountId, threadIdExpr)
-    .orderBy(sql`${latestDateExpr} DESC`)
+    .as('matching_threads');
+  const threadDates = db
+    .select({
+      accountId: sql<string>`${mailMessages.accountId}`.as('date_account_id'),
+      threadId: sql<string>`${threadIdExpr}`.as('date_thread_key'),
+      latestDate: sql<string>`MAX(COALESCE(${mailMessages.receivedDate}, ${mailMessages.sentDate}, ${mailMessages.createdAt}))`.as(
+        'latest_date',
+      ),
+    })
+    .from(mailMessages)
+    .where(and(isNull(mailMessages.deletedAt), accountScope))
+    .groupBy(mailMessages.accountId, threadIdExpr)
+    .as('thread_dates');
+
+  const threadRows = await db
+    .select({
+      accountId: matchingThreads.accountId,
+      threadId: matchingThreads.threadId,
+      latestDate: threadDates.latestDate,
+    })
+    .from(matchingThreads)
+    .innerJoin(
+      threadDates,
+      and(
+        eq(threadDates.accountId, matchingThreads.accountId),
+        eq(threadDates.threadId, matchingThreads.threadId),
+      ),
+    )
+    .orderBy(desc(threadDates.latestDate), asc(matchingThreads.threadId))
     .limit(pageSize)
     .offset(offset);
 

@@ -4,10 +4,10 @@
  * node test env.
  */
 
-import { openAttachment, resolveAttachmentId, safeCacheFileName } from '../open-attachment';
+import { openAttachment, resolveAttachmentId, resolveMimeType, safeCacheFileName } from '../open-attachment';
 
 const mockAlert = jest.fn();
-const mockOpenURL = jest.fn();
+const mockStartActivity = jest.fn();
 const mockShare = jest.fn();
 const mockRequestInit = jest.fn();
 const mockDownload = jest.fn();
@@ -16,13 +16,16 @@ let mockPlatform = 'ios';
 
 jest.mock('react-native', () => ({
   Alert: { alert: (...a: unknown[]) => mockAlert(...a) },
-  Linking: { openURL: (...a: unknown[]) => mockOpenURL(...a) },
   Share: { share: (...a: unknown[]) => mockShare(...a) },
   Platform: {
     get OS() {
       return mockPlatform;
     },
   },
+}));
+
+jest.mock('expo-intent-launcher', () => ({
+  startActivityAsync: (...a: unknown[]) => mockStartActivity(...a),
 }));
 
 jest.mock('@/services/app-api', () => ({
@@ -42,6 +45,7 @@ jest.mock('expo-file-system', () => {
   class File {
     uri: string;
     contentUri: string;
+    type = 'application/pdf';
     constructor(...parts: (string | { uri: string })[]) {
       this.uri = parts.map((p) => (typeof p === 'string' ? p : p.uri)).join('/');
       this.contentUri = this.uri.replace('file://', 'content://');
@@ -59,7 +63,7 @@ const HEADERS = { Authorization: 'Bearer jwt', 'X-Weld-App': 'weldmail' };
 beforeEach(() => {
   mockPlatform = 'ios';
   mockAlert.mockReset();
-  mockOpenURL.mockReset().mockResolvedValue(undefined);
+  mockStartActivity.mockReset().mockResolvedValue(undefined);
   mockShare.mockReset().mockResolvedValue({ action: 'sharedAction' });
   mockDirCreate.mockReset();
   mockRequestInit.mockReset().mockResolvedValue({ url: URL, headers: HEADERS });
@@ -98,6 +102,20 @@ describe('safeCacheFileName', () => {
   });
 });
 
+describe('resolveMimeType', () => {
+  const file = { type: 'image/png' } as never;
+
+  it('prefers the type the attachment declares', () => {
+    expect(resolveMimeType({ contentType: 'application/pdf' }, file)).toBe('application/pdf');
+    expect(resolveMimeType({ mimeType: 'text/plain' }, file)).toBe('text/plain');
+  });
+
+  it('falls back to the file, then to any type', () => {
+    expect(resolveMimeType({ contentType: ' ' }, file)).toBe('image/png');
+    expect(resolveMimeType({}, { type: '' } as never)).toBe('*/*');
+  });
+});
+
 describe('openAttachment', () => {
   it('downloads through the authenticated endpoint into the cache, named after the file, then shares it on iOS', async () => {
     await openAttachment({ id: 'att_1', fileName: 'a.pdf' });
@@ -110,14 +128,18 @@ describe('openAttachment', () => {
     expect(file.uri).toBe('file://cache/mail-attachments/att_1/a.pdf');
     expect(options).toEqual({ headers: HEADERS, idempotent: true });
     expect(mockShare).toHaveBeenCalledWith({ url: 'file://cache/mail-attachments/att_1/a.pdf' });
-    expect(mockOpenURL).not.toHaveBeenCalled();
+    expect(mockStartActivity).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
-  it('opens the content URI with the OS handler on Android', async () => {
+  it('opens the content URI on Android with a read grant and the MIME type', async () => {
     mockPlatform = 'android';
-    await openAttachment({ id: 'att_1', filename: 'a.pdf' });
-    expect(mockOpenURL).toHaveBeenCalledWith('content://cache/mail-attachments/att_1/a.pdf');
+    await openAttachment({ id: 'att_1', filename: 'a.pdf', contentType: 'application/pdf' });
+    expect(mockStartActivity).toHaveBeenCalledWith('android.intent.action.VIEW', {
+      data: 'content://cache/mail-attachments/att_1/a.pdf',
+      flags: 1,
+      type: 'application/pdf',
+    });
     expect(mockShare).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
   });
@@ -138,7 +160,7 @@ describe('openAttachment', () => {
 
   it('never falls back to a public URL carried on the attachment', async () => {
     await openAttachment({ fileName: 'a.pdf', downloadUrl: 'https://cdn.x/a.pdf' } as never);
-    expect(mockOpenURL).not.toHaveBeenCalled();
+    expect(mockStartActivity).not.toHaveBeenCalled();
     expect(mockShare).not.toHaveBeenCalled();
     expect(mockAlert).toHaveBeenCalledTimes(1);
   });
@@ -169,7 +191,7 @@ describe('openAttachment', () => {
 
   it('alerts when the OS cannot open the downloaded file', async () => {
     mockPlatform = 'android';
-    mockOpenURL.mockRejectedValueOnce(new Error('no activity found'));
+    mockStartActivity.mockRejectedValueOnce(new Error('no activity found'));
     await openAttachment({ id: 'att_1', name: 'report.docx' });
     expect(mockAlert).toHaveBeenCalledTimes(1);
     expect(mockAlert.mock.calls[0][1]).toContain('report.docx');

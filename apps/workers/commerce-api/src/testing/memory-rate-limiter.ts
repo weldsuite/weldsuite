@@ -74,6 +74,10 @@ export function createMemoryRateLimitNamespace(now: () => number = Date.now): Me
           await ready;
           return counter.hit(max, windowSeconds);
         },
+        release: async () => {
+          await ready;
+          await counter.release();
+        },
       };
     },
     peek: (name) => counters.get(name)?.store.state,
@@ -87,6 +91,7 @@ export function createUnreachableRateLimitNamespace(): RateLimitNamespace {
     idFromName: (name) => ({ name }) as unknown as DurableObjectId,
     get: () => ({
       hit: () => Promise.reject(new Error('Durable Object unreachable')),
+      release: () => Promise.reject(new Error('Durable Object unreachable')),
     }),
   };
 }

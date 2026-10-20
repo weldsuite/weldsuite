@@ -22,9 +22,15 @@
  * Hits that are refused are NOT counted, so a flood does not grow the counter.
  */
 
-/** Window and cap of the per-email / per-IP limits on requesting a code. */
+/** Window and cap of the per-email limit on requesting a code. */
 export const RATE_LIMIT_TTL_SECONDS = 15 * 60;
 export const RATE_LIMIT_MAX = 5;
+/**
+ * Code requests per 15 minutes per workspace, across all addresses. Not per
+ * IP: buyers reach the worker through the portal's Next server, so they all
+ * share its egress IP and an IP key would put every buyer on one budget.
+ */
+export const REQUEST_RATE_LIMIT_WORKSPACE_MAX = 200;
 
 export interface RateLimitState {
   /** Hits counted in the current window. */
@@ -77,6 +83,16 @@ export function applyRateLimitHit(
   return { state: next, verdict: { allowed: true, count: next.count, remaining: max - next.count, resetAt } };
 }
 
+/**
+ * Give back one hit counted earlier in the current window (an attempt that
+ * turned out to succeed). Never below zero; a finished window has nothing to
+ * give back. Pure: returns the next state, or `prev` when nothing changes.
+ */
+export function applyRateLimitRelease(prev: RateLimitState | null, now: number): RateLimitState | null {
+  if (!prev || prev.count === 0 || now >= prev.windowStart + prev.windowMs) return prev;
+  return { ...prev, count: prev.count - 1 };
+}
+
 /** The persistence a {@link RateLimitCounter} needs (a Durable Object's storage, or memory). */
 export interface RateLimitCounterStore {
   load(): Promise<RateLimitState | undefined>;
@@ -120,6 +136,15 @@ export class RateLimitCounter {
     return verdict;
   }
 
+  /** Give back one hit of the current window (see {@link applyRateLimitRelease}). */
+  async release(): Promise<void> {
+    const prev = this.state;
+    const next = applyRateLimitRelease(prev, this.now());
+    if (next === prev || !next) return;
+    this.state = next;
+    await this.store.save(next);
+  }
+
   /** Alarm handler: drop a finished window, or wait for one that is still open. */
   async alarm(): Promise<void> {
     const state = this.state;
@@ -135,6 +160,7 @@ export class RateLimitCounter {
 /** The part of a Durable Object stub the limiter calls. */
 export interface RateLimitCounterStub {
   hit(max: number, windowSeconds: number): Promise<RateLimitVerdict>;
+  release(): Promise<void>;
 }
 
 /** The part of a `DurableObjectNamespace` the limiter uses. */
@@ -185,5 +211,22 @@ export async function consumeRateLimit(
   } catch (err) {
     console.error('[commerce-domain/portal-rate-limit] counter unreachable:', err);
     return 'unavailable';
+  }
+}
+
+/**
+ * Hand back a hit taken by {@link consumeRateLimit}, for limits that only count
+ * failures: the caller reserves a slot atomically up front (so parallel
+ * attempts cannot all slip past) and releases it once the attempt succeeded.
+ * Best effort: when the counter cannot be reached the slot simply stays
+ * counted, which errs on the strict side.
+ */
+export async function releaseRateLimit(env: PortalRateLimitEnv, workspaceId: string, key: string): Promise<void> {
+  const namespace = env.PORTAL_RATE_LIMITER;
+  if (!namespace) return;
+  try {
+    await namespace.get(namespace.idFromName(rateLimitKey(workspaceId, key))).release();
+  } catch (err) {
+    console.error('[commerce-domain/portal-rate-limit] could not release a slot:', err);
   }
 }

@@ -7,11 +7,14 @@
 
 export {
   applyRateLimitHit,
+  applyRateLimitRelease,
   consumeRateLimit,
   RATE_LIMIT_MAX,
   RATE_LIMIT_TTL_SECONDS,
   rateLimitKey,
   RateLimitCounter,
+  releaseRateLimit,
+  REQUEST_RATE_LIMIT_WORKSPACE_MAX,
   type PortalRateLimitEnv,
   type RateLimitCounterStore,
   type RateLimitCounterStub,
@@ -41,8 +44,13 @@ export const OTP_TTL_SECONDS = 15 * 60;
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 /** Wrong guesses a challenge survives before it is invalidated. */
 export const MAX_VERIFY_ATTEMPTS = 8;
-/** Verify calls per 15 minutes: per client IP, and per workspace across all IPs. */
-export const VERIFY_RATE_LIMIT_IP_MAX = 20;
+/**
+ * Failed verify calls per 15 minutes: per buyer email (OTP path), and per
+ * workspace across all buyers. Not per IP: buyers reach the worker through the
+ * portal's Next server, so they all share its egress IP. A slot is reserved up
+ * front and released when the sign-in succeeds, so only failures count.
+ */
+export const VERIFY_RATE_LIMIT_EMAIL_MAX = 20;
 export const VERIFY_RATE_LIMIT_WORKSPACE_MAX = 200;
 
 export interface PortalChallenge {
