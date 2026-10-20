@@ -474,6 +474,30 @@ describe('connections the plan includes and extra charges', () => {
     expect(reauth.status).toBe(201);
   });
 
+  it('brings a disconnected connection back only through a new link, which is checked and billed', async () => {
+    const { api, id } = await linkAndMap();
+    expect((await api(`/${id}/disconnect`, { method: 'POST' })).status).toBe(200);
+    expect(ctx.index.rows.has('plaid:item_1')).toBe(false);
+    state.billing = atLimit;
+
+    for (const mode of ['reauth', 'add_accounts'] as const) {
+      const res = await api('/link-session', { method: 'POST', body: { ...linkBody, mode, connectionId: id } });
+      expect(res.status).toBe(409);
+    }
+    const linksBefore = provider.completeCalls.length;
+    const inPlace = await api('/complete', { method: 'POST', body: { provider: 'plaid', payload: { publicToken: 'public-again' }, connectionId: id } });
+    expect(inPlace.status).toBe(409);
+    expect(provider.completeCalls).toHaveLength(linksBefore);
+
+    // The same bank login linked again as a new connection revives the row, and bills it.
+    const syncsBefore = state.syncs;
+    const relinked = await api('/complete', { method: 'POST', body: { provider: 'plaid', payload: { publicToken: 'public-again' } } });
+    expect(relinked.status).toBe(200);
+    expect(relinked.json?.data.connection.id).toBe(id);
+    expect(state.syncs).toBe(syncsBefore + 1);
+    expect(ctx.index.rows.has('plaid:item_1')).toBe(true);
+  });
+
   it('bills a new connection above the included ones once it is linked', async () => {
     state.billing = atLimit;
     nextLink('item_extra');

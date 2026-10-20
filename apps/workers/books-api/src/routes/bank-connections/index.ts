@@ -252,20 +252,22 @@ app.post('/complete', requirePermission('banking:create'), zValidator('json', co
     const { billed } = body.connectionId
       ? { billed: false }
       : await checkNewConnection(billing, { accepted: false, requireAcceptance: false });
-    const { view, created } = await completeLink(ctx, {
+    const { view, created, restored } = await completeLink(ctx, {
       providerId: body.provider,
       payload: body.payload,
       connectionId: body.connectionId,
       entityId,
       userId: c.get('userId') ?? null,
     });
-    if (created) {
+    // A disconnected connection the link brought back counts again, just like a new one.
+    if (created || restored) {
       if (billed) {
         try {
           await billing.sync();
         } catch (err) {
-          // Not billed, so not kept: revoke at the provider and drop it again.
-          await deleteConnection(ctx, view.id, entityId).catch((cleanup) =>
+          // Not billed, so not kept: revoke at the provider and drop (or disconnect) it again.
+          const undo = created ? deleteConnection(ctx, view.id, entityId) : disconnectConnection(ctx, view.id, entityId);
+          await undo.catch((cleanup) =>
             console.error('[books-api/bank-connections] removing an unbilled connection failed:', cleanup),
           );
           throw err;

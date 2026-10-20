@@ -90,7 +90,7 @@ describe('useUserAppBundleLink', () => {
   });
 
   it('keeps a fresh cached link on remount, and re-mints one that is about to expire', async () => {
-    const key = ['user-apps', 'bundle-link', 'org_1', 'demo'];
+    const key = ['weldapp-bundle-link', 'org_1', 'demo'];
 
     const fresh = newClient();
     fresh.setQueryData(key, signed(6 * 60 * 60 * 1000));
