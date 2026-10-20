@@ -340,7 +340,7 @@ describe('disconnect and delete', () => {
     return { provider, ctx, id: view.id };
   }
 
-  it('revokes at the provider, drops the tokens, keeps every transaction, and stops syncing', async () => {
+  it('revokes at the provider, drops the tokens, keeps every transaction, and stops syncing and counting', async () => {
     const { provider, ctx, id } = await connectedWithData();
 
     const view = await disconnectConnection(ctx, id);
@@ -354,7 +354,8 @@ describe('disconnect and delete', () => {
     const [bank] = await db.select().from(schema.bankAccounts);
     expect(bank).toMatchObject({ feedStatus: 'disconnected', feedConnectionId: id });
     expect(await db.select().from(schema.bankTransactions)).toHaveLength(1);
-    expect(ctx.index.rows.get('plaid:item_1')?.isActive).toBe(false);
+    // No index row: no webhook or sweep reaches it, and it no longer counts toward the plan's connections.
+    expect(ctx.index.rows.has('plaid:item_1')).toBe(false);
     expect((await syncConnection(ctx, id)).skipped).toBe('not_active');
 
     // Disconnecting again does not call the provider again.

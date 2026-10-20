@@ -94,6 +94,8 @@ export interface NotificationEnv extends SystemEmailEnv {
    *  user's WorkspaceHub personal topic. Optional: when missing (local dev
    *  without realtime-worker running), in-app delivery becomes a no-op. */
   REALTIME?: RealtimeBinding;
+  /** The realtime-worker's `REALTIME_INTERNAL_SECRET`: it requires it on every /publish/* request, service-binding callers included. */
+  REALTIME_INTERNAL_SECRET?: string;
   /** Absolute base URL for action links in email/push, e.g.
    *  `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;

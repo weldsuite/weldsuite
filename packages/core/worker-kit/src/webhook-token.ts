@@ -12,22 +12,14 @@
  */
 
 import type { Context } from 'hono';
+import { secretMatches, timingSafeEqualStr } from '@weldsuite/db/lib/timing-safe';
 
-/**
- * Constant-time string comparison. Compares over the longer of the two lengths
- * so a length mismatch does not short-circuit and leak timing.
- */
-export function timingSafeEqualStr(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const ab = enc.encode(a);
-  const bb = enc.encode(b);
-  let diff = ab.length ^ bb.length;
-  const len = Math.max(ab.length, bb.length);
-  for (let i = 0; i < len; i++) {
-    diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
-  }
-  return diff === 0;
-}
+// The one constant-time compare for shared secrets. Re-exported here so every
+// API worker keeps importing it from `@weldsuite/worker-kit/webhook-token`
+// (and from the kit's index); the implementation lives in
+// `@weldsuite/db/lib/timing-safe` so workers that don't use the kit
+// (realtime-worker) share it instead of carrying a copy.
+export { secretMatches, timingSafeEqualStr };
 
 /**
  * Returns true when the request is authorized: the request's `?token=` query
@@ -35,7 +27,5 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
  * unset/empty — an unconfigured secret never authorizes anything.
  */
 export function verifyWebhookToken(c: Context, expected: string | undefined | null): boolean {
-  if (!expected) return false;
-  const provided = c.req.query('token') ?? '';
-  return timingSafeEqualStr(provided, expected);
+  return secretMatches(c.req.query('token'), expected);
 }

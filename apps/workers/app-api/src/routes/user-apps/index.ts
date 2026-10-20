@@ -15,7 +15,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import {
   consentUserAppScopesSchema,
   createUserAppSchema,
@@ -41,6 +41,7 @@ import {
   diffScopes,
   dispatchAppLifecycleWebhook,
   isOfficialPublisherWorkspace,
+  isPubliclyServable,
   isSafeBundlePath,
   toUserAppStoreListing,
   isScopeSuperset,
@@ -51,10 +52,17 @@ import {
   unionScopes,
 } from '../../services/user-apps';
 import {
+  bundleEnv,
+  invalidateBundleAccess,
+  plainBundlePath,
+  signBundleCapability,
+  signedBundlePath,
+  workspaceMayUseBundle,
+} from '../../services/user-apps-bundle-access';
+import {
   deleteDevSession,
-  findActiveAppByCode,
-  getActiveDevSession,
   isAllowedDevSessionUrl,
+  resolveViewerDevSession,
   upsertDevSession,
 } from '../../services/user-app-dev-sessions';
 import {
@@ -466,6 +474,63 @@ app.post('/code/:code/session-token', requirePermission('weldapps:read'), async 
 });
 
 // ============================================================================
+// POST /code/:code/bundle-url — where the iframe host loads the bundle from
+// ============================================================================
+//
+// A public, approved app is served at its plain URL. Every other bundle is
+// served only behind a signed, workspace-bound link in the URL path (an iframe
+// src can carry neither a bearer token nor, with third-party cookies blocked, a
+// session), minted here for a member of the authoring workspace or of a
+// workspace with an active install. See services/user-apps-bundle-access.ts.
+// Not a mutation: it writes nothing, so it publishes no entity event.
+
+app.post('/code/:code/bundle-url', requirePermission('weldapps:read'), async (c) => {
+  const master = getMasterDb(c.env);
+  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const code = c.req.param('code');
+
+  try {
+    const [appRow] = await master
+      .select({
+        id: uApps.id,
+        ownerWorkspaceId: uApps.ownerWorkspaceId,
+        visibility: uApps.visibility,
+        reviewStatus: uApps.reviewStatus,
+        currentVersionId: uApps.currentVersionId,
+      })
+      .from(uApps)
+      .where(and(eq(uApps.code, code), eq(uApps.isActive, true), isNull(uApps.deletedAt)))
+      .limit(1);
+    if (!appRow?.currentVersionId) return error.notFound(c, 'App', code);
+
+    if (isPubliclyServable(appRow)) {
+      return success(c, { path: plainBundlePath(code), signed: false, expiresAt: null });
+    }
+
+    const allowed = await workspaceMayUseBundle(master, {
+      appId: appRow.id,
+      ownerWorkspaceId: appRow.ownerWorkspaceId,
+      workspaceId,
+    });
+    if (!allowed) return error.notFound(c, 'App', code);
+
+    const minted = await signBundleCapability(bundleEnv(c.env), { appId: appRow.id, workspaceId });
+    if (!minted) {
+      console.error('[app-api/user-apps] bundle-url: no bundle signing secret is configured');
+      return error.internal(c, 'App bundle links are not configured');
+    }
+    return success(c, {
+      path: signedBundlePath(code, minted.token),
+      signed: true,
+      expiresAt: minted.expiresAt,
+    });
+  } catch (err) {
+    console.error('[app-api/user-apps] bundle-url failed:', err);
+    return error.internal(c, 'Failed to mint the app bundle link');
+  }
+});
+
+// ============================================================================
 // ALL /code/:code/gateway/v1/* — host-proxied app data plane
 // ============================================================================
 //
@@ -538,17 +603,20 @@ app.all('/code/:code/gateway/*', requirePermission('weldapps:read'), async (c) =
 // Preview sessions (`weld app dev`) — per Clerk user, not per workspace
 // ============================================================================
 
+// The platform loads a preview URL straight into the member's session, so the
+// session is only ever handed to the developer it belongs to: the caller's own
+// row, for an app their workspace owns, and only when they hold
+// `weldapps:develop` (see resolveViewerDevSession). Everyone else gets null and
+// keeps the published bundle.
 app.get('/code/:code/dev-session', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
-  const code = c.req.param('code');
   try {
-    const appRow = await findActiveAppByCode(master, code);
-    if (!appRow) return success(c, null);
     const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
-    const session = await getActiveDevSession(master, {
-      appId: appRow.id,
+    const session = await resolveViewerDevSession(master, {
+      code: c.req.param('code'),
       workspaceId,
       userId: c.get('userId'),
+      canDevelop: await hasContextPermission(c, 'weldapps:develop'),
     });
     return success(c, session);
   } catch (err) {
@@ -974,6 +1042,8 @@ app.post('/:id/submit', requirePermission('weldapps:publish'), zValidator('json'
       .where(eq(uApps.id, id))
       .returning();
 
+    // An official app goes public (and so plain-URL) right here.
+    await invalidateAssetCache(c, appRow.code);
     publishEntityEvent({
       c,
       entityType: 'user_app',
@@ -1069,6 +1139,8 @@ app.post('/:id/review', zValidator('json', reviewUserAppSchema), async (c) => {
           updatedAt: now,
         })
         .where(eq(uApps.id, id));
+      // A rejected app is no longer public: its bundle needs a signed link again.
+      await invalidateAssetCache(c, appRow.code);
     }
 
     const [updated] = await master.select().from(uApps).where(eq(uApps.id, id)).limit(1);
@@ -1235,6 +1307,7 @@ app.post('/:id/install', requirePermission('weldapps:manage'), zValidator('json'
         .where(eq(uApps.id, id));
     }
 
+    await invalidateBundleAccess(c.env.WORKSPACE_CACHE, id, workspaceId);
     publishEntityEvent({
       c,
       entityType: 'user_app',
@@ -1302,6 +1375,7 @@ app.delete('/:id/install', requirePermission('weldapps:manage'), async (c) => {
       .set({ installCount: sql`GREATEST(${uApps.installCount} - 1, 0)`, updatedAt: now })
       .where(eq(uApps.id, id));
 
+    await invalidateBundleAccess(c.env.WORKSPACE_CACHE, id, workspaceId);
     publishEntityEvent({
       c,
       entityType: 'user_app',

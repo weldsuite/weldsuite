@@ -13,6 +13,8 @@ export interface Env extends KitEnv {
   /** realtime-worker service binding — WeldChat fan-out to the ChatRoom DO,
    *  live WorkspaceHub fan-out and in-app notifications. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   /** R2 bucket for chat uploads and clips. */
   STORAGE?: R2Bucket;

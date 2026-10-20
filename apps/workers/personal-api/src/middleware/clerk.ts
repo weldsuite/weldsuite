@@ -6,6 +6,13 @@
  * escaped newlines in wrangler secrets, JWKS fetch on Workers), fall back to
  * the same Web Crypto RS256 check billing-worker uses so a production Expo
  * session JWT still authenticates.
+ *
+ * Whichever path verified the token, its authorized party (`azp`) is checked
+ * afterwards against `PERSONAL_AUTHORIZED_PARTIES`, so a session token minted
+ * for another frontend on the same Clerk instance is refused. The check sits
+ * outside the verify-then-fall-back chain on purpose: a refusal inside
+ * `verifyToken` would only send the token on to the Web Crypto fallback, which
+ * checks the signature alone. Expo apps mint tokens with no `azp` and pass.
  */
 
 import { createMiddleware } from 'hono/factory';
@@ -17,8 +24,88 @@ type ClerkJwtPayload = {
   sub?: string;
   sid?: string;
   exp?: number;
+  azp?: unknown;
   [key: string]: unknown;
 };
+
+/**
+ * Browser origins that sign personal accounts in and call this API: the
+ * consumer WeldMail web (apps/web/weldmail) and WeldCalendar web
+ * (apps/web/weldcalendar) apps, and their local dev servers (3200, 3201).
+ * personal-api is outside @weldsuite/worker-kit, so this is its own list
+ * rather than the kit's FIRST_PARTY_ORIGINS (the platform, developer and
+ * partner portals do not call personal-api).
+ *
+ * Exact custom domains are listed here; the Pages projects (and their branch
+ * previews) are matched by isPersonalWebOrigin below. Keep both in step with
+ * the projects' domains (`wrangler pages project list`). Anything else goes in
+ * the `CLERK_AUTHORIZED_PARTIES` worker var (comma-separated origins).
+ */
+export const PERSONAL_AUTHORIZED_PARTIES = [
+  // WeldMail web (Pages projects weldmail-web / weldmail-web-test)
+  'https://mail.weldmail.com',
+  'https://weldmail.weldsuite.org',
+  'https://weldmail-test.weldsuite.org',
+  // WeldCalendar web, once its custom domains are attached (README)
+  'https://weldcalendar.weldsuite.org',
+  'https://weldcalendar-test.weldsuite.org',
+  'http://localhost:3200',
+  'http://localhost:3201',
+] as const;
+
+/**
+ * Hosts the consumer web apps are served from; one extra subdomain label is
+ * allowed on each (Pages branch previews, other weldmail.com hosts). All are
+ * WeldSuite's own: users claim addresses on weldmail.com, never subdomains.
+ */
+const PERSONAL_WEB_HOSTS = [
+  'weldmail.com',
+  'weldmail-web.pages.dev',
+  'weldmail-web-test.pages.dev',
+  'weldcalendar-web.pages.dev',
+  'weldcalendar-web-test.pages.dev',
+] as const;
+const HTTPS_HOST_ORIGIN = /^https:\/\/([a-z0-9.-]+)$/;
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** https on a consumer web host or one subdomain label of it (no port, no path). */
+function isPersonalWebOrigin(origin: string): boolean {
+  const host = HTTPS_HOST_ORIGIN.exec(origin)?.[1];
+  if (!host) return false;
+  return PERSONAL_WEB_HOSTS.some((base) => {
+    if (host === base) return true;
+    if (!host.endsWith(`.${base}`)) return false;
+    return DNS_LABEL.test(host.slice(0, -(base.length + 1)));
+  });
+}
+
+/** One concrete origin: scheme and host (+ port); no wildcard, no path. */
+const EXACT_ORIGIN =
+  /^(?:https?:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?|chrome-extension:\/\/[a-p]{32})$/;
+
+/** The extra origins configured in the `CLERK_AUTHORIZED_PARTIES` var. */
+export function parseExtraAuthorizedParties(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => EXACT_ORIGIN.test(entry));
+}
+
+/**
+ * Whether a verified token's `azp` claim names an origin allowed to use this
+ * API. No claim passes (native clients send no Origin, so Clerk omits it); a
+ * claim that is present but empty or not a string does not.
+ */
+export function isAuthorizedParty(azp: unknown, extraOrigins: readonly string[] = []): boolean {
+  if (azp === undefined || azp === null) return true;
+  if (typeof azp !== 'string' || azp === '') return false;
+  return (
+    (PERSONAL_AUTHORIZED_PARTIES as readonly string[]).includes(azp) ||
+    isPersonalWebOrigin(azp) ||
+    extraOrigins.includes(azp)
+  );
+}
 
 function formatClerkError(err: unknown): string {
   if (err && typeof err === 'object') {
@@ -135,6 +222,18 @@ export const clerkMiddleware = () => {
 
       if (!payload.sub) {
         return c.json({ error: { code: 'UNAUTHORIZED', message: 'Invalid token payload' } }, 401);
+      }
+
+      const extraParties = parseExtraAuthorizedParties(
+        (c.env as Env & { CLERK_AUTHORIZED_PARTIES?: string }).CLERK_AUTHORIZED_PARTIES,
+      );
+      if (!isAuthorizedParty(payload.azp, extraParties)) {
+        // The origin only, never the token. Truncated: the claim is client-influenced.
+        console.warn(
+          `[personal-api] token refused, azp ${JSON.stringify(payload.azp).slice(0, 200)} is not an authorized party`,
+        );
+        c.set('entitlements', FREE_ENTITLEMENTS);
+        return c.json({ error: { code: 'UNAUTHORIZED', message: 'Token verification failed' } }, 401);
       }
 
       c.set('userId', payload.sub);

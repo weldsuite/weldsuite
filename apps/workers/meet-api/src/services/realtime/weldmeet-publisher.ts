@@ -11,7 +11,7 @@ import { RealtimePublisher } from '@weldsuite/realtime/server';
 import type { Env } from '../../types';
 
 function getPublisher(env: Env): RealtimePublisher {
-  return new RealtimePublisher(env.REALTIME!);
+  return new RealtimePublisher(env.REALTIME!, { internalSecret: env.REALTIME_INTERNAL_SECRET });
 }
 
 // ============================================================================

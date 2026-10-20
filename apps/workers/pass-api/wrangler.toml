@@ -55,6 +55,11 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Extra origins whose Clerk tokens are accepted (`azp`), on top of the
+# first-party list in @weldsuite/worker-kit/cors: the WeldPass browser
+# extension's pinned `chrome-extension://<id>` (apps/web/weldpass-extension
+# README, "Clerk configuration"). Empty refuses the extension's tokens.
+CLERK_AUTHORIZED_PARTIES = ""
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -86,6 +91,11 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# Extra origins whose Clerk tokens are accepted (`azp`), on top of the
+# first-party list in @weldsuite/worker-kit/cors: the WeldPass browser
+# extension's pinned `chrome-extension://<id>` (apps/web/weldpass-extension
+# README, "Clerk configuration"). Empty refuses the extension's tokens.
+CLERK_AUTHORIZED_PARTIES = ""
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

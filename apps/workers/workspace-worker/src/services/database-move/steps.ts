@@ -106,8 +106,8 @@ function assertMovable(workspace: WorkspaceRow | undefined, move: MoveRow): Work
   return { ...workspace, databaseUrl: workspace.databaseUrl };
 }
 
-async function connectSourceOf(deps: MoveDeps, workspace: { databaseUrl: string }): Promise<TenantSql> {
-  return deps.connect(directUrlOf(await deps.decryptUrl(workspace.databaseUrl)));
+async function connectSourceOf(deps: MoveDeps, workspace: { id: string; databaseUrl: string }): Promise<TenantSql> {
+  return deps.connect(directUrlOf(await deps.decryptUrl(workspace.databaseUrl, workspace.id)));
 }
 
 /** Workspace + a direct connection to the source (the URL the workspace row holds now, the rotated one after the lock). */
@@ -118,7 +118,7 @@ async function sourceContext(deps: MoveDeps, move: MoveRow) {
 
 async function connectTarget(deps: MoveDeps, move: MoveRow): Promise<TenantSql> {
   if (!move.targetDatabaseUrl) throw new MoveFlowError('TARGET_LOST', 'The move has no target database recorded');
-  return deps.connect(directUrlOf(await deps.decryptUrl(move.targetDatabaseUrl)));
+  return deps.connect(directUrlOf(await deps.decryptUrl(move.targetDatabaseUrl, move.workspaceId)));
 }
 
 // ── Preparing (before any downtime) ──────────────────────────────────────
@@ -148,7 +148,7 @@ export async function checkSource(deps: MoveDeps, moveId: string): Promise<{ tab
   const { source } = await sourceContext(deps, move);
 
   // A lock that rotates the password but cannot store the new URL strands the workspace.
-  await deps.encryptUrl('postgresql://check:check@check.invalid/check');
+  await deps.encryptUrl('postgresql://check:check@check.invalid/check', move.workspaceId);
 
   // Judged migration by migration, not by count and newest row: drizzle's migrator skips a migration merged with
   // an older timestamp, and two runners record rows differently, so counts can agree while the schema does not.
@@ -220,7 +220,7 @@ export async function prepareTarget(
         targetSharedProjectId: target.sharedProjectId,
         targetRegion: target.region,
         targetPoolId: target.poolId,
-        targetDatabaseUrl: await deps.encryptUrl(target.pooledUrl),
+        targetDatabaseUrl: await deps.encryptUrl(target.pooledUrl, move.workspaceId),
       },
       deps.now(),
     );
@@ -250,7 +250,7 @@ export async function migrateTarget(
 ): Promise<{ applied: number; remaining: number }> {
   const move = await advance(deps.masterDb, moveId, { step }, deps.now());
   if (!move.targetDatabaseUrl) throw new MoveFlowError('TARGET_LOST', 'The move has no target database recorded');
-  const url = directUrlOf(await deps.decryptUrl(move.targetDatabaseUrl));
+  const url = directUrlOf(await deps.decryptUrl(move.targetDatabaseUrl, move.workspaceId));
   const result = await deps.migrate(url, MIGRATION_STATEMENTS_PER_STEP);
   return { applied: result.applied, remaining: result.remaining };
 }
@@ -326,7 +326,7 @@ export async function lockSourcePartOne(deps: MoveDeps, moveId: string): Promise
     roleName: move.sourceRoleName,
     sharedProjectId: move.sourceSharedProjectId,
   });
-  const encrypted = await deps.encryptUrl(urls.pooledUrl);
+  const encrypted = await deps.encryptUrl(urls.pooledUrl, move.workspaceId);
   if (!(await setSourceDatabaseUrl(deps.masterDb, move, encrypted, deps.now()))) {
     throw new MoveFlowError('WORKSPACE_CHANGED', 'The workspace no longer points at the database the move started from');
   }

@@ -9,15 +9,35 @@ import { eq } from 'drizzle-orm';
 import type { Env, Variables } from '../index';
 import { getMasterDb, getTenantDbForWorkspace, schema, masterSchema } from '../db';
 
+/**
+ * Reduce an allowlist entry to a bare lowercase hostname. The setting is meant to
+ * hold domains (`example.com`), but is written through the API by hand, so a
+ * scheme, port, path, wildcard or capital letters are tolerated instead of
+ * silently never matching.
+ */
+function normalizeAllowedDomain(entry: string): string {
+  const withoutScheme = entry
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z\d+.-]*:\/\//, '');
+  // Cut at the first path, query or fragment character (a plain search, no backtracking).
+  const end = withoutScheme.search(/[/?#]/);
+  const hostAndPort = end === -1 ? withoutScheme : withoutScheme.slice(0, end);
+  return hostAndPort.replace(/:\d+$/, '').replace(/^\*?\./, '');
+}
+
 /** True when the request Origin's host equals, or is a subdomain of, an allowed domain. */
 function isOriginAllowed(origin: string, allowedDomains: string[]): boolean {
   let host: string;
   try {
     host = new URL(origin).hostname;
   } catch {
-    host = origin;
+    host = origin.toLowerCase();
   }
-  return allowedDomains.some((d) => host === d || host.endsWith(`.${d}`));
+  return allowedDomains.some((entry) => {
+    const d = normalizeAllowedDomain(entry);
+    return d !== '' && (host === d || host.endsWith(`.${d}`));
+  });
 }
 
 /** Whether the workspace's plan removes widget branding (false when no plan is set). */
@@ -121,13 +141,29 @@ export function widgetAuthMiddleware() {
           );
         }
 
-        const origin = c.req.header('Origin');
+        // Allowed-domains policy. Every legitimate caller is a browser making a
+        // cross-origin CORS fetch (the widget iframe runs on the widget host, this API
+        // on its own host), and a browser always sends `Origin` on those, GET
+        // included. So once a workspace has configured an allowlist, a request
+        // without `Origin` is a non-browser client and is refused too; skipping the
+        // check for it would let any script ignore the allowlist by omitting the header.
+        // (`/webhook/discord` and `/health` are mounted outside this middleware, and
+        // attachments are fetched from the public R2 URL, never through this API.)
         const allowed = widgetConfig.allowedDomains ?? [];
-        if (origin && allowed.length > 0 && !isOriginAllowed(origin, allowed)) {
-          return c.json(
-            { success: false, error: { code: 'FORBIDDEN', message: 'Origin not allowed' } },
-            403,
-          );
+        if (allowed.length > 0) {
+          const origin = c.req.header('Origin');
+          if (!origin) {
+            return c.json(
+              { success: false, error: { code: 'FORBIDDEN', message: 'Origin header required' } },
+              403,
+            );
+          }
+          if (!isOriginAllowed(origin, allowed)) {
+            return c.json(
+              { success: false, error: { code: 'FORBIDDEN', message: 'Origin not allowed' } },
+              403,
+            );
+          }
         }
 
         c.set('widgetId', widgetId);

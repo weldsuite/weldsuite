@@ -35,7 +35,7 @@ function getPublisher(env: Env): RealtimePublisher {
   if (!env.REALTIME) {
     throw new Error('REALTIME service binding is not configured');
   }
-  return new RealtimePublisher(env.REALTIME);
+  return new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
 }
 
 /**

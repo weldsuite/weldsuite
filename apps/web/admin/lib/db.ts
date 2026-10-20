@@ -59,6 +59,8 @@ async function lookupWorkspace(clerkOrgId: string): Promise<{ id: string; databa
 }
 
 type NeonConnectionInput = {
+  /** `workspaces.id` of the row `databaseUrl` came from: the AAD of a v3 value. */
+  id: string;
   neonProjectId: string;
   neonBranchId: string;
   neonRoleName: string;

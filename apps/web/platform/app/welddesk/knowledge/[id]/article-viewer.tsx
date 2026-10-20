@@ -13,6 +13,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useI18n } from '@/lib/i18n/provider';
+import { INLINE_CODE_CLASSES, renderInlineMarkdown } from '@/app/welddesk/lib/inline-markdown';
 
 interface Article {
   id: string;
@@ -133,16 +134,6 @@ function handleListItem(state: MarkdownState, line: string): boolean {
   return true;
 }
 
-function renderInlineMarkdown(line: string): string {
-  return line
-    // Bold
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    // Inline code
-    .replace(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
-}
-
 function processMarkdownLine(state: MarkdownState, line: string) {
   if (line.startsWith('```')) {
     toggleCodeBlock(state);
@@ -173,7 +164,8 @@ function processMarkdownLine(state: MarkdownState, line: string) {
     elements.push(
       <p
         key={elements.length}
-        className="mb-4 leading-relaxed"
+        className={cn('mb-4 leading-relaxed', INLINE_CODE_CLASSES)}
+        // renderInlineMarkdown returns allowlist-sanitized HTML (never the raw line).
         dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(line) }}
       />
     );

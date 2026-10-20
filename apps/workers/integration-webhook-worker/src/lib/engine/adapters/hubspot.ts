@@ -24,6 +24,7 @@ import type {
   WebhookRegistration,
 } from '../sync/types';
 import type { OAuthTokens } from '../types';
+import { timingSafeEqualStr } from '@weldsuite/db/lib/timing-safe';
 
 const HUBSPOT_API_BASE = 'https://api.hubapi.com';
 const HUBSPOT_AUTHORIZE_URL = 'https://app.hubspot.com/oauth/authorize';
@@ -421,7 +422,7 @@ export class HubSpotSyncAdapter implements CrmSyncAdapter {
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
-    return signature === expected;
+    return timingSafeEqualStr(signature, expected);
   }
 
   parseWebhookPayload(body: string): ParsedWebhookPayload {

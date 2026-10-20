@@ -434,7 +434,7 @@ describe('compensateDatabaseMove', () => {
     expect(world.provisioning.rotateRolePassword).toHaveBeenCalledTimes(1);
     expect(guardState.log).toEqual([`unlock:${SOURCE.db}`]);
     // The fresh URL is on the workspace row now, and works.
-    const stored = await world.deps.decryptUrl((await workspaceRow()).databaseUrl ?? '');
+    const stored = await world.deps.decryptUrl((await workspaceRow()).databaseUrl ?? '', WORKSPACE_ID);
     expect(stored).toBe(connectionUrl({ role: SOURCE.role, password: `${SECRET_PREFIX}rotated-1`, db: SOURCE.db, pooled: true }));
     expect(world.purges.length).toBeGreaterThanOrEqual(2); // after storing the URL, and at the end
   });
@@ -569,7 +569,7 @@ describe('prepareTarget', () => {
       targetPoolId: null,
     });
     expect(row.targetDatabaseUrl).not.toContain('postgres');
-    expect(await world.deps.decryptUrl(row.targetDatabaseUrl ?? '')).toBe(
+    expect(await world.deps.decryptUrl(row.targetDatabaseUrl ?? '', WORKSPACE_ID)).toBe(
       connectionUrl({ role: TARGET.role, password: `${SECRET_PREFIX}target-0`, db: TARGET.db, pooled: true }),
     );
 

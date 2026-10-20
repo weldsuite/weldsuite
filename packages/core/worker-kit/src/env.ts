@@ -48,6 +48,13 @@ export type KitVariables = {
   userId: string;
   orgId: string | null;
   sessionId: string;
+  /**
+   * Clerk's `fva` session claim: minutes since the user last verified their
+   * first and their second factor, -1 for one never verified in this session
+   * (for the second factor: the user has none). Null when the token has no
+   * such claim. Read by `requireSecondFactor`.
+   */
+  factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
   workspaceId: string;
   /** Apps the workspace is licensed for; null = unrestricted (workspaceDbMiddleware). */

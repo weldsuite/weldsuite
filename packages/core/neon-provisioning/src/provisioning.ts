@@ -24,7 +24,7 @@ import { workspaces, neonSharedProjects, databasePool, type DatabasePool, type N
 import type * as masterSchema from '@weldsuite/db/schema/master';
 import { workspaceMembers } from '@weldsuite/db/schema/workspace-members';
 import { workspaceInstalledApps } from '@weldsuite/db/schema/workspace-installed-apps';
-import { encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
+import { encryptWorkspaceDatabaseUrl, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { generateId } from './lib/id';
 import { connectionUrlsFor, directUrlOf, type ConnectionUrls } from './lib/connection-urls';
 
@@ -39,6 +39,9 @@ export interface ProvisioningEnv {
    *  the workflow's mark-provisioned behavior. */
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
+  /** "1" seals the stored connection string as an AAD-bound v3 value (needs the
+   *  v2 key); unset keeps writing v2. See `encryptWorkspaceDatabaseUrl`. */
+  FIELD_ENCRYPTION_AAD_WRITES?: string;
 }
 
 /** Initial member to insert after migration (typically the org creator) */
@@ -635,7 +638,7 @@ export class DatabaseProvisioningService {
     let storedUrl = databaseUrl;
     if (this.env.DATABASE_ENCRYPTION_KEY || this.env.DATABASE_ENCRYPTION_KEY_V2) {
       try {
-        storedUrl = await encryptField(databaseUrl, keyringFromEnv(this.env));
+        storedUrl = await encryptWorkspaceDatabaseUrl(databaseUrl, workspaceId, keyringFromEnv(this.env));
       } catch (encryptErr) {
         console.warn('[Provisioning] Failed to encrypt connection string, storing plaintext:', encryptErr);
       }

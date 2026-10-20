@@ -801,6 +801,7 @@ function RecordPopover({
   isSearching,
   onSearchChange,
   onChange,
+  showKind,
 }: Readonly<{
   record: string | null;
   companies: CompanyOption[];
@@ -813,6 +814,8 @@ function RecordPopover({
   isSearching: boolean;
   onSearchChange: ((value: string) => void) | undefined;
   onChange: (company: CompanyOption | null) => void;
+  /** Badge each option as company/person; off when the caller passes no people (e.g. a project list). */
+  showKind: boolean;
 }>) {
   const tCrm = getTranslations('crm');
   return (
@@ -876,7 +879,7 @@ function RecordPopover({
                     <span className="truncate">{company.name}</span>
                   </span>
                   {/* Companies and people share this list: say which is which, same as the Notes record picker. */}
-                  {(company.type === 'company' || company.type === 'person') && (
+                  {showKind && (company.type === 'company' || company.type === 'person') && (
                     <RecordKindBadge kind={company.type} />
                   )}
                   {record === company.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
@@ -1566,6 +1569,7 @@ export function TaskDialog({
                 isSearching={isSearchingRecords}
                 onSearchChange={onRecordSearchChange ? handleRecordSearch : undefined}
                 onChange={handleRecordChange}
+                showKind={availablePeople !== NO_PEOPLE}
               />
             )}
           </div>

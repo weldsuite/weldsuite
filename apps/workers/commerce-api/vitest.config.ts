@@ -20,6 +20,9 @@ export default defineConfig({
         __dirname,
         '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
       ),
+      // Workers-only module; src/index.ts re-exports the PortalRateLimiter
+      // Durable Object, which extends DurableObject.
+      'cloudflare:workers': path.resolve(__dirname, './src/testing/cloudflare-workers-stub.ts'),
     },
   },
 });

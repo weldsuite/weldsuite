@@ -11,6 +11,8 @@ export interface Env extends KitEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   /** R2 bucket used for customer/contact avatars (lib/logo-fetch.ts). */
   STORAGE?: R2Bucket;

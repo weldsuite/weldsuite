@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { RealtimePublisher } from '@weldsuite/realtime/server';
+import { REALTIME_INTERNAL_SECRET_HEADER, RealtimePublisher } from '@weldsuite/realtime/server';
 
 const INTERNAL_PREFIX = 'https://internal';
 
@@ -22,10 +22,12 @@ const adapter = {
     const target = inputUrl.replace(INTERNAL_PREFIX, baseUrl);
 
     const headers = new Headers(init?.headers);
-    headers.set('x-internal-secret', secret);
+    headers.set(REALTIME_INTERNAL_SECRET_HEADER, secret);
 
     return fetch(target, { ...init, headers });
   },
 };
 
-export const realtime = new RealtimePublisher(adapter);
+// The adapter above adds `x-internal-secret` to every request, read from the
+// live environment, so the publisher itself has no secret to carry.
+export const realtime = new RealtimePublisher(adapter, { internalSecret: undefined });

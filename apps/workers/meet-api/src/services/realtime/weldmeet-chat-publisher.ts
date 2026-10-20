@@ -36,7 +36,7 @@ function getPublisher(env: Env): RealtimePublisher | null {
     );
     return null;
   }
-  return new RealtimePublisher(env.REALTIME);
+  return new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
 }
 
 export async function publishMeetingChatMessage(

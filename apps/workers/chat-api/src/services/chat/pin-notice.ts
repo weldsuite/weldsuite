@@ -9,15 +9,17 @@
  * renderer must now only honour that prefix on rows whose `type` is `system`,
  * and `type` can no longer be set through the public create routes.
  *
- * Pure of Hono — takes the tenant `db` and the realtime binding.
+ * Pure of Hono — takes the tenant `db` and the realtime binding + secret.
  */
 
 import { and, eq, sql } from 'drizzle-orm';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { Env } from '../../types';
 
-type RealtimeBinding = ConstructorParameters<typeof RealtimePublisher>[0];
+/** What publishing to the realtime-worker takes: the service binding and its internal secret. */
+type RealtimeEnv = Pick<Env, 'REALTIME' | 'REALTIME_INTERNAL_SECRET'>;
 
 export interface PinNotice {
   id: string;
@@ -38,7 +40,7 @@ export function pinNoticeContent(pinnedMessageId: string): string {
  */
 export async function postPinNotice(
   db: Database,
-  realtime: RealtimeBinding | undefined,
+  realtime: RealtimeEnv,
   params: { channelId: string; pinnedMessageId: string; userId: string },
 ): Promise<PinNotice> {
   const { chatMessages, chatChannels, chatChannelMembers, workspaceMembers } = schema;
@@ -82,12 +84,14 @@ export async function postPinNotice(
     .set({ lastReadAt: now, lastReadMessageId: id })
     .where(and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, userId)));
 
-  if (realtime) {
+  if (realtime.REALTIME) {
     try {
       // `chatMessage()` has no field for the message type (and clients default
       // it to a plain message), so publish the same `message` event with an
       // explicit `messageType`.
-      await new RealtimePublisher(realtime).chatPublish(channelId, {
+      await new RealtimePublisher(realtime.REALTIME, {
+        internalSecret: realtime.REALTIME_INTERNAL_SECRET,
+      }).chatPublish(channelId, {
         type: 'message',
         id,
         content,

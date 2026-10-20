@@ -17,6 +17,7 @@ import {
   getChatPermissions,
 } from './lib/permissions';
 import { getTenantDbForWorkspace } from './lib/db';
+import { requireInternalSecret } from './lib/internal-auth';
 import { and, eq, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
@@ -39,27 +40,12 @@ export { SupportRoom } from './durable-objects/support-room';
 const app = new Hono<{ Bindings: Env }>();
 
 /**
- * Guard for /publish/* endpoints. Service-binding callers (other CF workers)
- * are trusted because they can't be reached from the public internet. Requests
- * that arrive over the public network — identified by the presence of a
- * `cf-connecting-ip` header that Cloudflare sets on edge requests — must
- * supply the matching `x-internal-secret` header.
+ * Guard for /publish/* endpoints: every caller, service-binding workers
+ * included, must send the matching `x-internal-secret` header
+ * (REALTIME_INTERNAL_SECRET). Nothing is trusted by where the request came
+ * from; see lib/internal-auth.ts.
  */
-app.use('/publish/*', (c, next) => {
-  const isPublic = c.req.header('cf-connecting-ip') !== undefined;
-  if (!isPublic) {
-    return next();
-  }
-  const expected = c.env.REALTIME_INTERNAL_SECRET;
-  if (!expected) {
-    return Promise.resolve(c.text('Forbidden: REALTIME_INTERNAL_SECRET not configured', 403));
-  }
-  const provided = c.req.header('x-internal-secret');
-  if (provided !== expected) {
-    return Promise.resolve(c.text('Forbidden', 403));
-  }
-  return next();
-});
+app.use('/publish/*', requireInternalSecret());
 
 /**
  * Project gate for project-keyed rooms (whiteboards).

@@ -17,6 +17,11 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   }),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
+// Clerk's second-factor confirmation needs a ClerkProvider; the calls go straight through here.
+vi.mock('./use-second-factor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./use-second-factor')>()),
+  useWithSecondFactor: <A extends unknown[], R>(call: (...args: A) => Promise<R>) => call,
+}));
 vi.mock('sonner', () => ({ toast }));
 const navigateAway = vi.hoisted(() => vi.fn());
 vi.mock('./navigate-away', () => ({ navigateAway }));
@@ -54,6 +59,12 @@ function installPlaid() {
   return { handler, options: () => (create.mock.calls[0] as unknown as [Options])[0] };
 }
 
+/** A new link opens the connect dialog first (provider, consent notice); go on from it. */
+async function continueInConnectDialog(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await screen.findByRole('dialog', { name: 'Connect your bank' });
+  await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+}
+
 beforeAll(installPointerPolyfills);
 
 beforeEach(() => {
@@ -74,7 +85,7 @@ afterEach(() => {
 });
 
 describe('ConnectBankButton', () => {
-  it('starts Plaid Link at once when it is the only provider, and ends in the account mapping', async () => {
+  it('starts Plaid Link after the consent notice when it is the only provider, and ends in the account mapping', async () => {
     const user = userEvent.setup();
     respond({ country: 'US', providers: [makeProvider('plaid', 'plaid_link')] });
     const linked = makeConnection({ accounts: [makeAccount({ feedAccountId: 'fa_9', name: 'Everyday' })] });
@@ -90,6 +101,7 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(plaid.handler.open).toHaveBeenCalled());
     expect(api.post).toHaveBeenCalledWith('/bank-connections/link-session', {
@@ -129,6 +141,7 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(collect).toHaveBeenCalledWith({ clientSecret: 'fcsess_secret' }));
     await waitFor(() =>
@@ -279,6 +292,7 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.error).toHaveBeenCalledWith(
@@ -296,7 +310,100 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('not set up yet')));
+  });
+});
+
+describe('ConnectBankButton above the connections the plan includes', () => {
+  const billing = { connections: 1, included: 1, billedExtra: 0, unitAmountCents: 500, currency: 'eur', hasPaymentMethod: true, canAddPaid: true };
+
+  function requestError(status: number, code: string) {
+    return Object.assign(new Error(code), { status, code });
+  }
+
+  function respondWithBilling() {
+    api.get.mockImplementation(async (path: string) => {
+      if (path.startsWith('/bank-connections/providers')) return { data: { country: 'US', providers: [makeProvider('plaid', 'plaid_link')] } };
+      if (path === '/bank-connections/billing') return { data: billing };
+      return { data: [] };
+    });
+  }
+
+  it('says what an extra connection costs, and starts the link once the user agrees', async () => {
+    const user = userEvent.setup();
+    respondWithBilling();
+    let sessions = 0;
+    api.post.mockImplementation(async (path: string) => {
+      if (path === '/bank-connections/link-session') {
+        sessions += 1;
+        if (sessions === 1) throw requestError(402, 'BANK_CONNECTION_LIMIT_REACHED');
+        return { data: { provider: 'plaid', kind: 'plaid_link', token: 'link-extra', historyDays: 730 } };
+      }
+      return { data: {} };
+    });
+    const plaid = installPlaid();
+
+    renderWithProviders(<ConnectBankButton />);
+    const button = await screen.findByRole('button', { name: 'Connect bank' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await continueInConnectDialog(user);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Add a paid bank connection?' });
+    expect(dialog).toHaveTextContent('Your plan includes 1 bank connection, and it is in use.');
+    expect(dialog).toHaveTextContent('€5.00 per month');
+    expect(plaid.handler.open).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Add for €5.00/month' }));
+
+    await waitFor(() => expect(plaid.handler.open).toHaveBeenCalled());
+    expect(api.post).toHaveBeenLastCalledWith('/bank-connections/link-session', {
+      provider: 'plaid',
+      mode: 'create',
+      redirectUrl: CALLBACK,
+      acceptExtraCharge: true,
+    });
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('explains when only an admin can add a paid connection', async () => {
+    const user = userEvent.setup();
+    respondWithBilling();
+    api.post.mockRejectedValue(requestError(403, 'BILLING_ADMIN_REQUIRED'));
+
+    renderWithProviders(<ConnectBankButton />);
+    const button = await screen.findByRole('button', { name: 'Connect bank' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await continueInConnectDialog(user);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Only workspace admins can add a bank connection that is billed on top of your plan. Ask an admin to connect this bank.',
+      ),
+    );
+  });
+});
+
+describe('ConnectBankButton without two-step verification', () => {
+  it('points to the security settings when the account has no second factor', async () => {
+    const user = userEvent.setup();
+    respond({ country: 'US', providers: [makeProvider('plaid', 'plaid_link')] });
+    api.post.mockRejectedValue(Object.assign(new Error('MFA_REQUIRED'), { status: 403, code: 'MFA_REQUIRED' }));
+
+    renderWithProviders(<ConnectBankButton />);
+    const button = await screen.findByRole('button', { name: 'Connect bank' });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await continueInConnectDialog(user);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Connecting a bank needs two-step verification. Set up an authenticator app on your account first.',
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Set up two-step verification' }) }),
+      ),
+    );
   });
 });

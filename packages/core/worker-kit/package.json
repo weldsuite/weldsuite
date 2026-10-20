@@ -23,6 +23,7 @@
     "./middleware/feature-flags": "./src/middleware/feature-flags.ts",
     "./middleware/licence-gate": "./src/middleware/licence-gate.ts",
     "./middleware/request-id": "./src/middleware/request-id.ts",
+    "./middleware/second-factor": "./src/middleware/second-factor.ts",
     "./middleware/workspace-db": "./src/middleware/workspace-db.ts",
     "./pg-errors": "./src/pg-errors.ts",
     "./random": "./src/random.ts",

@@ -16,6 +16,8 @@ import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { useBankFeedInstitutions } from '@/hooks/queries/use-weldbooks-bank-feeds-queries';
 import type { BankFeedProviderOption } from '@/lib/api/domains/weldbooks-bank-feeds';
+import { PRIVACY_POLICY_URL } from '@/lib/constants/legal';
+import { Trans } from '@/lib/i18n/trans';
 import { useFeedTexts } from './feed-texts';
 
 export interface ConnectSelection {
@@ -28,9 +30,50 @@ export interface ConnectSelection {
 const MAX_VISIBLE_INSTITUTIONS = 100;
 
 /**
- * First step of a link when there is a choice to make: which provider to
- * connect with, and for providers that need the bank chosen up front (Enable
- * Banking) which bank. Plaid and Stripe pick the bank in their own window.
+ * The privacy notice each provider publishes for the people whose banks it
+ * connects, where there is one to link. Plaid asks apps to link its End User
+ * Privacy Policy before Link opens.
+ */
+const PROVIDER_PRIVACY_URLS: Record<string, string> = {
+  plaid: 'https://plaid.com/legal/#end-user-privacy-policy',
+  stripe_fc: 'https://stripe.com/privacy',
+};
+
+function PolicyLink({ href, children }: Readonly<{ href: string; children: string }>) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
+      {children}
+    </a>
+  );
+}
+
+/** What the user agrees to by continuing: who gets which data, and where that is described. */
+export function ConnectConsent({ providerId }: Readonly<{ providerId: string }>) {
+  const { t, providerName } = useFeedTexts();
+  const consent = t.connect.consent;
+  const provider = providerName(providerId);
+  const providerUrl = PROVIDER_PRIVACY_URLS[providerId];
+  const providerPolicy = (consent.providerPolicies as Record<string, string>)[providerId];
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      <Trans
+        template={providerUrl && providerPolicy ? consent.withProviderPolicy : consent.withoutProviderPolicy}
+        values={{
+          provider,
+          weldsuitePolicy: <PolicyLink href={PRIVACY_POLICY_URL}>{consent.weldsuitePolicy}</PolicyLink>,
+          providerPolicy: providerUrl && providerPolicy ? <PolicyLink href={providerUrl}>{providerPolicy}</PolicyLink> : null,
+        }}
+      />
+    </p>
+  );
+}
+
+/**
+ * First step of every new link: which provider to connect with, for providers
+ * that need the bank chosen up front (Enable Banking) which bank, and what the
+ * user agrees to by continuing. Plaid and Stripe pick the bank in their own
+ * window.
  */
 export function ConnectBankDialog({
   open,
@@ -225,6 +268,8 @@ function ConnectBankForm({
         {provider?.kind === 'redirect' ? (
           <p className="text-sm text-muted-foreground">{t.connect.redirectNote}</p>
         ) : null}
+
+        {provider ? <ConnectConsent providerId={provider.id} /> : null}
       </div>
 
       <DialogFooter>

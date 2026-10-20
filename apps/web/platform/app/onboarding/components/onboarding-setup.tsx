@@ -7,6 +7,7 @@ import { Label } from "@weldsuite/ui/components/label";
 import { getTranslations } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { AppDefinition } from "@/lib/apps/catalog";
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from "@/lib/constants/legal";
 import {
   getAppIcon,
   getAppShortName,
@@ -356,10 +357,10 @@ export function OnboardingSetup({
       </div>
       <footer className="mt-8 flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
         <span>&copy; {new Date().getFullYear()} WeldSuite</span>
-        <a href="/privacy" className="hover:underline">
+        <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" className="hover:underline">
           {t.onboarding.footer.privacyPolicy}
         </a>
-        <a href="/terms" className="hover:underline">
+        <a href={TERMS_OF_SERVICE_URL} target="_blank" rel="noopener noreferrer" className="hover:underline">
           {t.onboarding.footer.termsOfService}
         </a>
       </footer>

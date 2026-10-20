@@ -1,4 +1,4 @@
-import { eq, like, desc } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { masterDb } from '@weldsuite/db/lib/master';
@@ -41,43 +41,48 @@ export function getPersonalDb(): PersonalPortalDb {
   return drizzle({ client: getPersonalSql(), schema: personalSchema });
 }
 
+/** Workspace slugs: lowercase letters, digits and dashes (see workspace-worker onboard). */
+const WORKSPACE_SLUG = /^[a-z0-9-]{1,100}$/;
+
 /**
  * Resolve a tenant database connection from a workspace slug.
  *
  * Supports both:
  *  - Full workspace slug (e.g., "acme-corp-1704067200") — exact match
- *  - Clerk org slug (e.g., "acme-corp") — prefix match on "{slug}-*"
+ *  - Clerk org slug (e.g., "acme-corp") — the one legacy "{slug}-{timestamp}" workspace, if exactly one exists
  */
-export async function getTenantDbBySlug(slug: string) {
-  // Try exact match first
-  let [workspace] = await masterDb
-    .select({
-      id: workspaces.id,
-      name: workspaces.name,
-      slug: workspaces.slug,
-      isActive: workspaces.isActive,
-      clerkOrgId: workspaces.clerkOrgId,
-      imageUrl: workspaces.imageUrl,
-    })
-    .from(workspaces)
-    .where(eq(workspaces.slug, slug))
-    .limit(1);
+export async function getTenantDbBySlug(rawSlug: string) {
+  // The slug comes straight from the public URL. Only the workspace-slug
+  // charset is accepted, so nothing in it can act as a LIKE or regex
+  // metacharacter below, and nothing else ever reaches the master DB.
+  const slug = rawSlug.trim().toLowerCase();
+  if (!WORKSPACE_SLUG.test(slug)) return null;
 
-  // Fallback: prefix match for Clerk org slugs (workspace slug = "{clerkOrgSlug}-{timestamp}")
+  const columns = {
+    id: workspaces.id,
+    name: workspaces.name,
+    slug: workspaces.slug,
+    isActive: workspaces.isActive,
+    clerkOrgId: workspaces.clerkOrgId,
+    imageUrl: workspaces.imageUrl,
+  };
+
+  // Try exact match first
+  let [workspace] = await masterDb.select(columns).from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
+
+  // Fallback for legacy workspace slugs "{clerkOrgSlug}-{timestamp}", reached
+  // through the Clerk org slug. Only that exact shape matches (a 10-13 digit
+  // timestamp suffix, not any slug that merely starts with this one), and only
+  // when it is unambiguous: a public URL must never land on whichever tenant
+  // happens to share a prefix.
   if (!workspace) {
-    [workspace] = await masterDb
-      .select({
-        id: workspaces.id,
-        name: workspaces.name,
-        slug: workspaces.slug,
-        isActive: workspaces.isActive,
-        clerkOrgId: workspaces.clerkOrgId,
-        imageUrl: workspaces.imageUrl,
-      })
+    const legacyShape = `^${slug}-[0-9]{10,13}$`;
+    const legacy = await masterDb
+      .select(columns)
       .from(workspaces)
-      .where(like(workspaces.slug, `${slug}-%`))
-      .orderBy(desc(workspaces.createdAt))
-      .limit(1);
+      .where(sql`${workspaces.slug} ~ ${legacyShape}`)
+      .limit(2);
+    workspace = legacy.length === 1 ? legacy[0] : undefined;
   }
 
   if (!workspace?.isActive) return null;

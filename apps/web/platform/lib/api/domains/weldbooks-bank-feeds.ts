@@ -8,6 +8,7 @@
  *
  * Responses never carry provider tokens or full account numbers.
  */
+import type { BankConnectionBillingSummary } from '@weldsuite/app-api-client/schemas/bank-connection-billing';
 import { weldbooksApi } from '../weldbooks-client';
 
 // ============================================================================
@@ -127,7 +128,16 @@ export interface BankFeedLinkSessionInput {
   redirectUrl: string;
   institution?: { id?: string; name: string; country: string };
   psuType?: 'business' | 'personal';
+  /** The user agreed to pay for a connection above the plan's included ones. */
+  acceptExtraCharge?: boolean;
 }
+
+export type { BankConnectionBillingSummary } from '@weldsuite/app-api-client/schemas/bank-connection-billing';
+export {
+  BANK_CONNECTION_BILLING_ADMIN_REQUIRED,
+  BANK_CONNECTION_LIMIT_REACHED,
+  BANK_CONNECTION_PAYMENT_METHOD_REQUIRED,
+} from '@weldsuite/app-api-client/schemas/bank-connection-billing';
 
 export interface BankFeedLinkSession {
   provider: string;
@@ -269,6 +279,12 @@ export const bankFeedsApi = {
       `${base}/institutions${query({ provider, country })}`,
     );
     return res.data ?? [];
+  },
+
+  /** Connections the plan includes and the price of an extra one; null when billing is off. */
+  async getBilling(): Promise<BankConnectionBillingSummary | null> {
+    const res = await weldbooksApi.get<Envelope<BankConnectionBillingSummary | null>>(`${base}/billing`);
+    return res.data ?? null;
   },
 
   async createLinkSession(input: BankFeedLinkSessionInput): Promise<BankFeedLinkSession> {

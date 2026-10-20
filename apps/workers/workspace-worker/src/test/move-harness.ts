@@ -21,7 +21,12 @@
 
 import { vi } from 'vitest';
 import { NonRetryableError } from 'cloudflare:workflows';
-import { encryptField, decryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import {
+  encryptField,
+  decryptWorkspaceDatabaseUrl,
+  encryptWorkspaceDatabaseUrl,
+  type EncryptionKeyring,
+} from '@weldsuite/db/lib/crypto';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { createMasterTestDb } from '@weldsuite/neon-provisioning/test/master-db';
 import type { Env } from '../index';
@@ -347,8 +352,9 @@ async function buildWorld(
     provisioning,
     connect: connections.connect,
     migrate,
-    encryptUrl: (url) => encryptField(url, KEYRING),
-    decryptUrl: (stored) => (stored.startsWith('postgres') ? Promise.resolve(stored) : decryptField(stored, KEYRING)),
+    encryptUrl: (url, workspaceId) => encryptWorkspaceDatabaseUrl(url, workspaceId, KEYRING),
+    decryptUrl: (stored, workspaceId) =>
+      stored.startsWith('postgres') ? Promise.resolve(stored) : decryptWorkspaceDatabaseUrl(stored, workspaceId, KEYRING),
     bundledJournal: options.bundledJournal ?? fixtureBundledJournal(),
     purgeCaches: async (target) => {
       purges.push(target);

@@ -24,6 +24,8 @@ export interface Env {
   ENVIRONMENT: string;
   NEON_API_KEY: string;
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
   WORKFLOW_WORKER?: Fetcher;
   STORAGE: R2Bucket;
   R2_PUBLIC_URL?: string;

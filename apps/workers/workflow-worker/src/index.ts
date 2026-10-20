@@ -15,6 +15,7 @@ import { NonRetryableError } from 'cloudflare:workflows';
 import { and, eq, isNull, ne, or } from 'drizzle-orm';
 import { cancelQueuedExecutionRow, startExecutionRow } from './engine/execution-row';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
+import { secretMatches } from '@weldsuite/db/lib/timing-safe';
 import { getTenantDbForWorkspace, schema, type Database } from './db';
 import { generateId } from './lib/id';
 import type { TriggerType, WorkflowEnv, WorkflowDefinition, WorkflowRunContext } from './engine/types';
@@ -76,7 +77,7 @@ type LoadResult =
 export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWorkflowParams> {
   async run(event: WorkflowEvent<ExecuteWorkflowParams>, step: WorkflowStep): Promise<unknown> {
     const params = event.payload;
-    const publisher = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME) : null;
+    const publisher = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME, { internalSecret: this.env.REALTIME_INTERNAL_SECRET }) : null;
     const rt = publisher as RealtimeLike | null;
 
     // 1. Load workflow + variables. (CF wraps step.do results in Serializable<T>;
@@ -313,7 +314,8 @@ export default {
     const url = new URL(req.url);
     if (req.method === 'POST' && url.pathname === '/internal/schedule-index/rebuild') {
       const auth = req.headers.get('Authorization');
-      if (!env.INTERNAL_API_SECRET || auth !== `Bearer ${env.INTERNAL_API_SECRET}`) {
+      const presented = auth?.startsWith('Bearer ') ? auth.slice(7) : '';
+      if (!secretMatches(presented, env.INTERNAL_API_SECRET)) {
         return new Response('Unauthorized', { status: 401 });
       }
       try {

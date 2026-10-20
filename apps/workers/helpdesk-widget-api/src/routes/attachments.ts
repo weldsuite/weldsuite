@@ -2,22 +2,27 @@
  * Widget Attachments Routes
  *
  * Handles file uploads for chat attachments via R2 binding.
+ *
+ * The upload is tied to a conversation the calling visitor owns (same rule as
+ * the conversation routes), and only passive file types are accepted: the
+ * object is served from the public bucket domain, so a stored SVG or HTML file
+ * would run script on that host.
  */
 
 import { Hono } from 'hono';
+import { getDeskConversation } from '@weldsuite/db/lib/desk';
 import type { Env, Variables } from '../index';
 import { success, error } from '../lib/response';
 import { generateId } from '../lib/id';
 import { publishEntityEvent } from '../lib/entity-events';
 
-// Allowed file types for attachments
+// Allowed file types for attachments. No SVG: it is a document that can carry script.
 const ALLOWED_TYPES = new Set([
   // Images
   'image/jpeg',
   'image/png',
   'image/gif',
   'image/webp',
-  'image/svg+xml',
   // Documents
   'application/pdf',
   'text/plain',
@@ -30,6 +35,9 @@ const ALLOWED_TYPES = new Set([
 // Max file size: 10MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/** Visitor ids and conversation ids are interpolated into the R2 key. */
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
 export const attachmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /**
@@ -37,7 +45,8 @@ export const attachmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables 
  *
  * Accepts multipart form data with:
  * - file: The file to upload
- * - conversationId: Optional conversation ID for organization
+ * - conversationId: The conversation the file belongs to
+ * - visitorId: The calling visitor; must own the conversation
  *
  * Returns the uploaded file's metadata and public URL.
  */
@@ -52,11 +61,23 @@ attachmentsRoutes.post('/upload', async (c) => {
 
   try {
     const formData = await c.req.formData();
-    const file = formData.get('file') as File | null;
-    const conversationId = formData.get('conversationId') as string | null;
+    const file = formData.get('file') as File | string | null;
+    const conversationId = formData.get('conversationId');
+    const visitorId = formData.get('visitorId');
 
-    if (!file) {
+    if (!file || typeof file === 'string') {
       return error.badRequest(c, 'No file provided');
+    }
+    if (typeof conversationId !== 'string' || !ID_PATTERN.test(conversationId)) {
+      return error.badRequest(c, 'conversationId is required');
+    }
+    if (typeof visitorId !== 'string' || !ID_PATTERN.test(visitorId)) {
+      return error.badRequest(c, 'visitorId is required');
+    }
+
+    const owned = await getDeskConversation(c.get('tenantDb'), conversationId);
+    if (!owned || owned.conversation.visitorId !== visitorId) {
+      return error.notFound(c, 'Conversation', conversationId);
     }
 
     if (file.size > MAX_FILE_SIZE) {
@@ -71,7 +92,7 @@ attachmentsRoutes.post('/upload', async (c) => {
     const attachmentId = generateId('att');
     const timestamp = Date.now();
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-    const fileKey = `widgets/${workspaceId}/${conversationId || 'general'}/${timestamp}_${attachmentId}_${sanitizedName}`;
+    const fileKey = `widgets/${workspaceId}/${conversationId}/${timestamp}_${attachmentId}_${sanitizedName}`;
 
     // Upload to R2 using binding
     const arrayBuffer = await file.arrayBuffer();
@@ -101,7 +122,7 @@ attachmentsRoutes.post('/upload', async (c) => {
         mimeType: file.type,
         url: publicUrl,
         fileKey,
-        conversationId: conversationId || null,
+        conversationId,
       },
     });
 

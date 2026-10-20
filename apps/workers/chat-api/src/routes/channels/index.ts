@@ -987,7 +987,7 @@ app.post(
           : error.notFound(c, 'Message', result.message);
       }
 
-      const rt = c.env.REALTIME ? new RealtimePublisher(c.env.REALTIME) : null;
+      const rt = c.env.REALTIME ? new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET }) : null;
       for (const fwd of result.forwarded) {
         if (rt) {
           await publishForwardedMessage(rt, fwd, {

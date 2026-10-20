@@ -33,7 +33,11 @@ function notificationTypeOf(notice: ReminderNotice): string {
 }
 
 /** In-app notifications in the tenant DB, pushed live over the REALTIME binding (when bound). */
-export function createInAppNotifier(db: Database, env: Pick<Env, 'REALTIME'>, workspaceId: string): ReminderNotifier {
+export function createInAppNotifier(
+  db: Database,
+  env: Pick<Env, 'REALTIME' | 'REALTIME_INTERNAL_SECRET'>,
+  workspaceId: string,
+): ReminderNotifier {
   return {
     async send(userId, notice) {
       const id = generateId('notif');
@@ -59,7 +63,13 @@ export function createInAppNotifier(db: Database, env: Pick<Env, 'REALTIME'>, wo
       try {
         const res = await env.REALTIME.fetch('https://internal/publish/workspace', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            // The realtime-worker refuses a publish without its internal secret
+            // (REALTIME_INTERNAL_SECRET_HEADER of @weldsuite/realtime/server; not
+            // imported, books-api does not depend on that package).
+            ...(env.REALTIME_INTERNAL_SECRET ? { 'x-internal-secret': env.REALTIME_INTERNAL_SECRET } : {}),
+          },
           body: JSON.stringify({
             workspaceId,
             topic: `notification.${userId}`,
