@@ -925,7 +925,7 @@ describe('rotateRolePassword', () => {
 });
 
 // ---------------------------------------------------------------------------
-// deleteWorkspaceDatabase keeps behaving as before
+// deleteWorkspaceDatabase keeps behaving as before, and can be run again
 // ---------------------------------------------------------------------------
 
 describe('deleteWorkspaceDatabase', () => {
@@ -1003,6 +1003,31 @@ describe('deleteWorkspaceDatabase', () => {
     expect(result).toEqual({ success: false, error: 'Neon is unavailable' });
     expect(await databaseCount('nsp_a')).toBe(4);
     expect(await workspaceRow('ws_acme')).toMatchObject({ neonProjectId: 'prj-nsp_a', sharedProjectId: 'nsp_a' });
+  });
+
+  it('finishes a teardown an earlier attempt left half done: the database is gone, its role, placement and pool row are not', async () => {
+    // The earlier attempt dropped the database and counted its slot back, then failed on the role.
+    await seedShard('nsp_a', { databaseCount: 3 });
+    await seedWorkspace('ws_acme', sharedWorkspace);
+    await seedPoolSlot('dbp_1', { status: 'assigned', assignedWorkspaceId: 'ws_acme', sharedProjectId: 'nsp_a' });
+    fake.getDatabase.mockRejectedValueOnce(new NeonApiError('database not found', 404));
+
+    const result = await service.deleteWorkspaceDatabase(db, 'ws_acme');
+
+    expect(result).toEqual({ success: true });
+    expect(fake.deleteDatabase).not.toHaveBeenCalled();
+    expect(fake.deleteRole).toHaveBeenCalledWith('prj-nsp_a', 'br-nsp_a', 'role_ws_acme');
+    expect(await databaseCount('nsp_a')).toBe(3);
+    expect(await workspaceRow('ws_acme')).toMatchObject({ neonProjectId: null, sharedProjectId: null, neonRoleName: null });
+    expect(await poolRow('dbp_1')).toBeUndefined();
+  });
+
+  it('finishes a dedicated teardown whose project is already gone', async () => {
+    await seedWorkspace('ws_acme', { neonProjectId: 'prj-dedicated', neonDatabaseName: 'neondb' });
+    fake.deleteProject.mockRejectedValueOnce(new NeonApiError('project not found', 404));
+
+    expect(await service.deleteWorkspaceDatabase(db, 'ws_acme')).toEqual({ success: true });
+    expect(await workspaceRow('ws_acme')).toMatchObject({ neonProjectId: null });
   });
 
   it('does not reactivate a disabled shard', async () => {
