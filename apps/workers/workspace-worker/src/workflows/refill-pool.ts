@@ -29,7 +29,9 @@
  *                       half-ready slot.
  *   3. catch-up-stale — after a deploy ships new migrations, delta-migrate
  *                       existing available slots back to the latest schema so
- *                       claims stay on the instant path.
+ *                       claims stay on the instant path. A slot that fails
+ *                       catch-up on the same migration MAX_CATCHUP_FAILURES
+ *                       runs in a row is retired (status 'error').
  *
  * Triggered by the worker's cron (see `scheduled` in ../index.ts); a KV lock
  * plus a per-step recount keep overlapping runs from overshooting targets.
@@ -45,7 +47,13 @@ import { createProvisioningService, type WarmSlotResources } from '@weldsuite/ne
 import type { Env } from '../index';
 import { getMasterDb } from '../db';
 import { generateId } from '../lib/id';
-import { applyTenantMigrations, LATEST_SCHEMA_VERSION } from '../lib/tenant-migrations';
+import { neonTenantSql } from '../lib/database-move/neon-sql';
+import {
+  applyTenantMigrations,
+  LATEST_SCHEMA_VERSION,
+  TenantMigrationError,
+  type ApplyMigrationsResult,
+} from '../lib/tenant-migrations';
 
 export interface RefillPoolParams {
   /** Optional region override; defaults to NEON_DEFAULT_REGION. */
@@ -58,14 +66,34 @@ const MAX_CREATES_PER_RUN = 3;
 /** Stale available slots delta-migrated per run. */
 const MAX_CATCHUP_PER_RUN = 5;
 /**
- * Statement budget per migration step. Each statement is one neon-http
- * subrequest and a Workflows step attempt is a single Worker invocation
- * (≤1000 subrequests, ≤30s CPU) — running the full ~2,600-statement journal
- * in one step kills the isolate with an opaque WorkflowInternalError. 600
- * leaves headroom while keeping the step count low (~5 steps per fresh slot;
- * the largest single migration, 0000 at ~570 statements, still fits).
+ * Statement budget per migration step. A Workflows step attempt is a single
+ * Worker invocation (≤1000 subrequests, ≤30s CPU). Each migration is applied
+ * as one transaction, i.e. one neon-http subrequest, so a step makes one
+ * request for the journal table plus one per migration (~220 for the whole
+ * journal): subrequests no longer run out. The budget now bounds the Postgres
+ * work one attempt waits on, and what a failed attempt redoes: the full
+ * journal is ~2,600 statements. 600 keeps the step count low (~5 steps per
+ * fresh slot; the largest single migration, 0000 at ~570 statements in one
+ * ~150 KB request, still fits).
  */
 const MIGRATION_STATEMENTS_PER_STEP = 600;
+
+/**
+ * Consecutive runs a stale slot may fail catch-up on the same migration before
+ * it is retired. A failed migration rolls back whole, so each run retries it
+ * from a clean slate; a slot that still fails it after this many runs (the
+ * unsettled back-off apart) will not get there on its own, and while it stays
+ * 'available' and stale the pool never settles and every retry wakes the master
+ * DB and the slot's compute. Retired slots get status 'error': no longer
+ * claimed or caught up, the next run creates a replacement, and the database
+ * stays for inspection (`pnpm cleanup:pool` in apps/tools/migrate-databases
+ * deletes dedicated 'error' slots).
+ */
+const MAX_CATCHUP_FAILURES = 3;
+/** `refill-pool:catch-up-failures:<poolId>` holds that slot's `CatchUpFailures`. */
+const CATCHUP_FAILURES_KEY_PREFIX = 'refill-pool:catch-up-failures:';
+/** Long enough to span several back-off runs; an expired streak starts over. */
+const CATCHUP_FAILURES_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * KV keys backing the "nothing to do" fast path.
@@ -87,10 +115,11 @@ const STATE_KEY_PREFIX = 'refill-pool:state:';
 const SETTLED_TTL_SECONDS = 6 * 60 * 60;
 /**
  * Backoff after a run that could NOT reach target — no shard capacity, Neon API
- * failing, or a slot that keeps failing catch-up. Without it such a run retries
- * as soon as the in-flight lock lapses, indefinitely, and each retry wakes both
- * the master DB and every shard it probes for a golden-template version. The
- * cron honours it through `regionCanSkip`.
+ * failing, or a slot that failed catch-up (retired after MAX_CATCHUP_FAILURES
+ * such runs). Without it such a run retries as soon as the in-flight lock
+ * lapses, indefinitely, and each retry wakes both the master DB and every shard
+ * it probes for a golden-template version. The cron honours it through
+ * `regionCanSkip`.
  */
 const UNSETTLED_TTL_SECONDS = 30 * 60;
 /** TTL of the region index. Must outlive the per-region state entries so it can
@@ -103,6 +132,17 @@ interface PoolState {
   /** Targets met and no stale slot left behind, i.e. nothing left to do. */
   settled: boolean;
 }
+
+/** A stale slot's run of failed catch-ups. */
+interface CatchUpFailures {
+  /** Migration it failed on; null when it failed without one to blame (database unreachable, say). */
+  tag: string | null;
+  /** Consecutive runs that failed there. */
+  count: number;
+}
+
+/** One catch-up step: what it applied, or the migration that failed (rolled back whole) or was refused. */
+type CatchUpBatch = ApplyMigrationsResult | { failedOn: string; sqlState: string | null };
 
 function targetFromEnv(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -238,6 +278,56 @@ export async function invalidatePoolState(env: Env): Promise<void> {
   }
 }
 
+/**
+ * Count one more failed catch-up of a slot and return its streak. The streak
+ * goes on only while the slot fails on the same migration: failing on another
+ * one means it got further, and starts over at 1. When KV is unavailable the
+ * streak cannot grow, so the slot is retried as before rather than retired.
+ */
+async function recordCatchUpFailure(env: Env, poolId: string, tag: string | null): Promise<number> {
+  const key = `${CATCHUP_FAILURES_KEY_PREFIX}${poolId}`;
+  let previous: CatchUpFailures | null = null;
+  try {
+    previous = await env.WORKSPACE_CACHE.get(key, 'json') as CatchUpFailures | null;
+  } catch (error) {
+    console.warn(`[RefillPool] Could not read catch-up failures of slot ${poolId}:`, error);
+  }
+  const failures: CatchUpFailures = { tag, count: previous?.tag === tag ? previous.count + 1 : 1 };
+  try {
+    await env.WORKSPACE_CACHE.put(key, JSON.stringify(failures), { expirationTtl: CATCHUP_FAILURES_TTL_SECONDS });
+  } catch (error) {
+    console.warn(`[RefillPool] Could not record catch-up failure of slot ${poolId}:`, error);
+    return 1;
+  }
+  return failures.count;
+}
+
+async function clearCatchUpFailures(env: Env, poolId: string): Promise<void> {
+  try {
+    await env.WORKSPACE_CACHE.delete(`${CATCHUP_FAILURES_KEY_PREFIX}${poolId}`);
+  } catch (error) {
+    console.warn(`[RefillPool] Could not clear catch-up failures of slot ${poolId}:`, error);
+  }
+}
+
+/**
+ * Apply the next budgeted batch of a stale slot's pending migrations. A
+ * migration Postgres rejected (or that was refused before it ran) is returned
+ * rather than thrown: it rolled back whole and fails the same way when retried
+ * straight away, so the step does not retry it; the next run does. Anything
+ * else (no answer from the database) throws, and the step retries.
+ */
+async function catchUpBatch(databaseUrl: string): Promise<CatchUpBatch> {
+  try {
+    return await applyTenantMigrations(neonTenantSql(databaseUrl), { statementBudget: MIGRATION_STATEMENTS_PER_STEP });
+  } catch (error) {
+    if (error instanceof TenantMigrationError && (error.sqlState !== null || error.statement !== null)) {
+      return { failedOn: error.tag, sqlState: error.sqlState };
+    }
+    throw error;
+  }
+}
+
 export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams> {
   async run(event: WorkflowEvent<RefillPoolParams>, step: WorkflowStep) {
     const region = event.payload?.region || this.env.NEON_DEFAULT_REGION || 'aws-eu-central-1';
@@ -325,10 +415,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
       const result = await step.do(`${prefix}-migrate-${batch}`, {
         retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
         timeout: '10 minutes',
-      }, async () => {
-        const tenantDb = drizzleNeonHttp({ client: neon(databaseUrl) });
-        return applyTenantMigrations(tenantDb, { statementBudget: MIGRATION_STATEMENTS_PER_STEP });
-      });
+      }, async () => applyTenantMigrations(neonTenantSql(databaseUrl), { statementBudget: MIGRATION_STATEMENTS_PER_STEP }));
       applied += result.applied;
       if (result.remaining === 0) break;
     }
@@ -595,7 +682,10 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
    *
    * Returns both how many were caught up and how many were found, so the caller
    * can tell "nothing stale" from "some stale slots refused to migrate" and
-   * avoid recording a settled pool in the latter case.
+   * avoid recording a settled pool in the latter case. A slot that keeps
+   * failing is retired (see MAX_CATCHUP_FAILURES), so it stops holding the
+   * pool unsettled: the run that retires it still counts it as stale, and the
+   * next one, no longer finding it, can settle.
    */
   private async catchUpStaleSlots(
     step: WorkflowStep,
@@ -621,37 +711,88 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
 
     let caughtUp = 0;
     for (const slot of stale) {
-      try {
-        let applied = 0;
-        for (let batch = 0; ; batch++) {
-          const result = await step.do(`catch-up-${slot.id}-${batch}`, {
-            retries: { limit: 1, delay: '10 seconds', backoff: 'exponential' },
-            timeout: '10 minutes',
-          }, async () => {
-            const tenantDb = drizzleNeonHttp({ client: neon(slot.databaseUrl) });
-            return applyTenantMigrations(tenantDb, { statementBudget: MIGRATION_STATEMENTS_PER_STEP });
-          });
-          applied += result.applied;
-          if (result.remaining === 0) break;
-        }
-
-        await step.do(`catch-up-${slot.id}-mark`, {
-          retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
-        }, async () => {
-          const masterDb = getMasterDb(this.env);
-          await masterDb
-            .update(databasePool)
-            .set({ schemaVersion: LATEST_SCHEMA_VERSION })
-            .where(eq(databasePool.id, slot.id));
-        });
-
-        console.log(`[RefillPool] Caught up slot ${slot.id} (+${applied} migrations)`);
+      const outcome = await this.catchUpSlot(step, slot);
+      if (outcome.caughtUp) {
         caughtUp++;
-      } catch (error) {
-        console.error(`[RefillPool] Failed to catch up slot ${slot.id}:`, error);
+      } else {
+        await this.countCatchUpFailure(step, slot.id, outcome.failedOn);
       }
     }
     return { caughtUp, staleFound: stale.length };
+  }
+
+  /** Delta-migrate one stale slot and mark it current. `failedOn` names the migration it failed on, when one did. */
+  private async catchUpSlot(
+    step: WorkflowStep,
+    slot: { id: string; databaseUrl: string },
+  ): Promise<{ caughtUp: true } | { caughtUp: false; failedOn: string | null }> {
+    try {
+      let applied = 0;
+      for (let batch = 0; ; batch++) {
+        const result = await step.do(`catch-up-${slot.id}-${batch}`, {
+          retries: { limit: 1, delay: '10 seconds', backoff: 'exponential' },
+          timeout: '10 minutes',
+        }, () => catchUpBatch(slot.databaseUrl));
+        if ('failedOn' in result) {
+          const state = result.sqlState ? ` (SQLSTATE ${result.sqlState})` : '';
+          console.error(`[RefillPool] Slot ${slot.id} failed catch-up on migration ${result.failedOn}${state}; rolled back`);
+          return { caughtUp: false, failedOn: result.failedOn };
+        }
+        applied += result.applied;
+        if (result.remaining === 0) break;
+      }
+
+      await step.do(`catch-up-${slot.id}-mark`, {
+        retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
+      }, async () => {
+        const masterDb = getMasterDb(this.env);
+        await masterDb
+          .update(databasePool)
+          .set({ schemaVersion: LATEST_SCHEMA_VERSION })
+          .where(eq(databasePool.id, slot.id));
+        await clearCatchUpFailures(this.env, slot.id);
+      });
+
+      console.log(`[RefillPool] Caught up slot ${slot.id} (+${applied} migrations)`);
+      return { caughtUp: true };
+    } catch (error) {
+      console.error(`[RefillPool] Failed to catch up slot ${slot.id}:`, error);
+      return { caughtUp: false, failedOn: null };
+    }
+  }
+
+  /**
+   * Count a failed catch-up, and retire the slot (status 'error') once it has
+   * failed MAX_CATCHUP_FAILURES runs in a row on the same migration. Only an
+   * unclaimed slot is retired: a workspace may have claimed it since
+   * find-stale-slots, and then its provisioning applies the delta itself.
+   */
+  private async countCatchUpFailure(step: WorkflowStep, poolId: string, failedOn: string | null): Promise<void> {
+    try {
+      const failures = await step.do(`catch-up-${poolId}-failed`, {
+        retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
+      }, () => recordCatchUpFailure(this.env, poolId, failedOn));
+      if (failures < MAX_CATCHUP_FAILURES) return;
+
+      const retired = await step.do(`catch-up-${poolId}-retire`, {
+        retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
+      }, async () => {
+        const masterDb = getMasterDb(this.env);
+        const rows = await masterDb
+          .update(databasePool)
+          .set({ status: 'error' })
+          .where(and(eq(databasePool.id, poolId), eq(databasePool.status, 'available')))
+          .returning({ id: databasePool.id });
+        await clearCatchUpFailures(this.env, poolId);
+        return rows.length > 0;
+      });
+      if (retired) {
+        const where = failedOn ? 'on migration ' + failedOn : 'before reaching a migration';
+        console.error(`[RefillPool] Retired slot ${poolId} (status 'error'): catch-up failed ${failures} runs in a row ${where}`);
+      }
+    } catch (error) {
+      console.error(`[RefillPool] Could not count the failed catch-up of slot ${poolId}:`, error);
+    }
   }
 }
 

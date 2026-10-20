@@ -32,6 +32,7 @@ import { setupWorkspaceBilling, resolveOwnerEmail } from '../services/provisioni
 import { ensurePartnerOwnerInvited } from '../services/partner-onboarding';
 import { provisionMailDomain } from '../services/mail-provisioning';
 import { applyTenantMigrations } from '../lib/tenant-migrations';
+import { neonTenantSql } from '../lib/database-move/neon-sql';
 import { getDefaultHelpdeskWorkflows, DEFAULT_WORKFLOW_TEMPLATE_IDS } from './default-helpdesk-workflows';
 import { seedSampleData } from './seed-data';
 
@@ -136,17 +137,15 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
     // ── Step 1: Apply schema migrations ──────────────────────────────────
     // Delta-applier shared with RefillPoolWorkflow — a warm pool database has
     // everything pre-applied, so this completes in a single instant batch for
-    // pool claims. Budgeted batches across steps: the full journal (~2,600
-    // statements, each one a neon-http subrequest) exceeds what one step
-    // attempt / Worker invocation may do and dies as WorkflowInternalError.
+    // pool claims. Each migration is one transaction (one neon-http request),
+    // so a retried step never meets a half-applied migration. Budgeted
+    // batches across steps bound the Postgres work one step attempt waits on
+    // (the full journal is ~2,600 statements).
     const migrationResult = { applied: 0, skipped: 0 };
     for (let batch = 0; ; batch++) {
       const result = await step.do(`apply-migrations-${batch}`, {
         retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' },
-      }, async () => {
-        const db = createTenantDb(databaseUrl);
-        return applyTenantMigrations(db, { statementBudget: 600 });
-      });
+      }, async () => applyTenantMigrations(neonTenantSql(databaseUrl), { statementBudget: 600 }));
       migrationResult.applied += result.applied;
       migrationResult.skipped = result.skipped;
       if (result.remaining === 0) break;
