@@ -623,19 +623,32 @@ describe('releaseMoveTarget', () => {
     expect(await databaseCount('nsp_a')).toBe(3);
   });
 
-  it('counts the slot back once Neon accepted the delete, even when waiting for it fails, and only once', async () => {
+  it('counts nothing when the delete operation fails and the database is still there; the retry counts it once', async () => {
+    await seedShard('nsp_a', { databaseCount: 4 });
+    fake.waitForOperations.mockRejectedValueOnce(new Error('Neon operation op-1 ended with status failed'));
+
+    await expect(service.releaseMoveTarget(db, shardCoords)).rejects.toThrow('ended with status failed');
+    expect(await databaseCount('nsp_a')).toBe(4);
+    expect(fake.deleteRole).not.toHaveBeenCalled(); // it still owns the database
+
+    // The retry still finds the database: it deletes it again, counts it back once, then deletes the role.
+    await service.releaseMoveTarget(db, shardCoords);
+    expect(fake.deleteDatabase).toHaveBeenCalledTimes(2);
+    expect(await databaseCount('nsp_a')).toBe(3);
+    expect(fake.deleteRole).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the slot back when the wait times out but Neon confirms the database is gone', async () => {
     await seedShard('nsp_a', { databaseCount: 4 });
     fake.waitForOperations.mockRejectedValueOnce(new NeonApiError('Timed out waiting for operations', 504));
+    fake.getDatabase
+      .mockResolvedValueOnce({ database: { name: shardCoords.databaseName } }) // before the delete
+      .mockRejectedValueOnce(new NeonApiError('database not found', 404)); // asked again after the failed wait
 
-    await expect(service.releaseMoveTarget(db, shardCoords)).rejects.toThrow('Timed out waiting for operations');
-    expect(await databaseCount('nsp_a')).toBe(3);
-    expect(fake.deleteRole).not.toHaveBeenCalled(); // it may still own the database
-
-    // The retry finds the database gone: it deletes the role and counts nothing more.
-    fake.getDatabase.mockRejectedValueOnce(new NeonApiError('database not found', 404));
     await service.releaseMoveTarget(db, shardCoords);
-    expect(fake.deleteRole).toHaveBeenCalledTimes(1);
+
     expect(await databaseCount('nsp_a')).toBe(3);
+    expect(fake.deleteRole).toHaveBeenCalledTimes(1);
   });
 
   it('finishes a half-done release: the database is gone, the role is not', async () => {

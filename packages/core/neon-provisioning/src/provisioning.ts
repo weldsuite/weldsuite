@@ -1958,44 +1958,58 @@ export class DatabaseProvisioningService {
     ignoreMissing: boolean,
   ): Promise<void> {
     const { neonProjectId, neonBranchId, databaseName, roleName } = target;
-    const deletion =
+    const dropped =
       databaseName && neonBranchId
         ? await this.deleteShardDatabase(neonProjectId, neonBranchId, databaseName, ignoreMissing)
-        : { dropped: true };
-    if (deletion.dropped) {
+        : true;
+    if (dropped) {
       await this.decrementShardCount(masterDb, target.sharedProjectId);
     }
-    // Counted back, but the role may still own the database: let the caller retry, which deletes the role.
-    if (deletion.waitFailed !== undefined) throw deletion.waitFailed;
     if (roleName && neonBranchId) {
       await this.deleteOnNeon(() => this.neonClient.deleteRole(neonProjectId, neonBranchId, roleName), ignoreMissing);
     }
   }
 
   /**
-   * Delete a database inside a shard, if Neon still has it. `dropped` is true
-   * when this call deleted it, so the caller counts the slot back exactly once:
-   * Neon can accept a delete of a database it already dropped, so a missing one
-   * is found first (a 404, ignored with `ignoreMissing`). The role owns the
-   * database until the delete has finished, so the delete's operations are
-   * awaited; a wait that fails still means `dropped` (the delete was accepted,
-   * and a retry would find the database gone), with the error in `waitFailed`.
+   * Delete a database inside a shard, if Neon still has it. True when this call
+   * deleted it, so the caller counts the slot back exactly once.
+   *
+   * The slot is counted back only for a database Neon CONFIRMS gone, because a
+   * count that is too low lets a shard fill past its maximum:
+   *  - Neon can accept a delete of a database it already dropped, so a missing
+   *    one is found first (a 404, ignored with `ignoreMissing`);
+   *  - the role owns the database until the delete has finished, so its
+   *    operations are awaited. If that wait fails (an operation failed, was
+   *    cancelled, or is still running), Neon is asked again: gone means
+   *    deleted; still there means it throws without counting, and the retry
+   *    deletes it again and counts it then. A delete that finishes only after
+   *    that check leaves the count one too high: the safe direction.
    */
   private async deleteShardDatabase(
     neonProjectId: string,
     branchId: string,
     databaseName: string,
     ignoreMissing: boolean,
-  ): Promise<{ dropped: boolean; waitFailed?: unknown }> {
-    const outcome: { waitFailed?: unknown } = {};
-    const dropped = await this.deleteOnNeon(async () => {
+  ): Promise<boolean> {
+    return this.deleteOnNeon(async () => {
       await this.neonClient.getDatabase(neonProjectId, branchId, databaseName);
       const operations = await this.neonClient.deleteDatabase(neonProjectId, branchId, databaseName);
-      await this.neonClient.waitForOperations(neonProjectId, operations).catch((error: unknown) => {
-        outcome.waitFailed = error ?? new Error('Waiting for the database delete failed');
-      });
+      try {
+        await this.neonClient.waitForOperations(neonProjectId, operations);
+      } catch (error) {
+        if (!(await this.databaseGone(neonProjectId, branchId, databaseName))) throw error;
+      }
     }, ignoreMissing);
-    return { dropped, ...outcome };
+  }
+
+  /** Whether Neon answers 404 for the database. Any other failure counts as "not known to be gone". */
+  private async databaseGone(neonProjectId: string, branchId: string, databaseName: string): Promise<boolean> {
+    try {
+      await this.neonClient.getDatabase(neonProjectId, branchId, databaseName);
+      return false;
+    } catch (error) {
+      return error instanceof NeonApiError && error.status === 404;
+    }
   }
 
   /**
