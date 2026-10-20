@@ -46,6 +46,7 @@ import {
 } from '@weldsuite/permissions/server';
 import {
   SYSTEM_ROLES,
+  canGrantPermission,
   checkPermissionGrants,
   getRoleRowPermissions,
   hasAppPermission,
@@ -175,6 +176,26 @@ async function refuseUngrantable(
   const check = checkPermissionGrants(grantor, permissions, alreadyGranted);
   if (check.ok) return null;
   return error.forbidden(c, 'You cannot grant permissions you do not hold yourself');
+}
+
+/**
+ * The deny half of the grant ceiling: lifting a deny hands the key back just
+ * as granting it would, so every deny being removed must be one the caller
+ * holds. Only the hold check applies (not key validity), so an Owner can still
+ * clear a `*` or stale-key deny.
+ */
+async function refuseUnliftableDenies(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  currentDenies: readonly string[],
+  nextDenies: readonly string[],
+): Promise<Response | null> {
+  const kept = new Set(nextDenies);
+  const lifted = currentDenies.filter((key) => !kept.has(key));
+  if (lifted.length === 0) return null;
+  const grantor = await ensurePermissionsResolved(c);
+  if (!grantor) return error.unauthorized(c);
+  if (lifted.every((key) => canGrantPermission(grantor, key))) return null;
+  return error.forbidden(c, 'You cannot lift a deny on a permission you do not hold yourself');
 }
 
 /** What assigning `tier` / custom role `roleId` grants. */
@@ -1033,6 +1054,10 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
 
   if (body.permissions !== undefined) {
     const refusal = await refuseUngrantable(c, body.permissions, member.permissions ?? []);
+    if (refusal) return refusal;
+  }
+  if (body.permissionDenies !== undefined) {
+    const refusal = await refuseUnliftableDenies(c, member.permissionDenies ?? [], body.permissionDenies);
     if (refusal) return refusal;
   }
 
