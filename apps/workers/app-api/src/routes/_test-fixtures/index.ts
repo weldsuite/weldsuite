@@ -2279,74 +2279,63 @@ testFixturesRoutes.delete('/entity/:type/:id', async (c) => {
 // `{ ok: true }` rather than 500, so an `afterAll` hook can run safely even
 // when the test bailed before provisioning finished.
 
-// Same host the api-worker NeonClient uses, so behaviour matches the
-// provisioning path we mirror.
-const NEON_API_BASE = 'https://console.neon.tech/api/v2';
-
 /**
- * Deletes the Neon tenant DB for a workspace by mirroring
- * api-worker's `DatabaseProvisioningService.deleteWorkspaceDatabase` path:
- * dedicated projects → delete the whole project; legacy shared projects →
- * delete just the database + role on the branch. Tolerates 404 (already
- * gone) so the endpoint stays idempotent. Returns false when there is no
- * Neon project recorded (nothing to drop).
+ * Tears down a workspace's tenant database the way a real workspace deletion
+ * does (workspace-worker's `organization.deleted` cascade runs the same
+ * `deleteWorkspaceDatabase`): it waits for Neon, counts a shard slot back only
+ * for a database Neon confirms gone, drops the role, clears the placement and
+ * deletes the workspace's pool rows. A warm slot the workspace claimed but
+ * never recorded as its database (provisioning stopped in between) is dropped
+ * as well.
+ *
+ * The caller then HARD-deletes the workspace row, so anything still pointing at
+ * it would be orphaned for good. The hand-rolled drop this replaces did exactly
+ * that: the claimed pool row stayed 'assigned' to a workspace id that no longer
+ * existed, the shard counter stayed one too high, and a role delete racing the
+ * database delete left the role behind. Throws when anything is left, so the
+ * row stays and a retry can finish (everything here tolerates "already gone").
  */
-async function dropNeonTenantDb(
-  apiKey: string,
-  workspace: {
-    neonProjectId: string | null;
-    neonBranchId: string | null;
-    neonDatabaseName: string | null;
-    neonRoleName: string | null;
-    sharedProjectId: string | null;
-  },
-): Promise<boolean> {
-  if (!workspace.neonProjectId) return false;
+async function tearDownTenantDatabase(
+  env: Env,
+  masterDb: ReturnType<typeof getMasterDb>,
+  workspaceId: string,
+): Promise<void> {
+  // Loaded on use: only this test-only route needs the Neon provisioning code.
+  const { createProvisioningService } = await import('@weldsuite/neon-provisioning');
+  const provisioning = createProvisioningService({
+    NEON_API_KEY: env.NEON_API_KEY,
+    NEON_DEFAULT_REGION: env.NEON_DEFAULT_REGION,
+  });
 
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
-  };
-  const okOrGone = (status: number) => status < 300 || status === 404;
-
-  if (workspace.sharedProjectId) {
-    // Legacy shared project — drop the per-workspace database + role only.
-    if (workspace.neonBranchId && workspace.neonDatabaseName) {
-      const res = await fetch(
-        `${NEON_API_BASE}/projects/${encodeURIComponent(workspace.neonProjectId)}/branches/${encodeURIComponent(workspace.neonBranchId)}/databases/${encodeURIComponent(workspace.neonDatabaseName)}`,
-        { method: 'DELETE', headers },
-      );
-      if (!okOrGone(res.status)) {
-        throw new Error(
-          `Neon deleteDatabase failed: ${res.status} ${await res.text()}`,
-        );
-      }
-    }
-    if (workspace.neonBranchId && workspace.neonRoleName) {
-      const res = await fetch(
-        `${NEON_API_BASE}/projects/${encodeURIComponent(workspace.neonProjectId)}/branches/${encodeURIComponent(workspace.neonBranchId)}/roles/${encodeURIComponent(workspace.neonRoleName)}`,
-        { method: 'DELETE', headers },
-      );
-      if (!okOrGone(res.status)) {
-        throw new Error(
-          `Neon deleteRole failed: ${res.status} ${await res.text()}`,
-        );
-      }
-    }
-    return true;
+  const result = await provisioning.deleteWorkspaceDatabase(masterDb, workspaceId);
+  if (!result.success) {
+    throw new Error(`Tenant database teardown failed: ${result.error ?? 'unknown error'}`);
   }
 
-  // Dedicated project — delete the entire Neon project.
-  const res = await fetch(
-    `${NEON_API_BASE}/projects/${encodeURIComponent(workspace.neonProjectId)}`,
-    { method: 'DELETE', headers },
-  );
-  if (!okOrGone(res.status)) {
-    throw new Error(
-      `Neon deleteProject failed: ${res.status} ${await res.text()}`,
+  const assignedToWorkspace = eq(masterSchema.databasePool.assignedWorkspaceId, workspaceId);
+  const leftoverSlots = await masterDb.select().from(masterSchema.databasePool).where(assignedToWorkspace);
+  for (const slot of leftoverSlots) {
+    await provisioning.dropDatabaseAt(
+      masterDb,
+      {
+        neonProjectId: slot.neonProjectId,
+        neonBranchId: slot.neonBranchId,
+        databaseName: slot.databaseName,
+        roleName: slot.roleName,
+        sharedProjectId: slot.sharedProjectId,
+        poolId: slot.id,
+      },
+      { ignoreMissing: true },
     );
   }
-  return true;
+
+  const [left] = await masterDb
+    .select({ n: sql<number>`count(*)::int` })
+    .from(masterSchema.databasePool)
+    .where(assignedToWorkspace);
+  if (Number(left?.n ?? 0) > 0) {
+    throw new Error(`Tenant database teardown left ${left?.n} pool row(s) assigned to ${workspaceId}`);
+  }
 }
 
 /**
@@ -2401,22 +2390,17 @@ testFixturesRoutes.post(
 
     // 1. Look up the workspace row by Clerk org id.
     const [workspace] = await masterDb
-      .select({
-        id: masterSchema.workspaces.id,
-        neonProjectId: masterSchema.workspaces.neonProjectId,
-        neonBranchId: masterSchema.workspaces.neonBranchId,
-        neonDatabaseName: masterSchema.workspaces.neonDatabaseName,
-        neonRoleName: masterSchema.workspaces.neonRoleName,
-        sharedProjectId: masterSchema.workspaces.sharedProjectId,
-      })
+      .select({ id: masterSchema.workspaces.id })
       .from(masterSchema.workspaces)
       .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
       .limit(1);
 
-    // 2. Drop the Neon tenant DB (best-effort, idempotent). Skipped when the
-    //    workspace row is already gone — nothing recorded to drop.
+    // 2. Tear down the tenant database and every pool slot assigned to the
+    //    workspace (idempotent). Skipped when the workspace row is already
+    //    gone — nothing recorded to drop. Throws if anything is left, before
+    //    the row that points at it is deleted.
     if (workspace) {
-      await dropNeonTenantDb(c.env.NEON_API_KEY, workspace);
+      await tearDownTenantDatabase(c.env, masterDb, workspace.id);
     }
 
     // 3. Delete the Clerk organization (idempotent — 404 tolerated).

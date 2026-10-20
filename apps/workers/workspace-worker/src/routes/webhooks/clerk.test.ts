@@ -2,7 +2,8 @@
  * The Clerk `organization.deleted` cascade and database moves: while a move
  * owns the workspace's database the cascade changes nothing and answers a
  * retryable 500 (Svix redelivers); once the move is over it goes through and
- * drops the database as before. Real master schema (PGlite), the webhook
+ * drops the database as before. A teardown that fails is answered 500 too, so
+ * it is retried rather than lost. Real master schema (PGlite), the webhook
  * signed with a real Svix signature, the Neon drop a spy.
  */
 
@@ -158,6 +159,21 @@ describe('organization.deleted and database moves', () => {
 
     expect((await deliverOrganizationDeleted()).status).toBe(200);
     expect(deleteWorkspaceDatabase).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a retryable 500 when the database teardown fails, and finishes it on redelivery', async () => {
+    deleteWorkspaceDatabase.mockResolvedValueOnce({ success: false, error: 'Neon is unavailable' });
+
+    const failed = await deliverOrganizationDeleted();
+
+    expect(failed.status).toBe(500);
+    expect(failed.json.error).not.toContain('Neon is unavailable');
+    expect((await workspace()).isActive).toBe(false);
+
+    const retried = await deliverOrganizationDeleted();
+
+    expect(retried).toEqual({ status: 200, json: { received: true } });
+    expect(deleteWorkspaceDatabase).toHaveBeenCalledTimes(2);
   });
 
   it('looks again right before the drop: a move started after the first check still stops it', async () => {

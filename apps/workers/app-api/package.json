@@ -42,6 +42,7 @@
     "@weldsuite/host-domain": "workspace:*",
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/meet-domain": "workspace:*",
+    "@weldsuite/neon-provisioning": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
