@@ -59,6 +59,12 @@ function installPlaid() {
   return { handler, options: () => (create.mock.calls[0] as unknown as [Options])[0] };
 }
 
+/** A new link opens the connect dialog first (provider, consent notice); go on from it. */
+async function continueInConnectDialog(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = await screen.findByRole('dialog', { name: 'Connect your bank' });
+  await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+}
+
 beforeAll(installPointerPolyfills);
 
 beforeEach(() => {
@@ -79,7 +85,7 @@ afterEach(() => {
 });
 
 describe('ConnectBankButton', () => {
-  it('starts Plaid Link at once when it is the only provider, and ends in the account mapping', async () => {
+  it('starts Plaid Link after the consent notice when it is the only provider, and ends in the account mapping', async () => {
     const user = userEvent.setup();
     respond({ country: 'US', providers: [makeProvider('plaid', 'plaid_link')] });
     const linked = makeConnection({ accounts: [makeAccount({ feedAccountId: 'fa_9', name: 'Everyday' })] });
@@ -95,6 +101,7 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(plaid.handler.open).toHaveBeenCalled());
     expect(api.post).toHaveBeenCalledWith('/bank-connections/link-session', {
@@ -134,6 +141,7 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(collect).toHaveBeenCalledWith({ clientSecret: 'fcsess_secret' }));
     await waitFor(() =>
@@ -284,6 +292,7 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.error).toHaveBeenCalledWith(
@@ -301,6 +310,7 @@ describe('ConnectBankButton', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('not set up yet')));
   });
@@ -339,6 +349,7 @@ describe('ConnectBankButton above the connections the plan includes', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     const dialog = await screen.findByRole('dialog', { name: 'Add a paid bank connection?' });
     expect(dialog).toHaveTextContent('Your plan includes 1 bank connection, and it is in use.');
@@ -366,6 +377,7 @@ describe('ConnectBankButton above the connections the plan includes', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
@@ -385,6 +397,7 @@ describe('ConnectBankButton without two-step verification', () => {
     const button = await screen.findByRole('button', { name: 'Connect bank' });
     await waitFor(() => expect(button).toBeEnabled());
     await user.click(button);
+    await continueInConnectDialog(user);
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(

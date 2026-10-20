@@ -167,6 +167,18 @@ export const weldbooksUsBankFeeds = {
     reconnected: '{bank} is opnieuw gekoppeld.',
     accountsAdded: 'Rekeningen bijgewerkt voor {bank}.',
     syncStarted: 'Eerste synchronisatie gestart. Nieuwe transacties verschijnen zo.',
+    /** Getoond voordat het venster van de aanbieder opent: waar de gebruiker mee instemt. */
+    consent: {
+      withProviderPolicy:
+        'Door verder te gaan, ga je ermee akkoord dat WeldSuite en {provider} je bankrekening- en transactiegegevens gebruiken voor je boekhouding, zoals beschreven in het {weldsuitePolicy} en het {providerPolicy}.',
+      withoutProviderPolicy:
+        'Door verder te gaan, ga je ermee akkoord dat WeldSuite en {provider} je bankrekening- en transactiegegevens gebruiken voor je boekhouding, zoals beschreven in het {weldsuitePolicy}.',
+      weldsuitePolicy: 'privacybeleid van WeldSuite',
+      providerPolicies: {
+        plaid: 'privacybeleid voor eindgebruikers van Plaid',
+        stripe_fc: 'privacybeleid van Stripe',
+      },
+    },
     /** Een koppeling bevestigen boven de koppelingen die het abonnement bevat. */
     extra: {
       title: 'Betaalde bankkoppeling toevoegen?',
