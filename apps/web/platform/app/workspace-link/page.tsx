@@ -94,15 +94,9 @@ export default function WorkspaceLinkPage() {
     // Survives Clerk coming back with the previous org after the reload;
     // the app shell then activates this one (see lib/pending-organization).
     setPendingOrganization(workspace.id);
+    // The reload hydrates from that workspace's own persisted cache (FE-014).
     setActive({ organization: workspace.id })
-      .then(() => {
-        try {
-          window.localStorage.removeItem('weldsuite:query-cache');
-        } catch {
-          // storage unavailable — reload anyway
-        }
-        window.location.replace(link.target);
-      })
+      .then(() => window.location.replace(link.target))
       .catch(() => setStatus('error'));
   }, [isLoaded, isSignedIn, orgId, orgListLoaded, setActive, userMemberships, memberships, link, router]);
 

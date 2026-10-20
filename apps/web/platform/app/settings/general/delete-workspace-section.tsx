@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
+import { removeQueryCache } from '@/lib/persisted-query-cache';
 import type { WorkspaceDeletionStatus } from '@weldsuite/app-api-client/schemas/workspace-settings';
 
 export function DeleteWorkspaceSection() {
@@ -75,13 +76,9 @@ export function DeleteWorkspaceSection() {
       const nextOrgId = orgList.userMemberships?.data
         ?.map((m) => m.organization.id)
         .find((id) => id && id !== deletedOrgId);
-      // Drop the persisted query cache so the next workspace doesn't hydrate
-      // with the deleted workspace's data (parity with switchWorkspace).
-      try {
-        window.localStorage.removeItem('weldsuite:query-cache');
-      } catch {
-        // ignore — private mode / storage disabled
-      }
+      // The deleted workspace's persisted cache is dead data; the next
+      // workspace hydrates from its own entry (FE-014).
+      if (deletedOrgId) removeQueryCache(deletedOrgId);
       if (nextOrgId && orgList.setActive) {
         await orgList.setActive({ organization: nextOrgId }).catch(() => {});
       }
