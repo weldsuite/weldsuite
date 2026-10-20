@@ -10,11 +10,17 @@
  * Tapping an attachment therefore downloads it with the member's session to a
  * cache file named after the attachment, then hands that file to the OS:
  * the share sheet on iOS (Open in / Save to Files / Quick Look apps), an
- * ACTION_VIEW intent on a content:// URI on Android. Failures surface in an
- * alert, like before. The helper never rejects.
+ * ACTION_VIEW intent on Android. Failures surface in an alert, like before.
+ * The helper never rejects.
+ *
+ * The Android intent goes through `expo-intent-launcher`, not `Linking`: the
+ * content:// URI comes from the app's own FileProvider, which is not exported,
+ * so the viewer can only read it with FLAG_GRANT_READ_URI_PERMISSION, and it
+ * needs the MIME type to resolve a viewer at all. `Linking.openURL` sends
+ * neither.
  */
 
-import { Alert, Linking, Platform, Share } from 'react-native';
+import { Alert, Platform, Share } from 'react-native';
 import { Directory, File, Paths } from 'expo-file-system';
 import { getAppApiRequestInit } from '@/services/app-api';
 
@@ -24,7 +30,12 @@ export interface OpenableAttachment {
   fileName?: string | null;
   filename?: string | null;
   name?: string | null;
+  contentType?: string | null;
+  mimeType?: string | null;
 }
+
+/** android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION */
+const FLAG_GRANT_READ_URI_PERMISSION = 0x1;
 
 /** Folder (inside the OS-managed cache) the downloads land in, one subfolder per attachment id. */
 const CACHE_FOLDER = 'mail-attachments';
@@ -67,10 +78,27 @@ async function downloadAttachment(id: string, name: string): Promise<File> {
   return File.downloadFileAsync(url, file, { headers, idempotent: true });
 }
 
+/** The attachment's MIME type, else the one the OS reads off the file, else any. */
+export function resolveMimeType(attachment: OpenableAttachment, file: File): string {
+  const declared = (attachment.contentType || attachment.mimeType || '').trim();
+  return declared || file.type || '*/*';
+}
+
 /** Hand a downloaded file to the OS. */
-async function presentFile(file: File): Promise<void> {
+async function presentFile(file: File, mimeType: string): Promise<void> {
   if (Platform.OS === 'android') {
-    await Linking.openURL(file.contentUri);
+    // Required here, not imported at the top: on a build that predates the
+    // native module (an OTA update to an older binary) loading it throws, and
+    // that must end in the alert below, not take down every screen that
+    // imports this helper.
+    const { startActivityAsync } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose, see above
+      require('expo-intent-launcher') as typeof import('expo-intent-launcher');
+    await startActivityAsync('android.intent.action.VIEW', {
+      data: file.contentUri,
+      flags: FLAG_GRANT_READ_URI_PERMISSION,
+      type: mimeType,
+    });
     return;
   }
   await Share.share({ url: file.uri });
@@ -114,7 +142,7 @@ export async function openAttachment(
   }
 
   try {
-    await presentFile(file);
+    await presentFile(file, resolveMimeType(attachment, file));
   } catch {
     Alert.alert(
       'Cannot open attachment',
