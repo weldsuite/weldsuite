@@ -69,6 +69,7 @@ import { currentMailHref } from '../lib/mail-urls';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { IsolatedHtmlContent } from './isolated-html-content';
 import { ComposeAttachButton } from './compose-attach-button';
+import { ComposeLinkButton } from './compose-link-button';
 import {
   MAX_EMAIL_SIZE_BYTES,
   MailAttachmentUploadError,
@@ -86,9 +87,15 @@ import {
   useMailAccounts,
   usePinThread,
   useToggleMailStar,
+  useToggleMailImportant,
+  useSnoozeEmail,
+  useUnsnoozeEmail,
 } from '@/hooks/queries/use-mail-queries';
 import { isSystemLabel } from '../lib/label-config';
+import { hasLabel, withLabel, withoutLabel } from '../lib/message-labels';
+import { SNOOZE_PRESETS } from '../lib/snooze-presets';
 import { buildComposeBodies } from '../lib/compose-body';
+import { appendQuotedOriginal, quoteSender } from '../lib/reply-quote';
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
 import { SignaturePicker, useComposeSignature } from './compose-signature';
@@ -497,17 +504,22 @@ function isSendShortcut(e: React.KeyboardEvent): boolean {
 // Sent, Drafts and Scheduled are not offered: mail gets those by being sent,
 // never by hand.
 const SYSTEM_LABEL_ITEMS = [
-  { name: 'INBOX', Icon: Inbox, labelKey: 'labelInbox', activeClassName: 'bg-gray-100' },
-  { name: 'STARRED', Icon: Star, labelKey: 'labelStarred', activeClassName: 'bg-gray-100' },
-  { name: 'IMPORTANT', Icon: Flag, labelKey: 'labelImportant', activeClassName: 'bg-gray-100' },
-  { name: 'ARCHIVE', Icon: Archive, labelKey: 'labelArchive', activeClassName: 'bg-gray-100' },
-  { name: 'SPAM', Icon: AlertTriangle, labelKey: 'labelSpam', activeClassName: 'bg-gray-100' },
-  { name: 'TRASH', Icon: Trash, labelKey: 'labelTrash', activeClassName: 'bg-gray-200' },
+  { name: 'INBOX', Icon: Inbox, labelKey: 'labelInbox' },
+  { name: 'STARRED', Icon: Star, labelKey: 'labelStarred' },
+  { name: 'IMPORTANT', Icon: Flag, labelKey: 'labelImportant' },
+  { name: 'ARCHIVE', Icon: Archive, labelKey: 'labelArchive' },
+  { name: 'SPAM', Icon: AlertTriangle, labelKey: 'labelSpam' },
+  { name: 'TRASH', Icon: Trash, labelKey: 'labelTrash' },
 ] as const;
 
-function SystemLabelButton({ active, activeClassName, Icon, label, disabled, onClick }: Readonly<{
+// Checked rows use the theme's accent pair, so text stays readable on the
+// highlight in both light and dark mode.
+const LABEL_ROW_CLASS = "w-full flex items-center justify-start gap-2 px-2 py-1.5 text-sm rounded-md transition-colors";
+const LABEL_ROW_ACTIVE = "bg-accent text-accent-foreground";
+const LABEL_ROW_IDLE = "hover:bg-accent hover:text-accent-foreground";
+
+function SystemLabelButton({ active, Icon, label, disabled, onClick }: Readonly<{
   active: boolean;
-  activeClassName: string;
   Icon: LucideIcon;
   label: string;
   disabled: boolean;
@@ -518,14 +530,12 @@ function SystemLabelButton({ active, activeClassName, Icon, label, disabled, onC
       variant="ghost"
       onClick={onClick}
       disabled={disabled}
-      className={cn(
-        "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-        active ? activeClassName : "hover:bg-gray-100"
-      )}
+      aria-pressed={active}
+      className={cn(LABEL_ROW_CLASS, active ? LABEL_ROW_ACTIVE : LABEL_ROW_IDLE)}
     >
-      <Icon className={cn("h-4 w-4 flex-shrink-0", active ? "text-gray-600" : "text-gray-500")} />
+      <Icon className={cn("h-4 w-4 flex-shrink-0", !active && "text-muted-foreground")} />
       <span className="flex-1 text-left">{label}</span>
-      {active && <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />}
+      {active && <Check className="h-4 w-4 flex-shrink-0" />}
     </Button>
   );
 }
@@ -554,13 +564,12 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
   return (
     <>
       {/* System Labels */}
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.systemLabels}</div>
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.systemLabels}</div>
       <div className="space-y-0.5 mb-3">
-        {SYSTEM_LABEL_ITEMS.map(({ name, Icon, labelKey, activeClassName }) => (
+        {SYSTEM_LABEL_ITEMS.map(({ name, Icon, labelKey }) => (
           <SystemLabelButton
             key={name}
-            active={messageLabels.includes(name)}
-            activeClassName={activeClassName}
+            active={hasLabel(messageLabels, name)}
             Icon={Icon}
             label={t.mail.messageDetail[labelKey]}
             disabled={isUpdatingLabels}
@@ -570,9 +579,9 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
       </div>
 
       {/* User Labels */}
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.customLabels}</div>
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.customLabels}</div>
       {customLabels.length === 0 ? (
-        <div className="text-sm text-gray-400 py-2 px-2">
+        <div className="text-sm text-muted-foreground py-2 px-2">
           {t.mail.messageDetail.noCustomLabels}
         </div>
       ) : (
@@ -586,10 +595,8 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
                 key={label.name}
                 onClick={() => onToggleLabel(label.name)}
                 disabled={isUpdatingLabels}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors",
-                  isApplied ? "bg-gray-100" : "hover:bg-gray-100"
-                )}
+                aria-pressed={isApplied}
+                className={cn(LABEL_ROW_CLASS, isApplied ? LABEL_ROW_ACTIVE : LABEL_ROW_IDLE)}
               >
                 <div
                   className="w-3 h-3 rounded-full flex-shrink-0"
@@ -597,7 +604,7 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
                 />
                 <span className="flex-1 text-left truncate">{label.name}</span>
                 {isApplied && (
-                  <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />
+                  <Check className="h-4 w-4 flex-shrink-0" />
                 )}
               </Button>
             );
@@ -613,6 +620,8 @@ function LabelBadge({ labelName, color, onRemove }: Readonly<{
   color: string;
   onRemove: (labelName: string) => void;
 }>) {
+  const { t } = useI18n();
+  const removeLabel = t.mail.messageDetail.removeLabelNamed.replace('{label}', labelName);
   return (
     <span
       className="relative px-2 py-0.5 rounded text-[12px] font-medium cursor-default group"
@@ -626,7 +635,9 @@ function LabelBadge({ labelName, color, onRemove }: Readonly<{
         variant="ghost"
         size="icon"
         onClick={(e) => { e.stopPropagation(); onRemove(labelName); }}
-        className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 p-0.5 rounded-full bg-background border border-border shadow-sm hover:bg-muted transition-opacity"
+        aria-label={removeLabel}
+        title={removeLabel}
+        className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-0.5 rounded-full bg-background border border-border shadow-sm hover:bg-muted transition-opacity"
       >
         <X className="h-2.5 w-2.5 text-muted-foreground" />
       </Button>
@@ -1045,8 +1056,9 @@ function FormatButton({ active, title, command, Icon, onCommand }: Readonly<{
   );
 }
 
-function ComposeToolbar({ activeFormats, onCommand, onFilesSelected, onOpenAi, signaturePicker }: Readonly<{
+function ComposeToolbar({ activeFormats, editorRef, onCommand, onFilesSelected, onOpenAi, signaturePicker }: Readonly<{
   activeFormats: Record<string, boolean>;
+  editorRef: React.RefObject<HTMLElement | null>;
   onCommand: (command: string, value?: string) => void;
   onFilesSelected: (files: File[]) => void;
   onOpenAi: () => void;
@@ -1069,13 +1081,13 @@ function ComposeToolbar({ activeFormats, onCommand, onFilesSelected, onOpenAi, s
         iconClassName="text-muted-foreground"
         onFilesSelected={onFilesSelected}
       />
-      <Button variant="ghost" size="icon" className="p-2 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.insertLink} onMouseDown={(e) => {
-        e.preventDefault();
-        const url = prompt('Enter URL:');
-        if (url) onCommand('createLink', url);
-      }}>
-        <Link className="h-4 w-4 text-muted-foreground" />
-      </Button>
+      <ComposeLinkButton
+        editorRef={editorRef}
+        icon={Link}
+        testId="reply-link-btn"
+        className="p-2 hover:bg-muted rounded-md transition-colors"
+        iconClassName="text-muted-foreground"
+      />
       {signaturePicker}
       <div className="w-px h-5 bg-border mx-0.5" />
       <Button
@@ -1286,14 +1298,16 @@ function InlineAiBar({
  * The desktop header's close button. Embedded outside WeldMail (`onClose`),
  * it is a back arrow to the embedding view; in WeldMail it closes the message.
  */
-function DesktopCloseButton({ onClose, backLabel }: Readonly<{ onClose?: () => void; backLabel: string }>) {
+function DesktopCloseButton({ onClose, backLabel, closeLabel }: Readonly<{ onClose?: () => void; backLabel: string; closeLabel: string }>) {
+  const label = onClose ? backLabel : closeLabel;
   return (
     <Button
       variant="ghost"
       size="icon-sm"
       className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
       onClick={onClose ?? (() => window.history.back())}
-      aria-label={onClose ? backLabel : undefined}
+      aria-label={label}
+      title={label}
     >
       {onClose ? (
         <ArrowLeft className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
@@ -1328,6 +1342,25 @@ function inlineSignature(isReplying: boolean, isForwarding: boolean, round: numb
   return { mode, session: mode ? `${round}:${mode}:${messageId}` : null };
 }
 
+/** A star / important flag: its column, or its system label. */
+function isFlagged(column: boolean | null | undefined, labels: string[] | null | undefined, label: string): boolean {
+  return Boolean(column) || hasLabel(labels, label);
+}
+
+/** The toolbar and menu wording that follows the message's state. */
+function messageActionLabels(
+  md: ReturnType<typeof useI18n>['t']['mail']['messageDetail'],
+  state: Readonly<{ isStarred: boolean; isPinned: boolean; isImportant: boolean; inThread: boolean }>,
+) {
+  return {
+    star: state.isStarred ? md.removeStar : md.addStar,
+    pin: state.isPinned ? md.unpin : md.pin,
+    archive: state.inThread ? md.archiveConversation : md.archivedSingle,
+    remove: state.inThread ? md.deleteConversation : md.movedSingleToTrash,
+    important: state.isImportant ? md.markAsNotImportant : md.markAsImportant,
+  };
+}
+
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
   const { t } = useI18n();
   const notifySendError = useNotifySendError();
@@ -1335,6 +1368,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const pathname = usePathname();
   const archiveThreadMutation = useArchiveThread();
   const toggleStarMutation = useToggleMailStar();
+  const toggleImportantMutation = useToggleMailImportant();
+  const snoozeMutation = useSnoozeEmail();
+  const unsnoozeMutation = useUnsnoozeEmail();
   const pinThreadMutation = usePinThread();
   const trashThreadMutation = useTrashThread();
   const markThreadAsSpamMutation = useMarkThreadAsSpam();
@@ -1360,6 +1396,14 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const signature = useComposeSignature({ editorRef, accountId, autoInsert: inline.mode, session: inline.session });
   const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
   const [messageLabels, setMessageLabels] = useState<string[]>(message.labels || []);
+  // The labels follow the message when it is refetched (a thread action, a
+  // change made elsewhere); local edits in between bridge the gap.
+  const serverLabelsKey = (message.labels ?? []).join('|');
+  useEffect(() => {
+    setMessageLabels(message.labels ?? []);
+    // The key carries the content; the array identity changes on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message.id, serverLabelsKey]);
   const [isUpdatingLabels, setIsUpdatingLabels] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [localThread, setLocalThread] = useState<EmailMessage[]>(thread);
@@ -1437,14 +1481,27 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // Star and pin are server state: the STARRED / PINNED system labels (the
   // star also has its `isStarred` column). The override only bridges the
   // moment between the click and the refetch.
-  const serverStarred = Boolean(message.isStarred) || (message.labels ?? []).includes('STARRED');
-  const serverPinned = [message, ...thread].some((m) => (m.labels ?? []).includes('PINNED'));
+  const serverStarred = isFlagged(message.isStarred, message.labels, 'STARRED');
+  const serverPinned = [message, ...thread].some((m) => hasLabel(m.labels, 'PINNED'));
   const [starOverride, setStarOverride] = useState<boolean | null>(null);
   const [pinOverride, setPinOverride] = useState<boolean | null>(null);
   useEffect(() => setStarOverride(null), [message.id, serverStarred]);
   useEffect(() => setPinOverride(null), [message.id, serverPinned]);
   const isStarred = starOverride ?? serverStarred;
   const isPinned = pinOverride ?? serverPinned;
+
+  // Important works like the star: the IMPORTANT label plus the `isImportant` column.
+  const serverImportant = isFlagged(message.isImportant, message.labels, 'IMPORTANT');
+  const [importantOverride, setImportantOverride] = useState<boolean | null>(null);
+  useEffect(() => setImportantOverride(null), [message.id, serverImportant]);
+  const isImportant = importantOverride ?? serverImportant;
+  const actionLabels = messageActionLabels(t.mail.messageDetail, { isStarred, isPinned, isImportant, inThread: Boolean(threadId) });
+
+  // Snoozed mail carries the SNOOZED label until it wakes or is unsnoozed.
+  const snoozedMessageIds = [message, ...thread]
+    .filter((m) => hasLabel(m.labels, 'SNOOZED'))
+    .map((m) => m.id);
+  const isSnoozed = snoozedMessageIds.length > 0;
 
   const handleTogglePin = () => {
     const next = !isPinned;
@@ -1560,8 +1617,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const isHtml = !!newestMessage.bodyHtml;
   const [showQuoted, setShowQuoted] = useState(false);
   // Gmail-style: Check labels array instead of folder
-  const isInTrashFolder = messageLabels.includes('trash') || folder?.toLowerCase() === 'trash';
-  const isInSpamFolder = messageLabels.includes('spam') || folder?.toLowerCase() === 'spam';
+  // System labels are stored upper-case; compare without regard to casing.
+  const isInTrashFolder = hasLabel(messageLabels, 'TRASH') || folder?.toLowerCase() === 'trash';
+  const isInSpamFolder = hasLabel(messageLabels, 'SPAM') || folder?.toLowerCase() === 'spam';
 
   const toggleThreadExpanded = (id: string) => {
     setExpandedThreadIds((prev) => {
@@ -1598,7 +1656,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       isDeleted: false,
       hasAttachments: false,
       size: body.length,
-      labels: ['sent'],
+      labels: ['SENT'],
       folder: 'Sent',
     };
     setLocalThread(prev => [...prev, optimisticMsg]);
@@ -1637,13 +1695,25 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
   const handleSendReply = async () => {
     if (isSending) return;
-    const htmlContent = editorRef.current?.innerHTML || '';
-    // The text part keeps line breaks (between the reply and its signature too).
-    const textContent = buildComposeBodies(htmlContent).body;
-    if (!userWrittenText(htmlContent)) {
+    const editorHtml = editorRef.current?.innerHTML || '';
+    if (!userWrittenText(editorHtml)) {
       toast.error(t.mail.composePage.enterMessage);
       return;
     }
+    // The text part keeps line breaks (between the reply and its signature too).
+    // Both parts carry the quoted original, like any other mail client's reply.
+    const replyTarget = localThread.find((m) => m.id === replyToMessageId) ?? newestMessage;
+    const { body: textContent, htmlBody: htmlContent } = appendQuotedOriginal(
+      { body: buildComposeBodies(editorHtml).body, htmlBody: editorHtml },
+      {
+        sender: quoteSender(replyTarget.from, replyTarget.fromEmail),
+        sentAt: replyTarget.date,
+        html: replyTarget.bodyHtml ?? replyTarget.htmlBody,
+        text: replyTarget.bodyText ?? replyTarget.textBody,
+      },
+      t.mail.messageDetail.quotedReplyHeader,
+      navigator.language,
+    );
     setIsSending(true);
     try {
       const attachments = await uploadAttachedFiles(textContent, htmlContent);
@@ -1751,13 +1821,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     } else {
       // Gmail-style: Add "trash" label, remove "inbox" label
       try {
-        // Add trash label
-        await mailApi.messages.addLabel(accountId, message.id, 'trash');
-        // Remove inbox label if present
-        if (messageLabels.includes('inbox')) {
-          await mailApi.messages.removeLabel(accountId, message.id, 'inbox');
-        }
-        const newLabels = messageLabels.filter(l => l !== 'inbox').concat('trash');
+        // TRASH is a location label: adding it takes the mail out of the inbox.
+        const result = await mailApi.messages.addLabel(accountId, message.id, 'TRASH');
+        if (!result.success) throw new Error(result.error);
+        const newLabels = result.data?.labels ?? withLabel(withoutLabel(messageLabels, 'INBOX'), 'TRASH');
         setMessageLabels(newLabels);
         onLabelsChange?.(newLabels);
         toast.success(t.mail.messageDetail.movedSingleToTrash);
@@ -1818,14 +1885,21 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     if (!archived && shouldHide) list?.unhideThread(current);
   };
 
+  // The menu entry reads "Not spam" exactly when `isInSpamFolder`, so that is
+  // the state the action toggles. (The labels used to be compared lower-case
+  // while the stored one is "SPAM": "Not spam" then marked the mail as spam again.)
   const handleMarkAsSpam = async () => {
-    const isCurrentlySpam = messageLabels.includes('spam');
+    const isCurrentlySpam = isInSpamFolder;
 
     if (threadId) {
-      // Thread-level: Mark all messages as spam/not spam
+      // Thread-level: Mark all messages as spam/not spam. "Not spam" adds INBOX,
+      // which is a location label and so takes the thread out of Spam.
       markThreadAsSpamMutation.mutate({ accountId, threadId, isSpam: !isCurrentlySpam }, {
         onSuccess: () => {
           toast.success(isCurrentlySpam ? t.mail.messageDetail.markedConversationAsNotSpam : t.mail.messageDetail.markedConversationAsSpam);
+          // The conversation left this folder.
+          window.dispatchEvent(new Event('mail:refresh'));
+          handleBackToList();
         },
         onError: () => {
           toast.error(t.mail.messageDetail.failedToUpdateSpamStatus);
@@ -1833,25 +1907,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       });
     } else {
       try {
-        if (isCurrentlySpam) {
-          // Gmail-style: Remove "spam" label, add "inbox" label
-          await mailApi.messages.removeLabel(accountId, message.id, 'spam');
-          await mailApi.messages.addLabel(accountId, message.id, 'inbox');
-          const newLabels = messageLabels.filter(l => l !== 'spam').concat('inbox');
-          setMessageLabels(newLabels);
-          onLabelsChange?.(newLabels);
-          toast.success(t.mail.messageDetail.markedAsNotSpam);
-        } else {
-          // Gmail-style: Add "spam" label, remove "inbox" label
-          await mailApi.messages.addLabel(accountId, message.id, 'spam');
-          if (messageLabels.includes('inbox')) {
-            await mailApi.messages.removeLabel(accountId, message.id, 'inbox');
-          }
-          const newLabels = messageLabels.filter(l => l !== 'inbox').concat('spam');
-          setMessageLabels(newLabels);
-          onLabelsChange?.(newLabels);
-          toast.success(t.mail.messageDetail.markedAsSpam);
-        }
+        // SPAM and INBOX are location labels: adding one replaces the other.
+        const target = isCurrentlySpam ? 'INBOX' : 'SPAM';
+        const result = await mailApi.messages.addLabel(accountId, message.id, target);
+        if (!result.success) throw new Error(result.error);
+        const newLabels =
+          result.data?.labels ??
+          withLabel(withoutLabel(withoutLabel(messageLabels, isCurrentlySpam ? 'SPAM' : 'INBOX'), 'TRASH'), target);
+        setMessageLabels(newLabels);
+        onLabelsChange?.(newLabels);
+        toast.success(isCurrentlySpam ? t.mail.messageDetail.markedAsNotSpam : t.mail.messageDetail.markedAsSpam);
+        window.dispatchEvent(new Event('mail:refresh'));
+        handleBackToList();
       } catch {
         toast.error(t.mail.messageDetail.failedToUpdateSpamStatus);
       }
@@ -1863,23 +1930,69 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     if (result.success) toast.success(isRead ? t.mail.messageDetail.markedAsRead : t.mail.messageDetail.markedAsUnread);
   };
 
-  const handleSetImportance = async () => {
-    const result = await mailApi.messages.update(accountId, message.id, { isImportant: true });
-    if (result.success) toast.success(t.mail.messageDetail.markedAsImportant);
+  const handleToggleImportance = () => {
+    const next = !isImportant;
+    setImportantOverride(next);
+    toggleImportantMutation.mutate(
+      { id: message.id, isImportant: next },
+      {
+        onSuccess: () =>
+          toast.success(next ? t.mail.messageDetail.markedAsImportant : t.mail.messageDetail.markedAsNotImportant),
+        onError: () => {
+          setImportantOverride(null);
+          toast.error(t.mail.messageDetail.failedToUpdateLabels);
+        },
+      },
+    );
+  };
+
+  const handleSnooze = (preset: (typeof SNOOZE_PRESETS)[number]) => {
+    snoozeMutation.mutate(
+      { accountId, messageId: message.id, data: { until: preset.until(new Date()).toISOString() } },
+      {
+        onSuccess: () => {
+          toast.success(t.mail.messageList[preset.toastKey]);
+          window.dispatchEvent(new Event('mail:refresh'));
+          handleBackToList();
+        },
+        onError: () => toast.error(t.mail.messageList.failedToSnooze),
+      },
+    );
+  };
+
+  const handleUnsnooze = () => {
+    unsnoozeMutation.mutate(
+      { accountId, messageIds: snoozedMessageIds },
+      {
+        onSuccess: () => {
+          toast.success(t.mail.messageList.unsnoozed);
+          window.dispatchEvent(new Event('mail:refresh'));
+        },
+        onError: () => toast.error(t.mail.messageList.failedToUnsnooze),
+      },
+    );
+  };
+
+  // Starring and marking important through the label picker must show in the
+  // header star and the menu at once, like their own buttons do.
+  const bridgeFlagLabel = (labelName: string, on: boolean) => {
+    if (hasLabel([labelName], 'STARRED')) setStarOverride(on);
+    else if (hasLabel([labelName], 'IMPORTANT')) setImportantOverride(on);
   };
 
   const handleToggleLabel = async (labelName: string) => {
     setIsUpdatingLabels(true);
-    const hasLabel = messageLabels.includes(labelName);
+    const labelApplied = hasLabel(messageLabels, labelName);
 
     try {
-      if (hasLabel) {
+      if (labelApplied) {
         // Remove label (works for both system and user labels)
         const result = await mailApi.messages.removeLabel(accountId, message.id, labelName);
         if (result.success) {
-          const newLabels = result.data?.labels ?? messageLabels.filter((l) => l !== labelName);
+          const newLabels = result.data?.labels ?? withoutLabel(messageLabels, labelName);
           setMessageLabels(newLabels);
           onLabelsChange?.(newLabels);
+          bridgeFlagLabel(labelName, false);
           toast.success(t.mail.messageDetail.labelRemoved.replace('{label}', labelName));
         } else {
           toast.error(result.error || t.mail.messageDetail.failedToUpdateLabels);
@@ -1893,6 +2006,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           const newLabels = result.data?.labels ?? [...messageLabels, labelName];
           setMessageLabels(newLabels);
           onLabelsChange?.(newLabels);
+          bridgeFlagLabel(labelName, true);
           toast.success(t.mail.messageDetail.labelAdded.replace('{label}', labelName));
         } else {
           toast.error(result.error || t.mail.messageDetail.failedToUpdateLabels);
@@ -2107,6 +2221,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 border-t border-border/50">
             <ComposeToolbar
               activeFormats={activeFormats}
+              editorRef={editorRef}
               onCommand={execCommand}
               onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
               onOpenAi={openInlineAi}
@@ -2276,9 +2391,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           </Button>
           {/* Desktop close/done buttons */}
           <div className="hidden md:flex h-7 items-center border border-border rounded-md overflow-hidden">
-            <DesktopCloseButton onClose={onClose} backLabel={t.mail.messageDetail.backToList} />
+            <DesktopCloseButton onClose={onClose} backLabel={t.mail.messageDetail.backToList} closeLabel={t.mail.toolbar.close} />
             <div className="w-px h-4 bg-border" />
-            <Button variant="ghost" size="icon-sm" className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={handleArchiveAndNext}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
+              onClick={handleArchiveAndNext}
+              aria-label={t.mail.messageDetail.markDone}
+              title={t.mail.messageDetail.markDone}
+            >
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
           </div>
@@ -2294,6 +2416,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             variant="ghost"
             size="icon"
             onClick={handleToggleStar}
+            aria-label={actionLabels.star}
+            title={actionLabels.star}
+            aria-pressed={isStarred}
             className={cn("md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isStarred && "text-yellow-500")}
           >
             <Star className={cn("h-4 w-4", isStarred ? "fill-current" : "text-gray-500 dark:text-muted-foreground")} />
@@ -2304,7 +2429,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             size="icon"
             onClick={handleTogglePin}
             className={cn("hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isPinned && "text-blue-500")}
-            title={isPinned ? t.mail.messageDetail.unpin : t.mail.messageDetail.pin}
+            title={actionLabels.pin}
+            aria-label={actionLabels.pin}
           >
             <Pin className={cn("h-4 w-4", isPinned ? "fill-current" : "text-gray-500 dark:text-muted-foreground")} />
           </Button>
@@ -2313,18 +2439,47 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             size="icon"
             onClick={handleArchive}
             className="md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors"
-            title={threadId ? t.mail.messageDetail.archiveConversation : t.mail.messageDetail.archivedSingle}
+            title={actionLabels.archive}
+            aria-label={actionLabels.archive}
           >
             <Archive className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
           </Button>
-          {/* Snooze button - hidden on mobile */}
-          <Button variant="ghost" size="icon" className="hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors" onClick={() => toast.success(t.mail.messageDetail.snoozeComingSoon)}>
-            <Clock className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
-          </Button>
+          {/* Snooze menu - hidden on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-secondary rounded-md transition-colors"
+                aria-label={t.mail.messageList.snooze}
+                title={t.mail.messageList.snooze}
+              >
+                <Clock className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {SNOOZE_PRESETS.map((preset) => (
+                <DropdownMenuItem key={preset.id} onClick={() => handleSnooze(preset)}>
+                  {t.mail.messageList[preset.labelKey]}
+                </DropdownMenuItem>
+              ))}
+              {isSnoozed && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleUnsnooze}>{t.mail.snoozed.unsnooze}</DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {/* Labels popover - hidden on mobile */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" className="hidden md:flex h-7 p-1.5 has-[>svg]:px-1.5 hover:bg-gray-100 dark:hover:bg-secondary data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-secondary rounded-md transition-colors items-center gap-1 text-gray-500 dark:text-muted-foreground">
+              <Button
+                variant="ghost"
+                aria-label={t.mail.messageDetail.labelAs}
+                title={t.mail.messageDetail.labelAs}
+                className="hidden md:flex h-7 p-1.5 has-[>svg]:px-1.5 hover:bg-gray-100 dark:hover:bg-secondary data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-secondary rounded-md transition-colors items-center gap-1 text-gray-500 dark:text-muted-foreground"
+              >
                 <Tag className="h-4 w-4" />
                 {messageLabels.length > 0 && (
                   <span className="inline-flex items-center justify-center size-5 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md">
@@ -2347,7 +2502,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             size="icon"
             onClick={handleDelete}
             className="md:size-7 p-1.5 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md transition-colors group/delete"
-            title={threadId ? t.mail.messageDetail.deleteConversation : t.mail.messageDetail.movedSingleToTrash}
+            title={actionLabels.remove}
+            aria-label={actionLabels.remove}
           >
             <Trash2 className="h-4 w-4 text-gray-500 dark:text-muted-foreground group-hover/delete:text-red-500 transition-colors" />
           </Button>
@@ -2429,7 +2585,12 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <span className="text-sm text-gray-700 dark:text-muted-foreground">{format(new Date(newestMessage.date ?? 0), 'd MMM, HH:mm')}</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="p-1 hover:bg-gray-100 data-[state=open]:bg-gray-100 rounded-md transition-colors focus:outline-none focus-visible:outline-none">
+                  <Button
+                    variant="ghost"
+                    aria-label={t.mail.messageDetail.moreActions}
+                    title={t.mail.messageDetail.moreActions}
+                    className="p-1 hover:bg-gray-100 data-[state=open]:bg-gray-100 rounded-md transition-colors focus:outline-none focus-visible:outline-none"
+                  >
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -2438,10 +2599,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     <Eye className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsUnread}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleToggleStar}>
-                    <Star className={cn("mr-0.5 h-4 w-4", isStarred && "text-yellow-500 fill-yellow-500")} /> {isStarred ? t.mail.messageDetail.removeStar : t.mail.messageDetail.addStar}
+                    <Star className={cn("mr-0.5 h-4 w-4", isStarred && "text-yellow-500 fill-yellow-500")} /> {actionLabels.star}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleSetImportance}>
-                    <Flag className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsImportant}
+                  <DropdownMenuItem onClick={handleToggleImportance}>
+                    <Flag className={cn("mr-0.5 h-4 w-4", isImportant && "text-orange-500 fill-orange-500")} />{' '}
+                    {actionLabels.important}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => { copyText(message.id || '', () => toast.success(t.mail.messageDetail.messageIdCopied)); }}>

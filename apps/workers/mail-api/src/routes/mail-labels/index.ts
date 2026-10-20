@@ -115,6 +115,8 @@ const threadsQuery = z.object({
   from: z.string().max(200).optional(),
   to: z.string().max(200).optional(),
   subject: z.string().max(200).optional(),
+  /** "Doesn't have": leaves out threads where any message has any of these words. */
+  excludeWords: z.string().max(200).optional(),
   hasAttachment: z
     .string()
     .transform((v) => v === 'true')
@@ -162,6 +164,7 @@ app.get(
         from: q.from,
         to: q.to,
         subject: q.subject,
+        excludeWords: q.excludeWords,
         hasAttachment: q.hasAttachment,
       });
       return success(c, result);

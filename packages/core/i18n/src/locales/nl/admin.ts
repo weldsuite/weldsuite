@@ -401,12 +401,12 @@ export const admin = {
     history: 'Geschiedenis',
   },
 
-  // Waar de databases van werkruimtes staan (taak 1150, fase 1: alleen lezen).
+  // Waar de databases van werkruimtes staan, en ze verplaatsen (taak 1150).
   // Plaatshouders zoals {count} worden ingevuld met `fill()`.
   databases: {
     title: 'Databases',
     description:
-      'Waar de databases van werkruimtes staan: de gedeelde shards, de dedicated Neon-projecten en de warme pool. Dit scherm leest alleen. Niets hier wijzigt een werkruimte.',
+      'Waar de databases van werkruimtes staan: de gedeelde shards, de dedicated Neon-projecten en de warme pool, en de verplaatsingen daartussen. Een superadmin verplaatst een werkruimte vanaf haar tabblad Database.',
     back: 'Alle databases',
 
     summary: {
@@ -584,8 +584,185 @@ export const admin = {
       shardLink: 'Shardkoppeling',
       shardLinkDrift:
         'De shared_project_id van de werkruimte noemt {id}, wat niet klopt met waar de database staat. De plaatsing hierboven volgt het Neon-project-id.',
-      moveNote:
-        'Een werkruimte verplaatsen naar een andere shard of naar een dedicated project komt in een latere release.',
+      compute: 'Compute',
+    },
+
+    // Live Neon-status, via de workspace-worker (die vraagt de Neon-API, dus
+    // kijken maakt een compute nooit wakker).
+    compute: {
+      column: 'Compute',
+      title: 'Compute',
+      hint: 'Uit de Neon-API. Kijken maakt een gepauzeerde compute niet wakker.',
+      checkedAt: 'Opgehaald {time}',
+      state: {
+        active: 'Draait',
+        suspended: 'Gepauzeerd',
+        starting: 'Start op',
+        unknown: 'Onbekend',
+      },
+      endpoint: {
+        endpoint: 'Endpoint',
+        type: 'Type',
+        state: 'Status',
+        size: 'Grootte',
+        suspendAfter: 'Pauzeert na',
+        lastActive: 'Laatst actief',
+      },
+      size: '{min} tot {max} CU',
+      seconds: '{count} s',
+      neverSuspends: 'Nooit',
+      defaultSuspend: 'Neon-standaard (300 s)',
+      noEndpoints: 'Neon geeft geen compute voor dit project.',
+      projectError: 'Neon gaf geen antwoord voor dit project: {message}',
+      notConfigured:
+        'Live status niet beschikbaar: deze console is niet gekoppeld aan de workspace-worker (WORKSPACE_WORKER_URL, WORKSPACE_ADMIN_SECRET). De rest van dit scherm komt uit de masterdatabase.',
+      unavailable: 'Live status niet beschikbaar: {message}',
+    },
+
+    sizes: {
+      title: 'Grootte van de databases',
+      description:
+        'Meten voert een query uit op de shard en maakt de compute dus wakker als die gepauzeerd is. Het hoort nooit bij het laden van deze pagina.',
+      measure: 'Grootte meten',
+      measuring: 'Bezig met meten…',
+      total: '{size} in {count} databases',
+      empty: 'Er staan geen databases op deze shard.',
+      noWorkspace: 'Geen werkruimte',
+      viewerNote: 'Kijkers kunnen de grootte niet meten, omdat dat de shard wakker maakt.',
+      columns: {
+        database: 'Database',
+        workspace: 'Werkruimte',
+        size: 'Grootte',
+      },
+    },
+
+    moves: {
+      title: 'Databaseverplaatsingen',
+      description:
+        'Een verplaatsing kopieert de database naar haar nieuwe plek terwijl schrijven gepauzeerd is, controleert de kopie en zet de werkruimte daarna over. Lezen blijft werken; schrijven wordt tot de overstap geweigerd met "probeer het opnieuw".',
+      overviewTitle: 'Verplaatsingen',
+      overviewDescription: 'Verplaatsingen die nog lopen, en de laatste die zijn afgerond.',
+      activeTitle: 'Lopend',
+      recentTitle: 'Onlangs afgerond',
+      noActive: 'Er loopt geen verplaatsing.',
+      noRecent: 'Er is nog geen verplaatsing afgerond.',
+      empty: 'Deze werkruimte is nog nooit verplaatst.',
+      history: 'Eerdere verplaatsingen',
+      move: 'Database verplaatsen',
+      superadminOnly: 'Alleen een superadmin kan een database verplaatsen, annuleren of herstellen.',
+      noDatabase: 'Deze werkruimte heeft geen database om te verplaatsen.',
+      noTargets: 'Deze database kan nergens heen: geen andere actieve shard in {region} heeft ruimte.',
+      running: 'Er loopt een verplaatsing. Start een nieuwe als deze is afgerond.',
+      live: 'Wordt elke paar seconden bijgewerkt',
+      notConfigured:
+        'Verplaatsingen niet beschikbaar: deze console is niet gekoppeld aan de workspace-worker (WORKSPACE_WORKER_URL, WORKSPACE_ADMIN_SECRET).',
+      unavailable: 'Verplaatsingen niet beschikbaar: {message}',
+      close: 'Sluiten',
+
+      dialog: {
+        title: 'De database van {name} verplaatsen',
+        description:
+          'Schrijven pauzeert terwijl de gegevens worden gekopieerd: seconden voor een kleine werkruimte, enkele minuten voor een grote. Lezen blijft werken. De worker legt elke stap vast.',
+        target: 'Verplaatsen naar',
+        dedicated: 'Een dedicated Neon-project',
+        dedicatedHint: 'Een eigen project, met een eigen compute en zonder buren.',
+        auto: 'Een shard met ruimte',
+        autoHint: 'De leegste actieve shard in {region}.',
+        shardHint: '{count} van {max} databases ({percent}%)',
+        submit: 'Verplaatsing starten',
+        started: 'Verplaatsing gestart. Volg haar op dit tabblad.',
+      },
+
+      columns: {
+        workspace: 'Werkruimte',
+        status: 'Status',
+        move: 'Verplaatsing',
+        to: 'Naar',
+        startedBy: 'Gestart door',
+        started: 'Gestart',
+        ended: 'Afgerond',
+        error: 'Fout',
+      },
+
+      kind: {
+        shard_to_dedicated: 'Shard naar dedicated',
+        dedicated_to_shard: 'Dedicated naar shard',
+        shard_to_shard: 'Shard naar shard',
+      },
+
+      status: {
+        queued: 'In de wachtrij',
+        preparing: 'Doel voorbereiden',
+        soft_locked: 'Schrijven pauzeren',
+        locked: 'Schrijven gepauzeerd',
+        copying: 'Kopiëren',
+        verifying: 'Controleren',
+        switching: 'Overzetten',
+        completed: 'Voltooid',
+        failed: 'Mislukt',
+        cancelling: 'Wordt geannuleerd',
+        cancelled: 'Geannuleerd',
+      },
+
+      target: {
+        dedicated: 'Dedicated project',
+        auto: 'Een shard',
+      },
+
+      card: {
+        title: 'Huidige verplaatsing',
+        lastTitle: 'Laatste verplaatsing',
+        from: 'Van',
+        to: 'Naar',
+        dedicatedPlace: 'Dedicated project',
+        notChosen: 'Nog niet gekozen',
+        startedBy: 'Gestart door {email}, {time}',
+        reason: 'Reden',
+        progress: '{copied} van {total} rijen ({percent}%)',
+        progressUnknown: '{copied} rijen gekopieerd',
+        tables: '{done} van {total} tabellen gekopieerd',
+        stale:
+          'Deze verplaatsing is al {minutes} minuten niet veranderd. Mogelijk is haar Workflow gestopt; een geforceerd herstel draait haar terug.',
+        cancelRequested: 'Annulering gevraagd {time}. De verplaatsing draait zichzelf terug bij haar volgende stap.',
+        verified: 'Kopie gecontroleerd: {count} tabellen komen overeen.',
+        mismatched: 'Tabellen die afwijken van de bron: {tables}',
+        sourceChanged: 'De bron is tijdens het kopiëren gewijzigd: {tables}',
+        retainedUntil: 'De oude database blijft alleen-lezen tot {date} en wordt daarna verwijderd.',
+        oldDropped: 'De oude database is verwijderd op {date}.',
+        oldDropError: 'Het verwijderen van de oude database is mislukt: {error}',
+      },
+
+      cancel: {
+        button: 'Verplaatsing annuleren',
+        title: 'Deze verplaatsing annuleren?',
+        description:
+          'De verplaatsing stopt bij haar volgende stap en draait zichzelf terug: schrijven gaat verder op de huidige database en het doel wordt teruggegeven. Zodra een verplaatsing aan het overzetten is, kan ze niet meer worden geannuleerd.',
+        done: 'Annulering gevraagd. De verplaatsing draait zichzelf terug.',
+      },
+
+      recover: {
+        button: 'Herstellen',
+        forceButton: 'Herstel forceren',
+        title: 'Deze verplaatsing herstellen?',
+        description:
+          'Maakt het terugdraaien af: ontgrendelt de huidige database zodat schrijven verdergaat, en geeft het doel terug. Stappen die al zijn gedaan worden overgeslagen.',
+        forceTitle: 'Het herstel forceren?',
+        forceDescription:
+          'Deze verplaatsing lijkt nog te lopen, maar is al lang niet veranderd. Forceer het herstel alleen als haar Workflow is gestopt: loopt die nog, dan werken ze allebei tegelijk op de databases.',
+        done: 'Herstel afgerond: de verplaatsing is {status}.',
+        incomplete: 'Het herstel is nog niet compleet. Voer het opnieuw uit.',
+      },
+
+      errors: {
+        notConfigured:
+          'De workspace-worker is niet ingesteld voor deze console (WORKSPACE_WORKER_URL, WORKSPACE_ADMIN_SECRET).',
+        notAuthorized: 'Geen toegang',
+        invalidWorkspace: 'Onbekende werkruimte.',
+        invalidTarget: 'Kies waar de database heen moet.',
+        invalidReason: 'Geef een reden van 3 tot 2000 tekens.',
+        invalidMove: 'Onbekende verplaatsing.',
+        invalidShard: 'Onbekende shard.',
+      },
     },
   },
 };

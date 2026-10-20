@@ -31,6 +31,7 @@ import {
   kvDelete,
   kvGetJson,
   kvPutJson,
+  MAX_VERIFY_ATTEMPTS,
   otpKvKey,
   OTP_TTL_SECONDS,
   pickerKvKey,
@@ -43,6 +44,10 @@ import {
   type PortalChallenge,
   type PortalPicker,
   type PortalSession,
+  recordRateLimitHit,
+  underRateLimit,
+  VERIFY_RATE_LIMIT_EMAIL_MAX,
+  VERIFY_RATE_LIMIT_WORKSPACE_MAX,
 } from '@weldsuite/commerce-domain/portal-tokens';
 import { sendPortalMagicLinkEmail } from '../../services/commerce-portal-mail';
 import {
@@ -195,29 +200,28 @@ type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 type PortalAccessRow = typeof schema.commercePortalAccess.$inferSelect;
 
 /**
- * Challenges are stored per-email. We don't know the email from a token
- * alone, so scan isn't possible — callers send email via the OTP path, and
- * magic-link tokens include the email by looking up... we stored email
- * inside the challenge keyed by email. Magic-link verify therefore needs
- * the email OR we store a reverse index.
- *
- * Reverse index: cportal:tok:{tokenHash} → email. Written alongside the challenge.
+ * Challenges are stored per workspace + email. A magic-link token is 256 bits,
+ * so it has a reverse index (cportal:tok:{tokenHash} → email) written next to
+ * the challenge. The 6-digit OTP has NO reverse index: the buyer sends their
+ * email with it, so a wrong guess hits a known challenge and is counted.
  */
-async function resolveChallengeEmail(env: Env, presentedHash: string): Promise<string | undefined> {
-  // Prefer reverse lookup for magic-link tokens.
-  const reverse = await kvGetJson<{ email: string }>(env, `cportal:tok:${presentedHash}`);
-  if (reverse?.email) return reverse.email;
-
-  // OTP path: client may retry without email. Scan isn't available; require
-  // that request() wrote a reverse index for both token and otp hashes.
-  const otpReverse = await kvGetJson<{ email: string }>(env, `cportal:otpidx:${presentedHash}`);
-  return otpReverse?.email;
+async function resolveChallengeEmail(
+  env: Env,
+  body: { token?: string; email?: string },
+  presentedHash: string,
+): Promise<string | undefined> {
+  if (body.token) {
+    const reverse = await kvGetJson<{ email: string }>(env, `cportal:tok:${presentedHash}`);
+    return reverse?.email;
+  }
+  return body.email ? normalizeEmail(body.email) : undefined;
 }
 
 /**
  * Load the stored challenge and check the presented token/OTP against it.
- * Returns null when the challenge is missing, exhausted, or does not match
- * (counting the failed attempt).
+ * Returns null when the challenge is missing, exhausted, or does not match.
+ * Every failed attempt is counted, and the challenge is invalidated (token
+ * index included) once MAX_VERIFY_ATTEMPTS wrong guesses have been made.
  */
 async function loadMatchingChallenge(
   env: Env,
@@ -226,15 +230,20 @@ async function loadMatchingChallenge(
   const { workspaceId, email, presentedHash, token, otp } = args;
   const challenge = await kvGetJson<PortalChallenge>(env, otpKvKey(workspaceId, email));
   if (!challenge) return null;
-  if (challenge.attempts >= 8) {
-    await kvDelete(env, otpKvKey(workspaceId, email));
+  if (challenge.attempts >= MAX_VERIFY_ATTEMPTS) {
+    await deleteChallenge(env, challenge);
     return null;
   }
 
   const tokenOk = token && challenge.tokenHash === presentedHash;
   const otpOk = otp && challenge.otpHash === presentedHash;
   if (!tokenOk && !otpOk) {
-    await kvPutJson(env, otpKvKey(workspaceId, email), { ...challenge, attempts: challenge.attempts + 1 }, OTP_TTL_SECONDS);
+    const attempts = challenge.attempts + 1;
+    if (attempts >= MAX_VERIFY_ATTEMPTS) {
+      await deleteChallenge(env, challenge);
+    } else {
+      await kvPutJson(env, otpKvKey(workspaceId, email), { ...challenge, attempts }, OTP_TTL_SECONDS);
+    }
     return null;
   }
   return challenge;
@@ -291,15 +300,32 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
   if (!workspaceId) return error.unauthorized(c, 'Invalid or expired code');
 
   try {
+    // Only failed attempts count, keyed on the workspace and, for the guessable
+    // OTP, on the buyer's email. Not on IP: every buyer arrives through the
+    // portal's Next server, so an IP key would let 20 junk codes lock out all
+    // buyers, and successful sign-ins would use up the budget too.
+    const limits: Array<[key: string, max: number]> = [['verify-ws', VERIFY_RATE_LIMIT_WORKSPACE_MAX]];
+    if (body.otp && body.email) {
+      limits.push([`verify-e:${normalizeEmail(body.email)}`, VERIFY_RATE_LIMIT_EMAIL_MAX]);
+    }
+    const allowed = await Promise.all(limits.map(([key, max]) => underRateLimit(c.env, workspaceId, key, max)));
+    if (allowed.includes(false)) {
+      return c.json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } }, 429);
+    }
+    const failed = async () => {
+      for (const [key] of limits) await recordRateLimitHit(c.env, workspaceId, key);
+      return error.unauthorized(c, 'Invalid or expired code');
+    };
+
     const settings = await requireEnabled(db);
     if (!settings) return error.unauthorized(c, 'Invalid or expired code');
 
     const presented = body.token || body.otp;
-    if (!presented) return error.unauthorized(c, 'Invalid or expired code');
+    if (!presented) return failed();
     const presentedHash = await sha256Hex(presented);
 
-    const email = await resolveChallengeEmail(c.env, presentedHash);
-    if (!email) return error.unauthorized(c, 'Invalid or expired code');
+    const email = await resolveChallengeEmail(c.env, body, presentedHash);
+    if (!email) return failed();
 
     const challenge = await loadMatchingChallenge(c.env, {
       workspaceId,
@@ -308,7 +334,7 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
       token: body.token,
       otp: body.otp,
     });
-    if (!challenge) return error.unauthorized(c, 'Invalid or expired code');
+    if (!challenge) return failed();
 
     const accessRows = await db
       .select()
@@ -320,7 +346,7 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
         ),
       );
 
-    if (accessRows.length === 0) return error.unauthorized(c, 'Invalid or expired code');
+    if (accessRows.length === 0) return failed();
 
     await deleteChallenge(c.env, challenge);
 

@@ -11,7 +11,7 @@
 import { and, count, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getRoleRowPermissions } from '@weldsuite/permissions';
+import { checkPermissionGrants, getRoleRowPermissions, type PermissionSubject } from '@weldsuite/permissions';
 
 const { roles, workspaceMembers, workspaceInstalledApps } = schema;
 
@@ -242,11 +242,38 @@ export interface CreateRoleArgs {
   copyFromRoleId?: string;
 }
 
+/** Permissions the caller may not hand out (see `checkPermissionGrants`). */
+export interface UngrantablePermissions {
+  ok: false;
+  reason: 'ungrantable';
+  invalid: string[];
+  notHeld: string[];
+}
+
 export type CreateRoleResult =
   | { ok: true; role: RoleRow }
-  | { ok: false; reason: RoleNameProblem };
+  | { ok: false; reason: RoleNameProblem }
+  | UngrantablePermissions;
 
-export async function createRole(db: Database, args: CreateRoleArgs): Promise<CreateRoleResult> {
+function ungrantable(
+  grantor: PermissionSubject,
+  permissions: readonly string[],
+  alreadyGranted: readonly string[] = [],
+): UngrantablePermissions | null {
+  const check = checkPermissionGrants(grantor, permissions, alreadyGranted);
+  return check.ok ? null : { ok: false, reason: 'ungrantable', invalid: check.invalid, notHeld: check.notHeld };
+}
+
+/**
+ * Create a custom role. `grantor` is the caller's resolved permissions: every
+ * permission the new role carries (copied ones included) must be one the
+ * caller holds, so `roles:create` can never mint more access than its holder.
+ */
+export async function createRole(
+  db: Database,
+  args: CreateRoleArgs,
+  grantor: PermissionSubject,
+): Promise<CreateRoleResult> {
   const name = args.name.trim();
   const problem = await checkRoleName(db, name);
   if (problem) return { ok: false, reason: problem };
@@ -267,6 +294,9 @@ export async function createRole(db: Database, args: CreateRoleArgs): Promise<Cr
       if (!args.apps && source.apps) apps = source.apps as string[];
     }
   }
+
+  const refused = ungrantable(grantor, permissions);
+  if (refused) return refused;
 
   const id = generateId('role');
   await db.insert(roles).values({
@@ -293,12 +323,18 @@ export interface UpdateRoleArgs {
 
 export type UpdateRoleResult =
   | { ok: true; role: RoleRow }
-  | { ok: false; reason: 'not_found' | 'system' | RoleNameProblem };
+  | { ok: false; reason: 'not_found' | 'system' | RoleNameProblem }
+  | UngrantablePermissions;
 
+/**
+ * Update a custom role. Permissions the role already has are kept as they are;
+ * any permission being ADDED must be one `grantor` holds.
+ */
 export async function updateRole(
   db: Database,
   roleId: string,
   args: UpdateRoleArgs,
+  grantor: PermissionSubject,
 ): Promise<UpdateRoleResult> {
   const [existing] = await db
     .select()
@@ -317,7 +353,11 @@ export async function updateRole(
     updateData.name = name;
   }
   if (args.description !== undefined) updateData.description = args.description;
-  if (args.permissions !== undefined) updateData.permissions = args.permissions;
+  if (args.permissions !== undefined) {
+    const refused = ungrantable(grantor, args.permissions, getRoleRowPermissions(existing));
+    if (refused) return refused;
+    updateData.permissions = args.permissions;
+  }
   if (args.apps !== undefined) updateData.apps = args.apps;
 
   await db.update(roles).set(updateData).where(eq(roles.id, roleId));

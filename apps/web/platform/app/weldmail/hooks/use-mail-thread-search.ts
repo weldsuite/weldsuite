@@ -9,6 +9,7 @@ export function normalizeThreadSearch(filter: MailThreadSearch): MailThreadSearc
   if (text(filter.from)) out.from = text(filter.from);
   if (text(filter.to)) out.to = text(filter.to);
   if (text(filter.subject)) out.subject = text(filter.subject);
+  if (text(filter.excludeWords)) out.excludeWords = text(filter.excludeWords);
   if (filter.hasAttachment) out.hasAttachment = true;
   return out;
 }

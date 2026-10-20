@@ -36,7 +36,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otp, slug }),
+        body: JSON.stringify({ otp, email, slug }),
       });
       const json = await res.json();
       if (json.data?.needsCompanyPicker) {
@@ -84,7 +84,7 @@ export default function LoginPage() {
               className="mt-1 w-full rounded-md border px-3 py-2 tracking-widest"
             />
           </label>
-          <button type="submit" disabled={busy || otp.length < 4} className="w-full rounded-md border py-2 text-sm">
+          <button type="submit" disabled={busy || otp.length < 4 || !email} className="w-full rounded-md border py-2 text-sm">
             {t.verify}
           </button>
         </form>

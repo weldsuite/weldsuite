@@ -2,7 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { eq, and, isNull, or, gt } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { neon } from '@neondatabase/serverless';
-import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
+import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import postgres from 'postgres';
 import { apiKeys } from '@weldsuite/db/schema/api-keys';
 import { workspaceApiKeys } from '@weldsuite/db/schema/workspace-api-keys';
@@ -10,9 +10,12 @@ import * as tenantSchema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import { keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import { openCacheEntry, sealCacheEntry } from '@weldsuite/db/lib/workspace-url-cache';
 import type { ApiKeySession, HonoEnv } from '../types';
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import { error } from '../lib/response';
+import { classifyMovedDatabaseError, databaseMoveInProgressSql } from '@weldsuite/worker-kit/workspace-moving';
+import { forgetWorkspaceDetails, workspaceDetailsCacheKey } from '../lib/workspace-cache';
 import { workspaceRestrictions } from './licence';
 import { resolveClerkOrgId } from '../lib/social-context';
 
@@ -45,12 +48,16 @@ interface CachedWorkspaceDetails {
    */
   licensedApps?: string[] | null;
   /**
-   * Partner suspended or licence inactive (writes are refused). Absent on
-   * entries cached before it was added, read as writable.
+   * Partner suspended, licence inactive or database being moved (writes are
+   * refused; a move is reason `database_move`, answered with a retryable 503).
+   * Absent on entries cached before it was added, read as writable.
    */
   readOnly?: boolean;
-  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | 'database_move' | null;
 }
+
+/** What lands in KV: the connection string sealed, never in the clear. */
+type StoredWorkspaceDetails = Omit<CachedWorkspaceDetails, 'databaseUrl'> & { databaseUrlSealed?: string };
 
 interface CachedAppToken {
   workspaceId: string;
@@ -157,7 +164,10 @@ async function getRegistryEntry(
 }
 
 /**
- * Look up workspace details (databaseUrl resolved via Neon API, plan tier), with KV cache
+ * Look up workspace details (databaseUrl resolved via Neon API, plan tier), with KV cache.
+ * The cached connection string is sealed with `encryptionKey`; without a key
+ * nothing is cached. Sealed entries live under `wsx:id:<id>`, never the old
+ * plaintext `ws:<id>`.
  */
 export async function getWorkspaceDetails(
   kv: KVNamespace,
@@ -166,11 +176,14 @@ export async function getWorkspaceDetails(
   neonApiKey: string,
   encryptionKey?: string | EncryptionKeyring,
 ): Promise<CachedWorkspaceDetails | null> {
-  const cacheKey = `ws:${workspaceId}`;
+  const cacheKey = workspaceDetailsCacheKey(workspaceId);
 
-  // 1. Check KV cache
-  const cached = await kv.get(cacheKey, 'json') as CachedWorkspaceDetails | null;
-  if (cached) return cached;
+  // 1. Check KV cache (a sealed URL we cannot open reads as a miss)
+  const cached = await kv.get(cacheKey, 'json') as StoredWorkspaceDetails | null;
+  if (cached) {
+    const opened = await openCacheEntry(cached, encryptionKey);
+    if (opened) return opened;
+  }
 
   // 2. Cache miss — query master DB for Neon metadata + plan
   const [row] = await masterDb
@@ -186,6 +199,7 @@ export async function getWorkspaceDetails(
       licenceStatus: masterSchema.workspaceLicences.status,
       licenceApps: masterSchema.workspaceLicences.allowedApps,
       partnerStatus: masterSchema.partners.status,
+      databaseMoveInProgress: databaseMoveInProgressSql(),
     })
     .from(masterSchema.workspaces)
     .leftJoin(masterSchema.plans, eq(masterSchema.workspaces.planId, masterSchema.plans.id))
@@ -216,9 +230,14 @@ export async function getWorkspaceDetails(
       licenceStatus: row.licenceStatus,
       licenceApps: row.licenceApps,
       partnerStatus: row.partnerStatus,
+      databaseMoveInProgress: row.databaseMoveInProgress,
     }),
   };
-  await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
+  // No key → nothing to seal with → do not cache (never a plaintext fallback).
+  const stored: StoredWorkspaceDetails | null = await sealCacheEntry(result, encryptionKey);
+  if (stored) {
+    await kv.put(cacheKey, JSON.stringify(stored), { expirationTtl: KV_TTL_SECONDS });
+  }
 
   return result;
 }
@@ -226,6 +245,99 @@ export async function getWorkspaceDetails(
 // ============================================================================
 // API Key Validation
 // ============================================================================
+
+/** A key the tenant database confirmed is live: not deleted, not expired. */
+interface VerifiedTenantKey {
+  id: string;
+  keyType: 'workspace' | 'personal';
+  /** Owner of a personal key, null for a workspace key. */
+  userId: string | null;
+  scopes: string[];
+}
+
+type TenantHttpDb = NeonHttpDatabase<typeof tenantSchema>;
+
+/** Verify a workspace key live in the tenant database (revoked or expired keys are rejected). */
+async function verifyWorkspaceKey(
+  tenantDb: TenantHttpDb,
+  keyId: string,
+  now: Date,
+  moving: boolean,
+): Promise<VerifiedTenantKey | null> {
+  const [workspaceKey] = await tenantDb
+    .select()
+    .from(workspaceApiKeys)
+    .where(
+      and(
+        eq(workspaceApiKeys.id, keyId),
+        isNull(workspaceApiKeys.deletedAt),
+        or(isNull(workspaceApiKeys.expiresAt), gt(workspaceApiKeys.expiresAt, now))
+      )
+    )
+    .limit(1);
+
+  if (!workspaceKey) {
+    return null;
+  }
+
+  // Fire-and-forget lastUsedAt update (not while a database move copies it)
+  if (!moving) {
+    tenantDb
+      .update(workspaceApiKeys)
+      .set({ lastUsedAt: now })
+      .where(eq(workspaceApiKeys.id, workspaceKey.id))
+      .execute()
+      .catch(console.error);
+  }
+
+  return {
+    id: workspaceKey.id,
+    keyType: 'workspace',
+    userId: null,
+    scopes: (workspaceKey.scopes as string[]) || [],
+  };
+}
+
+/** Verify a personal key live in the tenant database (revoked or expired keys are rejected). */
+async function verifyPersonalKey(
+  tenantDb: TenantHttpDb,
+  keyId: string,
+  now: Date,
+  moving: boolean,
+): Promise<VerifiedTenantKey | null> {
+  const [personalKey] = await tenantDb
+    .select()
+    .from(apiKeys)
+    .where(
+      and(
+        eq(apiKeys.id, keyId),
+        isNull(apiKeys.deletedAt),
+        or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now))
+      )
+    )
+    .limit(1);
+
+  if (!personalKey) {
+    return null;
+  }
+
+  // Fire-and-forget lastUsedAt update (not while a database move copies it)
+  if (!moving) {
+    tenantDb
+      .update(apiKeys)
+      .set({ lastUsedAt: now })
+      .where(eq(apiKeys.id, personalKey.id))
+      .execute()
+      .catch(console.error);
+  }
+
+  return {
+    id: personalKey.id,
+    keyType: 'personal',
+    userId: personalKey.userId,
+    scopes: (personalKey.scopes as string[]) || [],
+  };
+}
 
 /**
  * Validate API key using KV-cached master lookups + workspace DB via Neon HTTP
@@ -241,6 +353,9 @@ async function validateApiKey(
   c: Context<HonoEnv>,
   apiKey: string
 ): Promise<ApiKeySession | null> {
+  // Known once the registry lookup has answered; names the cache entry to drop
+  // if the tenant database turns out to have moved.
+  let workspaceId: string | null = null;
   try {
     const keyHash = await hashApiKey(apiKey);
     const now = new Date();
@@ -258,6 +373,7 @@ async function validateApiKey(
     if (!registryEntry) {
       return null;
     }
+    workspaceId = registryEntry.workspaceId;
 
     // Step 2: Workspace details (KV-cached, resolves connection URI via Neon API on miss)
     const workspace = await getWorkspaceDetails(kv, masterDb, registryEntry.workspaceId, c.env.NEON_API_KEY, keyringFromEnv(c.env));
@@ -265,89 +381,46 @@ async function validateApiKey(
       return null;
     }
 
+    // A database move is copying this workspace's tenant database: this runs
+    // before the licence gate refuses writes, so it must not write either
+    // (a `lastUsedAt` landing in the source after the copy would be lost).
+    const moving = workspace.readOnlyReason === 'database_move';
+
     // Step 3: Verify key in workspace DB (always live — catches revocations/expiry)
     const sql = neon(workspace.databaseUrl);
     const tenantDb = drizzleNeonHttp({ client: sql, schema: tenantSchema });
 
-    if (registryEntry.keyType === 'workspace') {
-      const [workspaceKey] = await tenantDb
-        .select()
-        .from(workspaceApiKeys)
-        .where(
-          and(
-            eq(workspaceApiKeys.id, registryEntry.tenantKeyId),
-            isNull(workspaceApiKeys.deletedAt),
-            or(isNull(workspaceApiKeys.expiresAt), gt(workspaceApiKeys.expiresAt, now))
-          )
-        )
-        .limit(1);
-
-      if (!workspaceKey) {
-        return null;
-      }
-
-      // Fire-and-forget lastUsedAt update
-      tenantDb
-        .update(workspaceApiKeys)
-        .set({ lastUsedAt: now })
-        .where(eq(workspaceApiKeys.id, workspaceKey.id))
-        .execute()
-        .catch(console.error);
-
-      return {
-        keyId: workspaceKey.id,
-        keyType: 'workspace',
-        workspaceId: registryEntry.workspaceId,
-        userId: null,
-        scopes: (workspaceKey.scopes as string[]) || [],
-        tier: workspace.tier,
-        databaseUrl: workspace.databaseUrl,
-        clerkOrgId: workspace.clerkOrgId,
-        licensedApps: workspace.licensedApps ?? null,
-        readOnly: workspace.readOnly ?? false,
-        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
-      };
-    } else {
-      // Personal key
-      const [personalKey] = await tenantDb
-        .select()
-        .from(apiKeys)
-        .where(
-          and(
-            eq(apiKeys.id, registryEntry.tenantKeyId),
-            isNull(apiKeys.deletedAt),
-            or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, now))
-          )
-        )
-        .limit(1);
-
-      if (!personalKey) {
-        return null;
-      }
-
-      // Fire-and-forget lastUsedAt update
-      tenantDb
-        .update(apiKeys)
-        .set({ lastUsedAt: now })
-        .where(eq(apiKeys.id, personalKey.id))
-        .execute()
-        .catch(console.error);
-
-      return {
-        keyId: personalKey.id,
-        keyType: 'personal',
-        workspaceId: registryEntry.workspaceId,
-        userId: personalKey.userId,
-        scopes: (personalKey.scopes as string[]) || [],
-        tier: workspace.tier,
-        databaseUrl: workspace.databaseUrl,
-        clerkOrgId: workspace.clerkOrgId,
-        licensedApps: workspace.licensedApps ?? null,
-        readOnly: workspace.readOnly ?? false,
-        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
-      };
+    const verifyKey = registryEntry.keyType === 'workspace' ? verifyWorkspaceKey : verifyPersonalKey;
+    const key = await verifyKey(tenantDb, registryEntry.tenantKeyId, now, moving);
+    if (!key) {
+      return null;
     }
+
+    return {
+      keyId: key.id,
+      keyType: key.keyType,
+      workspaceId: registryEntry.workspaceId,
+      userId: key.userId,
+      scopes: key.scopes,
+      tier: workspace.tier,
+      databaseUrl: workspace.databaseUrl,
+      clerkOrgId: workspace.clerkOrgId,
+      licensedApps: workspace.licensedApps ?? null,
+      readOnly: workspace.readOnly ?? false,
+      readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
+    };
   } catch (error) {
+    // The tenant database refused the key lookup because the workspace moved
+    // (source set read-only, or its role password rotated). That is not a bad
+    // key: let it reach the error handler, which answers 503 WORKSPACE_MOVING,
+    // instead of the 401 below. A rotated password also kills the cached URL.
+    const moved = classifyMovedDatabaseError(error);
+    if (moved) {
+      if (moved === 'password_rotated' && workspaceId) {
+        await forgetWorkspaceDetails(c.env.API_CACHE, workspaceId);
+      }
+      throw error;
+    }
     console.error('[API Auth] Error validating key:', error);
     return null;
   }

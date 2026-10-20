@@ -76,6 +76,24 @@ export const appApi = {
 };
 
 /**
+ * Absolute URL + auth headers for a binary (non-JSON) endpoint, e.g. an
+ * attachment download. Same origin routing and credentials as the client
+ * above (`path` is relative to `/api`, like `appApiClient.get`). Throws
+ * `Authentication required` without a session, like the client does.
+ */
+export async function getAppApiRequestInit(
+  path: string,
+): Promise<{ url: string; headers: Record<string, string> }> {
+  const token = await tokenGetter();
+  if (!token) throw new Error('Authentication required');
+  const fullPath = `/api${path}`;
+  return {
+    url: `${apiOrigins.originForPath(fullPath)}${fullPath}`,
+    headers: { Authorization: `Bearer ${token}`, 'X-Weld-App': 'weldmail' },
+  };
+}
+
+/**
  * Raw client for surfaces without a dedicated domain wrapper yet (e.g. people
  * / contacts in Phase 6). Returns the same `{ data }` / `{ data, pagination }`
  * envelopes and throws on non-2xx.

@@ -347,7 +347,8 @@ export function HistoryDialog({
                     <p className="text-xs text-muted-foreground">
                       <TimeAgo value={version.createdAt} />
                       <span className="ml-1 font-mono opacity-60">
-                        {version.checksum.slice(0, 8)}
+                        {/* Keyed checksums carry an `h1:` version tag; show the digest itself. */}
+                        {version.checksum.replace(/^h1:/, '').slice(0, 8)}
                       </span>
                     </p>
                   </div>

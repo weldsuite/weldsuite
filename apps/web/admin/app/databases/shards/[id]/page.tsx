@@ -7,7 +7,11 @@ import { formatDate } from '@/app/workspaces/workspace-presentation';
 import { requireAdmin } from '@/lib/auth';
 import { getShard } from '@/lib/databases-data';
 import { adminCopy, fill } from '@/lib/i18n';
+import { loadLiveDatabases } from '@/lib/workspace-worker';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
+import { ComputeCard } from '@/components/databases/compute-card';
+import { LiveStateNotice } from '@/components/databases/move-presentation';
+import { ShardSizesPanel } from '@/components/databases/shard-sizes-panel';
 import {
   Dash,
   DriftNotice,
@@ -21,17 +25,23 @@ import { ShardWorkspacesTable } from '@/components/databases/shard-workspaces-ta
 
 export const dynamic = 'force-dynamic';
 
-/** One shared shard: how full it is, the workspaces on it and its pool slots. Read-only. */
+/**
+ * One shared shard: how full it is, its live compute, the workspaces on it and
+ * its pool slots. Database sizes are measured on request only (it wakes the
+ * shard), never on page load.
+ */
 export default async function ShardPage(props: Readonly<{
   params: Promise<{ id: string }>;
 }>) {
-  await requireAdmin();
+  const identity = await requireAdmin();
   const { id } = await props.params;
 
-  const shard = await getShard(id);
+  const [shard, live] = await Promise.all([getShard(id), loadLiveDatabases(identity)]);
   if (!shard) notFound();
 
   const t = adminCopy().databases;
+  const liveShard = live.kind === 'ok' ? live.data.shards.find((entry) => entry.shardId === shard.id) : undefined;
+  const workspaceNames = Object.fromEntries(shard.workspaces.map((workspace) => [workspace.id, workspace.name]));
 
   const mono = (value: string | null) => (value ? <Mono>{value}</Mono> : <Dash />);
   const details: Array<[string, React.ReactNode]> = [
@@ -95,6 +105,11 @@ export default async function ShardPage(props: Readonly<{
             </dl>
           </CardContent>
         </Card>
+
+        <LiveStateNotice state={live} />
+        {live.kind === 'ok' && liveShard && <ComputeCard project={liveShard} checkedAt={live.data.fetchedAt} />}
+
+        <ShardSizesPanel shardId={shard.id} canMeasure={identity.role !== 'viewer'} workspaceNames={workspaceNames} />
 
         <section className="space-y-3">
           <SectionHeading icon={Building2} title={t.shard.workspaces.title} count={shard.workspaces.length} />

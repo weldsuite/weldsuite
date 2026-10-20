@@ -54,6 +54,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "STRIPE_SECRET_KEY",
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
+    // Authorises the admin console's database-move and shard-state API
+    // (/api/internal/admin/*, TASK-1150). The console (apps/web/admin) holds the
+    // same value in its own environment as WORKSPACE_ADMIN_SECRET, next to
+    // WORKSPACE_WORKER_URL. 32+ random characters; unset, those routes answer 503.
+    "WORKSPACE_ADMIN_SECRET",
     ["BETTERSTACK_TOKEN_WORKSPACE_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
@@ -540,6 +545,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     "TELNYX_SIP_CONNECTION_ID",
     "TELNYX_PUBLIC_KEY",
     "TELNYX_WEBHOOK_SECRET",
+    // Same value as billing-worker in the same env. fulfill-number re-reads the
+    // Stripe Checkout Session to verify payment before buying a Telnyx number.
+    "STRIPE_SECRET_KEY",
   ],
 
   // desk-api: the desk module's API worker (split from app-api). Base

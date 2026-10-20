@@ -13,6 +13,7 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { appSettingsKeys } from '@/hooks/queries/use-app-settings-queries';
+import { patchCachedImportant } from '@/app/weldmail/lib/important-cache';
 import type {
   AssignMailAccountUsersInput,
   CreateMailAccountInput,
@@ -48,6 +49,9 @@ export const mailKeys = {
   threadsByLabel: (params: Record<string, unknown>) =>
     [...mailKeys.all, 'threads-by-label', params] as const,
   labels: (accountId?: string) => [...mailKeys.all, 'labels', accountId] as const,
+  // Every label list (each account's, the unified one). `labels()` is not a prefix of
+  // `labels('acc')`: its trailing `undefined` only matches an undefined account.
+  labelsAll: () => [...mailKeys.all, 'labels'] as const,
   label: (id: string) => [...mailKeys.all, 'labels', 'detail', id] as const,
   drafts: (accountId?: string) => [...mailKeys.all, 'drafts', accountId] as const,
   draft: (id: string) => [...mailKeys.all, 'drafts', 'detail', id] as const,
@@ -237,6 +241,28 @@ export function useToggleMailStar() {
     mutationFn: ({ id, isStarred }: { id: string; isStarred: boolean }) =>
       mailMessages.update(id, { isStarred }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+    },
+  });
+}
+
+/**
+ * Mark a message important / not important. The cached message, thread and
+ * folder rows flip at once; the refetch afterwards (also on failure) puts the
+ * server's truth back.
+ */
+export function useToggleMailImportant() {
+  const { mailMessages } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, isImportant }: { id: string; isImportant: boolean }) =>
+      mailMessages.update(id, { isImportant }),
+    onMutate: ({ id, isImportant }) => {
+      qc.setQueriesData({ queryKey: mailKeys.all }, (cached: unknown) =>
+        patchCachedImportant(cached, id, isImportant),
+      );
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
     },
   });
@@ -499,7 +525,7 @@ export function useCreateMailLabel() {
   return useMutation({
     mutationFn: (data: CreateMailLabelInput) => mailLabels.create(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: mailKeys.labels() });
+      qc.invalidateQueries({ queryKey: mailKeys.labelsAll() });
     },
   });
 }
@@ -510,9 +536,8 @@ export function useUpdateMailLabel() {
   return useMutation({
     mutationFn: ({ id, ...fields }: { id: string } & UpdateMailLabelInput) =>
       mailLabels.update(id, fields),
-    onSuccess: (_res, { id }) => {
-      qc.invalidateQueries({ queryKey: mailKeys.label(id) });
-      qc.invalidateQueries({ queryKey: mailKeys.labels() });
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.labelsAll() });
     },
   });
 }
@@ -523,7 +548,7 @@ export function useDeleteMailLabel() {
   return useMutation({
     mutationFn: (id: string) => mailLabels.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: mailKeys.labels() });
+      qc.invalidateQueries({ queryKey: mailKeys.labelsAll() });
     },
   });
 }
@@ -590,6 +615,8 @@ export type MailThreadSearch = {
   from?: string;
   to?: string;
   subject?: string;
+  /** "Doesn't have": threads where any message has any of these words are left out. */
+  excludeWords?: string;
   hasAttachment?: boolean;
 };
 
@@ -610,6 +637,7 @@ export function useMailLabelThreads(
         from: params.from || undefined,
         to: params.to || undefined,
         subject: params.subject || undefined,
+        excludeWords: params.excludeWords || undefined,
         hasAttachment: params.hasAttachment || undefined,
       }),
     enabled: !!params.labelSlug && enabled,
@@ -635,6 +663,7 @@ export function useInfiniteMailLabelThreads(
     from: params.from || undefined,
     to: params.to || undefined,
     subject: params.subject || undefined,
+    excludeWords: params.excludeWords || undefined,
     hasAttachment: params.hasAttachment || undefined,
   });
 
@@ -650,6 +679,7 @@ export function useInfiniteMailLabelThreads(
         from: params.from || undefined,
         to: params.to || undefined,
         subject: params.subject || undefined,
+        excludeWords: params.excludeWords || undefined,
         hasAttachment: params.hasAttachment || undefined,
       }),
     initialPageParam: 1,
@@ -783,7 +813,22 @@ export function useSnoozeEmail() {
       qc.invalidateQueries({ queryKey: mailKeys.all });
     },
   });
-}export function useScheduledEmails(accountId?: string, enabled = true) {
+}
+
+/** Wake snoozed mail early: the given messages go back to the inbox. */
+export function useUnsnoozeEmail() {
+  const { mailSnooze } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ accountId, messageIds }: { accountId: string; messageIds: string[] }) =>
+      Promise.all(messageIds.map((messageId) => mailSnooze.unsnooze(accountId, messageId))),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+    },
+  });
+}
+
+export function useScheduledEmails(accountId?: string, enabled = true) {
   const { mailScheduled } = useAppApi();
   return useQuery({
     queryKey: mailKeys.scheduledEmails(accountId),

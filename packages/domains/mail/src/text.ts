@@ -2,10 +2,12 @@
  * Text helpers for outbound mail: the text/plain alternative, the list
  * preview and the quoted headers of a forward.
  *
- * Compose clients have sent the editor's HTML in `body` (the field meant for
+ * Older compose clients sent the editor's HTML in `body` (the field meant for
  * plain text), which put raw markup in the text/plain part of delivered mail
- * and in the Sent list preview. The send path therefore never trusts `body`
- * to be plain: it goes through `plainTextBody` first.
+ * and in the Sent list preview, so `plainTextBody` still strips tags from a
+ * `body` that arrives without an `htmlBody`, or with the very same markup in
+ * both fields. A client that sends a different `htmlBody` has declared `body`
+ * to be real plain text, and it is kept as typed.
  */
 
 const BLOCK_BREAK = /<\/(?:p|div|h[1-6]|li|tr|blockquote|pre|table|ul|ol)\s*>/gi;
@@ -62,12 +64,21 @@ export function htmlToText(html: string): string {
 }
 
 /**
- * The text/plain body to send and store: `body` when it is plain text, its
- * tag-free form when a client put HTML there, and otherwise the text of the
- * HTML body.
+ * The text/plain body to send and store. `htmlBody` must be the HTML the
+ * client sent, not one derived from `body`. A client that sends an `htmlBody`
+ * of its own declares `body` to be plain text, which is kept verbatim
+ * (`a < b and c > d <strong>` is text, not markup) -- unless it is the same
+ * markup as `htmlBody`, which is a legacy client that filled both fields with
+ * its editor HTML. Without an `htmlBody`, `body` may be that editor HTML too,
+ * so its tag-free form is used when it looks like markup. With no usable
+ * `body`, the text of the HTML body.
  */
 export function plainTextBody(body: string | undefined, htmlBody: string | undefined): string | undefined {
-  if (body && body.trim()) return looksLikeHtml(body) ? htmlToText(body) : body;
+  if (body && body.trim()) {
+    const declaredPlain = !!htmlBody && htmlBody.trim() !== '' && htmlBody.trim() !== body.trim();
+    if (declaredPlain) return body;
+    return looksLikeHtml(body) ? htmlToText(body) : body;
+  }
   if (htmlBody) return htmlToText(htmlBody) || undefined;
   return body;
 }

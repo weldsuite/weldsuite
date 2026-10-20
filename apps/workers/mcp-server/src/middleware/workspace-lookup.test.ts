@@ -9,7 +9,11 @@ vi.mock('@weldsuite/db/lib/neon-resolve', () => ({
   resolveDatabaseUrl: async () => 'postgres://resolved/tenant',
 }));
 
+import { sealCachedDatabaseUrl } from '@weldsuite/db/lib/workspace-url-cache';
 import { getWorkspaceForOrg } from './auth';
+
+const KEY = { v1: 'a'.repeat(64) };
+const OTHER_KEY = { v1: 'b'.repeat(64) };
 
 const baseRow = {
   id: 'ws_1',
@@ -38,7 +42,7 @@ function fakeMasterDb(row: Record<string, unknown>) {
 
 function fakeKv(initial?: unknown) {
   const store = new Map<string, string>();
-  if (initial !== undefined) store.set('mcp:org:org_1', JSON.stringify(initial));
+  if (initial !== undefined) store.set('mcpx:org:org_1', JSON.stringify(initial));
   return {
     kv: {
       get: async (k: string) => (store.has(k) ? JSON.parse(store.get(k)!) : null),
@@ -51,28 +55,110 @@ function fakeKv(initial?: unknown) {
 describe('mcp-server · getWorkspaceForOrg', () => {
   it('leaves a direct workspace unrestricted', async () => {
     const { kv, store } = fakeKv();
-    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon');
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon', KEY);
     expect(out).toMatchObject({ workspaceId: 'ws_1', licensedApps: null, readOnly: false, readOnlyReason: null });
-    expect(JSON.parse(store.get('mcp:org:org_1')!)).toMatchObject({ licensedApps: null, readOnly: false });
+    expect(JSON.parse(store.get('mcpx:org:org_1')!)).toMatchObject({ licensedApps: null, readOnly: false });
+  });
+
+  it('caches the connection string sealed, never in the clear', async () => {
+    const { kv, store } = fakeKv();
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon', KEY);
+    expect(out?.databaseUrl).toBe('postgres://resolved/tenant');
+    expect([...store.keys()]).toEqual(['mcpx:org:org_1']);
+    const raw = store.get('mcpx:org:org_1')!;
+    expect(raw).not.toContain('postgres');
+    expect(JSON.parse(raw)).not.toHaveProperty('databaseUrl');
+
+    // The sealed entry serves the next lookup with the URL restored.
+    const again = await getWorkspaceForOrg(kv, fakeMasterDb({ ...baseRow, id: 'ws_changed' }), 'org_1', 'neon', KEY);
+    expect(again).toMatchObject({ workspaceId: 'ws_1', databaseUrl: 'postgres://resolved/tenant' });
+    expect(again).not.toHaveProperty('databaseUrlSealed');
+  });
+
+  it('caches nothing when there is no encryption key', async () => {
+    const { kv, store } = fakeKv();
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon');
+    expect(out?.databaseUrl).toBe('postgres://resolved/tenant');
+    expect(store.size).toBe(0);
+  });
+
+  it('treats a plaintext or foreign-key entry as a miss and re-resolves', async () => {
+    const plain = fakeKv({ workspaceId: 'ws_evil', name: 'x', tier: 'business', databaseUrl: 'postgres://evil' });
+    expect((await getWorkspaceForOrg(plain.kv, fakeMasterDb(baseRow), 'org_1', 'neon', KEY))?.workspaceId).toBe('ws_1');
+
+    const foreign = fakeKv({
+      workspaceId: 'ws_evil',
+      name: 'x',
+      tier: 'business',
+      databaseUrlSealed: await sealCachedDatabaseUrl('postgres://other', OTHER_KEY),
+    });
+    expect((await getWorkspaceForOrg(foreign.kv, fakeMasterDb(baseRow), 'org_1', 'neon', KEY))?.workspaceId).toBe('ws_1');
   });
 
   it('licenses a partner workspace for its licence apps', async () => {
     const row = { ...baseRow, billingMode: 'partner', licenceStatus: 'active', licenceApps: ['weldcrm'], partnerStatus: 'active' };
-    const out = await getWorkspaceForOrg(fakeKv().kv, fakeMasterDb(row), 'org_1', 'neon');
+    const out = await getWorkspaceForOrg(fakeKv().kv, fakeMasterDb(row), 'org_1', 'neon', KEY);
     expect(out).toMatchObject({ licensedApps: ['weldcrm'], readOnly: false });
   });
 
   it('marks a suspended partner\'s workspace read-only', async () => {
     const row = { ...baseRow, billingMode: 'partner', licenceStatus: 'active', licenceApps: ['weldcrm'], partnerStatus: 'suspended' };
     const { kv, store } = fakeKv();
-    const out = await getWorkspaceForOrg(kv, fakeMasterDb(row), 'org_1', 'neon');
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb(row), 'org_1', 'neon', KEY);
     expect(out).toMatchObject({ readOnly: true, readOnlyReason: 'partner_suspended' });
-    expect(JSON.parse(store.get('mcp:org:org_1')!)).toMatchObject({ readOnly: true });
+    expect(JSON.parse(store.get('mcpx:org:org_1')!)).toMatchObject({ readOnly: true });
+  });
+
+  it('marks a workspace whose database is being moved read-only with reason database_move, and caches it', async () => {
+    const { kv, store } = fakeKv();
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb({ ...baseRow, databaseMoveInProgress: true }), 'org_1', 'neon', KEY);
+    expect(out).toMatchObject({ licensedApps: null, readOnly: true, readOnlyReason: 'database_move' });
+    expect(JSON.parse(store.get('mcpx:org:org_1')!)).toMatchObject({ readOnly: true, readOnlyReason: 'database_move' });
+  });
+
+  it('lets a move outrank a suspended partner and keeps the licensed apps', async () => {
+    const row = {
+      ...baseRow,
+      billingMode: 'partner',
+      licenceStatus: 'active',
+      licenceApps: ['weldcrm'],
+      partnerStatus: 'suspended',
+      databaseMoveInProgress: true,
+    };
+    const out = await getWorkspaceForOrg(fakeKv().kv, fakeMasterDb(row), 'org_1', 'neon', KEY);
+    expect(out).toMatchObject({ licensedApps: ['weldcrm'], readOnly: true, readOnlyReason: 'database_move' });
+  });
+
+  it('leaves a workspace writable when the row has no move (false, or a row without the column)', async () => {
+    for (const row of [{ ...baseRow, databaseMoveInProgress: false }, baseRow]) {
+      const out = await getWorkspaceForOrg(fakeKv().kv, fakeMasterDb(row), 'org_1', 'neon', KEY);
+      expect(out).toMatchObject({ readOnly: false, readOnlyReason: null });
+    }
+  });
+
+  it('serves a cached database_move entry as moving', async () => {
+    const { kv } = fakeKv({
+      workspaceId: 'ws_1',
+      name: 'Acme',
+      tier: 'business',
+      databaseUrlSealed: await sealCachedDatabaseUrl('postgres://cached', KEY),
+      licensedApps: null,
+      readOnly: true,
+      readOnlyReason: 'database_move',
+    });
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon', KEY);
+    expect(out).toMatchObject({ databaseUrl: 'postgres://cached', readOnly: true, readOnlyReason: 'database_move' });
   });
 
   it('reads an entry cached before the new fields existed as unrestricted and writable', async () => {
-    const { kv } = fakeKv({ workspaceId: 'ws_1', name: 'Acme', tier: 'business', databaseUrl: 'postgres://cached' });
-    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon');
+    const { kv } = fakeKv({
+      workspaceId: 'ws_1',
+      name: 'Acme',
+      tier: 'business',
+      databaseUrlSealed: await sealCachedDatabaseUrl('postgres://cached', KEY),
+    });
+    const out = await getWorkspaceForOrg(kv, fakeMasterDb(baseRow), 'org_1', 'neon', KEY);
+    expect(out?.databaseUrl).toBe('postgres://cached');
     expect(out?.licensedApps ?? null).toBeNull();
     expect(out?.readOnly ?? false).toBe(false);
   });

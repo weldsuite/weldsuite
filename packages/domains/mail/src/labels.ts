@@ -93,9 +93,12 @@ function hasLabel(label: string): SQL {
   return sql`${mailMessages.labels} @> ${JSON.stringify([label])}::jsonb`;
 }
 
-/** Messages in the trash or in spam: left out of every other folder listing. */
+/**
+ * Messages in the trash or in spam, by label or by the mirrored flag columns:
+ * left out of every other folder listing and of every label count.
+ */
 export function inTrashOrSpamCondition(): SQL {
-  return sql`(COALESCE(${mailMessages.labels}, '[]'::jsonb) @> '["TRASH"]'::jsonb OR COALESCE(${mailMessages.labels}, '[]'::jsonb) @> '["SPAM"]'::jsonb)`;
+  return sql`(COALESCE(${mailMessages.labels}, '[]'::jsonb) @> '["TRASH"]'::jsonb OR COALESCE(${mailMessages.labels}, '[]'::jsonb) @> '["SPAM"]'::jsonb OR COALESCE(${mailMessages.isTrash}, false) OR COALESCE(${mailMessages.isSpam}, false))`;
 }
 
 /**
@@ -146,6 +149,34 @@ export async function resolveCustomLabelNames(
     .from(mailLabels)
     .where(and(...conditions));
   return rows.map((r) => r.name);
+}
+
+/**
+ * User labels spelled the way the account's label row spells them. Messages
+ * keep a label by name, so `invoices` typed for the label `Invoices` would
+ * otherwise sit beside it as a second, uncounted label. System slugs and
+ * names without a label row pass through unchanged.
+ */
+export async function canonicalLabelNames(
+  db: Database,
+  accountId: string,
+  labels: string[],
+): Promise<string[]> {
+  const custom = labels.filter((l) => !toSystemLabel(l));
+  if (custom.length === 0) return labels;
+  const rows = await db
+    .select({ name: mailLabels.name })
+    .from(mailLabels)
+    .where(
+      and(
+        eq(mailLabels.accountId, accountId),
+        isNull(mailLabels.deletedAt),
+        sql`${mailLabels.isSystem} IS NOT TRUE`,
+        inArray(sql`LOWER(${mailLabels.name})`, custom.map((l) => l.toLowerCase())),
+      ),
+    );
+  const byLower = new Map(rows.map((r) => [r.name.toLowerCase(), r.name]));
+  return labels.map((l) => (toSystemLabel(l) ? l : (byLower.get(l.toLowerCase()) ?? l)));
 }
 
 /**
@@ -219,13 +250,56 @@ export interface ListLabelsFilters {
   accessibleAccountIds?: string[];
 }
 
-export function listMailLabels(db: Database, filters: ListLabelsFilters) {
+type MailLabelRow = typeof mailLabels.$inferSelect;
+
+/** What a label row is matched by on messages: a system label's slug, otherwise its name. */
+function labelRowKey(row: MailLabelRow): string {
+  return row.isSystem && row.slug ? row.slug : row.name;
+}
+
+/**
+ * Replace the stored `messageCount` of label rows with the number of live
+ * messages carrying the label. The column is a running tally that only some
+ * write paths bump (the single-message add route never did), so it drifts;
+ * the badge must agree with the folder it opens. Uses the folder listing's own
+ * `labelCondition` and trash/spam exclusion (a label's own Trash / Spam
+ * folder excepted), so the two cannot disagree.
+ */
+async function withLiveMessageCounts(db: Database, rows: MailLabelRow[]): Promise<MailLabelRow[]> {
+  if (rows.length === 0) return rows;
+  const accountIds = [...new Set(rows.map((r) => r.accountId))];
+  const keys = [...new Set(rows.map(labelRowKey))];
+  const live = sql`NOT ${inTrashOrSpamCondition()}`;
+  const selection: Record<string, SQL.Aliased<number>> = {};
+  keys.forEach((key, i) => {
+    const system = toSystemLabel(key);
+    const everywhere = system === SYSTEM_LABELS.TRASH || system === SYSTEM_LABELS.SPAM;
+    const matches = labelCondition(key);
+    const filter = everywhere ? matches : sql`${matches} AND ${live}`;
+    const alias = `c${i}`;
+    selection[alias] = sql<number>`count(*) FILTER (WHERE ${filter})::int`.as(alias);
+  });
+  const counted = await db
+    .select({ accountId: mailMessages.accountId, ...selection })
+    .from(mailMessages)
+    .where(and(isNull(mailMessages.deletedAt), inArray(mailMessages.accountId, accountIds)))
+    .groupBy(mailMessages.accountId);
+  const byAccount = new Map(counted.map((r) => [r.accountId, r as Record<string, unknown>]));
+  return rows.map((row) => {
+    const counts = byAccount.get(row.accountId);
+    const value = counts?.[`c${keys.indexOf(labelRowKey(row))}`];
+    return { ...row, messageCount: typeof value === 'number' ? value : 0 };
+  });
+}
+
+export async function listMailLabels(db: Database, filters: ListLabelsFilters) {
   const conditions: SQL[] = [isNull(mailLabels.deletedAt)!];
   if (filters.accountId) conditions.push(eq(mailLabels.accountId, filters.accountId));
   if (filters.accessibleAccountIds) {
     conditions.push(accountScopeCondition(mailLabels.accountId, filters.accessibleAccountIds));
   }
-  return db.select().from(mailLabels).where(and(...conditions));
+  const rows = await db.select().from(mailLabels).where(and(...conditions));
+  return withLiveMessageCounts(db, rows);
 }
 
 export async function getMailLabel(db: Database, id: string) {
@@ -234,7 +308,9 @@ export async function getMailLabel(db: Database, id: string) {
     .from(mailLabels)
     .where(and(eq(mailLabels.id, id), isNull(mailLabels.deletedAt)))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  const [counted] = await withLiveMessageCounts(db, [row]);
+  return counted ?? row;
 }
 
 export interface CreateMailLabelInput {
@@ -380,10 +456,11 @@ export async function updateMailLabel(
         handle
           .update(mailMessages)
           .set({
-            // `value` is a jsonb element, so the old name is compared as jsonb
-            // too: a bare text parameter is not valid JSON and fails the cast.
+            // `value` is a jsonb element, compared as text. A message can carry
+            // the name in another casing than the label row (a client typed it
+            // as it remembered it), and such a message is still the label's.
             labels: sql`(
-              SELECT jsonb_agg(CASE WHEN value = to_jsonb(${existing.name}::text) THEN to_jsonb(${newName}::text) ELSE value END)
+              SELECT jsonb_agg(CASE WHEN jsonb_typeof(value) = 'string' AND lower(value #>> '{}') = lower(${existing.name}::text) THEN to_jsonb(${newName}::text) ELSE value END)
               FROM jsonb_array_elements(${mailMessages.labels})
             )`,
             updatedAt: new Date(),
@@ -391,7 +468,10 @@ export async function updateMailLabel(
           .where(
             and(
               eq(mailMessages.accountId, existing.accountId),
-              hasLabel(existing.name),
+              sql`EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(COALESCE(${mailMessages.labels}, '[]'::jsonb)) AS carried(name)
+                WHERE lower(carried.name) = lower(${existing.name}::text)
+              )`,
               isNull(mailMessages.deletedAt),
             ),
           ),
@@ -401,7 +481,8 @@ export async function updateMailLabel(
   });
 
   const [after] = await db.select().from(mailLabels).where(eq(mailLabels.id, id));
-  return { before: existing, after: after! };
+  const [counted] = await withLiveMessageCounts(db, [after!]);
+  return { before: existing, after: counted ?? after! };
 }
 
 export async function deleteMailLabel(db: Database, id: string) {

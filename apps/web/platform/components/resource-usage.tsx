@@ -20,6 +20,8 @@ import { useI18n } from '@/lib/i18n/provider';
 
 interface ResourceUsageProps {
   collapsed?: boolean;
+  /** The sidebar renders its own UpgradeButton right below, so skip ours to avoid a duplicate. */
+  hideUpgrade?: boolean;
 }
 
 function UsageProgressBar({ value, thresholds, className }: Readonly<{
@@ -50,7 +52,7 @@ function UsageProgressBar({ value, thresholds, className }: Readonly<{
   );
 }
 
-export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps>) {
+export function ResourceUsage({ collapsed = false, hideUpgrade = false }: Readonly<ResourceUsageProps>) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
@@ -115,7 +117,7 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
                 <Button asChild size="sm" className="mt-1 w-full">
                   <Link href="/settings/billing">{format(t.partner.managed.moreCredits, { partner: managed.partner.name })}</Link>
                 </Button>
-              ) : (
+              ) : !hideUpgrade && (
                 <Button size="sm" className="mt-1 w-full" onClick={() => setPricingOpen(true)}>
                   {t.common.actions.upgrade}
                 </Button>
@@ -123,7 +125,7 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
             </TooltipContent>
           </Tooltip>
         </div>
-        {!managed && <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />}
+        {!managed && !hideUpgrade && <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />}
       </>
     );
   }
@@ -152,7 +154,7 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
         <Button asChild size="sm" className="mt-2.5 h-9 w-full">
           <Link href="/settings/billing">{format(t.partner.managed.moreCredits, { partner: managed.partner.name })}</Link>
         </Button>
-      ) : (
+      ) : !hideUpgrade && (
         <>
           <Button size="sm" className="mt-2.5 w-full h-9" onClick={() => setPricingOpen(true)}>
             {t.common.actions.upgrade}

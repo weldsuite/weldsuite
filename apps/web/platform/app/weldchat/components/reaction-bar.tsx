@@ -33,14 +33,16 @@ export function ReactionBar({
               );
             }}
             className={cn(
-              'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs border transition-colors',
+              // `h-6` overrides the Button's default `h-9`, which made the pill
+              // 36px tall and pushed the next message down.
+              'inline-flex items-center gap-1 h-6 px-1.5 py-0 rounded-md text-xs leading-none border transition-colors',
               hasReacted
-                ? 'bg-blue-600/10 border-blue-600/40 hover:bg-blue-600/20'
-                : 'bg-muted/40 border-border hover:bg-muted',
+                ? 'bg-blue-600/10 border-blue-600/40 hover:bg-blue-600/20 dark:hover:bg-blue-600/20'
+                : 'bg-muted/40 border-border hover:bg-muted dark:hover:bg-muted',
             )}
           >
             <span>{emoji}</span>
-            <span className={cn('tabular-nums', hasReacted ? 'text-blue-600' : 'text-muted-foreground')}>{userIds.length}</span>
+            <span className={cn('font-mono tabular-nums', hasReacted ? 'text-blue-600' : 'text-muted-foreground')}>{userIds.length}</span>
           </Button>
         );
       })}

@@ -981,13 +981,21 @@ app.post('/tools/:toolName', async (c) => {
   }
 });
 
+/**
+ * Fail closed: this receiver is public and drives call control, credit
+ * metering, desk message ingestion and porting completion, so a missing
+ * TELNYX_PUBLIC_KEY rejects every request rather than trusting unsigned ones.
+ */
 async function isTelnyxSignatureValid(
   env: TelnyxEnv,
   raw: string,
   signatureB64: string | null,
   timestamp: string | null,
 ): Promise<boolean> {
-  if (!env.TELNYX_PUBLIC_KEY) return true;
+  if (!env.TELNYX_PUBLIC_KEY) {
+    console.error('[Telnyx Webhook] TELNYX_PUBLIC_KEY not configured');
+    return false;
+  }
   return verifyTelnyxSignature({
     publicKeyB64: env.TELNYX_PUBLIC_KEY,
     rawBody: raw,

@@ -125,9 +125,9 @@ test.describe('WeldChat · live messaging (seed-gated)', () => {
     await page.goto(`/weldchat/${channel.id}`);
     await expect(page.getByTestId('chat-message-list')).toBeVisible({ timeout: 15_000 });
 
-    // Non-DM channels expose a "Show members" button that opens the channel
-    // panel on the People tab, which renders the MemberListPanel.
-    await page.getByRole('button', { name: /show members/i }).click();
+    // Clicking the channel name in the header opens the channel panel on the
+    // People tab, which renders the MemberListPanel.
+    await page.getByTestId('chat-channel-name').click();
     await expect(
       page.getByTestId('chat-member-row').first(),
     ).toBeVisible({ timeout: 10_000 });

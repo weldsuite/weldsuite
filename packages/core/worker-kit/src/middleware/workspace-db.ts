@@ -3,7 +3,8 @@
  * into the Hono context. Rejects requests without an active org (403
  * ORG_REQUIRED) and suspended workspaces (403 WORKSPACE_SUSPENDED). Also sets
  * the workspace licence (`licensedApps`) and read-only state (`readOnly`,
- * `readOnlyReason`) that `licenceGate()` checks.
+ * `readOnlyReason`, including `database_move` while the workspace's database is
+ * being moved) that `licenceGate()` checks.
  */
 
 import { createMiddleware } from 'hono/factory';

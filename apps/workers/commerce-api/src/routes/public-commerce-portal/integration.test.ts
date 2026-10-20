@@ -14,9 +14,13 @@ import { createTestApp } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
+  MAX_VERIFY_ATTEMPTS,
   otpKvKey,
+  rateLimitKvKey,
   sha256Hex,
   storeChallenge,
+  VERIFY_RATE_LIMIT_EMAIL_MAX,
+  VERIFY_RATE_LIMIT_WORKSPACE_MAX,
   type PortalChallenge,
 } from '@weldsuite/commerce-domain/portal-tokens';
 import type { Env } from '../../types';
@@ -82,9 +86,9 @@ function uid(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 }
 
-function portalApp(kv: MemoryKV) {
+function portalApp(kv: MemoryKV, workspaceId = 'org_test_default') {
   return createTestApp('/public/commerce-portal', publicCommercePortalRoutes, {
-    context: { tenantDb: db, workspaceId: 'org_test_default' },
+    context: { tenantDb: db, workspaceId },
     env: { WORKSPACE_CACHE: kv as unknown as KVNamespace },
   });
 }
@@ -291,6 +295,142 @@ describe('/public/commerce-portal · auth', () => {
       headers: { Authorization: `Bearer ${session}` },
     });
     expect(res.status).toBe(401);
+  });
+});
+
+describe('/public/commerce-portal · OTP brute force', () => {
+  const OTP = '123456';
+
+  async function seedOtpChallenge(kv: MemoryKV, workspaceId: string, accessId: string, email: string) {
+    const env = { WORKSPACE_CACHE: kv } as unknown as Env;
+    const challenge: PortalChallenge = {
+      tokenHash: await sha256Hex(`tok_${uid('t')}`),
+      otpHash: await sha256Hex(OTP),
+      email,
+      workspaceId,
+      accessIds: [accessId],
+      attempts: 0,
+    };
+    await storeChallenge(env, challenge, email);
+    return challenge;
+  }
+
+  function verify(kv: MemoryKV, body: Record<string, unknown>, workspaceId?: string) {
+    return portalApp(kv, workspaceId).request('/public/commerce-portal/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function seedBuyer(label: string) {
+    const email = `${label}.${uid('e')}@example.com`;
+    const { companyId } = await seedCompany(`${label} Co`);
+    const personId = await seedPerson(email, `${label} Buyer`);
+    await linkPerson(personId, companyId);
+    const accessId = await seedAccess({ personId, companyId, email, status: 'invited' });
+    return { email, accessId };
+  }
+
+  it('does not write a global OTP reverse index', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('noidx');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+    expect(kv.keys().some((k) => k.startsWith('cportal:otpidx:'))).toBe(false);
+  });
+
+  it('rejects an OTP sent without an email (400) and never resolves it globally', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('noemail');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+
+    const res = await verify(kv, { otp: OTP });
+    expect(res.status).toBe(400);
+    expect(kv.has(otpKvKey('org_test_default', email))).toBe(true);
+  });
+
+  it('signs in with the right OTP + email', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('okotp');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+
+    const res = await verify(kv, { otp: OTP, email: email.toUpperCase() });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { token: string } };
+    expect(body.data.token).toBeTruthy();
+  });
+
+  it('counts every wrong OTP guess and locks the challenge out at the cap', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('brute');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+    const key = otpKvKey('org_test_default', email);
+
+    const res1 = await verify(kv, { otp: '000001', email });
+    expect(res1.status).toBe(401);
+    expect(((await kv.get(key, 'json')) as PortalChallenge).attempts).toBe(1);
+    const res2 = await verify(kv, { otp: '000002', email });
+    expect(res2.status).toBe(401);
+    expect(((await kv.get(key, 'json')) as PortalChallenge).attempts).toBe(2);
+
+    for (let i = 3; i <= MAX_VERIFY_ATTEMPTS; i++) {
+      expect((await verify(kv, { otp: String(i).padStart(6, '0'), email })).status).toBe(401);
+    }
+    // Challenge is gone (token index too), so even the correct code now fails.
+    expect(kv.has(key)).toBe(false);
+    expect(kv.keys().some((k) => k.startsWith('cportal:tok:'))).toBe(false);
+    const correct = await verify(kv, { otp: OTP, email });
+    expect(correct.status).toBe(401);
+  });
+
+  it('rate limits failed OTP verifies per email, not for other buyers', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    for (let i = 0; i < VERIFY_RATE_LIMIT_EMAIL_MAX; i++) {
+      const res = await verify(kv, { otp: '999999', email: 'spray@example.com' });
+      expect(res.status).toBe(401);
+    }
+    const blocked = await verify(kv, { otp: '999999', email: 'spray@example.com' });
+    expect(blocked.status).toBe(429);
+    const other = await verify(kv, { otp: '999999', email: 'other@example.com' });
+    expect(other.status).toBe(401);
+  });
+
+  it('does not count successful verifies against the limits', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('counted');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+    expect((await verify(kv, { otp: OTP, email })).status).toBe(200);
+    expect(kv.has(rateLimitKvKey('org_test_default', 'verify-ws'))).toBe(false);
+    expect(kv.has(rateLimitKvKey('org_test_default', `verify-e:${email}`))).toBe(false);
+  });
+
+  it('rate limits /auth/verify per workspace across IPs', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    await kv.put(
+      rateLimitKvKey('org_test_default', 'verify-ws'),
+      JSON.stringify({ count: VERIFY_RATE_LIMIT_WORKSPACE_MAX }),
+    );
+    const res = await verify(kv, { otp: '999999', email: 'someone@example.com' });
+    expect(res.status).toBe(429);
+  });
+
+  it('scopes the challenge to the workspace: another workspace cannot verify it', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const { email, accessId } = await seedBuyer('crossws');
+    await seedOtpChallenge(kv, 'org_test_default', accessId, email);
+
+    const res = await verify(kv, { otp: OTP, email }, 'org_other');
+    expect(res.status).toBe(401);
+    const stored = (await kv.get(otpKvKey('org_test_default', email), 'json')) as PortalChallenge;
+    expect(stored.attempts).toBe(0);
   });
 });
 

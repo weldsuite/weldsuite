@@ -24,6 +24,15 @@ export const OTP_TTL_SECONDS = 15 * 60;
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const RATE_LIMIT_TTL_SECONDS = 15 * 60;
 export const RATE_LIMIT_MAX = 5;
+/** Wrong guesses a challenge survives before it is invalidated. */
+export const MAX_VERIFY_ATTEMPTS = 8;
+/**
+ * Failed verify calls per 15 minutes: per buyer email (OTP path), and per
+ * workspace across all buyers. Not per IP: buyers reach the worker through the
+ * portal's Next server, so they all share its egress IP.
+ */
+export const VERIFY_RATE_LIMIT_EMAIL_MAX = 20;
+export const VERIFY_RATE_LIMIT_WORKSPACE_MAX = 200;
 
 export interface PortalChallenge {
   tokenHash: string;
@@ -105,6 +114,13 @@ export async function kvDelete(env: PortalKvEnv, key: string): Promise<void> {
   await env.WORKSPACE_CACHE.delete(key);
 }
 
+/**
+ * Store a challenge keyed by workspace + email. Only the magic-link token has
+ * a reverse index (`cportal:tok:`): it carries 256 bits of entropy, so a
+ * global key is safe. The 6-digit OTP deliberately has NO reverse index: the
+ * buyer sends their email with it, so every wrong guess lands on a known
+ * challenge and counts against {@link MAX_VERIFY_ATTEMPTS}.
+ */
 export async function storeChallenge(
   env: PortalKvEnv,
   challenge: PortalChallenge,
@@ -113,19 +129,40 @@ export async function storeChallenge(
   const normalized = email.trim().toLowerCase();
   await kvPutJson(env, otpKvKey(challenge.workspaceId, normalized), challenge, OTP_TTL_SECONDS);
   await kvPutJson(env, `cportal:tok:${challenge.tokenHash}`, { email: normalized }, OTP_TTL_SECONDS);
-  await kvPutJson(env, `cportal:otpidx:${challenge.otpHash}`, { email: normalized }, OTP_TTL_SECONDS);
 }
 
 export async function deleteChallenge(env: PortalKvEnv, challenge: PortalChallenge): Promise<void> {
   await kvDelete(env, otpKvKey(challenge.workspaceId, challenge.email));
   await kvDelete(env, `cportal:tok:${challenge.tokenHash}`);
-  await kvDelete(env, `cportal:otpidx:${challenge.otpHash}`);
 }
 
-export async function consumeRateLimit(env: PortalKvEnv, workspaceId: string, email: string): Promise<boolean> {
+/** True while `key` is under `max` hits in the current window. Counts nothing. */
+export async function underRateLimit(
+  env: PortalKvEnv,
+  workspaceId: string,
+  key: string,
+  max: number,
+): Promise<boolean> {
+  const current = await kvGetJson<{ count: number }>(env, rateLimitKvKey(workspaceId, key));
+  return (current?.count ?? 0) < max;
+}
+
+/** Count one hit against `key`, e.g. a failed attempt gated by `underRateLimit`. */
+export async function recordRateLimitHit(env: PortalKvEnv, workspaceId: string, key: string): Promise<void> {
+  const rlKey = rateLimitKvKey(workspaceId, key);
+  const current = (await kvGetJson<{ count: number }>(env, rlKey)) ?? { count: 0 };
+  await kvPutJson(env, rlKey, { count: current.count + 1 }, RATE_LIMIT_TTL_SECONDS);
+}
+
+export async function consumeRateLimit(
+  env: PortalKvEnv,
+  workspaceId: string,
+  email: string,
+  max: number = RATE_LIMIT_MAX,
+): Promise<boolean> {
   const key = rateLimitKvKey(workspaceId, email);
   const current = (await kvGetJson<{ count: number }>(env, key)) ?? { count: 0 };
-  if (current.count >= RATE_LIMIT_MAX) return false;
+  if (current.count >= max) return false;
   await kvPutJson(env, key, { count: current.count + 1 }, RATE_LIMIT_TTL_SECONDS);
   return true;
 }

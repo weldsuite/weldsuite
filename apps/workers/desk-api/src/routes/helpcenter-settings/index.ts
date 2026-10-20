@@ -15,6 +15,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { randomString } from '@weldsuite/worker-kit/random';
 import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { createDnsRecordInZone, deleteDnsRecordInZone, CloudflareZoneError } from '@weldsuite/cloudflare-zones';
 import { addHelpcenterDomain, removeHelpcenterDomain, isVercelConfigured, VercelError, VERCEL_CNAME_TARGET } from '../../lib/vercel';
@@ -367,7 +368,8 @@ async function persistCustomDomain(
   const db = c.get('tenantDb');
   const { helpcenterDomains, helpcenterSettings } = schema;
   const { domain, provisioned, settingsId, zoneId } = input;
-  const verificationToken = `welddesk-verify-${generateId('')}`;
+  // Proves domain ownership, so it must not be predictable (generateId is an id, not a secret).
+  const verificationToken = `welddesk-verify-${randomString(32)}`;
   const domainId = generateId('hcd');
   const now = new Date();
 

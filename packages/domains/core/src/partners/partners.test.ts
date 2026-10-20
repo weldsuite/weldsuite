@@ -143,26 +143,117 @@ describe('grantPartnerExtraCredits', () => {
 describe('invalidateWorkspaceContexts', () => {
   const kv = () => ({ delete: vi.fn(async (_key: string) => undefined) });
 
-  it('deletes the worker-kit, external-api and mcp-server keys', async () => {
+  it('deletes the sealed worker-kit, external-api and mcp-server keys and the old plaintext ones', async () => {
     const workspaceCache = kv();
     const apiCache = kv();
     await invalidateWorkspaceContexts(workspaceCache, ['org_1', null, 'org_2'], { apiCache, workspaceIds: ['ws_1', 'ws_2'] });
-    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['ws:org_1', 'ws:org_2']);
-    expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['mcp:org:org_1', 'mcp:org:org_2', 'ws:ws_1', 'ws:ws_2']);
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['ws:org_1', 'ws:org_2', 'wsx:org_1', 'wsx:org_2']);
+    expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'mcp:org:org_1',
+      'mcp:org:org_2',
+      'mcpx:org:org_1',
+      'mcpx:org:org_2',
+      'ws:ws_1',
+      'ws:ws_2',
+      'wsx:id:ws_1',
+      'wsx:id:ws_2',
+    ]);
   });
 
-  it('keeps the two-argument behaviour (only ws:<org> in WORKSPACE_CACHE)', async () => {
+  it('also deletes the tenant-database-only keys, sealed and plaintext, when asked (database moves)', async () => {
+    const workspaceCache = kv();
+    const apiCache = kv();
+    await invalidateWorkspaceContexts(workspaceCache, ['org_1'], {
+      apiCache,
+      workspaceIds: ['ws_1'],
+      databaseKeys: true,
+    });
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'ws:id:org_1',
+      'ws:id:ws_1',
+      'ws:org_1',
+      'wsid:ws_1',
+      'wsx:bill:org_1',
+      'wsx:bill:ws_1',
+      'wsx:id:ws_1',
+      'wsx:org_1',
+    ]);
+    expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'mcp:org:org_1',
+      'mcpx:org:org_1',
+      'ws:ws_1',
+      'wsx:id:ws_1',
+    ]);
+  });
+
+  it('keeps the licence callers as they were: no database-only keys unless databaseKeys is set', async () => {
+    const workspaceCache = kv();
+    await invalidateWorkspaceContexts(workspaceCache, ['org_1'], { workspaceIds: ['ws_1'] });
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0])).toEqual(['wsx:org_1', 'ws:org_1']);
+  });
+
+  it('keeps the two-argument behaviour (only the org keys in WORKSPACE_CACHE)', async () => {
     const workspaceCache = kv();
     await invalidateWorkspaceContexts(workspaceCache, ['org_1']);
-    expect(workspaceCache.delete).toHaveBeenCalledTimes(1);
+    expect(workspaceCache.delete).toHaveBeenCalledTimes(2);
+    expect(workspaceCache.delete).toHaveBeenCalledWith('wsx:org_1');
     expect(workspaceCache.delete).toHaveBeenCalledWith('ws:org_1');
+  });
+
+  it('deletes in a fixed order: org keys, then the database-only keys per org, then per workspace', async () => {
+    const order: string[] = [];
+    const workspaceCache = { delete: vi.fn(async (key: string) => void order.push(`kv ${key}`)) };
+    const apiCache = { delete: vi.fn(async (key: string) => void order.push(`api ${key}`)) };
+    await invalidateWorkspaceContexts(workspaceCache, ['org_1', 'org_2'], {
+      apiCache,
+      workspaceIds: ['ws_1', 'ws_2'],
+      databaseKeys: true,
+    });
+    expect(order).toEqual([
+      'kv wsx:org_1',
+      'kv ws:org_1',
+      'kv wsx:org_2',
+      'kv ws:org_2',
+      'kv wsx:bill:org_1',
+      'kv ws:id:org_1',
+      'kv wsx:bill:org_2',
+      'kv ws:id:org_2',
+      'kv wsx:id:ws_1',
+      'kv wsid:ws_1',
+      'kv wsx:bill:ws_1',
+      'kv ws:id:ws_1',
+      'kv wsx:id:ws_2',
+      'kv wsid:ws_2',
+      'kv wsx:bill:ws_2',
+      'kv ws:id:ws_2',
+      'api wsx:id:ws_1',
+      'api ws:ws_1',
+      'api wsx:id:ws_2',
+      'api ws:ws_2',
+      'api mcpx:org:org_1',
+      'api mcp:org:org_1',
+      'api mcpx:org:org_2',
+      'api mcp:org:org_2',
+    ]);
+  });
+
+  it('skips missing ids and deletes nothing without any', async () => {
+    const workspaceCache = kv();
+    const apiCache = kv();
+    await invalidateWorkspaceContexts(workspaceCache, [null, undefined, ''], {
+      apiCache,
+      workspaceIds: [null, undefined],
+      databaseKeys: true,
+    });
+    expect(workspaceCache.delete).not.toHaveBeenCalled();
+    expect(apiCache.delete).not.toHaveBeenCalled();
   });
 
   it('survives a failing delete and a missing handle', async () => {
     const workspaceCache = { delete: vi.fn(async (_key: string): Promise<void> => { throw new Error('kv'); }) };
     const apiCache = kv();
     await expect(invalidateWorkspaceContexts(workspaceCache, ['org_1'], { apiCache, workspaceIds: ['ws_1'] })).resolves.toBeUndefined();
-    expect(apiCache.delete).toHaveBeenCalledTimes(2);
+    expect(apiCache.delete).toHaveBeenCalledTimes(4);
     await expect(invalidateWorkspaceContexts(undefined, ['org_1'])).resolves.toBeUndefined();
   });
 });

@@ -12,8 +12,10 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import {
   addLabels,
   bulkAddLabelToMessages,
+  canonicalLabelNames,
   bulkRemoveLabelFromMessages,
   flagsForLabelChange,
+  inTrashOrSpamCondition,
   labelCondition,
   moveMessagesToLocation,
   removeLabels,
@@ -21,7 +23,7 @@ import {
   SYSTEM_LABELS,
 } from './labels';
 
-const { mailMessages, mailAttachments, mailDrafts, people: contacts } = schema;
+const { mailAccounts, mailMessages, mailAttachments, mailDrafts, people: contacts } = schema;
 
 // ---------------------------------------------------------------------------
 // Read
@@ -108,6 +110,28 @@ export function messageSearchCondition(search: string | undefined): SQL | undefi
         ilike(mailMessages.textBody, pattern),
         senderMatches(term),
         anyRecipientMatches(term),
+      )!;
+    }),
+  );
+}
+
+/**
+ * The mirror of `messageSearchCondition` for a "doesn't have" filter: the
+ * message contains ANY of the space-separated words in its subject, body or
+ * sender. Case-insensitive. Returns undefined for an empty list. A caller that
+ * lists threads negates it for the whole conversation, not one message.
+ */
+export function messageContainsAnyWord(words: string | undefined): SQL | undefined {
+  const terms = (words ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 10);
+  if (terms.length === 0) return undefined;
+  return or(
+    ...terms.map((term) => {
+      const pattern = containsPattern(term);
+      return or(
+        ilike(mailMessages.subject, pattern),
+        ilike(mailMessages.preview, pattern),
+        ilike(mailMessages.textBody, pattern),
+        senderMatches(term),
       )!;
     }),
   );
@@ -238,12 +262,39 @@ function buildContactLookups(
   return { nameMap, avatarMap };
 }
 
-async function enrichSenderContacts(
+/** `accountId::email` to display name, for senders that are the mailbox itself. */
+async function loadOwnMailboxNames(
   db: Database,
-  rows: Array<{ from: unknown }>,
+  rows: Array<{ accountId?: string | null }>,
+): Promise<Map<string, string>> {
+  const accountIds = [...new Set(rows.map((r) => r.accountId).filter((id): id is string => !!id))];
+  const names = new Map<string, string>();
+  if (accountIds.length === 0) return names;
+  const accounts = await db
+    .select({ id: mailAccounts.id, email: mailAccounts.email, displayName: mailAccounts.displayName })
+    .from(mailAccounts)
+    .where(inArray(mailAccounts.id, accountIds));
+  for (const a of accounts) {
+    const name = a.displayName?.trim();
+    if (a.email && name) names.set(`${a.id}::${a.email.toLowerCase()}`, name);
+  }
+  return names;
+}
+
+/**
+ * Resolve every sender's display name and avatar in place, the one rule the
+ * list rows, the thread summaries and the reading pane all share: the mailbox's
+ * own display name for mail from the mailbox itself, else the matching
+ * contact's name, else the From header's name (the address when it has none).
+ * A row without an `accountId` skips the own-mailbox rule.
+ */
+export async function enrichSenderContacts(
+  db: Database,
+  rows: Array<{ from: unknown; accountId?: string | null }>,
 ): Promise<void> {
   const senderEmails = collectSenderEmails(rows);
   if (senderEmails.size === 0) return;
+  const ownNames = await loadOwnMailboxNames(db, rows);
 
   const contactRows = await db
     .select({
@@ -261,7 +312,8 @@ async function enrichSenderContacts(
     const from = msg.from as { email?: string; name?: string } | null;
     if (from?.email) {
       const key = from.email.toLowerCase();
-      const contactName = nameMap.get(key);
+      const ownName = msg.accountId ? ownNames.get(`${msg.accountId}::${key}`) : undefined;
+      const contactName = ownName ?? nameMap.get(key);
       const avatarUrl = avatarMap.get(key);
       if (contactName || avatarUrl) {
         (msg as { from: unknown }).from = {
@@ -295,6 +347,8 @@ export async function getMessage(db: Database, id: string) {
     .where(and(eq(mailMessages.id, id), isNull(mailMessages.deletedAt)))
     .limit(1);
   if (!row) return null;
+  // Same sender names as the list shows for this message.
+  await enrichSenderContacts(db, [row]);
 
   const attachments = row.hasAttachments
     ? await db.select().from(mailAttachments).where(eq(mailAttachments.messageId, id))
@@ -320,6 +374,7 @@ export async function getThread(db: Database, messageId: string) {
       .from(mailMessages)
       .where(and(eq(mailMessages.id, messageId), isNull(mailMessages.deletedAt)))
       .limit(1);
+    await enrichSenderContacts(db, single);
     return { threadId: messageId, messages: single };
   }
 
@@ -334,6 +389,7 @@ export async function getThread(db: Database, messageId: string) {
       ),
     )
     .orderBy(asc(mailMessages.sentDate), asc(mailMessages.id));
+  await enrichSenderContacts(db, rows);
   return { threadId: anchor.threadId, messages: rows };
 }
 
@@ -371,7 +427,9 @@ const EMPTY_STATS: MessageStats = {
 /**
  * Folder counters for the mail sidebar. Trash and spam are counted on their
  * own and never towards another folder, the same rule the folder listings
- * follow. Drafts live in `mail_drafts`, so they are counted there.
+ * follow (`inTrashOrSpamCondition`: the TRASH / SPAM label or the isTrash /
+ * isSpam flag, so a legacy row labelled ["INBOX","TRASH"] does not inflate the
+ * inbox badge). Drafts live in `mail_drafts`, so they are counted there.
  *
  * Always scoped: one account, or the list of accounts the caller may open
  * (the unified sidebar). There is no "every mailbox" form, and an empty list
@@ -388,7 +446,7 @@ export async function getMessageStats(
 
   const labels = sql`COALESCE(${mailMessages.labels}, '[]'::jsonb)`;
   const has = (label: string) => sql`${labels} @> ${JSON.stringify([label])}::jsonb`;
-  const live = sql`NOT (${has('TRASH')} OR ${has('SPAM')})`;
+  const live = sql`NOT ${inTrashOrSpamCondition()}`;
   const unread = sql`${mailMessages.isRead} = false`;
   const count = (condition: SQL) => sql<number>`count(*) filter (where ${condition})::int`;
 
@@ -397,13 +455,13 @@ export async function getMessageStats(
       .select({
         total: sql<number>`count(*)::int`,
         unread: count(unread),
-        inboxUnread: count(sql`${has('INBOX')} AND ${unread}`),
+        inboxUnread: count(sql`${has('INBOX')} AND ${live} AND ${unread}`),
         starred: count(sql`(${has('STARRED')} OR ${mailMessages.isStarred} = true) AND ${live}`),
         importantUnread: count(
           sql`(${has('IMPORTANT')} OR ${mailMessages.isImportant} = true) AND ${live} AND ${unread}`,
         ),
         sentUnread: count(sql`${has('SENT')} AND ${live} AND ${unread}`),
-        archiveUnread: count(sql`${has('ARCHIVE')} AND ${unread}`),
+        archiveUnread: count(sql`${has('ARCHIVE')} AND ${live} AND ${unread}`),
         trashUnread: count(sql`${has('TRASH')} AND ${unread}`),
         spam: count(has('SPAM')),
         snoozed: count(sql`${has('SNOOZED')} AND ${live}`),
@@ -590,14 +648,15 @@ export async function bulkUpdateMessages(
 export async function addMessageLabels(
   db: Database,
   id: string,
-  labels: string[],
+  rawLabels: string[],
 ): Promise<string[] | null> {
   const [existing] = await db
-    .select({ labels: mailMessages.labels })
+    .select({ labels: mailMessages.labels, accountId: mailMessages.accountId })
     .from(mailMessages)
     .where(and(eq(mailMessages.id, id), isNull(mailMessages.deletedAt)))
     .limit(1);
   if (!existing) return null;
+  const labels = await canonicalLabelNames(db, existing.accountId, rawLabels);
   const next = addLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)
@@ -609,14 +668,15 @@ export async function addMessageLabels(
 export async function removeMessageLabels(
   db: Database,
   id: string,
-  labels: string[],
+  rawLabels: string[],
 ): Promise<string[] | null> {
   const [existing] = await db
-    .select({ labels: mailMessages.labels })
+    .select({ labels: mailMessages.labels, accountId: mailMessages.accountId })
     .from(mailMessages)
     .where(and(eq(mailMessages.id, id), isNull(mailMessages.deletedAt)))
     .limit(1);
   if (!existing) return null;
+  const labels = await canonicalLabelNames(db, existing.accountId, rawLabels);
   const next = removeLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)

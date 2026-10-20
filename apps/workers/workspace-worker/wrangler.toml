@@ -30,6 +30,9 @@ APP_URL = "http://localhost:3000"
 # (whole pre-created Neon project — costs a project each, keep low).
 POOL_TARGET_SHARED = "2"
 POOL_TARGET_DEDICATED = "0"
+# Days the OLD database of a finished database move stays (read-only) before
+# the retention sweep drops it.
+DATABASE_MOVE_RETENTION_DAYS = "7"
 # Local-dev master DB connection (Neon serverless HTTP driver). In test/preview/
 # production this is provided as the DATABASE_URL_MASTER secret instead.
 # Set your real local master DB URL in `.dev.vars` (gitignored) — do NOT hardcode here.
@@ -52,6 +55,12 @@ class_name = "ProvisionWorkspaceWorkflow"
 name = "refill-pool-dev"
 binding = "REFILL_POOL"
 class_name = "RefillPoolWorkflow"
+
+# Moves a workspace tenant database between a shard and a dedicated project.
+[[workflows]]
+name = "move-database-dev"
+binding = "MOVE_DATABASE"
+class_name = "MoveDatabaseWorkflow"
 
 # Keep the warm database pool topped up (test locally with
 # `wrangler dev --test-scheduled` + GET /__scheduled). The daily entry runs
@@ -78,6 +87,7 @@ NEON_DEFAULT_REGION = "aws-eu-central-1"
 APP_URL = "https://app-test.weldsuite.org"
 POOL_TARGET_SHARED = "2"
 POOL_TARGET_DEDICATED = "0"
+DATABASE_MOVE_RETENTION_DAYS = "7"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
 # fall back without a code change (docs/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
@@ -97,12 +107,23 @@ name = "refill-pool-test"
 binding = "REFILL_POOL"
 class_name = "RefillPoolWorkflow"
 
+[[env.test.workflows]]
+name = "move-database-test"
+binding = "MOVE_DATABASE"
+class_name = "MoveDatabaseWorkflow"
+
 [env.test.triggers]
 crons = ["*/5 * * * *", "0 3 * * *"]
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
+
+# external-api / mcp-server cache (the namespace app-api binds as API_CACHE too):
+# a database move purges `ws:<workspaceId>` and `mcp:org:<clerkOrgId>` here.
+[[env.test.kv_namespaces]]
+binding = "API_CACHE"
+id = "6ffe3c8ea4e041398d84f9f670e93f88"
 
 [env.test.observability]
 enabled = true
@@ -121,6 +142,7 @@ ENVIRONMENT = "production"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 POOL_TARGET_SHARED = "10"
 POOL_TARGET_DEDICATED = "2"
+DATABASE_MOVE_RETENTION_DAYS = "7"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
 # fall back without a code change (docs/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
@@ -140,12 +162,23 @@ name = "refill-pool"
 binding = "REFILL_POOL"
 class_name = "RefillPoolWorkflow"
 
+[[env.production.workflows]]
+name = "move-database"
+binding = "MOVE_DATABASE"
+class_name = "MoveDatabaseWorkflow"
+
 [env.production.triggers]
 crons = ["*/5 * * * *", "0 3 * * *"]
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
+
+# external-api / mcp-server cache (the namespace app-api binds as API_CACHE too):
+# a database move purges `ws:<workspaceId>` and `mcp:org:<clerkOrgId>` here.
+[[env.production.kv_namespaces]]
+binding = "API_CACHE"
+id = "f27cfb0a77a24936911ebd762adf3410"
 
 [env.production.observability]
 enabled = true
