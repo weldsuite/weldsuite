@@ -24,20 +24,30 @@ overrides:
   # only matches ranges inside one major line, so none of these crosses a major.
   # Drop an entry once its parent (in the comment) ships the fix.
   "@grpc/grpc-js@^1.0.0": ^1.13.6 # @firebase/firestore
-  "builder-util-runtime@^9.0.0": ^9.7.0 # electron-builder 25
+  "builder-util-runtime@^9.0.0": ^9.7.0 # electron-updater 6
   "fast-xml-parser@^5.0.0": ^5.7.0 # @aws-sdk/xml-builder
+  "http-cache-semantics@^4.0.0": ^4.3.0 # make-fetch-happen 9/10 (node-gyp 8/9)
   "postcss@^8.0.0": ^8.5.23 # next 15
   "undici@^6.0.0": ^6.28.1 # discord.js
   "undici@^7.0.0": ^7.29.1 # miniflare
   "ws@^8.0.0": ^8.21.0 # miniflare, viem
 
-  # These two do cross a major: the fix only shipped in the next major and the
-  # parent's own fixed release is a major upgrade of its own. Checked safe:
+  # These do cross a major: the fix only shipped in the next major and the
+  # parent's own fixed release is a major upgrade of its own (or doesn't exist
+  # yet). Checked safe:
   # - tinypool 2.0's only breaking change is dropping Node 18.
   # - every tar 6 parent only calls tar.x / tar.extract / tar.create, which
   #   tar 7 keeps.
+  # - miniflare's newest release already ships sharp 0.35 (0.35.2, still short
+  #   of the libvips/libheif/librsvg fixes in 0.35.5).
+  # - @cloudflare/puppeteer only imports @puppeteer/browsers from its Node
+  #   launchers (ChromeLauncher / FirefoxLauncher), which a Worker never loads.
+  #   Browsers 3 drops extract-zip and proxy-agent (-> basic-ftp), neither of
+  #   which has a fixed release in the 2.x line.
   "tinypool@^1.0.0": ^2.1.2 # vitest 3 (vitest 4 drops tinypool)
-  "tar@^6.0.0": ^7.5.19 # electron-builder 25, @electron/rebuild 3, node-gyp 8/9, cacache 15/16, sqlite3 5 (drizzle-orm peer)
+  "tar@^6.0.0": ^7.5.19 # @electron/rebuild 3, node-gyp 8/9, cacache 15/16, sqlite3 5 (drizzle-orm peer)
+  "sharp@<0.35.5": ^0.35.5 # miniflare
+  "@cloudflare/puppeteer>@puppeteer/browsers": ^3.2.5 # @cloudflare/puppeteer 1.4 (agent-runtime)
 
 onlyBuiltDependencies:
   - electron
