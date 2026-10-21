@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   useGenerateAIReply,
   useGenerateEmailDraft,
+  useMailAccounts,
 } from '@/hooks/queries/use-mail-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useParams, useRouter } from '@/lib/router';
@@ -174,7 +175,14 @@ function FloatingComposeOpen({
   const router = useRouter();
   const params = useParams();
   const composeContext = useComposeSafe();
-  const accountId = (params?.accountId as string) || composeContext?.composeData?.accountId;
+  const { data: accountsData } = useMailAccounts();
+  const mailAccounts = accountsData?.data ?? [];
+  const defaultAccountId = (mailAccounts.find((a) => a.isDefault) ?? mailAccounts[0])?.id;
+  // The account the mail goes out from: the one picked in From (or handed over
+  // with the mail), else the mail account being browsed, else the default one,
+  // so a mail started outside WeldMail (a CRM record) has a sender too.
+  const accountId =
+    composeContext?.composeData?.accountId || (params?.accountId as string | undefined) || defaultAccountId;
   const callContext = useCallSafe();
   const isDialerOpen = callContext?.isDialerOpen;
   const setIsDialerOpen = callContext?.setIsDialerOpen;
@@ -374,16 +382,32 @@ function FloatingComposeOpen({
 
   const { composeData, updateComposeData, closeCompose } = composeContext;
 
+  const handleAccountChange = (nextAccountId: string) => {
+    if (nextAccountId === accountId) return;
+    updateComposeData({ accountId: nextAccountId });
+    autosave.switchAccount(nextAccountId);
+    const editorHtml = textareaRef.current?.innerHTML;
+    // What is written so far is saved again, now under the new account.
+    if (hasComposeContent({ ...composeData, to: toWithPending }, editorHtml)) {
+      void autosave.saveNow(
+        buildPanelDraftFields({ ...composeData, to: toWithPending, cc: ccRecipients, bcc: bccRecipients }, editorHtml),
+      );
+    }
+  };
+
   const handleExpand = () => {
     setIsExpanding(true);
     // Hand over everything this panel keeps to itself: what is still being typed
-    // in To, Cc/Bcc, the attachments and the scheduled time.
+    // in To, Cc/Bcc, the editor's latest text, the attachments, the scheduled
+    // time and the account it goes out from.
     updateComposeData({
       to: toWithPending,
       cc: ccRecipients,
       bcc: bccRecipients,
+      body: textareaRef.current?.innerHTML ?? composeData.body,
       attachedFiles,
       scheduledTime,
+      accountId,
     });
     // The full-page compose keeps updating the draft this panel already made.
     autosave.handOff();
@@ -536,8 +560,9 @@ function FloatingComposeOpen({
 
   // Creates the draft, or updates the one autosave already made.
   const handleSaveDraft = async () => {
+    // No mail account to keep a draft in: closing still closes.
     if (!accountId) {
-      toast.error(t.mail.composePage.noAccountSelected);
+      handleClose();
       return;
     }
     const saved = await autosave.saveNow(
@@ -563,6 +588,7 @@ function FloatingComposeOpen({
         style={{ right: panelRight, maxWidth: `calc(100vw - ${panelRight} - 12px)` }}
         testIdPrefix="floating-compose"
         accountId={accountId}
+        onAccountChange={handleAccountChange}
         onMinimize={minimizeSelf}
         onExpand={handleExpand}
         // Closing keeps what was written as a draft.
