@@ -23,6 +23,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { notifyAssigned } from '../../lib/notify';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -292,6 +293,15 @@ app.post('/conversations/:id/accept', requirePermission('conversations:update'),
     if (!conversation) return error.notFound(c, 'Conversation', conversationId);
     await db.update(helpdeskConversations).set({ assigneeId: agentId, status: 'active', updatedAt: now }).where(eq(helpdeskConversations.id, conversationId));
     publishEntityEvent({ c, entityType: 'helpdesk_conversation', entityId: conversationId, action: 'assigned', data: { id: conversationId, assigneeId: agentId } });
+    notifyAssigned(c, {
+      assigneeId: agentId,
+      previousAssigneeId: conversation.assigneeId,
+      kind: 'conversation',
+      entityId: conversationId,
+      subject: conversation.subject,
+      reference: conversation.conversationNumber,
+      assignedByUserId: c.get('userId'),
+    });
     return success(c, { conversationId, assigneeId: agentId, status: 'active', acceptedAt: now.toISOString() });
   } catch (err) {
     console.error('[app-api/helpdesk-weldagent] accept escalation failed:', err);

@@ -25,7 +25,21 @@ export {
   type ExpoPushMessage,
   type SendExpoPushResult,
 } from './channels/push';
+export { getChannelPreferences } from './preferences';
 export { sendTaskAssignmentNotification } from './helpers/task-assignment';
+export {
+  sendTaskCommentNotification,
+  extractMentionedUserIds,
+  taskCommentRecipients,
+} from './helpers/task-comment';
+export { sendNewEmailNotification } from './helpers/mail';
+export {
+  sendTicketAssignedNotification,
+  sendTicketReplyNotification,
+  isHelpdeskNotificationEnabled,
+  helpdeskPreview,
+  type HelpdeskEntityKind,
+} from './helpers/helpdesk';
 export {
   sendChatMentionNotification,
   sendChatThreadReplyNotification,

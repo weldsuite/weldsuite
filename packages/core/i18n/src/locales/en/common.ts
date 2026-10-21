@@ -202,6 +202,7 @@ export const common = {
       accessDenied: 'Access denied.',
       alreadyResolved: 'Already resolved by another admin.',
       resolveFailed: 'Could not resolve the request. Please try again.',
+      loadMore: 'Load more',
     },
     inviteMember: {
       inviteMembers: 'Invite members',
