@@ -31,7 +31,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useCurrentMember } from '@/hooks/use-current-member';
-import { SLUG_REGEX } from '@weldsuite/app-api-client/schemas/workspace-settings';
+import { SLUG_REGEX, isReservedWorkspaceSlug } from '@weldsuite/app-api-client/schemas/workspace-slug';
 import { useI18n } from '@/lib/i18n/provider';
 import { stripWorkspacePrefix, workspacePath } from '@/lib/workspace-url';
 
@@ -59,9 +59,11 @@ export function WorkspaceSlugCard() {
 
   const trimmedNew = newSlug.trim().toLowerCase();
   const isFormatValid = SLUG_REGEX.test(trimmedNew);
+  // Platform pages and apps use these names at the root of a URL.
+  const isReserved = isFormatValid && isReservedWorkspaceSlug(trimmedNew);
   const isDifferent = trimmedNew !== currentSlug;
   const isConfirmed = confirmSlug.trim() === currentSlug && currentSlug.length > 0;
-  const canSubmit = isFormatValid && isDifferent && isConfirmed && !submitting;
+  const canSubmit = isFormatValid && !isReserved && isDifferent && isConfirmed && !submitting;
 
   const handleOpen = (next: boolean) => {
     setOpen(next);
@@ -165,6 +167,7 @@ export function WorkspaceSlugCard() {
               {newSlug.length > 0 && !isFormatValid && (
                 <p className="text-xs text-destructive">{ts.invalidFormat}</p>
               )}
+              {isReserved && <p className="text-xs text-destructive">{ts.reservedSlug}</p>}
             </div>
 
             <div className="space-y-1.5">
