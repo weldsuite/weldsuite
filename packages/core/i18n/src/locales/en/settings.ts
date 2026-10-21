@@ -245,6 +245,7 @@ export const settings = {
         successToast: 'Workspace slug updated. Reloading…',
         errorToast: 'Failed to update workspace slug',
         invalidFormat: 'Use 3–63 lowercase letters, numbers, or hyphens. May not start or end with a hyphen.',
+        reservedSlug: 'WeldSuite uses this name for one of its own pages or apps. Pick another.',
       },
       deleteWorkspace: {
         sectionTitle: 'Danger zone',
