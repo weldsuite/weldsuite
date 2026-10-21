@@ -44,6 +44,40 @@ export interface MigrationBatchResult {
   done: boolean;
 }
 
+type RowOutcome = 'moved' | 'repointed' | MigrationBatchResult['skipped'][number]['reason'];
+
+/** Move (or repoint) one row; a dry run only reports what it would do. */
+async function migrateRow(
+  params: { db: Database; workspaceId: string; apiOrigin: string; dryRun?: boolean },
+  buckets: { privateBucket: R2Bucket; publicBucket: R2Bucket },
+  row: { id: string; fileKey: string | null; storagePath: string | null; fileName: string },
+): Promise<RowOutcome> {
+  const { db, workspaceId, apiOrigin } = params;
+  const { privateBucket, publicBucket } = buckets;
+  const key = row.fileKey || row.storagePath;
+  if (!key) return 'no-key';
+  if (workspaceOfKey(key) !== workspaceId) return 'foreign-key';
+
+  const alreadyPrivate = await privateBucket.head(key);
+  const publicObject = alreadyPrivate ? null : await publicBucket.get(key);
+  if (!alreadyPrivate && !publicObject) return 'missing-object';
+  const outcome = alreadyPrivate ? 'repointed' : 'moved';
+  if (params.dryRun) return outcome;
+
+  if (publicObject) {
+    await privateBucket.put(key, publicObject.body, {
+      httpMetadata: publicObject.httpMetadata,
+      customMetadata: { ...publicObject.customMetadata, fileName: row.fileName },
+    });
+  }
+  await db
+    .update(files)
+    .set({ url: privateObjectUrl(apiOrigin, key), bucket: 'private' })
+    .where(eq(files.id, row.id));
+  await publicBucket.delete(key);
+  return outcome;
+}
+
 export async function migratePrivateFilesBatch(params: {
   db: Database;
   env: StorageBindings;
@@ -53,9 +87,10 @@ export async function migratePrivateFilesBatch(params: {
   limit?: number;
   dryRun?: boolean;
 }): Promise<MigrationBatchResult> {
-  const { db, env, workspaceId, apiOrigin, dryRun = false } = params;
+  const { db, env } = params;
   const limit = params.limit ?? MIGRATION_BATCH_SIZE;
   if (!env.STORAGE || !env.PRIVATE_STORAGE) throw new Error('Both storage buckets must be bound');
+  const buckets = { privateBucket: env.PRIVATE_STORAGE, publicBucket: env.STORAGE };
 
   const rows = await db
     .select({ id: files.id, fileKey: files.fileKey, storagePath: files.storagePath, fileName: files.fileName })
@@ -74,37 +109,10 @@ export async function migratePrivateFilesBatch(params: {
   const result: MigrationBatchResult = { moved: 0, repointed: 0, skipped: [], cursor: null, done: false };
 
   for (const row of rows) {
-    const key = row.fileKey || row.storagePath;
-    if (!key) {
-      result.skipped.push({ id: row.id, reason: 'no-key' });
-      continue;
-    }
-    if (workspaceOfKey(key) !== workspaceId) {
-      result.skipped.push({ id: row.id, reason: 'foreign-key' });
-      continue;
-    }
-
-    const alreadyPrivate = await env.PRIVATE_STORAGE.head(key);
-    const publicObject = alreadyPrivate ? null : await env.STORAGE.get(key);
-    if (!alreadyPrivate && !publicObject) {
-      result.skipped.push({ id: row.id, reason: 'missing-object' });
-      continue;
-    }
-    if (alreadyPrivate) result.repointed++;
-    else result.moved++;
-    if (dryRun) continue;
-
-    if (publicObject) {
-      await env.PRIVATE_STORAGE.put(key, publicObject.body, {
-        httpMetadata: publicObject.httpMetadata,
-        customMetadata: { ...publicObject.customMetadata, fileName: row.fileName },
-      });
-    }
-    await db
-      .update(files)
-      .set({ url: privateObjectUrl(apiOrigin, key), bucket: 'private' })
-      .where(eq(files.id, row.id));
-    await env.STORAGE.delete(key);
+    const outcome = await migrateRow(params, buckets, row);
+    if (outcome === 'moved') result.moved++;
+    else if (outcome === 'repointed') result.repointed++;
+    else result.skipped.push({ id: row.id, reason: outcome });
   }
 
   // Page by id, so skipped rows and dry runs still make progress.

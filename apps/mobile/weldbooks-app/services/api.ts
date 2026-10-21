@@ -1346,26 +1346,7 @@ class WeldBooksApi {
     type: string;
     data: Json;
   }): Promise<{ type: string; id?: string; error?: string; dropped?: boolean }> {
-    if (item.type === 'document') {
-      const fileName = str(item.data.fileName, 'offline-scan.jpg');
-      const mimeType = item.data.mimeType ? str(item.data.mimeType) : 'image/jpeg';
-      let fileKey = item.data.fileKey ? str(item.data.fileKey) : '';
-      if (!fileKey) {
-        // The photo is uploaded now. A scan queued without one (older app
-        // versions) or whose photo the OS has since cleared can never be
-        // created, so it is dropped rather than failing on every sync.
-        const bytes = item.data.localUri ? await readLocalFile(str(item.data.localUri)) : null;
-        if (!bytes) return { type: 'document', dropped: true };
-        fileKey = await this.uploadBytes(bytes, fileName, mimeType);
-      }
-      const doc = await this.createDocument({
-        type: str(item.data.type, 'receipt'),
-        fileName,
-        fileKey,
-        mimeType,
-      });
-      return { type: 'document', id: doc.id };
-    }
+    if (item.type === 'document') return this.replayDocument(item.data);
     if (item.type === 'expense') {
       const bill = await this.createQuickExpense({
         amount: num(item.data.amount),
@@ -1381,6 +1362,25 @@ class WeldBooksApi {
       return { type: 'expense', id: bill.id };
     }
     return { type: item.type, error: 'Unknown item type' };
+  }
+
+  /**
+   * A queued scan: upload its photo now, then register the document. A scan
+   * queued without one (older app versions) or whose photo the OS has since
+   * cleared can never be created, so it is dropped rather than failing on
+   * every sync.
+   */
+  private async replayDocument(data: Json): Promise<{ type: string; id?: string; dropped?: boolean }> {
+    const fileName = str(data.fileName, 'offline-scan.jpg');
+    const mimeType = data.mimeType ? str(data.mimeType) : 'image/jpeg';
+    let fileKey = data.fileKey ? str(data.fileKey) : '';
+    if (!fileKey) {
+      const bytes = data.localUri ? await readLocalFile(str(data.localUri)) : null;
+      if (!bytes) return { type: 'document', dropped: true };
+      fileKey = await this.uploadBytes(bytes, fileName, mimeType);
+    }
+    const doc = await this.createDocument({ type: str(data.type, 'receipt'), fileName, fileKey, mimeType });
+    return { type: 'document', id: doc.id };
   }
 }
 

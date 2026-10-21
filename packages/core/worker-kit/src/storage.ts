@@ -84,13 +84,20 @@ export function isWorkspaceObjectKey(
   return !!owner && workspaceIds.some((id) => id === owner);
 }
 
+/** `value` without any trailing `char` (a linear scan, not a backtracking regex). */
+function trimTrailing(value: string, char: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === char) end--;
+  return value.slice(0, end);
+}
+
 function encodeKey(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/');
 }
 
 /** Stable URL of a private object, served by app-api at `apiOrigin`. */
 export function privateObjectUrl(apiOrigin: string, key: string): string {
-  return `${apiOrigin.replace(/\/+$/, '')}${PRIVATE_OBJECT_PATH}${encodeKey(key)}`;
+  return `${trimTrailing(apiOrigin, '/')}${PRIVATE_OBJECT_PATH}${encodeKey(key)}`;
 }
 
 /** The key of a private object URL (any host), or null for any other URL. */
@@ -112,7 +119,7 @@ export function keyFromPrivateObjectUrl(url: string): string | null {
 
 /** URL of a public object on the bucket's public domain. */
 export function publicObjectUrl(r2PublicUrl: string, key: string): string {
-  return `${r2PublicUrl.replace(/\/+$/, '')}/${key}`;
+  return `${trimTrailing(r2PublicUrl, '/')}/${key}`;
 }
 
 // ============================================================================
@@ -195,7 +202,7 @@ const encoder = new TextEncoder();
 function base64Url(bytes: ArrayBuffer): string {
   let s = '';
   for (const b of new Uint8Array(bytes)) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return trimTrailing(btoa(s).replaceAll('+', '-').replaceAll('/', '_'), '=');
 }
 
 async function hmac(secret: string, message: string): Promise<string> {
@@ -302,10 +309,26 @@ export function cookieValues(header: string | undefined | null, name: string): s
  * (HTML, SVG, XML, scripts, unknown) is served as an attachment, so an
  * uploaded file can never run script on app-api's origin.
  */
-const INLINE_TYPES = /^(image\/(png|jpe?g|gif|webp|avif|bmp|heic|heif)|video\/[\w.+-]+|audio\/[\w.+-]+|application\/pdf|text\/plain)$/i;
+const INLINE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+  'text/plain',
+]);
+/** Any video or audio subtype. */
+const INLINE_MEDIA = /^(video|audio)\/[\w.+-]+$/;
 
 export function isInlineSafeContentType(contentType: string | undefined | null): boolean {
-  return !!contentType && INLINE_TYPES.test(contentType.split(';')[0]!.trim());
+  if (!contentType) return false;
+  const type = contentType.split(';')[0]!.trim().toLowerCase();
+  return INLINE_TYPES.has(type) || INLINE_MEDIA.test(type);
 }
 
 /** Response headers for a private object (no shared caching, no script). */
