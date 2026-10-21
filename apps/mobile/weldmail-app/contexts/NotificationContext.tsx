@@ -4,8 +4,9 @@ import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isApiError } from '@weldsuite/api-client/client';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter, useRootNavigationState, useSegments } from 'expo-router';
 import {
@@ -18,6 +19,13 @@ import {
 } from '@weldsuite/mobile-ui/services/notifications';
 import { appApi } from '@/services/app-api';
 import { personalApi } from '@/services/personal-api';
+import { getMessage } from '@/services/mail-tenant';
+import {
+  clearInboxUnread,
+  dismissEmailNotifications,
+  presentedEmailIds,
+  recordInboxUnread,
+} from '@/services/tray-sync';
 import { useMail } from '@/contexts/MailContext';
 import {
   parseNotificationContent,
@@ -25,6 +33,7 @@ import {
   notificationMatchesWorkspace,
   type NotificationTarget,
 } from '@/utils/notification-target';
+import { bannerIsStale, parseMailReadPush, type InboxUnreadCounts } from '@/utils/mail-read-push';
 import { hideAppSplash } from '@/utils/splash';
 
 async function getDeviceId(): Promise<string> {
@@ -46,6 +55,9 @@ const HANDLED_NOTIF_KEY = '@weldmail_handled_notification_id';
 // If we queued a notification open but the email route never mounts, don't
 // leave the inbox on `return null` forever (looks like a freeze on restart).
 const OPENING_EMAIL_TIMEOUT_MS = 5000;
+// Banners the foreground tray check looks up (one GET each). A tray rarely
+// holds more; anything past this waits for the next check.
+const TRAY_CHECK_LIMIT = 20;
 
 interface NotificationContextType {
   unreadCount: number;
@@ -117,6 +129,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   refreshMailRef.current = refreshMail;
   const expectNotificationEmailRef = useRef(expectNotificationEmail);
   expectNotificationEmailRef.current = expectNotificationEmail;
+  const hasPersonalAccountRef = useRef(hasPersonalAccount);
+  hasPersonalAccountRef.current = hasPersonalAccount;
 
   const markNotificationHandled = useCallback((notifId: string) => {
     if (!notifId || handledNotifIds.current.has(notifId)) return;
@@ -253,7 +267,54 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     else await Linking.openSettings();
   }, []);
 
-  const refreshBadgeCount = useCallback(async () => {}, []);
+  /**
+   * Badge = unread inbox count of the workspace plus the personal inbox, read
+   * from the API. Pushes only carry their own tenancy's count, so this is the
+   * one place that knows both and replaces whatever they stored.
+   */
+  const refreshBadgeCount = useCallback(async () => {
+    const [workspace, personal] = await Promise.allSettled([
+      organizationIdRef.current ? appApi.mailMessages.stats() : Promise.resolve(null),
+      hasPersonalAccountRef.current ? personalApi.mailMessages.unreadCount() : Promise.resolve(null),
+    ]);
+    const counts: InboxUnreadCounts = {};
+    if (workspace.status === 'fulfilled' && workspace.value) counts.workspace = workspace.value.data.inboxUnread;
+    if (personal.status === 'fulfilled' && personal.value) counts.personal = personal.value.data.total;
+    // A failed request keeps that tenancy's stored count instead of zeroing it.
+    const allRead = workspace.status === 'fulfilled' && personal.status === 'fulfilled';
+    await recordInboxUnread(counts, allRead ? 'replace' : 'merge');
+    setUnreadCount((counts.workspace ?? 0) + (counts.personal ?? 0));
+  }, []);
+
+  /**
+   * Safety net for the "email read" push, which iOS may never deliver: drop
+   * banners whose email is read, trashed, archived or gone, then refresh the
+   * badge. Runs on launch and whenever the app returns to the foreground.
+   */
+  const trayCheckRunning = useRef(false);
+  const reconcileTray = useCallback(async () => {
+    if (trayCheckRunning.current) return;
+    trayCheckRunning.current = true;
+    try {
+      const ids = (await presentedEmailIds()).slice(0, TRAY_CHECK_LIMIT);
+      const stale = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            return bannerIsStale(await getMessage(id)) ? id : null;
+          } catch (err) {
+            // Gone (deleted) is stale; offline or a 5xx says nothing either way.
+            return isApiError(err) && err.status === 404 ? id : null;
+          }
+        }),
+      );
+      await dismissEmailNotifications(stale.filter((id): id is string => id !== null));
+      await refreshBadgeCount();
+    } catch {
+      // best-effort: the next foreground runs it again
+    } finally {
+      trayCheckRunning.current = false;
+    }
+  }, [refreshBadgeCount]);
 
   const unregisterDevice = useCallback(async () => {
     try {
@@ -269,6 +330,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       // ignore — best-effort cleanup
     }
     await dismissAllPresentedNotifications();
+    await clearInboxUnread();
     await setBadgeCount(0);
   }, []);
 
@@ -287,6 +349,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       // ignore — best-effort cleanup
     }
     await dismissAllPresentedNotifications();
+    await clearInboxUnread();
     await setBadgeCount(0);
   }, []);
 
@@ -313,6 +376,17 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
 
         const cleanup = setupNotificationListeners(
           (notification) => {
+            // Silent "email read" push while the app is open: the background
+            // task also gets it, but the inbox list only refreshes from here.
+            const read = parseMailReadPush(notification.request.content.data);
+            if (read) {
+              void dismissEmailNotifications(read.emailIds);
+              if (read.inboxUnread !== undefined) {
+                void recordInboxUnread({ [read.tenantKind]: read.inboxUnread });
+              }
+              refreshMailRef.current();
+              return;
+            }
             const target = parseNotificationContent(notification.request.content);
             // Drop updates from pushes that belong to another workspace.
             if (target && !notificationMatchesWorkspace(target, organizationIdRef.current)) {
@@ -413,6 +487,17 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       removeTokenRefresh?.();
     };
   }, [userId, organizationId, hasPersonalAccount, getCredentials]);
+
+  // Tray check on sign-in and on every return to the foreground. Re-runs when
+  // the workspace or the personal inbox changes, since both feed the badge.
+  useEffect(() => {
+    if (!userId) return;
+    void reconcileTray();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void reconcileTray();
+    });
+    return () => subscription.remove();
+  }, [userId, organizationId, hasPersonalAccount, reconcileTray]);
 
   const value = useMemo(() => ({
     unreadCount, isConnected, isPermissionGranted,

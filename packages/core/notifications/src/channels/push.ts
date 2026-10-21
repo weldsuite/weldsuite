@@ -26,6 +26,12 @@ export interface ExpoPushMessage {
   badge?: number;
   channelId?: string;
   priority?: 'default' | 'normal' | 'high';
+  /**
+   * iOS `content-available`: wakes the app for a background notification.
+   * Without title/body it is delivered headless (never shown); Android gets
+   * it as an FCM data message.
+   */
+  _contentAvailable?: boolean;
 }
 
 export interface ExpoPushTicket {

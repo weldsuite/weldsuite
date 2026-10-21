@@ -22,6 +22,7 @@ import * as messages from '@weldsuite/mail-domain/messages';
 import { toPublicAttachment } from '@weldsuite/mail-domain/attachments';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
 import { sendErrorResponse } from '../../lib/send-errors';
+import { clearsUnreadBanner, queueMailReadPush } from '../../lib/read-push';
 import {
   emailEventData,
   checkAccountAccess,
@@ -85,6 +86,20 @@ const bulkBody = z.object({
     'trash', 'restore', 'delete',
   ]),
 });
+
+/** Bulk actions after which a message's new-email banner should go. */
+const BULK_ACTIONS_CLEARING_BANNER = new Set<z.infer<typeof bulkBody>['action']>(['markRead', 'trash', 'delete']);
+
+/** messageId → accountId, regrouped as accountId → messageIds. */
+function groupByAccount(accountByMessage: Map<string, string>): Map<string, string[]> {
+  const byAccount = new Map<string, string[]>();
+  for (const [messageId, accountId] of accountByMessage) {
+    const ids = byAccount.get(accountId) ?? [];
+    ids.push(messageId);
+    byAccount.set(accountId, ids);
+  }
+  return byAccount;
+}
 
 const labelsBody = z.object({
   labels: z.array(z.string()).min(1),
@@ -236,6 +251,7 @@ const patchHandler = async (
       to: (after.to as { email?: string }[] | null)?.map((t) => t.email ?? '').filter(Boolean) ?? null,
     }),
   });
+  if (clearsUnreadBanner(data)) queueMailReadPush(c, after.accountId, [id]);
   return success(c, { id, ...data });
 };
 
@@ -307,6 +323,9 @@ app.post(
           to: null,
         },
       });
+      if (BULK_ACTIONS_CLEARING_BANNER.has(data.action)) {
+        for (const [accId, ids] of groupByAccount(msgMap)) queueMailReadPush(c, accId, ids);
+      }
       return success(c, result);
     } catch (err) {
       console.error('[app-api/mail-messages] bulk failed:', err);
@@ -339,6 +358,7 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
         to: null,
       }),
     });
+    queueMailReadPush(c, deleted.accountId, [id]);
     return noContent(c);
   } catch (err) {
     console.error('[app-api/mail-messages] delete failed:', err);
