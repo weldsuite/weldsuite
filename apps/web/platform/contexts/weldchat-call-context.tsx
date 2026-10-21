@@ -84,6 +84,9 @@ const RTK_LEAVE_TIMEOUT_MS = 2_000;
 /** How long a switch waits for a still-connecting call to settle before dropping it. */
 const CONNECT_SETTLE_TIMEOUT_MS = 15_000;
 
+/** How long the "call ended" card stays up after a call, before the call view closes. */
+export const CALL_ENDED_VISIBLE_MS = 1_600;
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -210,7 +213,14 @@ async function applyScreenShareConstraints(
 // Types
 // ============================================================================
 
+/**
+ * `ended` is the short goodbye after a call: the room is gone and the call
+ * view shows a "call ended" card for CALL_ENDED_VISIBLE_MS, then goes `idle`.
+ */
 export type CallStatus = 'idle' | 'preview' | 'ringing-outgoing' | 'ringing-incoming' | 'connecting' | 'connected' | 'ended';
+
+/** Why the call view says goodbye: the user left (others may carry on), or the call is over. */
+export type CallEndReason = 'left' | 'ended';
 
 export interface IncomingCall {
   callId: string;
@@ -225,6 +235,9 @@ interface JoinChatCallResponse {
   data: {
     callId: string;
     authToken: string;
+    /** Sent by /join (and by start-and-join for callType); absent from older servers. */
+    channelId?: string;
+    callType?: string;
   };
 }
 
@@ -254,6 +267,8 @@ interface WeldChatCallState {
   channelId: string | null;
   callType: 'voice' | 'video';
   status: CallStatus;
+  /** Set while `status` is `ended`. */
+  endReason: CallEndReason | null;
   /** True when the local user started this call (vs. joined/answered an existing one). */
   isCallInitiator: boolean;
   isMuted: boolean;
@@ -333,6 +348,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const [channelId, setChannelId] = useState<string | null>(null);
   const [callType, setCallType] = useState<'voice' | 'video'>('voice');
   const [status, setStatus] = useState<CallStatus>('idle');
+  const [endReason, setEndReason] = useState<CallEndReason | null>(null);
   const [isCallInitiator, setIsCallInitiator] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -489,6 +505,43 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     return () => clearTimeout(timer);
   }, []);
 
+  /** Back to no call at all. Touches no RealtimeKit room: callers leave it first. */
+  const resetCallState = useCallback(() => {
+    setMeeting(null);
+    setCallId(null);
+    setChannelId(null);
+    setStatus('idle');
+    setEndReason(null);
+    setIsCallInitiator(false);
+    setDuration(0);
+    setIsMuted(false);
+    setIsVideoOff(false);
+    setIsScreenSharing(false);
+    // A ring for another call (it came in while this one was live) keeps ringing.
+    setHandRaised(false);
+    setHandRaisedParticipants(new Set());
+    setIsPiP(false);
+    setIsFullscreen(false);
+  }, []);
+
+  // Closes the "call ended" card (see CallStatus `ended`).
+  const farewellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearFarewell = useCallback(() => {
+    if (farewellTimerRef.current) clearTimeout(farewellTimerRef.current);
+    farewellTimerRef.current = null;
+  }, []);
+  useEffect(() => clearFarewell, [clearFarewell]);
+
+  /** A new call takes the view over: drop what the last one left behind. */
+  const enterConnecting = useCallback(() => {
+    clearFarewell();
+    setEndReason(null);
+    setDuration(0);
+    setIsFullscreen(false);
+    setIsPiP(false);
+    setStatus('connecting');
+  }, [clearFarewell]);
+
   const getClientRef = useRef(getClient);
   getClientRef.current = getClient;
 
@@ -539,11 +592,16 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       prepareJoin(event.data.callId);
       // Busy (in a call or meeting): it still rings, but only as the toast. The
       // status stays what the live call needs, and accepting asks to switch.
+      if (statusRef.current === 'ended') {
+        // The goodbye of the last call gives way to the ring.
+        clearFarewell();
+        resetCallState();
+      }
       if (statusRef.current === 'idle' || statusRef.current === 'ended') {
         setStatus('ringing-incoming');
       }
     },
-    [prepareJoin],
+    [prepareJoin, clearFarewell, resetCallState],
   );
 
   useTopic(user?.id ? `chat.user.${user.id}` : '', handleIncomingCallEvent);
@@ -659,21 +717,48 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         .catch(() => { /* ignore */ });
     }
     releaseSuppressor();
+    clearFarewell();
+    resetCallState();
+  }, [meeting, releaseSuppressor, clearFarewell, resetCallState]);
+
+  /**
+   * The call is over for this user: the room view gives way at once to a
+   * "call ended" card (with the leave chime), which closes by itself after
+   * CALL_ENDED_VISIBLE_MS. Callers stop the local tracks and leave the room;
+   * this only ends the UI side. A ring or a new call in between takes over.
+   */
+  const showCallEnded = useCallback((reason: CallEndReason) => {
+    toast.dismiss(RECONNECT_TOAST_ID);
+    playCallLeaveSound();
+    releaseSuppressor();
     setMeeting(null);
     setCallId(null);
-    setChannelId(null);
-    setStatus('idle');
-    setIsCallInitiator(false);
-    setDuration(0);
-    setIsMuted(false);
-    setIsVideoOff(false);
     setIsScreenSharing(false);
-    // A ring for another call (it came in while this one was live) keeps ringing.
     setHandRaised(false);
     setHandRaisedParticipants(new Set());
     setIsPiP(false);
-    setIsFullscreen(false);
-  }, [meeting, releaseSuppressor]);
+    setEndReason(reason);
+    setStatus('ended');
+    clearFarewell();
+    farewellTimerRef.current = setTimeout(() => {
+      farewellTimerRef.current = null;
+      if (statusRef.current === 'ended') resetCallState();
+    }, CALL_ENDED_VISIBLE_MS);
+  }, [releaseSuppressor, clearFarewell, resetCallState]);
+
+  /**
+   * A start or join that did not get through: back to no call, and say why.
+   * When the server had already counted the user in, it is told they left.
+   */
+  const failConnect = useCallback((message: string) => {
+    const counted = callIdRef.current;
+    callIdRef.current = null;
+    if (counted) fireLeaveRequest(counted);
+    releaseSuppressor();
+    clearFarewell();
+    resetCallState();
+    toast.error(message);
+  }, [fireLeaveRequest, releaseSuppressor, clearFarewell, resetCallState]);
 
   /**
    * Leave the RealtimeKit room ahead of telling the backend about a leave: it
@@ -722,6 +807,9 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       throw err;
     }
 
+    // Set when join() fails: the room is then left here, which is no call ending.
+    let abandoned = false;
+
     m.self.on('roomJoined', (payload) => {
       setStatus('connected');
       // The SDK got back in by itself after a dropped connection: no join chime.
@@ -748,26 +836,41 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         });
         return;
       }
-      // Notify the backend so the call auto-ends once the room is empty. The
-      // ref is already cleared when the user left or ended the call themselves.
+      // The ref is already cleared when the user left or ended the call
+      // themselves (or the join was refused): whoever did that tears down.
       const cId = callIdRef.current;
-      if (cId) fireLeaveRequest(cId);
+      if (!cId || abandoned) return;
+      callIdRef.current = null;
+      // Notify the backend so the call auto-ends once the room is empty.
+      fireLeaveRequest(cId);
       // The SDK gave up reconnecting; only a new call gets the user back in.
-      if (state === 'failed' && cId) {
+      if (state === 'failed') {
         toast.error(getTranslations('weldchat').calling.connectionLost);
       }
       // Removed without asking: the server may have done it because this user
       // joined another call or meeting, in which case it says so.
-      if ((state === 'ended' || state === 'kicked') && cId) {
+      if (state === 'ended' || state === 'kicked') {
         explainUnexpectedExit({ sessionId: cId, participantIds: rtkParticipantIds(m) });
       }
-      cleanup();
+      stopLocalMediaTracks(m);
+      showCallEnded('ended');
     });
 
-    await m.join();
+    // The room view comes up now, with the user's own tile and controls, while
+    // the join completes; the others' tiles appear as RealtimeKit adds them.
     setMeeting(m);
+    try {
+      await m.join();
+    } catch (err) {
+      abandoned = true;
+      stopLocalMediaTracks(m);
+      await Promise.resolve().then(() => m.leave()).catch(() => { /* ignore */ });
+      setMeeting(null);
+      releaseSuppressor();
+      throw err;
+    }
     return m;
-  }, [cleanup, fireLeaveRequest, explainUnexpectedExit, prepareMedia, releaseSuppressor]);
+  }, [fireLeaveRequest, explainUnexpectedExit, prepareMedia, releaseSuppressor, showCallEnded]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -781,88 +884,141 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     const videoOn = type === 'video';
     setIsMuted(false);
     setIsVideoOff(!videoOn);
-    setStatus('connecting');
+    enterConnecting();
     // The SDK and the noise suppressor get ready while the request runs.
     prepareMedia(true);
     try {
       const client = await getClient();
       // Single round-trip: creates the call (in the DM's standing room) + joins.
       const res = await client.post<JoinChatCallResponse>('/chat-calls/start-and-join', { channelId: chId, callType: type });
+      callIdRef.current = res.data.callId;
       setCallId(res.data.callId);
       await initMeeting(res.data.authToken, type, true, videoOn);
     } catch (err) {
-      releaseSuppressor();
+      failConnect(getTranslations('weldchat').calling.startFailed);
       throw err;
     }
-  }, [getClient, initMeeting, prepareMedia, releaseSuppressor]);
+  }, [getClient, initMeeting, prepareMedia, enterConnecting, failConnect]);
 
   /**
    * Connect to a call that rang for us. With a token prepared while it rang,
    * RealtimeKit starts connecting at once and POST /join (which reuses that
    * participant) only records the answer, in parallel. If the join is refused
-   * (the call ended while it rang), back out of the room again.
+   * (the call ended while it rang), back out of the room again. A failure
+   * throws; the caller resets the call (failConnect).
    */
-  const joinRungCall = useCallback(async (id: string, preparedToken: string | null, type: 'voice' | 'video') => {
+  const joinRungCall = useCallback(async (id: string, preparedToken: string, type: 'voice' | 'video') => {
     const videoOn = type === 'video';
+    const client = await getClient();
+    const join = client.post<JoinChatCallResponse>(`/chat-calls/${id}/join`, {});
+    const connecting = initMeeting(preparedToken, type, true, videoOn);
+    // Awaited below; marked handled so a failure while the join is pending isn't reported as unhandled.
+    connecting.catch(() => undefined);
     try {
-      const client = await getClient();
-      const join = client.post<JoinChatCallResponse>(`/chat-calls/${id}/join`, {});
-      if (!preparedToken) {
-        const joinRes = await join;
-        await initMeeting(joinRes.data.authToken, type, true, videoOn);
-        return;
-      }
-      const connecting = initMeeting(preparedToken, type, true, videoOn);
-      // Awaited below; marked handled so a failure while the join is pending isn't reported as unhandled.
-      connecting.catch(() => undefined);
-      try {
-        await join;
-      } catch (err) {
-        // The answer never counted, so no /leave either.
-        callIdRef.current = null;
-        const m = await connecting.catch(() => null);
-        if (m) {
-          stopLocalMediaTracks(m);
-          await Promise.resolve().then(() => m.leave()).catch(() => { /* ignore */ });
-        }
-        cleanup();
-        toast.error(getTranslations('weldchat').calling.joinFailed);
-        throw err;
-      }
-      await connecting;
+      await join;
     } catch (err) {
-      releaseSuppressor();
+      // The answer never counted, so no /leave either.
+      callIdRef.current = null;
+      const m = await connecting.catch(() => null);
+      if (m) {
+        stopLocalMediaTracks(m);
+        await Promise.resolve().then(() => m.leave()).catch(() => { /* ignore */ });
+      }
       throw err;
     }
-  }, [getClient, initMeeting, cleanup, releaseSuppressor]);
+    await connecting;
+  }, [getClient, initMeeting]);
 
-  const doJoinCall = useCallback(async (id: string) => {
-    prepareMedia(true);
+  /**
+   * Join with POST /join alone: its answer carries the token and what kind of
+   * call it is, so connecting starts straight after it (no GET of the call first).
+   */
+  const joinUnprepared = useCallback(async (id: string) => {
     const client = await getClient();
-    // A call that is ringing for us may already have its token.
-    const [callRes, preparedToken] = await Promise.all([
-      client.get<ChatCallDetailResponse>(`/chat-calls/${id}`).catch((err: unknown) => {
-        releaseSuppressor();
-        throw err;
-      }),
-      takePreparedJoin(id),
-    ]);
-    const call = callRes.data;
+    let joinRes: JoinChatCallResponse;
+    try {
+      joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${id}/join`, {});
+    } catch (err) {
+      // The join never counted, so no /leave either.
+      callIdRef.current = null;
+      throw err;
+    }
+    // An older server leaves the call's channel and type out of the answer.
+    const call = joinRes.data.channelId && joinRes.data.callType
+      ? { channelId: joinRes.data.channelId, callType: joinRes.data.callType }
+      : (await client.get<ChatCallDetailResponse>(`/chat-calls/${id}`)).data;
     const type = call.callType as 'voice' | 'video';
-
+    const videoOn = type === 'video';
     setCallType(type);
     setChannelId(call.channelId);
-    setPreviewJoinCallId(null);
-    setCallId(id);
-    // Joining a call that is ringing for us (e.g. from its banner) answers the ring.
-    setIncomingCall((ringing) => (ringing?.callId === id ? null : ringing));
-    setIsCallInitiator(false);
+    setIsVideoOff(!videoOn);
+    await initMeeting(joinRes.data.authToken, type, true, videoOn);
+  }, [getClient, initMeeting]);
+
+  /** Answer a ring: everything about the call came with it, so connecting starts at once. */
+  const doAcceptIncomingCall = useCallback(async (ic: IncomingCall) => {
+    setIncomingCall((ringing) => (ringing?.callId === ic.callId ? null : ringing));
+
+    // Skip preview for incoming calls — join immediately. The ring carried the
+    // call's type and channel, so there is nothing to fetch first.
+    const type = ic.callType;
     const videoOn = type === 'video';
+    setCallType(type);
+    setChannelId(ic.channelId);
+    setPreviewJoinCallId(null);
+    callIdRef.current = ic.callId;
+    setCallId(ic.callId);
+    setIsCallInitiator(false);
     setIsMuted(false);
     setIsVideoOff(!videoOn);
-    setStatus('connecting');
-    await joinRungCall(id, preparedToken, type);
-  }, [getClient, prepareMedia, releaseSuppressor, takePreparedJoin, joinRungCall]);
+    enterConnecting();
+    prepareMedia(true);
+
+    try {
+      const preparedToken = await takePreparedJoin(ic.callId);
+      if (preparedToken) {
+        await joinRungCall(ic.callId, preparedToken, type);
+      } else {
+        await joinUnprepared(ic.callId);
+      }
+    } catch (err) {
+      failConnect(getTranslations('weldchat').calling.joinFailed);
+      throw err;
+    }
+  }, [prepareMedia, takePreparedJoin, joinRungCall, joinUnprepared, enterConnecting, failConnect]);
+
+  const incomingCallRef = useRef(incomingCall);
+  incomingCallRef.current = incomingCall;
+
+  const doJoinCall = useCallback(async (id: string) => {
+    // Joining a call that is ringing for us (e.g. from its banner) answers the ring.
+    const ringing = incomingCallRef.current;
+    if (ringing?.callId === id) {
+      await doAcceptIncomingCall(ringing);
+      return;
+    }
+
+    prepareMedia(true);
+    // The active-calls list knows the channel, so the call view can show
+    // "connecting" there before the join answers.
+    const listed = queryClient
+      .getQueryData<Array<{ channelId: string; callId: string; callType?: 'voice' | 'video' }>>(['weldchat', 'active-calls'])
+      ?.find((active) => active.callId === id);
+    setChannelId(listed?.channelId ?? null);
+    if (listed?.callType) setCallType(listed.callType);
+    setPreviewJoinCallId(null);
+    callIdRef.current = id;
+    setCallId(id);
+    setIsCallInitiator(false);
+    setIsMuted(false);
+    enterConnecting();
+    try {
+      await joinUnprepared(id);
+    } catch (err) {
+      failConnect(getTranslations('weldchat').calling.joinFailed);
+      throw err;
+    }
+  }, [queryClient, prepareMedia, doAcceptIncomingCall, joinUnprepared, enterConnecting, failConnect]);
 
   // The latest closures, for a switch that only starts the call after the user
   // confirmed and the current one was left: the render that left it has run by
@@ -918,18 +1074,18 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     if (previewJoinCallId) {
       // Joining existing call
       setCallId(previewJoinCallId);
-      setStatus('connecting');
+      enterConnecting();
       const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${previewJoinCallId}/join`, {});
       await initMeeting(joinRes.data.authToken, type, audioOn, videoOn);
     } else if (chId) {
       // Starting new call — single round-trip: creates meeting + joins in one request
-      setStatus('connecting');
+      enterConnecting();
       const res = await client.post<JoinChatCallResponse>('/chat-calls/start-and-join', { channelId: chId, callType: type });
       setCallId(res.data.callId);
       await initMeeting(res.data.authToken, type, audioOn, videoOn);
     }
     setPreviewJoinCallId(null);
-  }, [stopPreviewStream, getClient, callType, channelId, previewJoinCallId, previewAudioEnabled, previewVideoEnabled, initMeeting]);
+  }, [stopPreviewStream, getClient, callType, channelId, previewJoinCallId, previewAudioEnabled, previewVideoEnabled, initMeeting, enterConnecting]);
 
   const cancelPreview = useCallback(() => {
     stopPreviewStream();
@@ -958,24 +1114,6 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     }
   }, [previewStream]);
 
-  const doAcceptIncomingCall = useCallback(async (ic: IncomingCall) => {
-    setIncomingCall((ringing) => (ringing?.callId === ic.callId ? null : ringing));
-
-    // Skip preview for incoming calls — join immediately. The ring carried the
-    // call's type and channel, so there is nothing to fetch first.
-    const type = ic.callType;
-    const videoOn = type === 'video';
-    setCallType(type);
-    setChannelId(ic.channelId);
-    setCallId(ic.callId);
-    setIsCallInitiator(false);
-    setIsMuted(false);
-    setIsVideoOff(!videoOn);
-    setStatus('connecting');
-    prepareMedia(true);
-
-    await joinRungCall(ic.callId, await takePreparedJoin(ic.callId), type);
-  }, [prepareMedia, takePreparedJoin, joinRungCall]);
   const doAcceptIncomingCallRef = useRef(doAcceptIncomingCall);
   doAcceptIncomingCallRef.current = doAcceptIncomingCall;
 
@@ -996,41 +1134,55 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     );
   }, [queryClient]);
 
+  /**
+   * Leave the call (the others carry on). The view says goodbye at once; the
+   * room and the backend are told after, and the returned promise waits for
+   * that (a switch joins the next call only once this one is left).
+   */
   const leaveCall = useCallback(async () => {
     if (!callId) return;
     const endedCallId = callId;
     const chId = channelId;
     // Clear ref BEFORE leaving so the roomLeft handler doesn't fire a duplicate /leave
     callIdRef.current = null;
+    if (meeting) stopLocalMediaTracks(meeting);
+    showCallEnded('left');
+    patchActiveCallsCache(endedCallId);
     await leaveRoom();
     const client = await getClient();
     try {
       await client.post(`/chat-calls/${endedCallId}/leave`, {});
     } catch { /* best effort */ }
-    cleanup();
-    patchActiveCallsCache(endedCallId);
     if (chId) {
       void queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
     }
-  }, [callId, channelId, getClient, leaveRoom, cleanup, queryClient, patchActiveCallsCache]);
+  }, [callId, channelId, meeting, getClient, leaveRoom, showCallEnded, queryClient, patchActiveCallsCache]);
 
+  /** End the call for everyone. Like leaving, the view says goodbye before the backend answers. */
   const endCall = useCallback(async () => {
     if (!callId) return;
-    playCallLeaveSound();
     const endedCallId = callId;
     const chId = channelId;
+    const m = meeting;
+    // Clear ref first so the roomLeft the end causes doesn't fire a /leave
+    callIdRef.current = null;
+    if (m) stopLocalMediaTracks(m);
+    showCallEnded('ended');
+    patchActiveCallsCache(endedCallId);
     const client = await getClient();
     try {
       await client.post(`/chat-calls/${endedCallId}/end`, {});
     } catch { /* best effort */ }
-    // Clear ref BEFORE cleanup so the roomLeft handler doesn't fire a duplicate /leave
-    callIdRef.current = null;
-    cleanup();
-    patchActiveCallsCache(endedCallId);
+    if (m) {
+      // The end already removed everyone; a leave() that throws changes nothing.
+      Promise.resolve()
+        .then(() => m.leave())
+        .catch(() => { /* ignore */ });
+    }
     if (chId) {
       void queryClient.invalidateQueries({ queryKey: weldchatKeys.activeCall(chId) });
     }
-  }, [callId, channelId, getClient, cleanup, queryClient, patchActiveCallsCache]);
+  }, [callId, channelId, meeting, getClient, showCallEnded, queryClient, patchActiveCallsCache]);
 
   const declineCall = useCallback(async () => {
     if (!incomingCall) return;
@@ -1204,6 +1356,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       channelId,
       callType,
       status,
+      endReason,
       isCallInitiator,
       isMuted,
       isVideoOff,
@@ -1251,6 +1404,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       channelId,
       callType,
       status,
+      endReason,
       isCallInitiator,
       isMuted,
       isVideoOff,

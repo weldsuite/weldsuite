@@ -111,6 +111,7 @@ function renderChannelChatPanel(channelId: string, slotProps: ChatPanelSlotProps
 function ChatMeetingRoomAdapter() {
   const {
     meeting,
+    status,
     callId,
     channelId,
     isMuted,
@@ -175,6 +176,13 @@ function ChatMeetingRoomAdapter() {
   // everyone doesn't replay the join chime for each of them.
   const knownPeersRef = useRef<Set<string>>(new Set());
 
+  // The room shows while our own join is still going on, and the people
+  // already in the call arrive then: no chime for them, only for later joins.
+  const inRoomRef = useRef(status === 'connected');
+  useEffect(() => {
+    if (status === 'connected') inRoomRef.current = true;
+  }, [status]);
+
   // Subscribe to RTK participant + media events; rebuild the [self, ...joined]
   // snapshot on every change so the shared view re-renders. Remote
   // join/leave/screen-share events also play a short audio cue so the user
@@ -218,7 +226,7 @@ function ChatMeetingRoomAdapter() {
       const key = peerKey(p);
       if (key && !knownPeersRef.current.has(key)) {
         knownPeersRef.current.add(key);
-        playCallJoinSound();
+        if (inRoomRef.current) playCallJoinSound();
       }
       updateParticipants();
     };

@@ -265,6 +265,16 @@ describe('POST /:callId/prepare · the token is ready before the callee answers'
     await vi.waitFor(() => expect(store.has(preparedJoinKey(callId, DAVE))).toBe(false));
   });
 
+  it('says which channel and kind of call it joined, so the client needs no GET first', async () => {
+    const channelId = await seedChannel();
+    const { callId } = await startCall(CAROL, channelId);
+
+    const res = await post(DAVE, `/${callId}/join`);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: unknown }).data).toMatchObject({ callId, channelId, callType: 'voice' });
+  });
+
   it('refuses a call in a channel the user cannot access', async () => {
     const channelId = await seedChannel();
     const { callId } = await startCall(CAROL, channelId);
