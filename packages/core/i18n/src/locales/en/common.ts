@@ -202,6 +202,7 @@ export const common = {
       accessDenied: 'Access denied.',
       alreadyResolved: 'Already resolved by another admin.',
       resolveFailed: 'Could not resolve the request. Please try again.',
+      loadMore: 'Load more',
     },
     inviteMember: {
       inviteMembers: 'Invite members',
@@ -433,7 +434,6 @@ export const common = {
       goHome: 'Go home',
     },
     workspaceLink: {
-      opening: 'Opening workspace…',
       notFoundTitle: 'Workspace not found',
       notFoundDescription: "This link points to a workspace you're not a member of, or one that has been renamed.",
       openIn: 'Open this page in:',

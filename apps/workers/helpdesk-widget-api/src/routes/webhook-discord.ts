@@ -14,6 +14,7 @@ import { getTenantDbForWorkspace, schema } from '../db';
 import { generateId } from '../lib/id';
 import { error, success } from '../lib/response';
 import { logSafe } from '@weldsuite/text';
+import { secretMatches } from '@weldsuite/db/lib/timing-safe';
 
 export const discordWebhookRoutes = new Hono<{ Bindings: Env }>();
 
@@ -35,8 +36,7 @@ discordWebhookRoutes.use('*', async (c, next) => {
   if (!secret) {
     return error.internal(c, 'Discord bot secret not configured');
   }
-  const provided = c.req.header('X-Bot-Secret');
-  if (!provided || provided !== secret) {
+  if (!secretMatches(c.req.header('X-Bot-Secret'), secret)) {
     return error.unauthorized(c, 'Invalid bot secret');
   }
   await next();
@@ -600,7 +600,7 @@ async function publishCustomerMessageRealtime(
 ): Promise<void> {
   if (!env.REALTIME) return;
   try {
-    const rt = new RealtimePublisher(env.REALTIME);
+    const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
     await rt.conversationPublish(conversationId, {
       type: 'message',
       id: message.id,
@@ -642,7 +642,7 @@ async function publishHelpdesk(
 ) {
   if (!env.REALTIME) return;
   try {
-    const rt = new RealtimePublisher(env.REALTIME);
+    const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
     await rt.helpdeskEvent(workspaceId, event, data);
   } catch (err) {
     console.error('[discord-webhook] helpdesk realtime failed:', err);

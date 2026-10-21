@@ -1,7 +1,8 @@
 # Helpdesk Workflow Worker
 # Workflow execution via CF Workflows + assignment routing via DO + SLA cron.
 
-name = "helpdesk-workflow-worker"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "helpdesk-workflow-worker-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

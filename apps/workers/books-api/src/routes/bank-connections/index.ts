@@ -12,10 +12,18 @@
  * POST   /:id/disconnect      revoke at the provider, keep every synced transaction
  * DELETE /:id                 disconnect and remove the connection
  * GET    /:id/pending         pending transactions the bank has reported
+ * GET    /billing             connections the plan includes and the price of an extra one
  * GET    /:id                 one connection
  *
  * Responses never carry provider tokens or full account numbers, and neither do
  * the entity events. Permissions: banking:read | create | update | manage.
+ * Starting a link also takes a recently verified second factor (403
+ * MFA_REQUIRED / REVERIFICATION_REQUIRED, worker-kit `requireSecondFactor`).
+ *
+ * The plan includes a number of connections (one bank login each); a new one
+ * above that needs `acceptExtraCharge` at link-session, a workspace admin and a
+ * payment method, and is billed through billing-worker once it is linked
+ * (services/bank-feeds/billing.ts). A link billing then refuses is removed again.
  */
 
 import { Hono, type Context } from 'hono';
@@ -24,6 +32,7 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { enabledProviders } from '@weldsuite/bank-feeds';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { requireSecondFactor } from '@weldsuite/worker-kit/middleware/second-factor';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -40,6 +49,12 @@ import {
   mapAccounts,
   requireConnection,
 } from '../../services/bank-feeds/connections';
+import {
+  BankConnectionBillingError,
+  checkNewConnection,
+  createBankConnectionBilling,
+  type BankConnectionBilling,
+} from '../../services/bank-feeds/billing';
 import { FeedServiceError, translateProviderError } from '../../services/bank-feeds/errors';
 import { feedProviders, createFeedContext } from '../../services/bank-feeds/runtime';
 import { syncConnection } from '../../services/bank-feeds/sync';
@@ -61,6 +76,8 @@ const linkSessionSchema = z.object({
     .object({ id: z.string().max(100).optional(), name: z.string().min(1).max(255), country: z.string().length(2) })
     .optional(),
   psuType: z.enum(['business', 'personal']).optional(),
+  /** The user agreed that this connection is billed on top of the plan's included ones. */
+  acceptExtraCharge: z.boolean().optional(),
 });
 
 const completeSchema = z.object({
@@ -95,6 +112,10 @@ const mapAccountsSchema = z.object({
 });
 
 function failure(c: AppContext, raw: unknown, fallback: string) {
+  if (raw instanceof BankConnectionBillingError) {
+    if (raw.status >= 500) console.error(`[books-api/bank-connections] billing: ${raw.message}`);
+    return c.json({ error: { code: raw.code, message: raw.message } }, raw.status);
+  }
   const err = translateProviderError(raw) ?? raw;
   if (err instanceof FeedServiceError) {
     switch (err.code) {
@@ -112,6 +133,42 @@ function failure(c: AppContext, raw: unknown, fallback: string) {
   }
   console.error(`[books-api/bank-connections] ${fallback}:`, err);
   return error.internal(c, fallback);
+}
+
+/** Align the billed quantity in the background. Best effort: the next change corrects a miss. */
+function syncBillingLater(c: AppContext, billing: BankConnectionBilling) {
+  c.executionCtx.waitUntil(
+    billing.sync().catch((err) => console.error('[books-api/bank-connections] billing sync failed:', err)),
+  );
+}
+
+/**
+ * Bill a connection that a link just added to the count (new, or a disconnected
+ * one brought back). Above the included ones the charge must go through before
+ * the link is kept; otherwise the quantity is aligned in the background.
+ */
+async function billLinkedConnection(
+  c: AppContext,
+  billing: BankConnectionBilling,
+  link: { view: ConnectionView; entityId: string; billed: boolean; created: boolean },
+) {
+  if (!link.billed) {
+    syncBillingLater(c, billing);
+    return;
+  }
+  try {
+    await billing.sync();
+  } catch (err) {
+    // Not billed, so not kept: revoke at the provider and drop (or disconnect) it again.
+    const ctx = createFeedContext(c);
+    const undo = link.created
+      ? deleteConnection(ctx, link.view.id, link.entityId)
+      : disconnectConnection(ctx, link.view.id, link.entityId);
+    await undo.catch((cleanup) =>
+      console.error('[books-api/bank-connections] removing an unbilled connection failed:', cleanup),
+    );
+    throw err;
+  }
 }
 
 /** Event payload: identifiers and status only, never tokens, account numbers or transaction data. */
@@ -183,9 +240,19 @@ app.get('/institutions', requirePermission('banking:read'), async (c) => {
 });
 
 // POST /link-session
-app.post('/link-session', requirePermission('banking:create'), zValidator('json', linkSessionSchema), async (c) => {
+// A second factor verified in the last 10 minutes, for every mode: a link (new or
+// renewed) opens the bank's data to this workspace. `/complete` needs no check of
+// its own, since it can only finish a link a session started here.
+app.post('/link-session', requirePermission('banking:create'), requireSecondFactor(), zValidator('json', linkSessionSchema), async (c) => {
   const body = c.req.valid('json');
   try {
+    // Reconnecting or adding accounts stays within the same bank login: only a new one can cost extra.
+    if (body.mode === 'create') {
+      await checkNewConnection(createBankConnectionBilling(c), {
+        accepted: body.acceptExtraCharge === true,
+        requireAcceptance: true,
+      });
+    }
     const session = await createLinkSession(createFeedContext(c), {
       providerId: body.provider,
       mode: body.mode,
@@ -207,13 +274,22 @@ app.post('/complete', requirePermission('banking:create'), zValidator('json', co
   try {
     const entityId = await resolveEntityId(c, c.get('tenantDb'));
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-    const { view, created } = await completeLink(createFeedContext(c), {
+    const billing = createBankConnectionBilling(c);
+    const ctx = createFeedContext(c);
+    // Checked again here, before the provider is asked. The user already agreed to
+    // the charge at link-session, so that is not asked for a second time.
+    const { billed } = body.connectionId
+      ? { billed: false }
+      : await checkNewConnection(billing, { accepted: false, requireAcceptance: false });
+    const { view, created, restored } = await completeLink(ctx, {
       providerId: body.provider,
       payload: body.payload,
       connectionId: body.connectionId,
       entityId,
       userId: c.get('userId') ?? null,
     });
+    // A disconnected connection the link brought back counts again, just like a new one.
+    if (created || restored) await billLinkedConnection(c, billing, { view, entityId, billed, created });
     publishEntityEvent({
       c,
       entityType: 'bank_connection',
@@ -275,6 +351,7 @@ app.post('/:id/disconnect', requirePermission('banking:manage'), async (c) => {
   try {
     const entityId = await resolveEntityId(c, c.get('tenantDb'));
     const view = await disconnectConnection(createFeedContext(c), id, entityId);
+    syncBillingLater(c, createBankConnectionBilling(c));
     publishEntityEvent({ c, entityType: 'bank_connection', entityId: id, action: 'updated', data: eventData(view) });
     return success(c, view);
   } catch (err) {
@@ -288,6 +365,7 @@ app.delete('/:id', requirePermission('banking:manage'), async (c) => {
   try {
     const entityId = await resolveEntityId(c, c.get('tenantDb'));
     const removed = await deleteConnection(createFeedContext(c), id, entityId);
+    syncBillingLater(c, createBankConnectionBilling(c));
     publishEntityEvent({
       c,
       entityType: 'bank_connection',
@@ -298,6 +376,15 @@ app.delete('/:id', requirePermission('banking:manage'), async (c) => {
     return noContent(c);
   } catch (err) {
     return failure(c, err, 'Failed to delete the bank connection');
+  }
+});
+
+// GET /billing — null when billing is off in this environment
+app.get('/billing', requirePermission('banking:read'), async (c) => {
+  try {
+    return success(c, await createBankConnectionBilling(c).status());
+  } catch (err) {
+    return failure(c, err, 'Failed to read the bank connection billing');
   }
 });
 

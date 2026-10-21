@@ -29,6 +29,8 @@ import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import type { NewsArticle } from '@/hooks/queries/use-helpdesk-queries';
 import { copyText } from '@/lib/clipboard';
+import { cn } from '@/lib/utils';
+import { INLINE_CODE_CLASSES, renderInlineMarkdown } from '@/app/welddesk/lib/inline-markdown';
 
 interface NewsViewerProps {
   article: NewsArticle;
@@ -42,13 +44,6 @@ function parseListLine(line: string): { type: ListType; text: string } | null {
   if (line.startsWith('- ')) return { type: 'bullet', text: line.substring(2) };
   if (NUMBERED_PREFIX.test(line)) return { type: 'numbered', text: line.replace(NUMBERED_PREFIX, '') };
   return null;
-}
-
-function renderInlineMarkdown(line: string): string {
-  return line
-    .replaceAll(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replaceAll(/\*(.*?)\*/g, '<em>$1</em>')
-    .replaceAll(/`(.*?)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">$1</code>');
 }
 
 // Headings, blockquotes and paragraphs (every non-list, non-blank, non-code line)
@@ -87,7 +82,8 @@ function renderTextBlock(line: string, key: number): ReactElement {
   return (
     <p
       key={key}
-      className="mb-4 leading-relaxed"
+      className={cn('mb-4 leading-relaxed', INLINE_CODE_CLASSES)}
+      // renderInlineMarkdown returns allowlist-sanitized HTML (never the raw line).
       dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(line) }}
     />
   );

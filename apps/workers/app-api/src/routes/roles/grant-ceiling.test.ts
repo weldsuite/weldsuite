@@ -34,6 +34,12 @@ describe('grant ceiling', () => {
     expect(checkPermissionGrants(admin, SYSTEM_ROLES.VIEWER!.permissions).ok).toBe(true);
   });
 
+  it('accepts the keys the platform asks for through access requests', () => {
+    // <AccessDeniedEmptyState permission=…> call sites in apps/web/platform.
+    const requested = ['billing:manage', 'billing:read', 'passwords:use', 'taxes:read', 'team:read'];
+    expect(requested.filter((k) => !isGrantablePermissionKey(k))).toEqual([]);
+  });
+
   it('never lets anyone grant the Owner wildcard', () => {
     expect(checkPermissionGrants({ permissions: ['*'] }, ['*']).invalid).toEqual(['*']);
   });

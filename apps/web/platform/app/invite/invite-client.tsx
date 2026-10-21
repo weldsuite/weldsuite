@@ -8,6 +8,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
 import { setPendingOrganization } from '@/lib/pending-organization';
+import { workspacePath } from '@/lib/workspace-url';
 import { pickInvitation } from './pick-invitation';
 
 interface InviteClientProps {
@@ -82,17 +83,13 @@ function getInviteeDetails(
 /**
  * Open the app in the workspace just joined. Clerk's active org can still be
  * the previous one after the reload, so the app shell is told which org to
- * activate, and the persisted query cache (the old org's data) is dropped.
+ * activate. The persisted query cache is kept per workspace (FE-014), so
+ * there is nothing of the old org's to drop.
  */
 function enterWorkspaceSoon(orgId: string | undefined) {
   if (orgId) setPendingOrganization(orgId);
-  try {
-    window.localStorage.removeItem('weldsuite:query-cache');
-  } catch {
-    // storage unavailable — the reload below still happens
-  }
   setTimeout(() => {
-    window.location.href = '/';
+    window.location.href = orgId ? workspacePath(orgId, '/') : '/';
   }, 1500);
 }
 

@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { getMasterDb, masterSchema, type MasterDatabase } from './db';
+import { ACTIVE_MOVE_STATUSES, type DatabaseMoveKind, type DatabaseMoveStatus } from './database-moves';
 import {
   classifyPlacement,
   detectShardDrift,
@@ -12,19 +13,29 @@ import {
   type ShardFill,
 } from './databases';
 
-const { neonSharedProjects: shards, databasePool: pool, workspaces, plans } = masterSchema;
+const {
+  neonSharedProjects: shards,
+  databasePool: pool,
+  workspaces,
+  plans,
+  workspaceDatabaseMoves: moves,
+} = masterSchema;
 
 /**
- * Read side of the Databases screens (task 1150, phase 1).
+ * Read side of the Databases screens (task 1150, phases 1 and 3).
  *
  * Everything here reads the MASTER database only: `neon_shared_projects`,
- * `database_pool` and `workspaces`. No tenant database is opened (ADR DATA-008:
- * looking at placement must not wake tenant computes) and the Neon API is not
- * called, so what the screens show is what the master database believes.
+ * `database_pool`, `workspaces` and `workspace_database_moves`. No tenant
+ * database is opened (ADR DATA-008: looking at placement must not wake tenant
+ * computes) and the Neon API is not called, so what the screens show is what
+ * the master database believes. Live compute state and the moves' own detail
+ * come from the workspace worker (./workspace-worker.ts).
  *
  * Secrets stay out by construction: every query lists its columns. Never add
- * `workspaces.database_url`, `neon_shared_projects.admin_password_encrypted` or
- * `database_pool.database_url` to a selection.
+ * `workspaces.database_url`, `neon_shared_projects.admin_password_encrypted`,
+ * `database_pool.database_url`, `workspace_database_moves.target_database_url`
+ * or its `progress` blob (saved copy cursors can hold customer data) to a
+ * selection.
  *
  * Placement rule (see ./databases.ts): a workspace is on a shard when its Neon
  * project id is a shard's project id, dedicated when it has any other project
@@ -165,7 +176,11 @@ export async function getShardsOverview(): Promise<ShardSummary[]> {
 
   const byProject = new Map<string, { live: number; pending: number }>();
   for (const row of workspaceCounts) {
-    if (row.neonProjectId) byProject.set(row.neonProjectId, { live: Number(row.live), pending: Number(row.pending) });
+    if (row.neonProjectId)
+      byProject.set(row.neonProjectId, {
+        live: Number(row.live),
+        pending: Number(row.pending),
+      });
   }
 
   // A pool slot belongs to the shard named by `shared_project_id`, or, when that
@@ -276,7 +291,11 @@ export interface PoolOverview {
 }
 
 const KIND_RANK: Record<string, number> = { shared: 0, dedicated: 1 };
-const STATUS_RANK: Record<PoolStatus, number> = { available: 0, assigned: 1, error: 2 };
+const STATUS_RANK: Record<PoolStatus, number> = {
+  available: 0,
+  assigned: 1,
+  error: 2,
+};
 
 /**
  * The warm pool: counts by kind and status (with schema versions), plus the
@@ -302,9 +321,17 @@ export async function getPoolOverview(): Promise<PoolOverview> {
   const grouped = new Map<string, PoolGroup>();
   for (const row of groupRows) {
     const key = `${row.kind}:${row.status}`;
-    const group = grouped.get(key) ?? { kind: row.kind, status: row.status, count: 0, schemaVersions: [] };
+    const group = grouped.get(key) ?? {
+      kind: row.kind,
+      status: row.status,
+      count: 0,
+      schemaVersions: [],
+    };
     group.count += Number(row.n);
-    group.schemaVersions.push({ version: row.schemaVersion, count: Number(row.n) });
+    group.schemaVersions.push({
+      version: row.schemaVersion,
+      count: Number(row.n),
+    });
     grouped.set(key, group);
   }
 
@@ -551,26 +578,123 @@ export function buildDatabasesSummary(parts: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Moves
+// ---------------------------------------------------------------------------
+
+/** Ended moves listed on the overview, next to every move still running. */
+const RECENT_MOVES_LIMIT = 20;
+
+export interface MoveListRow {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  kind: DatabaseMoveKind;
+  status: DatabaseMoveStatus;
+  requestedTarget: string;
+  sourceSharedProjectId: string | null;
+  targetSharedProjectId: string | null;
+  startedBy: string;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
+export interface MovesOverview {
+  /** Every move that has not ended; at most one per workspace (a unique index says so). */
+  active: MoveListRow[];
+  /** The latest moves that ended, newest first. */
+  recent: MoveListRow[];
+}
+
+const moveColumns = {
+  id: moves.id,
+  workspaceId: moves.workspaceId,
+  workspaceName: workspaces.name,
+  kind: moves.kind,
+  status: moves.status,
+  requestedTarget: moves.requestedTarget,
+  sourceSharedProjectId: moves.sourceSharedProjectId,
+  targetSharedProjectId: moves.targetSharedProjectId,
+  startedBy: moves.startedBy,
+  error: moves.error,
+  createdAt: moves.createdAt,
+  completedAt: moves.completedAt,
+  updatedAt: moves.updatedAt,
+};
+
+/** A row as the select returns it: dates as Date, and no name when the workspace row is gone. */
+interface MoveSelectRow extends Omit<MoveListRow, 'workspaceName' | 'createdAt' | 'completedAt' | 'updatedAt'> {
+  workspaceName: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
+  updatedAt: Date;
+}
+
+function toMoveListRow(row: MoveSelectRow): MoveListRow {
+  return {
+    ...row,
+    workspaceName: row.workspaceName ?? row.workspaceId,
+    createdAt: row.createdAt.toISOString(),
+    completedAt: iso(row.completedAt),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** The moves still running and the latest ones that ended, across every workspace. */
+export async function getMovesOverview(): Promise<MovesOverview> {
+  const db = getMasterDb();
+  const active = [...ACTIVE_MOVE_STATUSES];
+  const [activeRows, recentRows] = await Promise.all([
+    db
+      .select(moveColumns)
+      .from(moves)
+      .leftJoin(workspaces, eq(moves.workspaceId, workspaces.id))
+      .where(inArray(moves.status, active))
+      .orderBy(asc(moves.createdAt)),
+    db
+      .select(moveColumns)
+      .from(moves)
+      .leftJoin(workspaces, eq(moves.workspaceId, workspaces.id))
+      .where(notInArray(moves.status, active))
+      .orderBy(desc(moves.createdAt))
+      .limit(RECENT_MOVES_LIMIT),
+  ]);
+  return {
+    active: activeRows.map(toMoveListRow),
+    recent: recentRows.map(toMoveListRow),
+  };
+}
+
 export interface DatabasesOverview {
   summary: DatabasesSummary;
   shards: ShardSummary[];
   dedicated: DedicatedProjects;
   pool: PoolOverview;
+  moves: MovesOverview;
 }
 
 /** Everything the Databases overview shows, loaded together. */
 export async function getDatabasesOverview(): Promise<DatabasesOverview> {
-  const [shardList, dedicated, poolOverview, withoutDatabase] = await Promise.all([
+  const [shardList, dedicated, poolOverview, withoutDatabase, movesOverview] = await Promise.all([
     getShardsOverview(),
     getDedicatedProjects(),
     getPoolOverview(),
     getWorkspacesWithoutDatabase(),
+    getMovesOverview(),
   ]);
   return {
-    summary: buildDatabasesSummary({ shards: shardList, dedicated, pool: poolOverview, withoutDatabase }),
+    summary: buildDatabasesSummary({
+      shards: shardList,
+      dedicated,
+      pool: poolOverview,
+      withoutDatabase,
+    }),
     shards: shardList,
     dedicated,
     pool: poolOverview,
+    moves: movesOverview,
   };
 }
 

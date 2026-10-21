@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
     "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.4.0",
@@ -19,7 +19,7 @@
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.34",
+    "hono": "^4.13.13",
     "nanoid": "^5.1.16",
     "postgres": "^3.4.7",
     "zod": "^3.25.76"
@@ -28,6 +28,7 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
     "typescript": "^5.7",
+    "vitest": "^3.2.6",
     "wrangler": "^4.0.0"
   }
 }

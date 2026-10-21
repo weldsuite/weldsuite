@@ -64,6 +64,9 @@ export interface StartAndJoinResponse {
 
 export interface JoinCallResponse {
   callId: string;
+  /** The call's channel and type, so a client can connect without fetching the call. */
+  channelId: string;
+  callType: ChatCallType;
   authToken: string;
   participants: ChatCallParticipant[];
 }

@@ -45,13 +45,13 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
-    "@react-email/ui": "^6.11.0",
+    "@react-email/ui": "^6.11.3",
     "@types/html-to-text": "^9.0.4",
     "@types/node": "^20",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@weldsuite/typescript-config": "workspace:*",
-    "react-email": "^6.11.0",
+    "react-email": "^6.11.3",
     "tsx": "^4.0.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.6"

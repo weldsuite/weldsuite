@@ -73,6 +73,35 @@ describe('services/app-api', () => {
     });
   });
 
+  describe('getAppApiRequestInit', () => {
+    it('builds an absolute /api URL with the bearer token and app header', async () => {
+      process.env.EXPO_PUBLIC_APP_API_URL = 'https://app-api.weldsuite.org/';
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
+      const { getAppApiRequestInit, setAppApiTokenGetter } = require('../app-api');
+      setAppApiTokenGetter(async () => 'jwt-token-123');
+      await expect(getAppApiRequestInit('/mail-attachments/att_1/download')).resolves.toEqual({
+        url: 'https://app-api.weldsuite.org/api/mail-attachments/att_1/download',
+        headers: { Authorization: 'Bearer jwt-token-123', 'X-Weld-App': 'weldmail' },
+      });
+    });
+
+    it('routes to the module worker when the module is enabled', async () => {
+      process.env.EXPO_PUBLIC_APP_API_URL = 'https://app-api.weldsuite.org';
+      process.env.EXPO_PUBLIC_API_MODULES = 'all';
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
+      const { getAppApiRequestInit, setAppApiTokenGetter } = require('../app-api');
+      setAppApiTokenGetter(async () => 't');
+      const { url } = await getAppApiRequestInit('/mail-attachments/att_1/download');
+      expect(url).toBe('https://mail-api.weldsuite.org/api/mail-attachments/att_1/download');
+    });
+
+    it('rejects without a session token', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
+      const { getAppApiRequestInit } = require('../app-api');
+      await expect(getAppApiRequestInit('/x')).rejects.toThrow('Authentication required');
+    });
+  });
+
   describe('setAppApiTokenGetter', () => {
     it('passes a token getter to createClientApi that reflects the latest setter', async () => {
       // Capture the getToken callback handed to the client factory at load time.

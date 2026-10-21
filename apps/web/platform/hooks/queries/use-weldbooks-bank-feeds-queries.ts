@@ -5,6 +5,7 @@
  * resets them with the other entity-scoped accounting data
  * (`isEntityScopedAccountingQuery`): a connection belongs to one entity.
  */
+import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   bankFeedsApi,
@@ -17,6 +18,7 @@ import { accountingKeys } from '@/hooks/queries/use-accounting-queries';
 export const bankFeedKeys = {
   all: ['accounting', 'bank-feeds'] as const,
   connections: () => [...bankFeedKeys.all, 'connections'] as const,
+  billing: () => [...bankFeedKeys.all, 'billing'] as const,
   providers: (country?: string) => [...bankFeedKeys.all, 'providers', country ?? 'entity'] as const,
   institutions: (provider: string, country: string) =>
     [...bankFeedKeys.all, 'institutions', provider, country] as const,
@@ -82,6 +84,15 @@ export function useBankFeedPendingTransactions(
   });
 }
 
+/** What the plan includes and what an extra connection costs (null when billing is off), read when needed. */
+export function useFetchBankConnectionBilling() {
+  const qc = useQueryClient();
+  return useCallback(
+    () => qc.fetchQuery({ queryKey: bankFeedKeys.billing(), queryFn: () => bankFeedsApi.getBilling(), staleTime: 0 }),
+    [qc],
+  );
+}
+
 // ============================================================================
 // Mutations
 // ============================================================================
@@ -98,6 +109,7 @@ export function useCompleteBankFeedLink() {
     mutationFn: (input: BankFeedCompleteInput) => bankFeedsApi.completeLink(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: bankFeedKeys.connections() });
+      qc.invalidateQueries({ queryKey: bankFeedKeys.billing() });
       // A relink reattaches existing bank accounts to the new provider account ids.
       qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
     },

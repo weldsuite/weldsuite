@@ -18,6 +18,16 @@
  *                                  (/generate-upload-url, /confirm-upload,
  *                                  /access, /sign)
  *
+ * What the token-gated PUT enforces (the token is the only credential there):
+ *   - the body is exactly the `fileSize` declared at mint time (and below the
+ *     hard cap), checked on `Content-Length` before reading and on the bytes;
+ *   - the token writes ONCE: the pending record is flagged `uploaded` and a
+ *     second PUT is a 409 (keys with a random segment are also written with an
+ *     R2 create-only precondition, which is atomic where KV is not);
+ *   - the stored content type is allowlisted; anything that could run as a
+ *     page of the public bucket host is stored as an attachment octet-stream.
+ * `confirm-upload` still works after the PUT: it reads the object from R2.
+ *
  * Public vs private (TASK-620): `isPublic` picks the bucket.
  *
  *   - public  → `STORAGE`, mapped to the public `R2_PUBLIC_URL` domain. For
@@ -36,10 +46,7 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { verifyToken } from '@clerk/backend';
-import {
-  generateUploadUrlSchema,
-  confirmUploadSchema,
-} from '@weldsuite/core-api-client/schemas/storage';
+import { confirmUploadSchema } from '@weldsuite/core-api-client/schemas/storage';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { migratePrivateFilesBatch } from '../../services/private-storage-migration';
@@ -63,6 +70,13 @@ import {
   workspaceOfKey,
   type StorageBucketName,
 } from '@weldsuite/worker-kit/storage';
+import {
+  MAX_UPLOAD_BYTES,
+  buildUploadKey,
+  generateUploadUrlRequestSchema,
+  readBodyOfExactSize,
+  resolveStoredContent,
+} from '../../lib/storage-upload';
 
 // ============================================================================
 // KV-stored upload tokens (10 min TTL).
@@ -84,6 +98,7 @@ const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 
 interface PendingUpload {
   fileKey: string;
+  /** What the client declared; the stored type is derived from it on every use. */
   contentType: string;
   fileName: string;
   fileSize: number;
@@ -92,6 +107,11 @@ interface PendingUpload {
   bucket?: StorageBucketName;
   userId: string;
   createdAt: number;
+  /** Key carries a random segment: write it with an R2 create-only precondition. */
+  createOnly?: boolean;
+  /** Set by the PUT once the object is written; the token writes no second time. */
+  uploaded?: boolean;
+  uploadedAt?: number;
 }
 
 /** Fixed-key public images: always the public bucket, whatever `isPublic` says. */
@@ -166,17 +186,50 @@ uploadTokenApp.put('/api/storage/upload/:token', async (c) => {
   if (!pending) {
     return c.json({ error: 'Invalid or expired upload token' }, 400);
   }
+  // One token, one write. (KV is eventually consistent, so this flag is the
+  // fast path; for keys with a random segment the R2 precondition below is the
+  // atomic guard.)
+  if (pending.uploaded) {
+    return c.json({ error: 'Upload token already used' }, 409);
+  }
   const bucket = bucketFor(c.env, pending.bucket ?? 'public');
   if (!bucket) {
     return c.json({ error: 'Storage is not configured' }, 500);
   }
+  // Tokens minted before the cap existed may carry a larger declared size.
+  if (pending.fileSize > MAX_UPLOAD_BYTES) {
+    return c.json({ error: 'File is too large' }, 413);
+  }
   try {
-    const body = await c.req.arrayBuffer();
-    const result = await bucket.put(pending.fileKey, body, {
-      httpMetadata: { contentType: pending.contentType },
+    // The body must be exactly what the token was minted for.
+    const body = await readBodyOfExactSize(c.req.raw, pending.fileSize);
+    if (!body.ok) {
+      return body.reason === 'too_large'
+        ? c.json({ error: 'Upload is larger than the declared file size' }, 413)
+        : c.json({ error: 'Upload size does not match the declared file size' }, 400);
+    }
+
+    // The type is the one declared at mint time, never the PUT's own header,
+    // and only allowlisted types are stored as such.
+    const stored = resolveStoredContent(pending.contentType);
+    const result: R2Object | null = await bucket.put(pending.fileKey, body.bytes, {
+      httpMetadata: {
+        contentType: stored.contentType,
+        ...(stored.contentDisposition ? { contentDisposition: stored.contentDisposition } : {}),
+      },
       customMetadata: { fileName: pending.fileName },
+      ...(pending.createOnly ? { onlyIf: { etagDoesNotMatch: '*' } } : {}),
     });
-    const etag = result?.etag || '';
+    if (!result) {
+      // The create-only precondition failed: the key was already written.
+      return c.json({ error: 'Upload token already used' }, 409);
+    }
+    await setPendingUpload(c.env.WORKSPACE_CACHE, token, {
+      ...pending,
+      uploaded: true,
+      uploadedAt: Date.now(),
+    });
+    const etag = result.etag || '';
     return new Response(null, {
       status: 200,
       headers: {
@@ -348,7 +401,10 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  */
 app.post(
   '/generate-upload-url',
-  zValidator('json', generateUploadUrlSchema),
+  // Beyond the shared schema: folder / entityType / entityId must be plain
+  // path segments (they are interpolated into the R2 key and so into a public
+  // URL), and fileSize has a hard cap. Hostile values are a 400.
+  zValidator('json', generateUploadUrlRequestSchema),
   async (c) => {
     const userId = c.get('userId');
     if (!userId) return error.unauthorized(c);
@@ -361,29 +417,7 @@ app.post(
 
     try {
       const uploadToken = generateUploadToken();
-      let fileKey: string;
-
-      if (data.entityType === 'customer-avatar' && data.entityId) {
-        const ext = data.fileName.split('.').pop()?.toLowerCase() || 'png';
-        fileKey = `workspaces/${workspaceId}/avatars/customers/${data.entityId}/logo.${ext}`;
-      } else if (data.entityType === 'contact-avatar' && data.entityId) {
-        const ext = data.fileName.split('.').pop()?.toLowerCase() || 'png';
-        fileKey = `workspaces/${workspaceId}/avatars/contacts/${data.entityId}/logo.${ext}`;
-      } else if (data.entityType === 'user-app-logo' && data.entityId) {
-        const ext = data.fileName.split('.').pop()?.toLowerCase() || 'png';
-        fileKey = `workspaces/${workspaceId}/user-apps/${data.entityId}/logo.${ext}`;
-      } else {
-        const timestamp = Date.now();
-        const sanitizedName = data.fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-        const folder = data.folder || 'uploads';
-        const entityPath =
-          data.entityType && data.entityId ? `${data.entityType}/${data.entityId}` : 'general';
-        // Public files are served from the bucket URL without auth, so the key
-        // is the only thing protecting them: it must not be guessable from the
-        // workspace id, upload time and file name alone.
-        const unguessable = crypto.randomUUID().replace(/-/g, '');
-        fileKey = `workspaces/${workspaceId}/${folder}/${entityPath}/${timestamp}_${unguessable}/${sanitizedName}`;
-      }
+      const { fileKey, createOnly } = buildUploadKey(workspaceId, data);
 
       await setPendingUpload(c.env.WORKSPACE_CACHE, uploadToken, {
         fileKey,
@@ -394,6 +428,8 @@ app.post(
         bucket,
         userId,
         createdAt: Date.now(),
+        createOnly,
+        uploaded: false,
       });
 
       const origin = new URL(c.req.url).origin;
@@ -453,7 +489,8 @@ app.post(
           fileName: pending.fileName,
           fileKey,
           fileSize: head.size,
-          mimeType: pending.contentType,
+          // The type the object is stored and served as, not the raw claim.
+          mimeType: resolveStoredContent(pending.contentType).contentType,
           url,
           isPublic: bucketName === 'public',
           bucket: bucketName,

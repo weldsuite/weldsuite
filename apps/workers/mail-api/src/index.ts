@@ -110,7 +110,7 @@ export default {
 
   scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Bring snoozed mail whose time has come back to the inbox.
-    // */5 in production and local dev; hourly on test (see wrangler.toml).
+    // */5 in every environment (see wrangler.toml).
     if (isSnoozeSweepCron(event.cron)) {
       ctx.waitUntil(
         runSnoozeSweep(env).catch((err) => {

@@ -9,6 +9,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
+// Defines + registers the background notification task; must load at startup.
+import '@/utils/notification-tasks';
 
 import { hideAppSplash } from '@/utils/splash';
 

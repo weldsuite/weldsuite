@@ -1,60 +1,80 @@
 import { useMemo } from 'react';
 import { useInstalledUserApps, useUserAppDevSession } from '@/hooks/queries/use-user-apps-queries';
-import { getAppApiUrl } from '@/lib/api/public-env';
-import { iframeSandbox, iframeTargetOrigin } from './preview';
+import { getBundleOrigin, isolateCommunityApps } from './frame-src';
+import { acceptPreviewSession, iframeSandbox, iframeTargetOrigin, type FrameKind } from './preview';
+import { useUserAppBundleLink } from './use-bundle-link';
 
-export const APP_API_BASE = getAppApiUrl();
+// Re-exported for the callers that always imported them from here.
+export { APP_API_BASE, bootstrapFrameSrc } from './frame-src';
 
 /**
  * Resolve what to load for `appCode`: the installed app row, and the iframe
- * source — the developer's `weld app dev` preview when one is active, else
- * the published bundle on app-api.
+ * source — the developer's `weld app dev` preview when one is active (and
+ * acceptable, see `acceptPreviewSession`), else the published bundle, loaded
+ * through the link the API mints (plain for public apps, signed otherwise).
  *
  * `pollDevSession: false` keeps the preview session from being polled (used by
  * kept-alive frames that are not currently shown); the last known session is
  * still used.
  */
 export function useWeldAppSource(appCode: string | undefined, options: { pollDevSession?: boolean } = {}) {
-  const { data: installedApps, isLoading } = useInstalledUserApps();
+  const { data: installedApps, isLoading: installedLoading } = useInstalledUserApps();
   const { data: devSession } = useUserAppDevSession(appCode, { poll: options.pollDevSession });
 
   const app = installedApps?.find((a) => a.appCode === appCode);
-  const previewUrl = devSession?.url ?? null;
-  const bundleSrc = appCode ? `${APP_API_BASE}/public/user-apps/${appCode}/index.html` : '';
-  const iframeSrc = previewUrl ?? bundleSrc;
+  const preview = useMemo(() => acceptPreviewSession(devSession), [devSession]);
+  const previewUrl = preview?.url ?? null;
+  const kind: FrameKind = preview ? 'preview' : 'bundle';
+
+  const bundle = useUserAppBundleLink(appCode, { enabled: Boolean(app) && !preview });
+  const iframeSrc = previewUrl ?? bundle.src ?? '';
+
+  /**
+   * First-party apps (and the legacy weldcommerce hosted app) act with
+   * the member's platform session against app-api; community apps go
+   * through the scoped gateway to external-api.
+   */
+  const usesPlatformSession = app?.publisherType === 'weldsuite' || appCode === 'weldcommerce';
+  // A community bundle shares its origin with the others (and the API) unless
+  // every app has its own, so it may be rendered in an opaque origin.
+  const isolated =
+    kind === 'bundle' &&
+    !usesPlatformSession &&
+    isolateCommunityApps() &&
+    !(appCode ? getBundleOrigin(appCode).perApp : false);
 
   return useMemo(
     () => ({
       app,
-      isLoading,
+      isLoading: installedLoading || (Boolean(app) && !preview && bundle.isLoading),
+      /** The bundle link could not be minted or is unusable; the frame cannot load. */
+      bundleError: Boolean(app) && !preview && bundle.isError && !bundle.src,
+      refreshBundle: bundle.refresh,
+      /** Epoch ms at which a signed bundle link expires; null for plain links and previews. */
+      bundleExpiresAtMs: preview ? null : bundle.expiresAtMs,
+      kind,
       previewUrl,
       iframeSrc,
+      /** The exact origin the frame is pinned to (null while there is nothing to load). */
       targetOrigin: iframeTargetOrigin(iframeSrc),
-      sandbox: iframeSandbox(iframeSrc),
-      /**
-       * First-party apps (and the legacy weldcommerce hosted app) act with
-       * the member's platform session against app-api; community apps go
-       * through the scoped gateway to external-api.
-       */
-      usesPlatformSession: app?.publisherType === 'weldsuite' || appCode === 'weldcommerce',
+      isolated,
+      sandbox: iframeSandbox({ kind, isolated }),
+      usesPlatformSession,
     }),
-    [app, isLoading, previewUrl, iframeSrc, appCode],
+    [
+      app,
+      installedLoading,
+      preview,
+      bundle.isLoading,
+      bundle.isError,
+      bundle.src,
+      bundle.refresh,
+      bundle.expiresAtMs,
+      kind,
+      previewUrl,
+      iframeSrc,
+      isolated,
+      usesPlatformSession,
+    ],
   );
-}
-
-/**
- * Bootstrap theme + route into the URL so first paint already matches the
- * platform. Only used for the initial `src`; later changes go over the bridge
- * so the iframe never reloads on navigation.
- */
-export function bootstrapFrameSrc(src: string, theme: 'light' | 'dark', path: string): string {
-  if (!src) return src;
-  try {
-    const url = new URL(src);
-    url.searchParams.set('theme', theme);
-    url.hash = path && path !== '/' ? path.replace(/^\//, '') : '';
-    return url.toString();
-  } catch {
-    return src;
-  }
 }

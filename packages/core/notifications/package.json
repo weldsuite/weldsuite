@@ -6,11 +6,13 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./push": "./src/channels/push.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
-    "lint": "echo 'no lint configured'"
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run"
   },
   "dependencies": {
     "@weldsuite/db": "workspace:*",
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@weldsuite/typescript-config": "workspace:*",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
   }
 }

@@ -9,6 +9,10 @@ import type {
   AssociateMailAttachmentsInput,
 } from '../schemas/mail-attachments';
 
+/**
+ * A mail attachment as the API returns it: no R2 key and no public URL.
+ * Download through `/api/mail-attachments/:id/download` (mailbox access check).
+ */
 export interface MailAttachmentRow {
   id: string;
   messageId: string;
@@ -19,8 +23,6 @@ export interface MailAttachmentRow {
   contentId: string | null;
   contentDisposition: string | null;
   checksum: string | null;
-  downloadUrl: string | null;
-  storagePath: string | null;
   externalAttachmentId: string | null;
   createdAt: string;
   updatedAt: string;

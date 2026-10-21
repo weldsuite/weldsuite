@@ -138,6 +138,18 @@ describe("quick workspace setup", () => {
     fireEvent.submit(screen.getByLabelText("Workspace name").closest("form")!);
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
+
+  it("links the privacy policy and terms on the website, not in the app", () => {
+    render(<OnboardingSetup {...props} />);
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute(
+      "href",
+      "https://www.weldsuite.org/privacy",
+    );
+    expect(screen.getByRole("link", { name: "Terms of Service" })).toHaveAttribute(
+      "href",
+      "https://www.weldsuite.org/terms",
+    );
+  });
 });
 
 describe("workspace creation handoff", () => {

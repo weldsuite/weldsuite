@@ -67,7 +67,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { mailKeys } from '@/hooks/queries/use-mail-queries';
+import { mailKeys, useMailLabels } from '@/hooks/queries/use-mail-queries';
 import { folderCountsFromStats } from '../lib/folder-counts';
 import {
   useUserPreferences,
@@ -222,6 +222,21 @@ function resolveMailAccountId(
   return accounts.find((a) => a.isDefault)?.id || accounts[0]?.id;
 }
 
+/** The custom labels of a label list: system labels have their own mailbox rows. */
+function sidebarLabelsFromRows(rows: MailLabel[]): MailTypes.Label[] {
+  return rows
+    .filter((l) => !isSystemLabel(l.name.toLowerCase()))
+    .map((l) => ({
+      id: l.id,
+      name: l.name,
+      color: l.color ?? undefined,
+      count: l.messageCount || 0,
+      aiEnabled: l.aiEnabled ?? undefined,
+      aiKeywords: l.aiKeywords ?? undefined,
+      aiDescription: l.aiDescription,
+    }));
+}
+
 export function useMailSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
@@ -244,6 +259,9 @@ export function useMailSidebarItems(isActive: boolean): {
   const [editAiKeywords, setEditAiKeywords] = useState('');
   const [editAiDescription, setEditAiDescription] = useState('');
   const [editAiConfidence, setEditAiConfidence] = useState(70);
+  // The dialog opens on the name, selected, with the colour palette closed.
+  const editNameInputRef = React.useRef<HTMLInputElement>(null);
+  const [showEditPalette, setShowEditPalette] = useState(false);
   const [isUpdatingLabel, setIsUpdatingLabel] = useState(false);
 
   // Map label name (lowercase) → accountIds that own this label (for unified mode cross-account check)
@@ -308,60 +326,23 @@ export function useMailSidebarItems(isActive: boolean): {
     return () => window.removeEventListener('mail-accounts-changed', handler);
   }, [fetchAccounts]);
 
-  // Fetch labels via core-api
+  // The labels under "Labels" are a query, so creating, renaming or deleting one
+  // anywhere (the Labels settings page included) refreshes the sidebar through
+  // the `['mail', 'labels']` invalidation. They used to be fetched once per
+  // account and then only edited in local state, which left them stale.
   // Unified mode: no accountId → server aggregates across all accounts
   // Per-account: pass accountId → scoped to that account
   //
-  // A response is applied only while its request is still the current one.
-  // Opening /weldmail fires a request for the default account, then redirects
-  // to the unified inbox and fires the unified one; if the first answered
-  // last, it replaced the unified list with one account's labels (often none).
+  // The key carries the account, so a response only ever shows for the request
+  // that is current: opening /weldmail asks for the default account and then,
+  // after the redirect, for the unified list; a late answer for the first can
+  // no longer replace the second.
+  const labelsAccountId = isUnified ? undefined : resolvedAccountId;
+  const labelsQuery = useMailLabels(labelsAccountId, isActive && (isUnified || !!resolvedAccountId));
+  const labelRows = labelsQuery.data?.data;
   React.useEffect(() => {
-    if (!isActive) return;
-    let stale = false;
-
-    const mapLabels = (rows: MailLabel[]): MailTypes.Label[] =>
-      rows
-        .filter((l) => !isSystemLabel(l.name.toLowerCase()))
-        .map((l) => ({
-          id: l.id,
-          name: l.name,
-          color: l.color ?? undefined,
-          count: l.messageCount || 0,
-          aiEnabled: l.aiEnabled ?? undefined,
-          aiKeywords: l.aiKeywords ?? undefined,
-          aiDescription: l.aiDescription,
-        }));
-    const apply = (rows: MailLabel[]) => {
-      if (!stale) setLocalLabels(mapLabels(rows));
-    };
-
-    if (isUnified) {
-      // Unified inbox: fetch all labels across accounts (server-side aggregation)
-      mailLabels.list({})
-        .then((result) => apply(result.data))
-        .catch((error) => {
-          console.error('Failed to fetch unified labels:', error);
-        });
-      return () => {
-        stale = true;
-      };
-    }
-
-    if (!resolvedAccountId) {
-      setLocalLabels([]);
-      return;
-    }
-
-    mailLabels.list({ accountId: resolvedAccountId })
-      .then((result) => apply(result.data))
-      .catch((error) => {
-        console.error('Failed to fetch labels:', error);
-      });
-    return () => {
-      stale = true;
-    };
-  }, [isActive, resolvedAccountId, isUnified, mailLabels]);
+    setLocalLabels(sidebarLabelsFromRows(labelRows ?? []));
+  }, [labelRows]);
 
   // Folder badge counts: one stats query per mailbox in view. They live under
   // the `['mail']` key, so every mail mutation and every realtime mail event
@@ -443,6 +424,7 @@ export function useMailSidebarItems(isActive: boolean): {
         aiConfidence: created.aiConfidence ?? undefined,
       };
       setLocalLabels((prev) => [...prev, newLabel]);
+      void queryClient.invalidateQueries({ queryKey: mailKeys.labelsAll() });
       toast.success(t.mail.sidebar.labelCreated);
       resetLabelDialog();
     } catch (err) {
@@ -469,6 +451,7 @@ export function useMailSidebarItems(isActive: boolean): {
     setEditAiKeywords(label.aiKeywords?.join(', ') || '');
     setEditAiDescription(label.aiDescription || '');
     setEditAiConfidence(label.aiConfidence || 70);
+    setShowEditPalette(false);
     setShowEditLabelDialog(true);
   };
 
@@ -480,6 +463,7 @@ export function useMailSidebarItems(isActive: boolean): {
     setEditAiKeywords('');
     setEditAiDescription('');
     setEditAiConfidence(70);
+    setShowEditPalette(false);
     setShowEditLabelDialog(false);
   };
 
@@ -527,6 +511,7 @@ export function useMailSidebarItems(isActive: boolean): {
             : l
         )
       );
+      void queryClient.invalidateQueries({ queryKey: mailKeys.labelsAll() });
       toast.success(t.mail.sidebar.labelUpdated);
       resetEditLabelDialog();
     } catch (err) {
@@ -713,17 +698,13 @@ export function useMailSidebarItems(isActive: boolean): {
                       requestAnimationFrame(() => badge.remove());
                     }}
                   >
-                    <span
-                      className="px-2 py-0.5 rounded text-[12px] font-medium"
-                      style={{
-                        backgroundColor: `${color}15`,
-                        color: color,
-                      }}
-                    >
-                      {label.name}
+                    {/* A row like the mailboxes': the colour dot sits where their icon does. */}
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+                      <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} />
                     </span>
+                    <span className="truncate">{label.name}</span>
                     {label.count > 0 && (
-                      <span className="ml-auto text-xs font-mono text-muted-foreground group-hover/label:hidden group-has-[[data-state=open]]/label:hidden">{label.count}</span>
+                      <span className="ml-auto px-1 text-xs font-medium tabular-nums text-sidebar-foreground group-hover/label:hidden group-has-[[data-state=open]]/label:hidden">{label.count}</span>
                     )}
                   </Link>
                 </SidebarMenuButton>
@@ -845,7 +826,14 @@ export function useMailSidebarItems(isActive: boolean): {
     <>
     {/* Edit Label Dialog */}
     <Dialog open={showEditLabelDialog} onOpenChange={resetEditLabelDialog}>
-      <DialogContent>
+      <DialogContent
+        onOpenAutoFocus={(e) => {
+          // Radix would focus the first control (the colour button).
+          e.preventDefault();
+          editNameInputRef.current?.focus();
+          editNameInputRef.current?.select();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t.mail.sidebar.editLabel}</DialogTitle>
         </DialogHeader>
@@ -853,7 +841,7 @@ export function useMailSidebarItems(isActive: boolean): {
           <div className="space-y-2">
             <Label htmlFor="sidebar-edit-label-name">{t.mail.sidebar.labelName}</Label>
             <div className="flex items-center gap-2">
-              <Popover>
+              <Popover open={showEditPalette} onOpenChange={setShowEditPalette}>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
@@ -886,13 +874,13 @@ export function useMailSidebarItems(isActive: boolean): {
               </Popover>
               <Input
                 id="sidebar-edit-label-name"
+                ref={editNameInputRef}
                 placeholder={t.mail.sidebar.enterLabelName}
                 value={editLabelName}
                 onChange={(e) => setEditLabelName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !isUpdatingLabel) void handleUpdateLabel();
                 }}
-                autoFocus
               />
             </div>
           </div>

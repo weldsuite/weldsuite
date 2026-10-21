@@ -57,14 +57,14 @@ export interface LeaveOtherSessionsOptions {
 
 /** Tell the user's clients why their connection is about to disappear. Best effort. */
 async function announceSuperseded(
-  env: Pick<MeetingLifecycleEnv, 'REALTIME'>,
+  env: Pick<MeetingLifecycleEnv, 'REALTIME' | 'REALTIME_INTERNAL_SECRET'>,
   orgId: string,
   userId: string,
   data: CallSupersededEvent,
 ): Promise<void> {
   if (!env.REALTIME || !orgId) return;
   try {
-    await new RealtimePublisher(env.REALTIME).chatCallSuperseded(orgId, userId, data);
+    await new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET }).chatCallSuperseded(orgId, userId, data);
   } catch (err) {
     console.error('[MeetingLeaveOthers] call_superseded publish failed', { id: data.id, err });
   }

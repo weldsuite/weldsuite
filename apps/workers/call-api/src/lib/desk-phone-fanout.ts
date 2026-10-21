@@ -47,7 +47,7 @@ export async function fanoutDeskPhoneMessage(args: {
 
   if (!env.REALTIME) return;
   try {
-    const rt = new RealtimePublisher(env.REALTIME);
+    const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
     await rt.conversationPublish(conversation.id, {
       type: 'message',
       id: message.id,

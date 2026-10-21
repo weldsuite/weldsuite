@@ -23,7 +23,8 @@
 # send sweep), FLAGSHIP (the `weldreach-sending` kill switch, same Flagship apps as
 # reach-api), and the existing WORKSPACE_CACHE (reach-api's KV: the shared 60 s
 # app-access cache), STORAGE (raw inbound replies) and HYPERDRIVE_MASTER.
-name = "weldsuite-external-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-external-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -90,12 +91,12 @@ namespace_id = "13"
 [[durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[durable_objects.bindings]]
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"
@@ -249,9 +250,10 @@ namespace_id = "2101"
   period = 60
 
 # Master Postgres over Hyperdrive — required for api_key_registry lookups in auth.
+# weldsuite-master-test (the test master's pooler endpoint).
 [[env.test.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
+id = "02e3ecd8560540a1993883b9949f6002"
 
 [env.test.observability]
 enabled = true

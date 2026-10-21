@@ -53,7 +53,8 @@
 # integration-webhook-worker's) — it builds the external URL of the public
 # workflow-webhook receiver mounted here (/api/workflows/webhook/:id).
 
-name = "weldsuite-connect-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-connect-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

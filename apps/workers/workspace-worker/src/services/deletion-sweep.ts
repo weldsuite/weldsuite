@@ -33,8 +33,9 @@
 
 import { and, eq, isNotNull, isNull, lte } from 'drizzle-orm';
 import { workspaces } from '@weldsuite/db/schema/master';
-import { getMasterDb } from '../db';
+import { getMasterDb, type MasterDatabase } from '../db';
 import type { Env } from '../index';
+import { hasActiveMove } from './database-move/state';
 
 /** Rows processed per sweep run — keeps a single cron invocation short; the
  *  daily cron fires again tomorrow to pick up anything left over. */
@@ -44,6 +45,8 @@ export interface DeletionSweepResult {
   processed: number;
   succeeded: number;
   failed: number;
+  /** Skipped because a database move is in progress; picked up by a later run. */
+  deferred: number;
 }
 
 /**
@@ -96,8 +99,11 @@ async function deleteClerkOrganization(env: Env, clerkOrgId: string): Promise<vo
  * Each workspace is isolated in its own try/catch so one failure never aborts
  * the rest of the batch.
  */
-export async function sweepScheduledDeletions(env: Env): Promise<DeletionSweepResult> {
-  const masterDb = getMasterDb(env);
+export async function sweepScheduledDeletions(
+  env: Env,
+  options: { masterDb?: MasterDatabase } = {},
+): Promise<DeletionSweepResult> {
+  const masterDb = options.masterDb ?? getMasterDb(env);
   const now = new Date();
 
   const due = await masterDb
@@ -117,13 +123,14 @@ export async function sweepScheduledDeletions(env: Env): Promise<DeletionSweepRe
 
   if (due.length === 0) {
     console.log('[DeletionSweep] No workspaces due for deletion');
-    return { processed: 0, succeeded: 0, failed: 0 };
+    return { processed: 0, succeeded: 0, failed: 0, deferred: 0 };
   }
 
   console.log(`[DeletionSweep] ${due.length} workspace(s) due for deletion`);
 
   let succeeded = 0;
   let failed = 0;
+  let deferred = 0;
 
   for (const workspace of due) {
     if (!workspace.clerkOrgId) {
@@ -132,6 +139,14 @@ export async function sweepScheduledDeletions(env: Env): Promise<DeletionSweepRe
     }
 
     try {
+      // A database move owns the workspace's database until it ends; deleting the Clerk org now would make
+      // the cascade drop it mid-copy. Leave the workspace for the next run (it stays due).
+      if (await hasActiveMove(masterDb, workspace.id)) {
+        console.warn(`[DeletionSweep] Workspace ${workspace.id} has a database move in progress, deferring its deletion`);
+        deferred++;
+        continue;
+      }
+
       if (workspace.stripeSubscriptionId) {
         await cancelLingeringStripeSubscription(env, workspace.stripeSubscriptionId);
       }
@@ -156,6 +171,6 @@ export async function sweepScheduledDeletions(env: Env): Promise<DeletionSweepRe
     }
   }
 
-  console.log(`[DeletionSweep] Done: ${succeeded} succeeded, ${failed} failed, ${due.length} processed`);
-  return { processed: due.length, succeeded, failed };
+  console.log(`[DeletionSweep] Done: ${succeeded} succeeded, ${failed} failed, ${deferred} deferred, ${due.length} processed`);
+  return { processed: due.length, succeeded, failed, deferred };
 }

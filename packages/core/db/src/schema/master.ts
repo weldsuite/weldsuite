@@ -182,9 +182,13 @@ export const workspaces = pgTable('workspaces', {
   // (`isActive = false`) while retaining data + memberships so it can be
   // cancelled and fully restored before the sweep runs. A non-null
   // `deletionRequestedBy` marks the schedule as admin-initiated (vs the billing
-  // webhook). `deletedAt` is stamped by the deletion sweep once teardown has
-  // been triggered, and is the sweep's guard against re-processing (it replaces
-  // the older `isActive = true` guard so suspended workspaces are still swept).
+  // webhook). `deletedAt` marks the workspace deleted: it is stamped once its
+  // Clerk org is gone (the deletion sweep, app-api's settings and account
+  // deletes, the `organization.deleted` webhook; the first stamp is kept). It is
+  // the deletion sweep's guard against re-processing (it replaces the older
+  // `isActive = true` guard so suspended workspaces are still swept), and how
+  // workspace-worker's teardown retry sweep finds deleted workspaces whose
+  // database teardown never finished.
   deletionRequestedAt: timestamp('deletion_requested_at'),
   deletionRequestedBy: varchar('deletion_requested_by', { length: 255 }),
   deletionReason: text('deletion_reason'),
@@ -1258,6 +1262,27 @@ export const adminAuditEvents = pgTable('admin_audit_events', {
 
 export type AdminAuditEvent = typeof adminAuditEvents.$inferSelect;
 export type NewAdminAuditEvent = typeof adminAuditEvents.$inferInsert;
+
+// Moves of a workspace's tenant database between a shard and a dedicated
+// project (TASK-1150, ADR DATA-016).
+export {
+  workspaceDatabaseMoves,
+  DATABASE_MOVE_STATUSES,
+  ACTIVE_DATABASE_MOVE_STATUSES,
+  WRITE_BLOCKING_DATABASE_MOVE_STATUSES,
+  type DatabaseMoveStatus,
+  type DatabaseMoveKind,
+  type DatabaseMoveProgress,
+  type DatabaseMoveTableProgress,
+  type DatabaseMoveSavedState,
+  type DatabaseMoveSavedForeignKey,
+  type DatabaseMoveSavedTrigger,
+  type DatabaseMoveChecksums,
+  type DatabaseMoveVerification,
+  type DatabaseMoveTableVerification,
+  type WorkspaceDatabaseMove,
+  type NewWorkspaceDatabaseMove,
+} from './workspace-database-moves';
 
 // Re-export admin-related schemas for master database
 export { plans, type Plan, type NewPlan } from './plans';

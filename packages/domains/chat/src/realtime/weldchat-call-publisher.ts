@@ -20,10 +20,12 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 export interface WeldChatCallPublisherEnv {
   /** realtime-worker service binding (Durable Objects fan-out). */
   REALTIME?: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> };
+  /** The realtime-worker's `REALTIME_INTERNAL_SECRET`, sent with every publish. */
+  REALTIME_INTERNAL_SECRET?: string;
 }
 
 function getPublisher(env: WeldChatCallPublisherEnv): RealtimePublisher | null {
-  return env.REALTIME ? new RealtimePublisher(env.REALTIME) : null;
+  return env.REALTIME ? new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET }) : null;
 }
 
 export async function publishChatCallStarted(

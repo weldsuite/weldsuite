@@ -358,9 +358,9 @@ export function CustomerDetailHeader({
   const handleOpenInNewTab = useCallback(() => {
     const path = recordPanelPath(customerId);
     if (typeof window !== 'undefined') {
-      window.open(path, '_blank', 'noopener,noreferrer');
+      window.open(workspaceUrl(path), '_blank', 'noopener,noreferrer');
     }
-  }, [customerId, recordPanelPath]);
+  }, [customerId, recordPanelPath, workspaceUrl]);
 
   const handleDuplicate = useCallback(() => {
     router.push(`/weldcrm/${isContact ? 'contacts' : 'customers'}/new?duplicateFrom=${customerId}`);

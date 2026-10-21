@@ -59,9 +59,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // fresh open animates normally.
   const [skipProfilePanelAnim, setSkipProfilePanelAnim] = useState(false);
 
-  // Clear any stale 'members' rail-panel selection when the channel
-  // changes — the unified ChannelPanel auto-open is handled in a separate
-  // effect below.
+  // Clear any stale 'members' rail-panel selection when the channel changes.
   useEffect(() => {
     setRightPanelState((prev) => (prev === 'members' ? null : prev));
   }, [isChannelPage, currentChannelId]);
@@ -77,35 +75,13 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     setEditingMessage(null);
   }, [currentChannelId]);
 
-  // Auto-open the global ChannelPanel on every desktop channel page. Track
-  // the last channelId we opened for in a ref so we only auto-open ONCE per
-  // channel — that way the user's manual close (via the panel's X button or
-  // header toggle) is honored until they navigate to a different channel.
-  // The open is deferred via setTimeout because `ObjectPanelHost` runs a
-  // `closeAll()` on every pathname change AFTER our useEffect, which would
-  // otherwise close the panel we just opened.
+  // The ChannelPanel only opens when the user asks for it (the header's panel
+  // button), never on navigation to a channel or DM.
   const { open: openObjectPanel, closeAll: closeAllObjectPanels, stack: objectPanelStack } = useObjectPanel();
-  const autoOpenedForRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isChannelPage || !currentChannelId) {
-      autoOpenedForRef.current = null;
-      return;
-    }
-    const isMobileViewport =
-      typeof window !== 'undefined' &&
-      window.matchMedia('(max-width: 767px)').matches;
-    if (isMobileViewport) return;
-    if (autoOpenedForRef.current === currentChannelId) return;
-    autoOpenedForRef.current = currentChannelId;
-    const tid = setTimeout(() => {
-      openObjectPanel({ type: 'channel', id: currentChannelId, initialTab: 'people' });
-    }, 0);
-    return () => clearTimeout(tid);
-  }, [isChannelPage, currentChannelId, openObjectPanel]);
 
-  // The auto-open above skips phones, but narrowing the window afterwards would
-  // leave the fixed-width panel open and squeeze the chat column to a sliver.
-  // Close it as soon as the viewport drops below the desktop breakpoint.
+  // Narrowing the window with a panel open would leave the fixed-width panel
+  // squeezing the chat column to a sliver. Close it as soon as the viewport
+  // drops below the desktop breakpoint.
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const query = window.matchMedia('(max-width: 767px)');
@@ -123,8 +99,8 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // panel, which unmounts with its module layout — by clearing the stack when
   // this layout unmounts (the user has left WeldChat entirely). Channel→channel
   // and channel→other-WeldChat-page navigation keeps this component mounted, so
-  // this cleanup does NOT fire there (those cases are handled by the auto-open
-  // effect above and ObjectPanelHost's own pathname close).
+  // this cleanup does NOT fire there (ObjectPanelHost's own pathname close
+  // handles those).
   useEffect(() => {
     return () => {
       closeAllObjectPanels();
@@ -134,11 +110,10 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   const { isOpen: isEntitySheetOpen } = useEntitySheet();
 
   const { status: callStatus, channelId: callChannelId, isFullscreen: callFullscreen, isPiP: callPiP } = useWeldChatCall();
-  const isInlineCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === currentChannelId && !callFullscreen && !callPiP;
+  const isInlineCall = callStatus !== 'idle' && callChannelId === currentChannelId && !callFullscreen && !callPiP;
 
-  // Pre-read localStorage to know if the member detail panel should be open on mount
-  const dmPanelSavedOpen = isDmPage && localStorage.getItem('weldchat-dm-member-panel') !== 'false';
-  const [memberDetailWidth, setMemberDetailWidth] = useState(dmPanelSavedOpen ? 480 : 0);
+  // The member detail panel always starts closed.
+  const [memberDetailWidth, setMemberDetailWidth] = useState(0);
 
   // Track whether transitions should be enabled.
   // Disabled until the first user-driven panel toggle to prevent any load animation.
@@ -153,17 +128,11 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
       // If user hasn't toggled yet and we already have the right width, ignore
       if (!hasUserToggled.current && newWidth === memberDetailWidth) return;
 
-      // If user hasn't toggled, skip events that would fight our pre-set width
-      if (!hasUserToggled.current) {
-        // Only accept if it matches what we expect (open → 480, closed → 0)
-        if (dmPanelSavedOpen && newWidth === 0) return; // ignore close events during load
-      }
-
       setMemberDetailWidth(newWidth);
     };
     window.addEventListener('member-detail-panel', handler);
     return () => window.removeEventListener('member-detail-panel', handler);
-  }, [dmPanelSavedOpen, memberDetailWidth]);
+  }, [memberDetailWidth]);
 
   // Mark that transitions can be enabled after user interacts
   useEffect(() => {

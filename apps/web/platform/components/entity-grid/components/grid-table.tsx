@@ -36,7 +36,8 @@ function getEntityNouns(
 
 export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Readonly<GridTableProps>) {
   const t = useTranslations();
-  const { config, filteredEntities, calculateTableWidth, getVisibleColumns, actions } = useGridContext();
+  const { config, state, filteredEntities, calculateTableWidth, getVisibleColumns, actions } = useGridContext();
+  const { selectedRows, optimisticUpdates, openPopover } = state;
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const [fillerRowCount, setFillerRowCount] = useState(50);
@@ -194,9 +195,22 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
       >
         <GridHeader />
         <tbody className="bg-background">
-          {filteredEntities.map((entity, index) => (
-            <GridRow key={config.getEntityId(entity)} entity={entity} rowIndex={index + 1} />
-          ))}
+          {/* Each row gets only its own slice of the grid state, so a change
+              re-renders just the rows it touches (GridRow is memoised). */}
+          {filteredEntities.map((entity, index) => {
+            const entityId = config.getEntityId(entity);
+            return (
+              <GridRow
+                key={entityId}
+                entity={entity}
+                rowIndex={index + 1}
+                columns={visibleColumns}
+                isSelected={selectedRows.has(entityId)}
+                optimisticUpdate={optimisticUpdates[entityId]}
+                openPopoverFieldId={openPopover?.rowId === entityId ? openPopover.fieldId : null}
+              />
+            );
+          })}
 
           {/* Empty filler rows for spreadsheet mode */}
           {config.fillViewport && Array.from({ length: fillerRowCount }, (_, i) => filteredEntities.length + i + 1).map((rowNum) => {

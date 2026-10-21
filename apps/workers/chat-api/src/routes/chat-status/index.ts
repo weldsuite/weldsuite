@@ -95,7 +95,7 @@ app.put('/', requirePermission('settings:update'), zValidator('json', setChatSta
 
     if (c.env.REALTIME) {
       try {
-        const rt = new RealtimePublisher(c.env.REALTIME);
+        const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         await rt.publish(
           orgId,
           'presence',
@@ -131,7 +131,7 @@ app.post('/offline', requirePermission('settings:update'), async (c) => {
 
     if (c.env.REALTIME) {
       try {
-        const rt = new RealtimePublisher(c.env.REALTIME);
+        const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         await rt.publish(orgId, 'presence', 'status_changed', { userId, status: 'offline' }, userId);
       } catch (e) {
         console.error('[app-api/chat-status] realtime publish failed:', e);
@@ -156,7 +156,7 @@ app.delete('/', requirePermission('settings:delete'), async (c) => {
 
     if (c.env.REALTIME) {
       try {
-        const rt = new RealtimePublisher(c.env.REALTIME);
+        const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         await rt.publish(orgId, 'presence', 'status_cleared', { userId }, userId);
       } catch (e) {
         console.error('[app-api/chat-status] realtime publish failed:', e);

@@ -1,0 +1,172 @@
+/**
+ * Target preparation: make a freshly provisioned (and migrated) database ready
+ * to receive a bulk copy.
+ *
+ *  - journal check: source and target must sit at the same migration;
+ *  - TRUNCATE every user table (warm-pool targets are pre-seeded);
+ *  - DROP every foreign key (the copy inserts tables in size order, and the
+ *    keys are re-added and validated afterwards, which doubles as the
+ *    integrity check);
+ *  - DISABLE TRIGGER USER where user triggers exist, so copied rows do not
+ *    fire the application's side effects a second time.
+ *
+ * All of it runs as ONE transaction (one subrequest), so a failure leaves the
+ * target as it was, and re-running after success is harmless: dropping a
+ * constraint that is already gone and disabling an already-disabled trigger are
+ * no-ops. Do not re-run it once copying has started: it truncates.
+ */
+
+import { matchTenantJournal, type TenantJournalEntry } from '@weldsuite/db/lib/tenant-journal';
+import { readForeignKeys, readJournalSummary, readTables, readTriggers } from './catalog';
+import { JournalMismatchError, SchemaMismatchError, UnsupportedSchemaError } from './errors';
+import { qualifiedTable, quoteIdent } from './quote';
+import type {
+  Catalog,
+  ForeignKeyInfo,
+  JournalSummary,
+  SavedTargetState,
+  SqlStatement,
+  TableInfo,
+  TenantSql,
+  TriggerInfo,
+} from './types';
+
+export interface PrepareTargetResult {
+  /** Pass this to `finishTarget`; persist it with the Workflow state. */
+  saved: SavedTargetState;
+  truncatedTables: number;
+  droppedForeignKeys: number;
+  /** Tables that had user triggers disabled. */
+  triggerTables: number;
+  /** Tables present on the target but not on the source (truncated too, never copied). */
+  extraTargetTables: string[];
+}
+
+/** Fail fast when a lock cannot be taken; the target has no traffic, so any wait means something unexpected holds it. */
+const LOCK_TIMEOUT_STATEMENT: SqlStatement = { text: `SET LOCAL lock_timeout = '30s'` };
+
+/**
+ * Source and target were migrated to the same point. Given the bundled journal,
+ * each side is judged migration by migration (`matchTenantJournal`): the same
+ * migrations applied, and no row on either side the journal does not know. Two
+ * runners write these rows differently (tag vs hash only), so without the
+ * journal only the old summary check is left: count and newest `created_at`.
+ */
+export function journalsMatch(
+  source: JournalSummary | null,
+  target: JournalSummary | null,
+  journal?: readonly TenantJournalEntry[],
+): boolean {
+  if (!source || !target) return false;
+  if (!journal) return source.count === target.count && source.maxCreatedAt === target.maxCreatedAt;
+  const onSource = matchTenantJournal(source.migrations, journal);
+  const onTarget = matchTenantJournal(target.migrations, journal);
+  if (onSource.unknown.length > 0 || onTarget.unknown.length > 0) return false;
+  return onSource.applied.size === onTarget.applied.size && [...onSource.applied].every((tag) => onTarget.applied.has(tag));
+}
+
+/** Refuse a schema the engine cannot copy faithfully. Throws {@link UnsupportedSchemaError}. */
+export function assertCopySupported(catalog: Pick<Catalog, 'sequences'>): void {
+  if (catalog.sequences.length > 0) throw new UnsupportedSchemaError('sequences', catalog.sequences);
+}
+
+function mergeForeignKeys(source: readonly ForeignKeyInfo[], target: readonly ForeignKeyInfo[]): ForeignKeyInfo[] {
+  const merged = new Map<string, ForeignKeyInfo>();
+  const key = (fk: ForeignKeyInfo): string => `${fk.table}\u0000${fk.name}`;
+  // Source first: it is the definition of record, and after a first prepare the target no longer has the keys at all.
+  for (const fk of source) merged.set(key(fk), fk);
+  for (const fk of target) if (!merged.has(key(fk))) merged.set(key(fk), fk);
+  return [...merged.values()];
+}
+
+/** What the source has that the target lacks: whole tables, and columns of tables both have. */
+function findSchemaGaps(
+  sourceTables: readonly TableInfo[],
+  targetByName: ReadonlyMap<string, TableInfo>,
+): { missingTables: string[]; missingColumns: Array<{ table: string; column: string }> } {
+  const missingTables: string[] = [];
+  const missingColumns: Array<{ table: string; column: string }> = [];
+  for (const table of sourceTables) {
+    const onTarget = targetByName.get(table.name);
+    if (!onTarget) {
+      missingTables.push(table.name);
+      continue;
+    }
+    const have = new Set(onTarget.columns.map((c) => c.name));
+    for (const column of table.columns) {
+      if (!have.has(column.name)) missingColumns.push({ table: table.name, column: column.name });
+    }
+  }
+  return { missingTables, missingColumns };
+}
+
+/**
+ * Source triggers carry the original mode. A target-only trigger cannot exist when the journals match;
+ * if one does, assume the default mode so it is switched back on at the end.
+ */
+function mergeTriggers(
+  source: readonly TriggerInfo[],
+  target: readonly TriggerInfo[],
+): { triggers: TriggerInfo[]; triggerTables: Set<string> } {
+  const triggers: TriggerInfo[] = [...source];
+  const triggerTables = new Set(triggers.map((t) => t.table));
+  for (const trigger of target) {
+    if (!triggers.some((t) => t.table === trigger.table && t.name === trigger.name)) {
+      triggers.push({ ...trigger, enabled: 'O' });
+      triggerTables.add(trigger.table);
+    }
+  }
+  return { triggers, triggerTables };
+}
+
+/**
+ * @param targetSql connection to the target database
+ * @param catalog the SOURCE catalog (`readCatalog(sourceSql)`), the definition of what the target must end up as
+ * @param journal the bundled tenant journal, to compare the two journals migration by migration
+ */
+export async function prepareTargetForCopy(
+  targetSql: TenantSql,
+  catalog: Catalog,
+  journal?: readonly TenantJournalEntry[],
+): Promise<PrepareTargetResult> {
+  assertCopySupported(catalog);
+
+  const targetJournal = await readJournalSummary(targetSql);
+  if (!journalsMatch(catalog.journal, targetJournal, journal)) {
+    throw new JournalMismatchError(catalog.journal, targetJournal);
+  }
+
+  const targetTables = await readTables(targetSql);
+  const targetByName = new Map(targetTables.map((t) => [t.name, t]));
+  const { missingTables, missingColumns } = findSchemaGaps(catalog.tables, targetByName);
+  if (missingTables.length > 0 || missingColumns.length > 0) throw new SchemaMismatchError(missingTables, missingColumns);
+
+  const sourceNames = new Set(catalog.tables.map((t) => t.name));
+  const extraTargetTables = targetTables.map((t) => t.name).filter((name) => !sourceNames.has(name));
+
+  const foreignKeys = mergeForeignKeys(catalog.foreignKeys, await readForeignKeys(targetSql));
+  const { triggers, triggerTables } = mergeTriggers(catalog.triggers, await readTriggers(targetSql));
+
+  const statements: SqlStatement[] = [LOCK_TIMEOUT_STATEMENT];
+  for (const fk of foreignKeys) {
+    statements.push({
+      text: `ALTER TABLE IF EXISTS ${qualifiedTable(fk.table)} DROP CONSTRAINT IF EXISTS ${quoteIdent(fk.name)}`,
+    });
+  }
+  // One explicit list: TRUNCATE accepts tables that reference each other when all of them are named together.
+  if (targetTables.length > 0) {
+    statements.push({ text: `TRUNCATE TABLE ${targetTables.map((t) => qualifiedTable(t.name)).join(', ')}` });
+  }
+  for (const table of triggerTables) {
+    statements.push({ text: `ALTER TABLE IF EXISTS ${qualifiedTable(table)} DISABLE TRIGGER USER` });
+  }
+  await targetSql.transaction(statements);
+
+  return {
+    saved: { foreignKeys, triggers },
+    truncatedTables: targetTables.length,
+    droppedForeignKeys: foreignKeys.length,
+    triggerTables: triggerTables.size,
+    extraTargetTables,
+  };
+}

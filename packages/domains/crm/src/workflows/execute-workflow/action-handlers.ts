@@ -46,6 +46,8 @@ export interface ActionEnv
     Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** realtime-worker service binding. */
   REALTIME?: Fetcher;
+  /** The realtime-worker's `REALTIME_INTERNAL_SECRET`, sent with every publish. */
+  REALTIME_INTERNAL_SECRET?: string;
   CF_ACCOUNT_ID?: string;
   AI_GATEWAY_PROVIDER?: string;
   AI_DEFAULT_MODEL?: string;
@@ -100,7 +102,7 @@ async function publishRealtime(
   if (!env.REALTIME) return;
   try {
     const { RealtimePublisher } = await import('@weldsuite/realtime/server');
-    const rt = new RealtimePublisher(env.REALTIME);
+    const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
     // For conversation events, use conversationPublish
     if (channel.startsWith('conversation:')) {
       const convId = channel.split(':')[1];

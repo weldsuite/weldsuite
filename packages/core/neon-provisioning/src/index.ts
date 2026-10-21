@@ -14,3 +14,6 @@
 
 export * from './client';
 export * from './provisioning';
+// The one connection-URL helper callers outside the package need: a move
+// Workflow keeps only the pooled URL and derives the direct one from it.
+export { directUrlOf } from './lib/connection-urls';

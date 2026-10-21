@@ -29,6 +29,7 @@ import { z } from 'zod';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
+import { timingSafeEqualStr } from '@weldsuite/worker-kit/webhook-token';
 import { nextAutoScheduledReplanAt } from '@weldsuite/db/lib/calendar-sync';
 import type { Env, Variables } from '../../types';
 import { InvalidMemberIdError } from '@weldsuite/crm-domain/people';
@@ -78,7 +79,7 @@ internalWorkflowActionsRoutes.use('*', async (c, next) => {
     return c.json({ error: 'Missing or invalid Authorization header' }, 401);
   }
 
-  if (authHeader.slice(7) !== secret) {
+  if (!timingSafeEqualStr(authHeader.slice(7), secret)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 

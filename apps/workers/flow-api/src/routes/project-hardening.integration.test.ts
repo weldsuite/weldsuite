@@ -511,6 +511,25 @@ describe('project members (TASK-773)', () => {
     expect(byUser.data.hourlyRate).toBeNull();
   });
 
+  it('leaves out members who were removed from the workspace', async () => {
+    const P = 'proj_departed';
+    const STAYER = 'user_pm_stayer';
+    const REMOVED = 'user_pm_removed';
+    const SUSPENDED = 'user_pm_suspended';
+    await seedProject(P, MANAGER);
+    await seedMember(P, STAYER, 'member');
+    await seedMember(P, REMOVED, 'member');
+    await seedMember(P, SUSPENDED, 'member');
+    await seedWorkspaceMember(STAYER, 'Stan Stayer');
+    await seedWorkspaceMember(REMOVED, 'Rita Removed', { deletedAt: new Date() });
+    await seedWorkspaceMember(SUSPENDED, 'Sue Suspended', { status: 'SUSPENDED' });
+
+    const list = await json<{ data: Array<{ userId: string }> }>(
+      await asScopeAll()('GET', `/project-members?projectId=${P}`),
+    );
+    expect(list.data.map((m) => m.userId)).toEqual([STAYER]);
+  });
+
   it('keeps the rate out of the member update entity event', async () => {
     vi.mocked(publishEntityEvent).mockClear();
     await as(ADMIN)('PATCH', `/project-members/by-user/${P1}/${MEMBER}`, { hourlyRate: 90 });

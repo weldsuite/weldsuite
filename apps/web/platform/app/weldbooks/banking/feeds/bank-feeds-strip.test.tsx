@@ -16,8 +16,14 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
     today: () => '2026-10-08',
   }),
 }));
+// Clerk's second-factor confirmation needs a ClerkProvider; the calls go straight through here.
+vi.mock('./use-second-factor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./use-second-factor')>()),
+  useWithSecondFactor: <A extends unknown[], R>(call: (...args: A) => Promise<R>) => call,
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@tanstack/react-router', () => ({
+  useRouter: () => ({ navigate: vi.fn() }),
   Link: ({ to, children, ...rest }: { to: string; children: ReactNode }) => (
     <a href={to} {...rest}>
       {children}

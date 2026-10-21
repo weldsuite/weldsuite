@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
 import { usePipCornerDrag } from './use-pip-corner-drag';
 
 // Chrome-only Document Picture-in-Picture API — not yet in standard DOM lib types.
@@ -381,7 +382,9 @@ function useGestureMediaSessionPromotion(
       statusRef.current === 'connecting' ||
       statusRef.current === 'connected' ||
       statusRef.current === 'preview' ||
-      (!!contextPathPrefix && typeof window !== 'undefined' && window.location.pathname.startsWith(contextPathPrefix));
+      (!!contextPathPrefix &&
+        typeof window !== 'undefined' &&
+        stripWorkspacePrefix(window.location.pathname).startsWith(contextPathPrefix));
     const onUserGesture = () => {
       const v = pipVideoRef.current;
       if (v?.paused) v.play().catch(() => {});

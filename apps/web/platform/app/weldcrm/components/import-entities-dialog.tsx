@@ -58,6 +58,7 @@ import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/al
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Dropzone } from '@weldsuite/ui/components/dropzone';
 import { coerceScalar, type ImportValueType } from './import-value';
+import { readImportRows } from './import-file';
 import { asText } from '@weldsuite/text';
 
 export interface ImportFieldDef {
@@ -416,14 +417,7 @@ export function ImportEntitiesDialog({
         try {
           const data = e.target?.result;
           if (!(data instanceof ArrayBuffer) || data.byteLength === 0) throw new Error('empty');
-          const wb = XLSX.read(new Uint8Array(data), { type: 'array', cellDates: true, cellNF: false, cellText: false });
-          const sheet = wb.Sheets[wb.SheetNames[0]!];
-          if (!sheet) throw new Error('no sheet');
-          const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-            raw: false,
-            defval: '',
-            blankrows: false,
-          });
+          const json = readImportRows(data);
           if (json.length === 0) {
             setParseError(t('crm.importExport.fileEmpty'));
             setFile(null);

@@ -27,7 +27,35 @@ import {
 const state = vi.hoisted(() => ({
   ctx: null as unknown as FeedContext,
   institutions: [] as Array<{ id: string; name: string; country: string }>,
+  /** What billing-worker answers; null = billing off. */
+  billing: null as null | {
+    connections: number;
+    included: number;
+    billedExtra: number;
+    unitAmountCents: number;
+    currency: string;
+    hasPaymentMethod: boolean;
+    canAddPaid: boolean;
+  },
+  /** Thrown by the next sync, if set. */
+  syncError: null as Error | null,
+  syncs: 0,
 }));
+
+// billing-worker is never called over the network: the client is replaced, the checks stay real.
+vi.mock('../../services/bank-feeds/billing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/bank-feeds/billing')>();
+  return {
+    ...actual,
+    createBankConnectionBilling: () => ({
+      status: async () => state.billing,
+      sync: async () => {
+        state.syncs += 1;
+        if (state.syncError) throw state.syncError;
+      },
+    }),
+  };
+});
 
 vi.mock('../../services/bank-feeds/runtime', async () => {
   const { bankFeedConfigFromEnv: configFromEnv, createBankFeedProvider } = await import('@weldsuite/bank-feeds');
@@ -49,6 +77,7 @@ vi.mock('../../services/bank-feeds/runtime', async () => {
 
 import { bankConnectionsRoutes } from './index';
 import { bankConnectionsInternalRoutes } from './internal';
+import { BankConnectionBillingError } from '../../services/bank-feeds/billing';
 
 let db: Database;
 let provider: FakeProvider;
@@ -58,9 +87,13 @@ const sent: Array<{ eventType: string; data: Record<string, unknown> }> = [];
 
 const env = { ENTITY_EVENTS: { send: async (m: { eventType: string; data: Record<string, unknown> }) => void sent.push(m) } } as unknown as Partial<Env>;
 
-function client(perms: string[] = ['*'], headers: Record<string, string> = { 'X-Accounting-Entity-Id': ENTITY }) {
+function client(
+  perms: string[] = ['*'],
+  headers: Record<string, string> = { 'X-Accounting-Entity-Id': ENTITY },
+  factorVerificationAge: readonly [number, number] | null = [0, 0],
+) {
   const { request } = createTestApp('/api/bank-connections', bankConnectionsRoutes, {
-    context: { tenantDb: db, permissions: permissions(...perms), orgId: 'org_test', workspaceId: 'ws_1' },
+    context: { tenantDb: db, permissions: permissions(...perms), orgId: 'org_test', workspaceId: 'ws_1', factorVerificationAge },
     env,
   });
   return async (path: string, init: { method?: string; body?: unknown } = {}) => {
@@ -120,6 +153,9 @@ beforeEach(async () => {
   ctx = makeContext(db, provider);
   state.ctx = ctx;
   state.institutions = [];
+  state.billing = null;
+  state.syncError = null;
+  state.syncs = 0;
 });
 
 describe('GET /providers and /institutions', () => {
@@ -388,5 +424,136 @@ describe('internal routes (BooksInternal)', () => {
   it('rejects a malformed events payload', async () => {
     const res = await internal()('/events', { connectionId: 'a', events: [{ type: 'nonsense' }] });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('connections the plan includes and extra charges', () => {
+  const atLimit = { connections: 1, included: 1, billedExtra: 0, unitAmountCents: 500, currency: 'eur', hasPaymentMethod: true, canAddPaid: true };
+  const linkBody = { provider: 'plaid', redirectUrl: 'https://app.example/weldbooks/banking/callback' };
+
+  function nextLink(itemId: string) {
+    provider.linkResult = {
+      connection: { provider: 'plaid', providerConnectionId: itemId, institutionId: 'ins_2', institutionName: 'Second Bank', status: 'active', credentials: { accessToken: `access-${itemId}` }, cursor: null },
+      accounts: [feedAccount({ providerAccountId: `acc_${itemId}` })],
+    };
+  }
+
+  it('starts a link within the included connections without asking, and when billing is off', async () => {
+    const api = client();
+    state.billing = { ...atLimit, connections: 0 };
+    expect((await api('/link-session', { method: 'POST', body: linkBody })).status).toBe(201);
+    state.billing = null;
+    expect((await api('/link-session', { method: 'POST', body: linkBody })).status).toBe(201);
+  });
+
+  it('asks for agreement above the included connections, then needs an admin with a payment method', async () => {
+    const api = client();
+    state.billing = atLimit;
+
+    const unasked = await api('/link-session', { method: 'POST', body: linkBody });
+    expect(unasked.status).toBe(402);
+    expect(unasked.json?.error?.code).toBe('BANK_CONNECTION_LIMIT_REACHED');
+
+    expect((await api('/link-session', { method: 'POST', body: { ...linkBody, acceptExtraCharge: true } })).status).toBe(201);
+
+    state.billing = { ...atLimit, canAddPaid: false };
+    const member = await api('/link-session', { method: 'POST', body: { ...linkBody, acceptExtraCharge: true } });
+    expect(member.status).toBe(403);
+    expect(member.json?.error?.code).toBe('BILLING_ADMIN_REQUIRED');
+
+    state.billing = { ...atLimit, hasPaymentMethod: false };
+    const noCard = await api('/link-session', { method: 'POST', body: { ...linkBody, acceptExtraCharge: true } });
+    expect(noCard.status).toBe(402);
+    expect(noCard.json?.error?.code).toBe('PAYMENT_METHOD_REQUIRED');
+  });
+
+  it('never limits reconnecting or adding accounts to an existing connection', async () => {
+    const { api, id } = await linkAndMap();
+    state.billing = { ...atLimit, connections: 5, canAddPaid: false, hasPaymentMethod: false };
+    const reauth = await api('/link-session', { method: 'POST', body: { ...linkBody, mode: 'reauth', connectionId: id } });
+    expect(reauth.status).toBe(201);
+  });
+
+  it('brings a disconnected connection back only through a new link, which is checked and billed', async () => {
+    const { api, id } = await linkAndMap();
+    expect((await api(`/${id}/disconnect`, { method: 'POST' })).status).toBe(200);
+    expect(ctx.index.rows.has('plaid:item_1')).toBe(false);
+    state.billing = atLimit;
+
+    for (const mode of ['reauth', 'add_accounts'] as const) {
+      const res = await api('/link-session', { method: 'POST', body: { ...linkBody, mode, connectionId: id } });
+      expect(res.status).toBe(409);
+    }
+    const linksBefore = provider.completeCalls.length;
+    const inPlace = await api('/complete', { method: 'POST', body: { provider: 'plaid', payload: { publicToken: 'public-again' }, connectionId: id } });
+    expect(inPlace.status).toBe(409);
+    expect(provider.completeCalls).toHaveLength(linksBefore);
+
+    // The same bank login linked again as a new connection revives the row, and bills it.
+    const syncsBefore = state.syncs;
+    const relinked = await api('/complete', { method: 'POST', body: { provider: 'plaid', payload: { publicToken: 'public-again' } } });
+    expect(relinked.status).toBe(200);
+    expect(relinked.json?.data.connection.id).toBe(id);
+    expect(state.syncs).toBe(syncsBefore + 1);
+    expect(ctx.index.rows.has('plaid:item_1')).toBe(true);
+  });
+
+  it('bills a new connection above the included ones once it is linked', async () => {
+    state.billing = atLimit;
+    nextLink('item_extra');
+    const res = await client()('/complete', { method: 'POST', body: { provider: 'plaid', payload: { publicToken: 'public-extra' } } });
+    expect(res.status).toBe(201);
+    expect(state.syncs).toBe(1);
+  });
+
+  it('removes a new connection again when billing refuses it, and never asks the provider when it is refused up front', async () => {
+    state.billing = atLimit;
+    state.syncError = new BankConnectionBillingError(402, 'PAYMENT_FAILED', 'declined');
+    nextLink('item_declined');
+    const api = client();
+    const declined = await api('/complete', { method: 'POST', body: { provider: 'plaid', payload: { publicToken: 'public-declined' } } });
+    expect(declined.status).toBe(402);
+    expect(declined.json?.error?.code).toBe('PAYMENT_FAILED');
+    const rows = await db.select().from(schema.bankConnections).where(eq(schema.bankConnections.providerConnectionId, 'item_declined'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.deletedAt).not.toBeNull();
+    expect(provider.disconnected).toHaveLength(1);
+    expect(ctx.index.rows.has('plaid:item_declined')).toBe(false);
+
+    state.billing = { ...atLimit, canAddPaid: false };
+    const linksBefore = provider.completeCalls.length;
+    const member = await api('/complete', { method: 'POST', body: { provider: 'plaid', payload: { publicToken: 'public-member' } } });
+    expect(member.status).toBe(403);
+    expect(provider.completeCalls).toHaveLength(linksBefore);
+  });
+
+  it('reports the billing summary, or null when billing is off', async () => {
+    const api = client();
+    expect((await api('/billing')).json?.data).toBeNull();
+    state.billing = atLimit;
+    expect((await api('/billing')).json?.data).toEqual(atLimit);
+  });
+});
+
+describe('second factor before a link', () => {
+  const linkBody = { provider: 'plaid', redirectUrl: 'https://app.example/weldbooks/banking/callback' };
+  const headers = { 'X-Accounting-Entity-Id': ENTITY };
+
+  it('refuses a user without a second factor, and asks to confirm a stale one, in every mode', async () => {
+    const noMfa = await client(['*'], headers, [0, -1])('/link-session', { method: 'POST', body: linkBody });
+    expect(noMfa.status).toBe(403);
+    expect(noMfa.json?.error?.code).toBe('MFA_REQUIRED');
+
+    const stale = await client(['*'], headers, [0, 30])('/link-session', { method: 'POST', body: { ...linkBody, mode: 'reauth', connectionId: 'bkc_any' } });
+    expect(stale.status).toBe(403);
+    expect(stale.json?.error?.code).toBe('REVERIFICATION_REQUIRED');
+
+    expect((await client(['*'], headers, [0, 3])('/link-session', { method: 'POST', body: linkBody })).status).toBe(201);
+  });
+
+  it('checks permission before the second factor', async () => {
+    const res = await client(['banking:read'], headers, [0, -1])('/link-session', { method: 'POST', body: linkBody });
+    expect(res.status).toBe(403);
+    expect(res.json?.error?.code).not.toBe('MFA_REQUIRED');
   });
 });

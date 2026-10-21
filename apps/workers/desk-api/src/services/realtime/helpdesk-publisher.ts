@@ -16,7 +16,7 @@ import { RealtimePublisher } from '@weldsuite/realtime/server';
 import type { Env } from '../../types';
 
 function getPublisher(env: Env): RealtimePublisher | null {
-  return env.REALTIME ? new RealtimePublisher(env.REALTIME) : null;
+  return env.REALTIME ? new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET }) : null;
 }
 
 export interface RealtimeMessageAttachment {

@@ -260,7 +260,7 @@ export class CrmSyncWorkflow extends WorkflowEntrypoint<Env, CrmSyncParams> {
       const calStats = allStats.calendar_event;
       if (calStats && (calStats.created > 0 || calStats.updated > 0) && this.env.REALTIME) {
         try {
-          const realtime = new RealtimePublisher(this.env.REALTIME);
+          const realtime = new RealtimePublisher(this.env.REALTIME, { internalSecret: this.env.REALTIME_INTERNAL_SECRET });
           await realtime.publish(
             workspaceId,
             'calendar_event',

@@ -84,6 +84,8 @@ export interface WorkflowEnv {
   WORKSPACE_CACHE?: KVNamespace;
   // Cross-worker
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
   AGENT_WORKER?: Fetcher;
   EXECUTE_WORKFLOW?: {
     create: (init: { id?: string; params: Record<string, unknown> }) => Promise<unknown>;

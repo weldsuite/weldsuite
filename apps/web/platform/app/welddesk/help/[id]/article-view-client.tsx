@@ -1,6 +1,8 @@
 
+import { useMemo } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import { sanitizeArticleHtml } from '@/lib/sanitize-article-html';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
 import {
@@ -68,6 +70,10 @@ export function ArticleViewClient({ article }: Readonly<ArticleViewClientProps>)
   const router = useRouter();
   const { t } = useI18n();
   const th = t.helpdesk.helpArticles;
+
+  // The body is writable by any member with articles:update (and by the external
+  // API / MCP / agents) but rendered in this reader's own session: allowlist it.
+  const safeContent = useMemo(() => sanitizeArticleHtml(article.content), [article.content]);
 
   useBreadcrumbs([
     { label: t.helpdesk.title, href: '/welddesk' },
@@ -178,7 +184,7 @@ export function ArticleViewClient({ article }: Readonly<ArticleViewClientProps>)
             {/* Article Body */}
             <div className="prose prose-neutral dark:prose-invert max-w-none">
               <div
-                dangerouslySetInnerHTML={{ __html: article.content }}
+                dangerouslySetInnerHTML={{ __html: safeContent }}
                 className="[&>h1]:text-2xl [&>h1]:font-bold [&>h1]:mb-4 [&>h2]:text-xl [&>h2]:font-semibold [&>h2]:mt-8 [&>h2]:mb-4 [&>h3]:text-lg [&>h3]:font-medium [&>h3]:mt-6 [&>h3]:mb-3 [&>p]:mb-4 [&>p]:leading-relaxed [&>ul]:mb-4 [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:mb-4 [&>ol]:list-decimal [&>ol]:pl-6 [&>li]:mb-2 [&>blockquote]:border-l-4 [&>blockquote]:border-border [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:text-muted-foreground [&>pre]:bg-muted [&>pre]:p-4 [&>pre]:rounded-lg [&>pre]:overflow-x-auto [&>code]:bg-muted [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded [&>code]:text-sm"
               />
             </div>

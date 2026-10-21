@@ -401,12 +401,12 @@ export const admin = {
     history: 'History',
   },
 
-  // Where workspace databases live (task 1150, phase 1: read-only). Placeholders
+  // Where workspace databases live, and moving them (task 1150). Placeholders
   // like {count} are filled with `fill()`.
   databases: {
     title: 'Databases',
     description:
-      'Where workspace databases live: the shared shards, the dedicated Neon projects and the warm pool. This screen only reads. Nothing here changes a workspace.',
+      'Where workspace databases live: the shared shards, the dedicated Neon projects and the warm pool, and the moves between them. A superadmin moves a workspace from its Database tab.',
     back: 'All databases',
 
     summary: {
@@ -584,7 +584,185 @@ export const admin = {
       shardLink: 'Shard link',
       shardLinkDrift:
         "The workspace's shared_project_id says {id}, which does not match where the database lives. The placement above follows the Neon project id.",
-      moveNote: 'Moving a workspace to another shard or to a dedicated project will come in a later release.',
+      compute: 'Compute',
+    },
+
+    // Live Neon state, from the workspace worker (it asks the Neon API, so
+    // looking never wakes a compute).
+    compute: {
+      column: 'Compute',
+      title: 'Compute',
+      hint: 'From the Neon API. Looking does not wake a suspended compute.',
+      checkedAt: 'Checked {time}',
+      state: {
+        active: 'Running',
+        suspended: 'Suspended',
+        starting: 'Starting',
+        unknown: 'Unknown',
+      },
+      endpoint: {
+        endpoint: 'Endpoint',
+        type: 'Type',
+        state: 'State',
+        size: 'Size',
+        suspendAfter: 'Suspends after',
+        lastActive: 'Last active',
+      },
+      size: '{min} to {max} CU',
+      seconds: '{count} s',
+      neverSuspends: 'Never',
+      defaultSuspend: 'Neon default (300 s)',
+      noEndpoints: 'Neon lists no compute for this project.',
+      projectError: 'Neon did not answer for this project: {message}',
+      notConfigured:
+        'Live state unavailable: this console is not connected to the workspace worker (WORKSPACE_WORKER_URL, WORKSPACE_ADMIN_SECRET). Everything else here comes from the master database.',
+      unavailable: 'Live state unavailable: {message}',
+    },
+
+    sizes: {
+      title: 'Database sizes',
+      description:
+        'Measuring runs a query on the shard, so it wakes the compute if it is suspended. It is never part of loading this page.',
+      measure: 'Measure sizes',
+      measuring: 'Measuring…',
+      total: '{size} in {count} databases',
+      empty: 'There are no databases on this shard.',
+      noWorkspace: 'No workspace',
+      viewerNote: 'Viewers cannot measure sizes, because it wakes the shard.',
+      columns: {
+        database: 'Database',
+        workspace: 'Workspace',
+        size: 'Size',
+      },
+    },
+
+    moves: {
+      title: 'Database moves',
+      description:
+        'A move copies the database to its new place while writes are paused, checks the copy, then switches the workspace over. Reading keeps working; writes are refused with "try again" until the switch.',
+      overviewTitle: 'Moves',
+      overviewDescription: 'Moves that are still running, and the latest ones that ended.',
+      activeTitle: 'Running',
+      recentTitle: 'Ended recently',
+      noActive: 'No move is running.',
+      noRecent: 'No move has ended yet.',
+      empty: 'This workspace has never been moved.',
+      history: 'Earlier moves',
+      move: 'Move database',
+      superadminOnly: 'Only a superadmin can move, cancel or recover a database.',
+      noDatabase: 'This workspace has no database to move.',
+      noTargets: 'There is nowhere to move this database: no other active shard in {region} has room.',
+      running: 'A move is running. Start another one once it has ended.',
+      live: 'Updates every few seconds',
+      notConfigured:
+        'Moves unavailable: this console is not connected to the workspace worker (WORKSPACE_WORKER_URL, WORKSPACE_ADMIN_SECRET).',
+      unavailable: 'Moves unavailable: {message}',
+      close: 'Close',
+
+      dialog: {
+        title: 'Move the database of {name}',
+        description:
+          'Writes pause while the data is copied: seconds for a small workspace, several minutes for a large one. Reading keeps working. The worker logs every step.',
+        target: 'Move to',
+        dedicated: 'A dedicated Neon project',
+        dedicatedHint: 'A project of its own, with its own compute and no neighbours.',
+        auto: 'Any shard with room',
+        autoHint: 'The emptiest active shard in {region}.',
+        shardHint: '{count} of {max} databases ({percent}%)',
+        submit: 'Start move',
+        started: 'Move started. Follow it on this tab.',
+      },
+
+      columns: {
+        workspace: 'Workspace',
+        status: 'Status',
+        move: 'Move',
+        to: 'To',
+        startedBy: 'Started by',
+        started: 'Started',
+        ended: 'Ended',
+        error: 'Error',
+      },
+
+      kind: {
+        shard_to_dedicated: 'Shard to dedicated',
+        dedicated_to_shard: 'Dedicated to shard',
+        shard_to_shard: 'Shard to shard',
+      },
+
+      status: {
+        queued: 'Queued',
+        preparing: 'Preparing target',
+        soft_locked: 'Pausing writes',
+        locked: 'Writes paused',
+        copying: 'Copying',
+        verifying: 'Verifying',
+        switching: 'Switching',
+        completed: 'Completed',
+        failed: 'Failed',
+        cancelling: 'Cancelling',
+        cancelled: 'Cancelled',
+      },
+
+      target: {
+        dedicated: 'Dedicated project',
+        auto: 'Any shard',
+      },
+
+      card: {
+        title: 'Current move',
+        lastTitle: 'Last move',
+        from: 'From',
+        to: 'To',
+        dedicatedPlace: 'Dedicated project',
+        notChosen: 'Not chosen yet',
+        startedBy: 'Started by {email}, {time}',
+        reason: 'Reason',
+        progress: '{copied} of {total} rows ({percent}%)',
+        progressUnknown: '{copied} rows copied',
+        tables: '{done} of {total} tables copied',
+        stale:
+          'This move has not changed for {minutes} minutes. Its Workflow may have stopped; a forced recovery undoes it.',
+        cancelRequested: 'Cancel requested {time}. The move undoes itself at its next step.',
+        verified: 'Copy verified: {count} tables match.',
+        mismatched: 'Tables that differ from the source: {tables}',
+        sourceChanged: 'The source changed during the copy: {tables}',
+        retainedUntil: 'The old database stays read-only until {date}, then it is dropped.',
+        oldDropped: 'The old database was dropped {date}.',
+        oldDropError: 'Dropping the old database failed: {error}',
+      },
+
+      cancel: {
+        button: 'Cancel move',
+        title: 'Cancel this move?',
+        description:
+          'The move stops at its next step and undoes itself: writes resume on the current database and the target is given back. Once a move is switching it can no longer be cancelled.',
+        done: 'Cancel requested. The move is undoing itself.',
+      },
+
+      recover: {
+        button: 'Recover',
+        forceButton: 'Force recovery',
+        title: 'Recover this move?',
+        description:
+          'Finishes undoing the move: unlocks the current database so writes resume, and gives the target back. Steps that are already done are skipped.',
+        forceTitle: 'Force the recovery?',
+        forceDescription:
+          'This move still looks like it is running, but it has not changed for a long time. Only force the recovery when its Workflow has stopped: if it is still running, both act on the databases at once.',
+        done: 'Recovery finished: the move is {status}.',
+        incomplete: 'Recovery is not complete yet. Run it again.',
+      },
+
+      errors: {
+        notConfigured:
+          'The workspace worker is not configured for this console (WORKSPACE_WORKER_URL, WORKSPACE_ADMIN_SECRET).',
+        notAuthorized: 'Not authorized',
+        invalidWorkspace: 'Unknown workspace.',
+        invalidTarget: 'Choose where to move the database.',
+        invalidReason: 'Give a reason of 3 to 2000 characters.',
+        invalidMove: 'Unknown move.',
+        invalidShard: 'Unknown shard.',
+      },
     },
   },
 };

@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm bundle-migrations && wrangler dev",
-    "deploy": "pnpm bundle-migrations && wrangler deploy",
     "deploy:test": "pnpm bundle-migrations && wrangler deploy --env test",
     "deploy:production": "pnpm bundle-migrations && wrangler deploy --env production",
     "bundle-migrations": "tsx scripts/bundle-migrations.ts",
@@ -26,12 +25,13 @@
     "@weldsuite/emails": "workspace:*",
     "@weldsuite/neon-provisioning": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.34",
+    "hono": "^4.13.13",
     "svix": "^1.44.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
     "tsx": "^4.0.0",
     "typescript": "^5.7",

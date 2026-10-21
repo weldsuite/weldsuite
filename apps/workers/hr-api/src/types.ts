@@ -12,6 +12,8 @@ export interface Env extends KitEnv, DigipoortEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
   /** R2 bucket holding declaration receipts (services/weldhr/declarations.ts), payslip PDFs and filings
    *  (workspaces/<id>/hr/payslips|filings/…, services/weldhr/payroll). */
   STORAGE?: R2Bucket;

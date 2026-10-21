@@ -35,7 +35,7 @@ describe('isWithinScheduleWindow', () => {
     expect(isWithinScheduleWindow(new Date(max.getTime() + 1000), NOW)).toBe(false);
   });
 
-  it('window is exactly 7 days wide', () => {
+  it('window is exactly MAX_SCHEDULE_DAYS wide', () => {
     const { min, max } = scheduleWindowBounds(NOW);
     expect((max.getTime() - min.getTime()) / (24 * 60 * 60 * 1000)).toBe(MAX_SCHEDULE_DAYS);
   });

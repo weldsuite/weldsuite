@@ -26,7 +26,7 @@ Playwright suite of ~56 spec files (~475 test cases after parameterized route lo
                                       └────────────────┘
 ```
 
-The two-layer guard on `/test-fixtures/*` (`ENVIRONMENT !== 'production'` **AND** `X-Test-Token` matches) means production deploys are never at risk: the route 404s in production even with a stolen token.
+The two-layer guard on `/test-fixtures/*` (`ENVIRONMENT` is exactly `development` or `test` **AND** `X-Test-Token` matches, compared in constant time) means production deploys are never at risk: the route 404s in production, or with a missing or misspelled `ENVIRONMENT`, even with a stolen token.
 
 ## Setup checklist
 
@@ -51,7 +51,7 @@ wrangler secret put TEST_FIXTURES_TOKEN --env test     # paste $TOKEN
 wrangler secret put TEST_FIXTURES_TOKEN --env preview  # paste $TOKEN
 ```
 
-The `production` env intentionally does NOT get this secret. The router's `ENVIRONMENT !== 'production'` guard is the belt; the missing secret is the braces.
+The `production` env intentionally does NOT get this secret. The router's `ENVIRONMENT` allowlist (`development`, `test`) is the belt; the missing secret is the braces.
 
 ### 3. Set the GitHub Actions secrets
 

@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from '@/lib/router';
 import {
   ChevronLeft,
@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useCreateArticle, useUpdateArticle, useHelpdeskFolders } from '@/hooks/queries/use-helpdesk-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { sanitizeArticleHtml } from '@/lib/sanitize-article-html';
 import { DocumentEditorPage } from '@/components/document-editor-page';
 
 /**
@@ -76,8 +77,14 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
   const contentRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
 
+  // The stored body is untrusted (members, the external API, MCP and agents can all
+  // write it) and is loaded into a contentEditable via innerHTML, where an
+  // `<img onerror>` would run in this session. Everything the editor shows, and
+  // therefore saves back, goes through the allowlist first.
+  const safeInitialContent = useMemo(() => sanitizeArticleHtml(article.content), [article.content]);
+
   // Track current content for save
-  const currentContentRef = useRef(article.content);
+  const currentContentRef = useRef(safeInitialContent);
   const currentTitleRef = useRef(article.title);
 
   const createArticleMutation = useCreateArticle();
@@ -384,7 +391,7 @@ export function ArticleEditor({ article: initialArticle }: Readonly<ArticleEdito
       )}
 
       <DocumentEditorPage
-        initialContent={article.content}
+        initialContent={safeInitialContent}
         initialTitle={article.title}
         editable={true}
         showCoverImage={false}

@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { appNotLicensedBody, findModuleForExternalPath, missingLicensedApp } from '@weldsuite/api-modules';
+import { classifyMovedDatabaseError, workspaceMovingResponse } from '@weldsuite/worker-kit/workspace-moving';
 import { v1 } from './routes/v1';
 import { createTenantDb } from './db';
 import type { ApiKeySession, HonoEnv } from './types';
 import type { Env } from '../types/env';
 import type { McpSession } from '../lib/api-types';
 import { isReadOnlyRequestAllowed, workspaceReadOnlyBody } from '../lib/read-only';
+import { forgetWorkspaceForOrg } from '../lib/workspace-cache';
 
 /**
  * Origin used when dispatching into the internal API. Never leaves the worker —
@@ -78,9 +81,13 @@ apiApp.use('*', async (c, next) => {
   }
 
   // A read-only workspace (partner suspended or licence inactive) may be read
-  // and exported but not changed.
+  // and exported but not changed. One whose tenant database is being moved
+  // (TASK-1150) gets the same exceptions, and is told to retry instead:
+  // 503 WORKSPACE_MOVING.
   if (session.readOnly && !isReadOnlyRequestAllowed(c.req.method, c.req.path)) {
-    return c.json(workspaceReadOnlyBody(session.readOnlyReason), 403);
+    const reason = session.readOnlyReason;
+    if (reason === 'database_move') return workspaceMovingResponse(c);
+    return c.json(workspaceReadOnlyBody(reason), 403);
   }
 
   const apiSession = toApiSession(session);
@@ -96,3 +103,26 @@ apiApp.use('*', async (c, next) => {
 });
 
 apiApp.route('/v1', v1);
+
+/**
+ * Errors thrown by a route. A tenant database that moved under the request
+ * (source set read-only, 25006; role password rotated, 28P01) is answered with
+ * 503 WORKSPACE_MOVING, which `lib/proxy.ts` turns into a tool error saying to
+ * try again; a rotated password also drops the cached tenant URL. Everything
+ * else keeps Hono's own default handling (an HTTPException's response, else a
+ * logged 500).
+ */
+apiApp.onError(async (err, c) => {
+  const moved = classifyMovedDatabaseError(err);
+  if (moved) {
+    // Only a classification is logged: the error's message can carry the query
+    // and the role name.
+    const clerkOrgId = c.get('apiSession')?.clerkOrgId;
+    console.warn(`[MCP Server] workspace database moved (${moved}), org ${clerkOrgId ?? 'unknown'}`);
+    if (moved === 'password_rotated' && clerkOrgId) await forgetWorkspaceForOrg(c.env?.API_CACHE, clerkOrgId);
+    return workspaceMovingResponse(c);
+  }
+  if (err instanceof HTTPException) return err.getResponse();
+  console.error(err);
+  return c.text('Internal Server Error', 500);
+});

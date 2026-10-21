@@ -100,7 +100,7 @@ async function publishSignal(c: HrContext, signal: PortalSignal): Promise<void> 
   if (signal.companyId && toClient) topics.add(hrPortalTopics.client(signal.companyId));
   if (topics.size === 0) return;
 
-  const publisher = new RealtimePublisher(binding);
+  const publisher = new RealtimePublisher(binding, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
   const hub = hrPortalHubKey(orgId);
   const data = { entity: signal.entity, id: signal.id };
   const actor = c.get('userId') || 'system';

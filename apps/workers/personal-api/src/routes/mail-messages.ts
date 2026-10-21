@@ -8,11 +8,12 @@
  * maps their refusals to responses).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { getPersonalDb, personalSchema } from '../db';
+import { sendPersonalMailReadPush } from '@weldsuite/mail-domain/read-push';
+import { getPersonalDb, personalSchema, type PersonalDatabase } from '../db';
 import { cursorPagination, error, list, success } from '../lib/response';
 import { mapSendError } from '../lib/send-errors';
 import {
@@ -450,6 +451,41 @@ function buildMessagePatch(body: MessageUpdate, existingLabels: string[]): Messa
   return patch;
 }
 
+/**
+ * Whether the patch takes the message out of the unread inbox: read,
+ * trashed, spammed or archived (a label set without INBOX).
+ */
+function patchClearsUnreadBanner(patch: MessagePatch): boolean {
+  return (
+    patch.isRead === true ||
+    patch.isTrash === true ||
+    patch.isSpam === true ||
+    (patch.labels !== undefined && !patch.labels.includes('INBOX'))
+  );
+}
+
+/**
+ * Queue the WeldMail "email read" push so the phone drops the message's
+ * new-email banner (`@weldsuite/mail-domain/read-push`). Runs in `waitUntil`.
+ */
+function queueMailReadPush(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  personalDb: PersonalDatabase,
+  personalAccountId: string,
+  emailIds: string[],
+): void {
+  let ctx: ExecutionContext;
+  try {
+    ctx = c.executionCtx;
+  } catch {
+    // No execution context (route tests): nothing to keep the push alive.
+    return;
+  }
+  ctx.waitUntil(
+    sendPersonalMailReadPush(personalDb, { clerkUserId: c.get('userId'), personalAccountId, emailIds }),
+  );
+}
+
 app.patch('/:id', zValidator('json', updateBody), async (c) => {
   const personalAccountId = c.get('personalAccountId');
   if (!personalAccountId) return error.personalAccountRequired(c);
@@ -494,6 +530,9 @@ app.patch('/:id', zValidator('json', updateBody), async (c) => {
       .where(eq(personalMailMessages.id, id))
       .returning();
 
+    if (patchClearsUnreadBanner(patch)) {
+      queueMailReadPush(c, personalDb, personalAccountId, [id]);
+    }
     return success(c, updated!);
   } catch (err) {
     console.error('[personal-api/mail-messages] patch failed:', err);

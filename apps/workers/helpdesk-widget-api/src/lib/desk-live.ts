@@ -67,7 +67,7 @@ export async function publishVisitorMessage(
   event: 'created' | 'updated',
 ): Promise<void> {
   if (!env.REALTIME) return;
-  const rt = new RealtimePublisher(env.REALTIME);
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
   const record = toPublicMessage(message, new Map());
   const results = await Promise.allSettled([
     rt.conversationPublish(conversation.id, {
@@ -97,7 +97,7 @@ export async function publishConversationUpdated(
 ): Promise<void> {
   if (!env.REALTIME) return;
   try {
-    const rt = new RealtimePublisher(env.REALTIME);
+    const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
     await rt.publish(orgId, 'desk_conversation', 'updated', conversation, 'system');
   } catch (err) {
     console.error('[widget-api] realtime publish failed:', err);

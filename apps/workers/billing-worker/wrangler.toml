@@ -1,7 +1,8 @@
 # WeldSuite Billing Worker
 # Handles Stripe billing: webhooks, checkout, seat management, invoices
 
-name = "weldsuite-billing"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-billing-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -90,9 +91,10 @@ EMAIL_TRANSPORT = "cloudflare"
 
 # Bindings are not inherited by named environments: without this the test
 # worker has no master DB at all (every admin/partner/webhook query fails).
+# weldsuite-master-test (the test master's pooler endpoint).
 [[env.test.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
+id = "02e3ecd8560540a1993883b9949f6002"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"

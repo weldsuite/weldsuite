@@ -1,9 +1,21 @@
 import type { Attachment, CallSupersededEvent } from '../types';
 import { personalHubKey } from '../topics';
+import { REALTIME_INTERNAL_SECRET_HEADER } from './internal-auth';
 
 /** Service binding interface — compatible with Cloudflare's Fetcher */
 interface ServiceBinding {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+}
+
+export interface RealtimePublisherOptions {
+  /**
+   * The caller's `REALTIME_INTERNAL_SECRET`. The realtime-worker requires it
+   * on every `/publish/*` request, service-binding callers included, and
+   * answers 403 without it. Required (pass `undefined` only when the transport
+   * adds the header itself) so a worker that forgets to hand it over fails to
+   * compile instead of silently losing realtime.
+   */
+  internalSecret: string | undefined;
 }
 
 /**
@@ -14,11 +26,48 @@ interface ServiceBinding {
  * conversation events (ConversationRoom), and chat events (ChatRoom).
  *
  * Usage:
- *   const realtime = new RealtimePublisher(c.env.REALTIME);
+ *   const realtime = new RealtimePublisher(c.env.REALTIME, {
+ *     internalSecret: c.env.REALTIME_INTERNAL_SECRET,
+ *   });
  *   await realtime.entityCreated(orgId, 'contact', contact, userId);
  */
 export class RealtimePublisher {
-  constructor(private readonly binding: ServiceBinding) {}
+  private readonly internalSecret: string | undefined;
+
+  constructor(
+    private readonly binding: ServiceBinding,
+    options: RealtimePublisherOptions,
+  ) {
+    this.internalSecret = options.internalSecret;
+  }
+
+  /**
+   * POST a JSON body to a realtime-worker `/publish/*` route with the internal
+   * secret attached, and return the response untouched.
+   */
+  private post(path: string, body: unknown): Promise<Response> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.internalSecret) headers[REALTIME_INTERNAL_SECRET_HEADER] = this.internalSecret;
+
+    return this.binding.fetch(`https://internal${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * `post` for the room publishes that never throw on a rejected request. The
+   * rejection is logged, because a 403 (the internal secret missing or wrong on
+   * this worker) would otherwise make every publish vanish without a trace.
+   */
+  private async postLogged(path: string, body: unknown): Promise<void> {
+    const res = await this.post(path, body);
+    if (!res.ok) {
+      const route = path.split('/').slice(0, 3).join('/');
+      console.error(`[realtime publish] ${res.status} ${res.statusText} for ${route}`);
+    }
+  }
 
   // ============================================
   // Workspace Events → WorkspaceHub DO
@@ -31,11 +80,7 @@ export class RealtimePublisher {
     data: unknown,
     userId: string,
   ): Promise<void> {
-    const res = await this.binding.fetch('https://internal/publish/workspace', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspaceId, topic, event, data, userId }),
-    });
+    const res = await this.post('/publish/workspace', { workspaceId, topic, event, data, userId });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(
@@ -141,11 +186,7 @@ export class RealtimePublisher {
   // ============================================
 
   async supportPublish(workspaceId: string, payload: unknown): Promise<void> {
-    await this.binding.fetch(`https://internal/publish/support/${workspaceId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    await this.postLogged(`/publish/support/${workspaceId}`, payload);
   }
 
   // ============================================
@@ -153,14 +194,7 @@ export class RealtimePublisher {
   // ============================================
 
   async conversationPublish(conversationId: string, payload: unknown): Promise<void> {
-    await this.binding.fetch(
-      `https://internal/publish/conversation/${conversationId}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-    );
+    await this.postLogged(`/publish/conversation/${conversationId}`, payload);
   }
 
   async conversationMessage(
@@ -211,11 +245,7 @@ export class RealtimePublisher {
   // ============================================
 
   async chatPublish(channelId: string, payload: unknown): Promise<void> {
-    await this.binding.fetch(`https://internal/publish/chat/${channelId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    await this.postLogged(`/publish/chat/${channelId}`, payload);
   }
 
   async chatMessage(

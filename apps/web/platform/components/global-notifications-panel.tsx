@@ -101,6 +101,8 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
     notifications: rawNotifications,
     unreadCount,
     isLoading,
+    hasMore,
+    loadMore,
     markAsRead: markAsReadAction,
     markAllAsRead: markAllAsReadAction,
     deleteNotification: deleteNotificationAction,
@@ -434,6 +436,20 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                 </div>
               );
             })}
+            {hasMore && (
+              <div className="flex justify-center py-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void loadMore()}
+                  disabled={isLoading}
+                  className="h-7 text-[12px] text-gray-600 dark:text-muted-foreground"
+                >
+                  {isLoading && <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />}
+                  {tn.loadMore}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

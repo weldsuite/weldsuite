@@ -4,6 +4,7 @@ import { InboxClient } from './inbox-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
+import { hasLabel } from '../lib/message-labels';
 
 export default function InboxPage() {
   const { t } = useI18n();
@@ -63,8 +64,8 @@ export default function InboxPage() {
       isStarred: msg.isStarred ?? false,
       isImportant: msg.isImportant ?? false,
       isDraft: msg.isDraft ?? false,
-      isSpam: msg.labels?.includes('spam') ?? false,
-      isDeleted: msg.labels?.includes('trash') ?? false,
+      isSpam: hasLabel(msg.labels, 'SPAM'),
+      isDeleted: hasLabel(msg.labels, 'TRASH'),
       hasAttachments: msg.hasAttachments ?? false,
       size: msg.sizeBytes || 0,
       labels: msg.labels || [],

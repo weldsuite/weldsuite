@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { sendExpoPush } from '@weldsuite/notifications';
+import { isCallToken, sendExpoPush } from '@weldsuite/notifications';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -27,7 +27,9 @@ const registerBody = z.object({
   token: z.string().min(1),
   platform: z.enum(['ios', 'android', 'web']),
   deviceId: z.string().min(1),
-  tokenType: z.enum(['expo', 'fcm', 'apns']).default('expo'),
+  // voip / expo_call: a WeldChat device's call token (deviceId `<id>:call`),
+  // used only for the native incoming-call ring (@weldsuite/notifications call-push).
+  tokenType: z.enum(['expo', 'fcm', 'apns', 'voip', 'expo_call']).default('expo'),
   appCode: z.string().min(1).default('weldsuite'),
   deviceModel: z.string().optional(),
   osVersion: z.string().optional(),
@@ -106,16 +108,24 @@ app.post('/test', async (c) => {
 
   try {
     // Match the WeldChat DM orchestrator filter (weldchat + weldsuite app codes).
-    const rows = await db
-      .select({ token: schema.deviceTokens.token, appCode: schema.deviceTokens.appCode })
-      .from(schema.deviceTokens)
-      .where(
-        and(
-          eq(schema.deviceTokens.userId, userId),
-          isNull(schema.deviceTokens.isActive),
-          inArray(schema.deviceTokens.appCode, ['weldchat', 'weldsuite']),
-        ),
-      );
+    // Call tokens (VoIP / Android ring) are not for ordinary pushes: a VoIP
+    // token is not an Expo token and would be deactivated as invalid.
+    const rows = (
+      await db
+        .select({
+          token: schema.deviceTokens.token,
+          appCode: schema.deviceTokens.appCode,
+          tokenType: schema.deviceTokens.tokenType,
+        })
+        .from(schema.deviceTokens)
+        .where(
+          and(
+            eq(schema.deviceTokens.userId, userId),
+            isNull(schema.deviceTokens.isActive),
+            inArray(schema.deviceTokens.appCode, ['weldchat', 'weldsuite']),
+          ),
+        )
+    ).filter((row) => !isCallToken(row));
 
     // One Expo request per appCode — mixing EAS projects in a single batch
     // returns HTTP 400 for the entire request (and used to surface as a bare

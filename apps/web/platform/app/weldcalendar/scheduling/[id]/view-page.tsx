@@ -32,6 +32,7 @@ import type { TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { getCalendarDateRange } from '@/app/weldcalendar/lib/date-range';
 import { timedEventsForDay } from '@/app/weldcalendar/lib/event-days';
 import { applyEventFilters } from '@/app/weldcalendar/lib/event-filters';
+import { bookingConflictEvents } from '@/app/weldcalendar/lib/booking-conflicts';
 import { buildEventFilterConfigs } from '@/app/weldcalendar/lib/event-filter-configs';
 import type { TimedSegment } from '@/app/weldcalendar/lib/event-days';
 import { EVENT_TYPE_COLORS } from '@/app/weldcalendar/lib/event-form-schema';
@@ -104,10 +105,18 @@ export default function BookingPageViewPage() {
   const weekRange = useMemo(() => getCalendarDateRange(currentWeekStart, 'week'), [currentWeekStart]);
   const { data: eventsData } = useCalendarEventsRange(weekRange.start, weekRange.end);
   const allEvents = useMemo(() => eventsData?.data || [], [eventsData]);
-  // The toolbar filter narrows the events drawn over the availability, with
-  // the same fields as on the main calendar.
-  const filterConfigs: FilterConfig[] = useMemo(() => buildEventFilterConfigs(calendars), [calendars]);
-  const events = useMemo(() => applyEventFilters(allEvents, activeFilters), [allEvents, activeFilters]);
+  // The range holds every calendar the viewer can see, teammates' shared ones
+  // too. Only the events that take this page's slots are drawn over it.
+  const ownerId = bookingPage?.ownerId;
+  const conflictEvents = useMemo(
+    () => bookingConflictEvents(allEvents, calendars, ownerId),
+    [allEvents, calendars, ownerId],
+  );
+  // The toolbar filter narrows those further, with the same fields as on the
+  // main calendar; its calendar choice lists the owner's calendars only.
+  const ownerCalendars = useMemo(() => calendars.filter((c) => c.ownerId === ownerId), [calendars, ownerId]);
+  const filterConfigs: FilterConfig[] = useMemo(() => buildEventFilterConfigs(ownerCalendars), [ownerCalendars]);
+  const events = useMemo(() => applyEventFilters(conflictEvents, activeFilters), [conflictEvents, activeFilters]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [slot, setSlot] = useState<{ start: Date; end: Date } | null>(null);

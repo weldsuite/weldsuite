@@ -41,7 +41,12 @@ async function seedAccount(values: Partial<typeof mailAccounts.$inferInsert>): P
   return id;
 }
 
-async function seedMessages(accountId: string, count: number, isRead = false) {
+async function seedMessages(
+  accountId: string,
+  count: number,
+  isRead = false,
+  extra: Partial<typeof mailMessages.$inferInsert> = {},
+) {
   for (let i = 0; i < count; i++) {
     const id = generateId('mmsg');
     await db.insert(mailMessages).values({
@@ -55,6 +60,7 @@ async function seedMessages(accountId: string, count: number, isRead = false) {
       sentDate: new Date(),
       labels: ['INBOX'],
       isRead,
+      ...extra,
     });
   }
 }
@@ -86,6 +92,12 @@ beforeAll(async () => {
   await seedMessages(shared, 3, true);
   await seedMessages(privateAssigned, 2);
   await seedMessages(privateUnassigned, 4);
+
+  // Unread mail in the trash or in spam (by label or by flag) is never badged.
+  await seedMessages(shared, 1, false, { labels: ['INBOX', 'TRASH'] });
+  await seedMessages(shared, 1, false, { labels: ['INBOX', 'SPAM'] });
+  await seedMessages(shared, 1, false, { isTrash: true });
+  await seedMessages(shared, 1, false, { isSpam: true });
 }, 60_000);
 
 describe('GET /api/dashboard/sidebar-badges · unreadMessages', () => {

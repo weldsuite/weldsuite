@@ -14,6 +14,8 @@ export interface Env extends KitEnv {
   /** realtime-worker service binding — agent chat replies to the ChatRoom DO,
    *  live WorkspaceHub fan-out and in-app notifications. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
   /**
    * D1 schedule index (shared with workflow-worker). Holds the WeldAgent
    * routine index (@weldsuite/agent-domain/routine-index) the hourly routine

@@ -181,4 +181,19 @@ describe('useRowsWithCompanyLogos', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith('/company-logos/resolve', { domains: ['acme.com', 'nologo.io'] });
   });
+
+  it('hands back the same copy of a row with a logo when another page of rows arrives', async () => {
+    answerWith({ 'acme.com': 'https://storage/acme.com' });
+    const firstPage: Row[] = [{ id: '1', website: 'acme.com' }];
+    const { result, rerender } = renderHook(({ rows }) => useRowsWithCompanyLogos(rows, getDomain), {
+      initialProps: { rows: firstPage },
+    });
+    await waitFor(() => expect(result.current[0]).toHaveProperty('logoUrl'));
+    const decorated = result.current[0];
+
+    // The grid skips re-rendering rows whose object did not change.
+    rerender({ rows: [...firstPage, { id: '2', website: 'nologo.io' }] });
+
+    expect(result.current[0]).toBe(decorated);
+  });
 });

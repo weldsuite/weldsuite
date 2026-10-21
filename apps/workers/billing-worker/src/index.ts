@@ -20,6 +20,7 @@ import { backfillRoutes } from './routes/backfill';
 import { appSubscriptionsRoutes } from './routes/app-subscriptions';
 import { appDeveloperAccountsRoutes } from './routes/app-developer-accounts';
 import { reachBillingRoutes } from './routes/reach-billing';
+import { bankConnectionBillingRoutes } from './routes/bank-connection-billing';
 import { adminRoutes } from './routes/admin';
 import { runCompSweep } from './services/comp-sweep';
 import { runPartnerSweeps } from './services/partner-sweep';
@@ -41,6 +42,9 @@ export interface Env {
   /** WeldReach inbox price ($5 per inbox per month). When unset the price is created
    *  lazily in Stripe and found again through its lookup key (services/reach-billing.ts). */
   STRIPE_PRICE_WELDREACH_INBOX?: string;
+  /** WeldBooks extra bank connection price. When unset the price is created lazily and
+   *  found again through its lookup key (services/bank-connection-billing.ts). */
+  STRIPE_PRICE_BANK_CONNECTION?: string;
   // Clerk (for JWT verification on API routes)
   CLERK_SECRET_KEY: string;
   CLERK_JWT_KEY: string;
@@ -161,6 +165,9 @@ app.route('/api/billing/phone', phoneBillingRoutes);
 // WeldReach inbox subscription (Clerk JWT auth; reach-api forwards the user's JWT)
 // — mounted before general billing routes, same as phone above
 app.route('/api/billing/reach', reachBillingRoutes);
+
+// WeldBooks extra bank connections (Clerk JWT auth; books-api forwards the user's JWT)
+app.route('/api/billing/bank-connections', bankConnectionBillingRoutes);
 
 // Agent-package billing (Clerk JWT + admin-only)
 app.route('/api/billing/agents', agentBillingRoutes);

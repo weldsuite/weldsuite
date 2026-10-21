@@ -65,10 +65,10 @@ export type MailAiOp =
 
 /** Balanced defaults — see file header. Per-account/explicit ids override. */
 const MODEL_DEFAULTS: Record<MailAiOp, string> = {
-  draft: thirdParty.anthropic.sonnet,
-  'improve-text': thirdParty.anthropic.sonnet,
-  'auto-draft': thirdParty.anthropic.sonnet,
-  reply: thirdParty.anthropic.sonnet,
+  draft: thirdParty.anthropic.sonnet55,
+  'improve-text': thirdParty.anthropic.sonnet55,
+  'auto-draft': thirdParty.anthropic.sonnet55,
+  reply: thirdParty.anthropic.sonnet55,
   'smart-replies': recommended.draft.free,
   'inbox-summary': recommended.summarize.free,
   label: recommended.classify.free,

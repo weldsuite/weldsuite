@@ -138,7 +138,7 @@ Capture the created `clerkOrgId` from the page (read `window.Clerk.organization.
 
 **Provisioning → dashboard**
 - Assert provisioning screen (`Creating your database` etc.).
-- `page.waitForURL('/', { timeout: 200_000 })`, generous, covers the 3-min poll ceiling.
+- `page.waitForURL(/\/w\/[^/]+\/$/, { timeout: 200_000 })` (the new workspace's `/w/{slug}/` home, FE-013), generous, covers the 3-min poll ceiling.
 - Capture `clerkOrgId`. Assert an authenticated dashboard marker is visible
   (e.g. `data-testid="app-sidebar"` once a module loads, or the home shell).
 - `consoleErrors` fixture auto-asserts no unexpected console errors throughout.

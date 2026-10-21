@@ -11,6 +11,8 @@ export interface Env extends KitEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   // --- Email (@weldsuite/worker-email) — desk email replies + channel dispatch ---
   /** Cloudflare `[[send_email]]` binding for outbound mail. */

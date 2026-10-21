@@ -20,7 +20,7 @@ vi.mock('cloudflare:email', () => ({
   },
 }));
 
-import { forwardAndPersist, MailSendError, sendAndPersist } from './send';
+import { forwardAndPersist, forwardSubject, MailSendError, sendAndPersist } from './send';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -244,6 +244,17 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
   });
 });
 
+describe('forwardSubject (TASK-910)', () => {
+  it('prefixes Fwd: once, whatever the original already carries', () => {
+    expect(forwardSubject('Quarterly numbers')).toBe('Fwd: Quarterly numbers');
+    expect(forwardSubject('Fwd: Quarterly numbers')).toBe('Fwd: Quarterly numbers');
+    expect(forwardSubject('FWD: Quarterly numbers')).toBe('FWD: Quarterly numbers');
+    expect(forwardSubject('Fw: Quarterly numbers')).toBe('Fw: Quarterly numbers');
+    expect(forwardSubject('Re: Quarterly numbers')).toBe('Fwd: Re: Quarterly numbers');
+    expect(forwardSubject(null)).toBe('Fwd: (No subject)');
+  });
+});
+
 describe('sendAndPersist · text/plain part and preview (TASK-903)', () => {
   it('stores tag-free text when the client sends its editor HTML as body', async () => {
     const accountId = await seedAccount();
@@ -264,6 +275,46 @@ describe('sendAndPersist · text/plain part and preview (TASK-903)', () => {
       'Hello from WeldMail QA. Plain line one. This sentence is bold. This sentence is italic.',
     );
     expect(message.htmlBody).toContain('<b>This sentence is bold.</b>');
+  });
+
+  it('keeps angle brackets in a plain-text body next to its own htmlBody (TASK-938)', async () => {
+    const accountId = await seedAccount();
+    const text = 'Budget is < 500 and margin > 20%. Use <strong> in the template.';
+
+    const result = await sendAndPersist(
+      env, db, ORG, USER, accountId,
+      {
+        to: ['someone@example.com'],
+        subject: 'Angle brackets',
+        body: text,
+        htmlBody: '<p>Budget is &lt; 500 and margin &gt; 20%. Use &lt;strong&gt; in the template.</p>',
+      },
+      { dryRun: true },
+    );
+
+    const { message } = await sentCopy(result.messageId);
+    expect(message.textBody).toBe(text);
+    expect(message.preview).toBe(text);
+    expect(message.htmlBody).toContain('&lt;strong&gt;');
+  });
+
+  it('keeps literal tags and ampersands typed as plain text (TASK-938)', async () => {
+    const accountId = await seedAccount();
+
+    const result = await sendAndPersist(
+      env, db, ORG, USER, accountId,
+      {
+        to: ['someone@example.com'],
+        subject: 'Literal tag',
+        body: '<i>literal tag</i> & ampersand.',
+        htmlBody: '<p>&lt;i&gt;literal tag&lt;/i&gt; &amp; ampersand.</p>',
+      },
+      { dryRun: true },
+    );
+
+    const { message } = await sentCopy(result.messageId);
+    expect(message.textBody).toBe('<i>literal tag</i> & ampersand.');
+    expect(message.preview).toBe('<i>literal tag</i> & ampersand.');
   });
 
   it('gives an HTML-only body field a real HTML part', async () => {

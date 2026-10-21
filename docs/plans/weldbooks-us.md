@@ -602,6 +602,29 @@ Where it runs:
   Link, Stripe.js `collectFinancialConnectionsAccounts`, redirect flows), all
   returning the same callback payload to books-api.
 
+**Billing** (20 October 2026): the subscription includes bank connections
+(`plans.features.includedBankConnections`, default 1) and each one above that
+is billed monthly (€5 / $5, a placeholder price) on its own Stripe
+subscription per workspace, quantity = connections − included
+(`@weldsuite/app-api-client/schemas/bank-connection-billing`). One connection
+is one bank login with all its accounts, matching how the aggregators charge.
+It counts from linking until it is disconnected or removed, also while it
+needs a new sign-in. billing-worker (`/api/billing/bank-connections`) counts the
+connections itself from the master `bank_feed_connection_index` (books-api
+removes the rows on disconnect) and sets the quantity; raising it takes a
+workspace admin and a payment method. books-api asks the user to agree to the
+charge at `link-session`, checks again before completing, and removes a new
+connection billing refuses. The subscription's webhooks skip the plan, seat
+and credit handling.
+
+**Second factor** (20 October 2026): starting a bank link (any mode) takes a
+second factor verified in the last 10 minutes, read from Clerk's `fva` claim
+(worker-kit `requireSecondFactor`). Without one books-api answers
+`MFA_REQUIRED` and the platform sends the user to Settings → Security to set
+up an authenticator app; a stale one gets `REVERIFICATION_REQUIRED`, which
+Clerk's `useReverification` dialog answers. A passkey is a sign-in method in
+Clerk, not a second factor, so it does not count.
+
 Data: `bank_connections` (`entity_id, provider, provider_connection_id,
 institution_id, institution_name, status, credentials_encrypted, sync_cursor,
 last_synced_at, last_error, consent_expires_at, created_by`) and on

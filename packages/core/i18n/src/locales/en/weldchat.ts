@@ -76,6 +76,8 @@ export const weldchat = {
       connectionLost: "Couldn't reconnect to the call. Call again to continue.",
       supersededByOtherCall: 'You left this call because you joined another call or meeting.',
       joinFailed: "Couldn't join the call. It may have ended already.",
+      startFailed: "Couldn't start the call. Please try again.",
+      youLeft: 'You left the call',
       connection: {
         connection: 'Connection',
         good: 'Good',

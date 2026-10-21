@@ -120,7 +120,8 @@ interface TaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editingTask: Task | null;
-  availableAssignees: string[] | { id: string; name: string; avatar?: string }[];
+  /** `departed`: no longer a workspace member, offered only on a task they are already on. */
+  availableAssignees: string[] | { id: string; name: string; avatar?: string; departed?: boolean }[];
   /** `icon` + `iconColor` draw a colored square instead of an avatar (WeldFlow projects). */
   availableCompanies: Array<string | { id: string; name: string; avatar?: string; type?: string; icon?: LucideIcon; iconColor?: string | null }>;
   /** Offered alongside companies in the record picker — a task can link to a person instead. */
@@ -242,7 +243,7 @@ type PriorityValue = 'low' | 'medium' | 'high';
 type PriorityState = PriorityValue | 'urgent';
 type RepeatValue = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
 type RepeatUnitValue = 'days' | 'weeks' | 'months' | 'years';
-type AssigneeOption = { id: string; name: string; avatar?: string };
+type AssigneeOption = { id: string; name: string; avatar?: string; departed?: boolean };
 type CompanyOption = { id: string; name: string; avatar?: string; type?: string; icon?: LucideIcon; iconColor?: string | null };
 
 function normalizeAssignee(a: string | AssigneeOption): AssigneeOption {
@@ -749,8 +750,10 @@ function AssigneesPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto min-w-[220px] p-1" align="start">
-        {normalized.map(({ id, name, avatar }) => {
+        {normalized.map(({ id, name, avatar, departed }) => {
           const isSelected = assigneeList.includes(id);
+          // Someone who left the workspace can be unassigned, never newly picked.
+          if (departed && !isSelected) return null;
           return (
             <Button
               variant="ghost"
@@ -801,6 +804,7 @@ function RecordPopover({
   isSearching,
   onSearchChange,
   onChange,
+  showKind,
 }: Readonly<{
   record: string | null;
   companies: CompanyOption[];
@@ -813,6 +817,8 @@ function RecordPopover({
   isSearching: boolean;
   onSearchChange: ((value: string) => void) | undefined;
   onChange: (company: CompanyOption | null) => void;
+  /** Badge each option as company/person; off when the caller passes no people (e.g. a project list). */
+  showKind: boolean;
 }>) {
   const tCrm = getTranslations('crm');
   return (
@@ -876,7 +882,7 @@ function RecordPopover({
                     <span className="truncate">{company.name}</span>
                   </span>
                   {/* Companies and people share this list: say which is which, same as the Notes record picker. */}
-                  {(company.type === 'company' || company.type === 'person') && (
+                  {showKind && (company.type === 'company' || company.type === 'person') && (
                     <RecordKindBadge kind={company.type} />
                   )}
                   {record === company.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
@@ -1566,6 +1572,7 @@ export function TaskDialog({
                 isSearching={isSearchingRecords}
                 onSearchChange={onRecordSearchChange ? handleRecordSearch : undefined}
                 onChange={handleRecordChange}
+                showKind={availablePeople !== NO_PEOPLE}
               />
             )}
           </div>

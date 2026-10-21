@@ -85,7 +85,6 @@ const files = {
       type: 'module',
       scripts: {
         build: 'wrangler deploy --dry-run --outdir dist',
-        deploy: 'wrangler deploy',
         'deploy:production': 'wrangler deploy --env production',
         'deploy:test': 'wrangler deploy --env test',
         dev: `wrangler dev --port ${mod.devPort}`,
@@ -178,7 +177,8 @@ export default defineConfig({
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
 
-name = "${scriptName}"
+# Local \`wrangler dev\` only. Deployed names are set per [env.*]; never reuse one here.
+name = "${scriptName}-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -288,6 +288,8 @@ export interface Env extends KitEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Sent as x-internal-secret on every realtime-worker /publish/* call. */
+  REALTIME_INTERNAL_SECRET?: string;
 }
 
 export type Variables = KitVariables;

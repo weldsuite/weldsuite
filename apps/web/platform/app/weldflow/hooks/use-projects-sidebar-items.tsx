@@ -12,7 +12,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { coloredSquareColorLabel, coloredSquareColors, coloredSquareIconLabel, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { DeleteProjectDialog } from '../components/delete-project-dialog';
 import {
   Popover,
   PopoverContent,
@@ -310,35 +310,19 @@ export function useProjectsSidebarItems(isActive: boolean): {
   useTopic('project', reloadProjects);
   useTopic('project_member', reloadProjects);
 
-  // Ref to break circular dependency
-  const handleDeleteProjectRef = React.useRef<(projectId: string) => Promise<void>>(async () => {});
-
-  const handleDeleteProject = React.useCallback(
-    async (projectId: string) => {
-      const result = await projectsApi.delete(projectId);
-      if (result.success) {
-        // Deleting the project you are looking at must not leave you on its dead page.
-        const projectBase = `${PROJECT_HREF_PREFIX}${projectId}`;
-        const viewing = pathnameRef.current ?? '';
-        if (viewing === projectBase || viewing.startsWith(`${projectBase}/`)) {
-          router.replace('/weldflow/projects');
-        }
-        await reloadProjects();
-        toast.success(t.projects.sidebar.projectDeleted, {
-          description: t.projects.sidebar.projectDeletedDescription,
-        });
-      } else {
-        toast.error(t.projects.sidebar.error, {
-          description: result.error || t.projects.sidebar.projectDeleteFailed,
-        });
+  const handleProjectDeleted = React.useCallback(
+    async (projectId: string, movedTo: { id: string } | null) => {
+      // Deleting the project you are looking at must not leave you on its dead page;
+      // when its tasks moved, follow them.
+      const projectBase = `${PROJECT_HREF_PREFIX}${projectId}`;
+      const viewing = pathnameRef.current ?? '';
+      if (viewing === projectBase || viewing.startsWith(`${projectBase}/`)) {
+        router.replace(movedTo ? `${PROJECT_HREF_PREFIX}${movedTo.id}/tasks` : '/weldflow/projects');
       }
+      await reloadProjects();
     },
-    [reloadProjects, router, t.projects.sidebar.projectDeleted, t.projects.sidebar.projectDeletedDescription, t.projects.sidebar.error, t.projects.sidebar.projectDeleteFailed]
+    [reloadProjects, router]
   );
-
-  React.useEffect(() => {
-    handleDeleteProjectRef.current = handleDeleteProject;
-  }, [handleDeleteProject]);
 
   // Initialize projects
   React.useEffect(() => {
@@ -722,20 +706,11 @@ export function useProjectsSidebarItems(isActive: boolean): {
       </Dialog>
 
       {/* Delete Project Confirmation Dialog */}
-      <ConfirmDialog
+      <DeleteProjectDialog
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
-        title={t.projects.sidebar.deleteProjectTitle}
-        description={<>{t.projects.sidebar.deleteProjectDescription.replace('{name}', projectToDelete?.name ?? '')}</>}
-        variant="destructive"
-        confirmLabel={t.projects.sidebar.delete}
-        onConfirm={async () => {
-          if (projectToDelete) {
-            await handleDeleteProjectRef.current(projectToDelete.id);
-            setShowDeleteDialog(false);
-            setProjectToDelete(null);
-          }
-        }}
+        project={projectToDelete}
+        onDeleted={handleProjectDeleted}
       />
     </>
   );
