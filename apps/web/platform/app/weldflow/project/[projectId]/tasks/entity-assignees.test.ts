@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildEntityAssigneeDirectory } from './entity-assignees';
+import { buildEntityAssigneeDirectory, isPickableAssignee } from './entity-assignees';
 
 describe('buildEntityAssigneeDirectory', () => {
   it('lists workspace members even when the customer has no tasks yet', () => {
@@ -50,6 +50,13 @@ describe('buildEntityAssigneeDirectory', () => {
       'Former Member',
       'Legacy Name',
     ]);
+    expect(directory.map((member) => Boolean(member.departed))).toEqual([false, true, true]);
+  });
+
+  it('offers departed assignees only where they are already selected', () => {
+    expect(isPickableAssignee({}, false)).toBe(true);
+    expect(isPickableAssignee({ departed: true }, false)).toBe(false);
+    expect(isPickableAssignee({ departed: true }, true)).toBe(true);
   });
 
   it('does not duplicate a member who is also assigned on a task', () => {

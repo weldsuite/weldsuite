@@ -64,7 +64,7 @@ import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi, stagesApi } from '@/app/weldflow/lib/api-client';
 import { useFeatureFlag } from '@/hooks/queries/use-feature-flags-queries';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
-import { buildEntityAssigneeDirectory } from './entity-assignees';
+import { buildEntityAssigneeDirectory, isPickableAssignee } from './entity-assignees';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
@@ -133,6 +133,8 @@ interface ProjectMember {
     email: string;
     avatar?: string;
   };
+  /** Entity mode only: an assignee who has left the workspace (see entity-assignees). */
+  departed?: boolean;
 }
 
 // Raw pipeline-stage row from `stagesApi.list` (`project-pipeline-stages`).
@@ -621,6 +623,7 @@ function TaskAssigneeOptions({
     <>
       {projectMembers.filter(m => m.user?.name).map((member) => {
         const isSelected = currentAssignees.some((a) => a.id === member.userId);
+        if (!isPickableAssignee(member, isSelected)) return null;
         return (
           <Button
             key={member.userId}
@@ -2180,7 +2183,7 @@ export function TasksClient({
           if (!open) setEditingCrmTask(null);
         }}
         editingTask={editingCrmTask}
-        availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar }))}
+        availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar, departed: m.departed }))}
         availableCompanies={availableCompanies}
         availableLabels={availableLabels}
         availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}
@@ -2278,7 +2281,7 @@ export function TasksClient({
         open={showSubtaskDialog}
         onOpenChange={setShowSubtaskDialog}
         editingTask={null}
-        availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar }))}
+        availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar, departed: m.departed }))}
         availableCompanies={availableCompanies}
         availableLabels={availableLabels}
         availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}

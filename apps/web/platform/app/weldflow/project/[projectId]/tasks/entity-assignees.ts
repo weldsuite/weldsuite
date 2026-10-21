@@ -4,7 +4,9 @@
  * That board has no single project, so it cannot load project members. The
  * picker must list workspace members (so a brand-new customer still has people
  * to assign) and keep anyone already on a task who is no longer in that
- * directory, so their name still renders.
+ * directory, so their name still renders. Those are marked `departed`: pickers
+ * show them only on a task they are already on, so they can be unassigned but
+ * never newly picked.
  */
 
 export interface EntityAssigneeDirectoryMember {
@@ -15,6 +17,7 @@ export interface EntityAssigneeDirectoryMember {
     email: string;
     avatar?: string;
   };
+  departed?: boolean;
 }
 
 interface WorkspaceMemberSource {
@@ -67,15 +70,25 @@ export function buildEntityAssigneeDirectory(
           email: assignee.email ?? '',
           avatar: assignee.avatar,
         },
+        departed: true,
       });
     }
     if (task.assigneeId && task.assignee && !seen.has(task.assigneeId)) {
       seen.set(task.assigneeId, {
         userId: task.assigneeId,
         user: { id: task.assigneeId, name: task.assignee, email: '' },
+        departed: true,
       });
     }
   }
 
   return Array.from(seen.values());
+}
+
+/** May a picker offer this person? Departed ones only while already selected. */
+export function isPickableAssignee(
+  member: { departed?: boolean },
+  isSelected: boolean,
+): boolean {
+  return !member.departed || isSelected;
 }
