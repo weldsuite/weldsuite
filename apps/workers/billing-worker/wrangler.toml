@@ -1,7 +1,8 @@
 # WeldSuite Billing Worker
 # Handles Stripe billing: webhooks, checkout, seat management, invoices
 
-name = "weldsuite-billing"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-billing-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

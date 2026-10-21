@@ -61,7 +61,8 @@
 # EMAIL_TRANSPORT="cloudflare" sends through Cloudflare Email Service; "resend"
 # is the rollback until Resend is removed (docs/plans/system-email-cloudflare.md).
 
-name = "weldsuite-meet-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-meet-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -116,12 +117,12 @@ name = "SEND_EMAIL"
 [[durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[durable_objects.bindings]]
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"

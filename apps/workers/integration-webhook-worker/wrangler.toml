@@ -2,7 +2,8 @@
 # Handles inbound webhooks from external CRM/integration providers (Attio, HubSpot, etc.)
 # POST /webhook/:connectionId endpoint — verifies signatures, fetches full records, upserts into tenant DB.
 
-name = "weldsuite-integration-webhooks"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-integration-webhooks-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -62,7 +63,7 @@ remote = true
 # binding (docs/plans/app-api-module-split.md, rollout item 7).
 [[services]]
 binding = "APP_API"
-service = "weldsuite-app-api"
+service = "weldsuite-app-api-dev"
 
 # Realtime fan-out (Durable Objects) — entity-event realtime sink
 [[services]]

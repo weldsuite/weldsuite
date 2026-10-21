@@ -8,6 +8,7 @@ import { useInvitationDetails, useAcceptInvitation } from '@/hooks/queries/use-s
 import type { InvitationDetails, AcceptInvitationResult } from '@/lib/api/legacy-types';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
+import { workspacePath } from '@/lib/workspace-url';
 
 interface AcceptInviteClientProps {
   token: string;
@@ -79,7 +80,7 @@ export function AcceptInviteClient({ token, initialInvitation, initialError }: R
             if (setActive) {
               await setActive({ organization: data.workspaceId });
             }
-            window.location.href = '/';
+            window.location.href = workspacePath(data.workspaceId, '/');
           } catch {
             window.location.href = '/';
           }

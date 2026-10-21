@@ -47,6 +47,7 @@ import {
   useMailAccessSelection,
 } from '@/app/weldmail/components/mail-access-picker';
 import { toast } from 'sonner';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 type SetupMethod = 'select' | 'weldmail' | 'custom-domain';
 
@@ -363,7 +364,7 @@ function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>)
           type="button"
           variant="outline"
           className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-          onClick={() => (window.location.href = '/settings/apps/weldmail')}
+          onClick={() => (window.location.href = toPublicPath('/settings/apps/weldmail'))}
         >
           <Bolt className="size-7 text-gray-500" />
           <div className="flex flex-col items-start">
@@ -375,7 +376,7 @@ function CustomDomainContent({ onSuccess }: Readonly<{ onSuccess: () => void }>)
           type="button"
           variant="outline"
           className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-          onClick={() => (window.location.href = '/weldhost/domains/register')}
+          onClick={() => (window.location.href = toPublicPath('/weldhost/domains/register'))}
         >
           <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
           <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />

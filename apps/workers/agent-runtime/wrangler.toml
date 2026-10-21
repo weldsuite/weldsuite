@@ -10,7 +10,8 @@
 #
 # Local: Docker must be running for Sandbox. Browser binding uses remote = true.
 
-name = "weldsuite-agent-runtime"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-agent-runtime-dev"
 main = "src/index.ts"
 compatibility_date = "2025-09-07"
 compatibility_flags = ["nodejs_compat"]

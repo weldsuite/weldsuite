@@ -2,7 +2,8 @@
 # Handles inbound emails via Cloudflare Email Routing (the `email` handler).
 # All domains (weldmail.com + custom domains) route through Cloudflare.
 
-name = "weldsuite-mail-inbound"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-mail-inbound-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

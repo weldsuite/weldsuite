@@ -17,7 +17,8 @@
 #   REALTIME_REGISTER_OTE / REALTIME_REGISTER_CONTACT_* / REALTIME_REGISTER_WEBHOOK_SECRET,
 #   STRIPE_SECRET_KEY (/api/domains/checkout + the auto-renew invoices)
 
-name = "weldsuite-host-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-host-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

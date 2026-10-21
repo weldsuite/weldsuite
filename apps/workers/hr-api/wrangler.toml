@@ -26,7 +26,8 @@
 # the PKIoverheid certificate and the Logius connection (flag `weldhr-payroll-digipoort`): see the
 # commented DIGIPOORT_* settings below.
 
-name = "weldsuite-hr-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-hr-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

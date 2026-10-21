@@ -37,6 +37,7 @@ import {
 } from '@/hooks/use-crm-tasks';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import type { TasksSectionProps } from '../types';
@@ -102,6 +103,16 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   const toggleTaskMutation = useToggleTask();
   const updateTaskMutation = useUpdateTask();
   const deleteTaskMutation = useDeleteTask();
+
+  // Every delete entry point (row menu, list delete) asks first; the task is
+  // only removed once the user confirms in the dialog below.
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
+  const confirmDeleteTask = useCallback(() => {
+    if (!taskToDelete) return;
+    deleteTaskMutation.mutate(taskToDelete, {
+      onSuccess: () => setTaskToDelete(null),
+    });
+  }, [taskToDelete, deleteTaskMutation]);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -577,7 +588,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={(e) => { e.stopPropagation(); deleteTaskMutation.mutate(task.id); }}
+                onClick={(e) => { e.stopPropagation(); setTaskToDelete(task.id); }}
                 className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
               >
                 <Trash2 className="mr-0.5 h-4 w-4 text-red-500" />
@@ -662,7 +673,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => deleteTaskMutation.mutate(task.id)}
+                onClick={() => setTaskToDelete(task.id)}
                 className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
               >
                 <Trash2 className="mr-0.5 h-4 w-4 text-red-500" />
@@ -673,7 +684,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
         </div>
       </div>
     </div>
-  ), [availableAssignees, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, isPanel, t, statusConfig, priorityConfig, memberAvatarByName]);
+  ), [availableAssignees, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, isPanel, t, statusConfig, priorityConfig, memberAvatarByName]);
 
   // Header column definitions — match the canonical WeldFlow tasks page
   // (apps/web/platform/app/weldflow/project/[id]/tasks). The first column is the
@@ -700,7 +711,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
       maxFilters={4}
       applyFilters={applyFilters}
       onUpdateItem={(id, data) => updateTaskMutation.mutate({ taskId: id, data })}
-      onDeleteItem={(id) => deleteTaskMutation.mutate(id)}
+      onDeleteItem={(id) => setTaskToDelete(id)}
       renderRow={renderTaskRow}
       leftActionButtons={groupByMenu}
       searchPlaceholder={t('sweep.weldcrm.tasksSection.searchTasks')}
@@ -751,17 +762,32 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
         description: t('sweep.weldcrm.tasksSection.noTasksFoundDescription'),
       }}
       dialogComponent={
-        <TaskDialog
-          open={showAddDialog}
-          onOpenChange={handleDialogClose}
-          editingTask={editingTask}
-          availableAssignees={availableAssignees}
-          availableCompanies={availableCompanies}
-          defaultRecord={customerDisplayName || undefined}
-          onSave={handleSaveTask}
-          onUpdate={handleUpdateTask}
-          isPending={createTaskMutation.isPending || updateTaskMutation.isPending}
-        />
+        <>
+          <TaskDialog
+            open={showAddDialog}
+            onOpenChange={handleDialogClose}
+            editingTask={editingTask}
+            availableAssignees={availableAssignees}
+            availableCompanies={availableCompanies}
+            defaultRecord={customerDisplayName || undefined}
+            onSave={handleSaveTask}
+            onUpdate={handleUpdateTask}
+            isPending={createTaskMutation.isPending || updateTaskMutation.isPending}
+          />
+          <ConfirmDialog
+            open={!!taskToDelete}
+            onOpenChange={(open) => {
+              if (!open) setTaskToDelete(null);
+            }}
+            title={t('sweep.entities.deleteTask')}
+            description={t('sweep.entities.deleteTaskConfirmDescription')}
+            confirmLabel={t('sweep.entities.deleteTask')}
+            cancelLabel={t('common.actions.cancel')}
+            variant="destructive"
+            loading={deleteTaskMutation.isPending}
+            onConfirm={confirmDeleteTask}
+          />
+        </>
       }
     />
   );

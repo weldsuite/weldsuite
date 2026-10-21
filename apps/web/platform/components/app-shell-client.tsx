@@ -1,6 +1,9 @@
 
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
+import { isWorkspaceScopedPath } from '@/lib/workspace-url';
+import { useWorkspaceUrlGate, type WorkspaceUrlGate } from '@/components/workspace-url-gate';
+import { WorkspaceLinkProblem } from '@/components/workspace/workspace-link-problem';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { ComposeProvider } from '@/contexts/compose-context';
 import { PinnedNoteProvider } from '@/contexts/pinned-note-context';
@@ -84,16 +87,11 @@ function bootstrapsOwnOrg(pathname: string): boolean {
 }
 
 /**
- * Drop the persisted query cache (it belongs to the old org) and reload the
- * same page, so a /w/{workspace} link that switched org still lands where it
- * pointed.
+ * Reload the same page, so a /w/{workspace} link that switched org still lands
+ * where it pointed. The reload hydrates from the new org's own persisted cache
+ * (FE-014).
  */
 function reloadIntoNewOrg() {
-  try {
-    window.localStorage.removeItem('weldsuite:query-cache');
-  } catch {
-    // storage unavailable — reload anyway
-  }
   window.location.reload();
 }
 
@@ -116,20 +114,23 @@ function detectEmbeddedRoute(): boolean {
 
 /** Routes rendered without PlatformShell (no sidebar). */
 function isMinimalPath(pathname: string): boolean {
-  return (
-    pathname.startsWith('/preview') ||
-    /^\/builder\/[^/]+$/.test(pathname) ||
-    pathname === '/welcome' ||
-    pathname.startsWith('/auth/') ||
-    pathname === '/onboarding' ||
-    pathname === '/invite' ||
-    pathname.startsWith('/invite/') ||
-    // The vendor-facing W-9 form: no shell, no sign-in, the token in the link is the credential.
-    pathname.startsWith('/w9/') ||
-    // A /w/{workspace} link only resolves its workspace and redirects.
-    pathname.startsWith('/w/') ||
-    pathname === '/call-room'
-  );
+  // Pages outside a workspace (sign-in, onboarding, invites, the W-9 form,
+  // `/preview`, a `/w/{workspace}` link that only resolves and redirects, …).
+  return !isWorkspaceScopedPath(pathname) || /^\/builder\/[^/]+$/.test(pathname);
+}
+
+/**
+ * What the shell renders instead of the page while a `/w/{workspace}` URL is
+ * unsettled (FE-013): nothing while the tab may still be in the previous
+ * workspace (its queries would use that token), the workspace list when the
+ * URL's workspace can't be opened. `undefined` renders the page.
+ */
+function renderWorkspaceUrlHold(gate: WorkspaceUrlGate): React.ReactElement | null | undefined {
+  if (gate.status === 'blocked') return null;
+  if (gate.status === 'not-found' || gate.status === 'error') {
+    return <WorkspaceLinkProblem status={gate.status} memberships={gate.memberships} target={gate.target} />;
+  }
+  return undefined;
 }
 
 interface AppShellClientProps {
@@ -148,6 +149,8 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   // Captured once per page load so a just-created workspace survives the
   // reload even if Clerk's session still has the previous org (or none).
   const [pendingOrgId] = useState(() => peekPendingOrganization());
+  // A `/w/{workspace}` URL decides which org this tab is in (FE-013).
+  const workspaceUrl = useWorkspaceUrlGate(pathname);
 
   // Activate the right org when Clerk hasn't (or has the wrong one).
   // Creating a workspace from the user menu stashes the new org id in
@@ -157,7 +160,7 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   // dropped the user back into the workspace they just left.
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
-    if (bootstrapsOwnOrg(pathname)) return;
+    if (bootstrapsOwnOrg(pathname) || workspaceUrl.ownsActivation) return;
     if (!orgListLoaded || !setActive || orgActivationRef.current) return;
 
     const firstOrgId = userMemberships?.data?.[0]?.organization?.id;
@@ -186,7 +189,17 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
       .catch(() => {
         orgActivationRef.current = false;
       });
-  }, [isLoaded, isSignedIn, orgId, orgListLoaded, userMemberships?.data, setActive, pathname, pendingOrgId]);
+  }, [
+    isLoaded,
+    isSignedIn,
+    orgId,
+    orgListLoaded,
+    userMemberships?.data,
+    setActive,
+    pathname,
+    pendingOrgId,
+    workspaceUrl.ownsActivation,
+  ]);
 
   // `?embedded=1` strips the platform shell (workspace + module sidebars) so a
   // page can be iframed inside another panel as if it were standalone — used
@@ -201,6 +214,11 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
 
   // Determine if this is a minimal route (no PlatformShell with sidebar)
   const isMinimalRoute = isEmbeddedRoute || isMinimalPath(pathname);
+
+  // The URL's workspace isn't the tab's yet, or can't be (embedded pages
+  // included; pages outside a workspace never get here, the gate is off).
+  const workspaceUrlHold = renderWorkspaceUrlHold(workspaceUrl);
+  if (workspaceUrlHold !== undefined) return workspaceUrlHold;
 
   if (isMinimalRoute) {
     // Embedded routes need an h-screen / flex wrapper so the weldflow
@@ -224,14 +242,19 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
   }
 
   if (!isSignedIn) {
-    window.location.href = `/auth/login?callbackUrl=${encodeURIComponent(pathname)}`;
+    // The browser path, so signing in returns to the workspace the URL names.
+    const here = window.location.pathname + window.location.search;
+    window.location.href = `/auth/login?callbackUrl=${encodeURIComponent(here)}`;
     return null;
   }
 
   // Wait while we activate a just-created workspace (or an org-less session
   // that still has memberships). Don't flash the previous workspace, and
-  // don't bounce to /onboarding while that activation is in flight.
-  const activatingPendingOrg = Boolean(pendingOrgId && pendingOrgId !== orgId);
+  // don't bounce to /onboarding while that activation is in flight. When the
+  // URL names the workspace, the gate above already held the page until it
+  // was active, and nothing here would activate a pending org.
+  const activatingPendingOrg =
+    !workspaceUrl.ownsActivation && Boolean(pendingOrgId && pendingOrgId !== orgId);
   if (!orgId || activatingPendingOrg) {
     if (!orgListLoaded) return null;
     if (activatingPendingOrg) return null;

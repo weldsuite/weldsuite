@@ -9,8 +9,6 @@
  * and never leave this file except inside the objects that need them.
  */
 
-import { neon } from '@neondatabase/serverless';
-import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
 import { decryptWorkspaceDatabaseUrl, encryptWorkspaceDatabaseUrl, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { invalidateWorkspaceContexts } from '@weldsuite/core-domain/partners';
 import { createProvisioningService, type DatabaseProvisioningService } from '@weldsuite/neon-provisioning';
@@ -104,7 +102,7 @@ export function createMoveDeps(env: Env): MoveDeps {
     }),
     connect: neonTenantSql,
     migrate: (connectionString, statementBudget) =>
-      applyTenantMigrations(drizzleNeonHttp({ client: neon(connectionString) }), { statementBudget }),
+      applyTenantMigrations(neonTenantSql(connectionString), { statementBudget }),
     async encryptUrl(connectionString, workspaceId) {
       // A move never stores a credential in plaintext, whatever the provisioning fallback does.
       if (!hasKey) throw new MoveFlowError('NOT_CONFIGURED', 'DATABASE_ENCRYPTION_KEY is not configured');

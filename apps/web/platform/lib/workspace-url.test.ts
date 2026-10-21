@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { findWorkspace, parseWorkspacePath, sameOriginPath, workspacePath } from './workspace-url';
+import {
+  findWorkspace,
+  isWorkspaceScopedPath,
+  parseWorkspacePath,
+  sameOriginPath,
+  stripWorkspacePrefix,
+  workspacePath,
+} from './workspace-url';
 
 const ORIGIN = 'https://app.weldsuite.org';
 
@@ -65,6 +72,41 @@ describe('sameOriginPath', () => {
       expect(sameOriginPath(path, ORIGIN)).toBe('/');
     },
   );
+});
+
+describe('isWorkspaceScopedPath', () => {
+  it.each(['/', '/weldcrm/customers', '/settings/team', '/apps/acme-app', '/objects/deals/rec_1', '/w9x'])(
+    '%j is inside a workspace',
+    (path) => {
+      expect(isWorkspaceScopedPath(path)).toBe(true);
+    },
+  );
+
+  it.each([
+    '/auth/login',
+    '/onboarding',
+    '/invite',
+    '/invite/accept',
+    '/w9/token',
+    '/w/acme/weldcrm',
+    '/preview/weldcrm',
+    '/welcome',
+    '/call-room',
+  ])('%j is not', (path) => {
+    expect(isWorkspaceScopedPath(path)).toBe(false);
+  });
+});
+
+describe('stripWorkspacePrefix', () => {
+  it('returns the in-app path of a workspace link', () => {
+    expect(stripWorkspacePrefix('/w/acme/weldcrm/customers')).toBe('/weldcrm/customers');
+    expect(stripWorkspacePrefix('/w/acme')).toBe('/');
+  });
+
+  it('leaves other paths alone', () => {
+    expect(stripWorkspacePrefix('/weldcrm/customers')).toBe('/weldcrm/customers');
+    expect(stripWorkspacePrefix('/w9/token')).toBe('/w9/token');
+  });
 });
 
 describe('workspacePath', () => {

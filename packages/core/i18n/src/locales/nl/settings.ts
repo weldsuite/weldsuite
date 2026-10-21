@@ -234,6 +234,7 @@ export const settings = {
         impactBookingPages: 'Boekingspagina\'s — publieke URL\'s veranderen van …/booking/{currentSlug}/… naar …/booking/{newSlug}/…. Oude links geven 404.',
         impactHelpcenter: 'Help Center — je standaard-subdomein verandert van {currentSlug}.welddesk.org naar {newSlug}.welddesk.org. Aangepaste domeinen blijven ongewijzigd.',
         impactWeldmail: 'WeldMail — elk e-mailadres op @{currentSlug}.weldmail.com wordt ongeldig. Inkomende e-mail naar het oude domein bounce\'t.',
+        impactPlatformLinks: 'WeldSuite-links — gekopieerde links met /w/{currentSlug}/ erin werken niet meer; ze openen in plaats daarvan een pagina met je werkruimtes.',
         impactExternal: 'Bladwijzers, integraties, embed-snippets, QR-codes — alles buiten WeldSuite dat naar je huidige slug verwijst, moet handmatig worden bijgewerkt.',
         warningOutro: 'Deze actie kan niet automatisch ongedaan worden gemaakt. Typ {currentSlug} hieronder om te bevestigen.',
         newSlugLabel: 'Nieuwe slug',

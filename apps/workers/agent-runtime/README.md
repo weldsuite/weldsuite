@@ -10,7 +10,8 @@ caller.
 
 1. Docker Desktop running (`docker info` succeeds)
 2. `pnpm install` from repo root
-3. `wrangler secret put INTERNAL_API_SECRET` (same value as agent-api / chat-api)
+3. `INTERNAL_API_SECRET` in `.dev.vars` (same value as agent-api / chat-api). Not
+   `wrangler secret put`: that writes to a deployed worker, and only with `--env`.
 4. `pnpm dev` → http://localhost:8795
 5. Point agent-api `AGENT_RUNTIME_URL=http://localhost:8795` (local dev uses the URL path)
 

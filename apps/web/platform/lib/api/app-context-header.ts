@@ -15,6 +15,7 @@
 import { APP_CONTEXT_HEADER } from '@weldsuite/permissions';
 import { appFromPathname } from '@/lib/apps/current-app';
 import { getApiOrigins } from '@/lib/api/public-env';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
 function requestUrl(input: RequestInfo | URL): string {
   if (typeof input === 'string') return input;
@@ -36,7 +37,8 @@ export function installAppContextHeader(): void {
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     if (!isApiRequest(requestUrl(input))) return originalFetch(input, init);
 
-    const app = appFromPathname(window.location.pathname);
+    // The browser path, so a `/w/{workspace}` prefix comes off first (FE-013).
+    const app = appFromPathname(stripWorkspacePrefix(window.location.pathname));
     if (!app) return originalFetch(input, init);
 
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));

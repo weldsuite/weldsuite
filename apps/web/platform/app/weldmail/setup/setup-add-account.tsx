@@ -52,6 +52,7 @@ import { useCan } from '@weldsuite/permissions/react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 type AccountType = 'select' | 'resend' | 'weldmail';
 
@@ -97,7 +98,7 @@ function NoActiveDomains({
         <Button
           type="button"
           className="w-full"
-          onClick={() => window.location.href = '/appstore/weldhost'}
+          onClick={() => window.location.href = toPublicPath('/appstore/weldhost')}
         >
           {t.mail.addAccount.installWeldHost}
         </Button>
@@ -113,7 +114,7 @@ function NoActiveDomains({
         type="button"
         variant="outline"
         className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-        onClick={() => window.location.href = '/weldhost/domains/external'}
+        onClick={() => window.location.href = toPublicPath('/weldhost/domains/external')}
       >
         <Bolt className="size-7 text-gray-500" />
         <div className="flex flex-col items-start">
@@ -125,7 +126,7 @@ function NoActiveDomains({
         type="button"
         variant="outline"
         className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-        onClick={() => window.location.href = '/weldhost/domains/register'}
+        onClick={() => window.location.href = toPublicPath('/weldhost/domains/register')}
       >
         <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
         <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />

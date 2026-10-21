@@ -351,9 +351,15 @@ async function handleOrganizationDeleted(
   // mid-copy. Defer the whole cascade (nothing is changed yet) and let Svix redeliver.
   if (await hasActiveMove(masterDb, workspace.id)) throw new DatabaseMoveActiveError(workspace.id);
 
+  // Every Clerk org deletion ends here (workspace settings, account deletion,
+  // the scheduled-deletion sweep, the Clerk dashboard), so this is where the
+  // workspace is marked deleted. A stamp that is already there (the sweep's,
+  // or an earlier delivery's) is kept: the teardown retry sweep
+  // (services/teardown-sweep.ts) counts its margin from it.
+  const now = new Date();
   await masterDb
     .update(workspaces)
-    .set({ isActive: false, updatedAt: new Date() })
+    .set({ isActive: false, deletedAt: workspace.deletedAt ?? now, updatedAt: now })
     .where(eq(workspaces.id, workspace.id));
 
   await masterDb
@@ -366,18 +372,22 @@ async function handleOrganizationDeleted(
     // A move may have been started since the check above; look again right before the irreversible part.
     if (await hasActiveMove(masterDb, workspace.id)) throw new DatabaseMoveActiveError(workspace.id);
 
-    try {
-      const provisioningService = createProvisioningService({
-        NEON_API_KEY: env.NEON_API_KEY,
-        NEON_ORG_ID: env.NEON_ORG_ID,
-        NEON_DEFAULT_REGION: env.NEON_DEFAULT_REGION || 'aws-eu-central-1',
-      });
+    const provisioningService = createProvisioningService({
+      NEON_API_KEY: env.NEON_API_KEY,
+      NEON_ORG_ID: env.NEON_ORG_ID,
+      NEON_DEFAULT_REGION: env.NEON_DEFAULT_REGION || 'aws-eu-central-1',
+    });
 
-      await provisioningService.deleteWorkspaceDatabase(masterDb, workspace.id);
-      console.log(`[Clerk Webhook] Deleted database for workspace ${workspace.id}`);
-    } catch (error) {
-      console.error('[Clerk Webhook] Failed to delete workspace database:', error);
+    // A failed teardown must not be answered 200: nothing else retries it, and
+    // a swallowed failure is how deleted workspaces kept their placement, pool
+    // row, shard slot and role. The workspace keeps its placement, so Svix's
+    // redelivery runs the teardown again and finishes it.
+    const result = await provisioningService.deleteWorkspaceDatabase(masterDb, workspace.id);
+    if (!result.success) {
+      console.error(`[Clerk Webhook] Failed to delete the database of workspace ${workspace.id}: ${result.error}`);
+      throw new Error(`Database teardown of workspace ${workspace.id} failed; it will be retried`);
     }
+    console.log(`[Clerk Webhook] Deleted database for workspace ${workspace.id}`);
   }
 }
 

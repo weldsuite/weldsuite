@@ -36,7 +36,7 @@ export default function BankFeedsCallbackPage() {
   // The return URL carries one-time codes: finish the link once, even if the effect runs twice.
   const started = useRef(false);
 
-  const leave = (path: string) => router.history.push(path);
+  const leave = (path: string) => void router.navigate({ href: path });
   const fail = (message: string) => setState({ phase: 'error', error: { message, detail: null } });
 
   useEffect(() => {

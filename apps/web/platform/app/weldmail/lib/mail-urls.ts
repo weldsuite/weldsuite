@@ -6,6 +6,8 @@
  * detail pane opens the right mailbox.
  */
 
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
+
 export function buildMailSearch(params: {
   page?: number;
   accountId?: string;
@@ -73,7 +75,8 @@ export function absoluteMailUrl(path: string, origin?: string): string {
   return `${base}${path}`;
 }
 
+/** The in-app path and query of this page, for a return URL the router navigates back to. */
 export function currentMailHref(): string {
   if (typeof window === 'undefined') return '';
-  return `${window.location.pathname}${window.location.search}`;
+  return `${stripWorkspacePrefix(window.location.pathname)}${window.location.search}`;
 }

@@ -25,6 +25,7 @@ import { useDatabaseStatus, useCreateWorkspace, useFinalizeOnboarding, useAvaila
 import { getAppIcon, getAppShortName, isHiddenFromOnboarding } from '@/lib/apps/app-registry';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { setPendingOrganization } from '@/lib/pending-organization';
+import { workspacePath } from '@/lib/workspace-url';
 
 /** Apps pre-selected when the dialog opens. Mirrors the backend default set. */
 const DEFAULT_SELECTED_APPS = ['crm', 'projects', 'task', 'mail', 'helpdesk'];
@@ -104,10 +105,14 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
     userMemberships: true,
   });
 
-  /** Drop persisted query cache so the reload fetches a fresh workspace list. */
-  const clearCacheAndRedirect = React.useCallback(() => {
-    try { window.localStorage.removeItem('weldsuite:query-cache'); } catch { /* storage unavailable (private mode / quota) — non-fatal */ }
-    window.location.href = '/';
+  /**
+   * Open the new workspace by its own URL (FE-013). Its persisted query cache
+   * starts empty (one entry per workspace, FE-014), so the reload fetches a
+   * fresh workspace list.
+   */
+  const openNewWorkspace = React.useCallback(() => {
+    const orgId = createdOrgIdRef.current;
+    window.location.href = orgId ? workspacePath(orgId, '/') : '/';
   }, []);
 
   const createWorkspaceMutation = useCreateWorkspace();
@@ -209,7 +214,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
         }
       }
 
-      clearCacheAndRedirect();
+      openNewWorkspace();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbStatus?.provisioned, dbStatus?.migrated]);
@@ -274,7 +279,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
         } catch (finalizeErr) {
           console.error('[Workspace] Error finalizing (continuing):', finalizeErr);
         }
-        clearCacheAndRedirect();
+        openNewWorkspace();
         return;
       }
 

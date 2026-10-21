@@ -9,7 +9,11 @@
 #   app-api.weldsuite.org   — this worker (first-party clients)
 #   api.weldsuite.org       — external-api worker (third-party integrations)
 
-name = "weldsuite-app-api"
+# Local `wrangler dev` only. Deployed workers are named in [env.test] and
+# [env.production]; this name must differ from both, or a `wrangler deploy`
+# without --env would put this development config (the /test-fixtures router
+# included) on the production worker.
+name = "weldsuite-app-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -253,88 +257,88 @@ remote = true
 # session (plain `wrangler dev` here cannot reach it, so /api/weldpass fails).
 [[services]]
 binding = "PASS_API"
-service = "weldsuite-pass-api"
+service = "weldsuite-pass-api-dev"
 
 [[services]]
 binding = "AGENT_API"
-service = "weldsuite-agent-api"
+service = "weldsuite-agent-api-dev"
 
 [[services]]
 binding = "CHAT_API"
-service = "weldsuite-chat-api"
+service = "weldsuite-chat-api-dev"
 
 [[services]]
 binding = "CONNECT_API"
-service = "weldsuite-connect-api"
+service = "weldsuite-connect-api-dev"
 
 [[services]]
 binding = "FLOW_API"
-service = "weldsuite-flow-api"
+service = "weldsuite-flow-api-dev"
 
 [[services]]
 binding = "MAIL_API"
-service = "weldsuite-mail-api"
+service = "weldsuite-mail-api-dev"
 
 [[services]]
 binding = "DESK_API"
-service = "weldsuite-desk-api"
+service = "weldsuite-desk-api-dev"
 
 [[services]]
 binding = "CALL_API"
-service = "weldsuite-call-api"
+service = "weldsuite-call-api-dev"
 
 [[services]]
 binding = "MEET_API"
-service = "weldsuite-meet-api"
+service = "weldsuite-meet-api-dev"
 
 [[services]]
 binding = "CALENDAR_API"
-service = "weldsuite-calendar-api"
+service = "weldsuite-calendar-api-dev"
 
 [[services]]
 binding = "BOOKS_API"
-service = "weldsuite-books-api"
+service = "weldsuite-books-api-dev"
 
 [[services]]
 binding = "DATA_API"
-service = "weldsuite-data-api"
+service = "weldsuite-data-api-dev"
 
 [[services]]
 binding = "CRM_API"
-service = "weldsuite-crm-api"
+service = "weldsuite-crm-api-dev"
 
 [[services]]
 binding = "COMMERCE_API"
-service = "weldsuite-commerce-api"
+service = "weldsuite-commerce-api-dev"
 
 [[services]]
 binding = "STASH_API"
-service = "weldsuite-stash-api"
+service = "weldsuite-stash-api-dev"
 
 [[services]]
 binding = "HR_API"
-service = "weldsuite-hr-api"
+service = "weldsuite-hr-api-dev"
 
 [[services]]
 binding = "ADS_API"
-service = "weldsuite-ads-api"
+service = "weldsuite-ads-api-dev"
 
 [[services]]
 binding = "SOCIAL_API"
-service = "weldsuite-social-api"
+service = "weldsuite-social-api-dev"
 
 [[services]]
 binding = "HOST_API"
-service = "weldsuite-host-api"
+service = "weldsuite-host-api-dev"
 
 [[services]]
 binding = "KNOW_API"
-service = "weldsuite-know-api"
+service = "weldsuite-know-api-dev"
 
 # reach-api (WeldReach). Local: the reach-api worker in the same `pnpm dev:api` session.
 [[services]]
 binding = "REACH_API"
-service = "weldsuite-reach-api"
+service = "weldsuite-reach-api-dev"
 
 # Cloudflare Email Sending binding for WeldMail outbound delivery. The
 # `destination_address` is the envelope MAIL FROM the binding will accept;
@@ -355,12 +359,12 @@ name = "SEND_EMAIL"
 [[durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[durable_objects.bindings]]
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"

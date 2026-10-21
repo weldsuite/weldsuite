@@ -4278,6 +4278,9 @@ importers:
       '@weldsuite/meet-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/meet
+      '@weldsuite/neon-provisioning':
+        specifier: workspace:*
+        version: link:../../../packages/core/neon-provisioning
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications

@@ -2040,7 +2040,13 @@ export class DatabaseProvisioningService {
   }
 
   /**
-   * Delete database for a workspace (workspace deletion)
+   * Delete database for a workspace (workspace deletion).
+   *
+   * Safe to run again after a failed attempt: what is already gone at Neon
+   * counts as done (and a database Neon no longer has is not counted back
+   * twice), so a retry finishes the teardown instead of failing on it forever.
+   * A failure is returned as `{ success: false }`, leaving the workspace's
+   * placement in place for that retry; callers must not treat it as done.
    */
   async deleteWorkspaceDatabase(
     masterDb: any,
@@ -2058,13 +2064,17 @@ export class DatabaseProvisioningService {
     try {
       // A shared database (workspace.sharedProjectId set) is dropped from its
       // shard; a dedicated one takes its whole Neon project with it.
-      await this.dropDatabaseAt(masterDb, {
-        neonProjectId: workspace.neonProjectId,
-        neonBranchId: workspace.neonBranchId,
-        databaseName: workspace.neonDatabaseName,
-        roleName: workspace.neonRoleName,
-        sharedProjectId: workspace.sharedProjectId,
-      });
+      await this.dropDatabaseAt(
+        masterDb,
+        {
+          neonProjectId: workspace.neonProjectId,
+          neonBranchId: workspace.neonBranchId,
+          databaseName: workspace.neonDatabaseName,
+          roleName: workspace.neonRoleName,
+          sharedProjectId: workspace.sharedProjectId,
+        },
+        { ignoreMissing: true },
+      );
 
       // Clear workspace database fields
       await masterDb

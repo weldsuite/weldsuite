@@ -14,7 +14,7 @@ const clerk = vi.hoisted(() => ({
   setActive: vi.fn(),
 }));
 
-const historyReplace = vi.hoisted(() => vi.fn());
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock('@clerk/clerk-react', () => ({
   useAuth: () => ({ isLoaded: true, isSignedIn: clerk.isSignedIn, orgId: clerk.orgId }),
@@ -32,7 +32,7 @@ vi.mock('@clerk/clerk-react', () => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-  useRouter: () => ({ history: { replace: historyReplace } }),
+  useRouter: () => ({ navigate }),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -77,7 +77,7 @@ beforeEach(() => {
   clerk.hasNextPage = false;
   clerk.fetchNext.mockReset();
   clerk.setActive.mockReset().mockResolvedValue(undefined);
-  historyReplace.mockReset();
+  navigate.mockReset();
   sessionStorage.clear();
   localStorage.clear();
 });
@@ -91,18 +91,19 @@ describe('WorkspaceLinkPage', () => {
     openLink('/w/acme/weldcrm/customers?tab=notes#n1');
     await renderPage();
 
-    expect(historyReplace).toHaveBeenCalledWith('/weldcrm/customers?tab=notes#n1');
+    expect(navigate).toHaveBeenCalledWith({ href: '/weldcrm/customers?tab=notes#n1', replace: true });
     expect(clerk.setActive).not.toHaveBeenCalled();
   });
 
   it('switches this tab to the linked workspace, then reloads into the page', async () => {
-    localStorage.setItem('weldsuite:query-cache', '{}');
+    localStorage.setItem('weldsuite:query-cache:org_acme', '{}');
     openLink('/w/globex/welddesk/tickets/tkt_1');
     await renderPage();
 
     expect(clerk.setActive).toHaveBeenCalledWith({ organization: 'org_globex' });
     expect(sessionStorage.getItem('weldsuite:pending-org')).toBe('org_globex');
-    expect(localStorage.getItem('weldsuite:query-cache')).toBeNull();
+    // Each workspace keeps its own persisted cache (FE-014): nothing to drop.
+    expect(localStorage.getItem('weldsuite:query-cache:org_acme')).toBe('{}');
     expect(location.replace).toHaveBeenCalledWith('/welddesk/tickets/tkt_1');
   });
 
@@ -137,7 +138,7 @@ describe('WorkspaceLinkPage', () => {
     openLink('/w/acme//evil.example/path');
     await renderPage();
 
-    expect(historyReplace).toHaveBeenCalledWith('/');
+    expect(navigate).toHaveBeenCalledWith({ href: '/', replace: true });
   });
 
   it('sends a signed-out visitor to sign in and back to the link', async () => {

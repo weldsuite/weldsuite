@@ -1,6 +1,7 @@
 # Static-assets Worker that serves the aggregated test dashboard.
 # `pnpm aggregate` regenerates ./public (index.html + data.json); deploy ships it.
-name = "weldsuite-test-dashboard"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-test-dashboard-dev"
 compatibility_date = "2024-12-30"
 
 [observability]
