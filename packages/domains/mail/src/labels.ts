@@ -102,6 +102,20 @@ export function inTrashOrSpamCondition(): SQL {
 }
 
 /**
+ * A user label's folder works like a sub-folder of the inbox: archiving a
+ * conversation from it ("Done") takes it out, while the label stays on the
+ * message. System folders (Starred, Sent, Archive itself, …) keep archived mail.
+ */
+export function labelFolderHidesArchived(labelSlug: string): boolean {
+  return labelSlug.toLowerCase() !== 'all' && !toSystemLabel(labelSlug);
+}
+
+/** Messages in the archive, by label. */
+export function archivedCondition(): SQL {
+  return sql`COALESCE(${mailMessages.labels}, '[]'::jsonb) @> '["ARCHIVE"]'::jsonb`;
+}
+
+/**
  * JSONB containment predicate — matches messages whose `labels` array
  * holds the given label. Accepts both system slugs (resolved up-case) and
  * raw user labels.
@@ -262,20 +276,23 @@ function labelRowKey(row: MailLabelRow): string {
  * messages carrying the label. The column is a running tally that only some
  * write paths bump (the single-message add route never did), so it drifts;
  * the badge must agree with the folder it opens. Uses the folder listing's own
- * `labelCondition` and trash/spam exclusion (a label's own Trash / Spam
- * folder excepted), so the two cannot disagree.
+ * `labelCondition`, trash/spam exclusion (a label's own Trash / Spam
+ * folder excepted) and archive exclusion for user labels, so the two cannot
+ * disagree.
  */
 async function withLiveMessageCounts(db: Database, rows: MailLabelRow[]): Promise<MailLabelRow[]> {
   if (rows.length === 0) return rows;
   const accountIds = [...new Set(rows.map((r) => r.accountId))];
   const keys = [...new Set(rows.map(labelRowKey))];
   const live = sql`NOT ${inTrashOrSpamCondition()}`;
+  const notArchived = sql`NOT ${archivedCondition()}`;
   const selection: Record<string, SQL.Aliased<number>> = {};
   keys.forEach((key, i) => {
     const system = toSystemLabel(key);
     const everywhere = system === SYSTEM_LABELS.TRASH || system === SYSTEM_LABELS.SPAM;
     const matches = labelCondition(key);
-    const filter = everywhere ? matches : sql`${matches} AND ${live}`;
+    let filter = everywhere ? matches : sql`${matches} AND ${live}`;
+    if (labelFolderHidesArchived(key)) filter = sql`${filter} AND ${notArchived}`;
     const alias = `c${i}`;
     selection[alias] = sql<number>`count(*) FILTER (WHERE ${filter})::int`.as(alias);
   });

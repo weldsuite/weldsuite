@@ -40,12 +40,15 @@ const inboxKey = mailThreadListKey({ accountId: 'unified', folder: 'inbox', page
 const starredKey = mailThreadListKey({ accountId: 'unified', folder: 'starred', pageSize: 25 });
 
 describe('folderHidesOnArchive', () => {
-  it('hides from inbox only', () => {
+  it('hides from inbox and user labels, not from other system folders', () => {
     expect(folderHidesOnArchive('inbox')).toBe(true);
     expect(folderHidesOnArchive('INBOX')).toBe(true);
+    expect(folderHidesOnArchive('clients')).toBe(true);
+    expect(folderHidesOnArchive('Project X')).toBe(true);
     expect(folderHidesOnArchive('starred')).toBe(false);
     expect(folderHidesOnArchive('all')).toBe(false);
     expect(folderHidesOnArchive('archive')).toBe(false);
+    expect(folderHidesOnArchive('Sent')).toBe(false);
   });
 });
 
