@@ -94,6 +94,17 @@ const CONNECT_SETTLE_TIMEOUT_MS = 15_000;
 /** How long the "call ended" card stays up after a call, before the call view closes. */
 export const CALL_ENDED_VISIBLE_MS = 1_600;
 
+/**
+ * The user hung up (or moved to another call) while this one was still
+ * connecting. Not a failure: nothing to reset or report, the hang-up did that.
+ */
+class LeftWhileConnectingError extends Error {
+  constructor() {
+    super('Left the call while it was still connecting');
+    this.name = 'LeftWhileConnectingError';
+  }
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -810,6 +821,11 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   }, []);
 
   const initMeeting = useCallback(async (authToken: string, type: 'voice' | 'video', audioOn = true, videoOn?: boolean) => {
+    // The room is on screen (Leave / End included) before the join completes:
+    // once the user hung up, or another call took over, this one is unwanted.
+    const ownCallId = callIdRef.current;
+    const stillWanted = () => ownCallId !== null && callIdRef.current === ownCallId;
+
     // Usually already done from the click (see prepareMedia).
     prepareMedia(audioOn);
     const useNoiseSuppression = suppressorRef.current !== null;
@@ -836,6 +852,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     let abandoned = false;
 
     m.self.on('roomJoined', (payload) => {
+      // A join that lands after the user hung up: not a call to show.
+      if (!stillWanted()) return;
       setStatus('connected');
       // The SDK got back in by itself after a dropped connection: no join chime.
       if (payload?.reconnected) {
@@ -896,15 +914,22 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     // The room view comes up now, with the user's own tile and controls, while
     // the join completes; the others' tiles appear as RealtimeKit adds them.
     setMeeting(m);
+    let joinError: unknown = null;
     try {
       await m.join();
     } catch (err) {
+      joinError = err;
+    }
+    if (joinError !== null || !stillWanted()) {
+      // Out of the room again: a failed join, or one the user no longer wants
+      // (leaveCall / endCall already told the backend and said goodbye).
       abandoned = true;
       stopLocalMediaTracks(m);
       await Promise.resolve().then(() => m.leave()).catch(() => { /* ignore */ });
+      if (!stillWanted()) throw new LeftWhileConnectingError();
       setMeeting(null);
       releaseSuppressor();
-      throw err;
+      throw joinError;
     }
     return m;
   }, [fireLeaveRequest, explainUnexpectedExit, prepareMedia, releaseSuppressor, showCallEnded, settleReconnectNotice]);
@@ -932,6 +957,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       setCallId(res.data.callId);
       await initMeeting(res.data.authToken, type, true, videoOn);
     } catch (err) {
+      if (err instanceof LeftWhileConnectingError) return;
       failConnect(getTranslations('weldchat').calling.startFailed);
       throw err;
     }
@@ -1019,6 +1045,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         await joinUnprepared(ic.callId);
       }
     } catch (err) {
+      if (err instanceof LeftWhileConnectingError) return;
       failConnect(getTranslations('weldchat').calling.joinFailed);
       throw err;
     }
@@ -1052,6 +1079,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     try {
       await joinUnprepared(id);
     } catch (err) {
+      if (err instanceof LeftWhileConnectingError) return;
       failConnect(getTranslations('weldchat').calling.joinFailed);
       throw err;
     }
@@ -1110,6 +1138,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
 
     if (previewJoinCallId) {
       // Joining existing call
+      callIdRef.current = previewJoinCallId;
       setCallId(previewJoinCallId);
       enterConnecting();
       const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${previewJoinCallId}/join`, {});
@@ -1118,6 +1147,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       // Starting new call — single round-trip: creates meeting + joins in one request
       enterConnecting();
       const res = await client.post<JoinChatCallResponse>('/chat-calls/start-and-join', { channelId: chId, callType: type });
+      callIdRef.current = res.data.callId;
       setCallId(res.data.callId);
       await initMeeting(res.data.authToken, type, audioOn, videoOn);
     }

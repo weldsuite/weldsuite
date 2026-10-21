@@ -427,6 +427,61 @@ describe('WeldChatCallProvider · connecting fast', () => {
     expect(call.status).toBe('connected');
   });
 
+  /** Start a call whose RealtimeKit join hangs until the returned `settle` is called. */
+  async function startWithPendingJoin() {
+    let settle: (outcome: 'joined' | 'failed') => void = () => undefined;
+    rtk.join = () =>
+      new Promise<void>((resolve, reject) => {
+        settle = (outcome) => (outcome === 'joined' ? resolve() : reject(new Error('join aborted')));
+      });
+    mountChat();
+    let starting: Promise<void> | undefined;
+    await act(async () => {
+      starting = call.startCall('ch_1', 'video');
+    });
+    await waitFor(() => expect(call.meeting).not.toBeNull());
+    return { starting: starting!, settle: (outcome: 'joined' | 'failed') => settle(outcome) };
+  }
+
+  it('ignores a join that completes after the user hung up while connecting', async () => {
+    const { starting, settle } = await startWithPendingJoin();
+    await act(async () => {
+      await call.leaveCall();
+    });
+    expect(call.status).toBe('ended');
+    rtk.log.length = 0;
+
+    await act(async () => {
+      settle('joined');
+      await starting;
+    });
+    // The SDK reports the join it just finished: it does not bring the call back.
+    emit('roomJoined', {});
+
+    expect(call.status).toBe('ended');
+    expect(sounds.playCallJoinSound).not.toHaveBeenCalled();
+    // Out of the room the late join entered.
+    expect(rtk.log).toContain('rtk:leave');
+    expect(toast.error).not.toHaveBeenCalled();
+    await waitFor(() => expect(call.status).toBe('idle'), { timeout: 3_000 });
+  });
+
+  it('does not report a failure when the join fails because the user hung up', async () => {
+    const { starting, settle } = await startWithPendingJoin();
+    await act(async () => {
+      await call.endCall();
+    });
+
+    await act(async () => {
+      settle('failed');
+      await starting;
+    });
+
+    expect(call.status).toBe('ended');
+    expect(call.endReason).toBe('ended');
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it('joins a listed call with POST /join alone, taking the channel and type from its answer', async () => {
     api.post.mockImplementation(async () => ({
       data: { callId: 'call_5', channelId: 'ch_5', callType: 'video', authToken: 'tok_5', participants: [] },
