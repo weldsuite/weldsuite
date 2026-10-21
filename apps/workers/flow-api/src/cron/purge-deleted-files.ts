@@ -220,7 +220,13 @@ export async function runDeletedFilesPurge(
     console.warn('[FilePurge] STORAGE binding missing — skipping sweep');
     return { due: 0, processed: 0, failed: 0, seeded: 0, ...total };
   }
-  const store = env.STORAGE;
+  // Purged objects may sit in either bucket (TASK-620): delete from both.
+  const buckets = [env.STORAGE, env.PRIVATE_STORAGE].filter((b): b is R2Bucket => !!b);
+  const store: ObjectStore = {
+    delete: async (keys) => {
+      await Promise.all(buckets.map((b) => b.delete(keys)));
+    },
+  };
   const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
   const result = await runDueIndexSweep({
     d1: env.SCHEDULE_INDEX,

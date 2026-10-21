@@ -102,3 +102,50 @@ describe('PATCH /api/files/:id · description', () => {
     expect(cleared?.description).toBeNull();
   });
 });
+
+describe('GET|PUT /api/files/:id/content · tenant keys (TASK-620)', () => {
+  const OWN = 'workspaces/org_test_default/drive/general/1_a/own.txt';
+  const FOREIGN = 'workspaces/org_victim/drive/general/1_b/payroll.txt';
+  const objects = new Map<string, string>([[OWN, 'mine'], [FOREIGN, 'theirs']]);
+  const bucket = {
+    head: async (k: string) => (objects.has(k) ? { key: k } : null),
+    get: async (k: string) =>
+      objects.has(k) ? { body: objects.get(k), size: objects.get(k)!.length, httpMetadata: {} } : null,
+    put: async (k: string, body: ArrayBuffer) => {
+      objects.set(k, new TextDecoder().decode(body));
+      return { key: k };
+    },
+  } as unknown as R2Bucket;
+  const withStorage = () =>
+    createTestApp('/api/files', filesRoutes, {
+      context: {
+        tenantDb: db,
+        userId: 'user_test',
+        permissions: permissions('files:read', 'files:create', 'files:update'),
+      },
+      env: { PRIVATE_STORAGE: bucket } as never,
+    });
+  const create = async (storagePath: string) => {
+    const res = await withStorage().request('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: `${storagePath.split('/').pop()}`, mimeType: 'text/plain', fileSize: 4, storagePath, fileKey: storagePath }),
+    });
+    return ((await res.json()) as { data: FileRow }).data;
+  };
+
+  it("serves the caller's own workspace key", async () => {
+    const row = await create(OWN);
+    const res = await withStorage().request(`/api/files/${row.id}/content`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('mine');
+  });
+
+  it("refuses a row that points at another workspace's key", async () => {
+    const row = await create(FOREIGN);
+    expect((await withStorage().request(`/api/files/${row.id}/content`)).status).toBe(404);
+    const put = await withStorage().request(`/api/files/${row.id}/content`, { method: 'PUT', body: 'pwned' });
+    expect(put.status).toBe(404);
+    expect(objects.get(FOREIGN)).toBe('theirs');
+  });
+});

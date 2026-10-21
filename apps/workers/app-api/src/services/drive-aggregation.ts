@@ -26,6 +26,7 @@ import {
   type DriveAccessIndex,
 } from '@weldsuite/core-domain/drive-access';
 import { buildResultUrl } from './search';
+import { privateObjectUrl } from '@weldsuite/worker-kit/storage';
 
 const {
   files,
@@ -129,9 +130,22 @@ function guessFileType(mimeType: string | null, fileName: string | null): string
 // Normalizers
 // ============================================================================
 
+/** URL for a row that stores only its key: private bucket via app-api, else the public domain. */
+function storedUrl(
+  r: { fileKey: string | null; bucket: string | null },
+  publicBase: string | undefined,
+  apiOrigin: string | undefined,
+): string | null {
+  if (!r.fileKey) return null;
+  if (r.bucket === 'private') return apiOrigin ? privateObjectUrl(apiOrigin, r.fileKey) : null;
+  return publicBase ? `${publicBase}/${r.fileKey}` : null;
+}
+
 export function normalizeGenericFiles(
   rows: ((typeof schema.files.$inferSelect) & Partial<DriveAccessFields>)[],
   r2PublicUrl?: string,
+  /** app-api origin, for rows in the private bucket that store no `url`. */
+  apiOrigin?: string,
 ): UnifiedFile[] {
   const base = r2PublicUrl?.replace(/(?<!\/)\/+$/, '');
   return rows.map((r) => ({
@@ -140,7 +154,7 @@ export function normalizeGenericFiles(
     fileType: r.fileType || 'file',
     mimeType: r.mimeType,
     fileSize: r.fileSize,
-    url: r.url ?? (base && r.fileKey ? `${base}/${r.fileKey}` : null),
+    url: r.url ?? storedUrl(r, base, apiOrigin),
     thumbnailUrl: r.thumbnailUrl,
     // Still `drive` (it lives in the files table and supports every Drive
     // action), but a WeldFlow sheet or document is labelled as the project's.
@@ -339,7 +353,7 @@ async function driveAccessFor(db: Database, userId: string, loaded?: DriveAccess
 
 export async function aggregateAllFiles(
   db: Database,
-  params: { userId: string; source?: string; r2PublicUrl?: string; driveAccess?: DriveAccessIndex },
+  params: { userId: string; source?: string; r2PublicUrl?: string; apiOrigin?: string; driveAccess?: DriveAccessIndex },
 ): Promise<UnifiedFile[]> {
   const shouldQuery = (s: string) => !params.source || params.source === s;
   const mailAttachmentsWhere = shouldQuery('mail')
@@ -389,7 +403,11 @@ export async function aggregateAllFiles(
   ]);
 
   return [
-    ...normalizeGenericFiles(driveAccess ? withFileAccess(driveAccess, genericFiles) : [], params.r2PublicUrl),
+    ...normalizeGenericFiles(
+      driveAccess ? withFileAccess(driveAccess, genericFiles) : [],
+      params.r2PublicUrl,
+      params.apiOrigin,
+    ),
     ...normalizeProjectFiles(projectFilesRes),
     ...normalizeProjectDocuments(projectDocsRes),
     ...normalizeProjectWhiteboards(whiteboardsRes),

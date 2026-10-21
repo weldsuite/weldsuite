@@ -28,6 +28,7 @@
     "./pg-errors": "./src/pg-errors.ts",
     "./random": "./src/random.ts",
     "./response": "./src/response.ts",
+    "./storage": "./src/storage.ts",
     "./testing": "./src/testing/harness.ts",
     "./testing/pglite": "./src/testing/pglite.ts",
     "./testing/d1": "./src/testing/d1.ts",

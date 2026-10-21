@@ -95,6 +95,12 @@ remote = true
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# Private uploads (TASK-620): no public domain; read only through
+# @weldsuite/worker-kit/storage (app-api serves /api/storage/private/*).
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 # Cloudflare Email Sending binding for WeldMail outbound delivery. The
 # `destination_address` is the envelope MAIL FROM the binding will accept;
 # Cloudflare requires this address to be verified in the dashboard once per
@@ -202,6 +208,10 @@ service = "weldsuite-realtime-test"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
 
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 [[env.test.send_email]]
 name = "SEND_EMAIL"
 
@@ -297,6 +307,10 @@ service = "weldsuite-realtime-production"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"

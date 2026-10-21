@@ -26,6 +26,7 @@ import * as attachments from '@weldsuite/mail-domain/attachments';
 import { toPublicAttachment, isWorkspaceStorageKey } from '@weldsuite/mail-domain/attachments';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { getStoredObject } from '@weldsuite/worker-kit/storage';
 import { getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -156,7 +157,7 @@ app.get('/:id/download', requirePermission('messages:read'), async (c) => {
     // private mailbox apart from one that does not exist.
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.notFound(c, 'Attachment', id);
-    if (!c.env.STORAGE) {
+    if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) {
       return c.json(
         { error: { code: 'STORAGE_BINDING_MISSING', message: 'Storage binding not configured' } },
         503,
@@ -165,7 +166,7 @@ app.get('/:id/download', requirePermission('messages:read'), async (c) => {
     // A key outside the workspace's folder is never served, whatever the row says.
     const object =
       row.storagePath && isWorkspaceStorageKey(row.storagePath, await workspaceStorageIds(c))
-        ? await c.env.STORAGE.get(row.storagePath)
+        ? await getStoredObject(c.env, row.storagePath)
         : null;
     if (!object) return error.notFound(c, 'Attachment', id);
     return new Response(object.body, {

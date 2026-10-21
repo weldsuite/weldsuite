@@ -78,6 +78,12 @@ database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
 
+# Private uploads (TASK-620): no public domain; read only through
+# @weldsuite/worker-kit/storage (app-api serves /api/storage/private/*).
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-mcp-server-test"
@@ -113,6 +119,10 @@ app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
 
 [env.test.observability]
 enabled = true
@@ -153,6 +163,10 @@ queue = "entity-events"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
 
 # WeldReach: reach-api's KV (the shared app-access cache), D1 schedule index and Flagship app (production).
 [[env.production.kv_namespaces]]

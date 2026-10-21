@@ -10,6 +10,8 @@ interface UploadedFile {
   mimeType: string;
   url: string;
   isPublic: boolean;
+  /** `private`: served by app-api `/api/storage/private/*` to workspace members only. */
+  bucket?: 'public' | 'private';
 }
 
 export interface UseFileUploadOptions {

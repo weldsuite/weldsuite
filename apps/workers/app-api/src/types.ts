@@ -167,6 +167,14 @@ export interface Env {
   STORAGE?: R2Bucket;
   /** Public hostname that serves objects in the STORAGE bucket. */
   R2_PUBLIC_URL?: string;
+  /**
+   * Private R2 bucket (no public domain) for uploads with `isPublic: false`:
+   * drive files, attachments, receipts. Served only by
+   * `GET /api/storage/private/*` (@weldsuite/worker-kit/storage).
+   */
+  PRIVATE_STORAGE?: R2Bucket;
+  /** HMAC key for files cookies and signed private-object URLs (secret). */
+  STORAGE_SIGNING_KEY?: string;
   /** Base URL of the external-api worker (third-party surface). Returned to
    *  user-created apps by /api/user-apps/code/:code/session-token so the
    *  iframe bridge knows where to send wsat_-authenticated requests.

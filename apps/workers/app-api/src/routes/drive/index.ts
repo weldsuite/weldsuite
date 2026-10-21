@@ -22,6 +22,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { listAllFilesQuery } from '@weldsuite/core-api-client/schemas/drive';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { deleteStoredObject } from '@weldsuite/worker-kit/storage';
 import {
   aggregateAllFiles,
   aggregateStats,
@@ -56,6 +57,7 @@ app.get('/all', requirePermission('files:read'), zValidator('query', listAllFile
       userId: c.get('userId'),
       source: q.source,
       r2PublicUrl: c.env.R2_PUBLIC_URL,
+      apiOrigin: new URL(c.req.url).origin,
       driveAccess: await driveAccess(c),
     });
 
@@ -125,6 +127,7 @@ app.get('/shared', requirePermission('files:read'), async (c) => {
     const files = normalizeGenericFiles(
       withFileAccess(access, shared.files.map((s) => s.file)),
       c.env.R2_PUBLIC_URL,
+      new URL(c.req.url).origin,
     ).map((f) => ({ ...f, ...shareFields(fileShares.get(f.id)!) }));
     const folders = withFolderAccess(access, shared.folders.map((s) => s.folder)).map((f) => ({
       ...f,
@@ -234,8 +237,8 @@ app.delete('/trash/file/:id', requirePermission('files:delete'), async (c) => {
     if (!row) return error.notFound(c, 'File', id);
 
     const r2Key = row.fileKey || row.storagePath;
-    if (r2Key && c.env.STORAGE) {
-      await c.env.STORAGE.delete(r2Key).catch(() => {});
+    if (r2Key) {
+      await deleteStoredObject(c.env, r2Key).catch(() => {});
     }
 
     publishEntityEvent({
@@ -273,11 +276,11 @@ app.delete('/trash/folder/:id', requirePermission('folders:delete'), async (c) =
       return error.forbidden(c, DRIVE_FOLDER_HOLDS_LOCKED_FILES);
     }
 
-    if (c.env.STORAGE) {
+    if (c.env.STORAGE || c.env.PRIVATE_STORAGE) {
       await Promise.all(
         loaded.folderFiles.map((f) => {
           const key = f.fileKey || f.storagePath;
-          return key ? c.env.STORAGE!.delete(key).catch(() => {}) : Promise.resolve();
+          return key ? deleteStoredObject(c.env, key).catch(() => {}) : Promise.resolve();
         }),
       );
     }
@@ -321,9 +324,9 @@ app.delete('/trash/empty', requirePermission('files:delete'), async (c) => {
       fileIds: trashedFiles.filter((f) => canEdit(fileRole(access, f))).map((f) => f.id),
       folderIds: editableFolderIds.filter((id) => !locked.has(id)),
     };
-    if (c.env.STORAGE) {
+    if (c.env.STORAGE || c.env.PRIVATE_STORAGE) {
       const keys = await listPurgedFileKeys(db, ids);
-      await Promise.all(keys.map((k) => c.env.STORAGE!.delete(k).catch(() => {})));
+      await Promise.all(keys.map((k) => deleteStoredObject(c.env, k).catch(() => {})));
     }
     await purgeTrashed(db, ids);
     return success(c, { emptied: true });
