@@ -7,7 +7,7 @@ import {
   setPendingOrganization,
 } from '@/lib/pending-organization';
 import { isWorkspaceScopedPath, parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
-import { decideWorkspaceUrl } from '@/lib/workspace-url-gate';
+import { decideWorkspaceUrl, type WorkspaceUrlDecision } from '@/lib/workspace-url-gate';
 import {
   setActiveWorkspaceRef,
   useWorkspaceUrlState,
@@ -132,13 +132,24 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
       });
   }, [activateOrgId, setActive, orgId, pendingOrgId]);
 
-  let status: WorkspaceUrlGateStatus;
-  if (!decision || decision.kind === 'skip') status = 'off';
-  else if (failed) status = 'error';
-  else if (decision.kind === 'not-found') status = 'not-found';
-  else if (decision.kind === 'follow') status = 'ready'; // already rendered; the page navigates away
-  else if (decision.kind === 'ready' && activeRef === decision.ref) status = 'ready';
-  else status = 'blocked';
+  return {
+    status: gateStatus(decision, failed, activeRef),
+    ownsActivation: enabled && urlRef !== null,
+    memberships,
+    target,
+  };
+}
 
-  return { status, ownsActivation: enabled && urlRef !== null, memberships, target };
+function gateStatus(
+  decision: WorkspaceUrlDecision | null,
+  failed: boolean,
+  activeRef: string | null,
+): WorkspaceUrlGateStatus {
+  if (!decision || decision.kind === 'skip') return 'off';
+  if (failed) return 'error';
+  if (decision.kind === 'not-found') return 'not-found';
+  if (decision.kind === 'follow') return 'ready'; // already rendered; the page navigates away
+  // Links must carry the workspace before anything renders.
+  if (decision.kind === 'ready' && activeRef === decision.ref) return 'ready';
+  return 'blocked';
 }
