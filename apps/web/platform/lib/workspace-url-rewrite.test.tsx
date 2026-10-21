@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { ReactNode } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import {
@@ -80,10 +80,6 @@ beforeEach(() => {
   setActiveWorkspaceRef('acme');
 });
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
 describe('workspaceUrlRewrite', () => {
   it('loads a prefixed URL on the bare route and remembers the ref', async () => {
     const { router, history } = setup('/w/acme/weldcrm/customers');
@@ -126,6 +122,16 @@ describe('workspaceUrlRewrite', () => {
     expect(await screen.findByText('page:billing')).toBeTruthy();
     expect(history.location.pathname).toBe('/w/acme/settings/billing');
     expect(text('pathname')).toBe('/settings/billing');
+  });
+
+  it('routes an in-app `to` that already names a workspace, without a /w route', async () => {
+    const { router, history } = setup('/w/acme/');
+    await screen.findByText('page:home');
+    // A stored return path with the prefix, pushed through `to` (not `href`).
+    await act(() => router.navigate({ to: '/w/globex/settings/billing' } as never));
+    expect(await screen.findByText('page:billing')).toBeTruthy();
+    expect(history.location.pathname).toBe('/w/globex/settings/billing');
+    expect(getWorkspaceUrlState().urlRef).toBe('globex');
   });
 
   it('goes back through input', async () => {
@@ -173,9 +179,7 @@ describe('toPublicPath', () => {
     expect(toPublicPath('//evil.example')).toBe('//evil.example');
   });
 
-  it('is a no-op before the workspace is settled, or with the kill switch on', () => {
+  it('is a no-op before the workspace is settled', () => {
     expect(toPublicPath('/weldcrm', null)).toBe('/weldcrm');
-    vi.stubEnv('VITE_WORKSPACE_IN_URL', 'false');
-    expect(toPublicPath('/weldcrm')).toBe('/weldcrm');
   });
 });

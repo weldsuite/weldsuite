@@ -64,23 +64,13 @@ export function setActiveWorkspaceRef(ref: string | null): void {
 }
 
 /**
- * Whether URLs carry the workspace. On unless the build sets
- * `VITE_WORKSPACE_IN_URL=false`, the kill switch. With it off the app behaves
- * as before step 2: `/w/{ref}` links still open through the `/w/$workspace`
- * route, and nothing else changes.
- */
-export function workspaceUrlsEnabled(): boolean {
-  return import.meta.env.VITE_WORKSPACE_IN_URL !== 'false';
-}
-
-/**
  * `/weldcrm/x` → `/w/acme/weldcrm/x` for the tab's workspace. For links the
  * router doesn't build: plain `<a href>`, `window.open`. Non-workspace paths,
  * paths that already name a workspace, and anything before the shell has
  * settled the workspace are returned as they are.
  */
 export function toPublicPath(path: string, activeRef = state.activeRef): string {
-  if (!workspaceUrlsEnabled() || !activeRef || !path.startsWith('/') || path.startsWith('//')) return path;
+  if (!activeRef || !path.startsWith('/') || path.startsWith('//')) return path;
   const pathname = path.split(/[?#]/, 1)[0];
   if (!isWorkspaceScopedPath(pathname)) return path;
   return workspacePath(activeRef, path);

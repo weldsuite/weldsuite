@@ -12,7 +12,7 @@ import { queryClient } from '@/lib/query-client';
 import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
 import { RoutePendingSkeleton } from '@/components/route-pending-skeleton';
 import { installAppContextHeader } from '@/lib/api/app-context-header';
-import { workspaceUrlRewrite, workspaceUrlsEnabled } from '@/lib/workspace-url-rewrite';
+import { workspaceUrlRewrite } from '@/lib/workspace-url-rewrite';
 import '../app/globals.css';
 
 // Before any request fires: tag app-api calls with the current module so the
@@ -24,7 +24,7 @@ const router = createRouter({
   context: { queryClient },
   // The workspace in the address bar (FE-013): `/w/{slug}/…` in the browser,
   // bare paths inside the router.
-  rewrite: workspaceUrlsEnabled() ? workspaceUrlRewrite : undefined,
+  rewrite: workspaceUrlRewrite,
   // Prefetch a route's matches as soon as the user shows intent (hover/touch on
   // a Link) so navigation feels instant instead of starting cold on click.
   defaultPreload: 'intent',

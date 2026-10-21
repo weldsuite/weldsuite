@@ -73,22 +73,21 @@ const MeetingPiPWidget = lazy(() =>
 );
 
 /**
- * /auth, /onboarding, /invite and /w/{workspace} links bootstrap their own org
- * context; the public /w9 form has none at all.
+ * /auth, /onboarding and /invite bootstrap their own org context; the public
+ * /w9 form has none at all.
  */
 function bootstrapsOwnOrg(pathname: string): boolean {
   return (
     pathname.startsWith('/auth/') ||
     pathname === '/onboarding' ||
     pathname.startsWith('/invite') ||
-    pathname.startsWith('/w/') ||
     pathname.startsWith('/w9/')
   );
 }
 
 /**
- * Reload the same page, so a /w/{workspace} link that switched org still lands
- * where it pointed. The reload hydrates from the new org's own persisted cache
+ * Reload the same page once the shell has activated another org, so it loads
+ * against that org. The reload hydrates from the new org's own persisted cache
  * (FE-014).
  */
 function reloadIntoNewOrg() {
@@ -115,7 +114,7 @@ function detectEmbeddedRoute(): boolean {
 /** Routes rendered without PlatformShell (no sidebar). */
 function isMinimalPath(pathname: string): boolean {
   // Pages outside a workspace (sign-in, onboarding, invites, the W-9 form,
-  // `/preview`, a `/w/{workspace}` link that only resolves and redirects, …).
+  // `/preview`, …).
   return !isWorkspaceScopedPath(pathname) || /^\/builder\/[^/]+$/.test(pathname);
 }
 
