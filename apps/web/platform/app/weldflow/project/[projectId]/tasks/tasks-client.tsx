@@ -64,7 +64,7 @@ import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi, stagesApi } from '@/app/weldflow/lib/api-client';
 import { useFeatureFlag } from '@/hooks/queries/use-feature-flags-queries';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
-import { buildEntityAssigneeDirectory, isPickableAssignee } from './entity-assignees';
+import { buildEntityAssigneeDirectory, isPickableAssignee, withDepartedAssignees } from './entity-assignees';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
@@ -133,7 +133,7 @@ interface ProjectMember {
     email: string;
     avatar?: string;
   };
-  /** Entity mode only: an assignee who has left the workspace (see entity-assignees). */
+  /** An assignee who has left the workspace (see entity-assignees). */
   departed?: boolean;
 }
 
@@ -1083,7 +1083,13 @@ export function TasksClient({
         : null,
     [isEntityMode, workspaceMembersData, tasks],
   );
-  const projectMembers = entityAssigneeDirectory ?? loadedProjectMembers;
+  // Project boards: the member list leaves out people removed from the
+  // workspace, so anyone still assigned on a task is added back as departed
+  // (shown, and removable, only on the tasks they are on).
+  const projectMembers = useMemo(
+    () => entityAssigneeDirectory ?? withDepartedAssignees(loadedProjectMembers, tasks),
+    [entityAssigneeDirectory, loadedProjectMembers, tasks],
+  );
 
   const handleTaskDialogSave = async (data: {
     title: string;

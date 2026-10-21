@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildEntityAssigneeDirectory, isPickableAssignee } from './entity-assignees';
+import { buildEntityAssigneeDirectory, isPickableAssignee, withDepartedAssignees } from './entity-assignees';
 
 describe('buildEntityAssigneeDirectory', () => {
   it('lists workspace members even when the customer has no tasks yet', () => {
@@ -51,6 +51,20 @@ describe('buildEntityAssigneeDirectory', () => {
       'Legacy Name',
     ]);
     expect(directory.map((member) => Boolean(member.departed))).toEqual([false, true, true]);
+  });
+
+  it('adds departed assignees to a project member list', () => {
+    const members = withDepartedAssignees(
+      [{ userId: 'user_a', user: { id: 'user_a', name: 'Ada Lovelace', email: '' } }],
+      [
+        { assignees: [{ id: 'user_a', name: 'Ada Lovelace' }, { id: 'user_left', name: 'Former Member' }] },
+      ],
+    );
+
+    expect(members.map((member) => [member.userId, Boolean('departed' in member && member.departed)])).toEqual([
+      ['user_a', false],
+      ['user_left', true],
+    ]);
   });
 
   it('offers departed assignees only where they are already selected', () => {

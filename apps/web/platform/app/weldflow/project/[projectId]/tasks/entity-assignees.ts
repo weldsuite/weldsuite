@@ -44,11 +44,10 @@ export function buildEntityAssigneeDirectory(
   workspaceMembers: readonly WorkspaceMemberSource[],
   tasks: readonly TaskAssigneeFields[],
 ): EntityAssigneeDirectoryMember[] {
-  const seen = new Map<string, EntityAssigneeDirectoryMember>();
-
+  const members: EntityAssigneeDirectoryMember[] = [];
   for (const member of workspaceMembers) {
     if (!member.userId || !member.name) continue;
-    seen.set(member.userId, {
+    members.push({
       userId: member.userId,
       user: {
         id: member.userId,
@@ -57,6 +56,22 @@ export function buildEntityAssigneeDirectory(
         avatar: member.picture || undefined,
       },
     });
+  }
+  return withDepartedAssignees(members, tasks);
+}
+
+/**
+ * `members` plus everyone assigned on `tasks` who is not among them, marked
+ * `departed`. Project boards use it too: their member list leaves out people
+ * removed from the workspace, who may still be on a task.
+ */
+export function withDepartedAssignees<M extends { userId: string }>(
+  members: readonly M[],
+  tasks: readonly TaskAssigneeFields[],
+): (M | EntityAssigneeDirectoryMember)[] {
+  const seen = new Map<string, M | EntityAssigneeDirectoryMember>();
+  for (const member of members) {
+    if (!seen.has(member.userId)) seen.set(member.userId, member);
   }
 
   for (const task of tasks) {
