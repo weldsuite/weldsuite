@@ -6,11 +6,16 @@ import type { WorkflowStep } from 'cloudflare:workers';
 import { LATEST_SCHEMA_VERSION, TenantMigrationError } from '../lib/tenant-migrations';
 import { invalidatePoolState, RefillPoolWorkflow, triggerPoolRefill } from './refill-pool';
 
-const { getMasterDb, applyTenantMigrations } = vi.hoisted(() => ({
+const { getMasterDb, applyTenantMigrations, dropDatabaseAt } = vi.hoisted(() => ({
   getMasterDb: vi.fn(),
   applyTenantMigrations: vi.fn(),
+  dropDatabaseAt: vi.fn(),
 }));
 vi.mock('../db', () => ({ getMasterDb }));
+vi.mock('@weldsuite/neon-provisioning', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/neon-provisioning')>()),
+  createProvisioningService: () => ({ dropDatabaseAt }),
+}));
 vi.mock('../lib/tenant-migrations', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/tenant-migrations')>()),
   applyTenantMigrations,
@@ -179,6 +184,12 @@ interface FakeSlot {
   databaseUrl: string;
   status: 'available' | 'assigned' | 'error';
   schemaVersion: string | null;
+  kind: 'dedicated' | 'shared';
+  neonProjectId: string;
+  neonBranchId: string | null;
+  databaseName: string;
+  roleName: string;
+  sharedProjectId: string | null;
 }
 
 /**
@@ -195,17 +206,18 @@ function createPoolMasterDb(slot: FakeSlot) {
     Object.assign(slot, set);
     return [{ id: slot.id }];
   };
-  const staleSlots = () =>
-    slot.status === 'available' && slot.schemaVersion !== LATEST_SCHEMA_VERSION
-      ? [{ id: slot.id, databaseUrl: slot.databaseUrl }]
-      : [];
+  const staleSlots = () => {
+    if (slot.status !== 'available' || slot.schemaVersion === LATEST_SCHEMA_VERSION) return [];
+    const { status: _status, schemaVersion: _schemaVersion, ...row } = slot;
+    return [row];
+  };
   return {
     updates,
     select: (fields: Record<string, unknown>) => ({
       from: () => ({
-        where: () => ('kind' in fields
-          ? { groupBy: () => Promise.resolve([]) }
-          : { limit: () => Promise.resolve(staleSlots()) }),
+        where: () => ('databaseUrl' in fields
+          ? { limit: () => Promise.resolve(staleSlots()) }
+          : { groupBy: () => Promise.resolve([]) }),
       }),
     }),
     update: () => ({
@@ -268,11 +280,23 @@ describe('RefillPoolWorkflow — catch-up of stale slots', () => {
   const failures = () => JSON.parse(kv.store.get(failuresKey) ?? 'null') as unknown;
 
   beforeEach(() => {
-    slot = { id: SLOT_ID, databaseUrl: 'postgres://slot', status: 'available', schemaVersion: '0164_organic_moonstone' };
+    slot = {
+      id: SLOT_ID,
+      databaseUrl: 'postgres://slot',
+      status: 'available',
+      schemaVersion: '0164_organic_moonstone',
+      kind: 'dedicated',
+      neonProjectId: 'proj_slot',
+      neonBranchId: 'br_main',
+      databaseName: 'neondb',
+      roleName: 'neondb_owner',
+      sharedProjectId: null,
+    };
     master = createPoolMasterDb(slot);
     getMasterDb.mockReset();
     getMasterDb.mockReturnValue(master);
     applyTenantMigrations.mockReset();
+    dropDatabaseAt.mockReset().mockResolvedValue(undefined);
     kv = createFakeKv();
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -300,9 +324,50 @@ describe('RefillPoolWorkflow — catch-up of stale slots', () => {
     // Only while still unclaimed: a workspace may have claimed it since find-stale-slots.
     expect(master.updates.find((update) => update.set.status === 'error')?.params).toEqual([SLOT_ID, 'available']);
 
+    // A dedicated slot's database stays for inspection (`pnpm cleanup:pool`).
+    expect(dropDatabaseAt).not.toHaveBeenCalled();
+
     applyTenantMigrations.mockClear();
     expect(await runRefill()).toMatchObject({ caughtUp: 0, settled: true });
     expect(applyTenantMigrations).not.toHaveBeenCalled();
+  });
+
+  it('drops a retired shared slot, giving its shard the slot back', async () => {
+    Object.assign(slot, {
+      kind: 'shared',
+      neonProjectId: 'proj_shard',
+      databaseName: 'ws_slot',
+      roleName: 'ws_slot_owner',
+      sharedProjectId: 'nsp_shard',
+    });
+    applyTenantMigrations.mockRejectedValue(failsOn('0165_overjoyed_hellion'));
+
+    for (let run = 0; run < 3; run++) await runRefill();
+
+    expect(slot.status).toBe('error');
+    expect(dropDatabaseAt).toHaveBeenCalledTimes(1);
+    expect(dropDatabaseAt).toHaveBeenCalledWith(
+      master,
+      {
+        neonProjectId: 'proj_shard',
+        neonBranchId: 'br_main',
+        databaseName: 'ws_slot',
+        roleName: 'ws_slot_owner',
+        sharedProjectId: 'nsp_shard',
+        poolId: SLOT_ID,
+      },
+      { ignoreMissing: true },
+    );
+  });
+
+  it('never drops a shared slot that lacks its shard id: it would read as a whole project', async () => {
+    Object.assign(slot, { kind: 'shared', sharedProjectId: null });
+    applyTenantMigrations.mockRejectedValue(failsOn('0165_overjoyed_hellion'));
+
+    for (let run = 0; run < 3; run++) await runRefill();
+
+    expect(slot.status).toBe('error');
+    expect(dropDatabaseAt).not.toHaveBeenCalled();
   });
 
   it('starts the count over when the slot fails on a later migration', async () => {
@@ -337,5 +402,19 @@ describe('RefillPoolWorkflow — catch-up of stale slots', () => {
 
     expect(applyTenantMigrations).toHaveBeenCalledTimes(2);
     expect(failures()).toEqual({ tag: null, count: 1 });
+  });
+
+  it('retires a slot it gets no answer from only after about a day of runs', async () => {
+    applyTenantMigrations.mockRejectedValue(new TypeError('fetch failed'));
+
+    for (let run = 0; run < 3; run++) await runRefill();
+    // A Neon blip of a few runs is not the slot's fault.
+    expect(slot.status).toBe('available');
+    expect(failures()).toEqual({ tag: null, count: 3 });
+
+    kv.store.set(failuresKey, JSON.stringify({ tag: null, count: 47 }));
+    await runRefill();
+    expect(slot.status).toBe('error');
+    expect(failures()).toBeNull();
   });
 });
