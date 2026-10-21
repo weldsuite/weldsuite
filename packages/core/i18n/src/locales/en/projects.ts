@@ -946,6 +946,25 @@ export const projects = {
       changeIcon: 'Change icon',
     },
 
+    deleteProject: {
+      title: 'Delete project',
+      description: 'Delete "{name}"? The project, its stages, sprints and settings will be removed. This cannot be undone.',
+      tasksLabel: 'What happens to its tasks?',
+      deleteTasks: 'Delete the tasks with the project',
+      moveTasks: 'Move the tasks to another project',
+      targetPlaceholder: 'Select a project',
+      noOtherProjects: 'There is no other project to move the tasks to.',
+      moveHint: 'Tasks keep their status where the target project has a matching stage. Sprints, milestones and task keys are cleared.',
+      confirm: 'Delete project',
+      confirmAndMove: 'Move tasks and delete',
+      cancel: 'Cancel',
+      deleted: 'Project deleted',
+      deletedAndMoved: 'Project deleted, tasks moved to "{name}"',
+      failed: 'Failed to delete project',
+      dangerZoneTitle: 'Delete this project',
+      dangerZoneDescription: 'Remove the project for everyone. You can move its tasks to another project first.',
+    },
+
     filesPage: {
       title: 'Project Files',
       description: 'Manage files across your projects',

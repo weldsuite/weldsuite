@@ -139,4 +139,78 @@ describe('/api/projects · pglite integration', () => {
       expect(body.data).toEqual({ role: null, canRead: false, canWrite: false, isAdmin: false });
     });
   });
+
+  describe('DELETE /:id', () => {
+    const SOURCE = 'prj_del_source';
+    const DEST = 'prj_del_dest';
+    const admin = () =>
+      createTestApp('/api/projects', projectsRoutes, {
+        context: { permissions: permissions('projects:delete', 'projects:scope:all'), tenantDb: db },
+      }).request;
+
+    const seedProject = (id: string) =>
+      db.insert(schema.projects).values({ id, name: id, createdAt: new Date(), updatedAt: new Date() });
+    const project = async (id: string) =>
+      (await db.select().from(schema.projects).where(eq(schema.projects.id, id)).limit(1))[0];
+    const task = async (id: string) =>
+      (await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1))[0];
+
+    beforeAll(async () => {
+      await seedProject(SOURCE);
+      await seedProject(DEST);
+      await db.insert(schema.projectPipelineStages).values([
+        { id: 'stg_src_todo', projectId: SOURCE, name: 'To do', systemStatus: 'todo', position: 0 },
+        { id: 'stg_dest_todo', projectId: DEST, name: 'Backlog', systemStatus: 'todo', position: 0 },
+        { id: 'stg_dest_done', projectId: DEST, name: 'Done', systemStatus: 'done', position: 1 },
+      ]);
+      await db.insert(schema.tasks).values([
+        { id: 'tsk_del_existing', projectId: DEST, title: 'Already there', status: 'todo', position: 4 },
+        { id: 'tsk_del_done', projectId: SOURCE, title: 'Done task', status: 'done', stageId: 'stg_src_todo', sprintId: 'spr_x', key: 'SRC-1', position: 1 },
+        { id: 'tsk_del_review', projectId: SOURCE, title: 'In review', status: 'review', position: 2 },
+        { id: 'tsk_del_child', projectId: SOURCE, title: 'Subtask', status: 'todo', parentTaskId: 'tsk_del_done', position: 3 },
+      ]);
+    });
+
+    it('refuses moving the tasks into the project being deleted', async () => {
+      const res = await admin()(`/api/projects/${SOURCE}?moveTasksTo=${SOURCE}`, { method: 'DELETE' });
+      expect(res.status).toBe(400);
+      expect((await project(SOURCE))?.deletedAt).toBeNull();
+    });
+
+    it('404s on a missing destination and leaves the project alone', async () => {
+      const res = await admin()(`/api/projects/${SOURCE}?moveTasksTo=prj_missing`, { method: 'DELETE' });
+      expect(res.status).toBe(404);
+      expect((await project(SOURCE))?.deletedAt).toBeNull();
+    });
+
+    it('moves the tasks to the destination, then deletes the project', async () => {
+      const res = await admin()(`/api/projects/${SOURCE}?moveTasksTo=${DEST}`, { method: 'DELETE' });
+      expect(res.status).toBe(204);
+      expect((await project(SOURCE))?.deletedAt).not.toBeNull();
+
+      // Matching status keeps it and picks the destination's stage for it.
+      expect(await task('tsk_del_done')).toMatchObject({
+        projectId: DEST,
+        stageId: 'stg_dest_done',
+        status: 'done',
+        sprintId: null,
+        key: null,
+        position: 6,
+      });
+      // No 'review' stage in the destination: first stage, its status.
+      expect(await task('tsk_del_review')).toMatchObject({ projectId: DEST, stageId: 'stg_dest_todo', status: 'todo' });
+      // The subtree moved as one, so the parent link stays.
+      expect(await task('tsk_del_child')).toMatchObject({ projectId: DEST, parentTaskId: 'tsk_del_done' });
+    });
+
+    it('without a destination only soft-deletes the project', async () => {
+      const id = 'prj_del_plain';
+      await seedProject(id);
+      await db.insert(schema.tasks).values({ id: 'tsk_del_plain', projectId: id, title: 'Stays', status: 'todo' });
+      const res = await admin()(`/api/projects/${id}`, { method: 'DELETE' });
+      expect(res.status).toBe(204);
+      expect((await project(id))?.deletedAt).not.toBeNull();
+      expect((await task('tsk_del_plain'))?.projectId).toBe(id);
+    });
+  });
 });
