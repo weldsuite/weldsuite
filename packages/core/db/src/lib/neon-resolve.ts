@@ -1,4 +1,4 @@
-import { decryptField, type EncryptionKeyring } from './crypto';
+import { decryptWorkspaceDatabaseUrl, type EncryptionKeyring } from './crypto';
 
 const NEON_API_BASE = 'https://console.neon.tech/api/v2';
 
@@ -47,12 +47,17 @@ export async function resolveNeonConnectionUri(
  *
  * If the workspace has a stored `databaseUrl`:
  *   - Plaintext (starts with postgres(ql)://) → return directly
- *   - Encrypted (hex iv:ciphertext) → decrypt with key, return
+ *   - Encrypted (v1 / v2 / AAD-bound v3) → decrypt with the keyring, return
  * Otherwise, fall back to resolving via the Neon API.
+ *
+ * `workspace.id` is the master `workspaces.id` of the row `databaseUrl` was read
+ * from. It is the AAD of a v3 value (audit finding 657), so a ciphertext copied
+ * onto another workspace's row throws instead of routing that tenant to the
+ * wrong database. Every caller must pass the id of the row it selected.
  */
 export async function resolveDatabaseUrl(
   neonApiKey: string,
-  workspace: NeonConnectionMeta & { databaseUrl?: string | null },
+  workspace: NeonConnectionMeta & { id: string; databaseUrl?: string | null },
   encryptionKey?: string | EncryptionKeyring,
 ): Promise<string> {
   if (workspace.databaseUrl) {
@@ -61,11 +66,11 @@ export async function resolveDatabaseUrl(
       return workspace.databaseUrl;
     }
     // Otherwise it's encrypted — decrypt if a key is available.
-    // A bare string is the legacy v1 key; a keyring handles v1 + v2 formats.
+    // A bare string is the legacy v1 key; a keyring handles v1, v2 and v3.
     const keyring: EncryptionKeyring | undefined =
       typeof encryptionKey === 'string' ? { v1: encryptionKey } : encryptionKey;
     if (keyring && (keyring.v1 || keyring.v2)) {
-      return decryptField(workspace.databaseUrl, keyring);
+      return decryptWorkspaceDatabaseUrl(workspace.databaseUrl, workspace.id, keyring);
     }
   }
   return resolveNeonConnectionUri(neonApiKey, workspace);

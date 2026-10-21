@@ -49,7 +49,9 @@
     "SYSTEM_EMAIL_FROM",
     "TELNYX_API_KEY",
     "TELNYX_CONNECTION_ID",
-    "TELNYX_SIP_APP_ID"
+    "TELNYX_SIP_APP_ID",
+    "WORKSPACE_ADMIN_SECRET",
+    "WORKSPACE_WORKER_URL"
   ],
   "tasks": {
     "build": {

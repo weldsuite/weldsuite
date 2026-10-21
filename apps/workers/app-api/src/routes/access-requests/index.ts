@@ -14,7 +14,8 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { eq, and, isNull } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
+import { isGrantablePermissionKey } from '@weldsuite/permissions';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import {
   createAccessRequestSchema,
@@ -32,6 +33,11 @@ app.post('/', zValidator('json', createAccessRequestSchema), async (c) => {
   const requesterId = c.get('userId');
   const workspaceId = c.get('workspaceId');
   const input = c.req.valid('json');
+  // Only real permission keys can be requested (never `*`): approving one
+  // writes it into the requester's own grants.
+  if (!isGrantablePermissionKey(input.permission)) {
+    return error.badRequest(c, 'Unknown permission', { field: 'permission' });
+  }
 
   try {
     const [member] = await db
@@ -54,7 +60,7 @@ app.post('/', zValidator('json', createAccessRequestSchema), async (c) => {
     });
 
     if (!result.deduped && workspaceId && c.env.REALTIME && result.insertedNotifications.length > 0) {
-      const realtime = new RealtimePublisher(c.env.REALTIME);
+      const realtime = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
       // Publish each admin's full notification row to their personal
       // `notification.{userId}` topic so the bell updates live.
       const promise = Promise.allSettled(
@@ -90,21 +96,27 @@ app.patch(
     const { status } = c.req.valid('json');
 
     try {
+      const grantor = await ensurePermissionsResolved(c);
+      if (!grantor) return error.unauthorized(c);
       const result = await service.resolveAccessRequest(db, {
         requestId,
         resolverUserId,
         status,
+        grantor,
       });
 
       if (result.kind === 'not_found') {
         return error.notFound(c, 'Access request', requestId);
+      }
+      if (result.kind === 'ungrantable') {
+        return error.forbidden(c, 'You cannot grant permissions you do not hold yourself');
       }
       if (result.kind === 'already_resolved') {
         return error.conflict(c, 'Access request has already been resolved');
       }
 
       if (workspaceId && c.env.REALTIME) {
-        const realtime = new RealtimePublisher(c.env.REALTIME);
+        const realtime = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         const promise = Promise.allSettled([
           // Push the full requester-facing notification row so their bell updates live.
           realtime.notify(

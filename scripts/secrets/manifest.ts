@@ -54,6 +54,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "STRIPE_SECRET_KEY",
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
+    // Authorises the admin console's database-move and shard-state API
+    // (/api/internal/admin/*, TASK-1150). The console (apps/web/admin) holds the
+    // same value in its own environment as WORKSPACE_ADMIN_SECRET, next to
+    // WORKSPACE_WORKER_URL. 32+ random characters; unset, those routes answer 503.
+    "WORKSPACE_ADMIN_SECRET",
     ["BETTERSTACK_TOKEN_WORKSPACE_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
@@ -72,6 +77,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CF_ACCOUNT_ID",
     "CF_AIG_TOKEN",
     ["BETTERSTACK_TOKEN_MAIL_INBOUND_WORKER", "BETTERSTACK_TOKEN"],
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // Consumer WeldMail backend (api.weldmail.com). Personal accounts live in
@@ -98,6 +105,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "DATABASE_URL_MASTER",
     ["BETTERSTACK_TOKEN_HELPDESK_WIDGET_API", "BETTERSTACK_TOKEN"],
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   "helpdesk-workflow-worker": [
@@ -109,6 +118,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Outbound Discord embeds/buttons for interactive workflow steps.
     "DISCORD_BOT_TOKEN",
     ["BETTERSTACK_TOKEN_HELPDESK_WORKFLOW_WORKER", "BETTERSTACK_TOKEN"],
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   "external-api": [
@@ -179,6 +190,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // through the HYPERDRIVE_MASTER binding; the test env has no Hyperdrive.
     "DATABASE_URL_MASTER",
     ["BETTERSTACK_TOKEN_INTEGRATION_WEBHOOK_WORKER", "BETTERSTACK_TOKEN"],
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // Cron scheduler. Its only secret: the shared internal secret used to
@@ -216,6 +229,12 @@ export const manifest: Record<string, SecretEntry[]> = {
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
     // WeldDesk Discord OAuth + outbound REST moved to "desk-api".
     // The Moneybird first-party connector (WeldConnect) moved to "connect-api".
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
+    // Signs the short-lived links that serve private WeldApps bundles
+    // (/public/user-apps/:code/s/...). Optional: without it the signing key is
+    // derived from INTERNAL_API_SECRET. 32 random bytes, hex.
+    "USER_APP_BUNDLE_SIGNING_KEY",
   ],
 
   "audit-log-worker": [
@@ -267,6 +286,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // expire, so Slack needed no client secret here; Google's do, hourly).
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // pass-api: the pass module's API worker (split from app-api). Base
@@ -373,6 +394,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // stash-api: the stash module's API worker (split from app-api). Base
@@ -422,6 +445,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // with the module. `secrets:sync` warns when Doppler does not have one yet.
     "R2_SQL_API_TOKEN",
     "R2_ANALYTICS_BUCKET",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // data-api: the data module's API worker (split from app-api). Base
@@ -475,6 +500,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Enable Banking (Europe): application id + PKCS#8 PEM private key.
     "ENABLE_BANKING_APP_ID",
     "ENABLE_BANKING_PRIVATE_KEY",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // calendar-api: the calendar module's API worker (split from app-api). Base
@@ -522,6 +549,13 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CF_REALTIME_APP_SECRET",
     "CF_REALTIME_WEBHOOK_TOKEN",
     "RESEND_API_KEY",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
+    // Same APNs auth key as chat-api: a WeldChat call that the meeting.ended
+    // webhook ends here stops ringing on iPhones (VoIP cancel push).
+    "APNS_KEY_ID",
+    "APNS_TEAM_ID",
+    "APNS_PRIVATE_KEY",
   ],
 
   // call-api: the call module's API worker (split from app-api). Base
@@ -547,6 +581,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Same value as billing-worker in the same env. fulfill-number re-reads the
     // Stripe Checkout Session to verify payment before buying a Telnyx number.
     "STRIPE_SECRET_KEY",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // desk-api: the desk module's API worker (split from app-api). Base
@@ -574,6 +610,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "VERCEL_API_TOKEN",
     "VERCEL_HELPCENTER_PROJECT_ID",
     "VERCEL_TEAM_ID",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // mail-api: the mail module's API worker (split from app-api). Base
@@ -614,6 +652,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "R2_SQL_API_TOKEN",
     "R2_ANALYTICS_BUCKET",
     "RESEND_API_KEY",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // chat-api: the chat module's API worker (split from app-api). Base
@@ -641,6 +681,15 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CF_REALTIME_APP_ID",
     "CF_REALTIME_APP_SECRET",
     "RESEND_API_KEY",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
+    // WhatsApp-style call ring (@weldsuite/notifications call-push). The APNs
+    // auth key (.p8) for iOS CallKit VoIP pushes, and the HMAC key for the ring
+    // token the phone's lock-screen Decline sends to /public/chat-calls/decline.
+    "APNS_KEY_ID",
+    "APNS_TEAM_ID",
+    "APNS_PRIVATE_KEY",
+    "CALL_RING_SECRET",
   ],
 
   // agent-api: the agent module's API worker (split from app-api). Base
@@ -667,6 +716,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Set by hand on app-api before the split (never in this manifest); moved
     // with the module. `secrets:sync` warns when Doppler does not have one yet.
     "RESEND_API_KEY",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // connect-api: the connect module's API worker (split from app-api). Base
@@ -713,6 +764,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "GOOGLE_CLIENT_SECRET",
     "SLACK_CLIENT_ID",
     "SLACK_CLIENT_SECRET",
+    // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // reach-api: the reach module's API worker (split from app-api). Base
@@ -743,6 +796,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Monthly warmup corpus generation through @weldsuite/ai.
     "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
+  ],
+  // realtime-worker: /publish/* refuses every caller without this secret (and
+  // refuses everything when it is unset). Same Doppler value as every caller above.
+  "realtime-worker": [
+    "REALTIME_INTERNAL_SECRET",
   ],
 };
 

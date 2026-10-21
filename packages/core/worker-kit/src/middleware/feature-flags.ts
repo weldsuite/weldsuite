@@ -21,6 +21,7 @@
 import { createMiddleware } from 'hono/factory';
 import { getFlags, type FlagContext } from '@weldsuite/feature-flags/server';
 import type { KitEnv } from '../env';
+import { secretMatches } from '../webhook-token';
 
 /**
  * Wrap a resolved evaluator so any key in `forced` reports ON, delegating to
@@ -46,11 +47,13 @@ export const featureFlagsMiddleware = () => {
   }>(async (c, next) => {
     let flags = await getFlags(c);
 
-    // Test-only flag override — same gate as the _test-fixtures routes.
+    // Test-only flag override — same gate as the _test-fixtures routes: only
+    // in an explicitly non-production ENVIRONMENT (a missing or misspelled one
+    // counts as production), and only with the fixtures token, compared in
+    // constant time.
     const testFlags = c.req.header('X-Test-Flags');
-    if (testFlags && c.env.ENVIRONMENT !== 'production') {
-      const expected = c.env.TEST_FIXTURES_TOKEN;
-      if (expected && c.req.header('X-Test-Token') === expected) {
+    if (testFlags && (c.env.ENVIRONMENT === 'development' || c.env.ENVIRONMENT === 'test')) {
+      if (secretMatches(c.req.header('X-Test-Token'), c.env.TEST_FIXTURES_TOKEN)) {
         const forced = new Set(
           testFlags
             .split(',')

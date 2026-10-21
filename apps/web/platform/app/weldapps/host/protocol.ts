@@ -8,6 +8,12 @@
  * Protocol 2 (this host): no credential ever enters the sandbox. `init`
  * carries `token: null`; the app sends `fetch` requests and the host performs
  * them with the member's own platform session, outside the iframe.
+ *
+ * The one remaining credential channel is the legacy `getToken` request of
+ * protocol 1 bundles, kept for already deployed COMMUNITY bundles (a scoped
+ * `wsat_` token). It is refused for previews and for official apps, so neither
+ * a developer-chosen preview nor any frame ever receives the platform session.
+ * Frames are pinned to their exact origin (see `bridgeOrigins` in preview.ts).
  */
 
 /** Bridge protocol this host speaks. */

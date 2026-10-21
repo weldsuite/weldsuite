@@ -320,6 +320,43 @@ export interface GridContextValue<TEntity> {
   getCalculationResult: (fieldId: string, fieldType: FieldType, calculationType: CalculationType) => string;
 }
 
+/** The parts of the grid config that rows and cells read. */
+export type GridRowConfig<TEntity> = Pick<
+  EntityGridConfig<TEntity>,
+  | 'getEntityId'
+  | 'getEntityName'
+  | 'getEntityInitials'
+  | 'getEntityAvatar'
+  | 'renderRowContextMenu'
+  | 'enableRowSelection'
+  | 'enableInlineEditing'
+  | 'fillViewport'
+  | 'showRowNumbers'
+  | 'allowCustomColumns'
+>;
+
+/**
+ * What rows and cells take from the grid. Kept apart from GridContextValue,
+ * which changes on every selection, popover, resize or edit, so that a change
+ * only re-renders the rows it concerns: everything here keeps its identity
+ * until one of the config fields above changes. A row's own state (selected,
+ * open popover, optimistic edits) reaches it as props.
+ */
+export interface GridRowContextValue<TEntity> {
+  config: GridRowConfig<TEntity>;
+  setOpenPopover: (popover: OpenPopover | null) => void;
+  setRowSelected: (entityId: string, selected: boolean) => void;
+  /** Merges `patch` into the row's optimistic updates. */
+  patchOptimisticUpdate: (entityId: string, patch: Partial<TEntity>) => void;
+  /** `actions.onUpdateEntity`, always the latest one. */
+  updateEntity: EntityGridActions<TEntity>['onUpdateEntity'];
+  /** `actions.onRowClick`, always the latest one. */
+  openRow: (entity: TEntity) => void;
+  updateEntityField: (entityId: string, fieldId: string, value: unknown) => Promise<void>;
+  updateCustomFieldValue: (entityId: string, fieldId: string, value: unknown) => void;
+  getEditValue: () => unknown;
+}
+
 // Props for EntityGrid component
 export interface EntityGridProps<TEntity> {
   config: EntityGridConfig<TEntity>;

@@ -31,14 +31,17 @@ SDK instance and the gateway wiring.
 ## Configuration
 
 One CF token reaches Workers AI (`@cf/…`, free allocation) *and* third-party
-models (Unified Billing / BYOK).
+models (Unified Billing / BYOK). Chat models always go through the gateway's
+compat endpoint (`gateway.ai.cloudflare.com/v1/<account>/<gateway>/compat`): the
+direct Workers AI REST API does not serve `anthropic/…` ids. Embeddings use the
+direct REST API.
 
 | Env var | Purpose | Default |
 | --- | --- | --- |
 | `CF_ACCOUNT_ID` / `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account (required) |, |
-| `AI_GATEWAY_API_TOKEN` / `CLOUDFLARE_API_TOKEN` / `CF_API_TOKEN` | CF API token → `Authorization` |, |
-| `CF_AI_GATEWAY` | Gateway id → `cf-aig-gateway-id` | account's `default` gateway |
-| `CF_AIG_TOKEN` | Gateway auth token → `cf-aig-authorization` |, (authenticated gateways only) |
+| `AI_GATEWAY_API_TOKEN` / `CLOUDFLARE_API_TOKEN` / `CF_API_TOKEN` | CF API token (AI Gateway Run + Workers AI) → `cf-aig-authorization` on chat, `Authorization` on embeddings |, |
+| `CF_AI_GATEWAY` | Gateway id in the compat URL | account's `default` gateway |
+| `CF_AIG_TOKEN` | Separate gateway token → `cf-aig-authorization`, instead of the API token |, |
 | `AI_DEFAULT_MODEL` | Default **canonical** model id | free Workers AI 70B |
 | `AI_GATEWAY_PROVIDER` | Optional; must be `cloudflare` | `cloudflare` |
 

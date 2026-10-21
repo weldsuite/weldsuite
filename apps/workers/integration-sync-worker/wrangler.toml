@@ -50,7 +50,7 @@ remote = true
 # entrypoint binding (docs/plans/app-api-module-split.md, rollout item 7).
 [[services]]
 binding = "APP_API"
-service = "weldsuite-app-api"
+service = "weldsuite-app-api-dev"
 
 # D1 connector catch-up index — shared with app-api + integration-webhook-worker.
 # The sweep probes store APIs from rows here and only calls app-api when the

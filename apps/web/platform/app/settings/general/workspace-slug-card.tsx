@@ -31,8 +31,9 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useCurrentMember } from '@/hooks/use-current-member';
-import { SLUG_REGEX } from '@weldsuite/app-api-client/schemas/workspace-settings';
+import { SLUG_REGEX, isReservedWorkspaceSlug } from '@weldsuite/app-api-client/schemas/workspace-slug';
 import { useI18n } from '@/lib/i18n/provider';
+import { stripWorkspacePrefix, workspacePath } from '@/lib/workspace-url';
 
 function formatTemplate(
   tpl: string,
@@ -58,9 +59,11 @@ export function WorkspaceSlugCard() {
 
   const trimmedNew = newSlug.trim().toLowerCase();
   const isFormatValid = SLUG_REGEX.test(trimmedNew);
+  // Platform pages and apps use these names at the root of a URL.
+  const isReserved = isFormatValid && isReservedWorkspaceSlug(trimmedNew);
   const isDifferent = trimmedNew !== currentSlug;
   const isConfirmed = confirmSlug.trim() === currentSlug && currentSlug.length > 0;
-  const canSubmit = isFormatValid && isDifferent && isConfirmed && !submitting;
+  const canSubmit = isFormatValid && !isReserved && isDifferent && isConfirmed && !submitting;
 
   const handleOpen = (next: boolean) => {
     setOpen(next);
@@ -79,10 +82,12 @@ export function WorkspaceSlugCard() {
       // Force a clean reload — the slug is part of public URLs (helpcenter,
       // booking) and several singletons cache the workspace object. A full
       // reload is the simplest safe reset and also picks up the new Clerk
-      // org slug.
+      // org slug. It reloads into the new slug's URL (FE-013): the old one
+      // no longer names this workspace.
       await organization?.reload().catch(() => {});
+      const here = stripWorkspacePrefix(window.location.pathname) + window.location.search + window.location.hash;
       setTimeout(() => {
-        window.location.reload();
+        window.location.replace(workspacePath(trimmedNew, here));
       }, 600);
     } catch (err) {
       const message = err instanceof Error ? err.message : ts.errorToast;
@@ -138,6 +143,7 @@ export function WorkspaceSlugCard() {
                   <li>{formatTemplate(ts.impactBookingPages, { currentSlug, newSlug: trimmedNew || '…' })}</li>
                   <li>{formatTemplate(ts.impactHelpcenter, { currentSlug, newSlug: trimmedNew || '…' })}</li>
                   <li>{formatTemplate(ts.impactWeldmail, { currentSlug, newSlug: trimmedNew || '…' })}</li>
+                  <li>{formatTemplate(ts.impactPlatformLinks, { currentSlug })}</li>
                   <li>{ts.impactExternal}</li>
                 </ul>
                 <p>{formatTemplate(ts.warningOutro, { currentSlug })}</p>
@@ -161,6 +167,7 @@ export function WorkspaceSlugCard() {
               {newSlug.length > 0 && !isFormatValid && (
                 <p className="text-xs text-destructive">{ts.invalidFormat}</p>
               )}
+              {isReserved && <p className="text-xs text-destructive">{ts.reservedSlug}</p>}
             </div>
 
             <div className="space-y-1.5">

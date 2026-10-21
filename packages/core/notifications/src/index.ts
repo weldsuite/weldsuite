@@ -25,7 +25,31 @@ export {
   type ExpoPushMessage,
   type SendExpoPushResult,
 } from './channels/push';
+export {
+  cancelIncomingCallPush,
+  isCallToken,
+  callTokenDeviceId,
+  CALL_DEVICE_SUFFIX,
+  CALL_RING_TTL_MS,
+  type CallCancelReason,
+  type CallTokenType,
+  type CancelIncomingCallParams,
+} from './channels/call-push';
+export { getChannelPreferences } from './preferences';
 export { sendTaskAssignmentNotification } from './helpers/task-assignment';
+export {
+  sendTaskCommentNotification,
+  extractMentionedUserIds,
+  taskCommentRecipients,
+} from './helpers/task-comment';
+export { sendNewEmailNotification } from './helpers/mail';
+export {
+  sendTicketAssignedNotification,
+  sendTicketReplyNotification,
+  isHelpdeskNotificationEnabled,
+  helpdeskPreview,
+  type HelpdeskEntityKind,
+} from './helpers/helpdesk';
 export {
   sendChatMentionNotification,
   sendChatThreadReplyNotification,

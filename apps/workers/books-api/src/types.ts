@@ -11,6 +11,8 @@ export interface Env extends KitEnv, BankFeedEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   /** R2 bucket holding invoice/bill attachments and scanned accounting
    *  documents (lib/document-attachment.ts, services/accounting-ocr.ts). */

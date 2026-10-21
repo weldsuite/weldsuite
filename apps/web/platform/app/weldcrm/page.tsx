@@ -51,6 +51,7 @@ import {
 } from '@/hooks/use-crm-tasks';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from './task-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { CrmTasksPipeline } from './crm-tasks-pipeline';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -301,6 +302,16 @@ export default function CrmTasksClient() {
   const toggleTaskMutation = useToggleTask();
   const updateTaskMutation = useUpdateTask();
   const deleteTaskMutation = useDeleteTask();
+
+  // Every delete entry point (row menu, list delete) asks first; the task is
+  // only removed once the user confirms in the dialog below.
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
+  const confirmDeleteTask = useCallback(() => {
+    if (!taskToDelete) return;
+    deleteTaskMutation.mutate(taskToDelete, {
+      onSuccess: () => setTaskToDelete(null),
+    });
+  }, [taskToDelete, deleteTaskMutation]);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -1031,7 +1042,7 @@ export default function CrmTasksClient() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-                onClick={() => deleteTaskMutation.mutate(task.id)}
+                onClick={() => setTaskToDelete(task.id)}
               >
                 <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
                 {t('common.actions.delete')}
@@ -1041,7 +1052,7 @@ export default function CrmTasksClient() {
         </div>
       </div>
     );
-  }, [availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, availablePersonObjects, handleLinkCompany, handleLinkPerson, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, t, statusConfig, priorityConfig, formatDate]);
+  }, [availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, availablePersonObjects, handleLinkCompany, handleLinkPerson, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, t, statusConfig, priorityConfig, formatDate]);
 
   const handleSort = useCallback((columnId: string) => {
     setSortState(prev => {
@@ -1146,7 +1157,7 @@ export default function CrmTasksClient() {
           maxFilters={5}
           applyFilters={applyTaskFilters}
           onUpdateItem={(id, data) => updateTaskMutation.mutate({ taskId: id, data })}
-          onDeleteItem={(id) => deleteTaskMutation.mutate(id)}
+          onDeleteItem={(id) => setTaskToDelete(id)}
           renderRow={renderTaskRow}
           searchPlaceholder={`${t('common.actions.search')}...`}
           searchFields={['title', 'description']}
@@ -1229,6 +1240,19 @@ export default function CrmTasksClient() {
         onSave={handleSaveTask}
         onUpdate={handleUpdateTask}
         isPending={createTaskMutation.isPending || updateTaskMutation.isPending}
+      />
+      <ConfirmDialog
+        open={!!taskToDelete}
+        onOpenChange={(open) => {
+          if (!open) setTaskToDelete(null);
+        }}
+        title={t('sweep.entities.deleteTask')}
+        description={t('sweep.entities.deleteTaskConfirmDescription')}
+        confirmLabel={t('sweep.entities.deleteTask')}
+        cancelLabel={t('common.actions.cancel')}
+        variant="destructive"
+        loading={deleteTaskMutation.isPending}
+        onConfirm={confirmDeleteTask}
       />
       {/* Task detail panel is rendered globally via ObjectPanelHost. */}
     </>

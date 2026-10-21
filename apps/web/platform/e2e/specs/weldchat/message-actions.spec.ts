@@ -155,11 +155,12 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
     await page.goto(`/weldchat/${channel.id}`);
     await expect(page.getByTestId('chat-message-list')).toBeVisible({ timeout: 15_000 });
 
-    // Open the People panel and click "Invite people" — the redesigned member
-    // affordance (channel-people-tab.tsx) that replaced the old icon-only "Add
-    // members" button. It opens the invite dialog whose private-channel default
-    // "Members" tab is the search used to add existing teammates.
-    await page.getByRole('button', { name: /show members/i }).click();
+    // Open the People panel (clicking the channel name in the header) and click
+    // "Invite people" — the redesigned member affordance (channel-people-tab.tsx)
+    // that replaced the old icon-only "Add members" button. It opens the invite
+    // dialog whose private-channel default "Members" tab is the search used to
+    // add existing teammates.
+    await page.getByTestId('chat-channel-name').click();
     await expect(page.getByTestId('chat-member-row').first()).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /invite people/i }).click();

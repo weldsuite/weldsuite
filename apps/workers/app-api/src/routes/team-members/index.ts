@@ -16,7 +16,8 @@
  *   GET    /:id                      — single member (visibility-projected)
  *   PATCH  /:id                      — role (Clerk + DB) / name / permission
  *                                      overrides / hoursPerWeek           [team:update]
- *   DELETE /:id                      — remove from Clerk + soft-delete     [team:delete]
+ *   DELETE /:id                      — remove from Clerk + soft-delete, revoke
+ *                                      their personal API keys              [team:delete]
  *   POST   /:id/resend-invite        — re-issue Clerk invitation           [team:update]
  *   GET    /:id/permissions          — role vs override breakdown          [team:read]
  *   GET    /:id/apps                 — installed apps + assignment status  [team:read]
@@ -46,6 +47,7 @@ import {
 } from '@weldsuite/permissions/server';
 import {
   SYSTEM_ROLES,
+  canGrantPermission,
   checkPermissionGrants,
   getRoleRowPermissions,
   hasAppPermission,
@@ -61,7 +63,8 @@ import {
 import type { Env, Variables } from '../../types';
 import { error, noContent, success, list, cursorPagination } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { getMasterDb, schema, type Database } from '@weldsuite/worker-kit/db';
+import { revokeMemberApiKeys } from '../../services/api-keys';
 import * as membersService from '../../services/team/members';
 import type { Visibility } from '../../services/team/members';
 import * as profileService from '../../services/team/profile';
@@ -175,6 +178,26 @@ async function refuseUngrantable(
   const check = checkPermissionGrants(grantor, permissions, alreadyGranted);
   if (check.ok) return null;
   return error.forbidden(c, 'You cannot grant permissions you do not hold yourself');
+}
+
+/**
+ * The deny half of the grant ceiling: lifting a deny hands the key back just
+ * as granting it would, so every deny being removed must be one the caller
+ * holds. Only the hold check applies (not key validity), so an Owner can still
+ * clear a `*` or stale-key deny.
+ */
+async function refuseUnliftableDenies(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  currentDenies: readonly string[],
+  nextDenies: readonly string[],
+): Promise<Response | null> {
+  const kept = new Set(nextDenies);
+  const lifted = currentDenies.filter((key) => !kept.has(key));
+  if (lifted.length === 0) return null;
+  const grantor = await ensurePermissionsResolved(c);
+  if (!grantor) return error.unauthorized(c);
+  if (lifted.every((key) => canGrantPermission(grantor, key))) return null;
+  return error.forbidden(c, 'You cannot lift a deny on a permission you do not hold yourself');
 }
 
 /** What assigning `tier` / custom role `roleId` grants. */
@@ -312,6 +335,20 @@ app.get('/', async (c) => {
   }
 });
 
+/**
+ * Revoke a removed member's personal API keys (tenant rows soft-deleted, master
+ * registry entries dropped). Best effort: the member is already out of the
+ * workspace, and external-api refuses a personal key whose owner is no longer an
+ * active member regardless, so a failure here is logged and never surfaced.
+ */
+async function revokeRemovedMemberKeys(env: Env, db: Database, userId: string): Promise<void> {
+  try {
+    await revokeMemberApiKeys({ tenantDb: db, masterDb: getMasterDb(env), userId });
+  } catch (err) {
+    console.error('[app-api/team-members] Failed to revoke API keys of a removed member:', err);
+  }
+}
+
 // ===========================================================================
 // Sync — reconcile tenant DB against Clerk org state
 // ===========================================================================
@@ -320,7 +357,8 @@ app.get('/', async (c) => {
  * POST /sync — safety-net reconciliation against Clerk org state. Webhooks
  * are the primary mechanism; this endpoint catches any that were missed.
  *
- * - ACTIVE members whose clerkMembershipId is no longer in Clerk → soft-delete
+ * - ACTIVE members whose clerkMembershipId is no longer in Clerk → soft-delete,
+ *   and their personal API keys are revoked
  * - PENDING members whose clerkInvitationId is no longer pending → soft-delete
  */
 app.post('/sync', requirePermission('team:read'), async (c) => {
@@ -355,7 +393,7 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
     // Only touches rows that have a clerkMembershipId — OWNER rows provisioned
     // without going through Clerk are left intact.
     if (clerkMembershipIds.length > 0) {
-      await db
+      const departed = await db
         .update(workspaceMembers)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(
@@ -365,7 +403,13 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
             isNotNull(workspaceMembers.clerkMembershipId),
             notInArray(workspaceMembers.clerkMembershipId, clerkMembershipIds),
           ),
-        );
+        )
+        .returning({ userId: workspaceMembers.userId });
+
+      // Their personal API keys leave with them.
+      for (const { userId } of departed) {
+        await revokeRemovedMemberKeys(c.env, db, userId);
+      }
     }
 
     // Soft-delete PENDING members whose clerkInvitationId is no longer pending.
@@ -1035,6 +1079,10 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
     const refusal = await refuseUngrantable(c, body.permissions, member.permissions ?? []);
     if (refusal) return refusal;
   }
+  if (body.permissionDenies !== undefined) {
+    const refusal = await refuseUnliftableDenies(c, member.permissionDenies ?? [], body.permissionDenies);
+    if (refusal) return refusal;
+  }
 
   const update: Record<string, unknown> = { updatedAt: new Date() };
   const changingRole = Boolean(body.role || body.roleId);
@@ -1095,6 +1143,11 @@ app.delete('/:id', requirePermission('team:delete'), async (c) => {
     .update(workspaceMembers)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(workspaceMembers.id, memberId));
+
+  // A cancelled invitation never signed in, so it has no keys to revoke.
+  if (member.status !== 'PENDING') {
+    await revokeRemovedMemberKeys(c.env, db, member.userId);
+  }
 
   return noContent(c);
 });

@@ -37,6 +37,7 @@ import { fitAttachments, isChatUploadTooLarge, MAX_CHAT_UPLOAD_BYTES, MAX_MESSAG
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
+import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 /** A composer attachment — an uploaded file, or a recorded audio/video/screen clip. */
 type MessageAttachment = ChatAttachment | ChatClipAttachment;
@@ -310,7 +311,7 @@ export function MessageInput({
             action: {
               label: t2.viewTask,
               onClick: () => {
-                window.location.href = '/weldflow/my-tasks';
+                window.location.href = toPublicPath('/weldflow/my-tasks');
               },
             },
           });

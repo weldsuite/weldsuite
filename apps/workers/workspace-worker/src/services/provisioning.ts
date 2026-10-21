@@ -90,7 +90,12 @@ export async function provisionWorkspaceDatabase(
       PROVISION_WORKSPACE: env.PROVISION_WORKSPACE,
       // Enables the instant warm-slot path to store the encrypted connection
       // URL when it marks the workspace ready inline.
+      // Both keys and the AAD switch, so this path writes what the workflow's
+      // mark-provisioned step writes (it used to pass only the v1 key and so
+      // kept minting legacy v1 values after the v2 key existed).
       DATABASE_ENCRYPTION_KEY: env.DATABASE_ENCRYPTION_KEY,
+      DATABASE_ENCRYPTION_KEY_V2: env.DATABASE_ENCRYPTION_KEY_V2,
+      FIELD_ENCRYPTION_AAD_WRITES: env.FIELD_ENCRYPTION_AAD_WRITES,
     });
 
     const latestSchemaVersion = MIGRATION_JOURNAL.at(-1)?.tag;

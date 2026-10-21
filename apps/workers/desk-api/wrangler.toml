@@ -31,7 +31,8 @@
 # CF_ACCOUNT_ID is a [vars] value (copied from app-api). helpdesk-workflow-worker
 # is reached over the HELPDESK_WORKFLOW service binding: it has no public host.
 
-name = "weldsuite-desk-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-desk-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -43,7 +44,9 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias here (unlike most other API workers): this worker sends
+# notification email through @weldsuite/notifications → @weldsuite/emails,
+# which renders with the real react package, not the empty bundle-size shim.
 
 [observability]
 enabled = true
@@ -65,6 +68,7 @@ queue = "entity-events-dev"
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+remote = true
 
 # /api/helpdesk-workflows resume → helpdesk-workflow-worker /respond.
 [[services]]
@@ -87,12 +91,12 @@ name = "SEND_EMAIL"
 [[durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[durable_objects.bindings]]
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
-script_name = "weldsuite-mail-api"
+script_name = "weldsuite-mail-api-dev"
 
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"

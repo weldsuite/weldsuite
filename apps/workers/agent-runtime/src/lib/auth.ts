@@ -1,5 +1,6 @@
 import type { Context, Next } from 'hono';
 import type { Env } from '../env';
+import { secretMatches } from './timing-safe';
 
 /** `internalTrusted` is set only by the `AgentRuntimeInternal` entrypoint. */
 type AppEnv = { Bindings: Env; Variables: { internalTrusted?: boolean } };
@@ -21,7 +22,7 @@ export async function requireInternalAuth(c: Context<AppEnv>, next: Next) {
   }
   const header = c.req.header('Authorization') ?? '';
   const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-  if (!token || token !== secret) {
+  if (!secretMatches(token, secret)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
   await next();

@@ -76,6 +76,8 @@ export const weldchat = {
       connectionLost: 'Opnieuw verbinden met het gesprek is niet gelukt. Bel opnieuw om verder te gaan.',
       supersededByOtherCall: 'Je hebt dit gesprek verlaten omdat je aan een ander gesprek of een andere vergadering bent begonnen.',
       joinFailed: 'Deelnemen aan het gesprek is niet gelukt. Misschien is het al beëindigd.',
+      startFailed: 'Het gesprek starten is niet gelukt. Probeer het opnieuw.',
+      youLeft: 'Je hebt het gesprek verlaten',
       connection: {
         connection: 'Verbinding',
         good: 'Goed',

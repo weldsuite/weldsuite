@@ -42,6 +42,10 @@ vi.mock('@/components/block-editor/block-editor', () => ({
   },
 }));
 
+vi.mock('@/components/block-editor/heading-outline', () => ({
+  HeadingOutline: () => null,
+}));
+
 vi.mock('@/hooks/queries/use-knowledge-queries', () => ({
   useKnowledgePage: () => ({ data: { data: page }, isLoading: false, isError: false }),
   useKnowledgePageTree: () => ({ data: { data: [] } }),

@@ -2,7 +2,8 @@
 # Maintains persistent Discord Gateway WebSocket via Durable Object
 # Forwards MESSAGE_CREATE events to helpdesk-widget-api
 
-name = "discord-bot-worker"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "discord-bot-worker-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -40,7 +41,7 @@ HELPDESK_WIDGET_API_URL = "http://localhost:8790"
 # Service binding to workflow worker (for wf_* button interactions)
 [[services]]
 binding = "WORKFLOW_WORKER"
-service = "helpdesk-workflow-worker"
+service = "helpdesk-workflow-worker-dev"
 
 # ============ TEST ENVIRONMENT ============
 [env.test]

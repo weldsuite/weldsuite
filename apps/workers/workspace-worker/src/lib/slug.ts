@@ -1,23 +1,9 @@
+import { SLUG_REGEX, isReservedWorkspaceSlug } from '@weldsuite/app-api-client/schemas/workspace-slug';
 import { randomBase36 } from './id';
 
-/**
- * Workspace slug rules. Mirrored from
- * packages/clients/app-api-client/src/schemas/workspace-settings.ts (this worker
- * does not depend on @weldsuite/app-api-client), keep the two in sync.
- */
-const RESERVED_SLUGS = [
-  'www',
-  'app',
-  'api',
-  'admin',
-  'mail',
-  'welddesk',
-  'weldmail',
-  'support',
-  'help',
-];
-
-export const SLUG_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/;
+// One set of slug rules for every place that sets a slug (app-api's slug
+// update, onboarding here, the platform's settings card).
+export { SLUG_REGEX, isReservedWorkspaceSlug };
 
 const MAX_BASE_LENGTH = 40;
 const FALLBACK_SLUG = 'workspace';
@@ -42,7 +28,7 @@ export function slugifyWorkspaceName(name: string): string {
 
   // Must lead with a letter and have at least 3 characters; reserved names get
   // the same prefix so "Admin" does not collide with the platform's own slugs.
-  if (!/^[a-z]/.test(slug) || slug.length < 3 || RESERVED_SLUGS.includes(slug)) {
+  if (!/^[a-z]/.test(slug) || slug.length < 3 || isReservedWorkspaceSlug(slug)) {
     slug = `${FALLBACK_SLUG}-${slug}`;
   }
 

@@ -28,10 +28,36 @@ import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
 import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
 import { locateStoredObject } from '@weldsuite/worker-kit/storage';
+import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 
-export const MAX_SCHEDULE_DAYS = 7;
+// Cloudflare Workflows sleep for at most 365 days. Keep in step with the
+// pickers in the platform compose (compose-surface.tsx) and weldmail-app
+// (utils/schedule-time.ts).
+export const MAX_SCHEDULE_DAYS = 365;
+
+/**
+ * The pre-uploaded attachments (`attachmentIds`) the caller may move into a
+ * new message: those whose current message sits in a mailbox the caller can
+ * open. An id from someone else's private mailbox is dropped, like in
+ * `POST /api/mail-attachments/associate`.
+ */
+async function movableAttachmentIds(db: Database, userId: string, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ id: mailAttachments.id, accountId: mailMessages.accountId })
+    .from(mailAttachments)
+    .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.messageId))
+    .where(and(inArray(mailAttachments.id, [...new Set(ids)]), isNull(mailAttachments.deletedAt)));
+  const access = new Map<string, boolean>();
+  const movable: string[] = [];
+  for (const row of rows) {
+    if (!access.has(row.accountId)) access.set(row.accountId, await checkAccountAccess(db, row.accountId, userId));
+    if (access.get(row.accountId)) movable.push(row.id);
+  }
+  return movable;
+}
 
 export class MailScheduledError extends Error {
   constructor(
@@ -109,9 +135,10 @@ export async function scheduleEmail(
 
   // HEAD each attachment so the cap check uses the real size, not the
   // client-reported one. Wallet-thinness over latency: workflow delivery
-  // failure 7 days later would be a confusing UX.
+  // failure days later would be a confusing UX.
   const validated = await validateScheduledAttachments(env, workspaceId, data);
-  const totalAttachmentCount = (data.attachmentIds?.length ?? 0) + validated.length;
+  const reparented = await movableAttachmentIds(db, userId, data.attachmentIds ?? []);
+  const totalAttachmentCount = reparented.length + validated.length;
 
   const messageId = generateId('msg');
   const smtpMessageId = `<${messageId}@scheduled.weldsuite.org>`;
@@ -120,7 +147,7 @@ export async function scheduleEmail(
   // Same body rules as an immediate send (see @weldsuite/mail-domain/text).
   const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
   const htmlBody = sanitizeEmailHtml(rawHtml) || undefined;
-  const textBody = plainTextBody(data.body, htmlBody);
+  const textBody = plainTextBody(data.body, data.htmlBody);
   const textPreview = (textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
 
   await db.insert(mailMessages).values({
@@ -154,11 +181,11 @@ export async function scheduleEmail(
   // Re-parent any pre-uploaded attachments (legacy two-step compose) and
   // create rows for the freshly-uploaded ones so the workflow can fetch
   // them from R2 at delivery time.
-  if (data.attachmentIds?.length) {
+  if (reparented.length > 0) {
     await db
       .update(mailAttachments)
       .set({ messageId, updatedAt: now })
-      .where(inArray(mailAttachments.id, data.attachmentIds));
+      .where(inArray(mailAttachments.id, reparented));
   }
   if (validated.length > 0) {
     await db.insert(mailAttachments).values(

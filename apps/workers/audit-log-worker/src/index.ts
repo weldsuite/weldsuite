@@ -7,8 +7,7 @@
 
 import { Hono } from 'hono';
 import type { Env } from './env';
-import type { EntityEventMessage } from './lib/entity-events';
-import { processEntityEvent } from './services/event-processor';
+import { processAuditBatch, type AuditQueueMessage } from './services/batch-processor';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -41,17 +40,7 @@ export default {
     return Promise.resolve(app.fetch(request, env, ctx));
   },
 
-  async queue(batch: MessageBatch<EntityEventMessage>, env: Env): Promise<void> {
-    console.log(`[Queue] Processing batch of ${batch.messages.length} audit events`);
-
-    for (const message of batch.messages) {
-      try {
-        await processEntityEvent(message.body, env);
-        message.ack();
-      } catch (err) {
-        console.error(`[Queue] Failed to process event ${message.body.id}:`, err);
-        message.retry();
-      }
-    }
+  async queue(batch: MessageBatch<AuditQueueMessage>, env: Env): Promise<void> {
+    await processAuditBatch(batch, env);
   },
 };

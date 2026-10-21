@@ -26,8 +26,9 @@ import type {
 } from '@/lib/billing-types';
 import { adminCopy } from '@/lib/i18n';
 import { ActivityTable } from '@/components/billing/activity-table';
-import { WorkspaceDatabaseCard } from '@/components/databases/workspace-database-card';
+import { WorkspaceDatabaseTab } from '@/components/databases/workspace-database-tab';
 import type { WorkspaceDatabase } from '@/lib/databases-data';
+import type { WorkspaceDatabaseTabData } from '@/lib/database-moves-data';
 import { AppAccessCard } from '@/components/app-access/app-access-card';
 import type { ReachUsage } from '@/lib/app-access';
 import type { WorkspaceAppAccessEntry } from '@/lib/app-access-data';
@@ -72,7 +73,9 @@ export function WorkspaceDetail({
   appUsage,
   outbound,
   database,
+  databaseTab,
   canWrite,
+  canMoveDatabase,
 }: Readonly<{
   workspace: WorkspaceRow;
   members: WorkspaceMemberRow[];
@@ -91,7 +94,11 @@ export function WorkspaceDetail({
   outbound: { state: OutboundState; riskScore: number; openCases: number };
   /** Where the workspace's database lives, for the Database tab. */
   database: WorkspaceDatabase;
+  /** Its moves, live compute and move targets, from the workspace worker. */
+  databaseTab: WorkspaceDatabaseTabData;
   canWrite: boolean;
+  /** A superadmin on a workspace that is not deleted: may move, cancel and recover. */
+  canMoveDatabase: boolean;
 }>) {
   const t = adminCopy();
   // Credit and invoice changes run in the billing worker too, so they need it wired up.
@@ -181,7 +188,13 @@ export function WorkspaceDetail({
           </TabsContent>
 
           <TabsContent value="database" className="space-y-4">
-            <WorkspaceDatabaseCard database={database} />
+            <WorkspaceDatabaseTab
+              workspaceId={workspace.id}
+              workspaceName={workspace.name}
+              database={database}
+              data={databaseTab}
+              canManage={canMoveDatabase}
+            />
           </TabsContent>
 
           <TabsContent value="members" className="space-y-6">
@@ -292,7 +305,10 @@ export function WorkspaceDetail({
 function OutboundLink({
   workspaceId,
   outbound,
-}: Readonly<{ workspaceId: string; outbound: { state: OutboundState; riskScore: number; openCases: number } }>) {
+}: Readonly<{
+  workspaceId: string;
+  outbound: { state: OutboundState; riskScore: number; openCases: number };
+}>) {
   const notes: string[] = [];
   if (outbound.state !== 'active') notes.push(STATE_LABELS[outbound.state].toLowerCase());
   if (outbound.openCases > 0) notes.push(outbound.openCases === 1 ? '1 open case' : `${outbound.openCases} open cases`);

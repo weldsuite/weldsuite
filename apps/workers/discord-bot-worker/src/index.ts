@@ -18,6 +18,7 @@ import {
   archiveThread,
   followUpInteraction,
 } from './lib/discord-api';
+import { secretMatches } from './lib/timing-safe';
 
 export { DiscordGateway } from './gateway';
 import { logSafe } from '@weldsuite/text';
@@ -153,10 +154,12 @@ function handleModalSubmit(c: InteractionContext, interaction: any): Response {
 // ============================================================================
 
 app.use('/manage/*', async (c, next) => {
+  // Constant-time, and fail-closed: with MANAGEMENT_SECRET unset the old check
+  // compared against the literal "Bearer undefined".
   const auth = c.req.header('Authorization');
-  const expected = `Bearer ${c.env.MANAGEMENT_SECRET}`;
+  const provided = auth?.startsWith('Bearer ') ? auth.slice(7) : '';
 
-  if (!auth || auth !== expected) {
+  if (!secretMatches(provided, c.env.MANAGEMENT_SECRET)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 

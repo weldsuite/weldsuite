@@ -33,7 +33,7 @@ import {
   Plus,
   ArrowUp,
 } from 'lucide-react';
-import { format, addDays } from 'date-fns';
+import { format, addDays, startOfDay } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import {
@@ -69,7 +69,8 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
-import { RecipientsRow, StringRecipientsRow } from '@/app/weldmail/components/compose-recipients';
+import { RecipientsRow, StringRecipientsRow, type RecipientsRowHandle } from '@/app/weldmail/components/compose-recipients';
+import { ComposeLinkButton } from '@/app/weldmail/components/compose-link-button';
 import { SignaturePicker, useComposeSignature } from '@/app/weldmail/components/compose-signature';
 import type { SignatureMode } from '@/app/weldmail/lib/signature';
 
@@ -122,26 +123,118 @@ const FIELD_LABEL = 'w-[72px] flex-shrink-0 text-sm text-muted-foreground';
 // The recipient suggestions sit under the field, past the label column.
 const SUGGESTIONS_MENU = 'left-[72px] w-72';
 
-/** "From" row: the sending account's avatar and name. */
-function ComposeFromRow({ accountId, label }: Readonly<{ accountId?: string; label: string }>) {
+type MailAccountOption = NonNullable<ReturnType<typeof useMailAccounts>['data']>['data'][number];
+
+function accountDisplayName(account: MailAccountOption): string {
+  return account.displayName || account.name || account.email;
+}
+
+/** An account's avatar and name, as the From row shows it. */
+function FromAccountLabel({ account }: Readonly<{ account: MailAccountOption }>) {
+  const name = accountDisplayName(account);
+  return (
+    <span className="flex items-center gap-1.5 min-w-0">
+      <Avatar className="h-4 w-4 !rounded-[5px] flex-shrink-0">
+        <AvatarFallback className="!rounded-[5px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          {name.charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-medium text-foreground truncate">{name}</span>
+    </span>
+  );
+}
+
+/**
+ * "From" row: the sending account's avatar and name. With `onAccountChange` and
+ * more than one account it is a picker of the account to send from.
+ */
+function ComposeFromRow({
+  accountId,
+  label,
+  onAccountChange,
+  testId,
+}: Readonly<{ accountId?: string; label: string; onAccountChange?: (accountId: string) => void; testId: string }>) {
+  const { t } = useI18n();
   const { data: accountsData } = useMailAccounts();
-  const account = (accountsData?.data ?? []).find((a) => a.id === accountId);
-  const name = account ? account.displayName || account.name || account.email : '';
+  const accounts = accountsData?.data ?? [];
+  const account = accounts.find((a) => a.id === accountId);
+
+  if (onAccountChange && accounts.length > 1) {
+    return (
+      <div className="flex items-center min-h-9">
+        <span className={FIELD_LABEL}>{label}</span>
+        <Select value={account?.id ?? ''} onValueChange={onAccountChange}>
+          <SelectTrigger
+            size="sm"
+            aria-label={label}
+            title={account?.email}
+            className="data-[size=sm]:h-7 w-auto max-w-full min-w-0 gap-1.5 border-0 bg-transparent px-1.5 -ml-1.5 shadow-none hover:bg-muted focus-visible:ring-0 dark:bg-transparent dark:hover:bg-muted"
+            data-testid={testId}
+          >
+            {account ? (
+              <FromAccountLabel account={account} />
+            ) : (
+              <SelectValue placeholder={t.mail.floatingCompose.selectFromAccount} />
+            )}
+          </SelectTrigger>
+          <SelectContent align="start">
+            {accounts.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                <span className="flex flex-col min-w-0">
+                  <span className="text-sm truncate">{accountDisplayName(option)}</span>
+                  {accountDisplayName(option) !== option.email && (
+                    <span className="text-xs text-muted-foreground truncate">{option.email}</span>
+                  )}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center min-h-9">
       <span className={FIELD_LABEL}>{label}</span>
       {account && (
-        <div className="flex items-center gap-1.5 min-w-0" title={account.email}>
-          <Avatar className="h-4 w-4 !rounded-[5px] flex-shrink-0">
-            <AvatarFallback className="!rounded-[5px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-              {name.charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-sm font-medium text-foreground truncate">{name}</span>
+        <div className="flex items-center min-w-0" title={account.email}>
+          <FromAccountLabel account={account} />
         </div>
       )}
     </div>
+  );
+}
+
+// How far ahead a send can be scheduled. Keep in step with MAX_SCHEDULE_DAYS in
+// apps/workers/mail-api/src/services/mail/scheduled.ts, which rejects anything later.
+const MAX_SCHEDULE_DAYS = 365;
+
+// "Oct 20, 9:00 AM", with the year once it is not this year's.
+function formatScheduledTime(date: Date): string {
+  return format(date, date.getFullYear() === new Date().getFullYear() ? 'MMM d, h:mm a' : 'MMM d, yyyy, h:mm a');
+}
+
+// "Schedule for Oct 20, 9:00 AM" once a time is picked.
+function scheduleLabelFor(template: string, scheduledTime: Date | null): string | undefined {
+  return scheduledTime ? template.replace('{date}', formatScheduledTime(scheduledTime)) : undefined;
+}
+
+// The send button's text: "Send", or "Schedule  Oct 20, 9:00 AM".
+function SendButtonLabel({
+  scheduledTime,
+  scheduleText,
+  sendText,
+  testId,
+}: Readonly<{ scheduledTime: Date | null; scheduleText: string; sendText: string; testId: string }>) {
+  if (!scheduledTime) return <>{sendText}</>;
+  return (
+    <>
+      {scheduleText}
+      <span className="font-normal opacity-80" data-testid={testId}>
+        {formatScheduledTime(scheduledTime)}
+      </span>
+    </>
   );
 }
 
@@ -203,6 +296,8 @@ export interface ComposeSurfaceProps {
   /** Prefix of the `data-testid`s, so two surfaces never share an id. */
   testIdPrefix?: string;
   accountId?: string;
+  /** Makes From a picker of the account to send from. */
+  onAccountChange?: (accountId: string) => void;
 
   // Header actions. A button is left out when its handler is.
   onMinimize?: () => void;
@@ -262,6 +357,7 @@ export function ComposeSurface({
   toolbarClassName,
   testIdPrefix = 'compose',
   accountId,
+  onAccountChange,
   onMinimize,
   onPopOut,
   hideMinimizeOnMobile = false,
@@ -431,11 +527,31 @@ export function ComposeSurface({
   };
 
 
+  // A send without a recipient does not go anywhere: say so next to the To
+  // field and put the cursor there.
+  const toFieldRef = useRef<RecipientsRowHandle>(null);
+  const [recipientMissing, setRecipientMissing] = useState(false);
+  const hasRecipient = toRecipients.length > 0 || toInput.trim() !== '';
+  useEffect(() => {
+    if (hasRecipient) setRecipientMissing(false);
+  }, [hasRecipient]);
+
+  const handleSend = () => {
+    if (!hasRecipient) {
+      setRecipientMissing(true);
+      toFieldRef.current?.focus();
+      return;
+    }
+    onSend();
+  };
+
+  const scheduleLabel = scheduleLabelFor(t.mail.floatingCompose.scheduleFor, scheduledTime);
+
   // Ctrl/Cmd+Enter sends from anywhere in the surface.
   const handleSendShortcut = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    onSend();
+    handleSend();
   };
 
   return (
@@ -508,7 +624,12 @@ export function ComposeSurface({
         <div className="bg-background flex-1 flex flex-col overflow-hidden">
           {/* From / To / Cc / Bcc / Subject */}
           <div className="px-4 pt-2 pb-1 flex-shrink-0">
-            <ComposeFromRow accountId={accountId} label={t.mail.floatingCompose.from} />
+            <ComposeFromRow
+              accountId={accountId}
+              label={t.mail.floatingCompose.from}
+              onAccountChange={onAccountChange}
+              testId={`${testIdPrefix}-from-account`}
+            />
 
             {/* To, with the Cc / Bcc buttons at its end. Each reveals its own row and
                 disappears once that row is shown. */}
@@ -522,6 +643,8 @@ export function ComposeSurface({
               menuClassName={SUGGESTIONS_MENU}
               focusOnMount={startInTo}
               testId={`${testIdPrefix}-to-input`}
+              handleRef={toFieldRef}
+              error={recipientMissing ? t.mail.compose.recipientRequired : undefined}
               trailing={
                 (!showCc || !showBcc) && (
                   <div className="flex items-center h-9 -mr-2 flex-shrink-0">
@@ -859,6 +982,7 @@ export function ComposeSurface({
                   <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
                 </svg>
               </Button>
+              <ComposeLinkButton editorRef={editorRef} className={TOOL_BUTTON} testId={`${testIdPrefix}-link-btn`} />
               <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleOutdent} className={TOOL_BUTTON} title={t.mail.toolbar.indentLess} aria-label={t.mail.toolbar.indentLess}>
                 <IndentDecrease className="h-4 w-4" />
               </Button>
@@ -944,10 +1068,10 @@ export function ComposeSurface({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={TOOL_BUTTON}
+                  className={cn(TOOL_BUTTON, scheduledTime && 'bg-muted text-foreground')}
                   data-testid={`${testIdPrefix}-schedule-btn`}
-                  title={t.mail.floatingCompose.schedule}
-                  aria-label={t.mail.floatingCompose.schedule}
+                  title={scheduleLabel ?? t.mail.floatingCompose.schedule}
+                  aria-label={scheduleLabel ?? t.mail.floatingCompose.schedule}
                 >
                   <Clock className="h-4 w-4" />
                 </Button>
@@ -956,10 +1080,13 @@ export function ComposeSurface({
                 <Calendar
                   mode="single"
                   selected={scheduledTime || undefined}
+                  defaultMonth={scheduledTime ?? undefined}
                   onSelect={(date) => {
                     if (date) onScheduledTimeChange(scheduleForDate(date, scheduledTime));
                   }}
-                  disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || date > addDays(new Date(), 7)}
+                  disabled={(date) => date < startOfDay(new Date()) || date > addDays(new Date(), MAX_SCHEDULE_DAYS)}
+                  startMonth={new Date()}
+                  endMonth={addDays(new Date(), MAX_SCHEDULE_DAYS)}
                   autoFocus
                 />
                 <div className="border-t border-border px-3 py-3">
@@ -997,6 +1124,17 @@ export function ComposeSurface({
                       </SelectContent>
                     </Select>
                   </div>
+                  {scheduledTime && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onScheduledTimeChange(null)}
+                      className="mt-2 -ml-2 h-7 px-2 text-xs text-muted-foreground"
+                    >
+                      {t.mail.floatingCompose.removeSchedule}
+                    </Button>
+                  )}
                 </div>
               </PopoverContent>
             </Popover>
@@ -1014,33 +1152,25 @@ export function ComposeSurface({
             </Button>
           </div>
 
-          {/* Scheduled time, send */}
+          {/* Send, or schedule at the chosen time */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {scheduledTime && (
-              <div className="inline-flex items-center gap-1 h-7 pl-2 pr-1 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 rounded-md text-xs whitespace-nowrap">
-                <span>{format(scheduledTime, 'MMM d, h:mm a')}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onScheduledTimeChange(null)}
-                  className="h-5 w-5 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded"
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            )}
-
             <Button
               type="button"
               data-testid={`${testIdPrefix}-send-btn`}
-              onClick={onSend}
+              onClick={handleSend}
               disabled={isSending}
               size="sm"
               className="ml-1 !px-3"
               title="Ctrl+Enter"
+              aria-label={scheduleLabel}
             >
               {isSending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {scheduledTime ? t.mail.floatingCompose.schedule : t.mail.floatingCompose.sendEmail}
+              <SendButtonLabel
+                scheduledTime={scheduledTime}
+                scheduleText={t.mail.floatingCompose.schedule}
+                sendText={t.mail.floatingCompose.sendEmail}
+                testId={`${testIdPrefix}-scheduled-time`}
+              />
             </Button>
           </div>
         </div>

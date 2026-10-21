@@ -501,7 +501,7 @@ app.post('/:id/versions', async (c) => {
   if (publishImmediately) {
     await rollAppForward(masterDb, appRow, manifest, versionId, now);
 
-    // NOTE: the platform caches served bundle assets under `uapp-assets:{code}`
+    // NOTE: the platform caches served bundle assets under `uapp-assets:v2:{code}`
     // in app-api's WORKSPACE_CACHE KV namespace, which this worker has no
     // binding for. We skip cross-worker invalidation and rely on that cache's
     // 60s TTL — new bundles appear within a minute of publishing.

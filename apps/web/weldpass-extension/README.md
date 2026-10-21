@@ -107,6 +107,16 @@ needs, and where each requirement comes from:
    `__clerk_db_jwt` on the web app's own host — and the guide does not cover
    it. None of the three has been tried against a WeldSuite Clerk instance.
 
+5. **Accept the extension's tokens on the API.** The API workers refuse a Clerk
+   token whose authorized party (`azp`) is not a first-party origin
+   (`packages/core/worker-kit/src/middleware/clerk.ts`), and the extension's
+   tokens carry `chrome-extension://<EXTENSION_ID>`. Put that origin in
+   `CLERK_AUTHORIZED_PARTIES` in the `[env.test.vars]` and
+   `[env.production.vars]` blocks of both `apps/workers/app-api/wrangler.toml`
+   and `apps/workers/pass-api/wrangler.toml` (app-api forwards the request,
+   and pass-api checks the token again). Until then every vault call answers
+   401.
+
 Nothing needs to change in the Clerk Dashboard beyond the allowed origin: the
 extension shows no Clerk sign-in UI, so no redirect URLs are involved.
 

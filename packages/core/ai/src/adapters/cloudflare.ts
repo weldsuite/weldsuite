@@ -2,26 +2,22 @@
  * Cloudflare AI Gateway adapter — the only gateway, serving Workers AI (`@cf/…`)
  * off the free allocation plus third-party models.
  *
- * Two modes, chosen by whether a gateway id (`CF_AI_GATEWAY`) is configured:
+ * Chat models always go through the gateway's OpenAI-compatible endpoint
+ * (`gateway.ai.cloudflare.com/v1/{acct}/{gateway}/compat`), on `CF_AI_GATEWAY`
+ * or the account's `default` gateway, so every call is logged/cached/rate-
+ * limited/spend-limited. Only the gateway serves third-party models: the direct
+ * Workers AI REST endpoint (`api.cloudflare.com/.../ai/v1`) answers `anthropic/…`
+ * ids with "Model not found" (7003), and a 404 is not a fallback-worthy refusal.
  *
- *  - **Gateway (recommended).** Routes through the gateway's OpenAI-compatible
- *    endpoint (`gateway.ai.cloudflare.com/v1/{acct}/{gateway}/compat`), so every
- *    call is logged/cached/rate-limited/spend-limited. Uses the unified
- *    `{provider}/{model}` id syntax — Workers AI ids gain a `workers-ai/` prefix.
- *    Auth is the gateway-scoped token ONLY (`cf-aig-authorization: Bearer
- *    <CF_AIG_TOKEN>`): an authenticated gateway proves account ownership and
- *    Workers AI is billed via unified billing, so no provider `Authorization`
- *    header is sent — passing an invalid one 401s even when the gateway auth is
- *    valid. (Third-party models route via the gateway's stored provider keys.)
+ * Ids use the unified `{provider}/{model}` syntax — Workers AI ids gain a
+ * `workers-ai/` prefix. Auth is the gateway header ONLY (`cf-aig-authorization:
+ * Bearer <CF_AIG_TOKEN, else the AI token>`); third-party models are paid with
+ * the gateway's stored provider keys, so no provider `Authorization` header is
+ * sent — passing an invalid one 401s even when the gateway auth is valid.
  *
- *  - **Direct (fallback).** No gateway id → the direct Workers AI REST endpoint
- *    (`api.cloudflare.com/.../ai/v1`), `@cf/…` ids unprefixed, `Authorization:
- *    Bearer <CF API token>` only. This is the pre-gateway behaviour; unchanged.
- *
- * Embeddings always use the DIRECT Workers AI endpoint, even in gateway mode:
- * the compat endpoint's `/embeddings` support is model-dependent, and embeddings
- * gain nothing from gateway caching. They need `Authorization` (a Workers-AI-
- * scoped CF API token) regardless.
+ * Embeddings always use the DIRECT Workers AI endpoint: the compat endpoint's
+ * `/embeddings` support is model-dependent, and embeddings gain nothing from
+ * gateway caching. They need `Authorization` (a Workers-AI-scoped CF API token).
  */
 
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
@@ -29,14 +25,15 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { compatBaseUrl, restApiBaseUrl, type CloudflareGatewayConfig } from '../config.js';
 import type { AdapterRuntime } from './types.js';
 
+/** Gateway chat models run on when `CF_AI_GATEWAY` is unset. */
+export const DEFAULT_GATEWAY_ID = 'default';
+
 /**
  * Map a native id to the unified `{provider}/{model}` syntax the gateway compat
  * endpoint expects. Workers AI ids (`@cf/…`) gain a `workers-ai/` prefix; ids
  * that are already provider-prefixed (`anthropic/…`, `openai/…`) pass through.
- * A no-op in direct mode.
  */
-export function toGatewayModelId(nativeId: string, useGateway: boolean): string {
-  if (!useGateway) return nativeId;
+export function toGatewayModelId(nativeId: string): string {
   return nativeId.startsWith('@cf/') ? `workers-ai/${nativeId}` : nativeId;
 }
 
@@ -98,38 +95,39 @@ function openAiCompatibleProvider(
   });
 }
 
-/** Direct Workers AI provider (Authorization bearer). Used for embeddings, and for
- *  everything when no gateway is configured. */
+/** Direct Workers AI provider (Authorization bearer). Embeddings only. */
 function directProvider(config: CloudflareGatewayConfig) {
   return openAiCompatibleProvider('weldsuite-cloudflare-workers-ai', {
-    baseURL: config.baseURL ?? restApiBaseUrl(config.accountId),
+    baseURL: restApiBaseUrl(config.accountId),
     apiKey: config.apiKey,
     headers: config.headers,
   });
 }
 
+/**
+ * Gateway compat provider for every chat model. `CF_AIG_TOKEN` when set, else
+ * the AI token: one Cloudflare token with AI Gateway Run authenticates both.
+ */
+function gatewayProvider(config: CloudflareGatewayConfig) {
+  const token = config.gatewayToken ?? config.apiKey;
+  return openAiCompatibleProvider('weldsuite-cloudflare-ai-gateway', {
+    baseURL:
+      config.baseURL ?? compatBaseUrl(config.accountId, config.gateway ?? DEFAULT_GATEWAY_ID),
+    // Gateway-scoped bearer ONLY — no provider Authorization header (see header).
+    headers: {
+      ...config.headers,
+      ...(token ? { 'cf-aig-authorization': `Bearer ${token}` } : {}),
+    },
+  });
+}
+
 export function createCloudflareAdapter(config: CloudflareGatewayConfig): AdapterRuntime {
-  const useGateway = Boolean(config.gateway);
-
-  const languageProvider = useGateway
-    ? openAiCompatibleProvider('weldsuite-cloudflare-ai-gateway', {
-        baseURL: config.baseURL ?? compatBaseUrl(config.accountId, config.gateway!),
-        // Gateway-scoped bearer ONLY — no provider Authorization header (see header).
-        headers: {
-          ...config.headers,
-          ...(config.gatewayToken
-            ? { 'cf-aig-authorization': `Bearer ${config.gatewayToken}` }
-            : {}),
-        },
-      })
-    : directProvider(config);
-
-  // Embeddings: always the direct Workers AI endpoint.
-  const embeddingProvider = useGateway ? directProvider(config) : languageProvider;
+  const languageProvider = gatewayProvider(config);
+  const embeddingProvider = directProvider(config);
 
   return {
     provider: languageProvider,
-    languageModel: (nativeId) => languageProvider(toGatewayModelId(nativeId, useGateway)),
+    languageModel: (nativeId) => languageProvider(toGatewayModelId(nativeId)),
     textEmbeddingModel: (nativeId) => embeddingProvider.textEmbeddingModel(nativeId),
   };
 }

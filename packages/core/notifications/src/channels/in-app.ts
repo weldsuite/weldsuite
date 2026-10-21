@@ -16,6 +16,8 @@ interface RealtimeBinding {
 
 interface InAppParams {
   realtime: RealtimeBinding | undefined;
+  /** The caller's `REALTIME_INTERNAL_SECRET`; the realtime-worker refuses a publish without it. */
+  realtimeSecret: string | undefined;
   workspaceId: string;
   userId: string;
   notification: {
@@ -44,7 +46,7 @@ interface InAppParams {
  * only fans the event out to that user's WebSockets.
  */
 export async function publishInAppNotification(params: InAppParams): Promise<void> {
-  const { realtime, workspaceId, userId, notification } = params;
+  const { realtime, realtimeSecret, workspaceId, userId, notification } = params;
   if (!realtime) return;
 
   const topic = `notification.${userId}`;
@@ -52,7 +54,11 @@ export async function publishInAppNotification(params: InAppParams): Promise<voi
 
   const res = await realtime.fetch('https://internal/publish/workspace', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      // REALTIME_INTERNAL_SECRET_HEADER of @weldsuite/realtime/server (not imported: this package doesn't depend on it).
+      ...(realtimeSecret ? { 'x-internal-secret': realtimeSecret } : {}),
+    },
     body: JSON.stringify({
       workspaceId,
       topic,

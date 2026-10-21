@@ -20,7 +20,8 @@
 # COMMERCE_PORTAL_URL and CONNECTOR_WEBHOOK_BASE_URL are optional [vars]; both
 # default per ENVIRONMENT (app-api sets neither).
 
-name = "weldsuite-commerce-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-commerce-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -70,6 +71,19 @@ database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 [[send_email]]
 name = "SEND_EMAIL"
 
+# Atomic counters for the public commerce portal limits (/auth/request,
+# /auth/verify): one PortalRateLimiter Durable Object per limiter key. KV
+# cannot do this (no atomic increment). The portal refuses sign-in requests
+# when this binding is missing, so it must exist in every environment.
+# Durable Object bindings and migrations are NOT inherited by [env.*].
+[[durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -106,6 +120,15 @@ database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 name = "SEND_EMAIL"
 # Only system mail goes through this binding, always from this address.
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Portal rate-limit counters (see the top-level block).
+[[env.test.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.test.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 [env.test.observability]
 enabled = true
@@ -147,6 +170,15 @@ database_id = "bcf01cc5-c2a0-4a29-9881-ecb380e94832"
 name = "SEND_EMAIL"
 # Only system mail goes through this binding, always from this address.
 allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Portal rate-limit counters (see the top-level block).
+[[env.production.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.production.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 [env.production.observability]
 enabled = true

@@ -110,39 +110,6 @@ async function playNotificationSound(
 }
 
 /**
- * Request notification permission and show a browser / OS notification.
- * On desktop this routes through the Electron shell; in the browser it uses
- * the Web Notification API.
- *
- * Returns null — the Notification instance is owned by the OS / browser and
- * is not useful to callers (legacy signature kept for compat).
- */
-export async function showBrowserNotification(
-  title: string,
-  options?: NotificationOptions & {
-    playSound?: boolean;
-    actionUrl?: string;
-    onlyWhenHidden?: boolean;
-  }
-): Promise<Notification | null> {
-  const { playSound = true, actionUrl, onlyWhenHidden, ...notificationOptions } = options ?? {};
-
-  const { showOsNotification } = await import('@/lib/desktop-notifications');
-  await showOsNotification({
-    title,
-    body: typeof notificationOptions.body === 'string' ? notificationOptions.body : undefined,
-    tag: typeof notificationOptions.tag === 'string' ? notificationOptions.tag : undefined,
-    icon: typeof notificationOptions.icon === 'string' ? notificationOptions.icon : undefined,
-    silent: notificationOptions.silent === true,
-    playSound,
-    actionUrl,
-    onlyWhenHidden,
-  });
-
-  return null;
-}
-
-/**
  * Play the "message sent" sound effect (short ascending pop)
  */
 export function playMessageSentSound(): void {
@@ -304,12 +271,4 @@ export function playScreenShareSound(): void {
     cleanTone(ctx, 523, now, 0.07, 0.07);
     cleanTone(ctx, 659, now + 0.09, 0.09, 0.07);
   } catch (e) { console.warn('Screen share sound failed:', e); }
-}
-
-/**
- * Request notification permission
- */
-export async function requestNotificationPermission(): Promise<NotificationPermission | 'desktop'> {
-  const { ensureNotificationPermission } = await import('@/lib/desktop-notifications');
-  return ensureNotificationPermission();
 }

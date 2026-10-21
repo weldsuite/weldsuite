@@ -597,6 +597,7 @@ app.post('/delete', zValidator('json', deleteWorkspaceInput), async (c) => {
         id: masterSchema.workspaces.id,
         slug: masterSchema.workspaces.slug,
         stripeSubscriptionId: masterSchema.workspaces.stripeSubscriptionId,
+        deletedAt: masterSchema.workspaces.deletedAt,
       })
       .from(masterSchema.workspaces)
       .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
@@ -637,10 +638,14 @@ app.post('/delete', zValidator('json', deleteWorkspaceInput), async (c) => {
     }
 
     // 3) Direct master cleanup — the account is unusable even before the
-    //    webhook lands. Idempotent with the webhook's own writes.
+    //    webhook lands. Idempotent with the webhook's own writes. Clerk has
+    //    confirmed the delete, so the workspace is marked deleted (a stamp the
+    //    webhook already wrote is kept): workspace-worker's teardown retry
+    //    sweep finds it by `deleted_at` if its database teardown never finishes.
+    const now = new Date();
     await masterDb
       .update(masterSchema.workspaces)
-      .set({ isActive: false, updatedAt: new Date() })
+      .set({ isActive: false, deletedAt: workspace.deletedAt ?? now, updatedAt: now })
       .where(eq(masterSchema.workspaces.id, workspace.id));
 
     await masterDb

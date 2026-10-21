@@ -230,6 +230,13 @@ export const upsertUserAppDevSessionSchema = z.object({
   /**
    * Clerk user id that should see the preview in the platform iframe.
    * Required when the caller is a workspace API key (no user on the session).
+   *
+   * Security: a preview URL is code the platform loads into that user's own
+   * session, so app-api only ever returns a session to the developer it belongs
+   * to (their own row, authoring workspace, `weldapps:develop`), and the
+   * platform pins the frame to the exact registered origin. app-api's own PUT
+   * ignores this field (it registers for the signed-in user); an API surface that
+   * honours it for another user should restrict it to developers of the workspace.
    */
   userId: z.string().min(1).max(255).optional(),
 });
@@ -304,8 +311,12 @@ function hostnameAllowed(hostname: string): boolean {
 }
 
 /**
- * True when `raw` is a URL the iframe host may load instead of the R2 bundle.
- * Loopback (http or https) and a short list of HTTPS tunnel / preview hosts.
+ * True when `raw` may be REGISTERED as a preview URL: loopback (http or https)
+ * and a short list of HTTPS tunnel / preview hosts. Anyone can host on those
+ * tunnel hosts, so registration alone never makes the platform load one: the
+ * platform host renders a tunnel only when its origin is exactly the one stored
+ * on the signed-in developer's own dev session (apps/web/platform/app/weldapps/
+ * host/preview.ts mirrors this list).
  */
 export function isAllowedDevSessionUrl(raw: string): boolean {
   let parsed: URL;

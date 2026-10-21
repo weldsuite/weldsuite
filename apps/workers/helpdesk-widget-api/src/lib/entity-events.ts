@@ -105,7 +105,7 @@ export function publishEntityEvent({
   if (workspaceId && (c.env as Env).REALTIME) {
     const realtimePromise = (async () => {
       try {
-        const rt = new RealtimePublisher((c.env as Env).REALTIME!);
+        const rt = new RealtimePublisher((c.env as Env).REALTIME!, { internalSecret: (c.env as Env).REALTIME_INTERNAL_SECRET });
         await rt.helpdeskEvent(workspaceId as string, message.eventType, message);
         console.log(`[EntityEvents] Published ${message.eventType} to realtime workspace:${workspaceId}`);
       } catch (err) {

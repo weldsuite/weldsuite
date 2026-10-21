@@ -3,7 +3,8 @@
  * tokens. Pure functions over the tenant Drizzle client; no Hono context.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
+import { CALL_DEVICE_SUFFIX } from '@weldsuite/notifications';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
@@ -13,7 +14,7 @@ export interface RegisterPushTokenInput {
   token: string;
   platform: 'ios' | 'android' | 'web';
   deviceId: string;
-  tokenType: 'expo' | 'fcm' | 'apns';
+  tokenType: 'expo' | 'fcm' | 'apns' | 'voip' | 'expo_call';
   appCode: string;
   deviceModel?: string;
   osVersion?: string;
@@ -64,7 +65,11 @@ export async function registerPushToken(
     });
 }
 
-/** Deactivate the caller's token for a device (sets `isActive` timestamp). */
+/**
+ * Deactivate the caller's tokens for a device (sets `isActive` timestamp):
+ * its push token and its call token (`<deviceId>:call`), so a signed-out or
+ * switched-away phone stops ringing for calls too.
+ */
 export async function unregisterPushToken(
   db: Database,
   userId: string,
@@ -73,5 +78,10 @@ export async function unregisterPushToken(
   await db
     .update(deviceTokens)
     .set({ isActive: new Date(), updatedAt: new Date() })
-    .where(and(eq(deviceTokens.userId, userId), eq(deviceTokens.deviceId, deviceId)));
+    .where(
+      and(
+        eq(deviceTokens.userId, userId),
+        inArray(deviceTokens.deviceId, [deviceId, `${deviceId}${CALL_DEVICE_SUFFIX}`]),
+      ),
+    );
 }

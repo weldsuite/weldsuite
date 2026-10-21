@@ -7,7 +7,7 @@ import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { helpdeskExtraKeys } from '@/hooks/queries/use-helpdesk-queries';
 import { useHelpdeskWebSocket } from '@/hooks/helpdesk/use-helpdesk-websocket';
 import { decrementHelpdeskBadge } from '@/hooks/use-sidebar-badges';
-import { showBrowserNotification } from '@/lib/utils/notification-sound';
+import { showBrowserNotification } from '@/lib/desktop-notifications';
 import { useI18n } from '@/lib/i18n/provider';
 import { InboxConversationList, conversationToItem } from '../components/inbox-conversation-list';
 

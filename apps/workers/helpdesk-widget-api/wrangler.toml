@@ -2,7 +2,8 @@
 # Serves the embeddable helpdesk chat widget with public-facing endpoints
 # authenticated via widget API keys (widgetId)
 
-name = "helpdesk-widget-api"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "helpdesk-widget-api-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
@@ -58,7 +59,7 @@ queue = "analytics-events-dev"
 # Service binding to centralized workflow worker (direct DO calls, no queue delay)
 [[services]]
 binding = "WORKFLOW_WORKER"
-service = "helpdesk-workflow-worker"
+service = "helpdesk-workflow-worker-dev"
 
 [[services]]
 binding = "REALTIME"

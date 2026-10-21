@@ -62,7 +62,7 @@ import { coloredSquareColors, findColoredSquareIconByLabel } from '@/components/
 import { toast } from 'sonner';
 import { tasksApi, labelsApi } from '../lib/api-client';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
-import { buildEntityAssigneeDirectory } from '../project/[projectId]/tasks/entity-assignees';
+import { buildEntityAssigneeDirectory, isPickableAssignee } from '../project/[projectId]/tasks/entity-assignees';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
@@ -703,6 +703,7 @@ export function MyTasksClient({
         id: m.userId,
         name: m.user.name,
         avatar: m.user.avatar,
+        departed: m.departed,
       })),
     [workspaceMembersData, tasks],
   );
@@ -1476,6 +1477,7 @@ export function MyTasksClient({
                 <PopoverContent className="w-auto p-1" align="start">
                   {availableAssignees.map((member) => {
                     const isSelected = resolvedIds.includes(member.id);
+                    if (!isPickableAssignee(member, isSelected)) return null;
                     return (
                       <Button
                         key={member.id}

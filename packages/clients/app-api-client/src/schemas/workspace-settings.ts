@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { checkVatNumber } from './vat-number';
+import { workspaceSlugSchema } from './workspace-slug';
 
 // ============================================================================
 // Workspace settings — name + slug mutations for the active workspace.
@@ -13,33 +14,11 @@ import { checkVatNumber } from './vat-number';
 // rewrites the help-center subdomain and invalidates the WORKSPACE_CACHE KV.
 // ============================================================================
 
-/** Slugs reserved for platform infrastructure — cannot be claimed by a workspace. */
-const RESERVED_SLUGS = new Set([
-  'www',
-  'app',
-  'api',
-  'admin',
-  'mail',
-  'welddesk',
-  'weldmail',
-  'support',
-  'help',
-]);
-
-export const SLUG_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/;
+// The slug rules (format and reserved names) live in ./workspace-slug.
+export { SLUG_REGEX, isReservedWorkspaceSlug } from './workspace-slug';
 
 export const updateWorkspaceSlugInput = z.object({
-  slug: z
-    .string()
-    .min(3, 'Slug must be at least 3 characters')
-    .max(63, 'Slug must be at most 63 characters')
-    .regex(
-      SLUG_REGEX,
-      'Slug must start with a lowercase letter and contain only lowercase letters, numbers, and hyphens',
-    )
-    .refine((value) => !RESERVED_SLUGS.has(value), {
-      message: 'This slug is reserved',
-    }),
+  slug: workspaceSlugSchema,
 });
 
 export type UpdateWorkspaceSlugInput = z.infer<typeof updateWorkspaceSlugInput>;

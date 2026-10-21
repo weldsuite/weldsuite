@@ -164,8 +164,11 @@ async function issueChallengeAndEmail(opts: {
   companyName?: string | null;
   settings?: CommercePortalBrand | null;
 }): Promise<void> {
-  const allowed = await consumeRateLimit(opts.env, opts.workspaceId, opts.email);
-  if (!allowed) return;
+  // Staff-triggered, so a refusal here only skips the email. Not being able to
+  // reach the counter ('unavailable') skips it too, rather than mail without a
+  // limit; the invite itself is already saved and can be resent.
+  const outcome = await consumeRateLimit(opts.env, opts.workspaceId, `invite:${opts.email}`);
+  if (outcome !== 'allowed') return;
   const token = randomToken();
   const otp = randomOtp();
   const challenge: PortalChallenge = {

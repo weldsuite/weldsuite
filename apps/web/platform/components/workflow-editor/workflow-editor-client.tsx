@@ -131,6 +131,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { copyText } from '@/lib/clipboard';
+import { useWorkspaceHref } from '@/lib/workspace-url-rewrite';
 
 /**
  * A workflow step's shape varies by `type` (send_email / http_request /
@@ -2740,6 +2741,7 @@ function SubAgentPickerList({
   onSelect: (agentId: string, agentName: string) => void;
 }>) {
   const { t } = useI18n();
+  const workspaceHref = useWorkspaceHref();
   const tec = t.weldconnect.workflowEditorClient;
   const stepConfig = step?.config as Record<string, unknown> | undefined;
   const currentSubIds: string[] = (stepConfig?.subAgentIds as string[] | undefined) || [];
@@ -2752,7 +2754,12 @@ function SubAgentPickerList({
     return (
       <p className="text-sm text-muted-foreground py-4 text-center col-span-2">
         {tec.subAgentDialog.noAgentsAvailable}{' '}
-        <a href="/welddesk/weldagent" className="text-primary underline underline-offset-2" target="_blank" rel="noreferrer">
+        <a
+          href={workspaceHref('/welddesk/weldagent')}
+          className="text-primary underline underline-offset-2"
+          target="_blank"
+          rel="noreferrer"
+        >
           {tec.subAgentDialog.createAgents}
         </a>{' '}
         {tec.subAgentDialog.createAgentsFirst}

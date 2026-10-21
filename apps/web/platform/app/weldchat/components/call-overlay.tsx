@@ -17,6 +17,7 @@
 import { createPortal } from 'react-dom';
 import { ConnectingView } from '@weldsuite/weldmeet-ui';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
+import { CallEndedView } from './call-ended-view';
 import { ChatMeetingRoomView } from './chat-meeting-room';
 
 // ============================================================================
@@ -27,10 +28,19 @@ export function InlineCallView() {
   const { status, isFullscreen, isPiP, meeting } = useWeldChatCall();
 
   // Fullscreen is owned by <CallOverlay/>; PiP by <PiPCallWidget/>.
-  if (status === 'idle' || status === 'ended' || isFullscreen || isPiP) return null;
+  if (status === 'idle' || isFullscreen || isPiP) return null;
 
-  // No pre-join preview — a brief connecting spinner, then straight into the room.
-  if (status === 'ringing-outgoing' || status === 'connecting' || !meeting) {
+  if (status === 'ended') {
+    return (
+      <div className="flex-1 flex min-h-0">
+        <CallEndedView />
+      </div>
+    );
+  }
+
+  // No pre-join preview: a spinner until RealtimeKit is set up, then the room,
+  // which shows the user's own tile while the join completes.
+  if (status === 'ringing-outgoing' || !meeting) {
     return (
       <div className="flex-1 flex min-h-0">
         <ConnectingView />
@@ -57,16 +67,16 @@ export function CallOverlay() {
 function CallOverlayInner() {
   const { status, isFullscreen, meeting } = useWeldChatCall();
 
-  if (status === 'idle' || status === 'ended') return null;
+  if (status === 'idle') return null;
   if (!isFullscreen) return null;
 
-  if (status === 'ringing-outgoing' || status === 'connecting' || !meeting) {
+  if (status === 'ended' || status === 'ringing-outgoing' || !meeting) {
     // Portaled to <body> like the room's own FullscreenFrame: this overlay is
     // mounted inside the content card's z-10 stacking context, below the
     // z-50 app sidebar rail.
     return createPortal(
       <div className="fixed inset-0 z-50 flex bg-background">
-        <ConnectingView />
+        {status === 'ended' ? <CallEndedView /> : <ConnectingView />}
       </div>,
       document.body,
     );

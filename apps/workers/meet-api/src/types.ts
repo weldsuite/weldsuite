@@ -23,6 +23,8 @@ export interface Env
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   /** R2 bucket for files, documents and generated avatars (participant-resolver.ts). */
   STORAGE?: R2Bucket;
@@ -35,6 +37,11 @@ export interface Env
   CF_REALTIME_APP_ID?: string;
   /** Cloudflare RealtimeKit app secret — meeting sessions (@weldsuite/cloudflare-realtime). */
   CF_REALTIME_APP_SECRET?: string;
+  /** APNs provider key (.p8), same values as chat-api: a WeldChat call that
+   *  the `meeting.ended` webhook ends stops ringing on iPhones (VoIP cancel). */
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_PRIVATE_KEY?: string;
   /**
    * Operator bearer token for POST /api/webhooks/cloudflare-realtime/setup
    * (`Authorization: Bearer <token>`). Unset = /setup refuses. Deliveries to

@@ -10,7 +10,9 @@ export const registerPushTokenSchema = z.object({
   token: z.string().min(1),
   platform: z.enum(['ios', 'android', 'web']),
   deviceId: z.string().min(1),
-  tokenType: z.enum(['expo', 'fcm', 'apns']).default('expo'),
+  // voip / expo_call: a WeldChat device's call token (deviceId `<id>:call`),
+  // used only for the native incoming-call ring (@weldsuite/notifications call-push).
+  tokenType: z.enum(['expo', 'fcm', 'apns', 'voip', 'expo_call']).default('expo'),
   appCode: z.string().min(1).default('weldsuite'),
   deviceModel: z.string().optional(),
   osVersion: z.string().optional(),

@@ -5,7 +5,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
     "deploy:production": "wrangler deploy --env production",
     "deploy:test": "wrangler deploy --env test",
     "dev": "wrangler dev",
@@ -24,7 +23,7 @@
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.34",
+    "hono": "^4.13.13",
     "nanoid": "^5.1.16",
     "postgres": "^3.4.7",
     "zod": "^3.25.76"

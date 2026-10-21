@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
+import { createPortal } from 'react-dom';
 import { BlockNoteView } from '@blocknote/shadcn';
 import {
   useCreateBlockNote,
@@ -49,6 +50,7 @@ import {
   RemoveFormatting,
   Pilcrow,
   ChevronDown,
+  ChevronLeft,
   Check,
   Lightbulb,
   ListCollapse,
@@ -139,6 +141,14 @@ export interface BlockEditorProps {
    * has no pages around it.
    */
   pageLinks?: PageLinkSource;
+  /**
+   * Show a formatting bar above selected text (block type, colours, link,
+   * bold / italic / strikethrough). `onAskAgent` adds an "Ask Agent"
+   * button that hands the selected text over.
+   */
+  selectionToolbar?: {
+    onAskAgent?: (text: string) => void;
+  };
 }
 
 /** BlockNote's own UI strings (built-in slash commands, placeholders, menus) per app language. */
@@ -181,6 +191,7 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   collaboration,
   comments,
   pageLinks,
+  selectionToolbar,
 }, ref) {
   const { language } = useI18n();
   const { uploadFile } = useFileUpload({
@@ -332,7 +343,11 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   const strings = getBlockEditorStrings();
 
   return (
-    <div ref={wrapperRef} className={cn('block-editor-wrapper', className)}>
+    <div
+      ref={wrapperRef}
+      className={cn('block-editor-wrapper', className)}
+      data-has-selection-toolbar={selectionToolbar && editable ? '' : undefined}
+    >
       <BlockNoteView
         editor={editor}
         editable={editable}
@@ -379,6 +394,9 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
           </>
         ) : null}
       </BlockNoteView>
+      {selectionToolbar && editable ? (
+        <SelectionToolbar editor={editor} onAskAgent={selectionToolbar.onAskAgent} />
+      ) : null}
     </div>
   );
 });
@@ -388,6 +406,11 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
 // ============================================================================
 
 type BasicStyle = 'bold' | 'italic' | 'underline' | 'strike' | 'code';
+type HeadingLevel = 1 | 2 | 3;
+/** Block types the static toolbar's block menu can switch to. */
+type StaticBlockType =
+  | 'paragraph' | 'heading' | 'bulletListItem' | 'numberedListItem' | 'checkListItem' | 'quote'
+  | 'toggleListItem' | 'codeBlock' | 'callout';
 type ColorLabelKey = keyof BlockEditorStrings['toolbar']['colors'];
 type TextAlignment = 'left' | 'center' | 'right' | 'justify';
 
@@ -837,12 +860,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
   );
 
   const setBlockType = useCallback(
-    (
-      type:
-        | 'paragraph' | 'heading' | 'bulletListItem' | 'numberedListItem' | 'checkListItem' | 'quote'
-        | 'toggleListItem' | 'codeBlock' | 'callout',
-      level?: 1 | 2 | 3,
-    ) => {
+    (type: StaticBlockType, level?: HeadingLevel) => {
       editor.focus();
       const block = editor.getTextCursorPosition().block;
       if (!block) return;
@@ -1715,6 +1733,639 @@ function LinkButton({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+// ============================================================================
+// Selection toolbar (floats above a text selection, Attio-style)
+// ============================================================================
+
+type SelectionBlockType =
+  | 'paragraph' | 'heading' | 'bulletListItem' | 'numberedListItem' | 'checkListItem' | 'quote' | 'codeBlock';
+
+interface SelectionAnchor {
+  /** Left edge of the selection, viewport px */
+  x: number;
+  /** Top edge of the selection, viewport px */
+  y: number;
+}
+
+const SELECTION_TOOLBAR_GAP = 8;
+const SELECTION_TOOLBAR_EDGE = 8;
+/** CSS highlight name, styled by ensureSelectionHighlightStyle */
+const SELECTION_HIGHLIGHT = 'weld-editor-selection';
+
+/**
+ * Adds the ::highlight rule once. It lives here rather than in globals.css
+ * because Lightning CSS (Tailwind's minifier) doesn't parse ::highlight()
+ * yet and warns on every build.
+ */
+function ensureSelectionHighlightStyle() {
+  const id = `${SELECTION_HIGHLIGHT}-style`;
+  if (document.getElementById(id)) return;
+  const style = document.createElement('style');
+  style.id = id;
+  style.textContent = `::highlight(${SELECTION_HIGHLIGHT}) { background-color: Highlight; color: HighlightText; }`;
+  document.head.appendChild(style);
+}
+
+const SELECTION_TEXT_BUTTON =
+  'h-7 gap-1.5 rounded-md px-2 text-[13px] font-normal text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground';
+const SELECTION_ICON_BUTTON =
+  'h-7 w-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground';
+const SELECTION_SEPARATOR = 'mx-0.5 h-4 w-px bg-border';
+
+type TiptapSelectionApi = {
+  isFocused: boolean;
+  state: {
+    selection: { from: number; to: number; empty: boolean };
+    doc: { textBetween: (from: number, to: number, sep?: string) => string };
+  };
+};
+
+function getTiptap(editor: BlockNoteEditorInstance): TiptapSelectionApi | undefined {
+  return (editor as unknown as { _tiptapEditor?: TiptapSelectionApi })._tiptapEditor;
+}
+
+/** Text of the editor's current selection ('' when collapsed). */
+function readSelectedText(editor: BlockNoteEditorInstance): string {
+  const tt = getTiptap(editor);
+  if (!tt) return '';
+  const { from, to, empty } = tt.state.selection;
+  if (empty) return '';
+  try {
+    return tt.state.doc.textBetween(from, to, ' ');
+  } catch {
+    return '';
+  }
+}
+
+/** Top-left of the browser selection, when it lies inside a BlockNote editor. */
+function readSelectionAnchor(): SelectionAnchor | null {
+  if (!selectionInsideEditor()) return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const rect = sel.getRangeAt(0).getBoundingClientRect();
+  if (rect.width <= 0 && rect.height <= 0) return null;
+  return { x: rect.left, y: rect.top };
+}
+
+function SelectionSwatch({ color, none }: Readonly<{ color?: string; none?: boolean }>) {
+  if (none) {
+    return (
+      <span className="relative inline-block h-3.5 w-3.5 overflow-hidden rounded-[4px] border border-border bg-background">
+        <span className="absolute left-1/2 top-1/2 h-px w-[140%] -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-red-500" />
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn('inline-block h-3.5 w-3.5 rounded-[4px] border border-border', !color && 'bg-foreground')}
+      style={color ? { backgroundColor: color } : undefined}
+    />
+  );
+}
+
+const SELECTION_SWATCH =
+  'relative size-6 shrink-0 rounded-[6px] p-0 ring-1 ring-inset ring-black/10 hover:ring-2 hover:ring-foreground/30 dark:ring-white/10';
+const SELECTION_SWATCH_ACTIVE = 'ring-2 ring-foreground hover:ring-foreground dark:ring-foreground';
+
+/** Colour squares for the selection toolbar's Text and Highlight menus, plus a custom colour. */
+function SelectionColorMenu({
+  swatches,
+  current,
+  onPick,
+  highlight,
+}: Readonly<{
+  swatches: { value: string; labelKey: ColorLabelKey; swatch: string }[];
+  current: string | undefined;
+  onPick: (value: string) => void;
+  /** Highlight menu: the default square is "None", drawn crossed out. */
+  highlight?: boolean;
+}>) {
+  const strings = getBlockEditorStrings().toolbar;
+  const [showCustom, setShowCustom] = useState(false);
+  const active = current ?? 'default';
+  const isCustom = !!current?.startsWith('#');
+
+  // ColorPicker reports its colour from an effect that re-runs whenever its
+  // `onChange` changes, and once on mount. A fresh callback per render would
+  // loop (apply -> re-render -> new callback -> apply ...), so hand it a
+  // stable one that skips the mount report and repeats of the same colour.
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+  const lastCustomRef = useRef<string | null>(null);
+  const handleCustomChange = useCallback((value: unknown) => {
+    if (!Array.isArray(value)) return;
+    const [r, g, b] = value as [number, number, number, number];
+    const toHex = (n: number) => Math.round(n).toString(16).padStart(2, '0');
+    const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    if (lastCustomRef.current === null) {
+      lastCustomRef.current = hex;
+      return;
+    }
+    if (hex === lastCustomRef.current) return;
+    lastCustomRef.current = hex;
+    onPickRef.current(hex);
+  }, []);
+
+  if (showCustom) {
+    return (
+      // Same width as the swatch grid (6 x 24px + 5 x 6px), so the menu keeps its size.
+      <div className="flex w-[174px] flex-col gap-2" data-color-picker-inner>
+        {/* Header bar, full-bleed over the menu's padding, with the way back. */}
+        <div className="-mx-2 -mt-2 flex h-9 items-center gap-1 border-b px-1.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            aria-label={strings.back}
+            title={strings.back}
+            onClick={() => setShowCustom(false)}
+            className="size-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+          <span className="text-[13px] font-medium">{strings.customColor}</span>
+        </div>
+        <ColorPicker
+          defaultValue={isCustom ? current : '#3b82f6'}
+          onChange={handleCustomChange as never}
+          className="h-auto w-full"
+        >
+          <ColorPickerSelection className="h-36 rounded-md" />
+          <ColorPickerHue />
+          <ColorPickerFormat />
+        </ColorPicker>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-6 gap-1.5">
+      {swatches.map((c) => {
+        const isDefault = c.value === 'default';
+        const isActive = active === c.value;
+        return (
+          <Button
+            key={c.value}
+            type="button"
+            variant="ghost"
+            title={strings.colors[c.labelKey]}
+            aria-label={strings.colors[c.labelKey]}
+            aria-pressed={isActive}
+            onClick={() => onPick(c.value)}
+            className={cn(
+              SELECTION_SWATCH,
+              isDefault && !highlight && 'bg-foreground hover:bg-foreground',
+              isDefault && highlight && 'overflow-hidden bg-background hover:bg-background',
+              isActive && SELECTION_SWATCH_ACTIVE,
+            )}
+            style={isDefault ? undefined : { backgroundColor: c.swatch }}
+          >
+            {isDefault && highlight ? (
+              <span className="absolute left-1/2 top-1/2 h-px w-[140%] -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-red-500" />
+            ) : null}
+          </Button>
+        );
+      })}
+      <Button
+        type="button"
+        variant="ghost"
+        title={strings.customColor}
+        aria-label={strings.customColor}
+        onClick={() => {
+          lastCustomRef.current = null;
+          setShowCustom(true);
+        }}
+        className={cn(SELECTION_SWATCH, isCustom && SELECTION_SWATCH_ACTIVE)}
+        style={{
+          background:
+            'conic-gradient(from 0deg, #ef4444, #f59e0b, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ec4899, #ef4444)',
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * The bar that appears above selected text: block type, text colour,
+ * highlight, link, bold / italic / strikethrough, and an "Ask Agent"
+ * action that sends the selection to the agent. Rendered by BlockEditor when
+ * `selectionToolbar` is set.
+ */
+function SelectionToolbar({
+  editor,
+  onAskAgent,
+}: Readonly<{
+  editor: BlockNoteEditorInstance;
+  onAskAgent?: (text: string) => void;
+}>) {
+  const strings = getBlockEditorStrings();
+  const tb = strings.toolbar;
+  const st = strings.selectionToolbar;
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
+  const [state, setState] = useState<ToolbarState>(INITIAL_TOOLBAR_STATE);
+  const [openMenu, setOpenMenu] = useState<'block' | 'text' | 'highlight' | null>(null);
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  // Refs so the selection listeners (subscribed once) see current values.
+  const pointerDownRef = useRef(false);
+  const keepOpenRef = useRef(false);
+  /** The selected range, so it can stay painted while focus is in the bar. */
+  const rangeRef = useRef<Range | null>(null);
+  keepOpenRef.current = openMenu !== null || linkMode;
+
+  useEffect(() => {
+    const update = () => {
+      if (pointerDownRef.current) return;
+      const tt = getTiptap(editor);
+      const text = readSelectedText(editor);
+      const focusInToolbar = !!toolbarRef.current?.contains(document.activeElement);
+      if (!text.trim() || (!tt?.isFocused && !focusInToolbar && !keepOpenRef.current)) {
+        if (!keepOpenRef.current) setAnchor(null);
+        return;
+      }
+      const next = readSelectionAnchor();
+      if (next) {
+        setAnchor(next);
+        rangeRef.current = window.getSelection()?.getRangeAt(0).cloneRange() ?? null;
+      }
+      setState((prev) => {
+        const computed = computeToolbarState(editor, prev);
+        return toolbarStateEqual(prev, computed) ? prev : computed;
+      });
+    };
+
+    // Like Notion and Attio, stay out of the way while the mouse is still
+    // dragging out the selection; show once it's released. The editor's DOM
+    // element doesn't exist yet when this effect first runs, so look it up
+    // per event.
+    const onPointerDown = (e: PointerEvent) => {
+      const root = (editor as unknown as { domElement?: HTMLElement }).domElement;
+      if (!root?.contains(e.target as Node)) return;
+      pointerDownRef.current = true;
+      setAnchor(null);
+      setOpenMenu(null);
+      setLinkMode(false);
+    };
+    const onPointerUp = () => {
+      if (!pointerDownRef.current) return;
+      pointerDownRef.current = false;
+      // Let the browser settle the selection first.
+      requestAnimationFrame(update);
+    };
+    // Only follow the selection while the bar is showing; a dismissed bar
+    // must not come back on scroll or resize.
+    const onScroll = () => {
+      const next = readSelectionAnchor();
+      if (next) setAnchor((prev) => (prev ? next : prev));
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setAnchor(null);
+      setOpenMenu(null);
+      setLinkMode(false);
+    };
+
+    const unsubSelection = editor.onSelectionChange(update);
+    const tt = (editor as unknown as {
+      _tiptapEditor?: { on: (evt: string, cb: () => void) => void; off: (evt: string, cb: () => void) => void };
+    })._tiptapEditor;
+    tt?.on('transaction', update);
+    tt?.on('blur', update);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('pointerup', onPointerUp, true);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      unsubSelection?.();
+      tt?.off('transaction', update);
+      tt?.off('blur', update);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('pointerup', onPointerUp, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [editor]);
+
+  // A menu or the link field closed after focus had already left the
+  // document (a click elsewhere on the page): nothing holds the bar open now.
+  useEffect(() => {
+    if (openMenu || linkMode) return;
+    const focusInToolbar = !!toolbarRef.current?.contains(document.activeElement);
+    if (!getTiptap(editor)?.isFocused && !focusInToolbar) setAnchor(null);
+  }, [editor, openMenu, linkMode]);
+
+  // Focus moving into the bar (the link field) clears the browser's
+  // selection highlight. Paint the selected range with the CSS Custom
+  // Highlight API instead, so the text stays visibly selected.
+  useEffect(() => {
+    const highlights = typeof CSS !== 'undefined' ? CSS.highlights : undefined;
+    if (!anchor || !highlights) return;
+    ensureSelectionHighlightStyle();
+    const sync = () => {
+      const range = rangeRef.current;
+      if (range && !getTiptap(editor)?.isFocused) {
+        highlights.set(SELECTION_HIGHLIGHT, new Highlight(range));
+      } else {
+        highlights.delete(SELECTION_HIGHLIGHT);
+      }
+    };
+    sync();
+    document.addEventListener('focusin', sync);
+    document.addEventListener('focusout', sync);
+    return () => {
+      document.removeEventListener('focusin', sync);
+      document.removeEventListener('focusout', sync);
+      highlights.delete(SELECTION_HIGHLIGHT);
+    };
+  }, [editor, anchor]);
+
+  // Measure the bar so it can be kept inside the viewport.
+  useLayoutEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+  }, [anchor, linkMode, state]);
+
+  const close = useCallback(() => {
+    setAnchor(null);
+    setOpenMenu(null);
+    setLinkMode(false);
+    setLinkUrl('');
+  }, []);
+
+  const toggleStyle = useCallback(
+    (style: BasicStyle) => {
+      editor.focus();
+      if (state.activeStyles[style]) {
+        editor.removeStyles({ [style]: true } as never);
+      } else {
+        editor.addStyles({ [style]: true } as never);
+      }
+    },
+    [editor, state.activeStyles],
+  );
+
+  const setBlockType = useCallback(
+    (type: SelectionBlockType, level?: HeadingLevel) => {
+      editor.focus();
+      const block = editor.getTextCursorPosition().block;
+      if (!block) return;
+      editor.updateBlock(block, (type === 'heading' ? { type, props: { level: level ?? 1 } } : { type }) as never);
+      setOpenMenu(null);
+    },
+    [editor],
+  );
+
+  const applyColor = useCallback(
+    (kind: 'textColor' | 'backgroundColor', value: string) => {
+      editor.focus();
+      editor.addStyles({ [kind]: value } as never);
+      // A custom colour comes from dragging the picker: keep the menu open.
+      if (!value.startsWith('#')) setOpenMenu(null);
+    },
+    [editor],
+  );
+
+  const submitLink = useCallback(() => {
+    const trimmed = linkUrl.trim();
+    if (!trimmed) return;
+    const url = /^[a-z]+:\/\//i.test(trimmed) || trimmed.startsWith('mailto:') ? trimmed : `https://${trimmed}`;
+    editor.focus();
+    try {
+      (editor as unknown as { createLink: (url: string) => void }).createLink(url);
+    } catch { /* noop */ }
+    setLinkMode(false);
+    setLinkUrl('');
+  }, [editor, linkUrl]);
+
+  const askAgent = useCallback(() => {
+    const text = readSelectedText(editor).trim();
+    if (!text || !onAskAgent) return;
+    onAskAgent(text);
+    close();
+  }, [editor, onAskAgent, close]);
+
+  if (!anchor) return null;
+
+  const { activeStyles, activeBlockType, activeHeadingLevel } = state;
+  const codeBlockLabel = editor.dictionary.slash_menu.code_block.title;
+  const blockItems: { type: SelectionBlockType; level?: HeadingLevel; label: string; Icon: typeof Pilcrow; match: boolean }[] = [
+    { type: 'paragraph', label: st.body, Icon: Pilcrow, match: activeBlockType === 'paragraph' },
+    { type: 'heading', level: 1, label: tb.blocks.heading1, Icon: Heading1, match: activeBlockType === 'heading' && activeHeadingLevel === 1 },
+    { type: 'heading', level: 2, label: tb.blocks.heading2, Icon: Heading2, match: activeBlockType === 'heading' && activeHeadingLevel === 2 },
+    { type: 'heading', level: 3, label: tb.blocks.heading3, Icon: Heading3, match: activeBlockType === 'heading' && activeHeadingLevel === 3 },
+    { type: 'bulletListItem', label: tb.blocks.bulletList, Icon: List, match: activeBlockType === 'bulletListItem' },
+    { type: 'numberedListItem', label: tb.blocks.numberedList, Icon: ListOrdered, match: activeBlockType === 'numberedListItem' },
+    { type: 'checkListItem', label: tb.blocks.checkList, Icon: ListChecks, match: activeBlockType === 'checkListItem' },
+    { type: 'quote', label: tb.blocks.quote, Icon: Quote, match: activeBlockType === 'quote' },
+    { type: 'codeBlock', label: codeBlockLabel, Icon: SquareCode, match: activeBlockType === 'codeBlock' },
+  ];
+  const currentBlockLabel = blockItems.find((item) => item.match)?.label ?? st.body;
+
+  const textColor = activeStyles.textColor as string | undefined;
+  const textSwatch = TEXT_COLORS.find((c) => c.value === textColor && c.value !== 'default')?.swatch
+    ?? (textColor?.startsWith('#') ? textColor : undefined);
+  const highlight = activeStyles.backgroundColor as string | undefined;
+  const highlightSwatch = BG_COLORS.find((c) => c.value === highlight && c.value !== 'default')?.swatch
+    ?? (highlight?.startsWith('#') ? highlight : undefined);
+
+  // Line up with the start of the selection, above it; flip below it when
+  // there's no room above, and keep the whole bar on screen.
+  const width = size.width || 360;
+  const height = size.height || 36;
+  const left = Math.min(
+    Math.max(anchor.x, SELECTION_TOOLBAR_EDGE),
+    window.innerWidth - width - SELECTION_TOOLBAR_EDGE,
+  );
+  const top = anchor.y - height - SELECTION_TOOLBAR_GAP;
+
+  // Clicks on the bar and its menus must not take focus (and the selection)
+  // away from the document; the link field is the one exception.
+  const keepSelection = (e: React.MouseEvent) => {
+    if ((e.target as Element).closest('input')) return;
+    e.preventDefault();
+  };
+
+  // Menus open and close instantly, like the bar itself (`animate-none!` on each).
+  const menuContentProps = {
+    onOpenAutoFocus: (e: Event) => e.preventDefault(),
+    onCloseAutoFocus: (e: Event) => e.preventDefault(),
+    onMouseDown: keepSelection,
+  };
+
+  return createPortal(
+    <div
+      ref={toolbarRef}
+      role="toolbar"
+      data-selection-toolbar
+      className="fixed z-50 flex h-9 items-center gap-0.5 rounded-[10px] border bg-popover px-1 text-popover-foreground shadow-md"
+      style={{ left, top: top < SELECTION_TOOLBAR_EDGE ? anchor.y + 28 : top }}
+      onMouseDown={keepSelection}
+    >
+      {linkMode ? (
+        <div className="flex items-center gap-1 px-1">
+          <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <input
+            autoFocus
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                submitLink();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setLinkMode(false);
+                editor.focus();
+              }
+            }}
+            placeholder={st.linkPlaceholder}
+            spellCheck={false}
+            className="h-7 w-60 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className={SELECTION_TEXT_BUTTON}
+            onClick={submitLink}
+            disabled={!linkUrl.trim()}
+          >
+            {tb.link.apply}
+          </Button>
+        </div>
+      ) : (
+        <>
+          {onAskAgent ? (
+            <>
+              <Button type="button" variant="ghost" className={SELECTION_TEXT_BUTTON} onClick={askAgent}>
+                <img src="/assets/images/weldagent/icon.svg" alt="" className="h-4 w-4" />
+                <span>{st.askAgent}</span>
+              </Button>
+              <div className={SELECTION_SEPARATOR} />
+            </>
+          ) : null}
+
+          <Popover open={openMenu === 'block'} onOpenChange={(open) => setOpenMenu(open ? 'block' : null)}>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" className={SELECTION_TEXT_BUTTON} title={tb.blockType}>
+                <span className="max-w-[110px] truncate">{currentBlockLabel}</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" sideOffset={6} className="w-48 p-1 animate-none!" {...menuContentProps}>
+              {blockItems.map(({ type, level, label, Icon, match }) => (
+                <Button
+                  key={label}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setBlockType(type, level)}
+                  className={cn(
+                    'h-8 w-full justify-start gap-2 rounded-[7px] px-2 text-sm font-normal',
+                    match && 'bg-accent text-foreground',
+                  )}
+                >
+                  <Icon className="h-4 w-4 text-muted-foreground" />
+                  <span>{label}</span>
+                  <Check className={cn('ml-auto h-4 w-4', match ? 'opacity-100' : 'opacity-0')} />
+                </Button>
+              ))}
+            </PopoverContent>
+          </Popover>
+
+          <div className={SELECTION_SEPARATOR} />
+
+          <Popover open={openMenu === 'text'} onOpenChange={(open) => setOpenMenu(open ? 'text' : null)}>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" className={SELECTION_TEXT_BUTTON} title={tb.textColor}>
+                <span>{st.text}</span>
+                <SelectionSwatch color={textSwatch} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" sideOffset={6} className="w-auto p-2 animate-none!" {...menuContentProps}>
+              <SelectionColorMenu
+                swatches={TEXT_COLORS}
+                current={textColor}
+                onPick={(value) => applyColor('textColor', value)}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <Popover open={openMenu === 'highlight'} onOpenChange={(open) => setOpenMenu(open ? 'highlight' : null)}>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" className={SELECTION_TEXT_BUTTON} title={tb.highlight}>
+                <span>{st.highlight}</span>
+                <SelectionSwatch color={highlightSwatch} none={!highlightSwatch} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" sideOffset={6} className="w-auto p-2 animate-none!" {...menuContentProps}>
+              <SelectionColorMenu
+                swatches={BG_COLORS}
+                current={highlight}
+                onPick={(value) => applyColor('backgroundColor', value)}
+                highlight
+              />
+            </PopoverContent>
+          </Popover>
+
+          <div className={SELECTION_SEPARATOR} />
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={SELECTION_ICON_BUTTON}
+            title={tb.link.insertLink}
+            onClick={() => setLinkMode(true)}
+          >
+            <LinkIcon className="h-4 w-4" />
+          </Button>
+
+          <div className={SELECTION_SEPARATOR} />
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(SELECTION_ICON_BUTTON, activeStyles.bold && 'bg-accent text-foreground')}
+            title={tb.bold}
+            onClick={() => toggleStyle('bold')}
+          >
+            <BoldGlyph />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(SELECTION_ICON_BUTTON, activeStyles.italic && 'bg-accent text-foreground')}
+            title={tb.italic}
+            onClick={() => toggleStyle('italic')}
+          >
+            <ItalicGlyph />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(SELECTION_ICON_BUTTON, activeStyles.strike && 'bg-accent text-foreground')}
+            title={tb.strikethrough}
+            onClick={() => toggleStyle('strike')}
+          >
+            <Strikethrough className="h-4 w-4" />
+          </Button>
+        </>
+      )}
+    </div>,
+    document.body,
   );
 }
 

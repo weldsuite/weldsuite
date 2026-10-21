@@ -48,7 +48,7 @@ export interface PostSystemChatMessageContext {
 }
 
 function getPublisher(env: PostSystemMessageEnv): RealtimePublisher | null {
-  return env.REALTIME ? new RealtimePublisher(env.REALTIME) : null;
+  return env.REALTIME ? new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET }) : null;
 }
 
 /** Whether a mention token refers to a human user who should be notified. */

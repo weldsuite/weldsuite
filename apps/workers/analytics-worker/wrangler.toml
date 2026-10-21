@@ -1,7 +1,8 @@
 # WeldSuite Analytics Worker
 # Queue consumer for ANALYTICS_EVENTS — writes records to Cloudflare Pipeline (→ R2 Iceberg).
 
-name = "weldsuite-analytics"
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-analytics-dev"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]

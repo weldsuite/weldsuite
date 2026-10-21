@@ -68,3 +68,37 @@ export async function openCachedDatabaseUrl(
     return null;
   }
 }
+
+/** A cache entry as stored in KV: `databaseUrl` replaced by `databaseUrlSealed`. */
+export type SealedCacheEntry<T extends { databaseUrl: string }> = Omit<T, 'databaseUrl'> & {
+  databaseUrlSealed: string;
+};
+
+/** A stored entry with its connection string opened again. */
+export type OpenedCacheEntry<T extends { databaseUrlSealed?: unknown }> = Omit<T, 'databaseUrlSealed'> & {
+  databaseUrl: string;
+};
+
+/** The entry to write to KV, or null when there is no key to seal with (then don't cache). */
+export async function sealCacheEntry<T extends { databaseUrl: string }>(
+  entry: T,
+  keyring: KeyringInput,
+): Promise<SealedCacheEntry<T> | null> {
+  const databaseUrlSealed = await sealCachedDatabaseUrl(entry.databaseUrl, keyring);
+  if (!databaseUrlSealed) return null;
+  const stored: Record<string, unknown> = { ...entry, databaseUrlSealed };
+  delete stored.databaseUrl;
+  return stored as SealedCacheEntry<T>;
+}
+
+/** The entry read from KV with its URL opened, or null (a miss) when it can't be opened. */
+export async function openCacheEntry<T extends { databaseUrlSealed?: unknown }>(
+  stored: T,
+  keyring: KeyringInput,
+): Promise<OpenedCacheEntry<T> | null> {
+  const databaseUrl = await openCachedDatabaseUrl(stored.databaseUrlSealed, keyring);
+  if (!databaseUrl) return null;
+  const entry: Record<string, unknown> = { ...stored, databaseUrl };
+  delete entry.databaseUrlSealed;
+  return entry as OpenedCacheEntry<T>;
+}

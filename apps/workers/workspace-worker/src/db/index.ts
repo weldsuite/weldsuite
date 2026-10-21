@@ -87,7 +87,7 @@ async function getCachedWorkspaceUrl(
   const databaseUrl = await resolveDatabaseUrl(
     env.NEON_API_KEY,
     workspace as any,
-    env.DATABASE_ENCRYPTION_KEY
+    keyring,
   );
 
   const entry: CachedWorkspace = { id: workspace.id, databaseUrl };

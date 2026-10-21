@@ -36,6 +36,11 @@ export function clearPendingOrganization(): void {
   }
 }
 
+/** Clear the pending org only while it is still `orgId`, so one set since (a workspace being created) stays. */
+export function clearPendingOrganizationIf(orgId: string): void {
+  if (peekPendingOrganization() === orgId) clearPendingOrganization();
+}
+
 /**
  * Pick the Clerk org the app shell should activate.
  *

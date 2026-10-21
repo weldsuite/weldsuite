@@ -56,7 +56,8 @@ export function clipPreviewString(value: unknown, max: number): string | undefin
   return trimmed.length > max ? trimmed.slice(0, max) : trimmed;
 }
 
-function parseId(value: unknown): string | undefined {
+/** A `generateId()`-shaped id from an untrusted payload, else undefined. */
+export function parseId(value: unknown): string | undefined {
   return typeof value === 'string' && ID_PATTERN.test(value) ? value : undefined;
 }
 

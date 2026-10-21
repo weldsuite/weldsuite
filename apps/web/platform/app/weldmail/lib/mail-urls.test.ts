@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildMailItemUrl, buildMailListUrl, buildMailSearch, mailFolderPath, parseMailSearch } from './mail-urls';
+import { absoluteMailUrl, buildMailItemUrl, buildMailListUrl, buildMailSearch, mailFolderPath, parseMailSearch } from './mail-urls';
+
+describe('absoluteMailUrl', () => {
+  it('puts the origin in front of the in-app path', () => {
+    expect(absoluteMailUrl('/weldmail/acc_1/inbox/msg_1', 'https://app.weldsuite.org')).toBe(
+      'https://app.weldsuite.org/weldmail/acc_1/inbox/msg_1',
+    );
+  });
+});
 
 describe('buildMailSearch', () => {
   it('omits the query string on page 1 with no account', () => {

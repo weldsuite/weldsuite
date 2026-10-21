@@ -19,8 +19,10 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as messages from '@weldsuite/mail-domain/messages';
+import { toPublicAttachment } from '@weldsuite/mail-domain/attachments';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
 import { sendErrorResponse } from '../../lib/send-errors';
+import { clearsUnreadBanner, queueMailReadPush } from '../../lib/read-push';
 import {
   emailEventData,
   checkAccountAccess,
@@ -84,6 +86,20 @@ const bulkBody = z.object({
     'trash', 'restore', 'delete',
   ]),
 });
+
+/** Bulk actions after which a message's new-email banner should go. */
+const BULK_ACTIONS_CLEARING_BANNER = new Set<z.infer<typeof bulkBody>['action']>(['markRead', 'trash', 'delete']);
+
+/** messageId → accountId, regrouped as accountId → messageIds. */
+function groupByAccount(accountByMessage: Map<string, string>): Map<string, string[]> {
+  const byAccount = new Map<string, string[]>();
+  for (const [messageId, accountId] of accountByMessage) {
+    const ids = byAccount.get(accountId) ?? [];
+    ids.push(messageId);
+    byAccount.set(accountId, ids);
+  }
+  return byAccount;
+}
 
 const labelsBody = z.object({
   labels: z.array(z.string()).min(1),
@@ -179,7 +195,12 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     const row = await messages.getMessage(db, id);
     if (!row) return error.notFound(c, 'Message', id);
-    return success(c, row);
+    // Attachment rows without their storage URL: files are read through
+    // GET /api/mail-attachments/:id/download, which checks the mailbox.
+    return success(c, {
+      ...row,
+      attachments: row.attachments.filter((a) => !a.deletedAt).map(toPublicAttachment),
+    });
   } catch (err) {
     console.error('[app-api/mail-messages] get failed:', err);
     return error.internal(c, 'Failed to fetch message');
@@ -230,6 +251,7 @@ const patchHandler = async (
       to: (after.to as { email?: string }[] | null)?.map((t) => t.email ?? '').filter(Boolean) ?? null,
     }),
   });
+  if (clearsUnreadBanner(data)) queueMailReadPush(c, after.accountId, [id]);
   return success(c, { id, ...data });
 };
 
@@ -301,6 +323,9 @@ app.post(
           to: null,
         },
       });
+      if (BULK_ACTIONS_CLEARING_BANNER.has(data.action)) {
+        for (const [accId, ids] of groupByAccount(msgMap)) queueMailReadPush(c, accId, ids);
+      }
       return success(c, result);
     } catch (err) {
       console.error('[app-api/mail-messages] bulk failed:', err);
@@ -333,6 +358,7 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
         to: null,
       }),
     });
+    queueMailReadPush(c, deleted.accountId, [id]);
     return noContent(c);
   } catch (err) {
     console.error('[app-api/mail-messages] delete failed:', err);

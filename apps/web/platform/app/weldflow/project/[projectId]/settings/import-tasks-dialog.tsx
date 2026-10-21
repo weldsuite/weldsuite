@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { readImportRows } from "@/lib/read-import-rows";
 import { Badge } from "@weldsuite/ui/components/badge";
 import { Button } from "@weldsuite/ui/components/button";
 import { Progress } from "@weldsuite/ui/components/progress";
@@ -454,29 +455,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
           throw new Error("No data read from file");
         }
 
-        const workbook = XLSX.read(new Uint8Array(data), {
-          type: "array",
-          cellDates: true,
-          cellNF: false,
-          cellText: false,
-        });
-
-        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-          throw new Error("The file contains no sheets");
-        }
-
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-
-        if (!worksheet) {
-          throw new Error("Could not read the first sheet");
-        }
-
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
-          raw: false,
-          defval: "",
-          blankrows: false,
-        });
+        const jsonData = readImportRows(data);
 
         if (jsonData.length === 0) {
           setParseError(t.projects.settings.fileEmpty);

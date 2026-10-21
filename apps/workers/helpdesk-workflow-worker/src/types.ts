@@ -48,6 +48,8 @@ export interface Env {
 
   // Real-time event system
   REALTIME?: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
 
   // Secrets
   DISCORD_BOT_TOKEN?: string;

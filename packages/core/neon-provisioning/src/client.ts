@@ -71,6 +71,19 @@ export interface NeonEndpoint {
   current_state: string;
   pooler_enabled: boolean;
   pooler_mode: 'transaction' | 'session';
+  /** Compute settings, as the API returns them (absent on older responses). */
+  autoscaling_limit_min_cu?: number;
+  autoscaling_limit_max_cu?: number;
+  suspend_timeout_seconds?: number;
+  /** ISO timestamp of the last time the compute served a query. */
+  last_active?: string;
+}
+
+/** An asynchronous Neon control-plane operation, as returned by mutating calls. */
+export interface NeonOperationRef {
+  id: string;
+  action: string;
+  status: string;
 }
 
 export interface NeonConnectionUri {
@@ -105,6 +118,12 @@ export interface CreateRoleResponse {
 
 export interface GetConnectionUriResponse {
   uri: string;
+}
+
+export interface ResetRolePasswordResult {
+  /** The new password. Usable once `operations` have finished. */
+  password: string;
+  operations: NeonOperationRef[];
 }
 
 export class NeonApiError extends Error {
@@ -305,16 +324,18 @@ export class NeonClient {
   }
 
   /**
-   * Delete a database
+   * Delete a database. Returns the operations Neon started: the database (and
+   * its ownership of objects) is only gone once they finish.
    */
   async deleteDatabase(
     projectId: string,
     branchId: string,
     databaseName: string
-  ): Promise<void> {
-    await this.call(() =>
-      this.api.deleteProjectBranchDatabase(projectId, branchId, databaseName)
+  ): Promise<NeonOperationRef[]> {
+    const data = await this.call((): Promise<{ data: { operations?: NeonOperationRef[] } }> =>
+      this.api.deleteProjectBranchDatabase(projectId, branchId, databaseName) as never
     );
+    return data?.operations ?? [];
   }
 
   /**
@@ -377,6 +398,30 @@ export class NeonClient {
     return this.call((): Promise<{ data: { password: string } }> =>
       this.api.getProjectBranchRolePassword(projectId, branchId, roleName) as never
     );
+  }
+
+  /**
+   * Reset a role's password. Returns the NEW password plus the operations that
+   * apply it on the compute; the new password only works, and the old one only
+   * stops working, once those operations finish (`waitForOperations`).
+   *
+   * This is the lock a tenant database move uses on its source: every request
+   * authenticating with the old password fails from then on. Never log the
+   * returned password.
+   */
+  async resetRolePassword(
+    projectId: string,
+    branchId: string,
+    roleName: string
+  ): Promise<ResetRolePasswordResult> {
+    const data = await this.call((): Promise<{ data: { role?: { name: string; password?: string }; operations?: NeonOperationRef[] } }> =>
+      this.api.resetProjectBranchRolePassword(projectId, branchId, roleName) as never
+    );
+    const password = data.role?.password;
+    if (!password) {
+      throw new NeonApiError('Neon did not return a password for the reset role', 502);
+    }
+    return { password, operations: data.operations ?? [] };
   }
 
   /**
@@ -505,6 +550,18 @@ export class NeonClient {
     return this.call((): Promise<{ data: { endpoints: NeonEndpoint[] } }> =>
       this.api.listProjectEndpoints(projectId) as never
     );
+  }
+
+  /**
+   * Restart a compute endpoint (suspend, then start again). Ends every session
+   * on it, PgBouncer client sessions included. Returns the operations to wait
+   * on. Do not call this for a shared shard's endpoint: it serves other tenants.
+   */
+  async restartEndpoint(projectId: string, endpointId: string): Promise<NeonOperationRef[]> {
+    const data = await this.call((): Promise<{ data: { operations?: NeonOperationRef[] } }> =>
+      this.api.restartProjectEndpoint(projectId, endpointId) as never
+    );
+    return data.operations ?? [];
   }
 
   // ============================================================================

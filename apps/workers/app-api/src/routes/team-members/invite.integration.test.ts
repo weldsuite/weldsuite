@@ -16,6 +16,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { eq } from 'drizzle-orm';
 import { teamMembersRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { SYSTEM_ROLES } from '@weldsuite/permissions';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
@@ -64,7 +65,9 @@ afterEach(() => {
 
 function invite(email: string) {
   const t = createTestApp('/api/team-members', teamMembersRoutes, {
-    context: { tenantDb: db, permissions: permissions('team:create') },
+    // The inviter must hold what a Member gets: an invite can't hand out more
+    // than its sender has (grant ceiling, TASK-625).
+    context: { tenantDb: db, permissions: permissions('team:create', ...SYSTEM_ROLES.MEMBER!.permissions) },
   });
   return t.request('/api/team-members/invite', {
     method: 'POST',

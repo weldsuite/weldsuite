@@ -202,6 +202,7 @@ export const common = {
       accessDenied: 'Toegang geweigerd.',
       alreadyResolved: 'Al afgehandeld door een andere beheerder.',
       resolveFailed: 'De aanvraag kon niet worden afgehandeld. Probeer het opnieuw.',
+      loadMore: 'Meer laden',
     },
     inviteMember: {
       inviteMembers: 'Leden uitnodigen',
@@ -433,7 +434,6 @@ export const common = {
       goHome: 'Naar home',
     },
     workspaceLink: {
-      opening: 'Werkruimte openen…',
       notFoundTitle: 'Werkruimte niet gevonden',
       notFoundDescription: 'Deze link verwijst naar een werkruimte waar je geen lid van bent, of die een andere naam heeft gekregen.',
       openIn: 'Deze pagina openen in:',

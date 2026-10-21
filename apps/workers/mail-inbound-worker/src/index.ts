@@ -37,6 +37,8 @@ export interface Env {
   R2_PUBLIC_URL?: string;
   // Service bindings
   REALTIME: Fetcher;
+  /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
+  REALTIME_INTERNAL_SECRET?: string;
   /**
    * Hub queue for entity-event fan-out (inbound `email:created`).
    * Personal `mail:new` stays on REALTIME; this binding is workspace-only.

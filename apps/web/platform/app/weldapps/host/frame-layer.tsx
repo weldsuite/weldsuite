@@ -13,6 +13,7 @@ import {
   useWeldAppFrameSlot,
   useWeldAppFrameStatus,
 } from './frame-store';
+import { BUNDLE_LINK_REFRESH_MARGIN_MS } from './use-bundle-link';
 import { bootstrapFrameSrc, useWeldAppSource } from './use-weld-app-source';
 
 interface SlotRect {
@@ -29,6 +30,9 @@ const OFFSCREEN_RECT: SlotRect = { left: -10_000, top: 0, width: 1280, height: 8
 
 /** Fallback re-measure for position-only shifts ResizeObserver cannot see. */
 const REMEASURE_INTERVAL_MS = 500;
+
+/** How often a hidden frame checks whether its signed bundle link is about to expire. */
+const LINK_EXPIRY_CHECK_MS = 60_000;
 
 function sameRect(a: SlotRect | null, b: SlotRect | null): boolean {
   return (
@@ -163,11 +167,27 @@ function PooledFrame({
     resetFrameStatus(appCode);
   }, [appCode, base]);
 
+  // A signed bundle link lives ~12h and every lazy chunk of a kept-alive frame
+  // is fetched with it. While the frame is hidden, swap it for a fresh link
+  // shortly before expiry (a visible frame is never reloaded under the user).
+  const { bundleExpiresAtMs, refreshBundle } = source;
+  useEffect(() => {
+    if (active || bundleExpiresAtMs === null) return;
+    const check = () => {
+      if (bundleExpiresAtMs - Date.now() < BUNDLE_LINK_REFRESH_MARGIN_MS) refreshBundle();
+    };
+    check();
+    const interval = window.setInterval(check, LINK_EXPIRY_CHECK_MS);
+    return () => window.clearInterval(interval);
+  }, [active, bundleExpiresAtMs, refreshBundle]);
+
   const overlays = useBridgeHost({
     appCode,
     appName: source.app?.name ?? appCode,
     iframeRef,
     targetOrigin: source.targetOrigin,
+    frameKind: source.kind,
+    isolated: source.isolated,
     usesPlatformSession: source.usesPlatformSession,
     path: effectivePath,
     surface: 'page',

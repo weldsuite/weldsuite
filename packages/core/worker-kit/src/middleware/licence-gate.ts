@@ -12,12 +12,17 @@
  * inactive) read-only: every write is refused with 403 WORKSPACE_READ_ONLY,
  * except read-style POSTs (see `isReadOnlyRequestAllowed`).
  *
+ * A workspace whose tenant database is being moved (`readOnlyReason`
+ * `database_move`) gets the same exceptions but a different refusal: a write is
+ * answered with 503 WORKSPACE_MOVING and `Retry-After`, so clients retry.
+ *
  * Runs after workspaceDbMiddleware, which sets `licensedApps` and `readOnly`.
  */
 
 import { createMiddleware } from 'hono/factory';
 import { appNotLicensedBody, findModuleForPath, missingLicensedApp } from '@weldsuite/api-modules';
 import { isReadOnlyRequestAllowed, workspaceReadOnlyBody, type ReadOnlyReason } from '../read-only';
+import { workspaceMovingResponse } from '../workspace-moving';
 
 type LicenceGateVariables = {
   licensedApps?: readonly string[] | null;
@@ -32,8 +37,12 @@ export const licenceGate = () => {
       const missing = missingLicensedApp(findModuleForPath(c.req.path), new Set(licensedApps));
       if (missing) return c.json(appNotLicensedBody(missing), 403);
     }
+    // The same exceptions apply whatever the reason: reads, search and the
+    // user-level core paths. Only the refusal differs.
     if (c.get('readOnly') && !isReadOnlyRequestAllowed(c.req.method, c.req.path)) {
-      return c.json(workspaceReadOnlyBody(c.get('readOnlyReason')), 403);
+      const reason = c.get('readOnlyReason');
+      if (reason === 'database_move') return workspaceMovingResponse(c);
+      return c.json(workspaceReadOnlyBody(reason), 403);
     }
     await next();
   });

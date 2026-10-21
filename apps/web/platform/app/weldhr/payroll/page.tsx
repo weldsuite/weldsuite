@@ -19,6 +19,7 @@ import { DashboardPage, EmptyText, KpiCard, KpiGrid, SectionCard, useHrBreadcrum
 import { ErrorBanner, errorMessage, formatDate } from '../components/shared';
 import { FilingStatusBadge, IssueList, PayrollGate, RunStatusBadge } from './components/payroll-ui';
 import { countryCurrency, formatCents, formatDecimal, periodRange } from './lib/format';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
 export default function WeldHrPayrollHomePage() {
   return (
@@ -113,7 +114,9 @@ function HomeBody({ overview }: Readonly<{ overview: HrPayrollOverview }>) {
 
 /** Going into settings: its back button returns to this page. */
 function rememberSettingsReturn(to: string | undefined) {
-  if (to?.startsWith('/settings')) sessionStorage.setItem('settings-return-url', globalThis.location.pathname);
+  if (to?.startsWith('/settings')) {
+    sessionStorage.setItem('settings-return-url', stripWorkspacePrefix(globalThis.location.pathname));
+  }
 }
 
 function SetupChecklist({ overview }: Readonly<{ overview: HrPayrollOverview }>) {

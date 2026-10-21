@@ -228,6 +228,7 @@ export async function sweepAdoptSystemInstallsForApp(params: {
       const databaseUrl = await resolveDatabaseUrl(
         env.NEON_API_KEY,
         {
+          id: ws.id,
           neonProjectId: ws.neonProjectId,
           neonBranchId: ws.neonBranchId,
           neonRoleName: ws.neonRoleName,
