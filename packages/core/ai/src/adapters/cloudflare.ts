@@ -20,10 +20,16 @@
  * gateway caching. They need `Authorization` (a Workers-AI-scoped CF API token).
  */
 
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
-import { compatBaseUrl, restApiBaseUrl, type CloudflareGatewayConfig } from '../config.js';
-import type { AdapterRuntime } from './types.js';
+import {
+  anthropicBaseUrl,
+  compatBaseUrl,
+  restApiBaseUrl,
+  type CloudflareGatewayConfig,
+} from '../config.js';
+import { UnsupportedModelError, type AdapterRuntime } from './types.js';
 
 /** Gateway chat models run on when `CF_AI_GATEWAY` is unset. */
 export const DEFAULT_GATEWAY_ID = 'default';
@@ -121,13 +127,59 @@ function gatewayProvider(config: CloudflareGatewayConfig) {
   });
 }
 
+/**
+ * Placeholder handed to the Anthropic provider, which refuses to build a
+ * request without a key. {@link withoutProviderKey} strips it again: the
+ * gateway pays with its stored BYOK key, and a request-supplied key would
+ * override that one.
+ */
+const GATEWAY_BYOK_KEY = 'cf-aig-byok';
+
+const ANTHROPIC_PREFIX = 'anthropic/';
+
+/** `fetch` that drops the provider key header, leaving the gateway auth alone. */
+export function withoutProviderKey(baseFetch?: typeof fetch): typeof fetch {
+  return (input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.delete('x-api-key');
+    // Resolved per request so a Worker's (or a test's) global fetch is used.
+    return (baseFetch ?? fetch)(input, { ...init, headers });
+  };
+}
+
+/**
+ * Anthropic's own Messages API through the gateway. The compat endpoint goes
+ * through {@link flattenWorkersAiRequestBody}, which reduces content to text,
+ * so images and PDFs need this route.
+ */
+function anthropicGatewayProvider(config: CloudflareGatewayConfig) {
+  const token = config.gatewayToken ?? config.apiKey;
+  return createAnthropic({
+    baseURL: anthropicBaseUrl(config.accountId, config.gateway ?? DEFAULT_GATEWAY_ID),
+    apiKey: GATEWAY_BYOK_KEY,
+    headers: {
+      ...config.headers,
+      ...(token ? { 'cf-aig-authorization': `Bearer ${token}` } : {}),
+    },
+    fetch: withoutProviderKey(),
+  });
+}
+
 export function createCloudflareAdapter(config: CloudflareGatewayConfig): AdapterRuntime {
   const languageProvider = gatewayProvider(config);
   const embeddingProvider = directProvider(config);
+  let anthropicProvider: ReturnType<typeof anthropicGatewayProvider> | undefined;
 
   return {
     provider: languageProvider,
     languageModel: (nativeId) => languageProvider(toGatewayModelId(nativeId)),
+    nativeLanguageModel: (nativeId) => {
+      if (!nativeId.startsWith(ANTHROPIC_PREFIX)) {
+        throw new UnsupportedModelError(nativeId, 'cloudflare', 'only anthropic/… models have a native route');
+      }
+      anthropicProvider ??= anthropicGatewayProvider(config);
+      return anthropicProvider(nativeId.slice(ANTHROPIC_PREFIX.length));
+    },
     textEmbeddingModel: (nativeId) => embeddingProvider.textEmbeddingModel(nativeId),
   };
 }

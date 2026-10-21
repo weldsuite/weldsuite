@@ -26,6 +26,12 @@ export interface AdapterRuntime {
   provider: unknown;
   /** Resolve a chat/completion model from a **native** (already-mapped) id. */
   languageModel(nativeId: string): LanguageModel;
+  /**
+   * Resolve a model on its provider's own API through the gateway, for inputs
+   * the OpenAI-compatible endpoint cannot carry (PDFs, images). Throws
+   * {@link UnsupportedModelError} for providers without a native route.
+   */
+  nativeLanguageModel(nativeId: string): LanguageModel;
   /** Resolve a text-embedding model from a **native** (already-mapped) id. */
   textEmbeddingModel(nativeId: string): EmbeddingModel;
 }

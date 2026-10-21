@@ -43,6 +43,7 @@ export {
   isGatewayConfigured,
   restApiBaseUrl,
   compatBaseUrl,
+  anthropicBaseUrl,
   DEFAULT_MODEL,
   DEFAULT_PROVIDER,
   GATEWAY_PROVIDERS,
