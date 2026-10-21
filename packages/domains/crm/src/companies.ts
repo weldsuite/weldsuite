@@ -378,12 +378,7 @@ export async function listCompanies(
   const [data, attributes] = await Promise.all([
     // Phase 3: customFields comes from the typed values table, not the blob.
     hydrateCustomFields(db, 'company', page, defs),
-    params.include === 'attributes'
-      ? getCompanyAttributes(
-          db,
-          page.map((r) => r.id),
-        )
-      : null,
+    params.include === 'attributes' ? getCompanyAttributes(db, page.map((r) => r.id)) : null,
   ]);
 
   const position = explicitSort ? String(offset + limit) : page.at(-1)?.id;
