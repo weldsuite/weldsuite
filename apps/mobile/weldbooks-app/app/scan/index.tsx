@@ -85,7 +85,11 @@ export default function ScanScreen() {
       const fileName = `receipt-${Date.now()}.jpg`;
 
       if (!isOnline) {
-        await addToQueue({ type: 'document', data: { fileName, type: 'receipt' } });
+        // The photo is uploaded when the queue syncs: a document needs a stored file.
+        await addToQueue({
+          type: 'document',
+          data: { fileName, type: 'receipt', localUri: uri, mimeType: 'image/jpeg' },
+        });
         if (!stillCurrent()) return;
         setScanStatus('offline');
         toast.info(t.scan.offlineQueued);
