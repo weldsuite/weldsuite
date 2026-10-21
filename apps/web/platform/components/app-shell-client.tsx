@@ -250,8 +250,11 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
 
   // Wait while we activate a just-created workspace (or an org-less session
   // that still has memberships). Don't flash the previous workspace, and
-  // don't bounce to /onboarding while that activation is in flight.
-  const activatingPendingOrg = Boolean(pendingOrgId && pendingOrgId !== orgId);
+  // don't bounce to /onboarding while that activation is in flight. When the
+  // URL names the workspace, the gate above already held the page until it
+  // was active, and nothing here would activate a pending org.
+  const activatingPendingOrg =
+    !workspaceUrl.ownsActivation && Boolean(pendingOrgId && pendingOrgId !== orgId);
   if (!orgId || activatingPendingOrg) {
     if (!orgListLoaded) return null;
     if (activatingPendingOrg) return null;

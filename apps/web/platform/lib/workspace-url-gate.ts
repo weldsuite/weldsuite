@@ -17,11 +17,19 @@ export interface WorkspaceUrlGateInput {
   pendingOrgId: string | null;
   /** Every membership, or null while they are still loading. */
   memberships: readonly WorkspaceRef[] | null;
+  /** Where this page last settled: the ref links carry and its org. Null until it has. */
+  settled: { ref: string; orgId: string } | null;
 }
 
 export type WorkspaceUrlDecision =
   /** The tab is in the URL's workspace (or the path is bare): render, and links carry `ref`. */
   | { kind: 'ready'; ref: string }
+  /**
+   * The app switched the tab's workspace in place (the switcher, a workspace
+   * just created or deleted) while the URL still names the one this page
+   * settled on: keep rendering and move the URL to `ref`, never switch back.
+   */
+  | { kind: 'follow'; ref: string }
   /** Nothing for the URL to settle yet: a bare path and no active org. The shell's own activation runs. */
   | { kind: 'skip' }
   /** Hold rendering until the memberships are in. */
@@ -34,13 +42,19 @@ export type WorkspaceUrlDecision =
 const refOf = (slug: string | null | undefined, id: string) => slug || id;
 
 export function decideWorkspaceUrl(input: WorkspaceUrlGateInput): WorkspaceUrlDecision {
-  const { urlRef, orgId, orgSlug, pendingOrgId, memberships } = input;
+  const { urlRef, orgId, orgSlug, pendingOrgId, memberships, settled } = input;
 
   if (!urlRef) return orgId ? { kind: 'ready', ref: refOf(orgSlug, orgId) } : { kind: 'skip' };
 
   // The common case, settled without a network call.
   if (orgId && (urlRef === orgId || (!!orgSlug && urlRef.toLowerCase() === orgSlug.toLowerCase()))) {
     return { kind: 'ready', ref: refOf(orgSlug, orgId) };
+  }
+
+  // Only the org moved, not the URL: this page switched it, and is about to
+  // load the new workspace. The URL wins only when the URL changes.
+  if (orgId && settled && urlRef === settled.ref && orgId !== settled.orgId) {
+    return { kind: 'follow', ref: refOf(orgSlug, orgId) };
   }
 
   // A workspace just created or joined is often not in Clerk's membership

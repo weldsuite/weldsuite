@@ -31,7 +31,8 @@
  *                       existing available slots back to the latest schema so
  *                       claims stay on the instant path. A slot that fails
  *                       catch-up on the same migration MAX_CATCHUP_FAILURES
- *                       runs in a row is retired (status 'error').
+ *                       runs in a row is retired (status 'error'); a shared
+ *                       one is also dropped, giving its shard the slot back.
  *
  * Triggered by the worker's cron (see `scheduled` in ../index.ts); a KV lock
  * plus a per-step recount keep overlapping runs from overshooting targets.
@@ -41,7 +42,7 @@ import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:work
 import { and, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
-import { databasePool, neonSharedProjects } from '@weldsuite/db/schema/master';
+import { databasePool, neonSharedProjects, type DatabasePool } from '@weldsuite/db/schema/master';
 import { taskDigestSettings } from '@weldsuite/db/schema/task-digest-settings';
 import { createProvisioningService, type WarmSlotResources } from '@weldsuite/neon-provisioning';
 import type { Env } from '../index';
@@ -85,11 +86,20 @@ const MIGRATION_STATEMENTS_PER_STEP = 600;
  * unsettled back-off apart) will not get there on its own, and while it stays
  * 'available' and stale the pool never settles and every retry wakes the master
  * DB and the slot's compute. Retired slots get status 'error': no longer
- * claimed or caught up, the next run creates a replacement, and the database
- * stays for inspection (`pnpm cleanup:pool` in apps/tools/migrate-databases
- * deletes dedicated 'error' slots).
+ * claimed or caught up, and the next run creates a replacement. A dedicated
+ * slot's database stays for inspection (`pnpm cleanup:pool` in
+ * apps/tools/migrate-databases deletes dedicated 'error' slots). A shared
+ * slot's is dropped right away: nothing else cleans up shared rows, and each
+ * would keep one of its shard's database slots taken.
  */
 const MAX_CATCHUP_FAILURES = 3;
+/**
+ * The same for a slot that fails without a migration to blame: its database
+ * did not answer, even after the step's retries. That is mostly Neon having a
+ * bad hour, not the slot, so it takes about a day of back-off runs
+ * (UNSETTLED_TTL_SECONDS apart) to retire a slot that never answers.
+ */
+const MAX_UNREACHABLE_CATCHUP_FAILURES = 48;
 /** `refill-pool:catch-up-failures:<poolId>` holds that slot's `CatchUpFailures`. */
 const CATCHUP_FAILURES_KEY_PREFIX = 'refill-pool:catch-up-failures:';
 /** Long enough to span several back-off runs; an expired streak starts over. */
@@ -143,6 +153,12 @@ interface CatchUpFailures {
 
 /** One catch-up step: what it applied, or the migration that failed (rolled back whole) or was refused. */
 type CatchUpBatch = ApplyMigrationsResult | { failedOn: string; sqlState: string | null };
+
+/** An available slot behind the latest schema, with what retiring it needs. */
+type StaleSlot = Pick<
+  DatabasePool,
+  'id' | 'databaseUrl' | 'kind' | 'neonProjectId' | 'neonBranchId' | 'databaseName' | 'roleName' | 'sharedProjectId'
+>;
 
 function targetFromEnv(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -691,12 +707,21 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
     step: WorkflowStep,
     region: string,
   ): Promise<{ caughtUp: number; staleFound: number }> {
-    const stale = await step.do('find-stale-slots', {
+    const stale: StaleSlot[] = await step.do('find-stale-slots', {
       retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
     }, () => {
       const masterDb = getMasterDb(this.env);
       return masterDb
-        .select({ id: databasePool.id, databaseUrl: databasePool.databaseUrl })
+        .select({
+          id: databasePool.id,
+          databaseUrl: databasePool.databaseUrl,
+          kind: databasePool.kind,
+          neonProjectId: databasePool.neonProjectId,
+          neonBranchId: databasePool.neonBranchId,
+          databaseName: databasePool.databaseName,
+          roleName: databasePool.roleName,
+          sharedProjectId: databasePool.sharedProjectId,
+        })
         .from(databasePool)
         .where(and(
           eq(databasePool.status, 'available'),
@@ -715,7 +740,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
       if (outcome.caughtUp) {
         caughtUp++;
       } else {
-        await this.countCatchUpFailure(step, slot.id, outcome.failedOn);
+        await this.countCatchUpFailure(step, region, slot, outcome.failedOn);
       }
     }
     return { caughtUp, staleFound: stale.length };
@@ -763,16 +788,23 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
 
   /**
    * Count a failed catch-up, and retire the slot (status 'error') once it has
-   * failed MAX_CATCHUP_FAILURES runs in a row on the same migration. Only an
-   * unclaimed slot is retired: a workspace may have claimed it since
-   * find-stale-slots, and then its provisioning applies the delta itself.
+   * failed MAX_CATCHUP_FAILURES runs in a row on the same migration (or
+   * MAX_UNREACHABLE_CATCHUP_FAILURES without reaching one). Only an unclaimed
+   * slot is retired: a workspace may have claimed it since find-stale-slots,
+   * and then its provisioning applies the delta itself.
    */
-  private async countCatchUpFailure(step: WorkflowStep, poolId: string, failedOn: string | null): Promise<void> {
+  private async countCatchUpFailure(
+    step: WorkflowStep,
+    region: string,
+    slot: StaleSlot,
+    failedOn: string | null,
+  ): Promise<void> {
+    const poolId = slot.id;
     try {
       const failures = await step.do(`catch-up-${poolId}-failed`, {
         retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
       }, () => recordCatchUpFailure(this.env, poolId, failedOn));
-      if (failures < MAX_CATCHUP_FAILURES) return;
+      if (failures < (failedOn ? MAX_CATCHUP_FAILURES : MAX_UNREACHABLE_CATCHUP_FAILURES)) return;
 
       const retired = await step.do(`catch-up-${poolId}-retire`, {
         retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
@@ -786,12 +818,49 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
         await clearCatchUpFailures(this.env, poolId);
         return rows.length > 0;
       });
-      if (retired) {
-        const where = failedOn ? 'on migration ' + failedOn : 'before reaching a migration';
-        console.error(`[RefillPool] Retired slot ${poolId} (status 'error'): catch-up failed ${failures} runs in a row ${where}`);
+      if (!retired) return;
+      const where = failedOn ? 'on migration ' + failedOn : 'before reaching a migration';
+      console.error(`[RefillPool] Retired slot ${poolId} (status 'error'): catch-up failed ${failures} runs in a row ${where}`);
+      // A legacy shared row without its shard id can't be dropped safely: it would read as a whole project.
+      if (slot.kind === 'shared' && slot.sharedProjectId) {
+        await this.dropRetiredSharedSlot(step, region, { ...slot, sharedProjectId: slot.sharedProjectId });
       }
     } catch (error) {
       console.error(`[RefillPool] Could not count the failed catch-up of slot ${poolId}:`, error);
+    }
+  }
+
+  /**
+   * Drop a retired shared slot's database and role, give its shard the slot
+   * back and delete the row. Otherwise every replacement would take one more
+   * of the shard's slots for good. If the drop fails, the row stays 'error'.
+   */
+  private async dropRetiredSharedSlot(
+    step: WorkflowStep,
+    region: string,
+    slot: StaleSlot & { sharedProjectId: string },
+  ): Promise<void> {
+    try {
+      await step.do(`catch-up-${slot.id}-drop`, {
+        retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
+      }, async () => {
+        await this.provisioningService(region).dropDatabaseAt(
+          getMasterDb(this.env),
+          {
+            neonProjectId: slot.neonProjectId,
+            neonBranchId: slot.neonBranchId,
+            databaseName: slot.databaseName,
+            roleName: slot.roleName,
+            sharedProjectId: slot.sharedProjectId,
+            poolId: slot.id,
+          },
+          // A retried step finishes a drop the previous attempt half did.
+          { ignoreMissing: true },
+        );
+      });
+      console.log(`[RefillPool] Dropped retired shared slot ${slot.id}; shard ${slot.sharedProjectId} has the slot back`);
+    } catch (error) {
+      console.error(`[RefillPool] Could not drop retired shared slot ${slot.id} (row stays 'error'):`, error);
     }
   }
 }

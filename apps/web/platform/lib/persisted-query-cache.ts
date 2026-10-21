@@ -114,7 +114,9 @@ function persistedTimestamp(storage: Storage, orgId: string): number | null {
  * The storage handed to the persister for one workspace's entry. Writes are
  * dropped unless `orgId` is the tab's active org; each write stamps the index.
  * When the quota is hit, other workspaces' entries are removed, oldest first,
- * until this one fits.
+ * until this one fits. An entry too big even on its own is removed too (it is
+ * an outdated snapshot by now), and from then on this page evicts nothing:
+ * every later write would empty other tabs' entries for nothing.
  */
 export function workspaceCacheStorage(
   orgId: string,
@@ -122,6 +124,7 @@ export function workspaceCacheStorage(
   now: () => number = Date.now,
 ): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
   const key = queryCacheKey(orgId);
+  let tooBig = false;
   return {
     getItem: () => {
       try {
@@ -133,14 +136,20 @@ export function workspaceCacheStorage(
     setItem: (_key, value) => {
       if (!storage || writableOrgId !== orgId) return;
       const index = readIndex(storage);
-      const evictable = othersOldestFirst(storage, index, orgId);
+      const evictable = tooBig ? [] : othersOldestFirst(storage, index, orgId);
       for (;;) {
         try {
           storage.setItem(key, value);
           break;
         } catch {
           const oldest = evictable.shift();
-          if (!oldest) return; // too big on its own; the next write tries again
+          if (!oldest) {
+            // Too big on its own. The next write still tries, in case it shrank.
+            tooBig = true;
+            removeEntry(storage, orgId, index);
+            writeIndex(storage, index);
+            return;
+          }
           removeEntry(storage, oldest, index);
         }
       }

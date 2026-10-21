@@ -129,6 +129,29 @@ describe('workspaceCacheStorage', () => {
     expect(() => workspaceCacheStorage('org_acme', storage).setItem('ignored', 'too big')).not.toThrow();
     expect(storage.getItem(queryCacheKey('org_acme'))).toBeNull();
   });
+
+  it('stops evicting other workspaces once its own entry is too big, and drops its outdated snapshot', () => {
+    const storage = boundedStorage(20);
+    storage.setItem(queryCacheKey('org_acme'), 'a'.repeat(5));
+    storage.setItem(queryCacheKey('org_globex'), 'g'.repeat(10));
+    setWritableQueryCacheOrg('org_acme');
+    const acme = workspaceCacheStorage('org_acme', storage, () => NOW);
+
+    // Fits nowhere: Globex goes on the first try, and only then is that known.
+    acme.setItem('ignored', 'z'.repeat(25));
+    expect(storage.getItem(queryCacheKey('org_acme'))).toBeNull();
+    expect(storage.getItem(queryCacheKey('org_globex'))).toBeNull();
+
+    // Another tab writes Globex again; this page no longer evicts it.
+    storage.setItem(queryCacheKey('org_globex'), 'g'.repeat(10));
+    acme.setItem('ignored', 'z'.repeat(15));
+    expect(storage.getItem(queryCacheKey('org_globex'))).toBe('g'.repeat(10));
+    expect(storage.getItem(queryCacheKey('org_acme'))).toBeNull();
+
+    // A write that fits on its own still lands.
+    acme.setItem('ignored', 'z'.repeat(8));
+    expect(storage.getItem(queryCacheKey('org_acme'))).toBe('z'.repeat(8));
+  });
 });
 
 describe('pruneQueryCaches', () => {
