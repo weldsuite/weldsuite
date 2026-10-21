@@ -102,9 +102,11 @@ export const createFileSchema = z.object({
   mimeType: z.string().min(1),
   fileSize: z.number().int().min(0),
   fileType: z.string().optional().default('file'),
-  storagePath: z.string().min(1),
-  fileKey: z.string().optional(),
-  bucket: z.string().optional(),
+  // Must be keys under the caller's own `workspaces/<id>/` prefix (checked by
+  // the route, which knows the workspace). Which bucket holds the object is
+  // looked up server-side, never taken from the client.
+  storagePath: z.string().min(1).max(1000),
+  fileKey: z.string().min(1).max(1000).optional(),
   url: z.string().optional(),
   thumbnailUrl: z.string().optional(),
   folderId: z.string().nullish(),

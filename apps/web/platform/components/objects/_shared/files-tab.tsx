@@ -95,7 +95,7 @@ export function FilesTab({ entityId, entityKind }: Readonly<FilesTabProps>) {
           fileName: file.name,
           contentType: file.type || 'application/octet-stream',
           fileSize: file.size,
-        })) as { uploadUrl: string; uploadToken: string; fileKey: string; bucket?: 'public' | 'private' };
+        })) as { uploadUrl: string; uploadToken: string; fileKey: string };
         // Direct PUT to R2.
         const putRes = await fetch(presigned.uploadUrl, {
           method: 'PUT',
@@ -105,7 +105,6 @@ export function FilesTab({ entityId, entityKind }: Readonly<FilesTabProps>) {
         if (!putRes.ok) throw new Error(`Upload failed: ${putRes.status}`);
         await confirmUpload.mutateAsync({
           fileKey: presigned.fileKey,
-          bucket: presigned.bucket,
           fileName: file.name,
           contentType: file.type || 'application/octet-stream',
           fileSize: file.size,

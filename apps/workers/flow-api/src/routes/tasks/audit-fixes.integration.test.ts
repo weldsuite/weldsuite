@@ -635,3 +635,30 @@ describe('search (TASK-789)', () => {
     expect(ids).not.toContain('task_srch_3');
   });
 });
+
+describe('task attachments keep to this workspace (TASK-620)', () => {
+  const attach = (taskId: string, fileKey: string) =>
+    send('POST', `/${taskId}/attachments`, { fileName: 'a.pdf', fileKey, fileSize: 1, mimeType: 'application/pdf' });
+
+  it("stores one of this workspace's uploads", async () => {
+    await seedProject('proj_att_scope');
+    await seedTask({ id: 'task_att_scope', projectId: 'proj_att_scope' });
+    const key = 'workspaces/org_test_default/tasks/task_att_scope/1_abc/a.pdf';
+    const res = await attach('task_att_scope', key);
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { data: { fileKey: string } }).data.fileKey).toBe(key);
+  });
+
+  it.each([
+    ['foreign', 'workspaces/org_victim/drive/general/1_abc/payroll.pdf'],
+    ['traversal', 'workspaces/org_test_default/../org_victim/payroll.pdf'],
+    ['unscoped', 'payroll.pdf'],
+  ])('refuses a %s key and stores nothing', async (name, fileKey) => {
+    await seedProject(`proj_att_${name}`);
+    await seedTask({ id: `task_att_${name}`, projectId: `proj_att_${name}` });
+    const res = await attach(`task_att_${name}`, fileKey);
+    expect(res.status).toBe(400);
+    const rows = await db.select().from(schema.files).where(eq(schema.files.fileKey, fileKey));
+    expect(rows).toHaveLength(0);
+  });
+});

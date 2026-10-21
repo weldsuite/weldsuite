@@ -20,6 +20,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import {
@@ -128,6 +129,11 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createDoc
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   const userId = c.get('userId');
+  // The key comes from the client and OCR later reads it: it must be one of
+  // this workspace's uploads (TASK-620).
+  if (!isWorkspaceObjectKey(data.fileKey, c.get('workspaceId'))) {
+    return error.badRequest(c, 'fileKey is not a file of this workspace');
+  }
 
   try {
     const newDoc = {

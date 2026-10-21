@@ -41,6 +41,7 @@ import {
   nextAutoScheduledReplanAt,
 } from '@weldsuite/db/lib/calendar-sync';
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
+import { isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
 import {
   createTaskSchema,
   updateTaskSchema,
@@ -1880,6 +1881,11 @@ app.post(
     if (acc === 'not-found') return error.notFound(c, 'Task', id);
     if (acc === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
     const data = c.req.valid('json');
+    // The key comes from the client and the row is later served by key: it
+    // must be one of this workspace's uploads (TASK-620).
+    if (!isWorkspaceObjectKey(data.fileKey, c.get('workspaceId'))) {
+      return error.badRequest(c, 'fileKey is not a file of this workspace');
+    }
     try {
       const created = await createFile(db, {
         fileName: data.fileName,

@@ -6,6 +6,7 @@ import {
   getStoredObject,
   isInlineSafeContentType,
   isSafeObjectKey,
+  isWorkspaceObjectKey,
   keyFromPrivateObjectUrl,
   locateStoredObject,
   privateObjectUrl,
@@ -52,6 +53,17 @@ describe('keys and URLs', () => {
     expect(isSafeObjectKey('/workspaces/org_a/x')).toBe(false);
     expect(isSafeObjectKey('workspaces/org_a/../org_b/x')).toBe(false);
     expect(isSafeObjectKey('workspaces//x')).toBe(false);
+  });
+
+  it('accepts only safe keys of the given workspaces', () => {
+    expect(isWorkspaceObjectKey(KEY, 'org_a')).toBe(true);
+    expect(isWorkspaceObjectKey(KEY, null, undefined, 'ws_a', 'org_a')).toBe(true);
+    expect(isWorkspaceObjectKey(KEY, 'org_b')).toBe(false);
+    expect(isWorkspaceObjectKey(KEY)).toBe(false);
+    expect(isWorkspaceObjectKey(KEY, null, undefined)).toBe(false);
+    expect(isWorkspaceObjectKey('workspaces/org_a/../org_b/x', 'org_a')).toBe(false);
+    expect(isWorkspaceObjectKey('avatars/x.png', 'org_a')).toBe(false);
+    expect(isWorkspaceObjectKey('workspaces/org_a', 'org_a')).toBe(false);
   });
 
   it('round-trips a key through its private URL', () => {
