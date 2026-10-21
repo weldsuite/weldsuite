@@ -21,10 +21,7 @@ import { z } from 'zod';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createMeeting, addParticipant } from '@weldsuite/cloudflare-realtime';
-import {
-  cancelIncomingCallPush,
-  sendIncomingCallNotification,
-} from '@weldsuite/notifications';
+import { sendIncomingCallNotification } from '@weldsuite/notifications';
 import { signCallRingToken } from '@weldsuite/chat-domain/call-ring-token';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import type { Env, Variables } from '../../types';
@@ -58,6 +55,7 @@ import {
 import { leaveOtherLiveCalls } from '../../services/chat/leave-other-live-calls';
 import { consumePreparedJoin, readPreparedJoin, storePreparedJoin } from '../../services/chat/prepared-join';
 import { declineRingingCall } from '../../services/chat/decline-call';
+import { cancelRingOnAnswer } from '../../services/chat/call-ring';
 
 // ============================================================================
 // Schemas
@@ -940,10 +938,8 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
         db.update(chatCalls).set(updates).where(eq(chatCalls.id, callId)),
         evictRtkSessions(c.env, call.cfAppId, staleSessionIds, { orgId, userId, callId }),
         leaveOtherLiveCalls(db, c.env, orgId, userId, callId, requestStartedAt),
-        // Answered here: stop the ring on the user's other phones.
-        userId === call.initiatorId
-          ? Promise.resolve()
-          : cancelIncomingCallPush({ db, env: c.env, userId, callId, reason: 'answered' }),
+        // Answered a ring here: stop it on the user's other phones.
+        cancelRingOnAnswer(db, c.env, call, userId),
         publishChatCallParticipantJoined(c.env, call.channelId, {
           callId,
           userId,
