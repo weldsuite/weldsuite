@@ -68,8 +68,8 @@
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "rollup": "^4.9.6",
-    "rollup-plugin-dts": "^6.1.0",
+    "rollup": "^4.59.0",
+    "rollup-plugin-dts": "^6.5.1",
     "tslib": "^2.6.2",
     "typescript": "^5.7.3"
   },

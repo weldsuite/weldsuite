@@ -19,6 +19,18 @@ overrides:
   use-sync-external-store: ^1.4.0
   "@react-native-menu/menu": 2.0.0
 
+  # Security fixes for transitive deps whose parent pins a vulnerable version,
+  # which Dependabot can't update (security_update_not_possible). Each selector
+  # only matches ranges inside one major line, so none of these crosses a major.
+  # Drop an entry once its parent (in the comment) ships the fix.
+  "@grpc/grpc-js@^1.0.0": ^1.13.6 # @firebase/firestore
+  "builder-util-runtime@^9.0.0": ^9.7.0 # electron-builder 25
+  "fast-xml-parser@^5.0.0": ^5.7.0 # @aws-sdk/xml-builder
+  "postcss@^8.0.0": ^8.5.23 # next 15
+  "undici@^6.0.0": ^6.28.1 # discord.js
+  "undici@^7.0.0": ^7.29.1 # miniflare
+  "ws@^8.0.0": ^8.21.0 # miniflare, viem
+
 onlyBuiltDependencies:
   - electron
   - electron-builder
