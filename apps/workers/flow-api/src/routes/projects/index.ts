@@ -11,6 +11,8 @@ import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'd
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createProjectSchema, updateProjectSchema, normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
+import { taskStatusAliases } from '@weldsuite/app-api-client/schemas/tasks';
+import { stagePlacement } from '@weldsuite/flow-domain/task-stage';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -829,30 +831,20 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
 });
 
 /**
- * Plans handing every live task of `sourceId` to `destId`. A task keeps its
- * status when the destination has a stage for it (the first one by position),
- * otherwise it lands in the destination's first stage. Project-scoped
- * references (sprint, milestone, key, board position) are cleared, as in
- * POST /api/tasks/:id/move; parent links stay, since the whole tree moves.
- * Positions are offset past the destination's last task, keeping their order.
+ * Plans handing every live task of `sourceId` to `destId`. Each task lands
+ * where `stagePlacement` puts its status: the destination's stage for it,
+ * else its first stage. Project-scoped references (sprint, milestone, key,
+ * board position) are cleared, as in POST /api/tasks/:id/move; parent links
+ * stay, since the whole tree moves. Positions are offset past the
+ * destination's last task, keeping their order.
  */
 async function planTaskTransfer(db: Variables['tenantDb'], sourceId: string, destId: string, now: Date) {
   const tasks = schema.tasks;
-  const stages = schema.projectPipelineStages;
   const moving = await db
     .select({ id: tasks.id, title: tasks.title, status: tasks.status })
     .from(tasks)
     .where(and(eq(tasks.projectId, sourceId), isNull(tasks.deletedAt)));
-  const destStages = await db
-    .select({ id: stages.id, systemStatus: stages.systemStatus })
-    .from(stages)
-    .where(and(eq(stages.projectId, destId), isNull(stages.deletedAt)))
-    .orderBy(asc(stages.position));
-  const stageByStatus = new Map<string, string>();
-  for (const stage of destStages) {
-    if (!stageByStatus.has(stage.systemStatus)) stageByStatus.set(stage.systemStatus, stage.id);
-  }
-  const fallback = { stageId: destStages[0]?.id ?? null, status: destStages[0]?.systemStatus ?? 'todo' };
+  const place = await stagePlacement(db, destId);
   const [positionRow] = await db
     .select({ maxPosition: sql<number>`coalesce(max(${tasks.position}), 0)::int` })
     .from(tasks)
@@ -868,25 +860,27 @@ async function planTaskTransfer(db: Variables['tenantDb'], sourceId: string, des
     position: sql`${tasks.position} + ${offset}`,
     updatedAt: now,
   };
-  const keptStatuses = [...new Set(moving.map((row) => row.status))].filter((status) => stageByStatus.has(status));
+  const moved = moving.map((row) => ({ id: row.id, title: row.title, ...place(row.status) }));
+  const keptStatuses = [...new Set(moved.filter((row) => row.matched).map((row) => row.status))];
+  const fallback = place(null);
   const stillInSource = and(eq(tasks.projectId, sourceId), isNull(tasks.deletedAt));
 
   return {
-    moved: moving.map((row) => ({
-      id: row.id,
-      title: row.title,
-      status: stageByStatus.has(row.status) ? row.status : fallback.status,
-    })),
-    // One update per kept status, then one for the rest: each moves its rows out
-    // of the source project, so the last one only sees what no stage matched.
+    moved: moved.map(({ id, title, status }) => ({ id, title, status })),
+    // One update per kept status (every stored spelling of it, written back in
+    // its current form), then one for the rest: each moves its rows out of the
+    // source project, so the last one only sees what no stage matched.
     build: (handle: Variables['tenantDb']) => [
       ...keptStatuses.map((status) =>
         handle
           .update(tasks)
-          .set({ ...reset, stageId: stageByStatus.get(status) })
-          .where(and(stillInSource, eq(tasks.status, status))),
+          .set({ ...reset, stageId: place(status).stageId, status })
+          .where(and(stillInSource, inArray(tasks.status, taskStatusAliases(status)))),
       ),
-      handle.update(tasks).set({ ...reset, ...fallback }).where(stillInSource),
+      handle
+        .update(tasks)
+        .set({ ...reset, stageId: fallback.stageId, status: fallback.status })
+        .where(stillInSource),
     ],
   };
 }

@@ -161,14 +161,19 @@ describe('/api/projects · pglite integration', () => {
       await db.insert(schema.projectPipelineStages).values([
         { id: 'stg_src_todo', projectId: SOURCE, name: 'To do', systemStatus: 'todo', position: 0 },
         { id: 'stg_dest_todo', projectId: DEST, name: 'Backlog', systemStatus: 'todo', position: 0 },
-        { id: 'stg_dest_done', projectId: DEST, name: 'Done', systemStatus: 'done', position: 1 },
-      ]);
+        { id: 'stg_dest_done', projectId: DEST, name: 'Done', systemStatus: 'done', position: 1 },      ]);
       await db.insert(schema.tasks).values([
         { id: 'tsk_del_existing', projectId: DEST, title: 'Already there', status: 'todo', position: 4 },
         { id: 'tsk_del_done', projectId: SOURCE, title: 'Done task', status: 'done', stageId: 'stg_src_todo', sprintId: 'spr_x', key: 'SRC-1', position: 1 },
         { id: 'tsk_del_review', projectId: SOURCE, title: 'In review', status: 'review', position: 2 },
         { id: 'tsk_del_child', projectId: SOURCE, title: 'Subtask', status: 'todo', parentTaskId: 'tsk_del_done', position: 3 },
+        { id: 'tsk_del_legacy', projectId: SOURCE, title: 'Legacy review', status: 'in_review', position: 4 },
+        { id: 'tsk_del_blocked', projectId: SOURCE, title: 'Blocked', status: 'blocked', position: 5 },
       ]);
+      // A legacy-spelled stage in the destination still matches the task's status.
+      await db.insert(schema.projectPipelineStages).values(
+        { id: 'stg_dest_review', projectId: DEST, name: 'Review', systemStatus: 'in_review', position: 3 },
+      );
     });
 
     it('refuses moving the tasks into the project being deleted', async () => {
@@ -197,8 +202,12 @@ describe('/api/projects · pglite integration', () => {
         key: null,
         position: 6,
       });
-      // No 'review' stage in the destination: first stage, its status.
-      expect(await task('tsk_del_review')).toMatchObject({ projectId: DEST, stageId: 'stg_dest_todo', status: 'todo' });
+      // Statuses are normalised: 'review' and legacy 'in_review' both find the
+      // (legacy-spelled) review stage and are stored as 'review'.
+      expect(await task('tsk_del_review')).toMatchObject({ projectId: DEST, stageId: 'stg_dest_review', status: 'review' });
+      expect(await task('tsk_del_legacy')).toMatchObject({ projectId: DEST, stageId: 'stg_dest_review', status: 'review' });
+      // No stage for the status: first stage, its status.
+      expect(await task('tsk_del_blocked')).toMatchObject({ projectId: DEST, stageId: 'stg_dest_todo', status: 'todo' });
       // The subtree moved as one, so the parent link stays.
       expect(await task('tsk_del_child')).toMatchObject({ projectId: DEST, parentTaskId: 'tsk_del_done' });
     });
