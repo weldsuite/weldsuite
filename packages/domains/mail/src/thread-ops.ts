@@ -19,13 +19,14 @@ const { mailMessages } = schema;
  * leave siblings unread (if only the focused message was marked) or
  * cost N round-trips. We gate on `isRead = !next` so the UPDATE only
  * touches rows that actually change — keeps `updated_at` honest.
+ * `updatedIds` lists those rows (the "email read" push dismisses them).
  */
 export async function markThreadRead(
   db: Database,
   accountId: string,
   threadId: string,
   isRead: boolean,
-): Promise<{ updatedCount: number }> {
+): Promise<{ updatedCount: number; updatedIds: string[] }> {
   const result = await db
     .update(mailMessages)
     .set({ isRead, updatedAt: new Date() })
@@ -38,5 +39,5 @@ export async function markThreadRead(
       ),
     )
     .returning({ id: mailMessages.id });
-  return { updatedCount: result.length };
+  return { updatedCount: result.length, updatedIds: result.map((r) => r.id) };
 }

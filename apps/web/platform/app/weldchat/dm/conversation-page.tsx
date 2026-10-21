@@ -81,7 +81,7 @@ export default function DmConversationPage() {
     setActiveChannelId(channelId ?? null);
     return () => setActiveChannelId(null);
   }, [channelId, setActiveChannelId]);
-  const isInCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === channelId && !isFullscreen && !isPiP;
+  const isInCall = callStatus !== 'idle' && callChannelId === channelId && !isFullscreen && !isPiP;
 
   const { client } = useWeldChatRoom(channelId ?? null);
 

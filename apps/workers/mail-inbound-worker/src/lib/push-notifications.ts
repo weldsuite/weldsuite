@@ -6,6 +6,7 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
+import { personalInboxUnread, workspaceInboxUnread } from '@weldsuite/mail-domain/read-push';
 import { getTenantDbForWorkspaceById, getPersonalDb, tenantSchema, personalSchema } from '../db';
 import {
   sendExpoPush,
@@ -49,6 +50,26 @@ function collectTokensToDeactivate(
     if (token) tokens.add(token);
   });
   return tokens;
+}
+
+/**
+ * The app badge: unread inbox count including the email just stored. The
+ * "email read" push (`@weldsuite/mail-domain/read-push`) counts it the same
+ * way, so the badge goes up here and back down there. Undefined when the count
+ * fails; the banner still goes out.
+ */
+async function inboxBadge(count: () => Promise<number>): Promise<number | undefined> {
+  try {
+    return await count();
+  } catch (err) {
+    console.error('[PushNotify] Failed to count unread inbox messages:', err);
+    return undefined;
+  }
+}
+
+/** `badge` for the push, left out when the count is unknown. */
+function badgeFields(badge: number | undefined): { badge?: number } {
+  return badge === undefined ? {} : { badge };
 }
 
 /** Log transient / payload ticket errors without touching the token. */
@@ -114,6 +135,7 @@ export async function sendNewEmailPushNotification(
     const senderName = from.name || from.email;
     const title = `New email from ${senderName}`;
     const body = subject || preview || 'New email received';
+    const badge = await inboxBadge(() => workspaceInboxUnread(tenantDb, userId));
 
     const messages: ExpoPushMessage[] = activeTokens.map((t) => ({
       to: t.token,
@@ -122,10 +144,13 @@ export async function sendNewEmailPushNotification(
       sound: 'default' as const,
       priority: 'high' as const,
       channelId: 'email',
+      ...badgeFields(badge),
       data: {
         type: 'new_email',
         emailId: messageId,
         emailAccountId: accountId,
+        tenantKind: 'workspace',
+        ...(badge === undefined ? {} : { inboxUnread: String(badge) }),
         // Lets the mobile app drop/ignore pushes after a workspace switch.
         ...(clerkOrgId ? { clerkOrgId } : {}),
         // Lets the mobile app paint the email chrome (sender/subject/preview)
@@ -189,6 +214,8 @@ export async function sendNewEmailPushNotification(
 interface PersonalEmailPushParams {
   /** Clerk user id that owns the personal account (the push target). */
   clerkUserId: string;
+  /** Personal account the mailbox belongs to; scopes the badge count (no badge when null). */
+  personalAccountId: string | null;
   messageId: string;
   accountId: string;
   from: EmailAddress;
@@ -210,7 +237,7 @@ export async function sendPersonalEmailPushNotification(
   env: Env,
   params: PersonalEmailPushParams,
 ): Promise<SendExpoPushResult | null> {
-  const { clerkUserId, messageId, accountId, from, subject, preview } = params;
+  const { clerkUserId, personalAccountId, messageId, accountId, from, subject, preview } = params;
 
   try {
     const personalDb = getPersonalDb(env);
@@ -235,6 +262,9 @@ export async function sendPersonalEmailPushNotification(
     }
 
     const senderName = from.name || from.email;
+    const badge = personalAccountId
+      ? await inboxBadge(() => personalInboxUnread(personalDb, personalAccountId))
+      : undefined;
 
     const messages: ExpoPushMessage[] = activeTokens.map((t) => ({
       to: t.token,
@@ -243,7 +273,9 @@ export async function sendPersonalEmailPushNotification(
       sound: 'default' as const,
       priority: 'high' as const,
       channelId: 'email',
+      ...badgeFields(badge),
       data: {
+        ...(badge === undefined ? {} : { inboxUnread: String(badge) }),
         type: 'new_email',
         emailId: messageId,
         emailAccountId: accountId,

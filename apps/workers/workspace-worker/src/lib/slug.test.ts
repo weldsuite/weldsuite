@@ -26,6 +26,18 @@ describe('slugifyWorkspaceName', () => {
     expect(slugifyWorkspaceName('WeldMail')).toBe('workspace-weldmail');
   });
 
+  it('prefixes platform route and static folder names', () => {
+    expect(slugifyWorkspaceName('Settings')).toBe('workspace-settings');
+    expect(slugifyWorkspaceName('WeldCRM')).toBe('workspace-weldcrm');
+    expect(slugifyWorkspaceName('Call Room')).toBe('workspace-call-room');
+    expect(slugifyWorkspaceName('Assets')).toBe('workspace-assets');
+  });
+
+  it('keeps other names that start with weld', () => {
+    expect(slugifyWorkspaceName('Weldon')).toBe('weldon');
+    expect(slugifyWorkspaceName('Weld Masters')).toBe('weld-masters');
+  });
+
   it('prefixes names shorter than 3 characters', () => {
     expect(slugifyWorkspaceName('Ab')).toBe('workspace-ab');
     expect(slugifyWorkspaceName('X')).toBe('workspace-x');

@@ -25,6 +25,8 @@ const rtk = vi.hoisted(() => ({
     audioEnabled: true,
     videoEnabled: true,
   },
+  /** What `meeting.join()` does; reset to an instant join before each test. */
+  join: async (): Promise<void> => undefined,
 }));
 
 const api = vi.hoisted(() => ({
@@ -88,7 +90,7 @@ vi.mock('@cloudflare/realtimekit', () => ({
         }),
         disableScreenShare: vi.fn(async () => undefined),
       },
-      join: vi.fn(async () => undefined),
+      join: vi.fn(() => rtk.join()),
       // Like the SDK: leaving emits roomLeft { state: 'left' }.
       leave: vi.fn(async () => {
         rtk.log.push('rtk:leave');
@@ -119,6 +121,7 @@ vi.mock('@/lib/i18n', () => ({
       reconnected: 'You are back in the call',
       connectionLost: "Couldn't reconnect to the call. Call again to continue.",
       joinFailed: "Couldn't join the call. It may have ended already.",
+      startFailed: "Couldn't start the call. Please try again.",
       supersededByOtherCall: 'You left this call because you joined another call or meeting.',
     },
     switchCallDialog: {
@@ -284,6 +287,7 @@ beforeEach(() => {
   rtk.log.length = 0;
   rtk.self.audioEnabled = true;
   rtk.self.videoEnabled = true;
+  rtk.join = async () => undefined;
   vi.clearAllMocks();
   api.post.mockImplementation(async (path: string) => {
     rtk.log.push(`api:${path}`);
@@ -372,8 +376,10 @@ describe('WeldChatCallProvider · a dropped connection', () => {
     emit('roomLeft', { state: 'disconnected' });
 
     emit('roomLeft', { state: 'failed' });
+    expect(call.status).toBe('ended');
     waitOutToastDelay();
 
+    // The toast delay outlasts the "call ended" card too.
     expect(call.status).toBe('idle');
     expect(call.callId).toBeNull();
     expect(leaveBeacons()).toHaveLength(1);
@@ -388,10 +394,158 @@ describe('WeldChatCallProvider · a dropped connection', () => {
 
     emit('roomLeft', { state });
 
-    expect(call.status).toBe('idle');
+    expect(call.status).toBe('ended');
+    expect(call.endReason).toBe('ended');
     expect(call.meeting).toBeNull();
     expect(leaveBeacons()).toHaveLength(1);
     expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('WeldChatCallProvider · connecting fast', () => {
+  it('hands the room to the view as soon as RealtimeKit is set up, before the join completes', async () => {
+    let finishJoin: () => void = () => undefined;
+    rtk.join = () =>
+      new Promise<void>((resolve) => {
+        finishJoin = resolve;
+      });
+    mountChat();
+
+    let starting: Promise<void> | undefined;
+    await act(async () => {
+      starting = call.startCall('ch_1', 'video');
+    });
+
+    await waitFor(() => expect(call.meeting).not.toBeNull());
+    expect(call.status).toBe('connecting');
+
+    await act(async () => {
+      finishJoin();
+      await starting;
+    });
+    emit('roomJoined', {});
+    expect(call.status).toBe('connected');
+  });
+
+  /** Start a call whose RealtimeKit join hangs until the returned `settle` is called. */
+  async function startWithPendingJoin() {
+    let settle: (outcome: 'joined' | 'failed') => void = () => undefined;
+    rtk.join = () =>
+      new Promise<void>((resolve, reject) => {
+        settle = (outcome) => (outcome === 'joined' ? resolve() : reject(new Error('join aborted')));
+      });
+    mountChat();
+    let starting: Promise<void> | undefined;
+    await act(async () => {
+      starting = call.startCall('ch_1', 'video');
+    });
+    await waitFor(() => expect(call.meeting).not.toBeNull());
+    return { starting: starting!, settle: (outcome: 'joined' | 'failed') => settle(outcome) };
+  }
+
+  it('ignores a join that completes after the user hung up while connecting', async () => {
+    const { starting, settle } = await startWithPendingJoin();
+    await act(async () => {
+      await call.leaveCall();
+    });
+    expect(call.status).toBe('ended');
+    rtk.log.length = 0;
+
+    await act(async () => {
+      settle('joined');
+      await starting;
+    });
+    // The SDK reports the join it just finished: it does not bring the call back.
+    emit('roomJoined', {});
+
+    expect(call.status).toBe('ended');
+    expect(sounds.playCallJoinSound).not.toHaveBeenCalled();
+    // Out of the room the late join entered.
+    expect(rtk.log).toContain('rtk:leave');
+    expect(toast.error).not.toHaveBeenCalled();
+    await waitFor(() => expect(call.status).toBe('idle'), { timeout: 3_000 });
+  });
+
+  it('does not report a failure when the join fails because the user hung up', async () => {
+    const { starting, settle } = await startWithPendingJoin();
+    await act(async () => {
+      await call.endCall();
+    });
+
+    await act(async () => {
+      settle('failed');
+      await starting;
+    });
+
+    expect(call.status).toBe('ended');
+    expect(call.endReason).toBe('ended');
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('joins a listed call with POST /join alone, taking the channel and type from its answer', async () => {
+    api.post.mockImplementation(async () => ({
+      data: { callId: 'call_5', channelId: 'ch_5', callType: 'video', authToken: 'tok_5', participants: [] },
+    }));
+    mountChat();
+
+    await act(async () => {
+      await call.joinCall('call_5');
+    });
+
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    expect(api.get).not.toHaveBeenCalled();
+    expect(api.post).toHaveBeenCalledWith('/chat-calls/call_5/join', {});
+    expect(RTK.init).toHaveBeenCalledWith(
+      expect.objectContaining({ authToken: 'tok_5', defaults: expect.objectContaining({ video: true }) }),
+    );
+    expect(call.channelId).toBe('ch_5');
+    expect(call.callType).toBe('video');
+  });
+
+  it('still joins against a server that leaves the channel out of the answer', async () => {
+    api.post.mockImplementation(async () => ({ data: { callId: 'call_5', authToken: 'tok_5', participants: [] } }));
+    mountChat();
+
+    await act(async () => {
+      await call.joinCall('call_5');
+    });
+
+    expect(api.get).toHaveBeenCalledWith('/chat-calls/call_5');
+    expect(call.channelId).toBe('ch_2');
+  });
+
+  it('goes back to idle and says so when a call cannot be started', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    api.post.mockImplementation(async () => {
+      throw new Error('500');
+    });
+    mountChat();
+
+    await act(async () => {
+      await expect(call.startCall('ch_1', 'voice')).rejects.toThrow('500');
+    });
+
+    expect(call.status).toBe('idle');
+    expect(call.channelId).toBeNull();
+    expect(toast.error).toHaveBeenCalledWith("Couldn't start the call. Please try again.");
+    expect(leaveBeacons()).toHaveLength(0);
+  });
+
+  it('backs out of the room and goes back to idle when the room cannot be joined', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    rtk.join = async () => {
+      throw new Error('ws failed');
+    };
+    mountChat();
+
+    await act(async () => {
+      await expect(call.startCall('ch_1', 'voice')).rejects.toThrow('ws failed');
+    });
+
+    expect(call.status).toBe('idle');
+    expect(call.meeting).toBeNull();
+    expect(rtk.log).toContain('rtk:leave');
+    expect(toast.error).toHaveBeenCalledWith("Couldn't start the call. Please try again.");
   });
 });
 
@@ -408,8 +562,38 @@ describe('WeldChatCallProvider · leaving on purpose', () => {
     expect(rtk.log.slice(0, 2)).toEqual(['rtk:leave', 'api:/chat-calls/call_1/leave']);
     expect(rtk.log.filter((entry) => entry === 'api:/chat-calls/call_1/leave')).toHaveLength(1);
     expect(leaveBeacons()).toHaveLength(0);
-    expect(call.status).toBe('idle');
     expect(call.callId).toBeNull();
+  });
+
+  it('says goodbye at once, before the backend answers, then closes the call view', async () => {
+    await startConnectedCall();
+    let answerLeave: (value: unknown) => void = () => undefined;
+    api.post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answerLeave = resolve;
+        }),
+    );
+
+    let leaving: Promise<void> | undefined;
+    await act(async () => {
+      leaving = call.leaveCall();
+    });
+
+    expect(call.status).toBe('ended');
+    expect(call.endReason).toBe('left');
+    expect(call.meeting).toBeNull();
+    // The channel stays, so the call view there shows the goodbye.
+    expect(call.channelId).toBe('ch_1');
+    expect(sounds.playCallLeaveSound).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answerLeave({});
+      await leaving;
+    });
+    await waitFor(() => expect(call.status).toBe('idle'), { timeout: 3_000 });
+    expect(call.channelId).toBeNull();
+    expect(call.endReason).toBeNull();
   });
 
   it('ends the call for everyone through /end', async () => {
@@ -421,7 +605,26 @@ describe('WeldChatCallProvider · leaving on purpose', () => {
 
     expect(api.post).toHaveBeenCalledWith('/chat-calls/call_1/end', {});
     expect(leaveBeacons()).toHaveLength(0);
-    expect(call.status).toBe('idle');
+    expect(call.status).toBe('ended');
+    expect(call.endReason).toBe('ended');
+    expect(sounds.playCallLeaveSound).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a new call take over from the goodbye', async () => {
+    await startConnectedCall();
+    await act(async () => {
+      await call.leaveCall();
+    });
+    expect(call.status).toBe('ended');
+
+    await act(async () => {
+      await call.startCall('ch_3', 'voice');
+    });
+
+    expect(call.status).toBe('connecting');
+    expect(call.channelId).toBe('ch_3');
+    expect(call.duration).toBe(0);
+    expect(call.endReason).toBeNull();
   });
 });
 
@@ -522,8 +725,20 @@ describe('WeldChatCallProvider · an incoming call', () => {
       await call.leaveCall();
     });
 
-    expect(call.status).toBe('idle');
+    expect(call.status).toBe('ended');
     expect(call.incomingCall).toMatchObject(incomingCall('call_2'));
+  });
+
+  it('a ring during the goodbye takes the view over', async () => {
+    await startConnectedCall();
+    await act(async () => {
+      await call.leaveCall();
+    });
+
+    publish('call_incoming', incomingCall('call_2'));
+
+    expect(call.status).toBe('ringing-incoming');
+    expect(call.channelId).toBeNull();
   });
 });
 
@@ -785,7 +1000,7 @@ describe('WeldChatCallProvider · dropped for another call', () => {
     emit('roomLeft', { state: 'kicked' });
 
     expect(toast.info).toHaveBeenCalledWith(SUPERSEDED);
-    expect(call.status).toBe('idle');
+    expect(call.status).toBe('ended');
   });
 
   it('explains it too when the event lands just after the kick', async () => {

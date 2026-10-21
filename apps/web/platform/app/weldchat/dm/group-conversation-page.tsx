@@ -37,7 +37,7 @@ export default function GroupConversationPage() {
   const { status: callStatus, channelId: callChannelId, isFullscreen, isPiP } = useWeldChatCall();
   const { setActiveChannelId } = useChatContext();
   const channel = data?.data;
-  const isInCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === channelId && !isFullscreen && !isPiP;
+  const isInCall = callStatus !== 'idle' && callChannelId === channelId && !isFullscreen && !isPiP;
 
   useEffect(() => {
     setActiveChannelId(channelId ?? null);
