@@ -1,5 +1,6 @@
 import type { ThreadSummary } from './thread-utils';
 import { threadContainsMessage } from './next-thread';
+import { isSystemLabel } from './label-config';
 
 export type ThreadRef = { messageId: string; threadId?: string | null };
 
@@ -7,12 +8,14 @@ export type ThreadRef = { messageId: string; threadId?: string | null };
 export type HiddenThreadMap = Map<string, string>;
 
 /**
- * Inbox (and only inbox) drops a conversation on archive. Other folders
- * such as Starred / All Mail keep the row, so they must not be hidden
- * client-side or a later refetch would never restore them.
+ * Inbox and user-label folders drop a conversation on archive (the server
+ * leaves archived mail out of a user label's folder). System folders such as
+ * Starred / All Mail keep the row, so they must not be hidden client-side or
+ * a later refetch would never restore them.
  */
 export function folderHidesOnArchive(folder: string): boolean {
-  return folder.toLowerCase() === 'inbox';
+  const slug = folder.toLowerCase();
+  return slug === 'inbox' || !isSystemLabel(slug);
 }
 
 /**

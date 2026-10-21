@@ -16,17 +16,7 @@
  *                                  GET /api/storage/private/* read)
  *   - `storageRoutes`            — mounted under `/api/storage` after Clerk
  *                                  (/generate-upload-url, /confirm-upload,
- *                                  /access, /sign)
- *
- * What the token-gated PUT enforces (the token is the only credential there):
- *   - the body is exactly the `fileSize` declared at mint time (and below the
- *     hard cap), checked on `Content-Length` before reading and on the bytes;
- *   - the token writes ONCE: the pending record is flagged `uploaded` and a
- *     second PUT is a 409 (keys with a random segment are also written with an
- *     R2 create-only precondition, which is atomic where KV is not);
- *   - the stored content type is allowlisted; anything that could run as a
- *     page of the public bucket host is stored as an attachment octet-stream.
- * `confirm-upload` still works after the PUT: it reads the object from R2.
+ *                                  /access, /sign, /migrate-private)
  *
  * Public vs private (TASK-620): `isPublic` picks the bucket.
  *
@@ -40,6 +30,16 @@
  *               token, or a signed URL (`POST /sign`) for the key's workspace.
  *
  * The bucket rules and credentials live in `@weldsuite/worker-kit/storage`.
+ *
+ * What the token-gated PUT enforces (the token is the only credential there):
+ *   - the body is exactly the `fileSize` declared at mint time (and below the
+ *     hard cap), checked on `Content-Length` before reading and on the bytes;
+ *   - the token writes ONCE: the pending record is flagged `uploaded` and a
+ *     second PUT is a 409 (keys with a random segment are also written with an
+ *     R2 create-only precondition, which is atomic where KV is not);
+ *   - the stored content type is allowlisted; anything that could run as a
+ *     page of the public bucket host is stored as an attachment octet-stream.
+ * `confirm-upload` still works after the PUT: it reads the object from R2.
  */
 
 import { Hono, type Context } from 'hono';
@@ -48,11 +48,13 @@ import { z } from 'zod';
 import { verifyToken } from '@clerk/backend';
 import { confirmUploadSchema } from '@weldsuite/core-api-client/schemas/storage';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { migratePrivateFilesBatch } from '../../services/private-storage-migration';
 import { error } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { ALPHANUMERIC, randomString } from '@weldsuite/worker-kit/random';
+import { isAuthorizedParty, parseExtraAuthorizedParties } from '@weldsuite/worker-kit/cors';
 import {
   FILES_COOKIE,
   PRIVATE_OBJECT_PATH,
@@ -114,9 +116,6 @@ interface PendingUpload {
   uploadedAt?: number;
 }
 
-/** Fixed-key public images: always the public bucket, whatever `isPublic` says. */
-const ALWAYS_PUBLIC_ENTITY_TYPES = new Set(['customer-avatar', 'contact-avatar', 'user-app-logo']);
-
 async function setPendingUpload(kv: KVNamespace, token: string, data: PendingUpload) {
   await kv.put(`${UPLOAD_TOKEN_PREFIX}${token}`, JSON.stringify(data), {
     expirationTtl: UPLOAD_TOKEN_TTL,
@@ -153,6 +152,9 @@ function resolvePublicUrl(
   const base = r2PublicUrl || 'https://weldsuite-storage-test.weldsuite.org';
   return `${base}/${fileKey}`;
 }
+
+/** Fixed-key public images: always the public bucket, whatever `isPublic` says. */
+const ALWAYS_PUBLIC_ENTITY_TYPES = new Set(['customer-avatar', 'contact-avatar', 'user-app-logo']);
 
 /**
  * Which bucket a new upload goes to. Private uploads need `PRIVATE_STORAGE`;
@@ -252,8 +254,9 @@ uploadTokenApp.put('/api/storage/upload/:token', async (c) => {
  *
  * SECURITY: this route is mounted pre-middleware and takes an arbitrary R2 key,
  * so left open it would let any unauthenticated caller read any object in the
- * public bucket in any environment. We therefore FAIL CLOSED and serve only
- * when `ENVIRONMENT === 'development'`, i.e. exactly the local-dev case
+ * bucket — including private uploads (`PendingUpload.isPublic === false`) — in
+ * any environment. We therefore FAIL CLOSED and serve only when
+ * `ENVIRONMENT === 'development'`, i.e. exactly the local-dev case
  * `resolvePublicUrl` targets (it only ever hands out this worker URL for
  * localhost origins). In test/preview/production the route 404s and public
  * files are served by the mapped R2 domain instead. This mirrors the
@@ -294,36 +297,54 @@ uploadTokenApp.get('/api/storage/public/*', async (c) => {
  * May this request read `key` (in `workspaceId`)? Any one of:
  *   1. `?exp=&sig=` signed for this key (`POST /api/storage/sign`);
  *   2. a files cookie for this workspace (`POST /api/storage/access`);
- *   3. a Clerk bearer token whose active organisation is this workspace.
+ *   3. a Clerk bearer token whose active organisation is this workspace, from
+ *      an authorized party (the same `azp` rule as the kit's Clerk middleware).
  */
 async function authorizePrivateRead(
   c: Context<{ Bindings: Env }>,
   key: string,
   workspaceId: string,
 ): Promise<boolean> {
-  const secret = c.env.STORAGE_SIGNING_KEY;
-  if (secret) {
-    if (await verifyPrivateObjectSignature(secret, key, c.req.query('exp'), c.req.query('sig'))) {
-      return true;
-    }
-    for (const value of cookieValues(c.req.header('Cookie'), FILES_COOKIE)) {
-      if (await verifyFilesCookie(secret, value, workspaceId)) return true;
-    }
-  }
+  if (await hasSignedCredential(c, key, workspaceId)) return true;
   const auth = c.req.header('Authorization');
-  if (auth?.startsWith('Bearer ')) {
-    try {
-      const payload = await verifyToken(auth.slice(7), {
-        secretKey: c.env.CLERK_SECRET_KEY,
-        ...(c.env.CLERK_JWT_KEY ? { jwtKey: c.env.CLERK_JWT_KEY } : {}),
-      });
-      const claims = payload as typeof payload & { o?: { id?: string }; org_id?: string };
-      return !!payload.sub && (claims.o?.id || claims.org_id) === workspaceId;
-    } catch {
-      return false;
-    }
+  return auth?.startsWith('Bearer ') ? bearerIsMemberOf(c, auth.slice(7), workspaceId) : false;
+}
+
+/** A signed URL for this key, or a files cookie for this workspace. */
+async function hasSignedCredential(
+  c: Context<{ Bindings: Env }>,
+  key: string,
+  workspaceId: string,
+): Promise<boolean> {
+  const secret = c.env.STORAGE_SIGNING_KEY;
+  if (!secret) return false;
+  if (await verifyPrivateObjectSignature(secret, key, c.req.query('exp'), c.req.query('sig'))) return true;
+  for (const value of cookieValues(c.req.header('Cookie'), FILES_COOKIE)) {
+    if (await verifyFilesCookie(secret, value, workspaceId)) return true;
   }
   return false;
+}
+
+/** A valid Clerk token from an authorized party, with `workspaceId` as its active org. */
+async function bearerIsMemberOf(
+  c: Context<{ Bindings: Env }>,
+  token: string,
+  workspaceId: string,
+): Promise<boolean> {
+  try {
+    const payload = await verifyToken(token, {
+      secretKey: c.env.CLERK_SECRET_KEY,
+      ...(c.env.CLERK_JWT_KEY ? { jwtKey: c.env.CLERK_JWT_KEY } : {}),
+    });
+    const extraParties = parseExtraAuthorizedParties(
+      (c.env as { CLERK_AUTHORIZED_PARTIES?: string }).CLERK_AUTHORIZED_PARTIES,
+    );
+    if (!isAuthorizedParty(payload.azp, extraParties)) return false;
+    const claims = payload as typeof payload & { o?: { id?: string }; org_id?: string };
+    return !!payload.sub && (claims.o?.id || claims.org_id) === workspaceId;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -601,6 +622,11 @@ app.post(
         cursor,
         dryRun,
       });
+      // The moved rows have a new url and their public object is gone: tell
+      // realtime, search and every open drive view (cached links would 404).
+      for (const { id, name, folderId, fileType } of result.updated) {
+        publishEntityEvent({ c, entityType: 'file', entityId: id, action: 'updated', data: { id, name, folderId, fileType } });
+      }
       return c.json({ data: result });
     } catch (err) {
       console.error('[app-api/storage] migrate-private failed:', err);

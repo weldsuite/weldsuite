@@ -23,8 +23,10 @@ import { and, asc, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizz
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import {
+  archivedCondition,
   inTrashOrSpamCondition,
   labelCondition,
+  labelFolderHidesArchived,
   resolveCustomLabelNames,
   SYSTEM_LABELS,
   toSystemLabel,
@@ -274,12 +276,17 @@ export async function listThreadsByLabel(
 
   // Which messages put a thread in this list: the folder's label, or the
   // whole mailbox for a search. Trash and spam only ever show in their own
-  // folder, so a trashed conversation leaves Sent and Starred as well.
+  // folder, so a trashed conversation leaves Sent and Starred as well. A user
+  // label's folder leaves out archived mail: "Done" there clears it like it
+  // does in the inbox, and the label stays on the message.
   const searchCondition = messageSearchCondition(input.search);
   const system = toSystemLabel(input.labelSlug);
   if (input.labelSlug !== 'all' && !searchCondition) {
     const customNames = await resolveCustomLabelNames(db, input.labelSlug, input.accountId);
     baseConditions.push(labelCondition(input.labelSlug, customNames));
+    if (labelFolderHidesArchived(input.labelSlug)) {
+      baseConditions.push(sql`NOT ${archivedCondition()}`);
+    }
   }
   if (searchCondition || (system !== SYSTEM_LABELS.TRASH && system !== SYSTEM_LABELS.SPAM)) {
     baseConditions.push(sql`NOT ${inTrashOrSpamCondition()}`);

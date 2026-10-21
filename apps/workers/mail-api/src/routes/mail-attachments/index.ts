@@ -26,8 +26,8 @@ import * as attachments from '@weldsuite/mail-domain/attachments';
 import { toPublicAttachment, isWorkspaceStorageKey } from '@weldsuite/mail-domain/attachments';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
-import { getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
 import { getStoredObject } from '@weldsuite/worker-kit/storage';
+import { getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

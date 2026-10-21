@@ -27,8 +27,8 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
 import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 import { locateStoredObject } from '@weldsuite/worker-kit/storage';
+import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 

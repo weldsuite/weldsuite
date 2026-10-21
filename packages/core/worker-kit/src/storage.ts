@@ -84,7 +84,7 @@ export function isWorkspaceObjectKey(
   return !!owner && workspaceIds.some((id) => id === owner);
 }
 
-/** `value` without any trailing `char` (a linear scan, not a backtracking regex). */
+/** `value` without any run of `char` at its end (no regex, so no backtracking). */
 function trimTrailing(value: string, char: string): string {
   let end = value.length;
   while (end > 0 && value[end - 1] === char) end--;
@@ -322,13 +322,13 @@ const INLINE_TYPES = new Set([
   'application/pdf',
   'text/plain',
 ]);
-/** Any video or audio subtype. */
-const INLINE_MEDIA = /^(video|audio)\/[\w.+-]+$/;
+/** Any `video/*` or `audio/*` subtype (letters, digits and `.+-` only). */
+const MEDIA_TYPE = /^(?:video|audio)\/[\w.+-]+$/;
 
 export function isInlineSafeContentType(contentType: string | undefined | null): boolean {
   if (!contentType) return false;
   const type = contentType.split(';')[0]!.trim().toLowerCase();
-  return INLINE_TYPES.has(type) || INLINE_MEDIA.test(type);
+  return INLINE_TYPES.has(type) || MEDIA_TYPE.test(type);
 }
 
 /** Response headers for a private object (no shared caching, no script). */
