@@ -110,7 +110,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   const { isOpen: isEntitySheetOpen } = useEntitySheet();
 
   const { status: callStatus, channelId: callChannelId, isFullscreen: callFullscreen, isPiP: callPiP } = useWeldChatCall();
-  const isInlineCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === currentChannelId && !callFullscreen && !callPiP;
+  const isInlineCall = callStatus !== 'idle' && callChannelId === currentChannelId && !callFullscreen && !callPiP;
 
   // The member detail panel always starts closed.
   const [memberDetailWidth, setMemberDetailWidth] = useState(0);

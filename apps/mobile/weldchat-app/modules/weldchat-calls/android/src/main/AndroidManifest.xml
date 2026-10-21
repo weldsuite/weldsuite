@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Ring over the lock screen like the phone app does. Android 14+ grants it
+       only to calling apps (Play Console declaration); otherwise the call shows
+       as a ringing heads-up notification instead. -->
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.VIBRATE" />
+  <uses-permission android:name="android.permission.INTERNET" />
+
+  <application>
+    <!-- Decline button on the incoming-call notification. -->
+    <receiver
+      android:name="expo.modules.weldchatcalls.CallActionReceiver"
+      android:exported="false" />
+  </application>
+</manifest>

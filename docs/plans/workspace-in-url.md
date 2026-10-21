@@ -1,9 +1,13 @@
 # Workspace in the URL, step 2 (FE-013)
 
-Status: implemented in one PR (#1225), not the four below. ADR: `FE-013` in
-`weldsuite-documentation` ("Platform URLs name the workspace, as `/w/{slug}/…`",
-Proposed; flips to Accepted when #1225 merges). The rewrite is **on by
-default**; `VITE_WORKSPACE_IN_URL=false` at build time is the kill switch.
+Status: **done.** Implemented in one PR (#1225), not the four below, and
+released to production. ADR: `FE-013` in `weldsuite-documentation`
+("Platform URLs name the workspace, as `/w/{slug}/…`", Accepted). After that
+release the `VITE_WORKSPACE_IN_URL` kill switch and the `/w/$workspace`
+fallback route were removed: the rewrite is always on, and an in-app `to`
+that names a workspace is routed through the rewrite's `input` (tested in
+`lib/workspace-url-rewrite.test.tsx`). The follow-up from the ADR, the
+persisted query cache keyed per workspace, is FE-014 (#1231).
 
 How it landed, against the design below:
 - Store, rewrite, `toPublicPath()` / `useWorkspaceHref()`:
@@ -11,10 +15,8 @@ How it landed, against the design below:
   `src/main.tsx`.
 - The shell check: a pure decision table in `lib/workspace-url-gate.ts` and the
   hook in `components/workspace-url-gate.tsx`, used by `AppShellClient`. The
-  not-found/error screen is `components/workspace/workspace-link-problem.tsx`,
-  shared with the `/w/$workspace` page, which now only runs with the kill
-  switch off. With the rewrite on, the router strips `/w/` before routing, so
-  that route is never matched.
+  not-found/error screen is `components/workspace/workspace-link-problem.tsx`.
+  The router strips `/w/` before routing, so no `/w/$workspace` route exists.
 - §4: the `lib/router` wrappers needed no change. A `to` that already names a
   workspace goes through `input` like any other URL, and the shell activates
   it.

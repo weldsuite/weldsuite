@@ -54,7 +54,25 @@ const defaultComposeData: ComposeData = {
 
 const ComposeContext = createContext<ComposeContextType | undefined>(undefined);
 
-export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>) {
+/**
+ * Provides the compose state, unless an outer ComposeProvider already does: a
+ * module layout (WeldMail, WeldDesk) then shares the app shell's, so a mail
+ * opened in one module and expanded to WeldMail's full-page compose keeps what
+ * was written. `panel` (the floating compose) renders only where this provider
+ * is the one in charge, so there is never a second panel on the same state.
+ */
+export function ComposeProvider({ children, panel }: Readonly<{ children: ReactNode; panel?: ReactNode }>) {
+  const outer = useContext(ComposeContext);
+  if (outer) return <>{children}</>;
+  return (
+    <RootComposeProvider>
+      {children}
+      {panel}
+    </RootComposeProvider>
+  );
+}
+
+function RootComposeProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeData, setComposeData] = useState<ComposeData>(defaultComposeData);
   const [previousUrlState, setPreviousUrlState] = useState<string | null>(null);

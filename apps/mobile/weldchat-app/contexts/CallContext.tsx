@@ -24,17 +24,32 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AppState, Vibration } from 'react-native';
+import { AppState, Platform, Vibration } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime/types';
-import { appApi } from '@/services/app-api';
+import { apiUrl, appApi } from '@/services/app-api';
 import { useLoopingSound } from '@/hooks/useLoopingSound';
 import {
   incomingCallPayloadFromNotificationData,
+  setIncomingCallDismissHandler,
   setIncomingCallPushHandler,
   type IncomingCallPushPayload,
 } from '@/lib/incoming-call-bridge';
+import { incomingFromNativePayload, nativePayloadFromIncoming } from '@/lib/call-push';
+import {
+  addCallActionListener,
+  configureNativeCalls,
+  endNativeCall,
+  isNativeCallsAvailable,
+  releaseLockScreen,
+  reportIncomingCall,
+  takePendingCallActions,
+  type NativeCallAction,
+} from '@/modules/weldchat-calls';
+
+/** iPhone rings through CallKit (also over the lock screen) instead of the in-app ring screen. */
+const RINGS_THROUGH_CALLKIT = Platform.OS === 'ios' && isNativeCallsAvailable;
 
 const RINGTONE = require('@/assets/sounds/ringtone.wav');
 
@@ -175,6 +190,8 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
   statusRef.current = status;
   const incomingCallRef = useRef(incomingCall);
   incomingCallRef.current = incomingCall;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   // Guards a single in-flight start/join so a UI "Join" tap and a push-tap
   // (joinCallById) can't both request a join token for the same call and race
@@ -182,12 +199,20 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
   const joinInFlightRef = useRef(false);
 
   const presentIncoming = useCallback((payload: IncomingCallPushPayload) => {
-    if (statusRef.current !== 'idle') {
-      // Already ringing for this same call — ignore duplicate push/realtime.
-      if (incomingCallRef.current?.callId === payload.callId) return;
+    if (!payload.callId) return;
+    if (RINGS_THROUGH_CALLKIT) {
+      // CallKit is the ring screen; it ignores a call it already shows.
+      if (sessionRef.current?.callId !== payload.callId) reportIncomingCall(nativePayloadFromIncoming(payload));
       return;
     }
-    if (!payload.callId) return;
+    if (statusRef.current !== 'idle') {
+      // Already ringing for this same call (duplicate push/realtime): the
+      // in-app ring screen has it, so a native ring for it must stop.
+      if (incomingCallRef.current?.callId === payload.callId) endNativeCall(payload.callId);
+      return;
+    }
+    // The in-app ring screen takes over from the native call notification.
+    endNativeCall(payload.callId);
     setIncomingCall({
       callId: payload.callId,
       channelId: payload.channelId,
@@ -217,6 +242,16 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
     setIncomingCallPushHandler(presentIncoming);
     return () => setIncomingCallPushHandler(null);
   }, [presentIncoming]);
+
+  // Server cancel / native ring taking over → drop the in-app ring for that call.
+  useEffect(() => {
+    setIncomingCallDismissHandler((callId) => {
+      if (incomingCallRef.current?.callId !== callId) return;
+      setIncomingCall(null);
+      setStatus((cur) => (cur === 'ringing-incoming' ? 'idle' : cur));
+    });
+    return () => setIncomingCallDismissHandler(null);
+  }, []);
 
   // After background, the personal socket may have missed `call_incoming`.
   // Reconcile against active DM calls the user has not joined yet.
@@ -284,6 +319,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
       // The effect only runs while status === 'connecting' and the cleanup
       // clears this timer the moment status changes, so reaching here means we
       // were stuck connecting for the full timeout.
+      if (sessionRef.current) endNativeCall(sessionRef.current.callId);
       setStatus('idle');
       setSession(null);
     }, 30000);
@@ -300,6 +336,49 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
     return undefined;
   }, [status]);
   useLoopingSound(status === 'ringing-incoming', RINGTONE);
+
+  // `call_ended` on the personal topic: clear the channel's banner and, when the
+  // caller hung up before we answered, every ring for the call.
+  const handleCallEnded = useCallback((data: { channelId?: string; callId?: string } | undefined) => {
+    // Clear the channel's active-call banner.
+    const endedChannelId = data?.channelId;
+    if (endedChannelId) {
+      setActiveChannelCalls((cur) => {
+        if (!(endedChannelId in cur)) return cur;
+        const next = { ...cur };
+        delete next[endedChannelId];
+        return next;
+      });
+    }
+    // Caller hung up before we answered — dismiss the ring + any lingering
+    // OS push banner for this call (killed/background delivery path).
+    const endedId = data?.callId;
+    // ...and the native ring (CallKit / call notification). A call this
+    // phone answered ends through leaveCall instead.
+    if (endedId && sessionRef.current?.callId !== endedId) endNativeCall(endedId);
+    setIncomingCall((cur) => {
+      if (cur && (!endedId || endedId === cur.callId)) {
+        setStatus('idle');
+        return null;
+      }
+      return cur;
+    });
+    if (!endedId) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
+      const { dismissPresentedNotificationsWhere } = require('@weldsuite/mobile-ui/services/notifications') as {
+        dismissPresentedNotificationsWhere: (
+          match: (data: Record<string, unknown>) => boolean,
+        ) => Promise<void>;
+      };
+      void dismissPresentedNotificationsWhere((pushData) => {
+        if (pushData.notificationType !== 'chat_incoming_call') return false;
+        return pushData.entityId === endedId;
+      });
+    } catch {
+      // Expo Go / missing native module — nothing to dismiss.
+    }
+  }, []);
 
   // Personal-topic handler: incoming ring + remote cancellation.
   const handlePersonalEvent = useCallback((event: WorkspaceEvent<Record<string, unknown>>) => {
@@ -327,44 +406,9 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
         }));
       }
     } else if (event.event === 'call_ended') {
-      // Clear the channel's active-call banner.
-      const endedChannelId = (event.data as { channelId?: string })?.channelId;
-      if (endedChannelId) {
-        setActiveChannelCalls((cur) => {
-          if (!(endedChannelId in cur)) return cur;
-          const next = { ...cur };
-          delete next[endedChannelId];
-          return next;
-        });
-      }
-      // Caller hung up before we answered — dismiss the ring + any lingering
-      // OS push banner for this call (killed/background delivery path).
-      const endedId = (event.data as { callId?: string })?.callId;
-      setIncomingCall((cur) => {
-        if (cur && (!endedId || endedId === cur.callId)) {
-          setStatus('idle');
-          return null;
-        }
-        return cur;
-      });
-      if (endedId) {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
-          const { dismissPresentedNotificationsWhere } = require('@weldsuite/mobile-ui/services/notifications') as {
-            dismissPresentedNotificationsWhere: (
-              match: (data: Record<string, unknown>) => boolean,
-            ) => Promise<void>;
-          };
-          void dismissPresentedNotificationsWhere((data) => {
-            if (data.notificationType !== 'chat_incoming_call') return false;
-            return data.entityId === endedId;
-          });
-        } catch {
-          // Expo Go / missing native module — nothing to dismiss.
-        }
-      }
+      handleCallEnded(event.data as { channelId?: string; callId?: string });
     }
-  }, [presentIncoming]);
+  }, [presentIncoming, handleCallEnded]);
 
   useTopic<Record<string, unknown>>(userId ? `chat.user.${userId}` : '', handlePersonalEvent);
 
@@ -455,14 +499,16 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
     }
   }, []);
 
-  const acceptIncomingCall = useCallback(async () => {
-    const ic = incomingCall;
-    if (!ic) return;
+  /** Join a ringing call: the in-app Accept, or Answer on the native ring. */
+  const acceptCall = useCallback(async (ic: IncomingCall) => {
     if (joinInFlightRef.current) return;
     joinInFlightRef.current = true;
     Vibration.cancel();
     setIncomingCall(null);
     setStatus('connecting');
+    // Android: the notification stops ringing. iOS keeps the answered CallKit
+    // call until the call ends (it owns the audio session).
+    if (Platform.OS === 'android') endNativeCall(ic.callId);
     try {
       const joinRes = await appApi.chatCalls.join(ic.callId);
       setSession({
@@ -474,12 +520,17 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
       setMinimized(false);
     } catch (err) {
       console.error('[WeldChat:Call] acceptIncomingCall failed:', err);
+      endNativeCall(ic.callId);
       setSession(null);
       setStatus('idle');
     } finally {
       joinInFlightRef.current = false;
     }
-  }, [incomingCall]);
+  }, []);
+
+  const acceptIncomingCall = useCallback(async () => {
+    if (incomingCall) await acceptCall(incomingCall);
+  }, [incomingCall, acceptCall]);
 
   const declineCall = useCallback(async () => {
     const ic = incomingCall;
@@ -487,6 +538,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
     Vibration.cancel();
     setIncomingCall(null);
     setStatus('idle');
+    endNativeCall(ic.callId);
     try {
       await appApi.chatCalls.decline(ic.callId);
     } catch {
@@ -499,7 +551,9 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
     setSession(null);
     setStatus('idle');
     setMinimized(false);
+    releaseLockScreen();
     if (s) {
+      endNativeCall(s.callId);
       try {
         await appApi.chatCalls.leave(s.callId);
       } catch {
@@ -507,6 +561,51 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
       }
     }
   }, [session]);
+  const leaveCallRef = useRef(leaveCall);
+  leaveCallRef.current = leaveCall;
+
+  /** Answer / Decline / tap / hang-up on the native ring (CallKit, call notification). */
+  const handleNativeAction = useCallback(
+    (event: NativeCallAction) => {
+      const callId = event.payload.callId ?? '';
+      const incoming = incomingFromNativePayload(event.payload);
+      switch (event.action) {
+        case 'accept':
+          if (incoming && sessionRef.current?.callId !== callId) void acceptCall(incoming);
+          break;
+        case 'open':
+          if (incoming) presentIncoming(incoming);
+          break;
+        case 'decline':
+          Vibration.cancel();
+          if (incomingCallRef.current?.callId === callId) {
+            setIncomingCall(null);
+            setStatus((cur) => (cur === 'ringing-incoming' ? 'idle' : cur));
+          }
+          // Native already declined with the ring token when it had one.
+          if (callId && event.payload.handledNatively !== 'true') {
+            appApi.chatCalls.decline(callId).catch(() => {});
+          }
+          break;
+        case 'end':
+          if (sessionRef.current?.callId === callId) void leaveCallRef.current();
+          break;
+        default:
+          // 'mute' is handled by the call room (InCallRoom), which owns the mic.
+          break;
+      }
+    },
+    [acceptCall, presentIncoming],
+  );
+
+  useEffect(() => {
+    if (!userId || !isNativeCallsAvailable) return;
+    configureNativeCalls(apiUrl('/public/chat-calls/decline'));
+    const unsubscribe = addCallActionListener(handleNativeAction);
+    // Answer on a closed app: the tap happened before JS (and auth) was up.
+    for (const action of takePendingCallActions()) handleNativeAction(action);
+    return unsubscribe;
+  }, [userId, handleNativeAction]);
 
   const markConnected = useCallback(() => {
     setStatus((cur) => (cur === 'connecting' ? 'connected' : cur));

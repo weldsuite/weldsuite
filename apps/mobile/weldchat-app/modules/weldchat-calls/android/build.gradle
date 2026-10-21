@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.weldsuite.weldchat'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.weldchatcalls"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // NotificationCompat.CallStyle (the system incoming-call notification layout).
+  implementation 'androidx.core:core:1.13.1'
+}

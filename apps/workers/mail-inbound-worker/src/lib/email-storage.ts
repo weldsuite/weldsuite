@@ -7,7 +7,20 @@
 
 import { eq, and, or, inArray, isNull, desc, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { getMasterDb, getTenantDbForWorkspaceById, getPersonalDb, masterSchema, tenantSchema, personalSchema } from '../db';
+import {
+  getMasterDb,
+  getTenantDbForWorkspaceById,
+  getPersonalDb,
+  masterSchema,
+  tenantSchema,
+  personalSchema,
+  type TenantDatabase,
+} from '../db';
+import {
+  getChannelPreferences,
+  sendNewEmailNotification,
+  sendTicketReplyNotification,
+} from '@weldsuite/notifications';
 import {
   ingestDeskEmail,
   isDeskSchemaMissing,
@@ -942,6 +955,8 @@ interface StoredEmailNotice {
   account: RecipientAccount;
   workspaceId: string;
   clerkOrgId: string;
+  /** Tenant DB for the bell notification + preference lookup; null when it could not be opened. */
+  tenantDb: TenantDatabase | null;
   email: ParsedEmail;
   result: StoreEmailResult;
   preview: string;
@@ -949,7 +964,9 @@ interface StoredEmailNotice {
 }
 
 /**
- * Notify one workspace member: realtime always, Expo push for ham only.
+ * Notify one workspace member: realtime `mail:new` always; for ham also a
+ * notification-bell row and the WeldMail Expo push, both subject to the
+ * member's `mail` notification preferences.
  * Returns true when the in-app (realtime) notification was published.
  */
 async function notifyWorkspaceMember(
@@ -959,6 +976,7 @@ async function notifyWorkspaceMember(
     account,
     workspaceId,
     clerkOrgId,
+    tenantDb,
     email,
     result,
     preview,
@@ -986,6 +1004,34 @@ async function notifyWorkspaceMember(
   if (result.isSpam || result.isPromotion) {
     return notified;
   }
+
+  // Bell row (in-app only; the helper excludes email + push, the WeldMail
+  // push below carries the richer mobile payload).
+  let pushAllowed = true;
+  if (tenantDb) {
+    try {
+      await sendNewEmailNotification({
+        db: tenantDb,
+        env,
+        workspaceId: clerkOrgId,
+        userId,
+        accountId: account.accountId,
+        messageId: result.messageId,
+        fromName: email.from.name,
+        fromEmail: email.from.email,
+        subject: email.subject,
+        preview,
+      });
+    } catch (bellErr) {
+      console.error(`[Mail] Failed to create bell notification for user ${userId}:`, bellErr);
+    }
+    try {
+      pushAllowed = (await getChannelPreferences(tenantDb, userId, 'mail')).push;
+    } catch (prefsErr) {
+      console.error(`[Mail] Failed to read notification preferences for user ${userId}:`, prefsErr);
+    }
+  }
+  if (!pushAllowed) return notified;
 
   try {
     await sendNewEmailPushNotification(env, {
@@ -1063,10 +1109,17 @@ async function finishWorkspaceDelivery(
   // Use clerkOrgId (NOT internal workspaceId) — WorkspaceHub DO is keyed
   // by clerkOrgId on the WS-auth side, so the publish must use the same
   // key or it lands on a different DO and never reaches the client.
+  let tenantDb: TenantDatabase | null = null;
+  try {
+    tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
+  } catch (dbErr) {
+    console.error(`[Mail] Failed to open tenant DB for notifications (${workspaceId}):`, dbErr);
+  }
   const notice: StoredEmailNotice = {
     account,
     workspaceId,
     clerkOrgId,
+    tenantDb,
     email,
     result,
     preview,
@@ -1140,6 +1193,7 @@ async function finishPersonalDelivery(
     try {
       await sendPersonalEmailPushNotification(env, {
         clerkUserId,
+        personalAccountId: account.personalAccountId,
         messageId: result.messageId,
         accountId: account.accountId,
         from: email.from,
@@ -2028,6 +2082,25 @@ async function ingestHelpdeskInboxEmail(
     );
 
     await publishHelpdeskRealtime(env, email, inbox, { conversation, message, created, body });
+    // A customer reply on a conversation a teammate owns pings that teammate.
+    if (!created && conversation.assigneeId && inbox.clerkOrgId) {
+      try {
+        await sendTicketReplyNotification({
+          db: tenantDb,
+          env,
+          workspaceId: inbox.clerkOrgId,
+          assigneeId: conversation.assigneeId,
+          kind: 'conversation',
+          entityId: conversation.id,
+          customerName: email.from.name || email.from.email,
+          customerContactId: conversation.contactId,
+          messageBody: body,
+          subject: conversation.title,
+        });
+      } catch (notifyErr) {
+        console.error(`[HelpdeskInbox] Reply notification failed for ${conversation.id}:`, notifyErr);
+      }
+    }
     await upsertHelpdeskContacts(env, email, inbox);
 
     return conversation.id;

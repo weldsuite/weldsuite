@@ -36,6 +36,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { sendDeskEmailReply } from '../../lib/desk-email';
+import { notifyAssigned } from '../../lib/notify';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -204,6 +205,13 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
   try {
     let eventType: 'closed' | 'reopened' | 'assigned' | 'unassigned';
     let assigneeId: string | null | undefined;
+    // Read before the write: the notification goes out only when the assignee
+    // actually changes, not when an agent is re-assigned a conversation they own.
+    const [before] = await db
+      .select({ assigneeId: schema.deskConversations.assigneeId })
+      .from(schema.deskConversations)
+      .where(eq(schema.deskConversations.id, id))
+      .limit(1);
     if (data.action === 'close') eventType = 'closed';
     else if (data.action === 'open') eventType = 'reopened';
     else if (data.assigneeId) {
@@ -241,6 +249,17 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
     });
     const authors = await loadAuthor(db, conversation.assigneeId);
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
+    if (eventType === 'assigned') {
+      notifyAssigned(c, {
+        assigneeId,
+        previousAssigneeId: before?.assigneeId,
+        kind: 'conversation',
+        entityId: conversation.id,
+        subject: conversation.title || conversation.name || conversation.email,
+        reference: `#${conversation.conversationNumber}`,
+        assignedByUserId: userId,
+      });
+    }
     return success(c, { conversation, message });
   } catch (err) {
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);

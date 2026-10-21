@@ -41,6 +41,15 @@ export interface Env extends KitEnv {
   CF_REALTIME_APP_ID?: string;
   /** Cloudflare RealtimeKit app secret — used by WeldChat calls (@weldsuite/cloudflare-realtime). */
   CF_REALTIME_APP_SECRET?: string;
+  /** HMAC key for the signed ring token in an incoming-call push, which lets
+   *  the phone's lock-screen / CallKit Decline call `/public/chat-calls/decline`
+   *  without a session. Unset: no token is sent and that route rejects all. */
+  CALL_RING_SECRET?: string;
+  /** APNs provider key (.p8) for the iOS CallKit ring (VoIP push). Unset:
+   *  iPhones get the ordinary "Incoming call" banner instead. */
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_PRIVATE_KEY?: string;
 
   // --- Notifications (`@weldsuite/notifications`) ------------------------
   // Chat message / DM / missed-call notifications. In-app delivery uses the

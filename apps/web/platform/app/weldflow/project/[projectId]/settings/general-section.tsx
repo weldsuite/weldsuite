@@ -8,11 +8,13 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { DatePicker } from '@weldsuite/ui/components/date-picker';
-import { FolderKanban } from 'lucide-react';
+import { FolderKanban, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { coloredSquareColors, coloredSquareIcons, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { projectsApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
+import { useRouter } from '@/lib/router';
+import { DeleteProjectDialog } from '@/app/weldflow/components/delete-project-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
@@ -24,6 +26,8 @@ interface GeneralSectionProps {
 
 export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionProps>) {
   const { t } = useI18n();
+  const router = useRouter();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const STATUS_OPTIONS = [
     { value: 'Planning', label: t.projects.settings.statusPlanning },
@@ -331,6 +335,28 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
           </p>
         )}
       </div>
+
+      {isAdmin && (
+        <div className="mt-10 flex items-center justify-between gap-4 rounded-lg border border-destructive/40 p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{t.projects.deleteProject.dangerZoneTitle}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{t.projects.deleteProject.dangerZoneDescription}</p>
+          </div>
+          <Button variant="destructive" className="shrink-0" onClick={() => setShowDeleteDialog(true)}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            {t.projects.deleteProject.confirm}
+          </Button>
+        </div>
+      )}
+
+      <DeleteProjectDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        project={{ id: projectId, name }}
+        onDeleted={(_id, movedTo) => {
+          router.replace(movedTo ? `/weldflow/project/${movedTo.id}/tasks` : '/weldflow/projects');
+        }}
+      />
     </div>
   );
 }

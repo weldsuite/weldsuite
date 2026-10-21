@@ -1,24 +1,32 @@
 import { MetadataRoute } from 'next';
 import { getWebsiteByDomain } from '@/lib/api-client';
+import { sitemapXml } from '@/lib/sitemap-xml';
 
 interface SitemapParams {
   domain: string;
 }
 
+const xmlResponse = (entries: MetadataRoute.Sitemap) =>
+  new Response(sitemapXml(entries), { headers: { 'Content-Type': 'application/xml' } });
+
 /**
- * Generate sitemap for a specific domain
- * https://nextjs.org/docs/app/api-reference/file-conventions/metadata/sitemap
+ * Generate sitemap for a specific domain.
+ *
+ * A route handler rather than sitemap.ts: Next.js never passes `params` to a
+ * sitemap or robots metadata route (it calls them with no arguments), and the
+ * domain only exists as the [domain] segment the middleware rewrites to.
  */
-export default async function sitemap(
+export async function GET(
+  _request: Request,
   { params }: { params: Promise<SitemapParams> }
-): Promise<MetadataRoute.Sitemap> {
+) {
   const { domain } = await params;
 
   // Fetch website data
   const website = await getWebsiteByDomain(domain);
 
   if (!website?.isPublished) {
-    return [];
+    return xmlResponse([]);
   }
 
   const baseUrl = website.publishedUrl || `https://${domain}`;
@@ -45,5 +53,5 @@ export default async function sitemap(
     });
   }
 
-  return pageEntries;
+  return xmlResponse(pageEntries);
 }

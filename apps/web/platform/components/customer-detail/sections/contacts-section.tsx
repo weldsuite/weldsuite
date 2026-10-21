@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useObjectPanel, useObjectPanelNavigationReporter } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -99,12 +99,6 @@ function useLinkContactsToCustomer() {
   });
 }
 import { RecordSelectionModal } from '@/components/objects/_shared/record-selection-modal';
-// Lazy: a contact's detail view can open nested inside the customer view.
-// A static import here closes an import cycle (view -> content -> this
-// section -> view); lazy keeps the recursion at runtime only.
-const CustomerDetailView = lazy(() =>
-  import('../customer-detail-view').then((m) => ({ default: m.CustomerDetailView })),
-);
 import {
   EntityList,
   EmptyStateIllustration,
@@ -112,6 +106,7 @@ import {
   type FilterConfig,
 } from '@/components/entity-list';
 import { useCustomerDetailContext } from '../customer-detail-provider';
+import { useNestedDetailView } from '../nested-detail-view';
 import type { ContactsSectionProps, CustomerContact } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -121,6 +116,8 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
   // Previous / next in the person panel step through these contacts.
   const reportDisplayedContacts = useObjectPanelNavigationReporter<CustomerContact>({ type: 'person' });
   const { mode, isExpanded, silentRefresh } = useCustomerDetailContext();
+  // A contact's detail view opens nested inside the customer view.
+  const CustomerDetailView = useNestedDetailView();
   const isPanel = (mode === 'panel' && !isExpanded) || mode === 'embedded';
   const unlinkContactMut = useUnlinkContactFromCustomer();
   const setPrimaryMut = useSetContactPrimaryForCustomer();
@@ -411,7 +408,6 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
         }}
       />
       {openContact && (
-        <Suspense fallback={null}>
         <CustomerDetailView
           customerId={openContact.id}
           entityType="contact"
@@ -421,7 +417,6 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
           onBack={() => setOpenContact(null)}
           width="500px"
         />
-        </Suspense>
       )}
       <RecordSelectionModal
         open={linkContactOpen}

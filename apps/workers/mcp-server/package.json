@@ -16,7 +16,7 @@
   "dependencies": {
     "@clerk/backend": "^2.29.0",
     "@hono/zod-validator": "^0.4.0",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
@@ -34,7 +34,7 @@
     "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.34",
+    "hono": "^4.13.13",
     "postgres": "^3.4.7",
     "zod": "^3.24.2"
   },

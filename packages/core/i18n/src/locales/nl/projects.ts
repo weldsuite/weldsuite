@@ -946,6 +946,25 @@ export const projects = {
       changeIcon: 'Pictogram wijzigen',
     },
 
+    deleteProject: {
+      title: 'Project verwijderen',
+      description: '"{name}" verwijderen? Het project met zijn fases, sprints en instellingen wordt verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      tasksLabel: 'Wat gebeurt er met de taken?',
+      deleteTasks: 'Taken samen met het project verwijderen',
+      moveTasks: 'Taken naar een ander project verplaatsen',
+      targetPlaceholder: 'Kies een project',
+      noOtherProjects: 'Er is geen ander project om de taken naartoe te verplaatsen.',
+      moveHint: 'Taken behouden hun status als het doelproject een passende fase heeft. Sprints, mijlpalen en taaksleutels worden gewist.',
+      confirm: 'Project verwijderen',
+      confirmAndMove: 'Taken verplaatsen en verwijderen',
+      cancel: 'Annuleren',
+      deleted: 'Project verwijderd',
+      deletedAndMoved: 'Project verwijderd, taken verplaatst naar "{name}"',
+      failed: 'Project verwijderen mislukt',
+      dangerZoneTitle: 'Dit project verwijderen',
+      dangerZoneDescription: 'Verwijder het project voor iedereen. U kunt de taken eerst naar een ander project verplaatsen.',
+    },
+
     filesPage: {
       title: 'Projectbestanden',
       description: 'Bestanden beheren in uw projecten',

@@ -19,6 +19,7 @@ import {
   incomingCallPayloadFromNotificationData,
   presentIncomingCallFromPush,
 } from '@/lib/incoming-call-bridge';
+import { addVoipTokenListener, getVoipToken, isNativeCallsAvailable } from '@/modules/weldchat-calls';
 
 /**
  * Extract the chat channel id from a notification `actionUrl`. The backend
@@ -66,16 +67,34 @@ function testPushResult(sent: number): { ok: boolean; message: string } {
   return { ok: true, message: `Test push accepted by Expo (${sent} ${devices}).` };
 }
 
-function pushTokenType(isExpoToken: boolean): 'expo' | 'fcm' | 'apns' {
+type PushTokenType = 'expo' | 'fcm' | 'apns' | 'voip' | 'expo_call';
+
+function pushTokenType(isExpoToken: boolean): PushTokenType {
   if (isExpoToken) return 'expo';
   return Platform.OS === 'android' ? 'fcm' : 'apns';
 }
 
 /** Register the Expo push token with app-api's push-tokens endpoint. */
 async function registerPushToken(token: string): Promise<boolean> {
-  const deviceId = await getDeviceId();
   const isExpoToken = token.startsWith('ExponentPushToken[');
-  const tokenType = pushTokenType(isExpoToken);
+  return registerDeviceToken(token, pushTokenType(isExpoToken), await getDeviceId());
+}
+
+/**
+ * Register this device's call token (`<deviceId>:call`), which the server
+ * rings natively instead of sending the "Incoming call" banner: the PushKit
+ * VoIP token on iOS (CallKit), the Expo token again on Android (full-screen
+ * call notification). Only binaries with the native call module have one.
+ */
+async function registerCallToken(expoToken: string | undefined): Promise<void> {
+  if (!isNativeCallsAvailable) return;
+  const token = Platform.OS === 'ios' ? getVoipToken() : expoToken;
+  if (!token) return;
+  if (Platform.OS === 'android' && !token.startsWith('ExponentPushToken[')) return;
+  await registerDeviceToken(token, Platform.OS === 'ios' ? 'voip' : 'expo_call', `${await getDeviceId()}:call`);
+}
+
+async function registerDeviceToken(token: string, tokenType: PushTokenType, deviceId: string): Promise<boolean> {
   const body = {
     token,
     platform: Platform.OS as 'ios' | 'android',
@@ -248,7 +267,10 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     let serverRegistered = false;
     try {
       const res = await appApi.pushTokens.list();
-      const weldchat = (res.data ?? []).filter((t) => t.appCode === APP_CODE || t.appCode === 'weldsuite');
+      // Call tokens (`<deviceId>:call`) ring calls only; they are not the device's push registration.
+      const weldchat = (res.data ?? []).filter(
+        (t) => (t.appCode === APP_CODE || t.appCode === 'weldsuite') && !t.deviceId?.endsWith(':call'),
+      );
       tokenSuffixes = weldchat.map((t) => t.tokenSuffix).filter((s): s is string => Boolean(s));
       serverRegistered = weldchat.length > 0;
     } catch (err) {
@@ -268,6 +290,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
       if (token) {
         const registered = await registerPushToken(token);
+        await registerCallToken(token);
         await refreshRegistrationStatus();
         return registered;
       }
@@ -289,7 +312,10 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
       // Re-register first so a stale/missing DB row is not mistaken for FCM failure.
       if (notifUtils && EAS_PROJECT_ID) {
         const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
-        if (token) await registerPushToken(token);
+        if (token) {
+          await registerPushToken(token);
+          await registerCallToken(token);
+        }
       }
       const res = await appApi.pushTokens.test();
       await refreshRegistrationStatus();
@@ -368,6 +394,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
             if (token) {
               await registerPushToken(token);
+              await registerCallToken(token);
             } else {
               // Common on Android when the native binary was built without
               // google-services.json / the Google Services Gradle plugin.
@@ -404,9 +431,17 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
             .then(async (refreshed) => {
               if (!refreshed) return;
               await registerPushToken(refreshed);
+              await registerCallToken(refreshed);
               await refreshRegistrationStatus();
             })
             .catch(() => {});
+        });
+
+        // iOS: PushKit issues (and may rotate) the VoIP token on its own,
+        // independently of notification permission. CallKit needs none.
+        if (Platform.OS === 'ios') void registerCallToken(undefined);
+        const cleanupVoipToken = addVoipTokenListener(() => {
+          void registerCallToken(undefined);
         });
 
         // Cold start: if the app was launched by tapping a notification, navigate once.
@@ -420,6 +455,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         cleanupRef.current = () => {
           cleanupListeners();
           cleanupTokenRefresh();
+          cleanupVoipToken();
         };
         setIsConnected(true);
       } catch (error) {

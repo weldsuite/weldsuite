@@ -19,6 +19,7 @@ vi.mock('@weldsuite/cloudflare-realtime', () => ({
 
 vi.mock('@weldsuite/notifications', () => ({
   sendMissedCallNotification: vi.fn(async () => undefined),
+  cancelIncomingCallPush: vi.fn(async () => undefined),
 }));
 
 vi.mock('./realtime/weldchat-call-publisher', () => ({

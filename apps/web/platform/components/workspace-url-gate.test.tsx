@@ -84,7 +84,6 @@ beforeEach(() => {
 
 afterEach(() => {
   Object.defineProperty(window, 'location', { value: realLocation, configurable: true, writable: true });
-  vi.unstubAllEnvs();
 });
 
 describe('useWorkspaceUrlGate', () => {
@@ -177,11 +176,9 @@ describe('useWorkspaceUrlGate', () => {
     expect(sessionStorage.getItem('weldsuite:pending-org')).toBeNull();
   });
 
-  it('stays out of pages outside a workspace, and with the kill switch off', async () => {
+  it('stays out of pages outside a workspace', async () => {
     openUrl('/w/globex/weldcrm/customers');
     expect((await renderGate('/onboarding')).result.current.status).toBe('off');
-    vi.stubEnv('VITE_WORKSPACE_IN_URL', 'false');
-    expect((await renderGate()).result.current.status).toBe('off');
     expect(clerk.setActive).not.toHaveBeenCalled();
   });
 });

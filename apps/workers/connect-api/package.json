@@ -35,7 +35,7 @@
     "@weldsuite/worker-kit": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "4.12.34",
+    "hono": "4.13.13",
     "zod": "^3.25.76"
   },
   "devDependencies": {
