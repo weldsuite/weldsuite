@@ -94,9 +94,21 @@ describe('sendWorkspaceMailReadPush', () => {
     return id;
   }
 
-  async function seedDevice(userId: string, opts: { role?: string; appCode?: string; inactive?: boolean } = {}) {
+  async function seedDevice(
+    userId: string,
+    opts: { role?: string; appCode?: string; inactive?: boolean; memberStatus?: string; removed?: boolean } = {},
+  ) {
     const token = `ExponentPushToken[${generateId('tok')}]`;
-    await db.insert(workspaceMembers).values({ id: generateId('wm'), userId, role: opts.role ?? 'MEMBER' }).onConflictDoNothing();
+    await db
+      .insert(workspaceMembers)
+      .values({
+        id: generateId('wm'),
+        userId,
+        role: opts.role ?? 'MEMBER',
+        status: opts.memberStatus ?? 'ACTIVE',
+        deletedAt: opts.removed ? new Date() : null,
+      })
+      .onConflictDoNothing();
     await db.insert(deviceTokens).values({
       id: generateId('dtok'),
       userId,
@@ -138,6 +150,22 @@ describe('sendWorkspaceMailReadPush', () => {
 
     expect(sentTokens()).toContain(adminToken);
     expect(sentTokens()).not.toContain(memberToken);
+  });
+
+  it('skips removed and suspended members, whose tokens are never deactivated', async () => {
+    const active = generateId('user');
+    const removed = generateId('user');
+    const suspended = generateId('user');
+    const accountId = await seedAccount({ isShared: true });
+    const activeToken = await seedDevice(active);
+    const removedToken = await seedDevice(removed, { removed: true });
+    const suspendedToken = await seedDevice(suspended, { memberStatus: 'SUSPENDED' });
+
+    await sendWorkspaceMailReadPush(db, { accountId, emailIds: ['mmsg_x'] });
+
+    expect(sentTokens()).toContain(activeToken);
+    expect(sentTokens()).not.toContain(removedToken);
+    expect(sentTokens()).not.toContain(suspendedToken);
   });
 
   it("sets each user's badge to the unread inbox count they can see", async () => {

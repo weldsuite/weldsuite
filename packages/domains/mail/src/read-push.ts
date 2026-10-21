@@ -117,18 +117,25 @@ export async function personalInboxUnread(
   return Number(row?.count ?? 0);
 }
 
-/** Admins/owners among `userIds`: they may open a private mailbox nobody is assigned to. */
-async function adminUserIds(db: Database, userIds: string[]): Promise<Set<string>> {
-  if (userIds.length === 0) return new Set();
+/**
+ * Active members among `userIds`, mapped to whether they are admin/owner (who
+ * may open a private mailbox nobody is assigned to). Same filter as the
+ * new-email push's member query: removing a member does not deactivate their
+ * device tokens, so a removed or suspended member must be dropped here.
+ */
+async function activeMembers(db: Database, userIds: string[]): Promise<Map<string, boolean>> {
+  if (userIds.length === 0) return new Map();
   const rows = await db
     .select({ userId: schema.workspaceMembers.userId, role: schema.workspaceMembers.role })
     .from(schema.workspaceMembers)
-    .where(and(inArray(schema.workspaceMembers.userId, userIds), isNull(schema.workspaceMembers.deletedAt)));
-  return new Set(
-    rows
-      .filter((r) => ['OWNER', 'ADMIN'].includes(r.role?.toUpperCase() ?? ''))
-      .map((r) => r.userId),
-  );
+    .where(
+      and(
+        inArray(schema.workspaceMembers.userId, userIds),
+        isNull(schema.workspaceMembers.deletedAt),
+        eq(schema.workspaceMembers.status, 'ACTIVE'),
+      ),
+    );
+  return new Map(rows.map((r) => [r.userId, ['OWNER', 'ADMIN'].includes(r.role?.toUpperCase() ?? '')]));
 }
 
 function groupTokensByUser(rows: { userId: string; token: string }[]): Map<string, string[]> {
@@ -176,12 +183,12 @@ export async function sendWorkspaceMailReadPush(
     const byUser = groupTokensByUser(tokenRows);
     if (byUser.size === 0) return;
 
-    const needsAdmins = !account.isShared && (account.assignedUserIds ?? []).length === 0;
-    const admins = needsAdmins ? await adminUserIds(db, [...byUser.keys()]) : new Set<string>();
+    const members = await activeMembers(db, [...byUser.keys()]);
 
     const messages: ExpoPushMessage[] = [];
     for (const [userId, tokens] of byUser) {
-      if (!hasAccessToAccount(account, userId, admins.has(userId))) continue;
+      const isAdmin = members.get(userId);
+      if (isAdmin === undefined || !hasAccessToAccount(account, userId, isAdmin)) continue;
       const inboxUnread = await safeCount(() => workspaceInboxUnread(db, userId));
       messages.push(
         ...buildMailReadPushMessages(tokens, { emailIds: params.emailIds, inboxUnread, tenantKind: 'workspace' }),

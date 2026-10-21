@@ -43,8 +43,10 @@ function parseJson(value: unknown): unknown {
 
 /** A non-negative integer from a push field (sent as a string), else undefined. */
 export function parseCount(value: unknown): number | undefined {
+  let n = NaN;
+  if (typeof value === 'number') n = value;
   // Number('') is 0: an empty field must not zero the badge.
-  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  else if (typeof value === 'string' && value.trim()) n = Number(value);
   return Number.isInteger(n) && n >= 0 && n < 1_000_000 ? n : undefined;
 }
 
