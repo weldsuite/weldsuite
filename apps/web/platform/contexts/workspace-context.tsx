@@ -114,11 +114,8 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
       await orgList.setActive({ organization: targetOrgId });
       if (workspace) setCurrentWorkspace(workspace);
 
-      // Drop the persisted TanStack Query cache so the new workspace doesn't
-      // hydrate with the previous workspace's data after the reload.
-      try { window.localStorage.removeItem('weldsuite:query-cache'); } catch {
-        // Ignore — best-effort cache clear, a full page reload follows regardless.
-      }
+      // Nothing to clear: the persisted query cache is kept per workspace
+      // (FE-014), and this page stops writing once the org has changed.
       // Full page load of the new workspace's URL (FE-013): the URL names it,
       // so even a session that comes back with the old org lands in this one.
       window.location.href = workspacePath(workspace?.slug || targetOrgId, '/');

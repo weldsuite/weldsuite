@@ -20,6 +20,7 @@ export default defineConfig({
       'components/**/*.test.{ts,tsx}',
       'hooks/**/*.test.{ts,tsx}',
       'contexts/**/*.test.{ts,tsx}',
+      'providers/**/*.test.{ts,tsx}',
     ],
     exclude: [
       '**/node_modules/**',

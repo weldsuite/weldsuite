@@ -87,16 +87,11 @@ function bootstrapsOwnOrg(pathname: string): boolean {
 }
 
 /**
- * Drop the persisted query cache (it belongs to the old org) and reload the
- * same page, so a /w/{workspace} link that switched org still lands where it
- * pointed.
+ * Reload the same page, so a /w/{workspace} link that switched org still lands
+ * where it pointed. The reload hydrates from the new org's own persisted cache
+ * (FE-014).
  */
 function reloadIntoNewOrg() {
-  try {
-    window.localStorage.removeItem('weldsuite:query-cache');
-  } catch {
-    // storage unavailable — reload anyway
-  }
   window.location.reload();
 }
 

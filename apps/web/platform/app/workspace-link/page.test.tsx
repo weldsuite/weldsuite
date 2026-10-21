@@ -96,13 +96,14 @@ describe('WorkspaceLinkPage', () => {
   });
 
   it('switches this tab to the linked workspace, then reloads into the page', async () => {
-    localStorage.setItem('weldsuite:query-cache', '{}');
+    localStorage.setItem('weldsuite:query-cache:org_acme', '{}');
     openLink('/w/globex/welddesk/tickets/tkt_1');
     await renderPage();
 
     expect(clerk.setActive).toHaveBeenCalledWith({ organization: 'org_globex' });
     expect(sessionStorage.getItem('weldsuite:pending-org')).toBe('org_globex');
-    expect(localStorage.getItem('weldsuite:query-cache')).toBeNull();
+    // Each workspace keeps its own persisted cache (FE-014): nothing to drop.
+    expect(localStorage.getItem('weldsuite:query-cache:org_acme')).toBe('{}');
     expect(location.replace).toHaveBeenCalledWith('/welddesk/tickets/tkt_1');
   });
 

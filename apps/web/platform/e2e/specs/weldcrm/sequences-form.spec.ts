@@ -105,8 +105,10 @@ test.describe('WeldCRM · Sequences create dialog', () => {
       .poll(
         () =>
           page.evaluate((seqName) => {
-            const raw = localStorage.getItem('weldsuite:query-cache');
-            return raw ? raw.includes(seqName) : false;
+            // One entry per workspace: weldsuite:query-cache:{orgId} (FE-014).
+            return Object.keys(localStorage)
+              .filter((key) => key.startsWith('weldsuite:query-cache:'))
+              .some((key) => localStorage.getItem(key)?.includes(seqName));
           }, name),
         { timeout: 10_000 },
       )

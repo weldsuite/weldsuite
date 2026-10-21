@@ -28,14 +28,6 @@ export interface WorkspaceUrlGate {
   target: string;
 }
 
-function dropPersistedQueryCache() {
-  try {
-    window.localStorage.removeItem('weldsuite:query-cache');
-  } catch {
-    // storage unavailable — the reload still happens
-  }
-}
-
 /**
  * The URL wins (FE-013): make the tab's workspace the one its `/w/{ref}` URL
  * names, and keep the address bar naming it.
@@ -112,7 +104,7 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
           clearPendingOrganization();
           return; // nothing loaded yet: Clerk's orgId updates and the URL is ready
         }
-        dropPersistedQueryCache();
+        // The reload hydrates from that org's own persisted cache (FE-014).
         window.location.replace(window.location.href);
       })
       .catch(() => {

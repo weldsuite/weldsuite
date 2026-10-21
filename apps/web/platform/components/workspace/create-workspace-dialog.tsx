@@ -106,11 +106,11 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
   });
 
   /**
-   * Drop persisted query cache so the reload fetches a fresh workspace list,
-   * and open the new workspace by its own URL (FE-013).
+   * Open the new workspace by its own URL (FE-013). Its persisted query cache
+   * starts empty (one entry per workspace, FE-014), so the reload fetches a
+   * fresh workspace list.
    */
-  const clearCacheAndRedirect = React.useCallback(() => {
-    try { window.localStorage.removeItem('weldsuite:query-cache'); } catch { /* storage unavailable (private mode / quota) — non-fatal */ }
+  const openNewWorkspace = React.useCallback(() => {
     const orgId = createdOrgIdRef.current;
     window.location.href = orgId ? workspacePath(orgId, '/') : '/';
   }, []);
@@ -214,7 +214,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
         }
       }
 
-      clearCacheAndRedirect();
+      openNewWorkspace();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbStatus?.provisioned, dbStatus?.migrated]);
@@ -279,7 +279,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
         } catch (finalizeErr) {
           console.error('[Workspace] Error finalizing (continuing):', finalizeErr);
         }
-        clearCacheAndRedirect();
+        openNewWorkspace();
         return;
       }
 
