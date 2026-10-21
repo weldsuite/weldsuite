@@ -24,6 +24,14 @@ import { withSupportedSampling } from './sampling.js';
 export interface WeldAI {
   /** Resolve a chat/completion model for use with generateText/streamText/etc. */
   model: (id?: ModelId) => LanguageModel;
+  /**
+   * Resolve a model on its provider's own API through the gateway (Anthropic
+   * only). Use it when the prompt carries PDFs or images: `model()` sends
+   * everything through the OpenAI-compatible endpoint, which reduces message
+   * content to text. No Workers AI fallback, since no fallback model reads
+   * the same files.
+   */
+  nativeModel: (id: ModelId) => LanguageModel;
   /** Resolve a text-embedding model for use with embed/embedMany. */
   embedding: (id: ModelId) => EmbeddingModel;
   /** The underlying AI SDK provider, for advanced/escape-hatch use. */
@@ -75,6 +83,8 @@ export function createWeldAI(configOrEnv?: WeldAiConfig | object): WeldAI {
         fallbackId,
       });
     },
+    nativeModel: (id: ModelId) =>
+      withSupportedSampling(adapter.nativeLanguageModel(resolveModelId(id, config.provider)), id),
     embedding: (id: ModelId) =>
       adapter.textEmbeddingModel(resolveModelId(id, config.provider)),
     provider: adapter.provider,

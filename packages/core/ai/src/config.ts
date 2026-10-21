@@ -92,6 +92,15 @@ export function compatBaseUrl(accountId: string, gateway: string): string {
   return `https://gateway.ai.cloudflare.com/v1/${accountId}/${gateway}/compat`;
 }
 
+/**
+ * AI Gateway's endpoint for Anthropic's own Messages API (`…/anthropic/v1`).
+ * Unlike the compat endpoint it carries PDFs and images unchanged, so models
+ * that read documents go through it (see `nativeModel` in gateway.ts).
+ */
+export function anthropicBaseUrl(accountId: string, gateway: string): string {
+  return `https://gateway.ai.cloudflare.com/v1/${accountId}/${gateway}/anthropic/v1`;
+}
+
 /** Parse + validate `AI_GATEWAY_PROVIDER`. Cloudflare is the only accepted value. */
 export function resolveProvider(env?: object): GatewayProvider {
   const source = readEnv(env);
