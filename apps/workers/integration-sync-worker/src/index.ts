@@ -20,7 +20,10 @@ import { runCrmDueSweep } from './crm-due';
 import { runBankFeedDueSweep } from './bank-feed-due';
 
 export interface Env {
-  HYPERDRIVE_MASTER: Hyperdrive;
+  /** Production binding. Test has no Hyperdrive and uses DATABASE_URL_MASTER. */
+  HYPERDRIVE_MASTER?: Hyperdrive;
+  /** Neon URL of the master DB; preferred over Hyperdrive when set. */
+  DATABASE_URL_MASTER?: string;
   /**
    * connect-api `ConnectInternal` entrypoint (weldsuite-connect-api[-test]):
    * its internal integration routes, trusted by topology (no secret).
@@ -52,7 +55,11 @@ export interface Env {
 }
 
 function getMasterDb(env: Env) {
-  const sql = neon(env.HYPERDRIVE_MASTER.connectionString);
+  const connectionString = env.DATABASE_URL_MASTER ?? env.HYPERDRIVE_MASTER?.connectionString;
+  if (!connectionString) {
+    throw new Error('Neither DATABASE_URL_MASTER nor HYPERDRIVE_MASTER is configured');
+  }
+  const sql = neon(connectionString);
   return drizzleNeonHttp({ client: sql, schema: masterSchema });
 }
 
