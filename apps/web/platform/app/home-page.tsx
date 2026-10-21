@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useUser } from '@clerk/clerk-react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useRouter } from '@tanstack/react-router';
 import { Link } from '@/lib/router';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { ModuleContent } from '@/components/layout/module-content';
@@ -67,6 +67,7 @@ export default function HomePage() {
   const tp = t.weldsuiteHome.page;
   const { user } = useUser();
   const navigate = useNavigate();
+  const router = useRouter();
   const firstName = user?.firstName || user?.fullName?.split(' ')[0] || tp.fallbackName;
   const greeting = (() => {
     const hour = new Date().getHours();
@@ -117,10 +118,18 @@ export default function HomePage() {
     return () => ro.disconnect();
   }, [input]);
 
+  // Load the chat page's chunk up front so the handoff below never waits on it
+  // (or flashes the route skeleton) mid-transition.
+  useEffect(() => {
+    router.preloadRoute({ to: '/new-chat', search: { prompt: undefined, conversation: undefined } }).catch(() => {});
+  }, [router]);
+
   const startNewChat = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
-    navigate({ to: '/new-chat', search: { prompt: trimmed, conversation: undefined } });
+    // View transition (off app-wide, see main.tsx) so the composer stays put
+    // while the chat page fades in around it — see `.weldagent-composer-vt`.
+    navigate({ to: '/new-chat', search: { prompt: trimmed, conversation: undefined }, viewTransition: true });
   };
 
   return (
@@ -161,7 +170,7 @@ export default function HomePage() {
           </div>
 
           <div className="flex-shrink-0 px-6 pb-6">
-            <div className="w-full max-w-3xl mx-auto">
+            <div className="w-full max-w-3xl mx-auto weldagent-composer-vt">
               <AgentChatInput value={input} onChange={setInput} onSubmit={startNewChat} autoFocus />
             </div>
           </div>
