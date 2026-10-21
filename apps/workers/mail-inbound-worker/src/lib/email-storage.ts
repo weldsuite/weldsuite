@@ -1193,6 +1193,7 @@ async function finishPersonalDelivery(
     try {
       await sendPersonalEmailPushNotification(env, {
         clerkUserId,
+        personalAccountId: account.personalAccountId,
         messageId: result.messageId,
         accountId: account.accountId,
         from: email.from,
