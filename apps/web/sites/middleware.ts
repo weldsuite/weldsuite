@@ -68,6 +68,10 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.png$|.*\\.jpg$|.*\\.jpeg$|.*\\.gif$|.*\\.svg$|.*\\.ico$).*)',
+    // robots.txt / sitemap.xml are intentionally NOT excluded: their handlers
+    // live under app/[domain]/, so the request must be rewritten to the
+    // domain-namespaced route (otherwise /sitemap.xml renders [domain]/page
+    // with domain "sitemap.xml").
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.jpg$|.*\\.jpeg$|.*\\.gif$|.*\\.svg$|.*\\.ico$).*)',
   ],
 };
