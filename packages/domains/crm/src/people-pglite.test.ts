@@ -83,6 +83,28 @@ describe('people service · pglite integration', () => {
     expect(asc.data.map((r) => r.displayName)).toEqual(['anna Casesort', 'Bram Casesort', 'zoe Casesort']);
   });
 
+  it('listPeople search ignores case', async () => {
+    await createPerson(db, { firstName: 'Ingrid', lastName: 'Caselessdottir', email: 'ingrid@caseless.example' });
+
+    expect((await listPeople(db, { search: 'ingrid caselessdottir', limit: 50 })).totalCount).toBe(1);
+    expect((await listPeople(db, { search: 'INGRID@CASELESS', limit: 50 })).totalCount).toBe(1);
+  });
+
+  it('listPeople pages by cursor and carries the first page total', async () => {
+    for (let i = 0; i < 5; i++) await createPerson(db, { firstName: 'Keyset', lastName: `Pager${i}` });
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const r = await listPeople(db, { search: 'Keyset Pager', limit: 2, cursor });
+      expect(r.totalCount).toBe(5);
+      seen.push(...r.data.map((p) => p.id));
+      if (!r.cursor) break;
+      cursor = r.cursor;
+    }
+    expect(new Set(seen).size).toBe(5);
+  });
+
   it('deletePerson hides the row from getPerson + listPeople', async () => {
     const p = await createPerson(db, { firstName: 'Vanishing', lastName: 'P' });
     await deletePerson(db, p.id);

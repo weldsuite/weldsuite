@@ -11,10 +11,14 @@
  * `/crm/customers` and `/crm/contacts` routes returning populated rows.
  */
 
-import { eq, and, desc, isNull, like, or, sql, inArray, type SQL } from 'drizzle-orm';
-import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { eq, and, desc, isNull, ilike, or, sql, inArray, type SQL } from 'drizzle-orm';
+import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { companySearchText } from '@weldsuite/db/schema/companies';
+import type { CompanyAttributes } from '@weldsuite/app-api-client/schemas/companies';
+import { getCompanyAttributes } from './company-attributes';
+import { containsPattern, decodeListCursor, encodeListCursor, explicitSortOrder } from './list-query';
 import { assertValidMemberFields } from './member-validation';
 import { withSupplierRole } from './party-role';
 import {
@@ -171,18 +175,9 @@ function buildScalarCompanyConditions(params: CompanyFilter, ownerScope?: string
 
   if (ownerScope) conditions.push(eq(companies.ownerId, ownerScope));
 
-  if (params.search) {
-    const term = `%${params.search}%`;
-    conditions.push(
-      or(
-        like(companies.displayName, term),
-        like(companies.name, term),
-        like(companies.tradingName, term),
-        like(companies.email, term),
-        like(companies.vatNumber, term),
-      )!,
-    );
-  }
+  // Name, trading name, email or VAT number, case-insensitively. One
+  // expression over the five columns, which `companies_search_trgm_idx` indexes.
+  if (params.search) conditions.push(ilike(companySearchText(companies), containsPattern(params.search)));
   if (params.status) conditions.push(eq(companies.status, params.status));
   if (params.ownerId) conditions.push(eq(companies.ownerId, params.ownerId));
   if (params.industry) conditions.push(eq(companies.industry, params.industry));
@@ -236,20 +231,9 @@ async function companyCustomFieldCondition(db: Database, customFilter: string): 
 }
 
 /**
- * Resolve a `custom:<slug>` sort key to its definition, or null when the key
- * isn't a custom field / the field doesn't exist.
- */
-async function resolveCustomSort(db: Database, sort: string | undefined) {
-  const slug = parseCustomFieldKey(sort);
-  if (!slug) return null;
-  const defs = await getDefinitionsForEntityType(db, 'company');
-  return defs.find((d) => d.slug === slug) ?? null;
-}
-
-/**
  * Built-in grid columns sortable server-side, keyed by the column id used in
  * `company-grid-config.ts`. Returns null for an unrecognised key (including
- * `custom:<slug>` keys, which `resolveCustomSort` handles separately) so the
+ * `custom:<slug>` keys, which `listCompanies` resolves separately) so the
  * caller falls back to the default `createdAt DESC` order rather than
  * throwing on an unknown sort field.
  */
@@ -303,110 +287,111 @@ function resolveBuiltInCompanySort(sort: string | undefined): AnyPgColumn | null
 }
 
 /**
- * `ORDER BY <column> ASC|DESC NULLS LAST` — blank cells always sort last.
- * Text columns sort case-insensitively: the database compares bytes, which put
- * every lowercase name ("acme") after every capitalised one ("Zeta").
+ * Companies after the cursor row in `created_at DESC, id DESC` order. A row
+ * comparison against a subquery, so the page is one query and an index range
+ * on `companies_live_created_idx`. An unknown cursor matches nothing.
  */
-function orderByNullsLast(column: AnyPgColumn, direction: 'asc' | 'desc'): SQL {
-  const key = column.dataType === 'string' ? sql`lower(${column}::text)` : sql`${column}`;
-  return direction === 'asc' ? sql`${key} ASC NULLS LAST` : sql`${key} DESC NULLS LAST`;
+function afterCompanyCursor(db: Database, cursorId: string): SQL {
+  const { companies } = schema;
+  const cursorRow = alias(companies, 'cursor_row');
+  const position = db
+    .select({ createdAt: cursorRow.createdAt, id: cursorRow.id })
+    .from(cursorRow)
+    .where(eq(cursorRow.id, cursorId));
+  return sql`(${companies.createdAt}, ${companies.id}) < (${position})`;
 }
 
+export type CompanyListRow = CompanyRow & { attributes?: CompanyAttributes };
+
+/**
+ * One page of companies. Every query that doesn't need the page's rows runs
+ * alongside them, and every one that does runs in a single second round, so
+ * a page costs two database round trips (three for a custom-field sort).
+ */
 export async function listCompanies(
   db: Database,
   params: ListCompaniesQuery,
   ownerScope?: string,
-): Promise<ListResult<CompanyRow>> {
+): Promise<ListResult<CompanyListRow>> {
   const { companies } = schema;
   const limit = Math.min(params.limit ?? 25, 100);
 
   const base = await buildCompanyConditions(db, params, ownerScope);
   if (!base) return { data: [], totalCount: 0, hasMore: false, cursor: null };
-  const conditions = [...base];
+  const filterOnly = and(...base);
+  const cursor = decodeListCursor(params.cursor);
 
-  const filterOnly = and(...conditions);
+  // A custom-field sort needs the definitions before the page; otherwise
+  // they load alongside it, for the custom-field hydration below.
+  const definitions = getDefinitionsForEntityType(db, 'company');
+  const customSlug = parseCustomFieldKey(params.sort);
+  const customSort = customSlug ? ((await definitions).find((d) => d.slug === customSlug) ?? null) : null;
+  const builtInSort = customSort ? null : resolveBuiltInCompanySort(params.sort);
 
   // Sorting by a custom or built-in field invalidates the keyset cursor,
   // which is keyed on (createdAt, id) — those columns no longer describe the
   // row order. Fall back to OFFSET paging for an explicit sort only, so the
-  // default path keeps its keyset performance. `cursor` carries the numeric
-  // offset in this mode, which keeps the response envelope identical for
-  // callers.
-  const customSort = await resolveCustomSort(db, params.sort);
-  const builtInSort = customSort ? null : resolveBuiltInCompanySort(params.sort);
-
-  if (customSort || builtInSort) {
-    const sortDir = params.sortDir ?? 'asc';
-    const orderBy = customSort
-      ? customFieldOrderBy(
+  // default path keeps its keyset performance. The cursor position is the
+  // numeric offset in this mode, which keeps the response envelope identical
+  // for callers.
+  const explicitSort = customSort !== null || builtInSort !== null;
+  const offset = explicitSort && cursor ? Math.max(0, Number.parseInt(cursor.position, 10) || 0) : 0;
+  const sortDir = params.sortDir ?? 'asc';
+  const orderBy = customSort
+    ? [
+        customFieldOrderBy(
           'company',
           companies.id,
           customSort as unknown as Parameters<typeof customFieldOrderBy>[2],
           sortDir,
-        )
-      : orderByNullsLast(builtInSort!, sortDir);
+        ),
+        // Stable tie-break: rows sharing a value (or both null) keep a
+        // deterministic order across pages, otherwise OFFSET can repeat or
+        // skip rows between requests.
+        desc(companies.id),
+      ]
+    : builtInSort
+      ? explicitSortOrder(builtInSort, companies.id, sortDir)
+      : [desc(companies.createdAt), desc(companies.id)];
+  const where = !explicitSort && cursor ? and(filterOnly, afterCompanyCursor(db, cursor.position)) : filterOnly;
 
-    const offset = params.cursor ? Math.max(0, Number.parseInt(params.cursor, 10) || 0) : 0;
-    const [rows, countResult] = await Promise.all([
-      db
-        .select()
-        .from(companies)
-        .where(filterOnly)
-        .orderBy(
-          orderBy,
-          // Stable tie-break: rows sharing a value (or both null) keep a
-          // deterministic order across pages, otherwise OFFSET can repeat or
-          // skip rows between requests.
-          desc(companies.id),
-        )
-        .limit(limit + 1)
-        .offset(offset),
-      db.select({ count: sql<number>`count(*)` }).from(companies).where(filterOnly),
-    ]);
-
-    const hasMore = rows.length > limit;
-    const data = hasMore ? rows.slice(0, limit) : rows;
-    return {
-      data: await hydrateCustomFields(db, 'company', data),
-      totalCount: Number(countResult[0]?.count ?? 0),
-      hasMore,
-      cursor: hasMore ? String(offset + limit) : null,
-    };
-  }
-
-  if (params.cursor) {
-    const [cursorRow] = await db
-      .select({ createdAt: companies.createdAt, id: companies.id })
-      .from(companies)
-      .where(eq(companies.id, params.cursor))
-      .limit(1);
-    if (cursorRow) {
-      conditions.push(
-        sql`(${companies.createdAt} < ${cursorRow.createdAt} OR (${companies.createdAt} = ${cursorRow.createdAt} AND ${companies.id} < ${cursorRow.id}))`,
-      );
-    }
-  }
-
-  const where = and(...conditions);
-  const [rows, countResult] = await Promise.all([
+  const [rows, totalCount, defs] = await Promise.all([
     db
       .select()
       .from(companies)
       .where(where)
-      .orderBy(desc(companies.createdAt), desc(companies.id))
-      .limit(limit + 1),
-    db.select({ count: sql<number>`count(*)` }).from(companies).where(filterOnly),
+      .orderBy(...orderBy)
+      .limit(limit + 1)
+      .offset(offset),
+    // Only the first page counts; later pages carry its total in the cursor.
+    cursor?.totalCount ??
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(companies)
+        .where(filterOnly)
+        .then((r) => Number(r[0]?.count ?? 0)),
+    definitions,
   ]);
 
   const hasMore = rows.length > limit;
-  const data = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
-  return {
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const [data, attributes] = await Promise.all([
     // Phase 3: customFields comes from the typed values table, not the blob.
-    data: await hydrateCustomFields(db, 'company', data),
-    totalCount: Number(countResult[0]?.count ?? 0),
+    hydrateCustomFields(db, 'company', page, defs),
+    params.include === 'attributes'
+      ? getCompanyAttributes(
+          db,
+          page.map((r) => r.id),
+        )
+      : null,
+  ]);
+
+  const position = explicitSort ? String(offset + limit) : page.at(-1)?.id;
+  return {
+    data: attributes ? data.map((r) => ({ ...r, attributes: attributes.get(r.id) })) : data,
+    totalCount,
     hasMore,
-    cursor: nextCursor,
+    cursor: hasMore && position ? encodeListCursor(position, totalCount) : null,
   };
 }
 

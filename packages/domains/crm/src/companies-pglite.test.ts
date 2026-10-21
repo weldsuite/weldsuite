@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   createCompany,
   getCompany,
@@ -92,6 +92,55 @@ describe('companies service · pglite integration', () => {
 
     const desc = await listCompanies(db, { search: 'Casesort', sort: 'name', sortDir: 'desc', limit: 50 });
     expect(desc.data.map((r) => r.displayName)).toEqual(['zeta Casesort', 'Beta Casesort', 'alpha Casesort']);
+  });
+
+  it('listCompanies search ignores case and matches % and _ literally', async () => {
+    await createCompany(db, { name: 'Caseless Search BV', email: 'hello@caseless.example' });
+    await createCompany(db, { name: 'Percent 100% Co' });
+    await createCompany(db, { name: 'Percent 1000 Co' });
+
+    expect((await listCompanies(db, { search: 'caseless search', limit: 50 })).totalCount).toBe(1);
+    expect((await listCompanies(db, { search: 'HELLO@CASELESS', limit: 50 })).totalCount).toBe(1);
+    const percent = await listCompanies(db, { search: '100%', limit: 50 });
+    expect(percent.data.map((r) => r.name)).toEqual(['Percent 100% Co']);
+    expect((await listCompanies(db, { search: 'Percent 1_0', limit: 50 })).totalCount).toBe(0);
+  });
+
+  it('listCompanies pages through created_at ties once each, carrying the first page total', async () => {
+    const created = [];
+    for (let i = 0; i < 5; i++) created.push(await createCompany(db, { name: `Keyset Tie ${i}` }));
+    // Imports stamp a whole batch with one timestamp.
+    const batchTime = new Date('2026-01-02T03:04:05Z');
+    await db.update(schema.companies).set({ createdAt: batchTime }).where(inArray(schema.companies.id, created.map((c) => c.id)));
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const r = await listCompanies(db, { search: 'Keyset Tie', limit: 2, cursor });
+      expect(r.totalCount).toBe(5);
+      seen.push(...r.data.map((c) => c.id));
+      if (!r.cursor) break;
+      cursor = r.cursor;
+    }
+    // created_at DESC, id DESC: equal timestamps fall back to the id.
+    expect(seen).toEqual(created.map((c) => c.id).sort().reverse());
+
+    // Later pages report the total the cursor carries, without counting again.
+    const first = await listCompanies(db, { search: 'Keyset Tie', limit: 2 });
+    const carried = `${first.cursor!.split('~')[0]}~42`;
+    expect((await listCompanies(db, { search: 'Keyset Tie', limit: 2, cursor: carried })).totalCount).toBe(42);
+    // A bare-id cursor (the format before the total was added) still pages, and counts.
+    const bare = await listCompanies(db, { search: 'Keyset Tie', limit: 2, cursor: first.cursor!.split('~')[0] });
+    expect(bare.totalCount).toBe(5);
+    expect(bare.data.map((c) => c.id)).toEqual(seen.slice(2, 4));
+  });
+
+  it('listCompanies adds attributes only with include=attributes', async () => {
+    const c = await createCompany(db, { name: 'Include Attrs Co' });
+    const plain = await listCompanies(db, { search: 'Include Attrs', limit: 50 });
+    expect(plain.data[0]?.attributes).toBeUndefined();
+    const withAttrs = await listCompanies(db, { search: 'Include Attrs', limit: 50, include: 'attributes' });
+    expect(withAttrs.data[0]).toMatchObject({ id: c.id, attributes: { team: [], connectionStrength: 'none' } });
   });
 
   it('deleteCompany hides the row from getCompany + listCompanies', async () => {

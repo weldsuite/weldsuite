@@ -4,7 +4,7 @@
  * Deliberately NOT cached (unlike worker-kit's `createPgliteDb`): the move
  * engine needs two independent databases per test, a source and a target.
  * Each call builds a fresh in-process Postgres (~0.7 s) with the `vector`
- * extension registered, as the worker-kit harness does.
+ * and `pg_trgm` extensions registered, as the worker-kit harness does.
  *
  * pglite crashes when many instances start at the same time (see the note on
  * the unit-public-api job in .github/workflows/ci.yml), so tests using this
@@ -13,6 +13,7 @@
 
 import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import type { SqlRow, TenantSql } from '../lib/database-move/types';
 
 export interface PgliteTenant {
@@ -43,7 +44,7 @@ export function pgliteTenantSql(db: PGlite): TenantSql {
 }
 
 export async function createPgliteTenant(): Promise<PgliteTenant> {
-  const db = new PGlite({ extensions: { vector } });
+  const db = new PGlite({ extensions: { vector, pg_trgm } });
   await db.waitReady;
   return {
     db,

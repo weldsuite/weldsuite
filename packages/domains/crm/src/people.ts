@@ -9,10 +9,12 @@
  * — see `companies.ts` for the same pattern.
  */
 
-import { eq, and, desc, isNull, like, or, sql, inArray, type SQL } from 'drizzle-orm';
-import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { eq, and, desc, isNull, ilike, or, sql, inArray, type SQL } from 'drizzle-orm';
+import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { personSearchText } from '@weldsuite/db/schema/people';
+import { containsPattern, decodeListCursor, encodeListCursor, explicitSortOrder } from './list-query';
 import { assertValidMemberFields } from './member-validation';
 import { withSupplierRole } from './party-role';
 
@@ -22,6 +24,7 @@ import {
   syncValuesForEntity,
   hydrateCustomFields,
   hydrateCustomFieldsOne,
+  getDefinitionsForEntityType,
 } from '@weldsuite/core-domain/custom-field-values';
 import type {
   CreatePersonInput,
@@ -135,18 +138,9 @@ async function buildPeopleConditions(
 
   if (ownerScope) conditions.push(eq(people.ownerId, ownerScope));
 
-  if (params.search) {
-    const term = `%${params.search}%`;
-    conditions.push(
-      or(
-        like(people.displayName, term),
-        like(people.fullName, term),
-        like(people.firstName, term),
-        like(people.lastName, term),
-        like(people.email, term),
-      )!,
-    );
-  }
+  // Any name column or the email, case-insensitively. One expression over the
+  // five columns, which `people_search_trgm_idx` indexes.
+  if (params.search) conditions.push(ilike(personSearchText(people), containsPattern(params.search)));
   if (params.status) conditions.push(eq(people.status, params.status));
   if (params.ownerId) conditions.push(eq(people.ownerId, params.ownerId));
   if (params.isSupplier !== undefined) conditions.push(eq(people.isSupplier, params.isSupplier));
@@ -256,15 +250,24 @@ function resolveBuiltInPersonSort(sort: string | undefined): AnyPgColumn | null 
 }
 
 /**
- * `ORDER BY <column> ASC|DESC NULLS LAST` — blank cells always sort last.
- * Text columns sort case-insensitively: the database compares bytes, which put
- * every lowercase name ("anna") after every capitalised one ("Zoe").
+ * People after the cursor row in `created_at DESC, id DESC` order. A row
+ * comparison against a subquery, so the page is one query and an index range
+ * on `people_live_created_idx`. An unknown cursor matches nothing.
  */
-function orderByNullsLast(column: AnyPgColumn, direction: 'asc' | 'desc'): SQL {
-  const key = column.dataType === 'string' ? sql`lower(${column}::text)` : sql`${column}`;
-  return direction === 'asc' ? sql`${key} ASC NULLS LAST` : sql`${key} DESC NULLS LAST`;
+function afterPersonCursor(db: Database, cursorId: string): SQL {
+  const { people } = schema;
+  const cursorRow = alias(people, 'cursor_row');
+  const position = db
+    .select({ createdAt: cursorRow.createdAt, id: cursorRow.id })
+    .from(cursorRow)
+    .where(eq(cursorRow.id, cursorId));
+  return sql`(${people.createdAt}, ${people.id}) < (${position})`;
 }
 
+/**
+ * One page of people: the rows, the first page's count and the custom-field
+ * definitions in one round trip, the custom-field values in a second.
+ */
 export async function listPeople(
   db: Database,
   params: ListPeopleQuery,
@@ -275,80 +278,48 @@ export async function listPeople(
 
   const base = await buildPeopleConditions(db, params, ownerScope);
   if (!base) return { data: [], totalCount: 0, hasMore: false, cursor: null };
-  const conditions = [...base];
-
-  const filterOnly = and(...conditions);
+  const filterOnly = and(...base);
+  const cursor = decodeListCursor(params.cursor);
 
   // Sorting by a built-in field invalidates the keyset cursor, which is keyed
   // on (createdAt, id) — those columns no longer describe the row order. Fall
   // back to OFFSET paging for an explicit sort only, so the default path
-  // keeps its keyset performance. `cursor` carries the numeric offset in this
-  // mode, which keeps the response envelope identical for callers.
+  // keeps its keyset performance. The cursor position is the numeric offset
+  // in this mode, which keeps the response envelope identical for callers.
   const builtInSort = resolveBuiltInPersonSort(params.sort);
+  const offset = builtInSort && cursor ? Math.max(0, Number.parseInt(cursor.position, 10) || 0) : 0;
+  const orderBy = builtInSort
+    ? explicitSortOrder(builtInSort, people.id, params.sortDir ?? 'asc')
+    : [desc(people.createdAt), desc(people.id)];
+  const where = !builtInSort && cursor ? and(filterOnly, afterPersonCursor(db, cursor.position)) : filterOnly;
 
-  if (builtInSort) {
-    const sortDir = params.sortDir ?? 'asc';
-    const offset = params.cursor ? Math.max(0, Number.parseInt(params.cursor, 10) || 0) : 0;
-    const [rows, countResult] = await Promise.all([
-      db
-        .select()
-        .from(people)
-        .where(filterOnly)
-        .orderBy(
-          orderByNullsLast(builtInSort, sortDir),
-          // Stable tie-break: rows sharing a value (or both null) keep a
-          // deterministic order across pages, otherwise OFFSET can repeat or
-          // skip rows between requests.
-          desc(people.id),
-        )
-        .limit(limit + 1)
-        .offset(offset),
-      db.select({ count: sql<number>`count(*)` }).from(people).where(filterOnly),
-    ]);
-
-    const hasMore = rows.length > limit;
-    const data = hasMore ? rows.slice(0, limit) : rows;
-    return {
-      data: await hydrateCustomFields(db, 'person', data),
-      totalCount: Number(countResult[0]?.count ?? 0),
-      hasMore,
-      cursor: hasMore ? String(offset + limit) : null,
-    };
-  }
-
-  if (params.cursor) {
-    const [cursorRow] = await db
-      .select({ createdAt: people.createdAt, id: people.id })
-      .from(people)
-      .where(eq(people.id, params.cursor))
-      .limit(1);
-    if (cursorRow) {
-      conditions.push(
-        sql`(${people.createdAt} < ${cursorRow.createdAt} OR (${people.createdAt} = ${cursorRow.createdAt} AND ${people.id} < ${cursorRow.id}))`,
-      );
-    }
-  }
-
-  const where = and(...conditions);
-  const [rows, countResult] = await Promise.all([
+  const [rows, totalCount, definitions] = await Promise.all([
     db
       .select()
       .from(people)
       .where(where)
-      .orderBy(desc(people.createdAt), desc(people.id))
-      .limit(limit + 1),
-    db.select({ count: sql<number>`count(*)` }).from(people).where(filterOnly),
+      .orderBy(...orderBy)
+      .limit(limit + 1)
+      .offset(offset),
+    // Only the first page counts; later pages carry its total in the cursor.
+    cursor?.totalCount ??
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(people)
+        .where(filterOnly)
+        .then((r) => Number(r[0]?.count ?? 0)),
+    getDefinitionsForEntityType(db, 'person'),
   ]);
 
   const hasMore = rows.length > limit;
-  const data = hasMore ? rows.slice(0, limit) : rows;
-  const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const position = builtInSort ? String(offset + limit) : page.at(-1)?.id;
   return {
     // Phase 3: customFields comes from the typed values table, not the blob.
-    data: await hydrateCustomFields(db, 'person', data),
-    totalCount: Number(countResult[0]?.count ?? 0),
+    data: await hydrateCustomFields(db, 'person', page, definitions),
+    totalCount,
     hasMore,
-    cursor: nextCursor,
+    cursor: hasMore && position ? encodeListCursor(position, totalCount) : null,
   };
 }
 

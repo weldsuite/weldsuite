@@ -1,3 +1,4 @@
+import { sql, type SQL } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -7,7 +8,25 @@ import {
   jsonb,
   text,
   index,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
+
+/**
+ * The text the People list search matches: the five searchable columns in one
+ * string, so a single trigram index (`people_search_trgm_idx`) serves the
+ * search. A newline separates the columns; a search term never contains one,
+ * so a match can't run across two of them. `listPeople` searches this exact
+ * expression: if the two differ, Postgres stops using the index.
+ */
+export function personSearchText(t: {
+  displayName: AnyPgColumn;
+  fullName: AnyPgColumn;
+  firstName: AnyPgColumn;
+  lastName: AnyPgColumn;
+  email: AnyPgColumn;
+}): SQL {
+  return sql`(coalesce(${t.displayName}, '') || E'\\n' || coalesce(${t.fullName}, '') || E'\\n' || coalesce(${t.firstName}, '') || E'\\n' || coalesce(${t.lastName}, '') || E'\\n' || coalesce(${t.email}, ''))`;
+}
 
 /**
  * People — humans we do business with. Includes:
@@ -170,6 +189,19 @@ export const people = pgTable('people', {
   index('people_is_lead_idx').on(table.isLead),
   index('people_in_crm_idx').on(table.inCrm),
   index('people_visitor_id_idx').on(table.visitorId),
+  // The People list: its default order and keyset cursor
+  // (`created_at DESC, id DESC`), and the first page's count(*). `in_crm`
+  // comes last so the CRM grid's `in_crm = true` count is an index-only scan;
+  // `id` is unique, so it never changes the order.
+  index('people_live_created_idx')
+    .on(table.createdAt, table.id, table.inCrm)
+    .where(sql`${table.deletedAt} IS NULL`),
+  // The People list sorted by name, which sorts on `lower(display_name)`.
+  index('people_live_name_idx')
+    .on(sql`lower(${table.displayName}::text)`, table.id)
+    .where(sql`${table.deletedAt} IS NULL`),
+  // The People list search (`ILIKE '%term%'`); needs the pg_trgm extension.
+  index('people_search_trgm_idx').using('gin', sql`${personSearchText(table)} gin_trgm_ops`),
 ]);
 
 export type Person = typeof people.$inferSelect;
