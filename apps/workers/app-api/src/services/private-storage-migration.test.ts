@@ -70,6 +70,10 @@ describe('migratePrivateFilesBatch', () => {
     const result = await migratePrivateFilesBatch({ db, env, workspaceId: WS, apiOrigin: API });
 
     expect(result).toMatchObject({ moved: 1, repointed: 0, done: true });
+    // Only the moved row is reported for a file:updated event, with its new url.
+    expect(result.updated).toEqual([
+      expect.objectContaining({ id: 'file_1', name: 'file_1.pdf', url: `${API}/api/storage/private/${key('a')}` }),
+    ]);
     expect(result.skipped).toEqual([{ id: 'file_4', reason: 'foreign-key' }]);
     expect(env.PRIVATE_STORAGE.objects.get(key('a'))).toBe('A');
     expect(env.STORAGE.objects.has(key('a'))).toBe(false);
@@ -88,6 +92,7 @@ describe('migratePrivateFilesBatch', () => {
     const result = await migratePrivateFilesBatch({ db, env, workspaceId: WS, apiOrigin: API, dryRun: true });
 
     expect(result.moved).toBe(1);
+    expect(result.updated).toEqual([]);
     expect(env.STORAGE.objects.has(key('a'))).toBe(true);
     expect(env.PRIVATE_STORAGE.objects.size).toBe(0);
   });
@@ -99,6 +104,7 @@ describe('migratePrivateFilesBatch', () => {
     const result = await migratePrivateFilesBatch({ db, env, workspaceId: WS, apiOrigin: API });
 
     expect(result).toMatchObject({ moved: 0, repointed: 1 });
+    expect(result.updated.map((u) => u.id)).toEqual(['file_1']);
     expect(env.STORAGE.objects.has(key('a'))).toBe(false);
   });
 

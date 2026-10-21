@@ -48,6 +48,7 @@ import { z } from 'zod';
 import { verifyToken } from '@clerk/backend';
 import { confirmUploadSchema } from '@weldsuite/core-api-client/schemas/storage';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { migratePrivateFilesBatch } from '../../services/private-storage-migration';
 import { error } from '@weldsuite/worker-kit/response';
@@ -304,33 +305,46 @@ async function authorizePrivateRead(
   key: string,
   workspaceId: string,
 ): Promise<boolean> {
-  const secret = c.env.STORAGE_SIGNING_KEY;
-  if (secret) {
-    if (await verifyPrivateObjectSignature(secret, key, c.req.query('exp'), c.req.query('sig'))) {
-      return true;
-    }
-    for (const value of cookieValues(c.req.header('Cookie'), FILES_COOKIE)) {
-      if (await verifyFilesCookie(secret, value, workspaceId)) return true;
-    }
-  }
+  if (await hasSignedCredential(c, key, workspaceId)) return true;
   const auth = c.req.header('Authorization');
-  if (auth?.startsWith('Bearer ')) {
-    try {
-      const payload = await verifyToken(auth.slice(7), {
-        secretKey: c.env.CLERK_SECRET_KEY,
-        ...(c.env.CLERK_JWT_KEY ? { jwtKey: c.env.CLERK_JWT_KEY } : {}),
-      });
-      const extraParties = parseExtraAuthorizedParties(
-        (c.env as { CLERK_AUTHORIZED_PARTIES?: string }).CLERK_AUTHORIZED_PARTIES,
-      );
-      if (!isAuthorizedParty(payload.azp, extraParties)) return false;
-      const claims = payload as typeof payload & { o?: { id?: string }; org_id?: string };
-      return !!payload.sub && (claims.o?.id || claims.org_id) === workspaceId;
-    } catch {
-      return false;
-    }
+  return auth?.startsWith('Bearer ') ? bearerIsMemberOf(c, auth.slice(7), workspaceId) : false;
+}
+
+/** A signed URL for this key, or a files cookie for this workspace. */
+async function hasSignedCredential(
+  c: Context<{ Bindings: Env }>,
+  key: string,
+  workspaceId: string,
+): Promise<boolean> {
+  const secret = c.env.STORAGE_SIGNING_KEY;
+  if (!secret) return false;
+  if (await verifyPrivateObjectSignature(secret, key, c.req.query('exp'), c.req.query('sig'))) return true;
+  for (const value of cookieValues(c.req.header('Cookie'), FILES_COOKIE)) {
+    if (await verifyFilesCookie(secret, value, workspaceId)) return true;
   }
   return false;
+}
+
+/** A valid Clerk token from an authorized party, with `workspaceId` as its active org. */
+async function bearerIsMemberOf(
+  c: Context<{ Bindings: Env }>,
+  token: string,
+  workspaceId: string,
+): Promise<boolean> {
+  try {
+    const payload = await verifyToken(token, {
+      secretKey: c.env.CLERK_SECRET_KEY,
+      ...(c.env.CLERK_JWT_KEY ? { jwtKey: c.env.CLERK_JWT_KEY } : {}),
+    });
+    const extraParties = parseExtraAuthorizedParties(
+      (c.env as { CLERK_AUTHORIZED_PARTIES?: string }).CLERK_AUTHORIZED_PARTIES,
+    );
+    if (!isAuthorizedParty(payload.azp, extraParties)) return false;
+    const claims = payload as typeof payload & { o?: { id?: string }; org_id?: string };
+    return !!payload.sub && (claims.o?.id || claims.org_id) === workspaceId;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -608,6 +622,11 @@ app.post(
         cursor,
         dryRun,
       });
+      // The moved rows have a new url and their public object is gone: tell
+      // realtime, search and every open drive view (cached links would 404).
+      for (const { id, name, folderId, fileType } of result.updated) {
+        publishEntityEvent({ c, entityType: 'file', entityId: id, action: 'updated', data: { id, name, folderId, fileType } });
+      }
       return c.json({ data: result });
     } catch (err) {
       console.error('[app-api/storage] migrate-private failed:', err);
