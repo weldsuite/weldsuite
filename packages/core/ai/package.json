@@ -20,9 +20,10 @@
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.10",
+    "@ai-sdk/openai-compatible": "^3.0.0",
     "@weldsuite/text": "workspace:*",
-    "ai": "^7.0.0",
-    "@ai-sdk/openai-compatible": "^3.0.0"
+    "ai": "^7.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",

@@ -4,8 +4,10 @@ import {
   exclusiveAmount,
   lineItemsForBill,
   looksLikeImage,
+  looksLikePdf,
   normalizeOcrResult,
   parseOcrJson,
+  sniffOcrMediaType,
 } from './accounting-ocr';
 
 describe('normalizeOcrResult', () => {
@@ -85,6 +87,43 @@ describe('looksLikeImage', () => {
     const bytes = new Uint8Array(12);
     bytes.set([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
     expect(looksLikeImage(bytes)).toBe(false);
+  });
+});
+
+const ascii = (text: string) => new TextEncoder().encode(text);
+
+describe('looksLikePdf', () => {
+  it('accepts a %PDF- header at the start', () => {
+    expect(looksLikePdf(ascii('%PDF-1.7\n%âãÏÓ\n1 0 obj'))).toBe(true);
+  });
+
+  it('accepts a header after leading junk within the first 1024 bytes', () => {
+    expect(looksLikePdf(ascii(`${' '.repeat(500)}%PDF-1.4\n`))).toBe(true);
+  });
+
+  it('rejects a header past the first 1024 bytes', () => {
+    expect(looksLikePdf(ascii(`${' '.repeat(1100)}%PDF-1.4\n`))).toBe(false);
+  });
+
+  it('rejects HTML and a bare %PDF without the dash', () => {
+    expect(looksLikePdf(ascii('<html><body>Invoice</body></html>'))).toBe(false);
+    expect(looksLikePdf(ascii('%PDF'))).toBe(false);
+  });
+});
+
+describe('sniffOcrMediaType', () => {
+  it('reads the type from the bytes, whatever the file claimed', () => {
+    expect(sniffOcrMediaType(ascii('%PDF-1.7\n'))).toBe('application/pdf');
+    expect(sniffOcrMediaType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]))).toBe('image/jpeg');
+    expect(
+      sniffOcrMediaType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])),
+    ).toBe('image/png');
+    expect(sniffOcrMediaType(ascii('RIFF\0\0\0\0WEBPVP8 '))).toBe('image/webp');
+  });
+
+  it('returns null for files OCR cannot read', () => {
+    expect(sniffOcrMediaType(ascii('PK\u0003\u0004 a zip or docx'))).toBeNull();
+    expect(sniffOcrMediaType(new Uint8Array(0))).toBeNull();
   });
 });
 

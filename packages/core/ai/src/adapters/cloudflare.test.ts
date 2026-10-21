@@ -7,7 +7,12 @@ import {
   flattenWorkersAiRequestBody,
   toGatewayModelId,
 } from './cloudflare.js';
-import { compatBaseUrl, restApiBaseUrl, type CloudflareGatewayConfig } from '../config.js';
+import {
+  anthropicBaseUrl,
+  compatBaseUrl,
+  restApiBaseUrl,
+  type CloudflareGatewayConfig,
+} from '../config.js';
 
 describe('toGatewayModelId', () => {
   it('prefixes Workers AI ids with workers-ai/', () => {
@@ -143,6 +148,59 @@ describe('createCloudflareAdapter', () => {
       );
       expect(req.url).toBe(`${compatBaseUrl('acct_1', 'weldsuite')}/chat/completions`);
       expect(req.headers.get('cf-aig-authorization')).toBe('Bearer aig_tok');
+    });
+
+    it('sends native Anthropic models to the gateway Messages endpoint, PDF intact', async () => {
+      const sent: { url: string; headers: Headers; body: Record<string, any> }[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string | URL, init?: RequestInit) => {
+          sent.push({ url: String(url), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
+          return new Response(
+            JSON.stringify({
+              id: 'msg_1',
+              type: 'message',
+              role: 'assistant',
+              model: 'claude-haiku-5-5',
+              content: [{ type: 'text', text: '{}' }],
+              stop_reason: 'end_turn',
+              stop_sequence: null,
+              usage: { input_tokens: 10, output_tokens: 2 },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }),
+      );
+      const a = createCloudflareAdapter(base);
+      await generateText({
+        model: a.nativeLanguageModel('anthropic/claude-haiku-5-5'),
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'file', mediaType: 'application/pdf', data: new TextEncoder().encode('%PDF-1.7') },
+              { type: 'text', text: 'Read this' },
+            ],
+          },
+        ],
+      });
+
+      expect(sent).toHaveLength(1);
+      const [req] = sent;
+      if (!req) throw new Error('no request sent');
+      expect(req.url).toBe(`${anthropicBaseUrl('acct_1', DEFAULT_GATEWAY_ID)}/messages`);
+      expect(req.body.model).toBe('claude-haiku-5-5');
+      // The gateway pays with its stored key: no provider key leaves the Worker.
+      expect(req.headers.get('x-api-key')).toBeNull();
+      expect(req.headers.get('cf-aig-authorization')).toBe('Bearer cf_token');
+      const [doc] = req.body.messages[0].content;
+      expect(doc.type).toBe('document');
+      expect(doc.source.media_type).toBe('application/pdf');
+    });
+
+    it('has no native route for models other than Anthropic', () => {
+      const a = createCloudflareAdapter(base);
+      expect(() => a.nativeLanguageModel('openai/gpt-5')).toThrow(/native route/);
     });
 
     it('keeps embeddings on the direct Workers AI endpoint', async () => {

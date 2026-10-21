@@ -52,6 +52,7 @@ import {
   isCatchAllRegistryEmail,
 } from './catch-all';
 import { selectNotifyMembers } from './notify-recipients';
+import { accountingAttachmentType } from './accounting-attachment';
 import {
   buildMailAutoLabelQuestions,
   buildMailAutoLabelState,
@@ -2235,11 +2236,8 @@ async function storeAccountingAttachment(
   email: ParsedEmail,
   att: ParsedAttachment,
 ): Promise<string | null> {
-  const mimeType = att.contentType || 'application/octet-stream';
-
-  // Only process PDFs and images
-  const isProcessable = mimeType.startsWith('image/') || mimeType === 'application/pdf';
-  if (!isProcessable) return null;
+  const mimeType = accountingAttachmentType(att);
+  if (!mimeType) return null;
 
   // Store in R2 (if STORAGE binding available)
   const fileKey = `workspaces/${workspaceId}/accounting/inbox/${email.emailId}/${att.fileName}`;

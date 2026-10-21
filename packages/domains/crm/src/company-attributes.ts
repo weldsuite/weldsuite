@@ -4,12 +4,16 @@
  * connection", "Next due task" and "Associated deals". None of it is stored
  * on the company: it is read from people, activities, tasks and deals.
  *
- * Built for one page of list rows at a time: a fixed handful of queries,
- * whatever the page size. Activities, tasks and deals hang off the company's
- * wrapping `parties` row (`counterpartyId`), people off `person_companies`.
+ * Built for one page of list rows at a time: a fixed handful of queries in
+ * one round trip, whatever the page size. Activities, tasks and deals hang off
+ * the company's wrapping `parties` row (`counterpartyId`), which every query
+ * joins; people hang off `person_companies`. The database does the
+ * aggregating, so a company with years of logged email costs a row per
+ * teammate, not a row per email.
  */
 
-import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, notInArray, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type {
   CompanyAttributes,
@@ -55,9 +59,10 @@ function toNumber(value: string | number | null): number | null {
 }
 
 type AttributesById = Map<string, CompanyAttributes>;
-type PartyLinked = { partyId: string | null };
+type CompanyLinked = { companyId: string | null };
 type TeamMember = CompanyAttributes['team'][number];
 type Deal = CompanyAttributes['deals'][number];
+type InteractionType = CompanyInteraction['type'];
 
 interface TeamRow extends Omit<TeamMember, 'phone' | 'jobTitle'> {
   companyId: string;
@@ -67,20 +72,28 @@ interface TeamRow extends Omit<TeamMember, 'phone' | 'jobTitle'> {
   role: string | null;
 }
 
-interface ActivityRow extends PartyLinked {
-  type: CompanyInteraction['type'];
-  status: string | null;
+/** One teammate's interactions with one company, aggregated in SQL. */
+interface InteractionRow extends CompanyLinked {
   userId: string | null;
-  at: Date;
+  /** Past interactions, and those of them in the last 90 days. */
+  past: number;
+  recent: number;
+  firstAt: Date | null;
+  firstType: InteractionType | null;
+  lastAt: Date | null;
+  lastType: InteractionType | null;
+  /** The earliest planned future one. */
+  nextAt: Date | null;
+  nextType: InteractionType | null;
 }
 
-interface DueTaskRow extends PartyLinked {
+interface DueTaskRow extends CompanyLinked {
   id: string;
   title: string;
   dueDate: Date | string | null;
 }
 
-interface DealRow extends PartyLinked, Omit<Deal, 'amount' | 'closeDate'> {
+interface DealRow extends CompanyLinked, Omit<Deal, 'amount' | 'closeDate'> {
   amount: string | number | null;
   closeDate: Date | string | null;
 }
@@ -89,17 +102,6 @@ interface InteractionStats {
   recent: number;
   past: number;
   byUser: Map<string, { count: number; last: number }>;
-}
-
-/** The company a party-linked row belongs to, with its attributes entry. */
-function companyForParty(
-  result: AttributesById,
-  companyByParty: Map<string, string>,
-  partyId: string | null,
-): { companyId: string; attrs: CompanyAttributes } | null {
-  const companyId = partyId ? companyByParty.get(partyId) : undefined;
-  const attrs = companyId ? result.get(companyId) : undefined;
-  return companyId && attrs ? { companyId, attrs } : null;
 }
 
 function addTeam(result: AttributesById, rows: TeamRow[]): void {
@@ -114,29 +116,18 @@ function addTeam(result: AttributesById, rows: TeamRow[]): void {
   }
 }
 
-const isEarlier = (time: number, current: CompanyInteraction | null) => !current || time < Date.parse(current.at);
-const isLater = (time: number, current: CompanyInteraction | null) => !current || time > Date.parse(current.at);
-
-function countInteraction(
-  stats: Map<string, InteractionStats>,
-  companyId: string,
+function interaction(
+  at: Date | null,
+  type: InteractionType | null,
   userId: string | null,
-  time: number,
-  recentSince: number,
-): void {
-  let s = stats.get(companyId);
-  if (!s) {
-    s = { recent: 0, past: 0, byUser: new Map() };
-    stats.set(companyId, s);
-  }
-  s.past++;
-  if (time >= recentSince) s.recent++;
-  if (!userId) return;
-  const u = s.byUser.get(userId) ?? { count: 0, last: 0 };
-  u.count++;
-  u.last = Math.max(u.last, time);
-  s.byUser.set(userId, u);
+): CompanyInteraction | null {
+  return at && type ? { at: at.toISOString(), type, userId } : null;
 }
+
+const isEarlier = (candidate: CompanyInteraction, current: CompanyInteraction | null) =>
+  !current || Date.parse(candidate.at) < Date.parse(current.at);
+const isLater = (candidate: CompanyInteraction, current: CompanyInteraction | null) =>
+  !current || Date.parse(candidate.at) > Date.parse(current.at);
 
 /** Most interactions wins; a tie goes to the more recent contact. */
 function strongestConnection(byUser: InteractionStats['byUser']): string | null {
@@ -147,36 +138,39 @@ function strongestConnection(byUser: InteractionStats['byUser']): string | null 
   return best?.userId ?? null;
 }
 
+/** Keep the earliest first/next and the latest last interaction across a company's teammates. */
+function mergeInteractions(attrs: CompanyAttributes, row: InteractionRow): void {
+  const first = interaction(row.firstAt, row.firstType, row.userId);
+  const last = interaction(row.lastAt, row.lastType, row.userId);
+  const next = interaction(row.nextAt, row.nextType, row.userId);
+  if (first && isEarlier(first, attrs.firstInteraction)) attrs.firstInteraction = first;
+  if (last && isLater(last, attrs.lastInteraction)) attrs.lastInteraction = last;
+  if (next && isEarlier(next, attrs.nextInteraction)) attrs.nextInteraction = next;
+}
+
+/** Add one teammate's past interaction counts to the company's totals. */
+function addInteractionStats(stats: Map<string, InteractionStats>, companyId: string, row: InteractionRow): void {
+  const s = stats.get(companyId) ?? { recent: 0, past: 0, byUser: new Map() };
+  stats.set(companyId, s);
+  s.past += row.past;
+  s.recent += row.recent;
+  if (row.userId && row.past > 0 && row.lastAt) {
+    s.byUser.set(row.userId, { count: row.past, last: row.lastAt.getTime() });
+  }
+}
+
 /**
  * Interactions: first/last among the past ones, next among the planned
- * future ones; strength and strongest connection from the past ones.
+ * future ones; strength and strongest connection from the past ones. Each row
+ * is one teammate's share of one company's interactions.
  */
-function addInteractions(
-  result: AttributesById,
-  companyByParty: Map<string, string>,
-  rows: ActivityRow[],
-  now: Date,
-): void {
-  const nowTime = now.getTime();
-  const recentSince = nowTime - CONNECTION_WINDOW_DAYS * DAY_MS;
+function addInteractions(result: AttributesById, rows: InteractionRow[]): void {
   const stats = new Map<string, InteractionStats>();
   for (const row of rows) {
-    const target = companyForParty(result, companyByParty, row.partyId);
-    const at = new Date(row.at);
-    const time = at.getTime();
-    if (!target || Number.isNaN(time)) continue;
-    const { companyId, attrs } = target;
-    const interaction: CompanyInteraction = { at: at.toISOString(), type: row.type, userId: row.userId };
-
-    if (time > nowTime) {
-      const planned = row.status === 'planned' || row.status === 'in_progress';
-      if (planned && isEarlier(time, attrs.nextInteraction)) attrs.nextInteraction = interaction;
-      continue;
-    }
-
-    if (isEarlier(time, attrs.firstInteraction)) attrs.firstInteraction = interaction;
-    if (isLater(time, attrs.lastInteraction)) attrs.lastInteraction = interaction;
-    countInteraction(stats, companyId, row.userId, time, recentSince);
+    const attrs = row.companyId ? result.get(row.companyId) : undefined;
+    if (!row.companyId || !attrs) continue;
+    mergeInteractions(attrs, row);
+    addInteractionStats(stats, row.companyId, row);
   }
   for (const [companyId, s] of stats) {
     const attrs = result.get(companyId)!;
@@ -185,9 +179,9 @@ function addInteractions(
   }
 }
 
-function addNextDueTasks(result: AttributesById, companyByParty: Map<string, string>, rows: DueTaskRow[]): void {
+function addNextDueTasks(result: AttributesById, rows: DueTaskRow[]): void {
   for (const row of rows) {
-    const attrs = companyForParty(result, companyByParty, row.partyId)?.attrs;
+    const attrs = row.companyId ? result.get(row.companyId) : undefined;
     if (!attrs || !row.dueDate) continue;
     const due = new Date(row.dueDate);
     if (!attrs.nextDueTask || due.getTime() < Date.parse(attrs.nextDueTask.dueDate)) {
@@ -196,9 +190,10 @@ function addNextDueTasks(result: AttributesById, companyByParty: Map<string, str
   }
 }
 
-function addDeals(result: AttributesById, companyByParty: Map<string, string>, rows: DealRow[]): void {
+function addDeals(result: AttributesById, rows: DealRow[]): void {
   for (const row of rows) {
-    companyForParty(result, companyByParty, row.partyId)?.attrs.deals.push({
+    if (!row.companyId) continue;
+    result.get(row.companyId)?.deals.push({
       id: row.id,
       name: row.name,
       stage: row.stage,
@@ -222,11 +217,29 @@ export async function getCompanyAttributes(
 
   const { parties, personCompanies, people, crmActivities, tasks, crmOpportunities } = schema;
 
-  const [partyRows, teamRows] = await Promise.all([
-    db
-      .select({ id: parties.id, companyId: parties.companyId })
-      .from(parties)
-      .where(and(inArray(parties.companyId, companyIds), isNull(parties.deletedAt))),
+  // Activities, tasks and deals of these companies: through each company's
+  // live wrapping party (at most one per company).
+  const wrappingParty = (counterpartyId: AnyPgColumn) =>
+    and(eq(parties.id, counterpartyId), isNull(parties.deletedAt));
+  const ofTheseCompanies = inArray(parties.companyId, companyIds);
+
+  // When an activity happened (or is planned): its start, else due date,
+  // else when it was logged. The columns hold UTC without a zone, so `now`
+  // is compared as its UTC wall-clock time, and the aggregated timestamps
+  // are decoded like the columns themselves, not as local-time strings.
+  const when = sql`coalesce(${crmActivities.startTime}, ${crmActivities.dueDate}, ${crmActivities.createdAt})`;
+  const utc = (date: Date) => sql`${date.toISOString()}::timestamp`;
+  const recentSince = new Date(now.getTime() - CONNECTION_WINDOW_DAYS * DAY_MS);
+  const isPast = sql`${when} <= ${utc(now)}`;
+  const isRecent = sql`${isPast} and ${when} >= ${utc(recentSince)}`;
+  const isPlanned = sql`${when} > ${utc(now)} and ${inArray(crmActivities.status, ['planned', 'in_progress'])}`;
+  const at = (aggregate: 'min' | 'max', filter: SQL) =>
+    sql<Date | null>`${sql.raw(aggregate)}(${when}) filter (where ${filter})`.mapWith(crmActivities.startTime);
+  const typeAt = (order: 'asc' | 'desc', filter: SQL) =>
+    sql<InteractionType | null>`(array_agg(${crmActivities.type} order by ${when} ${sql.raw(order)}) filter (where ${filter}))[1]`;
+  const count = (filter: SQL) => sql<number>`count(*) filter (where ${filter})`.mapWith(Number);
+
+  const [teamRows, interactionRows, taskRows, activityTaskRows, dealRows] = await Promise.all([
     db
       .select({
         companyId: personCompanies.companyId,
@@ -248,73 +261,73 @@ export async function getCompanyAttributes(
         ),
       )
       .orderBy(desc(personCompanies.isPrimary), asc(people.displayName)),
-  ]);
-
-  addTeam(result, teamRows);
-
-  // party id → company id. A company has at most one live wrapping party.
-  const companyByParty = new Map<string, string>();
-  for (const p of partyRows) if (p.companyId) companyByParty.set(p.id, p.companyId);
-  const partyIds = [...companyByParty.keys()];
-  if (partyIds.length === 0) return result;
-
-  // When an activity happened (or is planned): its start, else due date,
-  // else when it was logged. Decoded like the timestamp columns themselves
-  // (stored as UTC without a zone), not as a local-time string.
-  const when = sql<Date>`coalesce(${crmActivities.startTime}, ${crmActivities.dueDate}, ${crmActivities.createdAt})`.mapWith(
-    crmActivities.startTime,
-  );
-
-  const [activityRows, taskRows, activityTaskRows, dealRows] = await Promise.all([
+    // One row per company and teammate.
     db
       .select({
-        partyId: crmActivities.counterpartyId,
-        type: crmActivities.type,
-        status: crmActivities.status,
+        companyId: parties.companyId,
         userId: crmActivities.assignedToId,
-        at: when,
+        past: count(isPast),
+        recent: count(isRecent),
+        firstAt: at('min', isPast),
+        firstType: typeAt('asc', isPast),
+        lastAt: at('max', isPast),
+        lastType: typeAt('desc', isPast),
+        nextAt: at('min', isPlanned),
+        nextType: typeAt('asc', isPlanned),
       })
       .from(crmActivities)
+      .innerJoin(parties, wrappingParty(crmActivities.counterpartyId))
       .where(
         and(
-          inArray(crmActivities.counterpartyId, partyIds),
+          ofTheseCompanies,
           inArray(crmActivities.type, [...INTERACTION_TYPES]),
           isNull(crmActivities.deletedAt),
           notInArray(crmActivities.status, ['cancelled']),
         ),
-      ),
+      )
+      .groupBy(parties.companyId, crmActivities.assignedToId),
+    // The first open task per company…
     db
-      .select({ partyId: tasks.counterpartyId, id: tasks.id, title: tasks.title, dueDate: tasks.dueDate })
+      .selectDistinctOn([parties.companyId], {
+        companyId: parties.companyId,
+        id: tasks.id,
+        title: tasks.title,
+        dueDate: tasks.dueDate,
+      })
       .from(tasks)
+      .innerJoin(parties, wrappingParty(tasks.counterpartyId))
       .where(
         and(
-          inArray(tasks.counterpartyId, partyIds),
+          ofTheseCompanies,
           isNull(tasks.deletedAt),
           notInArray(tasks.status, ['done', 'cancelled']),
           sql`${tasks.dueDate} is not null`,
         ),
-      ),
-    // CRM "task" activities are tasks too.
+      )
+      .orderBy(parties.companyId, asc(tasks.dueDate)),
+    // …and the first open CRM "task" activity, which is a task too.
     db
-      .select({
-        partyId: crmActivities.counterpartyId,
+      .selectDistinctOn([parties.companyId], {
+        companyId: parties.companyId,
         id: crmActivities.id,
         title: crmActivities.subject,
         dueDate: crmActivities.dueDate,
       })
       .from(crmActivities)
+      .innerJoin(parties, wrappingParty(crmActivities.counterpartyId))
       .where(
         and(
-          inArray(crmActivities.counterpartyId, partyIds),
+          ofTheseCompanies,
           eq(crmActivities.type, 'task'),
           isNull(crmActivities.deletedAt),
           inArray(crmActivities.status, ['planned', 'in_progress']),
           sql`${crmActivities.dueDate} is not null`,
         ),
-      ),
+      )
+      .orderBy(parties.companyId, asc(crmActivities.dueDate)),
     db
       .select({
-        partyId: crmOpportunities.counterpartyId,
+        companyId: parties.companyId,
         id: crmOpportunities.id,
         name: crmOpportunities.name,
         stage: crmOpportunities.stage,
@@ -325,13 +338,15 @@ export async function getCompanyAttributes(
         ownerId: crmOpportunities.ownerId,
       })
       .from(crmOpportunities)
-      .where(and(inArray(crmOpportunities.counterpartyId, partyIds), isNull(crmOpportunities.deletedAt)))
+      .innerJoin(parties, wrappingParty(crmOpportunities.counterpartyId))
+      .where(and(ofTheseCompanies, isNull(crmOpportunities.deletedAt)))
       .orderBy(desc(crmOpportunities.createdAt)),
   ]);
 
-  addInteractions(result, companyByParty, activityRows, now);
-  addNextDueTasks(result, companyByParty, [...taskRows, ...activityTaskRows]);
-  addDeals(result, companyByParty, dealRows);
+  addTeam(result, teamRows);
+  addInteractions(result, interactionRows);
+  addNextDueTasks(result, [...taskRows, ...activityTaskRows]);
+  addDeals(result, dealRows);
 
   return result;
 }

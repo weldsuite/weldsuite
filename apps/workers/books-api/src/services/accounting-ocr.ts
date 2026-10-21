@@ -1,11 +1,13 @@
 /**
  * Accounting OCR — extract vendor, dates, line items and totals from a
- * scanned invoice or receipt.
+ * PDF invoice or a photographed / scanned invoice or receipt.
  *
- * Rebuilt on `@weldsuite/ai` (Cloudflare AI Gateway) after the agent-worker
- * teardown. Llama 4 Scout on Workers AI reads the image from R2 and returns
- * structured JSON; the document inbox and the mobile scan flow both consume
- * that result to pre-fill a bill.
+ * Runs on `@weldsuite/ai` (Cloudflare AI Gateway). Claude Haiku 5.5 reads the
+ * file from R2 (PDF as a document, photos as images) and returns structured
+ * JSON; the document inbox, the email inbox and the mobile scan flow all
+ * consume that result to pre-fill a bill. The model goes through
+ * `ai.nativeModel()`: the gateway's compat endpoint would reduce the file to
+ * text before it reached the model.
  *
  * Credit metering matches mail AI: hard-gate before the call, consume after.
  */
@@ -14,7 +16,7 @@ import {
   assertGatewayConfigured,
   createWeldAI,
   generateText,
-  workersAi,
+  thirdParty,
 } from '@weldsuite/ai';
 import type { Env } from '../types';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
@@ -76,17 +78,22 @@ export class AccountingOcrError extends Error {
   }
 }
 
-/** Workers AI vision model — routed through Cloudflare AI Gateway. */
-export const OCR_MODEL_ID = workersAi.llama4Scout;
+/** Claude Haiku 5.5 — reads PDFs and images; routed through Cloudflare AI Gateway. */
+export const OCR_MODEL_ID = thirdParty.anthropic.haiku55;
 
-const IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
-/** Keep the payload small enough for the gateway chat/completions body. */
-const MAX_IMAGE_BYTES = 4.5 * 1024 * 1024;
+const PDF_TYPE = 'application/pdf';
+/** Anthropic caps an image at 5 MB of base64, which is 3.75 MB of file. */
+const MAX_IMAGE_BYTES = 3.75 * 1024 * 1024;
+/** Anthropic caps a request at 32 MB; base64 adds a third. */
+const MAX_PDF_BYTES = 20 * 1024 * 1024;
+/** Room for invoices with many line items; a short receipt uses far less. */
+const MAX_OUTPUT_TOKENS = 16_000;
 
-const SYSTEM_PROMPT = `You are an expert bookkeeper extracting data from a photographed purchase invoice or till receipt (often Dutch or English).
+const SYSTEM_PROMPT = `You are an expert bookkeeper extracting data from a purchase invoice or till receipt (often Dutch or English): a PDF, a scan or a photo.
 
 Rules:
 - vendor.name is the supplier who ISSUED the document, not the customer.
+- A PDF may have several pages: read all of them; totals are usually on the last page.
 - Dates must be ISO YYYY-MM-DD. Convert Dutch formats like 24-08-2026.
 - currency is an ISO 4217 code; default EUR if the symbol is €.
 - unitPrice and line total are exclusive of VAT. taxRate is a percentage (21, not 0.21).
@@ -118,16 +125,23 @@ export async function isOwnDocumentKey(env: Env, key: string, orgId: string): Pr
   return isWorkspaceObjectKey(key, workspace?.id);
 }
 
-/** Load the stored file and validate that it is a readable, reasonably sized image. */
-async function loadOcrImageBytes(
-  env: Env,
-  params: ProcessDocumentOcrParams,
-  mimeType: string,
-): Promise<Uint8Array> {
-  if (!IMAGE_TYPES.has(mimeType)) {
+interface OcrFile {
+  bytes: Uint8Array;
+  mediaType: OcrMediaType;
+}
+
+/**
+ * Load the stored file and validate that it is a readable, reasonably sized
+ * PDF or image. The type comes from the bytes, not the declared mime type:
+ * mail clients often send a PDF as `application/octet-stream`, and phones
+ * label HEIC photos as JPEG.
+ */
+async function loadOcrFile(env: Env, params: ProcessDocumentOcrParams): Promise<OcrFile> {
+  const declared = (params.mimeType || '').toLowerCase();
+  if (declared && !isOcrCandidateMime(declared)) {
     throw new AccountingOcrError(
       'UNSUPPORTED_TYPE',
-      'OCR currently supports JPEG, PNG and WebP images.',
+      'OCR reads PDF files and JPEG, PNG and WebP images.',
     );
   }
 
@@ -150,19 +164,31 @@ async function loadOcrImageBytes(
   if (bytes.byteLength === 0) {
     throw new AccountingOcrError('FILE_NOT_FOUND', 'The uploaded file is empty.');
   }
-  if (bytes.byteLength > MAX_IMAGE_BYTES) {
+
+  const mediaType = sniffOcrMediaType(bytes);
+  if (!mediaType) {
+    throw new AccountingOcrError(
+      'UNSUPPORTED_TYPE',
+      declared === PDF_TYPE
+        ? 'That file is not a readable PDF.'
+        : 'That file is not a PDF or a JPEG, PNG or WebP image. Take the photo again in the app.',
+    );
+  }
+  if (mediaType === PDF_TYPE && bytes.byteLength > MAX_PDF_BYTES) {
+    throw new AccountingOcrError('UNSUPPORTED_TYPE', 'The PDF is too large to read (20 MB at most).');
+  }
+  if (mediaType !== PDF_TYPE && bytes.byteLength > MAX_IMAGE_BYTES) {
     throw new AccountingOcrError(
       'UNSUPPORTED_TYPE',
       'The image is too large to read. Capture it again a bit closer or at lower quality.',
     );
   }
-  if (!looksLikeImage(bytes)) {
-    throw new AccountingOcrError(
-      'UNSUPPORTED_TYPE',
-      'That file is not a JPEG, PNG or WebP image. Take the photo again in the app.',
-    );
-  }
-  return bytes;
+  return { bytes, mediaType };
+}
+
+/** Declared types worth opening: PDFs, images, and untyped binaries. */
+function isOcrCandidateMime(mime: string): boolean {
+  return mime === PDF_TYPE || mime.startsWith('image/') || mime === 'application/octet-stream';
 }
 
 function createOcrAi(env: Env): ReturnType<typeof createWeldAI> {
@@ -181,24 +207,24 @@ export async function processDocumentOcr(
   env: Env,
   params: ProcessDocumentOcrParams,
 ): Promise<OcrResult> {
-  const mimeType = normalizeMime(params.mimeType);
-  const bytes = await loadOcrImageBytes(env, params, mimeType);
+  const { bytes, mediaType } = await loadOcrFile(env, params);
   const ai = createOcrAi(env);
 
   await assertAiCredits(params.metering);
 
-  const model = ai.model(OCR_MODEL_ID);
+  const model = ai.nativeModel(OCR_MODEL_ID);
 
   try {
     const result = await generateText({
       model,
       system: SYSTEM_PROMPT,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       messages: [
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Extract the invoice / receipt fields from this image.' },
-            { type: 'file', mediaType: mimeType, data: bytes },
+            { type: 'file', mediaType, data: bytes },
+            { type: 'text', text: 'Extract the invoice / receipt fields from this document.' },
           ],
         },
       ],
@@ -351,12 +377,6 @@ export async function matchVendorToContact(
   return matches[0]?.id ?? null;
 }
 
-function normalizeMime(mime: string | null): string {
-  const value = (mime || 'image/jpeg').toLowerCase();
-  if (value === 'image/jpg') return 'image/jpeg';
-  return value;
-}
-
 function asNumber(value: unknown): number | null {
   if (value == null || value === '') return null;
   const n = typeof value === 'number' ? value : Number(value);
@@ -379,12 +399,14 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** JPEG / PNG / WebP / GIF magic bytes. HEIC labelled as jpeg is a common failure. */
-export function looksLikeImage(bytes: Uint8Array): boolean {
-  if (bytes.byteLength < 12) return false;
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true; // JPEG
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return true; // PNG
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return true; // GIF
+export type OcrMediaType = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
+/** The image type of `bytes` from its magic bytes. HEIC labelled as jpeg is a common failure. */
+function sniffImageType(bytes: Uint8Array): Exclude<OcrMediaType, 'application/pdf'> | null {
+  if (bytes.byteLength < 12) return null;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
   // RIFF....WEBP
   if (
     bytes[0] === 0x52 &&
@@ -396,9 +418,33 @@ export function looksLikeImage(bytes: Uint8Array): boolean {
     bytes[10] === 0x42 &&
     bytes[11] === 0x50
   ) {
-    return true;
+    return 'image/webp';
+  }
+  return null;
+}
+
+/** JPEG / PNG / WebP / GIF magic bytes. */
+export function looksLikeImage(bytes: Uint8Array): boolean {
+  return sniffImageType(bytes) !== null;
+}
+
+const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+/** PDF readers accept the header anywhere in the first 1024 bytes. */
+const PDF_HEADER_WINDOW = 1024;
+
+/** `%PDF-` near the start of the file. */
+export function looksLikePdf(bytes: Uint8Array): boolean {
+  const last = Math.min(bytes.byteLength, PDF_HEADER_WINDOW) - PDF_MAGIC.length;
+  for (let i = 0; i <= last; i++) {
+    if (PDF_MAGIC.every((b, j) => bytes[i + j] === b)) return true;
   }
   return false;
+}
+
+/** What OCR should send the model this file as, or null when it reads neither. */
+export function sniffOcrMediaType(bytes: Uint8Array): OcrMediaType | null {
+  if (looksLikePdf(bytes)) return PDF_TYPE;
+  return sniffImageType(bytes);
 }
 
 /**

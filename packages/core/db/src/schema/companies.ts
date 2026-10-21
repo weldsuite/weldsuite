@@ -1,3 +1,4 @@
+import { sql, type SQL } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -7,7 +8,25 @@ import {
   jsonb,
   text,
   index,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
+
+/**
+ * The text the Companies list search matches: the five searchable columns in
+ * one string, so a single trigram index (`companies_search_trgm_idx`) serves
+ * the search. A newline separates the columns; a search term never contains
+ * one, so a match can't run across two of them. `listCompanies` searches this
+ * exact expression: if the two differ, Postgres stops using the index.
+ */
+export function companySearchText(t: {
+  displayName: AnyPgColumn;
+  name: AnyPgColumn;
+  tradingName: AnyPgColumn;
+  email: AnyPgColumn;
+  vatNumber: AnyPgColumn;
+}): SQL {
+  return sql`(coalesce(${t.displayName}, '') || E'\\n' || coalesce(${t.name}, '') || E'\\n' || coalesce(${t.tradingName}, '') || E'\\n' || coalesce(${t.email}, '') || E'\\n' || coalesce(${t.vatNumber}, ''))`;
+}
 
 /**
  * Companies — organisations we do business with (b2b counterparties, b2b
@@ -153,6 +172,17 @@ export const companies = pgTable('companies', {
   index('companies_deleted_at_idx').on(table.deletedAt),
   index('companies_is_supplier_idx').on(table.isSupplier),
   index('companies_is_lead_idx').on(table.isLead),
+  // The Companies list: its default order and keyset cursor
+  // (`created_at DESC, id DESC`), and the first page's count(*).
+  index('companies_live_created_idx')
+    .on(table.createdAt, table.id)
+    .where(sql`${table.deletedAt} IS NULL`),
+  // The Companies list sorted by name, which sorts on `lower(display_name)`.
+  index('companies_live_name_idx')
+    .on(sql`lower(${table.displayName}::text)`, table.id)
+    .where(sql`${table.deletedAt} IS NULL`),
+  // The Companies list search (`ILIKE '%term%'`); needs the pg_trgm extension.
+  index('companies_search_trgm_idx').using('gin', sql`${companySearchText(table)} gin_trgm_ops`),
 ]);
 
 export type Company = typeof companies.$inferSelect;
