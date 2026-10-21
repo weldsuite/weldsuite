@@ -37,7 +37,7 @@ export function decodeListCursor(cursor: string | undefined): ListCursor | null 
 
 /** `%term%` for ILIKE, with the term's own `%`, `_` and `\` matched literally. */
 export function containsPattern(term: string): string {
-  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  return `%${term.replace(/[\\%_]/g, '\\$&')}%`;
 }
 
 /**

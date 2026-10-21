@@ -35,6 +35,7 @@ import {
   hydrateCustomFields,
   hydrateCustomFieldsOne,
   getDefinitionsForEntityType,
+  type CustomFieldDefinitionRow,
 } from '@weldsuite/core-domain/custom-field-values';
 import {
   parseCustomFieldKey,
@@ -301,6 +302,34 @@ function afterCompanyCursor(db: Database, cursorId: string): SQL {
   return sql`(${companies.createdAt}, ${companies.id}) < (${position})`;
 }
 
+/**
+ * ORDER BY for a list page: a custom-field sort, a built-in column sort, or
+ * the default `created_at DESC, id DESC` that the keyset cursor follows.
+ */
+function companyListOrder(
+  customSort: CustomFieldDefinitionRow | null,
+  builtInSort: AnyPgColumn | null,
+  sortDir: 'asc' | 'desc',
+): SQL[] {
+  const { companies } = schema;
+  if (customSort) {
+    return [
+      customFieldOrderBy(
+        'company',
+        companies.id,
+        customSort as unknown as Parameters<typeof customFieldOrderBy>[2],
+        sortDir,
+      ),
+      // Stable tie-break: rows sharing a value (or both null) keep a
+      // deterministic order across pages, otherwise OFFSET can repeat or
+      // skip rows between requests.
+      desc(companies.id),
+    ];
+  }
+  if (builtInSort) return explicitSortOrder(builtInSort, companies.id, sortDir);
+  return [desc(companies.createdAt), desc(companies.id)];
+}
+
 export type CompanyListRow = CompanyRow & { attributes?: CompanyAttributes };
 
 /**
@@ -336,23 +365,7 @@ export async function listCompanies(
   // for callers.
   const explicitSort = customSort !== null || builtInSort !== null;
   const offset = explicitSort && cursor ? Math.max(0, Number.parseInt(cursor.position, 10) || 0) : 0;
-  const sortDir = params.sortDir ?? 'asc';
-  const orderBy = customSort
-    ? [
-        customFieldOrderBy(
-          'company',
-          companies.id,
-          customSort as unknown as Parameters<typeof customFieldOrderBy>[2],
-          sortDir,
-        ),
-        // Stable tie-break: rows sharing a value (or both null) keep a
-        // deterministic order across pages, otherwise OFFSET can repeat or
-        // skip rows between requests.
-        desc(companies.id),
-      ]
-    : builtInSort
-      ? explicitSortOrder(builtInSort, companies.id, sortDir)
-      : [desc(companies.createdAt), desc(companies.id)];
+  const orderBy = companyListOrder(customSort, builtInSort, params.sortDir ?? 'asc');
   const where = !explicitSort && cursor ? and(filterOnly, afterCompanyCursor(db, cursor.position)) : filterOnly;
 
   const [rows, totalCount, defs] = await Promise.all([

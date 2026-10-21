@@ -138,6 +138,27 @@ function strongestConnection(byUser: InteractionStats['byUser']): string | null 
   return best?.userId ?? null;
 }
 
+/** Keep the earliest first/next and the latest last interaction across a company's teammates. */
+function mergeInteractions(attrs: CompanyAttributes, row: InteractionRow): void {
+  const first = interaction(row.firstAt, row.firstType, row.userId);
+  const last = interaction(row.lastAt, row.lastType, row.userId);
+  const next = interaction(row.nextAt, row.nextType, row.userId);
+  if (first && isEarlier(first, attrs.firstInteraction)) attrs.firstInteraction = first;
+  if (last && isLater(last, attrs.lastInteraction)) attrs.lastInteraction = last;
+  if (next && isEarlier(next, attrs.nextInteraction)) attrs.nextInteraction = next;
+}
+
+/** Add one teammate's past interaction counts to the company's totals. */
+function addInteractionStats(stats: Map<string, InteractionStats>, companyId: string, row: InteractionRow): void {
+  const s = stats.get(companyId) ?? { recent: 0, past: 0, byUser: new Map() };
+  stats.set(companyId, s);
+  s.past += row.past;
+  s.recent += row.recent;
+  if (row.userId && row.past > 0 && row.lastAt) {
+    s.byUser.set(row.userId, { count: row.past, last: row.lastAt.getTime() });
+  }
+}
+
 /**
  * Interactions: first/last among the past ones, next among the planned
  * future ones; strength and strongest connection from the past ones. Each row
@@ -148,21 +169,8 @@ function addInteractions(result: AttributesById, rows: InteractionRow[]): void {
   for (const row of rows) {
     const attrs = row.companyId ? result.get(row.companyId) : undefined;
     if (!row.companyId || !attrs) continue;
-
-    const first = interaction(row.firstAt, row.firstType, row.userId);
-    const last = interaction(row.lastAt, row.lastType, row.userId);
-    const next = interaction(row.nextAt, row.nextType, row.userId);
-    if (first && isEarlier(first, attrs.firstInteraction)) attrs.firstInteraction = first;
-    if (last && isLater(last, attrs.lastInteraction)) attrs.lastInteraction = last;
-    if (next && isEarlier(next, attrs.nextInteraction)) attrs.nextInteraction = next;
-
-    const s = stats.get(row.companyId) ?? { recent: 0, past: 0, byUser: new Map() };
-    stats.set(row.companyId, s);
-    s.past += row.past;
-    s.recent += row.recent;
-    if (row.userId && row.past > 0 && row.lastAt) {
-      s.byUser.set(row.userId, { count: row.past, last: row.lastAt.getTime() });
-    }
+    mergeInteractions(attrs, row);
+    addInteractionStats(stats, row.companyId, row);
   }
   for (const [companyId, s] of stats) {
     const attrs = result.get(companyId)!;
