@@ -7,6 +7,7 @@
  */
 
 import { getDesktop, isDesktop } from '@/lib/desktop';
+import { playMessageReceivedSound } from '@/lib/utils/notification-sound';
 import type {
   ModuleChannelPreferences,
   NotificationPreferences,
@@ -103,9 +104,6 @@ export async function showOsNotification(
 
   if (opts.playSound !== false && !opts.silent) {
     try {
-      // Dynamic import avoids a static cycle with notification-sound.ts,
-      // which delegates showBrowserNotification here.
-      const { playMessageReceivedSound } = await import('@/lib/utils/notification-sound');
       playMessageReceivedSound();
     } catch {
       // Sound is best-effort.
@@ -133,6 +131,37 @@ export async function showOsNotification(
   }
 
   return true;
+}
+
+/**
+ * showOsNotification with Web Notification API options, for callers that
+ * build a NotificationOptions object.
+ *
+ * Returns null — the Notification instance is owned by the OS / browser and
+ * is not useful to callers (legacy signature kept for compat).
+ */
+export async function showBrowserNotification(
+  title: string,
+  options?: NotificationOptions & {
+    playSound?: boolean;
+    actionUrl?: string;
+    onlyWhenHidden?: boolean;
+  }
+): Promise<Notification | null> {
+  const { playSound = true, actionUrl, onlyWhenHidden, ...notificationOptions } = options ?? {};
+
+  await showOsNotification({
+    title,
+    body: typeof notificationOptions.body === 'string' ? notificationOptions.body : undefined,
+    tag: typeof notificationOptions.tag === 'string' ? notificationOptions.tag : undefined,
+    icon: typeof notificationOptions.icon === 'string' ? notificationOptions.icon : undefined,
+    silent: notificationOptions.silent === true,
+    playSound,
+    actionUrl,
+    onlyWhenHidden,
+  });
+
+  return null;
 }
 
 /** Sync the dock / taskbar badge with the unread count. No-op in the browser. */

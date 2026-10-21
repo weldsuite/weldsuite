@@ -1752,8 +1752,22 @@ interface SelectionAnchor {
 
 const SELECTION_TOOLBAR_GAP = 8;
 const SELECTION_TOOLBAR_EDGE = 8;
-/** CSS highlight name, styled in globals.css */
+/** CSS highlight name, styled by ensureSelectionHighlightStyle */
 const SELECTION_HIGHLIGHT = 'weld-editor-selection';
+
+/**
+ * Adds the ::highlight rule once. It lives here rather than in globals.css
+ * because Lightning CSS (Tailwind's minifier) doesn't parse ::highlight()
+ * yet and warns on every build.
+ */
+function ensureSelectionHighlightStyle() {
+  const id = `${SELECTION_HIGHLIGHT}-style`;
+  if (document.getElementById(id)) return;
+  const style = document.createElement('style');
+  style.id = id;
+  style.textContent = `::highlight(${SELECTION_HIGHLIGHT}) { background-color: Highlight; color: HighlightText; }`;
+  document.head.appendChild(style);
+}
 
 const SELECTION_TEXT_BUTTON =
   'h-7 gap-1.5 rounded-md px-2 text-[13px] font-normal text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground';
@@ -2055,6 +2069,7 @@ function SelectionToolbar({
   useEffect(() => {
     const highlights = typeof CSS !== 'undefined' ? CSS.highlights : undefined;
     if (!anchor || !highlights) return;
+    ensureSelectionHighlightStyle();
     const sync = () => {
       const range = rangeRef.current;
       if (range && !getTiptap(editor)?.isFocused) {

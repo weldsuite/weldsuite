@@ -7,6 +7,7 @@ import { CustomerDetailProvider, useCustomerDetailContext } from './customer-det
 import { CustomerDetailHeader } from './customer-detail-header';
 import { CustomerDetailTabs } from './customer-detail-tabs';
 import { CustomerDetailContent } from './customer-detail-content';
+import { NestedDetailViewContext } from './nested-detail-view';
 import { CustomerChatPanel } from '@/components/customer-chat/customer-chat-panel';
 import { EntityChat } from '@/components/entity-chat/entity-chat';
 import { useQuery } from '@tanstack/react-query';
@@ -27,7 +28,15 @@ import { useTranslations } from '@weldsuite/i18n/client';
  * - panel: Sliding panel from right (Mail app, order views)
  * - embedded: Compact view without header/sidebar (embedded in other pages)
  */
-export function CustomerDetailView({
+export function CustomerDetailView(props: Readonly<CustomerDetailViewProps>) {
+  return (
+    <NestedDetailViewContext.Provider value={CustomerDetailView}>
+      <CustomerDetailViewByMode {...props} />
+    </NestedDetailViewContext.Provider>
+  );
+}
+
+function CustomerDetailViewByMode({
   customerId,
   entityType = 'customer',
   mode = 'page',
