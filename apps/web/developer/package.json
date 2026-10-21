@@ -22,7 +22,7 @@
     "lucide-react": "^0.544.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0",
+    "react-router-dom": "^7.18.2",
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
@@ -33,7 +33,7 @@
     "@weldsuite/typescript-config": "workspace:*",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vite": "^6.4.3",
+    "vite": "^6.4.4",
     "vitest": "^3.2.4",
     "wrangler": "^4.0.0"
   }

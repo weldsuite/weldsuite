@@ -1,14 +1,17 @@
 import type { MetadataRoute } from 'next';
 import { getArticles, getFolders, type Article } from '@/lib/api-client';
+import { sitemapXml } from '@/lib/sitemap-xml';
 
 // Sitemaps change slowly; refresh hourly rather than on the 60s content TTL.
 export const revalidate = 3600;
 
-export default async function sitemap({
-  params,
-}: {
-  params: Promise<{ domain: string }>;
-}): Promise<MetadataRoute.Sitemap> {
+// A route handler rather than sitemap.ts: Next.js never passes `params` to a
+// sitemap or robots metadata route (16.3 calls it with no arguments), and the
+// domain only exists as the [domain] segment the proxy rewrites each host to.
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ domain: string }> },
+) {
   const { domain } = await params;
   const baseUrl = `https://${domain}`;
 
@@ -43,5 +46,7 @@ export default async function sitemap({
     });
   }
 
-  return entries;
+  return new Response(sitemapXml(entries), {
+    headers: { 'Content-Type': 'application/xml' },
+  });
 }

@@ -1,0 +1,75 @@
+name: Dependabot lockfile
+
+# GitHub files some security alerts against a single workspace's package.json
+# (e.g. packages/domains/mail/package.json) instead of pnpm-lock.yaml. Dependabot
+# then runs its update in that folder, logs "VulnerabilityAuditor: missing
+# lockfile", and opens a PR that only bumps the package.json. Every CI job's
+# `pnpm install --frozen-lockfile` fails on it with ERR_PNPM_OUTDATED_LOCKFILE.
+#
+# This job regenerates pnpm-lock.yaml on Dependabot branches and pushes it back.
+# A push made with GITHUB_TOKEN doesn't trigger workflows, so it then dispatches
+# CI on the branch; those check runs land on the new head commit, which is what
+# the PR's required checks look at.
+#
+# Once this has pushed, Dependabot no longer rebases the PR by itself. Comment
+# `@dependabot recreate` to get a fresh branch; this job runs again on it.
+
+on:
+  pull_request:
+    paths:
+      - '**/package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+
+concurrency:
+  group: dependabot-lockfile-${{ github.head_ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync-lockfile:
+    name: Sync pnpm-lock.yaml
+    # Only runs when Dependabot itself pushed, never for a person or a fork.
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the lockfile commit
+      actions: write # dispatch CI on it
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - uses: ./.github/actions/setup-monorepo
+        with:
+          install-dependencies: 'false'
+
+      # --lockfile-only resolves registry metadata without downloading packages
+      # or running install scripts, so the bumped version never executes here.
+      # pnpm defaults to --frozen-lockfile on CI; that's the check we're fixing.
+      - name: Regenerate lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
+
+      - name: Commit and push
+        id: push
+        run: |
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "pnpm-lock.yaml is already up to date."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pnpm-lock.yaml
+          git commit -m 'chore(deps): update pnpm-lock.yaml'
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run CI on the lockfile commit
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: gh workflow run ci.yml --ref "$BRANCH"
