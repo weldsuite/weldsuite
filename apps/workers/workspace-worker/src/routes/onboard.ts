@@ -27,7 +27,7 @@ import { provisionMailDomain } from '../services/mail-provisioning';
 import { workspaces, plans } from '@weldsuite/db/schema/master';
 import { m2mAuth } from '../middleware/m2m-auth';
 import { syncClerkSeatLimit, isClerkSlugError } from '../lib/clerk';
-import { slugifyWorkspaceName, withRandomSuffix } from '../lib/slug';
+import { SLUG_REGEX, isReservedWorkspaceSlug, slugifyWorkspaceName, withRandomSuffix } from '../lib/slug';
 
 export const onboardSchema = z.object({
   clerkUserId: z.string().min(1),
@@ -78,12 +78,20 @@ export interface OnboardResult {
 /**
  * Find a slug that isn't taken. Tries the base slug first, then appends
  * the short tail of the new workspace id, then a counter as a last resort.
+ *
+ * The base can come from Clerk (the org's own slug), which knows nothing of
+ * our reserved names: a reserved or malformed base is replaced by the slug
+ * derived from it (`settings` → `workspace-settings`).
  */
 export async function resolveUniqueSlug(
   masterDb: ReturnType<typeof getMasterDb>,
-  base: string,
+  requestedBase: string,
   workspaceId: string,
 ): Promise<string> {
+  const base =
+    SLUG_REGEX.test(requestedBase) && !isReservedWorkspaceSlug(requestedBase)
+      ? requestedBase
+      : slugifyWorkspaceName(requestedBase);
   const candidates = [base, `${base}-${workspaceId.slice(-6)}`];
   for (const candidate of candidates) {
     const [taken] = await masterDb

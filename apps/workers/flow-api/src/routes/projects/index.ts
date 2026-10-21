@@ -11,9 +11,12 @@ import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'd
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createProjectSchema, updateProjectSchema, normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
+import { taskStatusAliases } from '@weldsuite/app-api-client/schemas/tasks';
+import { stagePlacement } from '@weldsuite/flow-domain/task-stage';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
@@ -827,16 +830,96 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
   }
 });
 
+/**
+ * Plans handing every live task of `sourceId` to `destId`. Each task lands
+ * where `stagePlacement` puts its status: the destination's stage for it,
+ * else its first stage. Project-scoped references (sprint, milestone, key,
+ * board position) are cleared, as in POST /api/tasks/:id/move; parent links
+ * stay, since the whole tree moves. Positions are offset past the
+ * destination's last task, keeping their order.
+ */
+async function planTaskTransfer(db: Variables['tenantDb'], sourceId: string, destId: string, now: Date) {
+  const tasks = schema.tasks;
+  const moving = await db
+    .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, sourceId), isNull(tasks.deletedAt)));
+  const place = await stagePlacement(db, destId);
+  const [positionRow] = await db
+    .select({ maxPosition: sql<number>`coalesce(max(${tasks.position}), 0)::int` })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, destId), isNull(tasks.deletedAt)));
+  const offset = (positionRow?.maxPosition || 0) + 1;
+
+  const reset = {
+    projectId: destId,
+    sprintId: null,
+    milestoneId: null,
+    key: null,
+    boardPosition: null,
+    position: sql`${tasks.position} + ${offset}`,
+    updatedAt: now,
+  };
+  const moved = moving.map((row) => ({ id: row.id, title: row.title, ...place(row.status) }));
+  const keptStatuses = [...new Set(moved.filter((row) => row.matched).map((row) => row.status))];
+  const fallback = place(null);
+  const stillInSource = and(eq(tasks.projectId, sourceId), isNull(tasks.deletedAt));
+
+  return {
+    moved: moved.map(({ id, title, status }) => ({ id, title, status })),
+    // One update per kept status (every stored spelling of it, written back in
+    // its current form), then one for the rest: each moves its rows out of the
+    // source project, so the last one only sees what no stage matched.
+    build: (handle: Variables['tenantDb']) => [
+      ...keptStatuses.map((status) =>
+        handle
+          .update(tasks)
+          .set({ ...reset, stageId: place(status).stageId, status })
+          .where(and(stillInSource, inArray(tasks.status, taskStatusAliases(status)))),
+      ),
+      handle
+        .update(tasks)
+        .set({ ...reset, stageId: fallback.stageId, status: fallback.status })
+        .where(stillInSource),
+    ],
+  };
+}
+
 app.delete('/:id', requirePermission('projects:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
+  // Optional: hand the project's tasks to another project before it goes.
+  const moveTasksTo = c.req.query('moveTasksTo') || undefined;
   if (!(await canManageProject(c, id))) {
     return error.forbidden(c, 'You must be a project owner, admin, or manager to delete this project');
+  }
+  if (moveTasksTo === id) return error.badRequest(c, 'Cannot move tasks into the project being deleted');
+  if (moveTasksTo && !(await canWriteProject(c, moveTasksTo))) {
+    return error.forbidden(c, 'You do not have write access to the destination project');
   }
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Project', id);
-    await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
+    const now = new Date();
+    const softDelete = (handle: Variables['tenantDb']) =>
+      handle.update(t).set({ deletedAt: now, updatedAt: now }).where(eq(t.id, id));
+
+    let moved: { id: string; title: string; status: string }[] = [];
+    if (moveTasksTo) {
+      const [destProject] = await db
+        .select({ id: t.id })
+        .from(t)
+        .where(and(eq(t.id, moveTasksTo), isNull(t.deletedAt)))
+        .limit(1);
+      if (!destProject) return error.notFound(c, 'Project', moveTasksTo);
+      const transfer = await planTaskTransfer(db, id, moveTasksTo, now);
+      moved = transfer.moved;
+      // All-or-nothing: the tasks never end up half moved out of a live project.
+      await atomically(db, (handle) => [...transfer.build(handle), softDelete(handle)]);
+    } else {
+      await softDelete(db);
+    }
+
     publishEntityEvent({
       c,
       entityType: 'project',
@@ -844,6 +927,15 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       action: 'deleted',
       data: { id, name: existing.name },
     });
+    for (const row of moved) {
+      publishEntityEvent({
+        c,
+        entityType: 'project_task',
+        entityId: row.id,
+        action: 'updated',
+        data: { id: row.id, title: row.title, projectId: moveTasksTo, status: row.status },
+      });
+    }
     return noContent(c);
   } catch (err) {
     console.error('[app-api/projects] delete failed:', err);

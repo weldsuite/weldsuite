@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo, useRef, useTransition } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useI18n } from '@/lib/i18n/provider';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -35,6 +35,7 @@ import {
 import { Calendar } from "@weldsuite/ui/components/calendar";
 import { Avatar, AvatarFallback, AvatarImage } from "@weldsuite/ui/components/avatar";
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { DeleteProjectDialog } from '../components/delete-project-dialog';
 import {
   Dialog,
   DialogContent,
@@ -218,7 +219,7 @@ export function AllProjectsClient({
   const [selectedMember, setSelectedMember] = useState<TeamMemberDetail | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [, startTransition] = useTransition();
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; name: string } | null>(null);
   const router = useRouter();
 
   // Transform initial projects
@@ -359,18 +360,10 @@ export function AllProjectsClient({
     }
   }, [t.allProjects.projectUpdateFailed]);
 
-  // Delete project
-  const deleteProject = useCallback((projectId: string) => {
-    startTransition(async () => {
-      const result = await projectsApi.delete(projectId);
-      if (result.success) {
-        setProjects(prev => prev.filter(p => p.id !== projectId));
-        toast.success(t.allProjects.projectDeleted);
-      } else {
-        toast.error(t.allProjects.projectDeleteFailed);
-      }
-    });
-  }, [t.allProjects.projectDeleted, t.allProjects.projectDeleteFailed]);
+  // Delete project (confirmed, optionally moving its tasks, in DeleteProjectDialog)
+  const deleteProject = useCallback((project: Project) => {
+    setProjectToDelete({ id: project.id, name: project.name });
+  }, []);
 
   // Bulk delete
   const confirmBulkDelete = async () => {
@@ -674,7 +667,7 @@ export function AllProjectsClient({
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-                onClick={() => deleteProject(project.id)}
+                onClick={() => deleteProject(project)}
               >
                 <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
                 {t.allProjects.actionDelete}
@@ -777,6 +770,13 @@ export function AllProjectsClient({
         confirmLabel={t.allProjects.actionDelete}
         loading={isDeleting}
         onConfirm={confirmBulkDelete}
+      />
+
+      <DeleteProjectDialog
+        open={!!projectToDelete}
+        onOpenChange={(open) => !open && setProjectToDelete(null)}
+        project={projectToDelete}
+        onDeleted={(projectId) => setProjects(prev => prev.filter(p => p.id !== projectId))}
       />
 
       {/* Add Project Dialog */}

@@ -6,6 +6,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./push": "./src/channels/push.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {

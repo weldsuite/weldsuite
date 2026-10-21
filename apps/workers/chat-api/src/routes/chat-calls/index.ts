@@ -950,8 +950,12 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
       ]).catch((e) => console.error('[Chat:Calls] Background join tasks failed:', e)),
     );
 
+    // The channel and type let a client connect straight from this answer,
+    // without fetching the call first.
     return success(c, {
       callId,
+      channelId: call.channelId,
+      callType: call.callType,
       authToken: rtkParticipant.token,
       participants,
     });

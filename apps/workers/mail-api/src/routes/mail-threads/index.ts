@@ -16,6 +16,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { markThreadRead } from '@weldsuite/mail-domain/thread-ops';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { queueMailReadPush } from '../../lib/read-push';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -54,7 +55,8 @@ app.post(
           data: { id: threadId, accountId, subject: null, from: null, to: null },
         });
       }
-      return success(c, result);
+      if (isRead) queueMailReadPush(c, accountId, result.updatedIds);
+      return success(c, { updatedCount: result.updatedCount });
     } catch (err) {
       console.error('[app-api/mail-threads] mark-read failed:', err);
       return error.internal(c, 'Failed to update thread read state');

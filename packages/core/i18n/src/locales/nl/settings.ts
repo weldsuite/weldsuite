@@ -245,6 +245,7 @@ export const settings = {
         successToast: 'Werkruimte-slug bijgewerkt. Pagina wordt herladen…',
         errorToast: 'Werkruimte-slug bijwerken mislukt',
         invalidFormat: 'Gebruik 3–63 kleine letters, cijfers of streepjes. Mag niet beginnen of eindigen met een streepje.',
+        reservedSlug: 'WeldSuite gebruikt deze naam voor een eigen pagina of app. Kies een andere.',
       },
       deleteWorkspace: {
         sectionTitle: 'Gevarenzone',

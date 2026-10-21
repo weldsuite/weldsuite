@@ -19,7 +19,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -152,7 +152,9 @@ async function isWorkspaceMember(db: TenantDb, userId: string): Promise<boolean>
 
 // ============================================================================
 // GET / — list active members for a project, joined with workspaceMembers for
-// display fields (name, email, avatar).
+// display fields (name, email, avatar). Removing someone from the workspace
+// soft-deletes their workspaceMembers row but leaves the project_members row,
+// so those are filtered here: this list feeds every WeldFlow assignee picker.
 // ============================================================================
 
 app.get('/', requirePermission('projects:read'), async (c) => {
@@ -188,7 +190,19 @@ app.get('/', requirePermission('projects:read'), async (c) => {
       })
       .from(t)
       .leftJoin(workspaceMembers, eq(t.userId, workspaceMembers.userId))
-      .where(and(eq(t.projectId, projectId), eq(t.isActive, true), isNull(t.deletedAt)));
+      .where(
+        and(
+          eq(t.projectId, projectId),
+          eq(t.isActive, true),
+          isNull(t.deletedAt),
+          // A row with no workspace member at all is kept as before (it renders
+          // without a name); one whose workspace membership ended is dropped.
+          or(
+            isNull(workspaceMembers.userId),
+            and(isNull(workspaceMembers.deletedAt), eq(workspaceMembers.status, 'ACTIVE')),
+          ),
+        ),
+      );
     return success(c, results.map((row) => redactRate(row, viewer)));
   } catch (err) {
     console.error('[app-api/project-members] list failed:', err);

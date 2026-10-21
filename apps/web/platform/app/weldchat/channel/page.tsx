@@ -146,7 +146,7 @@ export default function ChannelPage() {
       </div>
     );
 
-  const isInCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === channelId && !isFullscreen && !isPiP;
+  const isInCall = callStatus !== 'idle' && callChannelId === channelId && !isFullscreen && !isPiP;
 
   return (
     <div className="flex flex-col h-full">
