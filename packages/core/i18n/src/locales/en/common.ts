@@ -433,7 +433,6 @@ export const common = {
       goHome: 'Go home',
     },
     workspaceLink: {
-      opening: 'Opening workspace…',
       notFoundTitle: 'Workspace not found',
       notFoundDescription: "This link points to a workspace you're not a member of, or one that has been renamed.",
       openIn: 'Open this page in:',

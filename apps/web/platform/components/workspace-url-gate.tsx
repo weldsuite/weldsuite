@@ -8,16 +8,12 @@ import {
 } from '@/lib/pending-organization';
 import { isWorkspaceScopedPath, parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
 import { decideWorkspaceUrl, type WorkspaceUrlDecision } from '@/lib/workspace-url-gate';
-import {
-  setActiveWorkspaceRef,
-  useWorkspaceUrlState,
-  workspaceUrlsEnabled,
-} from '@/lib/workspace-url-rewrite';
+import { setActiveWorkspaceRef, useWorkspaceUrlState } from '@/lib/workspace-url-rewrite';
 import type { WorkspaceLinkMembership } from '@/components/workspace/workspace-link-problem';
 
 /**
- * - `off`: nothing for the URL to settle (kill switch, a page outside a
- *   workspace, a bare path with no active org); the shell carries on as before.
+ * - `off`: nothing for the URL to settle (a page outside a workspace, a bare
+ *   path with no active org); the shell carries on as before.
  * - `blocked`: render nothing yet, the tab may be in the wrong workspace.
  * - `ready`: the tab is in the URL's workspace and links carry it.
  */
@@ -49,7 +45,7 @@ export interface WorkspaceUrlGate {
 export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
   const router = useRouter();
   const target = useRouterState({ select: (s) => s.location.href });
-  const enabled = workspaceUrlsEnabled() && isWorkspaceScopedPath(pathname);
+  const enabled = isWorkspaceScopedPath(pathname);
   const { isLoaded, isSignedIn, orgId, orgSlug } = useAuth();
   const { urlRef, activeRef } = useWorkspaceUrlState();
   const {

@@ -3,12 +3,9 @@ import {
   findWorkspace,
   isWorkspaceScopedPath,
   parseWorkspacePath,
-  sameOriginPath,
   stripWorkspacePrefix,
   workspacePath,
 } from './workspace-url';
-
-const ORIGIN = 'https://app.weldsuite.org';
 
 describe('parseWorkspacePath', () => {
   it('splits the ref from the inner path', () => {
@@ -61,18 +58,6 @@ describe('findWorkspace', () => {
   });
 });
 
-describe('sameOriginPath', () => {
-  it('keeps the path, query and hash', () => {
-    expect(sameOriginPath('/weldcrm/customers?tab=notes#n1', ORIGIN)).toBe('/weldcrm/customers?tab=notes#n1');
-  });
-
-  it.each(['//evil.example', '/\\evil.example', '/\t/evil.example', 'https://evil.example/x'])(
-    'falls back to / for %j, which would leave the origin',
-    (path) => {
-      expect(sameOriginPath(path, ORIGIN)).toBe('/');
-    },
-  );
-});
 
 describe('isWorkspaceScopedPath', () => {
   it.each(['/', '/weldcrm/customers', '/settings/team', '/apps/acme-app', '/objects/deals/rec_1', '/w9x'])(

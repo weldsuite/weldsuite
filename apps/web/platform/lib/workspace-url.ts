@@ -4,8 +4,9 @@
  * A `/w/{ref}/…` link names the workspace it belongs to. `ref` is the
  * workspace slug in links people copy, or the Clerk org id in links the
  * backend builds (emails, OAuth returns), since the org id survives a slug
- * change. The `/w/$workspace` route resolves `ref` against the member's
- * workspaces, activates it in this tab, and continues to the inner path.
+ * change. The router rewrite (lib/workspace-url-rewrite.ts) strips it before
+ * routing, and the shell's workspace check (components/workspace-url-gate.tsx)
+ * resolves `ref` against the member's workspaces and activates it in this tab.
  */
 
 export interface WorkspaceRef {
@@ -40,22 +41,6 @@ export function parseWorkspacePath(pathname: string): { ref: string; rest: strin
 export function findWorkspace<T extends WorkspaceRef>(ref: string, workspaces: readonly T[]): T | null {
   const slug = ref.toLowerCase();
   return workspaces.find((w) => w.id === ref || w.slug?.toLowerCase() === slug) ?? null;
-}
-
-/**
- * Resolve `path` against `origin` and return it as a same-origin path
- * (pathname + search + hash), or `/` when it would leave the origin.
- * Guards `/w/acme//evil.example` and its tab/backslash variants, which a
- * browser reads as protocol-relative URLs.
- */
-export function sameOriginPath(path: string, origin: string): string {
-  try {
-    const url = new URL(path, origin);
-    if (url.origin !== origin) return '/';
-    return url.pathname + url.search + url.hash;
-  } catch {
-    return '/';
-  }
 }
 
 /**
