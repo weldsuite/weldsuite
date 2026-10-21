@@ -13,7 +13,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { MemberSelect } from '@/components/team/member-select';
-import { useGridContext } from '../context';
+import { useGridRowContext } from '../context';
 import { useIsCellEditing, setEditingCellValue } from '../editing-store';
 import { GridColumnDef, EditorProps, OpenPopover } from '../types';
 import {
@@ -37,6 +37,9 @@ interface GridCellProps<TEntity> {
   entity: TEntity;
   column: GridColumnDef<TEntity>;
   isFirstColumn: boolean;
+  isPopoverOpen: boolean;
+  /** The row's selection checkbox, shown in the first column. */
+  isRowSelected: boolean;
 }
 
 function cellPadding(isFirstColumn?: boolean, compact?: boolean): string {
@@ -148,22 +151,18 @@ interface FavoriteButtonProps<TEntity> {
 }
 
 function FavoriteButton<TEntity>({ entity, entityId, field }: Readonly<FavoriteButtonProps<TEntity>>) {
-  const { state, setOptimisticUpdates, actions } = useGridContext<TEntity>();
+  const { patchOptimisticUpdate, updateEntity } = useGridRowContext<TEntity>();
   const isFavorite = !!(entity as Record<string, unknown>)[field];
 
   const setFavorite = (next: boolean) => {
-    const prev = state.optimisticUpdates;
-    setOptimisticUpdates({
-      ...prev,
-      [entityId]: { ...prev[entityId], [field]: next } as Partial<TEntity>,
-    });
+    patchOptimisticUpdate(entityId, { [field]: next } as Partial<TEntity>);
   };
 
   const toggleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation();
     const newVal = !(entity as Record<string, unknown>)[field];
     setFavorite(newVal);
-    const result = await actions.onUpdateEntity(entityId, { [field]: newVal });
+    const result = await updateEntity(entityId, { [field]: newVal });
     if (!result.success) {
       setFavorite(!newVal);
     }
@@ -209,12 +208,12 @@ interface CompanyCellProps<TEntity> {
   entity: TEntity;
   column: GridColumnDef<TEntity>;
   compact: boolean;
+  isRowSelected: boolean;
 }
 
 // Render company/name column (special case - first column with avatar)
-function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellProps<TEntity>>) {
-  const { config, state, setSelectedRows, actions } = useGridContext<TEntity>();
-  const { selectedRows } = state;
+function CompanyCell<TEntity>({ entity, column, compact, isRowSelected }: Readonly<CompanyCellProps<TEntity>>) {
+  const { config, setRowSelected, openRow } = useGridRowContext<TEntity>();
   const entityId = config.getEntityId(entity);
   const name = config.getEntityName(entity);
   const initials = config.getEntityInitials?.(entity) || name.charAt(0).toUpperCase();
@@ -222,18 +221,12 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
   const contextMenuItems = config.renderRowContextMenu?.(entity);
 
   const toggleRowSelected = (checked: boolean | 'indeterminate') => {
-    const newSelected = new Set(selectedRows);
-    if (checked) {
-      newSelected.add(entityId);
-    } else {
-      newSelected.delete(entityId);
-    }
-    setSelectedRows(newSelected);
+    setRowSelected(entityId, !!checked);
   };
 
   const cell = (
     <CellWrapper
-      onClick={() => actions.onRowClick?.(entity)}
+      onClick={() => openRow(entity)}
       isFirstColumn
       compact={compact}
       label={name}
@@ -243,7 +236,7 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
       <div className="flex items-center gap-2.5 min-w-0 flex-1">
         {config.enableRowSelection !== false && (
           <Checkbox
-            checked={selectedRows.has(entityId)}
+            checked={isRowSelected}
             onCheckedChange={toggleRowSelected}
             onClick={(e) => e.stopPropagation()}
             className="relative z-[1] flex-shrink-0 rounded-[5px]"
@@ -709,28 +702,31 @@ function renderCellByType(type: GridColumnDef<unknown>['type'], ctx: CellRenderC
   }
 }
 
-export function GridCell<TEntity>({
+/**
+ * Memoised, so a row that re-renders (its selection or a column changed) only
+ * re-renders the cells whose own props changed.
+ */
+export const GridCell = React.memo(function GridCell<TEntity>({
   entity,
   column,
   isFirstColumn,
+  isPopoverOpen,
+  isRowSelected,
 }: Readonly<GridCellProps<TEntity>>) {
   const {
     config,
-    state,
     setOpenPopover,
     updateEntityField,
     updateCustomFieldValue,
-  } = useGridContext<TEntity>();
+    getEditValue,
+  } = useGridRowContext<TEntity>();
 
-  const { editValue, openPopover } = state;
   const compact = !!config.fillViewport;
   const entityId = config.getEntityId(entity);
   const value = column.getValue(entity);
   // Subscribe only to this cell's editing flag — other cells don't re-render when
   // another cell enters edit mode.
   const isEditing = useIsCellEditing(entityId, column.id);
-  const isPopoverOpen =
-    openPopover?.rowId === entityId && openPopover?.fieldId === column.id;
 
   // Local-only custom columns (created via addColumn) store in customFieldData.
   // Server-backed custom fields (from customFieldDefs, id starts with cf_) persist via updateEntityField.
@@ -755,7 +751,7 @@ export function GridCell<TEntity>({
   // Handle commit for editors. Editors may pass the final value directly
   // (uncontrolled pattern) to avoid re-rendering the entire grid on each keystroke.
   const handleCommit = (finalValue?: unknown) => {
-    const committedValue = finalValue !== undefined ? finalValue : editValue;
+    const committedValue = finalValue !== undefined ? finalValue : getEditValue();
     if (isLocalOnly || committedValue !== value) {
       persistValue(committedValue);
     }
@@ -793,7 +789,7 @@ export function GridCell<TEntity>({
   }
 
   if (column.type === 'company' && isFirstColumn) {
-    return <CompanyCell entity={entity} column={column} compact={compact} />;
+    return <CompanyCell entity={entity} column={column} compact={compact} isRowSelected={isRowSelected} />;
   }
 
   return renderCellByType(column.type, {
@@ -820,4 +816,4 @@ export function GridCell<TEntity>({
     commitNumber,
     setOpenPopover,
   });
-}
+}) as <TEntity>(props: Readonly<GridCellProps<TEntity>>) => React.ReactElement;

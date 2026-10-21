@@ -18,7 +18,7 @@
  * page, so the store never mixes tenants.
  */
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ClientApi } from '@weldsuite/api-client/types';
 import { createCompanyLogosApi } from '@weldsuite/app-api-client/domains/company-logos';
 import { COMPANY_LOGO_BATCH_MAX, normalizeLogoDomain } from '@weldsuite/app-api-client/schemas/company-logos';
@@ -241,9 +241,11 @@ export function useCompanyLogo(source: string | null | undefined): string | unde
 /**
  * `rows` with a `logoUrl` property added to those whose domain has a logo (the
  * avatar getters of the grids read it). Rows keep their identity until a logo
- * arrives for them. `getDomain` returns the website or domain to look up
- * (undefined to skip, e.g. when the row has its own image) and must be a stable
- * function (module level, or memoised).
+ * arrives for them, and a row with a logo keeps the same copy for as long as
+ * the row and its logo stay the same (the grids skip re-rendering unchanged
+ * rows). `getDomain` returns the website or domain to look up (undefined to
+ * skip, e.g. when the row has its own image) and must be a stable function
+ * (module level, or memoised).
  */
 export function useRowsWithCompanyLogos<T>(
   rows: readonly T[],
@@ -251,12 +253,19 @@ export function useRowsWithCompanyLogos<T>(
 ): T[] {
   const domains = useMemo(() => rows.map((row) => normalizeLogoDomain(getDomain(row))), [rows, getDomain]);
   const logos = useCompanyLogos(domains);
+  const [copies] = useState(() => new WeakMap<object, { logoUrl: string; row: T }>());
   return useMemo(() => {
     if (logos.size === 0) return rows as T[];
     return rows.map((row, index) => {
       const domain = domains[index];
       const logoUrl = domain ? logos.get(domain) : undefined;
-      return logoUrl ? { ...row, logoUrl } : row;
+      if (!logoUrl) return row;
+      const key = row as object;
+      const copy = copies.get(key);
+      if (copy?.logoUrl === logoUrl) return copy.row;
+      const next = { ...row, logoUrl };
+      copies.set(key, { logoUrl, row: next });
+      return next;
     });
-  }, [rows, domains, logos]);
+  }, [rows, domains, logos, copies]);
 }

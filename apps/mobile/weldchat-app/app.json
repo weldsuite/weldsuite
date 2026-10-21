@@ -18,7 +18,7 @@
         "NSMicrophoneUsageDescription": "WeldChat needs microphone access for voice and video calls.",
         "NSBluetoothAlwaysUsageDescription": "WeldChat uses Bluetooth to route voice and video call audio to nearby Bluetooth headsets and speakers.",
         "NSLocalNetworkUsageDescription": "WeldChat uses your local network for low-latency call audio and video.",
-        "UIBackgroundModes": ["remote-notification", "audio"]
+        "UIBackgroundModes": ["remote-notification", "audio", "voip"]
       },
       "bitcode": false
     },

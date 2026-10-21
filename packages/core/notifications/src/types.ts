@@ -15,6 +15,7 @@ import type {
 } from '@weldsuite/db/schema/notifications';
 import type { EmailBrand, EmailLocale, NotificationEmailProps, TaskAssignedEmailProps } from '@weldsuite/emails';
 import type { SystemEmailEnv } from '@weldsuite/emails/transports/binding';
+import type { ApnsEnv } from './channels/apns';
 
 export type { ModulePreferencesMap } from '@weldsuite/db/schema/notification-preferences';
 export type {
@@ -89,7 +90,12 @@ export interface DeferredEmailParams {
   sendAfter: string;
 }
 
-export interface NotificationEnv extends SystemEmailEnv {
+/**
+ * The APNs provider key (`APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_PRIVATE_KEY`)
+ * rings iOS devices through CallKit (channels/call-push.ts). Optional: without
+ * it, iPhones get the ordinary "Incoming call" banner push.
+ */
+export interface NotificationEnv extends SystemEmailEnv, ApnsEnv {
   /** realtime-worker service binding — fans in-app notifications out to the
    *  user's WorkspaceHub personal topic. Optional: when missing (local dev
    *  without realtime-worker running), in-app delivery becomes a no-op. */

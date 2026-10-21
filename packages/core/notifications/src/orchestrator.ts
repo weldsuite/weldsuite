@@ -17,6 +17,7 @@ import { resolveEmailPresence } from './presence';
 import { publishInAppNotification } from './channels/in-app';
 import { sendNotificationEmail } from './channels/email';
 import { sendExpoPush, type ExpoPushMessage } from './channels/push';
+import { deactivateDeviceTokens, isCallToken, sendCallRing } from './channels/call-push';
 import type { CreateNotificationParams, NotificationEmailOverride, NotificationEnv } from './types';
 
 /**
@@ -355,7 +356,12 @@ async function deliverPush<Env extends NotificationEnv>(
     // installed (wrong EAS project + cross-app spam) or to deactivated tokens.
     const appCodes = appCodesForCategory(category);
     const tokens = await db
-      .select({ token: schema.deviceTokens.token, appCode: schema.deviceTokens.appCode })
+      .select({
+        token: schema.deviceTokens.token,
+        appCode: schema.deviceTokens.appCode,
+        deviceId: schema.deviceTokens.deviceId,
+        tokenType: schema.deviceTokens.tokenType,
+      })
       .from(schema.deviceTokens)
       .where(
         and(
@@ -365,23 +371,28 @@ async function deliverPush<Env extends NotificationEnv>(
         ),
       );
 
-    const byAppCode = groupTokensByAppCode(tokens);
-    if (byAppCode.size === 0) {
+    // Call tokens only ever carry the native ring (channels/call-push.ts). A
+    // device that took the native ring skips the ordinary banner for it.
+    let pushTokens = tokens.filter((t) => !isCallToken(t));
+    const allInvalid: string[] = [];
+    let rang = 0;
+    if (params.notificationType === 'chat_incoming_call') {
+      const ring = await sendCallRing(params.env, tokens, buildPushData(params));
+      allInvalid.push(...ring.invalidTokens);
+      rang = ring.deliveredDeviceIds.size;
+      pushTokens = pushTokens.filter((t) => !ring.deliveredDeviceIds.has(t.deviceId));
+    }
+
+    const byAppCode = groupTokensByAppCode(pushTokens);
+    if (byAppCode.size === 0 && rang === 0) {
       console.warn(
         `[Notifications] No active push tokens for user=${userId} category=${category} appCodes=${appCodes.join(',')}`,
       );
-      return;
     }
-
-    const allInvalid = await sendPushBatches(params, byAppCode);
+    if (byAppCode.size > 0) allInvalid.push(...(await sendPushBatches(params, byAppCode)));
 
     // Drop DeviceNotRegistered / non-Expo tokens so we stop retrying them.
-    if (allInvalid.length > 0) {
-      await db
-        .update(schema.deviceTokens)
-        .set({ isActive: new Date(), updatedAt: new Date() })
-        .where(inArray(schema.deviceTokens.token, allInvalid));
-    }
+    await deactivateDeviceTokens(db, allInvalid);
   } catch (err) {
     console.error('[Notifications] Push send failed:', err);
   }

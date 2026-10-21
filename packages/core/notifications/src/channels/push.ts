@@ -26,6 +26,8 @@ export interface ExpoPushMessage {
   badge?: number;
   channelId?: string;
   priority?: 'default' | 'normal' | 'high';
+  /** Seconds the push service keeps trying to deliver before dropping it. */
+  ttl?: number;
   /**
    * iOS `content-available`: wakes the app for a background notification.
    * Without title/body it is delivered headless (never shown); Android gets

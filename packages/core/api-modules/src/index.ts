@@ -357,6 +357,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/chat-search',
     '/api/chat-sections',
     '/api/chat-status',
+    // Session-less ring decline from the phone's native call UI (signed ring token).
+    '/public/chat-calls',
   ]),
   mod('call', 8812, ['weldcall', 'weldcrm', 'welddesk'], [
     '/api/call-intelligence',

@@ -177,6 +177,12 @@ interface IncomingCallParams<Env extends NotificationEnv> {
   channelId: string;
   callId: string;
   callType: string;
+  /**
+   * Signed, short-lived token that lets the recipient's phone decline this
+   * ring without a session: the lock-screen / CallKit Decline button while the
+   * app is not running. Minted by chat-api (`@weldsuite/chat-domain/call-ring-token`).
+   */
+  declineToken?: string;
 }
 
 export async function sendIncomingCallNotification<Env extends NotificationEnv>(
@@ -193,6 +199,7 @@ export async function sendIncomingCallNotification<Env extends NotificationEnv>(
     channelId,
     callId,
     callType,
+    declineToken,
   } = params;
   return createAndDeliverNotification({
     db,
@@ -221,6 +228,7 @@ export async function sendIncomingCallNotification<Env extends NotificationEnv>(
       callType,
       callerName,
       ...(callerAvatar ? { callerAvatar } : {}),
+      ...(declineToken ? { declineToken } : {}),
     },
   });
 }
