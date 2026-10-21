@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 
-import { createMailLabel, getMailLabel, listMailLabels, updateMailLabel } from './labels';
+import { applyLabelToThread, createMailLabel, getMailLabel, listMailLabels, updateMailLabel } from './labels';
 import { addMessageLabels, getMessage, getThread, removeMessageLabels } from './messages';
 import { listThreadsByLabel, normalizeSubject } from './threads';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -71,10 +71,12 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('label counts match the label folder (TASK-940)', () => {
-  it('leaves trashed and spam mail out, by label or by flag', async () => {
+  it('leaves trashed, spam and archived mail out, by label or by flag', async () => {
     const accountId = await seedAccount();
     await createMailLabel(db, { accountId, name: 'Invoices' });
     await seedMessage(accountId, ['INBOX', 'Invoices']);
+    // Neither inbox nor archive (e.g. sent mail you labelled) still counts.
+    await seedMessage(accountId, ['SENT', 'Invoices']);
     await seedMessage(accountId, ['ARCHIVE', 'Invoices']);
     await seedMessage(accountId, ['TRASH', 'Invoices'], { isTrash: true });
     await seedMessage(accountId, ['SPAM', 'Invoices'], { isSpam: true });
@@ -143,6 +145,32 @@ describe('label counts match the label folder (TASK-940)', () => {
 
     expect(await countOf(accountId, 'Work')).toBe(1);
     expect(await threadIdsIn(accountId, 'work')).toHaveLength(1);
+  });
+});
+
+describe('archiving takes a thread out of a user label folder', () => {
+  it('drops the thread from the label folder and its badge, and keeps the label', async () => {
+    const accountId = await seedAccount();
+    await createMailLabel(db, { accountId, name: 'Clients' });
+    const id = await seedMessage(accountId, ['INBOX', 'Clients'], { isStarred: true });
+    const [row] = await db.select().from(mailMessages).where(eq(mailMessages.id, id));
+    const threadId = row!.threadId!;
+    expect(await threadIdsIn(accountId, 'clients')).toEqual([threadId]);
+    expect(await countOf(accountId, 'Clients')).toBe(1);
+
+    await applyLabelToThread(db, accountId, threadId, 'ARCHIVE', 'add');
+
+    expect(await threadIdsIn(accountId, 'clients')).toEqual([]);
+    expect(await countOf(accountId, 'Clients')).toBe(0);
+    expect((await getMessage(db, id))?.labels).toContain('Clients');
+    // System folders keep archived mail, and a search still finds it.
+    expect(await threadIdsIn(accountId, 'archive')).toContain(threadId);
+    expect(await threadIdsIn(accountId, 'starred')).toContain(threadId);
+    expect(await threadIdsIn(accountId, 'clients', { search: 'Counts test' })).toContain(threadId);
+
+    // Moving it back to the inbox puts it back in the label folder.
+    await applyLabelToThread(db, accountId, threadId, 'INBOX', 'add');
+    expect(await threadIdsIn(accountId, 'clients')).toEqual([threadId]);
   });
 });
 
