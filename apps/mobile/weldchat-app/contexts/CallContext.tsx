@@ -337,6 +337,49 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
   }, [status]);
   useLoopingSound(status === 'ringing-incoming', RINGTONE);
 
+  // `call_ended` on the personal topic: clear the channel's banner and, when the
+  // caller hung up before we answered, every ring for the call.
+  const handleCallEnded = useCallback((data: { channelId?: string; callId?: string } | undefined) => {
+    // Clear the channel's active-call banner.
+    const endedChannelId = data?.channelId;
+    if (endedChannelId) {
+      setActiveChannelCalls((cur) => {
+        if (!(endedChannelId in cur)) return cur;
+        const next = { ...cur };
+        delete next[endedChannelId];
+        return next;
+      });
+    }
+    // Caller hung up before we answered — dismiss the ring + any lingering
+    // OS push banner for this call (killed/background delivery path).
+    const endedId = data?.callId;
+    // ...and the native ring (CallKit / call notification). A call this
+    // phone answered ends through leaveCall instead.
+    if (endedId && sessionRef.current?.callId !== endedId) endNativeCall(endedId);
+    setIncomingCall((cur) => {
+      if (cur && (!endedId || endedId === cur.callId)) {
+        setStatus('idle');
+        return null;
+      }
+      return cur;
+    });
+    if (!endedId) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
+      const { dismissPresentedNotificationsWhere } = require('@weldsuite/mobile-ui/services/notifications') as {
+        dismissPresentedNotificationsWhere: (
+          match: (data: Record<string, unknown>) => boolean,
+        ) => Promise<void>;
+      };
+      void dismissPresentedNotificationsWhere((pushData) => {
+        if (pushData.notificationType !== 'chat_incoming_call') return false;
+        return pushData.entityId === endedId;
+      });
+    } catch {
+      // Expo Go / missing native module — nothing to dismiss.
+    }
+  }, []);
+
   // Personal-topic handler: incoming ring + remote cancellation.
   const handlePersonalEvent = useCallback((event: WorkspaceEvent<Record<string, unknown>>) => {
     if (event.event === 'call_incoming') {
@@ -363,47 +406,9 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
         }));
       }
     } else if (event.event === 'call_ended') {
-      // Clear the channel's active-call banner.
-      const endedChannelId = (event.data as { channelId?: string })?.channelId;
-      if (endedChannelId) {
-        setActiveChannelCalls((cur) => {
-          if (!(endedChannelId in cur)) return cur;
-          const next = { ...cur };
-          delete next[endedChannelId];
-          return next;
-        });
-      }
-      // Caller hung up before we answered — dismiss the ring + any lingering
-      // OS push banner for this call (killed/background delivery path).
-      const endedId = (event.data as { callId?: string })?.callId;
-      // ...and the native ring (CallKit / call notification). A call this
-      // phone answered ends through leaveCall instead.
-      if (endedId && sessionRef.current?.callId !== endedId) endNativeCall(endedId);
-      setIncomingCall((cur) => {
-        if (cur && (!endedId || endedId === cur.callId)) {
-          setStatus('idle');
-          return null;
-        }
-        return cur;
-      });
-      if (endedId) {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
-          const { dismissPresentedNotificationsWhere } = require('@weldsuite/mobile-ui/services/notifications') as {
-            dismissPresentedNotificationsWhere: (
-              match: (data: Record<string, unknown>) => boolean,
-            ) => Promise<void>;
-          };
-          void dismissPresentedNotificationsWhere((data) => {
-            if (data.notificationType !== 'chat_incoming_call') return false;
-            return data.entityId === endedId;
-          });
-        } catch {
-          // Expo Go / missing native module — nothing to dismiss.
-        }
-      }
+      handleCallEnded(event.data as { channelId?: string; callId?: string });
     }
-  }, [presentIncoming]);
+  }, [presentIncoming, handleCallEnded]);
 
   useTopic<Record<string, unknown>>(userId ? `chat.user.${userId}` : '', handlePersonalEvent);
 

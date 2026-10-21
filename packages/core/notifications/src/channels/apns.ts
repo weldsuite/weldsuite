@@ -60,7 +60,7 @@ export type ApnsResult =
 function base64UrlFromBytes(bytes: Uint8Array): string {
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function base64UrlFromString(value: string): string {

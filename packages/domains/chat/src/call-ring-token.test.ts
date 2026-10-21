@@ -24,7 +24,7 @@ describe('call ring token', () => {
     const forged = btoa(JSON.stringify({ o: 'org_1', u: 'user_mallory', c: 'call_1', e: Date.now() + 60_000 }))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
-      .replace(/=+$/, '');
+      .replace(/=/g, '');
     expect(await verifyCallRingToken('secret', `${forged}.${sig}`)).toBeNull();
   });
 
