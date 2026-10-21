@@ -32,7 +32,8 @@ win:
     - target: nsis
       arch: [x64, arm64]
   icon: assets/icon.ico
-  publisherName: Weld Corporation
+  signtoolOptions:
+    publisherName: Weld Corporation
 
 nsis:
   oneClick: false
@@ -79,7 +80,7 @@ protocols:
     schemes: [weldsuite]
 
 # READ-ONLY update feed. electron-builder has no `generic` *publisher* — the
-# only upload-capable providers in v25 are github/s3/spaces/bitbucket/keygen/
+# only upload-capable providers in v26 are github/s3/spaces/bitbucket/keygen/
 # snapStore — so `--publish always` uploads nothing here by design. The release
 # workflow in .github/workflows/release-desktop.yml pushes artifacts to the R2 bucket
 # `weldsuite-desktop-downloads` with wrangler, and electron-updater reads
