@@ -123,23 +123,83 @@ const FIELD_LABEL = 'w-[72px] flex-shrink-0 text-sm text-muted-foreground';
 // The recipient suggestions sit under the field, past the label column.
 const SUGGESTIONS_MENU = 'left-[72px] w-72';
 
-/** "From" row: the sending account's avatar and name. */
-function ComposeFromRow({ accountId, label }: Readonly<{ accountId?: string; label: string }>) {
+type MailAccountOption = NonNullable<ReturnType<typeof useMailAccounts>['data']>['data'][number];
+
+function accountDisplayName(account: MailAccountOption): string {
+  return account.displayName || account.name || account.email;
+}
+
+/** An account's avatar and name, as the From row shows it. */
+function FromAccountLabel({ account }: Readonly<{ account: MailAccountOption }>) {
+  const name = accountDisplayName(account);
+  return (
+    <span className="flex items-center gap-1.5 min-w-0">
+      <Avatar className="h-4 w-4 !rounded-[5px] flex-shrink-0">
+        <AvatarFallback className="!rounded-[5px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          {name.charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-medium text-foreground truncate">{name}</span>
+    </span>
+  );
+}
+
+/**
+ * "From" row: the sending account's avatar and name. With `onAccountChange` and
+ * more than one account it is a picker of the account to send from.
+ */
+function ComposeFromRow({
+  accountId,
+  label,
+  onAccountChange,
+  testId,
+}: Readonly<{ accountId?: string; label: string; onAccountChange?: (accountId: string) => void; testId: string }>) {
+  const { t } = useI18n();
   const { data: accountsData } = useMailAccounts();
-  const account = (accountsData?.data ?? []).find((a) => a.id === accountId);
-  const name = account ? account.displayName || account.name || account.email : '';
+  const accounts = accountsData?.data ?? [];
+  const account = accounts.find((a) => a.id === accountId);
+
+  if (onAccountChange && accounts.length > 1) {
+    return (
+      <div className="flex items-center min-h-9">
+        <span className={FIELD_LABEL}>{label}</span>
+        <Select value={account?.id ?? ''} onValueChange={onAccountChange}>
+          <SelectTrigger
+            size="sm"
+            aria-label={label}
+            title={account?.email}
+            className="data-[size=sm]:h-7 w-auto max-w-full min-w-0 gap-1.5 border-0 bg-transparent px-1.5 -ml-1.5 shadow-none hover:bg-muted focus-visible:ring-0 dark:bg-transparent dark:hover:bg-muted"
+            data-testid={testId}
+          >
+            {account ? (
+              <FromAccountLabel account={account} />
+            ) : (
+              <SelectValue placeholder={t.mail.floatingCompose.selectFromAccount} />
+            )}
+          </SelectTrigger>
+          <SelectContent align="start">
+            {accounts.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                <span className="flex flex-col min-w-0">
+                  <span className="text-sm truncate">{accountDisplayName(option)}</span>
+                  {accountDisplayName(option) !== option.email && (
+                    <span className="text-xs text-muted-foreground truncate">{option.email}</span>
+                  )}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center min-h-9">
       <span className={FIELD_LABEL}>{label}</span>
       {account && (
-        <div className="flex items-center gap-1.5 min-w-0" title={account.email}>
-          <Avatar className="h-4 w-4 !rounded-[5px] flex-shrink-0">
-            <AvatarFallback className="!rounded-[5px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-              {name.charAt(0).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-sm font-medium text-foreground truncate">{name}</span>
+        <div className="flex items-center min-w-0" title={account.email}>
+          <FromAccountLabel account={account} />
         </div>
       )}
     </div>
@@ -236,6 +296,8 @@ export interface ComposeSurfaceProps {
   /** Prefix of the `data-testid`s, so two surfaces never share an id. */
   testIdPrefix?: string;
   accountId?: string;
+  /** Makes From a picker of the account to send from. */
+  onAccountChange?: (accountId: string) => void;
 
   // Header actions. A button is left out when its handler is.
   onMinimize?: () => void;
@@ -295,6 +357,7 @@ export function ComposeSurface({
   toolbarClassName,
   testIdPrefix = 'compose',
   accountId,
+  onAccountChange,
   onMinimize,
   onPopOut,
   hideMinimizeOnMobile = false,
@@ -561,7 +624,12 @@ export function ComposeSurface({
         <div className="bg-background flex-1 flex flex-col overflow-hidden">
           {/* From / To / Cc / Bcc / Subject */}
           <div className="px-4 pt-2 pb-1 flex-shrink-0">
-            <ComposeFromRow accountId={accountId} label={t.mail.floatingCompose.from} />
+            <ComposeFromRow
+              accountId={accountId}
+              label={t.mail.floatingCompose.from}
+              onAccountChange={onAccountChange}
+              testId={`${testIdPrefix}-from-account`}
+            />
 
             {/* To, with the Cc / Bcc buttons at its end. Each reveals its own row and
                 disappears once that row is shown. */}

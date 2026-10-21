@@ -441,6 +441,7 @@ export const mail = {
       writePlaceholder: 'Begin met het typen van uw e-mail...',
       title: 'E-mail opstellen',
       from: 'Van',
+      selectFromAccount: 'Kies een account',
       subjectPlaceholder: 'Onderwerp invoeren...',
       sendEmail: 'E-mail verzenden',
       aiPlaceholder: 'Beschrijf wat u wilt schrijven...',

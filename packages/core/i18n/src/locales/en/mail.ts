@@ -441,6 +441,7 @@ export const mail = {
       writePlaceholder: 'Start typing your email...',
       title: 'Compose email',
       from: 'From',
+      selectFromAccount: 'Choose an account',
       subjectPlaceholder: 'Enter subject...',
       sendEmail: 'Send email',
       aiPlaceholder: 'Describe what to write...',

@@ -11,8 +11,9 @@ import { ModuleContent } from '@/components/layout/module-content';
 // Lazy + dynamic-only: app-shell also dynamically imports this component (for
 // its own global ComposeProvider scope). A static import here made it a mixed
 // static+dynamic import, which the CI build folds into the entry chunk and
-// breaks app-shell's lazy import(). This render is NOT redundant — it's scoped
-// to mail's nested ComposeProvider — so keep it, just import it dynamically.
+// breaks app-shell's lazy import(). Inside the app shell, the shell's provider
+// and panel serve mail too; this panel only renders where mail has no shell
+// around it (the /preview routes).
 const FloatingComposePanel = lazy(() =>
   import('./floating-compose-panel').then((m) => ({ default: m.FloatingComposePanel })),
 );
@@ -27,11 +28,6 @@ function MailLayoutContent({ children }: Readonly<MailLayoutClientProps>) {
       <MailHeader />
       <SendingRestrictionBanner />
       <ModuleContent className="overflow-auto">{children}</ModuleContent>
-
-      {/* Floating compose panel */}
-      <Suspense fallback={null}>
-        <FloatingComposePanel />
-      </Suspense>
     </div>
   );
 }
@@ -41,7 +37,13 @@ export function MailLayoutClient({ children }: Readonly<MailLayoutClientProps>) 
   return (
     <BreadcrumbProvider defaultBreadcrumbs={[{ label: t.mail.header.mail, href: '/weldmail' }]}>
       <PinnedEmailProvider>
-        <ComposeProvider>
+        <ComposeProvider
+          panel={
+            <Suspense fallback={null}>
+              <FloatingComposePanel />
+            </Suspense>
+          }
+        >
           <CustomerPanelProvider>
             <MailLayoutContent>{children}</MailLayoutContent>
           </CustomerPanelProvider>

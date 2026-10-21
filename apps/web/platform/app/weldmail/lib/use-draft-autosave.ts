@@ -142,5 +142,17 @@ export function useDraftAutosave({
     return saver;
   }, [getSaver]);
 
-  return { schedule, saveNow, discard, handOff, detach };
+  // The sending account changed. A draft belongs to one account, so the one
+  // already saved is removed and the next save creates it under the new account.
+  const switchAccount = useCallback(
+    (nextAccountId: string) => {
+      accountIdRef.current = nextAccountId;
+      const previous = saverRef.current;
+      saverRef.current = createSaver();
+      void previous?.discard();
+    },
+    [createSaver],
+  );
+
+  return { schedule, saveNow, discard, handOff, detach, switchAccount };
 }
