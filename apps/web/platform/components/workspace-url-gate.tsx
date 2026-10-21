@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
-import { clearPendingOrganization, peekPendingOrganization, setPendingOrganization } from '@/lib/pending-organization';
+import {
+  clearPendingOrganizationIf,
+  peekPendingOrganization,
+  setPendingOrganization,
+} from '@/lib/pending-organization';
 import { isWorkspaceScopedPath, parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
 import { decideWorkspaceUrl } from '@/lib/workspace-url-gate';
 import {
@@ -37,6 +41,10 @@ export interface WorkspaceUrlGate {
  * reloads, like the workspace switcher, so nothing hydrates against the old
  * workspace. Children must not render until `ready`: their queries would run
  * with the previous workspace's token.
+ *
+ * Once settled, an org change that leaves the URL alone is the app's own
+ * switch (the switcher, a workspace just created or deleted): the gate follows
+ * it rather than switching back, and stays `ready`.
  */
 export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
   const router = useRouter();
@@ -51,6 +59,7 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
   } = useOrganizationList({ userMemberships: { infinite: true, pageSize: 50 } });
   // Captured once per page load, like the shell's own copy.
   const [pendingOrgId] = useState(() => peekPendingOrganization());
+  const [settled, setSettled] = useState<{ ref: string; orgId: string } | null>(null);
   const [failed, setFailed] = useState(false);
   const activatingRef = useRef(false);
 
@@ -68,9 +77,10 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
 
   const decision =
     enabled && isLoaded && isSignedIn
-      ? decideWorkspaceUrl({ urlRef, orgId, orgSlug, pendingOrgId, memberships: allMemberships })
+      ? decideWorkspaceUrl({ urlRef, orgId, orgSlug, pendingOrgId, memberships: allMemberships, settled })
       : null;
-  const readyRef = decision?.kind === 'ready' ? decision.ref : null;
+  const following = decision?.kind === 'follow';
+  const readyRef = decision?.kind === 'ready' || following ? decision.ref : null;
   const activateOrgId = decision?.kind === 'activate' ? decision.orgId : null;
 
   // Memberships are paged; only decide once every page is in.
@@ -82,14 +92,20 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
   // Settled: links carry the workspace, and the address bar names it by slug
   // (a bare path, an org id or another casing is replaced in place).
   useLayoutEffect(() => {
-    if (!readyRef) return;
+    if (!readyRef || !orgId) return;
     setActiveWorkspaceRef(readyRef);
-    if (pendingOrgId && pendingOrgId === orgId) clearPendingOrganization();
+    // Following, the URL names the old workspace until the replace below
+    // lands; it settles on the new one from there.
+    if (!following) {
+      setSettled((prev) => (prev?.ref === readyRef && prev.orgId === orgId ? prev : { ref: readyRef, orgId }));
+    }
+    // The org pending when this page loaded is active now, or lost to the URL.
+    if (pendingOrgId) clearPendingOrganizationIf(pendingOrgId);
     if (parseWorkspacePath(window.location.pathname)?.ref !== readyRef) {
       // Not navigate(): a same-location navigation never writes history.
       router.history.replace(workspacePath(readyRef, target), router.history.location.state);
     }
-  }, [readyRef, pendingOrgId, orgId, router, target]);
+  }, [readyRef, following, pendingOrgId, orgId, router, target]);
 
   useEffect(() => {
     if (!activateOrgId || !setActive || activatingRef.current) return;
@@ -101,22 +117,26 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
       .then(() => {
         if (!switching) {
           // No reload to survive, and a stale id would win a later bare-path load.
-          clearPendingOrganization();
+          clearPendingOrganizationIf(activateOrgId);
           return; // nothing loaded yet: Clerk's orgId updates and the URL is ready
         }
         // The reload hydrates from that org's own persisted cache (FE-014).
         window.location.replace(window.location.href);
       })
       .catch(() => {
+        // Leave behind only what was pending before: a later load must not
+        // try again to activate an org this page failed to.
+        if (activateOrgId !== pendingOrgId) clearPendingOrganizationIf(activateOrgId);
         activatingRef.current = false;
         setFailed(true);
       });
-  }, [activateOrgId, setActive, orgId]);
+  }, [activateOrgId, setActive, orgId, pendingOrgId]);
 
   let status: WorkspaceUrlGateStatus;
   if (!decision || decision.kind === 'skip') status = 'off';
   else if (failed) status = 'error';
   else if (decision.kind === 'not-found') status = 'not-found';
+  else if (decision.kind === 'follow') status = 'ready'; // already rendered; the page navigates away
   else if (decision.kind === 'ready' && activeRef === decision.ref) status = 'ready';
   else status = 'blocked';
 

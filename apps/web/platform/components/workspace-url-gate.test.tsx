@@ -138,11 +138,43 @@ describe('useWorkspaceUrlGate', () => {
     expect(clerk.setActive).not.toHaveBeenCalled();
   });
 
-  it('reports a failed switch', async () => {
+  it('reports a failed switch, and leaves no pending org behind', async () => {
     clerk.setActive.mockRejectedValue(new Error('nope'));
     openUrl('/w/globex/weldcrm/customers');
     const { result } = await renderGate();
     expect(result.current.status).toBe('error');
+    expect(sessionStorage.getItem('weldsuite:pending-org')).toBeNull();
+  });
+
+  it('follows a switch the app makes in place instead of switching back', async () => {
+    openUrl('/w/acme/weldcrm/customers?tab=notes');
+    const gate = await renderGate();
+    expect(gate.result.current.status).toBe('ready');
+
+    // The switcher's setActive() resolved; its navigation has not landed yet.
+    sessionStorage.setItem('weldsuite:pending-org', 'org_globex');
+    clerk.orgId = 'org_globex';
+    clerk.orgSlug = 'globex';
+    gate.rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(gate.result.current.status).toBe('ready');
+    expect(clerk.setActive).not.toHaveBeenCalled();
+    expect(location.replace).not.toHaveBeenCalled();
+    expect(getWorkspaceUrlState().activeRef).toBe('globex');
+    expect(router.history.replace).toHaveBeenCalledWith('/w/globex/weldcrm/customers?tab=notes', expect.anything());
+    // Set after this page loaded, for the page the switch opens.
+    expect(sessionStorage.getItem('weldsuite:pending-org')).toBe('org_globex');
+  });
+
+  it('clears a pending org the URL overruled, so it cannot hold the page later', async () => {
+    sessionStorage.setItem('weldsuite:pending-org', 'org_globex');
+    openUrl('/w/acme/weldcrm/customers');
+    const { result } = await renderGate();
+    expect(result.current.status).toBe('ready');
+    expect(sessionStorage.getItem('weldsuite:pending-org')).toBeNull();
   });
 
   it('stays out of pages outside a workspace, and with the kill switch off', async () => {

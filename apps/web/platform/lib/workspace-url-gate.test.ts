@@ -13,6 +13,7 @@ const base: WorkspaceUrlGateInput = {
   orgSlug: 'acme',
   pendingOrgId: null,
   memberships: null,
+  settled: null,
 };
 
 const decide = (overrides: Partial<WorkspaceUrlGateInput>) => decideWorkspaceUrl({ ...base, ...overrides });
@@ -64,5 +65,24 @@ describe('decideWorkspaceUrl', () => {
   it('accepts a renamed slug while the session claim still has the old one', () => {
     const renamed = [{ id: 'org_acme', slug: 'acme-bv' }];
     expect(decide({ urlRef: 'acme-bv', memberships: renamed })).toEqual({ kind: 'ready', ref: 'acme-bv' });
+    // Settled on the new slug, the stale claim is not a switch.
+    const settled = { ref: 'acme-bv', orgId: 'org_acme' };
+    expect(decide({ urlRef: 'acme-bv', memberships: renamed, settled })).toEqual({ kind: 'ready', ref: 'acme-bv' });
+  });
+
+  it('follows a switch this page made, while the URL still names the workspace it settled on', () => {
+    const settled = { ref: 'acme', orgId: 'org_acme' };
+    const switched = { orgId: 'org_globex', orgSlug: 'globex', memberships, settled };
+    expect(decide(switched)).toEqual({ kind: 'follow', ref: 'globex' });
+    // Even before the memberships are in, and for a workspace not listed yet.
+    expect(decide({ ...switched, orgId: 'org_new', orgSlug: null, memberships: null })).toEqual({
+      kind: 'follow',
+      ref: 'org_new',
+    });
+  });
+
+  it('lets a URL that names another workspace win, settled or not', () => {
+    const settled = { ref: 'acme', orgId: 'org_acme' };
+    expect(decide({ urlRef: 'globex', memberships, settled })).toEqual({ kind: 'activate', orgId: 'org_globex' });
   });
 });
