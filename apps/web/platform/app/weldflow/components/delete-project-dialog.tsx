@@ -78,6 +78,28 @@ export function DeleteProjectDialog({ open, onOpenChange, project, onDeleted }: 
     }
   };
 
+  const renderTargetPicker = () => {
+    if (targets === null) return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+    if (targets.length === 0) return <p className="text-sm text-muted-foreground">{copy.noOtherProjects}</p>;
+    return (
+      <>
+        <Select value={targetId} onValueChange={setTargetId} disabled={pending}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={copy.targetPlaceholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {targets.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">{copy.moveHint}</p>
+      </>
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={pending ? undefined : onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -104,31 +126,7 @@ export function DeleteProjectDialog({ open, onOpenChange, project, onDeleted }: 
             </Label>
           </RadioGroup>
 
-          {moving && (
-            <div className="space-y-2 pl-6">
-              {targets === null ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : targets.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{copy.noOtherProjects}</p>
-              ) : (
-                <>
-                  <Select value={targetId} onValueChange={setTargetId} disabled={pending}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={copy.targetPlaceholder} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {targets.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">{copy.moveHint}</p>
-                </>
-              )}
-            </div>
-          )}
+          {moving && <div className="space-y-2 pl-6">{renderTargetPicker()}</div>}
         </div>
 
         <DialogFooter>

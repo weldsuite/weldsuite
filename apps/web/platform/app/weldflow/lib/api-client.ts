@@ -690,10 +690,10 @@ export const projectsApi = {
   ) => appApiPatch<ApiProject>(`/projects/${projectId}`, data),
 
   /** `moveTasksTo` hands the project's tasks to that project before deleting it. */
-  delete: (projectId: string, opts?: { moveTasksTo?: string }) =>
-    appApiDelete<{ deleted: boolean }>(
-      `/projects/${projectId}${opts?.moveTasksTo ? `?moveTasksTo=${encodeURIComponent(opts.moveTasksTo)}` : ''}`,
-    ),
+  delete: (projectId: string, opts?: { moveTasksTo?: string }) => {
+    const query = opts?.moveTasksTo ? '?moveTasksTo=' + encodeURIComponent(opts.moveTasksTo) : '';
+    return appApiDelete<{ deleted: boolean }>(`/projects/${projectId}${query}`);
+  },
 
   getPermissions: (projectId: string) =>
     appApiGet<{ role: string | null; canRead: boolean; canWrite: boolean; isAdmin: boolean }>(
