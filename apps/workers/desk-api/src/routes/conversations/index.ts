@@ -28,6 +28,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '@weldsuite/worker-kit/db';
+import { notifyAssigned } from '../../lib/notify';
 import { sendMessage as sendDiscordMessage, archiveThread as archiveDiscordThread } from '../../lib/discord';
 import { dispatchOutbound } from '../../services/helpdesk/channel-dispatch';
 import { autoAssignConversation } from '../../services/helpdesk/auto-assignment';
@@ -648,6 +649,7 @@ app.get('/:id/audit-logs', requirePermission('conversations:read'), async (c) =>
 
 app.post('/', requirePermission('conversations:create'), zValidator('json', createConversationSchema), async (c) => {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   const data = c.req.valid('json') as Record<string, any>;
   const id = generateId('conv');
   const now = new Date();
@@ -660,6 +662,14 @@ app.post('/', requirePermission('conversations:create'), zValidator('json', crea
       action: 'created',
       data: { id, conversationNumber: data.conversationNumber, subject: data.subject, status: data.status, priority: data.priority, assigneeId: data.assigneeId, contactId: data.contactId, departmentId: data.departmentId },
     });
+    notifyAssigned(c, {
+      assigneeId: data.assigneeId as string | null | undefined,
+      kind: 'conversation',
+      entityId: id,
+      subject: data.subject as string | null | undefined,
+      reference: data.conversationNumber as string | null | undefined,
+      assignedByUserId: userId,
+    });
     return success(c, { id }, 201);
   } catch (err) {
     console.error('[app-api/conversations] create failed:', err);
@@ -669,6 +679,7 @@ app.post('/', requirePermission('conversations:create'), zValidator('json', crea
 
 app.patch('/:id', requirePermission('conversations:update'), zValidator('json', updateConversationSchema), async (c) => {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   const id = c.req.param('id');
   const data = c.req.valid('json') as Record<string, any>;
   try {
@@ -701,6 +712,15 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
         contactId: existing.contactId,
         departmentId: (update.departmentId as string | null | undefined) ?? existing.departmentId,
       },
+    });
+    notifyAssigned(c, {
+      assigneeId: update.assigneeId as string | null | undefined,
+      previousAssigneeId: existing.assigneeId,
+      kind: 'conversation',
+      entityId: id,
+      subject: (update.subject as string | null | undefined) ?? existing.subject,
+      reference: existing.conversationNumber,
+      assignedByUserId: userId,
     });
     return success(c, { id });
   } catch (err) {
@@ -992,6 +1012,7 @@ app.patch('/:id/priority', requirePermission('conversations:update'), zValidator
 
 app.patch('/:id/assign', requirePermission('conversations:update'), zValidator('json', assignSchema), async (c) => {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   const id = c.req.param('id');
   const body = c.req.valid('json');
 
@@ -1040,6 +1061,16 @@ app.patch('/:id/assign', requirePermission('conversations:update'), zValidator('
 
     const conv = updated[0];
     const agentName = body.assigneeName || 'Agent';
+
+    notifyAssigned(c, {
+      assigneeId: body.assigneeId,
+      previousAssigneeId: existing.assigneeId,
+      kind: 'conversation',
+      entityId: id,
+      subject: conv.subject,
+      reference: conv.conversationNumber,
+      assignedByUserId: userId,
+    });
 
     publishEntityEvent({
       c,
@@ -1102,6 +1133,7 @@ app.patch('/:id/assign', requirePermission('conversations:update'), zValidator('
  */
 app.patch('/:id/assign-team', requirePermission('conversations:update'), zValidator('json', assignTeamSchema), async (c) => {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   const id = c.req.param('id');
   const body = c.req.valid('json');
 
@@ -1148,6 +1180,18 @@ app.patch('/:id/assign-team', requirePermission('conversations:update'), zValida
       },
     });
 
+    // An explicit pick was made by the caller; a department auto-assignment is
+    // the system's choice (null actor), and landing on the caller is no news.
+    notifyAssigned(c, {
+      assigneeId: body.assigneeId ?? autoAssigned?.assigneeId,
+      previousAssigneeId: existing.assigneeId,
+      kind: 'conversation',
+      entityId: id,
+      subject: conv.subject,
+      reference: conv.conversationNumber,
+      assignedByUserId: body.assigneeId || autoAssigned?.assigneeId === userId ? userId : null,
+    });
+
     return success(c, {
       id: conv.id,
       departmentId: conv.departmentId,
@@ -1181,6 +1225,7 @@ app.patch('/:id/assign-team', requirePermission('conversations:update'), zValida
  */
 app.post('/:id/convert-to-ticket', requirePermission('conversations:update'), zValidator('json', convertToTicketSchema), async (c) => {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   const id = c.req.param('id');
   const body = c.req.valid('json');
   const tickets = schema.helpdeskTickets;
@@ -1242,6 +1287,18 @@ app.post('/:id/convert-to-ticket', requirePermission('conversations:update'), zV
       customerEmail,
       contactId: conv.contactId,
       now,
+    });
+
+    // Only an explicitly chosen new owner hears about the ticket: a ticket that
+    // inherits the conversation's assignee goes to someone who already has it.
+    notifyAssigned(c, {
+      assigneeId: body.assigneeId,
+      previousAssigneeId: conv.assigneeId,
+      kind: 'ticket',
+      entityId: ticketId,
+      subject,
+      reference: ticketNumber,
+      assignedByUserId: userId,
     });
 
     publishEntityEvent({

@@ -24,6 +24,7 @@
     "@weldsuite/desk-domain": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/mail-domain": "workspace:*",
+    "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/text": "workspace:*",

@@ -5058,6 +5058,9 @@ importers:
       '@weldsuite/mail-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/mail
+      '@weldsuite/notifications':
+        specifier: workspace:*
+        version: link:../../../packages/core/notifications
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions
@@ -5764,6 +5767,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/notifications':
+        specifier: workspace:*
+        version: link:../../../packages/core/notifications
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime

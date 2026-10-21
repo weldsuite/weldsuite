@@ -8,6 +8,9 @@
  * `workspaceMembers` so the UI doesn't need a second round trip.
  *
  * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ *
+ * A new comment notifies the task's assignees + reporter and anyone
+ * @-mentioned (`<@userId>`), see services/task-comment-notifications.ts.
  */
 
 import { Hono } from 'hono';
@@ -27,6 +30,7 @@ import {
   canManageProject,
   canWriteTaskProject,
 } from '../../lib/project-access';
+import { notifyTaskComment } from '../../services/task-comment-notifications';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.taskComments;
@@ -195,6 +199,17 @@ app.post(
         action: 'created',
         data: { id, taskId: data.taskId, content: data.content },
       });
+      c.executionCtx.waitUntil(
+        notifyTaskComment({
+          db,
+          env: c.env,
+          workspaceId: c.get('workspaceId'),
+          authorId: userId,
+          commentId: id,
+          taskId: data.taskId,
+          content: data.content,
+        }).catch((err) => console.error('[app-api/task-comments] comment notification failed:', err)),
+      );
       return success(c, { id, taskId: data.taskId, content: data.content, authorId: userId }, 201);
     } catch (err) {
       console.error('[app-api/task-comments] create failed:', err);

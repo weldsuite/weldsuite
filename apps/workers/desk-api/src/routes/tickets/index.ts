@@ -24,6 +24,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { linkConversationToTicket } from '../../services/helpdesk/conversation-to-ticket';
+import { notifyAssigned } from '../../lib/notify';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskTickets;
@@ -164,6 +165,7 @@ app.get('/:id', requirePermission('tickets:read'), async (c) => {
 
 app.post('/', requirePermission('tickets:create'), zValidator('json', createTicketCompatSchema), async (c) => {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   // `conversationId` and `source` are transport-only: neither is a column on
   // `helpdesk_tickets`, so they must not reach the insert spread below.
   const { conversationId, source, ...data } = c.req.valid('json') as Record<string, any>;
@@ -218,6 +220,14 @@ app.post('/', requirePermission('tickets:create'), zValidator('json', createTick
       action: 'created',
       data: { id, ticketNumber, subject: data.subject, status: data.status, priority: data.priority, assigneeId: data.assigneeId, contactId, departmentId: data.departmentId },
     });
+    notifyAssigned(c, {
+      assigneeId: data.assigneeId as string | null | undefined,
+      kind: 'ticket',
+      entityId: id,
+      subject: data.subject as string | null | undefined,
+      reference: ticketNumber,
+      assignedByUserId: userId,
+    });
     // Superset of `{ id }` — api-worker's callers read `ticketNumber`/`status`
     // off the create response, and adding fields keeps existing readers valid.
     return success(
@@ -233,6 +243,7 @@ app.post('/', requirePermission('tickets:create'), zValidator('json', createTick
 
 app.patch('/:id', requirePermission('tickets:update'), zValidator('json', updateTicketCompatSchema), async (c) => {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   const id = c.req.param('id');
   const data = c.req.valid('json') as Record<string, any>;
   try {
@@ -263,6 +274,15 @@ app.patch('/:id', requirePermission('tickets:update'), zValidator('json', update
         contactId: existing.contactId,
         departmentId: (update.departmentId as string | null | undefined) ?? existing.departmentId,
       },
+    });
+    notifyAssigned(c, {
+      assigneeId: update.assigneeId as string | null | undefined,
+      previousAssigneeId: existing.assigneeId,
+      kind: 'ticket',
+      entityId: id,
+      subject: (update.subject as string | null | undefined) ?? existing.subject,
+      reference: existing.ticketNumber,
+      assignedByUserId: userId,
     });
     return success(c, { id });
   } catch (err) {

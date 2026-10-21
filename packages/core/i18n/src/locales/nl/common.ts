@@ -202,6 +202,7 @@ export const common = {
       accessDenied: 'Toegang geweigerd.',
       alreadyResolved: 'Al afgehandeld door een andere beheerder.',
       resolveFailed: 'De aanvraag kon niet worden afgehandeld. Probeer het opnieuw.',
+      loadMore: 'Meer laden',
     },
     inviteMember: {
       inviteMembers: 'Leden uitnodigen',
