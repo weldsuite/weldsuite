@@ -35,6 +35,7 @@ import {
   type MeetingRoomViewProps,
 } from '@weldsuite/weldmeet-ui';
 import { useI18n } from '@/lib/i18n/provider';
+import { createPeerChimes } from '../lib/peer-chimes';
 import { ChannelChatPanel } from './channel-chat-panel';
 
 type RtkPerson = RTKParticipant | RTKSelf;
@@ -172,10 +173,6 @@ function ChatMeetingRoomAdapter() {
   // produces a false positive).
   const sharingPeersRef = useRef<Set<string>>(new Set());
 
-  // Stable keys of the remote people in the call, so a reconnect that re-adds
-  // everyone doesn't replay the join chime for each of them.
-  const knownPeersRef = useRef<Set<string>>(new Set());
-
   // The room shows while our own join is still going on, and the people
   // already in the call arrive then: no chime for them, only for later joins.
   const inRoomRef = useRef(status === 'connected');
@@ -218,24 +215,24 @@ function ChatMeetingRoomAdapter() {
       updateParticipants();
     };
 
-    // A remote participant joined the call. When the SDK reconnects it rebuilds
+    // Join / leave chimes. When the SDK reconnects it rebuilds
     // `participants.joined` from scratch (`participantsCleared`, then a
-    // `participantJoined` for everyone still there); only chime for people who
-    // weren't already in the call.
-    const onParticipantJoined = (p?: RTKParticipant) => {
-      const key = peerKey(p);
-      if (key && !knownPeersRef.current.has(key)) {
-        knownPeersRef.current.add(key);
+    // `participantJoined` for everyone still there), and someone else's
+    // reconnect takes them out and back in: neither chimes.
+    const chimes = createPeerChimes(joinedKeys(), {
+      join: () => {
         if (inRoomRef.current) playCallJoinSound();
-      }
+      },
+      leave: playCallLeaveSound,
+    });
+
+    const onParticipantJoined = (p?: RTKParticipant) => {
+      chimes.joined(peerKey(p));
       updateParticipants();
     };
 
-    // A remote participant left the call.
     const onParticipantLeft = (p?: RTKParticipant) => {
-      const key = peerKey(p);
-      if (key) knownPeersRef.current.delete(key);
-      playCallLeaveSound();
+      chimes.left(peerKey(p));
       updateParticipants();
     };
 
@@ -244,7 +241,7 @@ function ChatMeetingRoomAdapter() {
     // (drops anyone who left while we were disconnected) and re-snapshot.
     const onParticipantsCleared = () => {
       queueMicrotask(() => {
-        knownPeersRef.current = new Set(joinedKeys());
+        chimes.resync(joinedKeys());
         updateParticipants();
       });
     };
@@ -261,7 +258,6 @@ function ChatMeetingRoomAdapter() {
     // Seed the sharing set so a share already in progress when we join an
     // active call doesn't fire a spurious chime on the first event.
     sharingPeersRef.current = sharingPeers();
-    knownPeersRef.current = new Set(joinedKeys());
 
     // Seed self screen-share from the live RTK getters. `selfScreenShare` is
     // otherwise only populated by the `screenShareUpdate` event — which does
@@ -293,6 +289,7 @@ function ChatMeetingRoomAdapter() {
     meeting.self?.on?.('screenShareUpdate', onSelfScreenShareUpdate);
 
     return () => {
+      chimes.dispose();
       meeting.participants?.joined?.off?.('participantJoined', onParticipantJoined);
       meeting.participants?.joined?.off?.('participantLeft', onParticipantLeft);
       meeting.participants?.joined?.off?.('participantsCleared', onParticipantsCleared);

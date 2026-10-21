@@ -4,7 +4,9 @@
  * That board has no single project, so it cannot load project members. The
  * picker must list workspace members (so a brand-new customer still has people
  * to assign) and keep anyone already on a task who is no longer in that
- * directory, so their name still renders.
+ * directory, so their name still renders. Those are marked `departed`: pickers
+ * show them only on a task they are already on, so they can be unassigned but
+ * never newly picked.
  */
 
 export interface EntityAssigneeDirectoryMember {
@@ -15,6 +17,7 @@ export interface EntityAssigneeDirectoryMember {
     email: string;
     avatar?: string;
   };
+  departed?: boolean;
 }
 
 interface WorkspaceMemberSource {
@@ -41,11 +44,10 @@ export function buildEntityAssigneeDirectory(
   workspaceMembers: readonly WorkspaceMemberSource[],
   tasks: readonly TaskAssigneeFields[],
 ): EntityAssigneeDirectoryMember[] {
-  const seen = new Map<string, EntityAssigneeDirectoryMember>();
-
+  const members: EntityAssigneeDirectoryMember[] = [];
   for (const member of workspaceMembers) {
     if (!member.userId || !member.name) continue;
-    seen.set(member.userId, {
+    members.push({
       userId: member.userId,
       user: {
         id: member.userId,
@@ -54,6 +56,22 @@ export function buildEntityAssigneeDirectory(
         avatar: member.picture || undefined,
       },
     });
+  }
+  return withDepartedAssignees(members, tasks);
+}
+
+/**
+ * `members` plus everyone assigned on `tasks` who is not among them, marked
+ * `departed`. Project boards use it too: their member list leaves out people
+ * removed from the workspace, who may still be on a task.
+ */
+export function withDepartedAssignees<M extends { userId: string }>(
+  members: readonly M[],
+  tasks: readonly TaskAssigneeFields[],
+): (M | EntityAssigneeDirectoryMember)[] {
+  const seen = new Map<string, M | EntityAssigneeDirectoryMember>();
+  for (const member of members) {
+    if (!seen.has(member.userId)) seen.set(member.userId, member);
   }
 
   for (const task of tasks) {
@@ -67,15 +85,25 @@ export function buildEntityAssigneeDirectory(
           email: assignee.email ?? '',
           avatar: assignee.avatar,
         },
+        departed: true,
       });
     }
     if (task.assigneeId && task.assignee && !seen.has(task.assigneeId)) {
       seen.set(task.assigneeId, {
         userId: task.assigneeId,
         user: { id: task.assigneeId, name: task.assignee, email: '' },
+        departed: true,
       });
     }
   }
 
   return Array.from(seen.values());
+}
+
+/** May a picker offer this person? Departed ones only while already selected. */
+export function isPickableAssignee(
+  member: { departed?: boolean },
+  isSelected: boolean,
+): boolean {
+  return !member.departed || isSelected;
 }

@@ -78,6 +78,13 @@ function prefetchCallAssets(): void {
 /** One toast for the whole reconnect: "reconnecting" is replaced by "back in the call". */
 const RECONNECT_TOAST_ID = 'weldchat-reconnecting';
 
+/**
+ * How long a dropped connection may last before "reconnecting" is shown. The
+ * SDK is usually back within a second or two, and flashing a toast (then
+ * "back in the call") for that made a blip look like being thrown out.
+ */
+export const RECONNECT_TOAST_DELAY_MS = 3_000;
+
 /** How long a deliberate leave waits for RealtimeKit before telling the backend anyway. */
 const RTK_LEAVE_TIMEOUT_MS = 2_000;
 
@@ -703,7 +710,24 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     suppressorRestoreRef.current = installGetUserMediaPatch(suppressor);
   }, []);
 
+  // A connection drop still waiting to be announced (timer), or announced (shown).
+  const reconnectNoticeRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; shown: boolean }>({
+    timer: null,
+    shown: false,
+  });
+
+  /** Forget the current connection drop; true when "reconnecting" was on screen. */
+  const settleReconnectNotice = useCallback((): boolean => {
+    const notice = reconnectNoticeRef.current;
+    const wasShown = notice.shown;
+    if (notice.timer) clearTimeout(notice.timer);
+    notice.timer = null;
+    notice.shown = false;
+    return wasShown;
+  }, []);
+
   const cleanup = useCallback(() => {
+    settleReconnectNotice();
     toast.dismiss(RECONNECT_TOAST_ID);
     if (meeting) {
       // Stop the local hardware tracks BEFORE leaving — RTK's leave() does not
@@ -719,7 +743,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     releaseSuppressor();
     clearFarewell();
     resetCallState();
-  }, [meeting, releaseSuppressor, clearFarewell, resetCallState]);
+  }, [meeting, releaseSuppressor, clearFarewell, resetCallState, settleReconnectNotice]);
 
   /**
    * The call is over for this user: the room view gives way at once to a
@@ -728,6 +752,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
    * this only ends the UI side. A ring or a new call in between takes over.
    */
   const showCallEnded = useCallback((reason: CallEndReason) => {
+    settleReconnectNotice();
     toast.dismiss(RECONNECT_TOAST_ID);
     playCallLeaveSound();
     releaseSuppressor();
@@ -744,7 +769,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       farewellTimerRef.current = null;
       if (statusRef.current === 'ended') resetCallState();
     }, CALL_ENDED_VISIBLE_MS);
-  }, [releaseSuppressor, clearFarewell, resetCallState]);
+  }, [releaseSuppressor, clearFarewell, resetCallState, settleReconnectNotice]);
 
   /**
    * A start or join that did not get through: back to no call, and say why.
@@ -814,6 +839,9 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       setStatus('connected');
       // The SDK got back in by itself after a dropped connection: no join chime.
       if (payload?.reconnected) {
+        // A blip shorter than the toast delay never said "reconnecting", so
+        // there is nothing to replace either.
+        if (!settleReconnectNotice()) return;
         // An explicit duration: the "reconnecting" toast this replaces never expires.
         toast.success(getTranslations('weldchat').calling.reconnected, {
           id: RECONNECT_TOAST_ID,
@@ -830,10 +858,19 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       // back). Leaving here threw people out of the call on a short network
       // drop, and their /leave could end the call for everyone else.
       if (state === 'disconnected') {
-        toast.loading(getTranslations('weldchat').calling.reconnecting, {
-          id: RECONNECT_TOAST_ID,
-          duration: Infinity,
-        });
+        // Kept in the console so a drop can be matched to what the tab was doing.
+        console.warn(`[WeldChat:Call] Connection dropped (tab ${document.visibilityState}), reconnecting`);
+        const notice = reconnectNoticeRef.current;
+        if (!notice.timer && !notice.shown) {
+          notice.timer = setTimeout(() => {
+            notice.timer = null;
+            notice.shown = true;
+            toast.loading(getTranslations('weldchat').calling.reconnecting, {
+              id: RECONNECT_TOAST_ID,
+              duration: Infinity,
+            });
+          }, RECONNECT_TOAST_DELAY_MS);
+        }
         return;
       }
       // The ref is already cleared when the user left or ended the call
@@ -870,7 +907,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       throw err;
     }
     return m;
-  }, [fireLeaveRequest, explainUnexpectedExit, prepareMedia, releaseSuppressor, showCallEnded]);
+  }, [fireLeaveRequest, explainUnexpectedExit, prepareMedia, releaseSuppressor, showCallEnded, settleReconnectNotice]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
 

@@ -120,7 +120,8 @@ interface TaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editingTask: Task | null;
-  availableAssignees: string[] | { id: string; name: string; avatar?: string }[];
+  /** `departed`: no longer a workspace member, offered only on a task they are already on. */
+  availableAssignees: string[] | { id: string; name: string; avatar?: string; departed?: boolean }[];
   /** `icon` + `iconColor` draw a colored square instead of an avatar (WeldFlow projects). */
   availableCompanies: Array<string | { id: string; name: string; avatar?: string; type?: string; icon?: LucideIcon; iconColor?: string | null }>;
   /** Offered alongside companies in the record picker — a task can link to a person instead. */
@@ -242,7 +243,7 @@ type PriorityValue = 'low' | 'medium' | 'high';
 type PriorityState = PriorityValue | 'urgent';
 type RepeatValue = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
 type RepeatUnitValue = 'days' | 'weeks' | 'months' | 'years';
-type AssigneeOption = { id: string; name: string; avatar?: string };
+type AssigneeOption = { id: string; name: string; avatar?: string; departed?: boolean };
 type CompanyOption = { id: string; name: string; avatar?: string; type?: string; icon?: LucideIcon; iconColor?: string | null };
 
 function normalizeAssignee(a: string | AssigneeOption): AssigneeOption {
@@ -749,8 +750,10 @@ function AssigneesPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto min-w-[220px] p-1" align="start">
-        {normalized.map(({ id, name, avatar }) => {
+        {normalized.map(({ id, name, avatar, departed }) => {
           const isSelected = assigneeList.includes(id);
+          // Someone who left the workspace can be unassigned, never newly picked.
+          if (departed && !isSelected) return null;
           return (
             <Button
               variant="ghost"

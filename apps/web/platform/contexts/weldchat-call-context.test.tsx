@@ -189,7 +189,7 @@ vi.mock('@/lib/api/public-env', () => ({
   getRealtimeWsOrigin: () => 'wss://realtime.test',
 }));
 
-import { WeldChatCallProvider, useWeldChatCall } from './weldchat-call-context';
+import { RECONNECT_TOAST_DELAY_MS, WeldChatCallProvider, useWeldChatCall } from './weldchat-call-context';
 import { ActiveCallProvider, useCallSwitchDialog, useRegisterActiveCall } from './active-call-context';
 
 const RECONNECT_TOAST = 'weldchat-reconnecting';
@@ -304,8 +304,24 @@ afterEach(() => {
 });
 
 describe('WeldChatCallProvider · a dropped connection', () => {
-  it('keeps the call and shows a reconnecting toast on roomLeft "disconnected"', async () => {
+  // Real timers until connected (the mount relies on waitFor), fake ones after.
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Let the toast delay run out. */
+  function waitOutToastDelay() {
+    act(() => {
+      vi.advanceTimersByTime(RECONNECT_TOAST_DELAY_MS);
+    });
+  }
+
+  it('keeps the call on roomLeft "disconnected", and says "reconnecting" once the drop lasts', async () => {
     await startConnectedCall();
+    vi.useFakeTimers();
 
     emit('roomLeft', { state: 'disconnected' });
 
@@ -314,15 +330,35 @@ describe('WeldChatCallProvider · a dropped connection', () => {
     expect(call.meeting).not.toBeNull();
     expect(leaveBeacons()).toHaveLength(0);
     expect(api.post).not.toHaveBeenCalledWith('/chat-calls/call_1/leave', expect.anything());
+    expect(toast.loading).not.toHaveBeenCalled();
+
+    waitOutToastDelay();
+
     expect(toast.loading).toHaveBeenCalledWith(
       'Connection lost. Reconnecting…',
       expect.objectContaining({ id: RECONNECT_TOAST }),
     );
   });
 
-  it('replaces the toast when the SDK is back, without a second join chime', async () => {
+  it('shows nothing for a blip the SDK is back from before the delay', async () => {
     await startConnectedCall();
+    vi.useFakeTimers();
     emit('roomLeft', { state: 'disconnected' });
+
+    emit('roomJoined', { reconnected: true });
+    waitOutToastDelay();
+
+    expect(call.status).toBe('connected');
+    expect(toast.loading).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(sounds.playCallJoinSound).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces "reconnecting" when the SDK is back from a longer drop, without a second join chime', async () => {
+    await startConnectedCall();
+    vi.useFakeTimers();
+    emit('roomLeft', { state: 'disconnected' });
+    waitOutToastDelay();
 
     emit('roomJoined', { reconnected: true });
 
@@ -336,15 +372,21 @@ describe('WeldChatCallProvider · a dropped connection', () => {
 
   it('tears the call down and tells the backend when the SDK gives up ("failed")', async () => {
     await startConnectedCall();
+    vi.useFakeTimers();
     emit('roomLeft', { state: 'disconnected' });
 
     emit('roomLeft', { state: 'failed' });
-
     expect(call.status).toBe('ended');
+    waitOutToastDelay();
+
+    // The toast delay outlasts the "call ended" card too.
+    expect(call.status).toBe('idle');
     expect(call.callId).toBeNull();
     expect(leaveBeacons()).toHaveLength(1);
     expect(toast.error).toHaveBeenCalledWith("Couldn't reconnect to the call. Call again to continue.");
     expect(toast.dismiss).toHaveBeenCalledWith(RECONNECT_TOAST);
+    // The pending "reconnecting" never shows up after the call is gone.
+    expect(toast.loading).not.toHaveBeenCalled();
   });
 
   it.each(['ended', 'kicked'])('tears the call down on roomLeft "%s" without an error toast', async (state) => {
