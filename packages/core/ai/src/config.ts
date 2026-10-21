@@ -61,31 +61,32 @@ export interface CloudflareGatewayConfig extends CommonConfig {
   /** Cloudflare account ID that owns AI Gateway / Workers AI. */
   accountId: string;
   /**
-   * Cloudflare API token → `Authorization: Bearer <token>`. Needs Workers AI +
-   * AI Gateway Run permissions.
+   * Cloudflare API token. Chat models send it as `cf-aig-authorization` (unless
+   * `gatewayToken` is set); embeddings and Workers AI `run` calls send it as
+   * `Authorization`. Needs AI Gateway Run + Workers AI permissions.
    */
   apiKey?: string;
-  /** AI Gateway id → `cf-aig-gateway-id`. Omit for the account default gateway. */
+  /** AI Gateway id. Omit for the account's `default` gateway. */
   gateway?: string;
-  /** Gateway auth token → `cf-aig-authorization`. Only for "Authenticated" gateways. */
+  /** Separate gateway auth token → `cf-aig-authorization`; overrides `apiKey` there. */
   gatewayToken?: string;
 }
 
 export type WeldAiConfig = CloudflareGatewayConfig;
 
 /**
- * Cloudflare's OpenAI-compatible REST API base (routed through AI Gateway).
- * The AI SDK's openai-compatible provider appends `/chat/completions` and
- * `/embeddings`.
+ * Cloudflare's direct Workers AI REST API base (OpenAI-compatible). Serves
+ * `@cf/…` models only — third-party ids answer "Model not found" — so the
+ * adapter uses it for embeddings, never for chat.
  */
 export function restApiBaseUrl(accountId: string): string {
   return `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`;
 }
 
 /**
- * Legacy AI Gateway "Unified API" compat endpoint. Deprecated by Cloudflare in
- * favour of {@link restApiBaseUrl}, but still functional; handy for BYOK where
- * `apiKey` is a provider key rather than a Cloudflare token.
+ * AI Gateway's OpenAI-compatible endpoint. Every chat model goes through it:
+ * it is the endpoint that serves third-party models (with the gateway's BYOK
+ * keys) next to Workers AI (`workers-ai/@cf/…`).
  */
 export function compatBaseUrl(accountId: string, gateway: string): string {
   return `https://gateway.ai.cloudflare.com/v1/${accountId}/${gateway}/compat`;
