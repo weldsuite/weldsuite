@@ -18,7 +18,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { helpdeskExtraKeys } from '@/hooks/queries/use-helpdesk-queries';
 import { useHelpdeskWebSocket } from '@/hooks/helpdesk/use-helpdesk-websocket';
 import { decrementHelpdeskBadge } from '@/hooks/use-sidebar-badges';
-import { showBrowserNotification, requestNotificationPermission } from '@/lib/utils/notification-sound';
+import { showBrowserNotification, ensureNotificationPermission } from '@/lib/desktop-notifications';
 import { useI18n } from '@/lib/i18n/provider';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';
 import { ContextMenuItem } from '@weldsuite/ui/components/context-menu';
@@ -75,7 +75,7 @@ export default function ConversationListClient({ initialConversations, accessTok
   }, [initialConversations]);
 
   useEffect(() => {
-    void requestNotificationPermission();
+    void ensureNotificationPermission();
   }, []);
 
   useHelpdeskWebSocket({
