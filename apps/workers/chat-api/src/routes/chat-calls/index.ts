@@ -21,7 +21,8 @@ import { z } from 'zod';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createMeeting, addParticipant } from '@weldsuite/cloudflare-realtime';
-import { sendMissedCallNotification, sendIncomingCallNotification } from '@weldsuite/notifications';
+import { sendIncomingCallNotification } from '@weldsuite/notifications';
+import { signCallRingToken } from '@weldsuite/chat-domain/call-ring-token';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import type { Env, Variables } from '../../types';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -30,7 +31,6 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { success, error } from '@weldsuite/worker-kit/response';
 import {
   publishChatCallStarted,
-  publishChatCallEnded,
   publishChatCallParticipantJoined,
   publishChatCallParticipantLeft,
   publishChatCallIncoming,
@@ -40,7 +40,6 @@ import {
   endChatCall,
   endChatCallIfEmpty,
   scheduleRingTimeout,
-  teardownRtkMeeting,
   wasAnswered,
   type EndIfEmptyOutcome,
 } from '@weldsuite/chat-domain/call-lifecycle';
@@ -55,6 +54,8 @@ import {
 } from '../../services/chat/call-participants';
 import { leaveOtherLiveCalls } from '../../services/chat/leave-other-live-calls';
 import { consumePreparedJoin, readPreparedJoin, storePreparedJoin } from '../../services/chat/prepared-join';
+import { declineRingingCall } from '../../services/chat/decline-call';
+import { cancelRingOnAnswer } from '../../services/chat/call-ring';
 
 // ============================================================================
 // Schemas
@@ -141,9 +142,14 @@ async function ringDmMember(p: IncomingCallParams, memberUserId: string): Promis
   } catch (e) {
     console.error('[Chat:Calls] Incoming-call ring failed:', e);
   }
-  // Push notification (non-blocking) — never block the response.
+  // Push notification (non-blocking) — never block the response. The ring
+  // token lets the phone's lock-screen Decline end the call without a session.
   try {
+    const declineToken = p.env.CALL_RING_SECRET
+      ? await signCallRingToken(p.env.CALL_RING_SECRET, { orgId: p.orgId, userId: memberUserId, callId: p.callId })
+      : undefined;
     await sendIncomingCallNotification({
+      declineToken,
       db: p.db,
       env: p.env,
       workspaceId: p.orgId,
@@ -932,6 +938,8 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
         db.update(chatCalls).set(updates).where(eq(chatCalls.id, callId)),
         evictRtkSessions(c.env, call.cfAppId, staleSessionIds, { orgId, userId, callId }),
         leaveOtherLiveCalls(db, c.env, orgId, userId, callId, requestStartedAt),
+        // Answered a ring here: stop it on the user's other phones.
+        cancelRingOnAnswer(db, c.env, call, userId),
         publishChatCallParticipantJoined(c.env, call.channelId, {
           callId,
           userId,
@@ -1057,72 +1065,14 @@ app.post('/:callId/decline', requirePermission('channels:read'), async (c) => {
 
   try {
     const db = c.get('tenantDb');
-    const { chatCalls, chatMessages } = schema;
 
-    const [call] = await db.select().from(chatCalls).where(eq(chatCalls.id, callId)).limit(1);
+    const [call] = await db.select().from(schema.chatCalls).where(eq(schema.chatCalls.id, callId)).limit(1);
     if (!call) return error.notFound(c, 'Call', callId);
     if (!(await canAccessChannel(db, call.channelId, c.get('userId')))) {
       return error.forbidden(c, 'You do not have access to this call');
     }
-    // start-and-join (what both clients use) creates the call as 'active' with
-    // the caller already in it, so an unanswered 'active' call is still ringing.
-    const isRinging = call.status === 'ringing' || (call.status === 'active' && !wasAnswered(call));
-    if (!isRinging) return error.badRequest(c, 'Call is not ringing');
-
-    const now = new Date();
-    await db.update(chatCalls).set({
-      status: 'declined',
-      endedAt: now,
-      updatedAt: now,
-    }).where(eq(chatCalls.id, callId));
-
-    // Kick the caller out of the room, end the RTK meeting, drop the KV mapping
-    if (call.cfAppId) {
-      await teardownRtkMeeting(c.env, call.cfAppId, { callId, orgId, channelId: call.channelId, endedAt: now });
-    }
-
-    const msgId = generateId('msg');
-    await db.insert(chatMessages).values({
-      id: msgId,
-      channelId: call.channelId,
-      authorId: call.initiatorId,
-      authorName: call.initiatorName,
-      content: 'Missed call',
-      type: 'system',
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    try {
-      await publishChatCallEnded(c.env, call.channelId, { callId, duration: 0, endedBy: c.get('userId') });
-      await broadcastChatCallToMembers(c.env, c.get('tenantDb'), orgId, call.channelId, 'ended', { callId });
-    } catch (e) {
-      console.error('[Chat:Calls] Realtime publish failed:', e);
-    }
-
-    // Send missed-call notification to the recipient (they got called but declined)
-    const declinerId = c.get('userId');
-    if (declinerId !== call.initiatorId) {
-      try {
-        const [initiatorInfo] = await db
-          .select({ name: schema.workspaceMembers.name })
-          .from(schema.workspaceMembers)
-          .where(eq(schema.workspaceMembers.userId, call.initiatorId))
-          .limit(1);
-        await sendMissedCallNotification({
-          db,
-          env: c.env,
-          workspaceId: orgId,
-          recipientUserId: declinerId,
-          callerUserId: call.initiatorId,
-          callerName: initiatorInfo?.name ?? call.initiatorName,
-          channelId: call.channelId,
-          callId,
-          callType: call.callType,
-        });
-      } catch (e) {
-        console.error('[Chat:Calls] Missed-call notification failed:', e);
-      }
+    if (!(await declineRingingCall(db, c.env, orgId, call, c.get('userId')))) {
+      return error.badRequest(c, 'Call is not ringing');
     }
 
     return success(c, { ok: true });

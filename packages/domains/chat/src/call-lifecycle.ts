@@ -25,7 +25,7 @@ import {
   listParticipants as listRtkParticipants,
   removeParticipant as removeRtkParticipant,
 } from '@weldsuite/cloudflare-realtime';
-import { sendMissedCallNotification } from '@weldsuite/notifications';
+import { cancelIncomingCallPush, sendMissedCallNotification, type CallCancelReason } from '@weldsuite/notifications';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
 import type { CloudflareRealtimeEnv, RealtimeKvNamespace } from '@weldsuite/cloudflare-realtime';
 import type { NotificationEnv } from '@weldsuite/notifications';
@@ -216,11 +216,16 @@ export async function endChatCall(
     ),
   ]);
 
-  // Missed-call push for unanswered DM rings (timeout / caller hangup before answer).
-  // Decline already sends its own missed notification — that path does not call endChatCall.
-  const shouldMissed = options?.sendMissedIfUnanswered !== false && unanswered;
-  if (shouldMissed) {
-    await notifyMissedDmCall(db, env, orgId, callId, call);
+  // An unanswered DM call was still ringing on the callees' phones: stop it
+  // (the native ring outlives the app), then send the missed-call push for
+  // timeout / caller hangup before answer. Decline does both itself; that
+  // path does not call endChatCall.
+  if (unanswered) {
+    const recipients = await dmCallRecipients(db, call);
+    await cancelCallRings(db, env, callId, recipients, 'ended');
+    if (options?.sendMissedIfUnanswered !== false) {
+      await notifyMissedDmCall(db, env, orgId, callId, call, recipients);
+    }
   }
 }
 
@@ -295,14 +300,14 @@ export async function endChatCallIfEmpty(
   return 'ended';
 }
 
-/** Fan a missed-call notification out to the other members of a DM channel. */
-async function notifyMissedDmCall(
+/**
+ * The members a DM call rang: everyone in the DM but the caller. Empty for a
+ * channel call, which never rings anyone. Never throws.
+ */
+export async function dmCallRecipients(
   db: Database,
-  env: CallLifecycleEnv,
-  orgId: string,
-  callId: string,
-  call: { channelId: string; initiatorId: string; initiatorName: string; callType?: string },
-): Promise<void> {
+  call: { channelId: string; initiatorId: string },
+): Promise<string[]> {
   const { chatChannels, chatChannelMembers } = schema;
   try {
     const [channel] = await db
@@ -310,32 +315,59 @@ async function notifyMissedDmCall(
       .from(chatChannels)
       .where(eq(chatChannels.id, call.channelId))
       .limit(1);
-    if (channel?.type !== 'dm') return;
+    if (channel?.type !== 'dm') return [];
     const members = await db
       .select({ userId: chatChannelMembers.userId })
       .from(chatChannelMembers)
       .where(eq(chatChannelMembers.channelId, call.channelId));
-    const callType = call.callType ?? 'voice';
-    await Promise.all(
-      members
-        .filter((m) => m.userId !== call.initiatorId)
-        .map((m) =>
-          sendMissedCallNotification({
-            db,
-            env,
-            workspaceId: orgId,
-            recipientUserId: m.userId,
-            callerUserId: call.initiatorId,
-            callerName: call.initiatorName,
-            channelId: call.channelId,
-            callId,
-            callType,
-          }).catch((e) => console.error('[CallLifecycle] Missed-call notification failed:', e)),
-        ),
-    );
+    return members.map((m) => m.userId).filter((id) => id !== call.initiatorId);
   } catch (e) {
-    console.error('[CallLifecycle] Missed-call fan-out failed:', e);
+    console.error('[CallLifecycle] DM recipient lookup failed:', e);
+    return [];
   }
+}
+
+/**
+ * Stop a call's native ring (CallKit / Android call notification) on the
+ * recipients' phones. Best effort, never throws.
+ */
+export async function cancelCallRings(
+  db: Database,
+  env: CallLifecycleEnv,
+  callId: string,
+  recipientUserIds: string[],
+  reason: CallCancelReason,
+): Promise<void> {
+  await Promise.all(
+    recipientUserIds.map((userId) => cancelIncomingCallPush({ db, env, userId, callId, reason })),
+  );
+}
+
+/** Fan a missed-call notification out to the other members of a DM channel. */
+async function notifyMissedDmCall(
+  db: Database,
+  env: CallLifecycleEnv,
+  orgId: string,
+  callId: string,
+  call: { channelId: string; initiatorId: string; initiatorName: string; callType?: string },
+  recipientUserIds: string[],
+): Promise<void> {
+  const callType = call.callType ?? 'voice';
+  await Promise.all(
+    recipientUserIds.map((userId) =>
+      sendMissedCallNotification({
+        db,
+        env,
+        workspaceId: orgId,
+        recipientUserId: userId,
+        callerUserId: call.initiatorId,
+        callerName: call.initiatorName,
+        channelId: call.channelId,
+        callId,
+        callType,
+      }).catch((e) => console.error('[CallLifecycle] Missed-call notification failed:', e)),
+    ),
+  );
 }
 
 /**

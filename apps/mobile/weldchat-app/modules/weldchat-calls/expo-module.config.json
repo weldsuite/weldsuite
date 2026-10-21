@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["WeldChatCallsModule"],
+    "appDelegateSubscribers": ["WeldChatCallsAppDelegate"]
+  },
+  "android": {
+    "modules": ["expo.modules.weldchatcalls.WeldChatCallsModule"]
+  }
+}

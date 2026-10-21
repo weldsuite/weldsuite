@@ -20,6 +20,7 @@ import {
 import type { useRealtimeKitClient } from '@cloudflare/realtimekit-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import { addCallActionListener } from '@/modules/weldchat-calls';
 
 type MeetingClient = NonNullable<ReturnType<typeof useRealtimeKitClient>[0]>;
 
@@ -88,6 +89,17 @@ function JoinedCallBody({
       self.off?.('videoUpdate', syncVideo);
     };
   }, [meeting]);
+
+  // The mute button on the iOS call screen (CallKit, e.g. on the lock screen).
+  useEffect(
+    () =>
+      addCallActionListener((event) => {
+        if (event.action !== 'mute') return;
+        if (event.payload.muted === 'true') void meeting.self.disableAudio();
+        else void meeting.self.enableAudio();
+      }),
+    [meeting],
+  );
 
   const toggleMute = useCallback(() => {
     if (meeting.self.audioEnabled) void meeting.self.disableAudio();
