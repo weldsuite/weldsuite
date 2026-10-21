@@ -547,6 +547,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "RESEND_API_KEY",
     // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
     "REALTIME_INTERNAL_SECRET",
+    // Same APNs auth key as chat-api: a WeldChat call that the meeting.ended
+    // webhook ends here stops ringing on iPhones (VoIP cancel push).
+    "APNS_KEY_ID",
+    "APNS_TEAM_ID",
+    "APNS_PRIVATE_KEY",
   ],
 
   // call-api: the call module's API worker (split from app-api). Base
@@ -674,6 +679,13 @@ export const manifest: Record<string, SecretEntry[]> = {
     "RESEND_API_KEY",
     // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
     "REALTIME_INTERNAL_SECRET",
+    // WhatsApp-style call ring (@weldsuite/notifications call-push). The APNs
+    // auth key (.p8) for iOS CallKit VoIP pushes, and the HMAC key for the ring
+    // token the phone's lock-screen Decline sends to /public/chat-calls/decline.
+    "APNS_KEY_ID",
+    "APNS_TEAM_ID",
+    "APNS_PRIVATE_KEY",
+    "CALL_RING_SECRET",
   ],
 
   // agent-api: the agent module's API worker (split from app-api). Base

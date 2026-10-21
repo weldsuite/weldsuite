@@ -40,6 +40,12 @@ const apiOrigins = createApiOriginResolver({
   enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
 });
 
+/** Absolute URL of an API path on the worker that serves it, for native code
+ *  that calls the API without this client (the call ring's Decline). */
+export function apiUrl(path: string): string {
+  return `${apiOrigins.originForPath(path)}${path}`;
+}
+
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
 /** Wire the Clerk token getter. Called from `app/_layout.tsx`. */

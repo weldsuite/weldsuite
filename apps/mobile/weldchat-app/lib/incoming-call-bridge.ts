@@ -38,6 +38,24 @@ export function presentIncomingCallFromPush(payload: IncomingCallPushPayload): v
   pending = payload;
 }
 
+type DismissHandler = (callId: string) => void;
+
+let dismissHandler: DismissHandler | null = null;
+
+export function setIncomingCallDismissHandler(next: DismissHandler | null): void {
+  dismissHandler = next;
+}
+
+/**
+ * The call stopped ringing (server cancel), or the native ring took it over:
+ * drop the in-app ring screen for it. Not queued: with no CallProvider there
+ * is no ring screen to drop, only a queued ring, which is dropped here.
+ */
+export function dismissIncomingCallFromPush(callId: string): void {
+  if (pending?.callId === callId) pending = null;
+  dismissHandler?.(callId);
+}
+
 function channelIdFromPushData(data: Record<string, unknown>): string {
   if (typeof data.chatChannelId === 'string') return data.chatChannelId;
   if (typeof data.channelId === 'string') return data.channelId;

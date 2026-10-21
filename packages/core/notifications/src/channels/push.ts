@@ -26,6 +26,8 @@ export interface ExpoPushMessage {
   badge?: number;
   channelId?: string;
   priority?: 'default' | 'normal' | 'high';
+  /** Seconds the push service keeps trying to deliver before dropping it. */
+  ttl?: number;
 }
 
 export interface ExpoPushTicket {

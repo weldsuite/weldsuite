@@ -2,7 +2,7 @@
   "name": "weldchat-app",
   "license": "AGPL-3.0-only",
   "version": "1.0.0",
-  "main": "expo-router/entry",
+  "main": "index.ts",
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",
@@ -52,6 +52,7 @@
     "expo-router": "~57.0.19",
     "expo-secure-store": "~57.0.3",
     "expo-splash-screen": "~57.0.8",
+    "expo-task-manager": "~57.0.19",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.3",
     "expo-updates": "~57.0.21",

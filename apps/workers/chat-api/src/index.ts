@@ -15,6 +15,7 @@ import { channelsRoutes } from './routes/channels';
 import { chatActivityRoutes } from './routes/chat-activity';
 import { chatBookmarksRoutes } from './routes/chat-bookmarks';
 import { chatCallsRoutes } from './routes/chat-calls';
+import { publicChatCallsRoutes } from './routes/chat-calls/public-decline';
 import { chatClipsRoutes } from './routes/chat-clips';
 import { chatDirectoriesRoutes } from './routes/chat-directories';
 import { chatDmRoutes } from './routes/chat-dm';
@@ -46,6 +47,9 @@ app.route('/api/chat-messages', chatMessagesRoutes);
 app.route('/api/chat-search', chatSearchRoutes);
 app.route('/api/chat-sections', chatSectionsRoutes);
 app.route('/api/chat-status', chatStatusRoutes);
+
+// Session-less: the phone's native call UI declining a ring with its signed token.
+app.route('/public/chat-calls', publicChatCallsRoutes);
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // Chat pin auto-expiry, under the `unpin-expired-message-v3*` names: app-api
