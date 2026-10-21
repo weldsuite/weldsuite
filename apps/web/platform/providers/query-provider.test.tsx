@@ -6,6 +6,7 @@ const auth = vi.hoisted(() => ({
   isLoaded: true,
   isSignedIn: true,
   orgId: 'org_acme' as string | null,
+  userId: 'user_ann' as string | null,
 }));
 
 vi.mock('@clerk/clerk-react', () => ({
@@ -33,11 +34,11 @@ async function setUntilPersisted(orgId: string, key: string, value: string) {
   }, WRITE_WAIT);
 }
 
-/** A persisted cache entry for `orgId` holding `['owner']` = `owner`. */
-function persistedEntry(orgId: string, owner: string): string {
+/** A persisted cache entry for `orgId`, written by `userId`, holding `['owner']` = `owner`. */
+function persistedEntry(orgId: string, owner: string, userId = 'user_ann'): string {
   const client = new QueryClient();
   client.setQueryData(['owner'], owner);
-  return JSON.stringify({ buster: `v2:${orgId}`, timestamp: Date.now(), clientState: dehydrate(client) });
+  return JSON.stringify({ buster: `v2:${userId}:${orgId}`, timestamp: Date.now(), clientState: dehydrate(client) });
 }
 
 function renderProvider() {
@@ -55,6 +56,7 @@ beforeEach(() => {
   auth.isLoaded = true;
   auth.isSignedIn = true;
   auth.orgId = 'org_acme';
+  auth.userId = 'user_ann';
 });
 
 afterEach(async () => {
@@ -111,6 +113,33 @@ describe('QueryProvider', () => {
 
     expect(localStorage.getItem('weldsuite:query-cache:org_acme')).not.toContain('globex_token');
     expect(localStorage.getItem('weldsuite:query-cache:org_globex')).not.toContain('tkt_');
+    expect(queryClient.getQueryData(['owner'])).toBeUndefined();
+  });
+
+  it('never writes again once another user signs in without a reload', async () => {
+    const view = renderProvider();
+    await setUntilPersisted('org_acme', 'mail', 'ann_mail');
+
+    // Signed out in another tab, and Bob (also in Acme) signed in there.
+    auth.userId = 'user_bob';
+    view.rerender(
+      <QueryProvider>
+        <div />
+      </QueryProvider>,
+    );
+    act(() => {
+      queryClient.setQueryData(['mail'], ['ann_mail', 'ann_more_mail']);
+    });
+    await sleep(1500);
+
+    expect(localStorage.getItem('weldsuite:query-cache:org_acme')).not.toContain('ann_more_mail');
+  });
+
+  it("does not restore an entry another user's session left behind", async () => {
+    localStorage.setItem('weldsuite:query-cache:org_acme', persistedEntry('org_acme', 'bob', 'user_bob'));
+    renderProvider();
+
+    await waitFor(() => expect(localStorage.getItem('weldsuite:query-cache:org_acme')).toBeNull());
     expect(queryClient.getQueryData(['owner'])).toBeUndefined();
   });
 

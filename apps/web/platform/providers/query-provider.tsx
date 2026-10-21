@@ -28,7 +28,7 @@ import {
 const CACHE_BUSTER = 'v2';
 
 export function QueryProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { isLoaded, isSignedIn, orgId } = useAuth();
+  const { isLoaded, isSignedIn, orgId, userId } = useAuth();
   const pendingOrgId = typeof window !== 'undefined' ? peekPendingOrganization() : null;
   // A just-created workspace is waiting to become active — don't hydrate the
   // previous org's cache into the singleton client while that switch settles.
@@ -36,17 +36,24 @@ export function QueryProvider({ children }: Readonly<{ children: React.ReactNode
   // The workspace whose entry this tab may read and write right now.
   const activeOrgId = isLoaded && isSignedIn && orgId && !pendingOrgMismatch ? orgId : null;
 
-  // One page load persists one workspace: the first one Clerk settles on. A
-  // workspace switch reloads the page, so a later org in this page only stops
-  // the writes (see setWritableQueryCacheOrg) instead of restoring another
-  // workspace's entry into a client that still holds this one's data.
-  const [pageOrgId, setPageOrgId] = useState<string | null>(null);
-  if (pageOrgId === null && activeOrgId) setPageOrgId(activeOrgId);
+  // One page load persists one workspace for one user: the first ones Clerk
+  // settles on. A workspace switch reloads the page, so a later org in this
+  // page only stops the writes (see setWritableQueryCacheOrg) instead of
+  // restoring another workspace's entry into a client that still holds this
+  // one's data.
+  const [page, setPage] = useState<{ orgId: string; userId: string } | null>(null);
+  if (page === null && activeOrgId && userId) setPage({ orgId: activeOrgId, userId });
+  const pageOrgId = page?.orgId ?? null;
+
+  // Another user signed in without a reload (a shared device, a sign-in in
+  // another tab): the memory still holds the previous user's data, so this
+  // page never writes it into a workspace's entry again.
+  const writableOrgId = page && userId !== page.userId ? null : activeOrgId;
 
   // Before the persister's first write (it subscribes in a passive effect).
   useLayoutEffect(() => {
-    setWritableQueryCacheOrg(activeOrgId);
-  }, [activeOrgId]);
+    setWritableQueryCacheOrg(writableOrgId);
+  }, [writableOrgId]);
 
   useEffect(() => {
     if (pageOrgId) pruneQueryCaches(pageOrgId);
@@ -72,7 +79,7 @@ export function QueryProvider({ children }: Readonly<{ children: React.ReactNode
 
   // Until Clerk has resolved the active org (a sub-second window), or with no
   // workspace at all, run the same singleton client without persistence.
-  if (!persister) {
+  if (!persister || !page) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   }
 
@@ -83,8 +90,10 @@ export function QueryProvider({ children }: Readonly<{ children: React.ReactNode
         persister,
         maxAge: QUERY_CACHE_MAX_AGE,
         // The org is in the key already; keeping it in the buster too means an
-        // entry that somehow holds another workspace's cache is discarded.
-        buster: `${CACHE_BUSTER}:${pageOrgId}`,
+        // entry that somehow holds another workspace's cache is discarded. The
+        // user likewise: an entry left by someone whose session ended without
+        // a sign-out (expired, browser closed) never restores for the next.
+        buster: `${CACHE_BUSTER}:${page.userId}:${page.orgId}`,
         dehydrateOptions: {
           // Persist only fully-resolved queries, and let any hook opt out by
           // setting `meta: { persist: false }`. Use this for ephemeral data
