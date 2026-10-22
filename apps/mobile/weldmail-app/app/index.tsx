@@ -294,7 +294,7 @@ export default function MailScreen() {
   const { launchReady } = useNotifications();
   const cache = useMailCache();
   const outbox = useMailOutbox();
-  const { organizationId } = useClerkAuth();
+  const { organizationId, user } = useClerkAuth();
 
   // The mailbox + label the user is currently viewing, as one stable key.
   // Each key is an isolated list: switching account or opening the unified
@@ -997,6 +997,9 @@ export default function MailScreen() {
     </View>
   );
 
+  // The unified inbox has no single account, so show who is signed in.
+  const avatarName = selectedAccount?.displayName || user?.fullName || user?.email || '';
+
   const header = (
     <ScreenHeader
       title={currentLabelName}
@@ -1016,9 +1019,9 @@ export default function MailScreen() {
           />
           <IconButton
             icon={
-              <View style={[styles.headerAvatar, { backgroundColor: selectedAccount ? getAvatarColor(selectedAccount.displayName) : colors.muted }]}>
+              <View style={[styles.headerAvatar, { backgroundColor: avatarName ? getAvatarColor(avatarName) : colors.muted }]}>
                 <Text style={styles.headerAvatarText}>
-                  {selectedAccount?.displayName?.charAt(0).toUpperCase() || 'U'}
+                  {avatarName.charAt(0).toUpperCase() || '?'}
                 </Text>
               </View>
             }

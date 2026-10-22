@@ -2,10 +2,11 @@
  * My Tasks — search and status filter over `GET /api/my-tasks`.
  *
  * Plus action opens a project picker so the create flow stays project-scoped
- * (app-api create lives at `POST /tasks/projects/:projectId`).
+ * (app-api create lives at `POST /tasks/projects/:projectId`). Home's "New task"
+ * shortcut lands here with `?new=1`, which opens the same picker.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   View,
   FlatList,
@@ -16,7 +17,7 @@ import {
   Text,
   ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { CheckSquare, Plus } from 'lucide-react-native';
@@ -48,6 +49,14 @@ export default function MyTasksScreen() {
   const [statusFilter, setStatusFilter] = useState('open');
   const [search, setSearch] = useState('');
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const { new: startNewTask } = useLocalSearchParams<{ new?: string }>();
+
+  useEffect(() => {
+    if (startNewTask !== '1') return;
+    setProjectPickerOpen(true);
+    // Clear it so the next tap on Home's shortcut sets it, and opens, again.
+    router.setParams({ new: undefined });
+  }, [startNewTask, router]);
 
   const FILTERS = [
     { key: 'open', label: t.myTasks.filterOpen },
@@ -88,6 +97,18 @@ export default function MyTasksScreen() {
     fetchNextPage,
   } = useInfiniteMyTasks(params);
   const tasks = useMemo(() => flattenPages(data?.pages), [data]);
+
+  // An empty result for a search or status filter isn't "nothing assigned".
+  const query = search.trim();
+  let emptyTitle = t.myTasks.emptyTitle;
+  let emptyDescription = t.myTasks.emptyDescription;
+  if (query) {
+    emptyTitle = format(t.myTasks.noSearchResults, { query });
+    emptyDescription = t.myTasks.noResultsDescription;
+  } else if (statusFilter !== 'open') {
+    emptyTitle = t.myTasks.noFilterResults;
+    emptyDescription = t.myTasks.noResultsDescription;
+  }
 
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
@@ -249,8 +270,8 @@ export default function MyTasksScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<CheckSquare size={32} color={colors.mutedForeground} />}
-            title={t.myTasks.emptyTitle}
-            description={t.myTasks.emptyDescription}
+            title={emptyTitle}
+            description={emptyDescription}
           />
         }
       />

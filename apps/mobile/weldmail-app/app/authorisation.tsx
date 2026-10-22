@@ -4,6 +4,7 @@ import { useObserve } from 'expo-observe';
 import { useEffect } from 'react';
 import { WeldMailWordmark } from '@/components/WeldMailWordmark';
 import { hideAppSplash } from '@/utils/splash';
+import { language, t } from '@/lib/i18n';
 
 export default function AuthorisationScreen() {
   const { markInteractive } = useObserve();
@@ -17,7 +18,8 @@ export default function AuthorisationScreen() {
     <LoginScreen
       logoElement={<WeldMailWordmark width={210} />}
       appName="WeldMail"
-      subtitle="Professional email client"
+      subtitle={t.login.subtitle}
+      language={language}
       showEmailLogin={true}
       // iOS 16+ / Android 9+; older Android versions have no passkey API.
       showPasskeyLogin={passkeys.isSupported()}
