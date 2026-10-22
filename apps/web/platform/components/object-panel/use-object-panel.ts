@@ -18,7 +18,11 @@ export interface OpenPanelArgs {
   type: ObjectType;
   id: string;
   initialTab?: string;
-  /** Per-panel mode. Defaults to 'panel'. */
+  /**
+   * Per-panel mode. Defaults to the mode of the panel currently on screen, so
+   * opening a record from an expanded panel keeps it expanded; 'panel' when
+   * nothing is open.
+   */
   mode?: 'panel' | 'fullscreen';
   /** When true, the new panel is pushed on top of the current stack instead of replacing it. */
   stack?: boolean;
@@ -35,7 +39,7 @@ export function useObjectPanel() {
   const store = useStore();
 
   const open = useCallback(
-    ({ type, id, initialTab, mode = 'panel', stack: pushOnTop }: OpenPanelArgs) => {
+    ({ type, id, initialTab, mode: requestedMode, stack: pushOnTop }: OpenPanelArgs) => {
       // The list the object was clicked in, for previous / next.
       const openedFrom = snapshotNavigationList(store, { type, id });
       setStack((prev) => {
@@ -43,6 +47,7 @@ export function useObjectPanel() {
         // click must not push the same panel twice.
         const top = prev.at(-1);
         if (pushOnTop && top?.type === type && top.id === id) return prev;
+        const mode = requestedMode ?? top?.mode ?? 'panel';
         const base = pushOnTop ? prev : [];
         const next = [...base, { type, id, initialTab, mode, depth: base.length, openedFrom }];
         // Cap the history at MAX_STACK_DEPTH by trimming from the bottom.
