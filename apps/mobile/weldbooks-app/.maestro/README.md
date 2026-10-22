@@ -32,8 +32,32 @@ signs in, and if it lands on "No company set up yet" it creates "E2E Company BV"
 through the sheet. On a workspace that already has one it passes straight through.
 
 `03-invoice-draft` creates a draft invoice (and, the first time, the
-"E2E Customer" contact) and deletes the draft again. `04-quick-expense` saves
-one €25 expense per run.
+"E2E Customer" contact) and deletes the draft again. `04-quick-expense` books
+one €30.25 expense per run (approved and paid, under a supplier named
+"E2E Supplier <timestamp>").
+
+`07-scan-receipt` adds `assets/receipt-albert-heijn.png` to the device gallery,
+picks it in the scanner and books it as a €32.48 quick expense, then checks the
+receipt on the form and on the bill. It passes with or without OCR: a workspace
+without AI credits says "Not enough AI credits" and the figures are typed in.
+The flow references the image as `../assets/...`, so run it through the
+`.maestro` folder (`maestro test .maestro`), not as a single file.
+
+`09-offline-scan` turns airplane mode on, scans the same receipt, queues a
+€12.10 expense with the photo, turns airplane mode off and checks the synced
+bill shows the receipt. Its `onFlowComplete` hook turns airplane mode off again,
+also when a step fails.
+
+`08-switch-company` needs "E2E Company BV". Its first run adds "E2E Second BV"
+(More › Administration › Add company); later runs switch to it, check its lists
+are its own, and switch back.
+
+### Camera on the emulator
+
+Give the AVD a virtual-scene back camera (`hw.camera.back=virtualscene`) to see a
+live preview. Photos taken with expo-camera on the emulator come out black
+(the stock Camera app's photos don't), so the flows pick a gallery photo
+instead of pressing the shutter; check the shutter on a real phone.
 
 ## Run
 

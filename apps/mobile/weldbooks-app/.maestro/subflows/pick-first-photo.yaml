@@ -1,0 +1,9 @@
+# Android's system photo picker (opened by expo-image-picker): picks the newest photo.
+appId: com.weldsuite.weldbooks
+---
+- extendedWaitUntil:
+    visible: "Photo taken on.*"
+    timeout: 10000
+- tapOn:
+    text: "Photo taken on.*"
+    index: 0
