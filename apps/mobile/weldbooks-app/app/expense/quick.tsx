@@ -176,6 +176,8 @@ async function saveExpense(
   payload: ExpensePayload,
   isOnline: boolean,
   queue: (data: ExpensePayload) => Promise<void>,
+  /** Called once the photo is stored, so a later attempt (after a rejected save) links it again. */
+  onStored: (documentId: string) => void,
 ): Promise<SaveResult> {
   if (!isOnline) {
     await queue(payload);
@@ -185,6 +187,7 @@ async function saveExpense(
   try {
     if (pending.receipt) {
       const documentId = (await api.uploadReceipt(pending.receipt)) ?? undefined;
+      if (documentId) onStored(documentId);
       pending = { ...pending, documentId, receipt: undefined };
     }
     await api.createQuickExpense(pending);
@@ -383,6 +386,8 @@ export default function QuickExpenseScreen() {
   const [accountTouched, setAccountTouched] = useState(false);
   const [scanned, setScanned] = useState<Scanned | null>(null);
   const [saving, setSaving] = useState(false);
+  // The document a save stored the photo as: the scan's own, or the one an earlier attempt stored.
+  const [storedDocumentId, setStoredDocumentId] = useState<string | undefined>(params.documentId || undefined);
   const [amountError, setAmountError] = useState<string | undefined>();
   const [ocrState, setOcrState] = useState<OcrState>(params.documentId ? 'loading' : 'idle');
 
@@ -451,8 +456,8 @@ export default function QuickExpenseScreen() {
       description: description.trim() || undefined,
       vendorName: name || undefined,
       date,
-      documentId: params.documentId || undefined,
-      ...receiptToStore(params.documentId, params.receiptUri, params.receiptType),
+      documentId: storedDocumentId,
+      ...receiptToStore(storedDocumentId, params.receiptUri, params.receiptType),
       ...fromScan(scanned, name, amount),
       ...(accountId ? { accountId } : {}),
       // A US expense is booked at what was paid: the tax in it is part of the cost, and use tax is accrued on request.
@@ -463,7 +468,12 @@ export default function QuickExpenseScreen() {
     };
 
     setSaving(true);
-    const result = await saveExpense(payload, isOnline, (data) => addToQueue({ type: 'expense', data }));
+    const result = await saveExpense(
+      payload,
+      isOnline,
+      (data) => addToQueue({ type: 'expense', data }),
+      setStoredDocumentId,
+    );
     setSaving(false);
 
     switch (result.kind) {
@@ -500,7 +510,7 @@ export default function QuickExpenseScreen() {
     taxCode,
     isUs,
     parseTyped,
-    params.documentId,
+    storedDocumentId,
     params.receiptUri,
     params.receiptType,
     isOnline,
