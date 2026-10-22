@@ -26,7 +26,7 @@
     "@types/node": "^20.11.0",
     "@weldsuite/typescript-config": "workspace:*",
     "cross-env": "^10.0.0",
-    "electron": "41.10.7",
+    "electron": "42.11.18",
     "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
     "png-to-ico": "^3.0.0",
