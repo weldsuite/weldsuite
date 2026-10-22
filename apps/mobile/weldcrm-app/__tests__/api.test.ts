@@ -1,4 +1,4 @@
-import { api, companyPayload, personPayload, setActiveWorkspaceId } from '@/services/api';
+import { api, companyPayload, dealUpdatePayload, personPayload, setActiveWorkspaceId } from '@/services/api';
 import { appApiClient } from '@/services/app-api';
 
 jest.mock('@/services/app-api', () => ({
@@ -42,11 +42,11 @@ describe('getCrmDashboardStats', () => {
     let wonPage = 0;
     client.get.mockImplementation((path: string) => {
       if (path.startsWith('/workspace-settings')) return Promise.resolve({ data: { currency: 'EUR' } });
+      if (path.startsWith('/people') && path.includes('isLead=true')) return Promise.resolve(list([], 4));
       if (path.startsWith('/people')) return Promise.resolve(list([], 42));
+      if (path.startsWith('/companies') && path.includes('isLead=true')) return Promise.resolve(list([], 1));
       if (path.startsWith('/companies')) return Promise.resolve(list([], 7));
-      if (path.startsWith('/leads') && path.includes('status=new')) return Promise.resolve(list([], 5));
-      if (path.startsWith('/leads') && path.includes('status=converted')) return Promise.resolve(list([], 2));
-      if (path.startsWith('/leads')) return Promise.resolve(list([], 10));
+      if (path.startsWith('/opportunities') && path.includes('status=open')) return Promise.resolve(list([], 9));
       if (path.startsWith('/opportunities')) {
         const rows = won.pages[wonPage] ?? [];
         wonPage += 1;
@@ -75,8 +75,8 @@ describe('getCrmDashboardStats', () => {
     expect(res.data).toMatchObject({
       totalPeople: 42,
       totalCompanies: 7,
-      newLeads: 5,
-      conversionRate: 20,
+      leads: 5,
+      openDeals: 9,
       wonDeals: 3,
       revenue: 1250.5,
       currency: 'EUR',
@@ -84,15 +84,6 @@ describe('getCrmDashboardStats', () => {
       revenuePartial: false,
       revenueDealsRead: 3,
     });
-  });
-
-  it('has no fake trend figures', async () => {
-    mockDashboard({ pages: [[]], totalCount: 0 });
-    const res = await api.getCrmDashboardStats();
-    expect(res.data?.peopleChange).toBeUndefined();
-    expect(res.data?.revenueChange).toBeUndefined();
-    expect(res.data?.leadsChange).toBeUndefined();
-    expect(res.data?.conversionRateChange).toBeUndefined();
   });
 
   it('reports a failure instead of throwing', async () => {
@@ -157,52 +148,42 @@ describe('people and companies', () => {
     expect(client.delete).toHaveBeenCalledWith('/people/per_1');
   });
 
+  it('points at the existing person when the email is already in the CRM', async () => {
+    client.post.mockRejectedValue(
+      Object.assign(new Error('Email already in use'), { status: 409, body: { details: { existingPersonId: 'per_7' } } }),
+    );
+    const res = await api.createPerson({ firstName: 'Jane', email: 'jane@acme.com' });
+    expect(res).toEqual({ success: false, error: 'Email already in use', existingPersonId: 'per_7' });
+  });
+
+  it('filters leads and suppliers with true-only flags', async () => {
+    client.get.mockResolvedValue(list([], 0));
+    await api.getPeople({ isLead: true });
+    expect(client.get).toHaveBeenCalledWith('/people?limit=25&isLead=true&inCrm=true');
+    await api.getCompanies({ isLead: false, isSupplier: true });
+    expect(client.get).toHaveBeenCalledWith('/companies?limit=25&isSupplier=true');
+  });
+
+  it('archives and links through the platform endpoints', async () => {
+    client.post.mockResolvedValue({ data: { id: 'cmp_1', name: 'Acme', createdAt: 'x', updatedAt: 'x', archivedAt: '2026-10-22' } });
+    const archived = await api.setCompanyArchived('cmp_1', true);
+    expect(client.post).toHaveBeenCalledWith('/companies/cmp_1/archive', {});
+    expect(archived.data?.archivedAt).toBe('2026-10-22');
+
+    client.post.mockResolvedValue({ data: { id: 'pc_1' } });
+    await api.linkPersonToCompany({ personId: 'per_1', companyId: 'cmp_1', isPrimary: true });
+    expect(client.post).toHaveBeenCalledWith('/person-companies', {
+      personId: 'per_1',
+      companyId: 'cmp_1',
+      role: undefined,
+      isPrimary: true,
+    });
+  });
+
   it('surfaces the server message when a create is refused', async () => {
     client.post.mockRejectedValue(new Error('A person with this email already exists'));
     const res = await api.createPerson({ firstName: 'Jane', email: 'jane@acme.com' });
     expect(res).toEqual({ success: false, error: 'A person with this email already exists' });
-  });
-});
-
-describe('tasks', () => {
-  it('creates a task as an activity with the mapped status', async () => {
-    client.post.mockResolvedValue({ data: { id: 'act_1' } });
-    const res = await api.createCrmTask({ title: ' Call Acme ', status: 'in-progress', dueDate: '2026-08-05T12:00:00.000Z' });
-    expect(client.post).toHaveBeenCalledWith('/activities', {
-      type: 'task',
-      subject: 'Call Acme',
-      description: undefined,
-      status: 'in_progress',
-      dueDate: '2026-08-05T12:00:00.000Z',
-    });
-    expect(res.data).toMatchObject({ id: 'act_1', title: 'Call Acme', status: 'in-progress', completed: false });
-  });
-
-  it('updates title, status and due date, then re-reads the task', async () => {
-    client.patch.mockResolvedValue({ data: { id: 'act_1' } });
-    client.get.mockResolvedValue({
-      data: { id: 'act_1', type: 'task', subject: 'New title', status: 'completed', dueDate: '2026-08-06T12:00:00.000Z', createdAt: 'x' },
-    });
-    const res = await api.updateCrmTask('act_1', { title: 'New title', status: 'done', dueDate: '2026-08-06T12:00:00.000Z' });
-    expect(client.patch).toHaveBeenCalledWith('/activities/act_1', {
-      subject: 'New title',
-      status: 'completed',
-      dueDate: '2026-08-06T12:00:00.000Z',
-    });
-    expect(res.data).toMatchObject({ title: 'New title', status: 'done', completed: true });
-  });
-
-  it('toggles completion without touching other fields', async () => {
-    client.patch.mockResolvedValue({ data: { id: 'act_1' } });
-    client.get.mockResolvedValue({ data: { id: 'act_1', type: 'task', subject: 's', status: 'planned', createdAt: 'x' } });
-    await api.updateCrmTask('act_1', { completed: false });
-    expect(client.patch).toHaveBeenCalledWith('/activities/act_1', { status: 'planned' });
-  });
-
-  it('deletes a task', async () => {
-    client.delete.mockResolvedValue({});
-    expect((await api.deleteCrmTask('act_1')).success).toBe(true);
-    expect(client.delete).toHaveBeenCalledWith('/activities/act_1');
   });
 });
 
@@ -221,26 +202,74 @@ describe('deals and activities', () => {
       '/opportunities',
       expect.objectContaining({ name: 'Q4', customerId: 'cmp_1', amount: 5000, currency: 'GBP', stageId: 'stg_1', pipeline: 'pl_1' }),
     );
-    expect(res.data).toMatchObject({ id: 'opp_1', companyId: 'cmp_1', value: '5000', currency: 'GBP' });
+    expect(res.data).toMatchObject({ id: 'opp_1', companyId: 'cmp_1', value: '5000', currency: 'GBP', status: 'open' });
+  });
+
+  it('leaves the close date out when none was given', async () => {
+    client.post.mockResolvedValue({ data: { id: 'opp_2' } });
+    await api.createDeal({ name: 'No date', companyId: 'cmp_1' });
+    expect(client.post.mock.calls[0][1].closeDate).toBeUndefined();
+  });
+
+  it('moves a deal by writing both stage columns, then reads it back', async () => {
+    client.patch.mockResolvedValue({ data: { id: 'opp_1' } });
+    client.get.mockResolvedValue({
+      data: { id: 'opp_1', name: 'Q4', stageId: 'stg_won', status: 'won', createdAt: 'x', updatedAt: 'x' },
+    });
+    const res = await api.updateDeal('opp_1', { stageId: 'stg_won' });
+    expect(client.patch).toHaveBeenCalledWith('/opportunities/opp_1', { stageId: 'stg_won', stage: 'stg_won' });
+    expect(res.data).toMatchObject({ stageId: 'stg_won', status: 'won' });
+  });
+
+  it('clears a close date with null', () => {
+    expect(dealUpdatePayload({ closeDate: null, status: 'lost' })).toEqual({ closeDate: null, status: 'lost' });
+  });
+
+  it('reads stages per pipeline', async () => {
+    client.get.mockImplementation((path: string) => {
+      if (path.startsWith('/pipelines')) return Promise.resolve(list([{ id: 'pl_1', name: 'Sales' }]));
+      if (path === '/pipeline-stages?pipeline=pl_1&limit=200') {
+        return Promise.resolve(
+          list([
+            { id: 'st_2', name: 'Won', position: 1, pipeline: 'pl_1', isWon: true },
+            { id: 'st_1', name: 'Lead', position: 0, pipeline: 'pl_1' },
+          ]),
+        );
+      }
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+    const res = await api.getPipelines();
+    expect(res.data?.[0].stages.map((stage) => [stage.name, stage.isWon])).toEqual([
+      ['Lead', false],
+      ['Won', true],
+    ]);
   });
 
   it('logs an activity as completed and links the company', async () => {
     client.post.mockResolvedValue({ data: { id: 'act_2' } });
-    await api.logActivity({ type: 'call', subject: ' Intro ', companyId: 'cmp_1' });
+    await api.logActivity({ type: 'call', subject: ' Intro ', record: { kind: 'company', id: 'cmp_1', name: 'Acme' } });
     expect(client.post).toHaveBeenCalledWith(
       '/activities',
-      expect.objectContaining({ type: 'call', subject: 'Intro', status: 'completed', customerId: 'cmp_1' }),
+      expect.objectContaining({
+        type: 'call',
+        subject: 'Intro',
+        status: 'completed',
+        customerId: 'cmp_1',
+        relatedTo: 'company',
+        relatedToId: 'cmp_1',
+        relatedToName: 'Acme',
+      }),
     );
   });
 
-  it('creates a lead with the email and a mobile source', async () => {
-    client.post.mockResolvedValue({ data: { id: 'lead_1' } });
-    await api.createLead({ email: ' lead@acme.com ', firstName: 'Lee' });
-    expect(client.post).toHaveBeenCalledWith(
-      '/leads',
-      expect.objectContaining({ email: 'lead@acme.com', firstName: 'Lee', source: 'mobile' }),
-    );
+  it('links a person activity through contactId, like the web', async () => {
+    client.post.mockResolvedValue({ data: { id: 'act_3' } });
+    await api.logActivity({ type: 'note', subject: 'Hi', record: { kind: 'person', id: 'per_1' } });
+    const body = client.post.mock.calls[0][1];
+    expect(body).toMatchObject({ contactId: 'per_1', relatedTo: 'person', relatedToId: 'per_1' });
+    expect(body.customerId).toBeUndefined();
   });
+
 });
 
 describe('getWorkspaceCurrency', () => {

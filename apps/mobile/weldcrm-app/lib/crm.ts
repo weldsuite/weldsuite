@@ -1,6 +1,6 @@
 /**
  * Pure CRM helpers shared by the screens and the data layer: names, initials,
- * and the task status mapping between the app and `crm_activities`.
+ * and the task statuses, priorities and repeat options.
  */
 
 export interface NameParts {
@@ -38,37 +38,47 @@ export function initialsOf(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Tasks (crm_activities with type 'task')
+// Tasks (flow-api `tasks`, the same statuses as the platform's task dialog)
 // ---------------------------------------------------------------------------
 
-export const TASK_STATUSES = ['todo', 'in-progress', 'blocked', 'done'] as const;
+export const TASK_STATUSES = ['backlog', 'todo', 'in_progress', 'review', 'testing', 'done', 'cancelled'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
-
-/** App task status to `crm_activities.status`. */
-export const TASK_TO_ACTIVITY_STATUS: Record<TaskStatus, string> = {
-  todo: 'planned',
-  'in-progress': 'in_progress',
-  blocked: 'deferred',
-  done: 'completed',
-};
-
-/** `crm_activities.status` to the app's task status. */
-export function activityStatusToTaskStatus(status?: string | null): TaskStatus {
-  switch (status) {
-    case 'in_progress':
-      return 'in-progress';
-    case 'completed':
-      return 'done';
-    case 'deferred':
-    case 'cancelled':
-      return 'blocked';
-    default:
-      return 'todo';
-  }
-}
 
 export function isTaskStatus(value: string | null | undefined): value is TaskStatus {
   return (TASK_STATUSES as readonly string[]).includes(value ?? '');
+}
+
+/**
+ * A stored status to one the app knows. The column is free text: older rows
+ * say `in-progress` / `in_review` / `blocked`, and project stages can add
+ * their own, which show as To Do.
+ */
+export function normalizeTaskStatus(status: string | null | undefined): TaskStatus {
+  switch (status) {
+    case 'in-progress':
+      return 'in_progress';
+    case 'in_review':
+      return 'review';
+    case 'blocked':
+      return 'backlog';
+    case 'completed':
+      return 'done';
+    default:
+      return isTaskStatus(status) ? status : 'todo';
+  }
+}
+
+/** The priorities the platform's dialog offers; `urgent` is shown but never set. */
+export const TASK_PRIORITIES = ['low', 'medium', 'high'] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number] | 'urgent';
+
+export const REPEAT_FREQUENCIES = ['daily', 'weekly', 'biweekly', 'monthly', 'yearly'] as const;
+export type RepeatFrequency = (typeof REPEAT_FREQUENCIES)[number] | 'custom';
+
+export interface TaskRepeat {
+  frequency: RepeatFrequency;
+  interval?: number;
+  unit?: 'days' | 'weeks' | 'months' | 'years';
 }
 
 /** The kinds of activity the app can log (a subset of the server's `activityType`). */

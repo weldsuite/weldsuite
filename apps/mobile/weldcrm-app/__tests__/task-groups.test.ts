@@ -39,12 +39,12 @@ describe('groupTasks', () => {
 describe('matchesTaskFilters', () => {
   it('matches title and company text, case-insensitively', () => {
     expect(matchesTaskFilters(task(), 'acme', null)).toBe(true);
-    expect(matchesTaskFilters(task({ linkedCompany: { name: 'Globex' } }), 'GLOBEX', null)).toBe(true);
+    expect(matchesTaskFilters(task({ record: { name: 'Globex' } }), 'GLOBEX', null)).toBe(true);
     expect(matchesTaskFilters(task(), 'zzz', null)).toBe(false);
   });
 
   it('applies the status filter', () => {
-    expect(matchesTaskFilters(task({ status: 'blocked' }), '', 'blocked')).toBe(true);
-    expect(matchesTaskFilters(task({ status: 'blocked' }), '', 'done')).toBe(false);
+    expect(matchesTaskFilters(task({ status: 'backlog' }), '', 'backlog')).toBe(true);
+    expect(matchesTaskFilters(task({ status: 'backlog' }), '', 'done')).toBe(false);
   });
 });

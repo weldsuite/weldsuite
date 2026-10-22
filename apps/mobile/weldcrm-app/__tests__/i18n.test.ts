@@ -85,7 +85,7 @@ describe('English and Dutch catalogs', () => {
   it('translate the tab titles and a representative sample instead of copying English', () => {
     expect(nl.tabs.contacts).toBe('Contacten');
     expect(nl.tabs.tasks).toBe('Taken');
-    expect(nl.tabs.settings).toBe('Instellingen');
+    expect(nl.tabs.more).toBe('Meer');
     expect(nl.validation.required).not.toBe(en.validation.required);
     expect(nl.tasks.deleteTask).not.toBe(en.tasks.deleteTask);
     expect(nl.contacts.people).not.toBe(en.contacts.people);

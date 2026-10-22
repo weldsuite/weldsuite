@@ -68,6 +68,8 @@ interface FormScreenProps {
   submitLabel: string;
   onSubmit: () => void;
   submitting?: boolean;
+  /** Extra header buttons, such as delete. */
+  headerRight?: ReactNode;
   children: ReactNode;
 }
 
@@ -78,6 +80,7 @@ export function FormScreen({
   submitLabel,
   onSubmit,
   submitting = false,
+  headerRight,
   children,
 }: Readonly<FormScreenProps>) {
   const { colors } = useTheme();
@@ -87,7 +90,7 @@ export function FormScreen({
       style={[styles.screen, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StackHeader title={title} onBack={onClose} />
+      <StackHeader title={title} onBack={onClose} right={headerRight} />
       <ScrollView
         style={styles.body}
         contentContainerStyle={styles.bodyContent}

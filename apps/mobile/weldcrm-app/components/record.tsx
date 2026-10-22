@@ -74,12 +74,16 @@ interface ProfileHeaderProps {
   name: string;
   subtitle?: string;
   isEditing: boolean;
-  onCall: () => void;
-  onEmail: () => void;
+  /** Left out when the record has no phone number, which hides the button. */
+  onCall?: () => void;
+  /** Left out when the record has no email address. */
+  onEmail?: () => void;
+  /** A small label under the name, such as "Archived". */
+  badge?: string;
 }
 
 /** Avatar, name and the call and email buttons. */
-export function RecordProfileHeader({ name, subtitle, isEditing, onCall, onEmail }: Readonly<ProfileHeaderProps>) {
+export function RecordProfileHeader({ name, subtitle, isEditing, onCall, onEmail, badge }: Readonly<ProfileHeaderProps>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   return (
@@ -90,24 +94,34 @@ export function RecordProfileHeader({ name, subtitle, isEditing, onCall, onEmail
       <Text style={[styles.profileName, { color: colors.text }]}>{name}</Text>
       {!!subtitle && !isEditing && <Text style={[styles.profileSub, { color: colors.muted }]}>{subtitle}</Text>}
 
-      {!isEditing && (
+      {!!badge && (
+        <View style={[styles.badge, styles.profileBadge]}>
+          <Text style={styles.badgeText}>{badge}</Text>
+        </View>
+      )}
+
+      {!isEditing && (!!onCall || !!onEmail) && (
         <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.divider }]}
-            onPress={onCall}
-            accessibilityRole="button"
-          >
-            <Phone size={20} color={ACCENT} />
-            <Text style={[styles.quickActionText, { color: colors.text }]}>{t.common.call}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.divider }]}
-            onPress={onEmail}
-            accessibilityRole="button"
-          >
-            <Mail size={20} color={ACCENT} />
-            <Text style={[styles.quickActionText, { color: colors.text }]}>{t.common.email}</Text>
-          </TouchableOpacity>
+          {onCall ? (
+            <TouchableOpacity
+              style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.divider }]}
+              onPress={onCall}
+              accessibilityRole="button"
+            >
+              <Phone size={20} color={ACCENT} />
+              <Text style={[styles.quickActionText, { color: colors.text }]}>{t.common.call}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {onEmail ? (
+            <TouchableOpacity
+              style={[styles.quickAction, { backgroundColor: colors.background, borderColor: colors.divider }]}
+              onPress={onEmail}
+              accessibilityRole="button"
+            >
+              <Mail size={20} color={ACCENT} />
+              <Text style={[styles.quickActionText, { color: colors.text }]}>{t.common.email}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
     </View>
@@ -214,17 +228,21 @@ interface LinkRowProps {
   badge?: string;
   trailing?: string;
   onPress?: () => void;
+  onLongPress?: () => void;
+  accessibilityHint?: string;
 }
 
 /** A tappable row for a person or deal linked to the record. */
-export function RecordLinkRow({ title, subtitle, badge, trailing, onPress }: Readonly<LinkRowProps>) {
+export function RecordLinkRow({ title, subtitle, badge, trailing, onPress, onLongPress, accessibilityHint }: Readonly<LinkRowProps>) {
   const { colors } = useTheme();
   return (
     <TouchableOpacity
       style={[styles.linkRow, { borderBottomColor: colors.divider }]}
       onPress={onPress}
-      disabled={!onPress}
+      onLongPress={onLongPress}
+      disabled={!onPress && !onLongPress}
       accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityHint={accessibilityHint}
     >
       <View style={styles.linkText}>
         <Text style={[styles.linkTitle, { color: colors.text }]} numberOfLines={1}>
@@ -277,6 +295,7 @@ const styles = StyleSheet.create({
   profileName: { fontSize: 22, fontWeight: '600', marginBottom: 4, textAlign: 'center' },
   profileSub: { fontSize: 15, textAlign: 'center' },
   quickActions: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  profileBadge: { marginTop: 8 },
   quickAction: {
     flexDirection: 'row',
     alignItems: 'center',

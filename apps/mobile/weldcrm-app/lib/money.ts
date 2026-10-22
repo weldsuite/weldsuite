@@ -12,6 +12,12 @@ type NumericInput = number | string | null | undefined;
 /** What a deal without a currency, and a workspace without a saved currency, is denominated in. */
 export const DEFAULT_CURRENCY = 'EUR';
 
+/** Currencies offered when a deal is entered on the phone; any ISO code already on a deal still shows. */
+export const DEAL_CURRENCIES = [
+  'EUR', 'USD', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF',
+  'CAD', 'AUD', 'NZD', 'JPY', 'CNY', 'INR', 'BRL', 'MXN', 'ZAR', 'AED',
+] as const;
+
 /** Parse an app-api decimal string ("1234.50") to a number, 0 when empty or malformed. */
 export function toNumber(value: NumericInput): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;

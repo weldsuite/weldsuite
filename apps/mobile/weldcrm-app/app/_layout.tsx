@@ -181,8 +181,14 @@ function AppStack() {
                     <Stack.Screen name="person/[id]" />
                     <Stack.Screen name="company/new" />
                     <Stack.Screen name="company/[id]" />
-                    <Stack.Screen name="lead/new" />
+                    <Stack.Screen name="deal/new" />
+                    <Stack.Screen name="deal/[id]" />
+                    <Stack.Screen name="note/[id]" />
                     <Stack.Screen name="activity/new" />
+                    <Stack.Screen name="lists/index" />
+                    <Stack.Screen name="lists/[id]" />
+                    <Stack.Screen name="sequences/index" />
+                    <Stack.Screen name="sequences/[id]" />
                   </Stack>
                 </RealtimeProvider>
               </AuthGuard>

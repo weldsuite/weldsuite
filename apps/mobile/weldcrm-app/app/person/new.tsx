@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { router, Stack } from 'expo-router';
+import { Alert, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Building2, ChevronRight } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -12,7 +12,9 @@ import { describeError, optionalText, validatePerson, type FormErrors } from '@/
 
 type Field = 'firstName' | 'email';
 
+/** New person; `companyId` + `companyName` preselect the company they work at. */
 export default function NewPersonScreen() {
+  const params = useLocalSearchParams<{ companyId?: string; companyName?: string }>();
   const { colors } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
@@ -21,7 +23,11 @@ export default function NewPersonScreen() {
   const [jobTitle, setJobTitle] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [company, setCompany] = useState<CompanyRecord | null>(null);
+  const [mobile, setMobile] = useState('');
+  const [isLead, setIsLead] = useState(false);
+  const [company, setCompany] = useState<Pick<CompanyRecord, 'id' | 'name'> | null>(
+    params.companyId ? { id: params.companyId, name: params.companyName ?? '' } : null,
+  );
   const [pickerVisible, setPickerVisible] = useState(false);
   const [errors, setErrors] = useState<FormErrors<Field>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -43,6 +49,8 @@ export default function NewPersonScreen() {
       jobTitle: optionalText(jobTitle),
       email: optionalText(email),
       phone: optionalText(phone),
+      mobile: optionalText(mobile),
+      isLead: isLead || undefined,
       companyId: company?.id,
     });
     setSubmitting(false);
@@ -50,6 +58,13 @@ export default function NewPersonScreen() {
     if (res.success && res.data) {
       toast.success(t.person.createdToast);
       router.replace({ pathname: '/person/[id]', params: { id: res.data.id } });
+    } else if (res.existingPersonId) {
+      // Someone in the CRM already has this email: offer them instead of a duplicate, like the web.
+      const existingId = res.existingPersonId;
+      Alert.alert(t.person.duplicateTitle, t.person.duplicateMessage, [
+        { text: t.common.cancel, style: 'cancel' },
+        { text: t.person.openExisting, onPress: () => router.replace({ pathname: '/person/[id]', params: { id: existingId } }) },
+      ]);
     } else {
       toast.error(typeof res.error === 'string' ? res.error : t.person.createFailed);
     }
@@ -105,6 +120,17 @@ export default function NewPersonScreen() {
           placeholder={t.person.phonePlaceholder}
           keyboardType="phone-pad"
         />
+        <FormField
+          label={t.person.mobile}
+          value={mobile}
+          onChangeText={setMobile}
+          placeholder={t.person.mobilePlaceholder}
+          keyboardType="phone-pad"
+        />
+        <View style={styles.switchRow}>
+          <Text style={[styles.switchLabel, { color: colors.text }]}>{t.records.isLead}</Text>
+          <Switch value={isLead} onValueChange={setIsLead} accessibilityLabel={t.records.isLead} />
+        </View>
 
         <View style={styles.field}>
           <Text style={[styles.label, { color: colors.muted }]}>{t.person.company}</Text>
@@ -159,4 +185,6 @@ const styles = StyleSheet.create({
   },
   selectText: { flex: 1, fontSize: 15 },
   clear: { fontSize: 13, textDecorationLine: 'underline' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  switchLabel: { fontSize: 15 },
 });

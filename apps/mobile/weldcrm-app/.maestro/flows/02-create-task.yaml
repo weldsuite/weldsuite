@@ -2,8 +2,9 @@ appId: com.weldsuite.weldcrm
 name: Create, edit and delete a task
 tags: [smoke, writes]
 ---
-# Creates one task per run ("E2E CRM task <timestamp>", due today), renames it,
-# then deletes it again so nothing accumulates in the test workspace.
+# Creates one task per run ("E2E CRM task <timestamp>", due today, linked to the
+# first company in the workspace), renames it, then deletes it again so nothing
+# accumulates in the test workspace. Needs at least one company.
 - runFlow: ../subflows/login.yaml
 - evalScript: ${output.title = 'E2E CRM task ' + Date.now()}
 - tapOn: "Tasks"
@@ -11,12 +12,25 @@ tags: [smoke, writes]
 - extendedWaitUntil:
     visible: "New Task"
     timeout: 10000
-# A task without a title is refused with a visible message.
+# A task without a title, or without a company or person, is refused.
 - tapOn: "Create Task"
 - assertVisible: "Title is required"
+- assertVisible: "Company or person is required"
 - tapOn: "Enter task title"
 - inputText: ${output.title}
 - hideKeyboard
+- tapOn: "Company or person"
+- tapOn: "Company"
+- extendedWaitUntil:
+    visible:
+      id: picker-row
+    timeout: 15000
+- tapOn:
+    id: picker-row
+    index: 0
+- scrollUntilVisible:
+    element: "Today"
+    direction: DOWN
 - tapOn: "Today"
 - tapOn: "Create Task"
 - extendedWaitUntil:
@@ -26,13 +40,20 @@ tags: [smoke, writes]
 - assertVisible: "Task Details"
 - assertVisible: "Today"
 # Change the status from the details sheet.
+- tapOn: "Status: To Do"
 - tapOn: "In Progress"
+- extendedWaitUntil:
+    visible: "Status: In Progress"
+    timeout: 15000
 # Edit the title.
 - tapOn: "Edit task"
 - assertVisible: "Edit Task"
 - tapOn: ${output.title}
 - inputText: " edited"
 - hideKeyboard
+- scrollUntilVisible:
+    element: "Save Changes"
+    direction: DOWN
 - tapOn: "Save Changes"
 - assertVisible: ${output.title + ' edited'}
 # Delete it, confirming the dialog.

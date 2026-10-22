@@ -1,14 +1,24 @@
 import React, { useState } from 'react';
+import { StyleSheet, Switch, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { FormField, FormScreen } from '@/components/form';
 import { api } from '@/services/api';
 import { useI18n } from '@/lib/i18n';
-import { describeError, optionalText, validateCompany, type FormErrors } from '@/lib/validation';
+import {
+  checkEmployeeCount,
+  checkWebsite,
+  describeError,
+  optionalText,
+  validateCompany,
+  type FormErrors,
+} from '@/lib/validation';
 
-type Field = 'name' | 'email';
+type Field = 'name' | 'email' | 'website' | 'employeeCount';
 
 export default function NewCompanyScreen() {
+  const { colors } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
   const [name, setName] = useState('');
@@ -16,6 +26,8 @@ export default function NewCompanyScreen() {
   const [website, setWebsite] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [employeeCount, setEmployeeCount] = useState('');
+  const [isLead, setIsLead] = useState(false);
   const [errors, setErrors] = useState<FormErrors<Field>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -25,7 +37,11 @@ export default function NewCompanyScreen() {
   };
 
   const handleSubmit = async () => {
-    const found = validateCompany({ name, email });
+    const found: FormErrors<Field> = { ...validateCompany({ name, email }) };
+    const websiteError = checkWebsite(website);
+    if (websiteError) found.website = websiteError;
+    const employeesError = checkEmployeeCount(employeeCount);
+    if (employeesError) found.employeeCount = employeesError;
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
@@ -36,6 +52,8 @@ export default function NewCompanyScreen() {
       website: optionalText(website),
       email: optionalText(email),
       phone: optionalText(phone),
+      employeeCount: optionalText(employeeCount),
+      isLead: isLead || undefined,
     });
     setSubmitting(false);
 
@@ -78,6 +96,7 @@ export default function NewCompanyScreen() {
           value={website}
           onChangeText={setWebsite}
           placeholder={t.company.websitePlaceholder}
+          error={message('website', t.company.website)}
           keyboardType="url"
           autoCapitalize="none"
           autoCorrect={false}
@@ -99,7 +118,24 @@ export default function NewCompanyScreen() {
           placeholder={t.company.phonePlaceholder}
           keyboardType="phone-pad"
         />
+        <FormField
+          label={t.records.employees}
+          value={employeeCount}
+          onChangeText={setEmployeeCount}
+          placeholder={t.records.employeesPlaceholder}
+          error={message('employeeCount', t.records.employees)}
+          keyboardType="numbers-and-punctuation"
+        />
+        <View style={styles.switchRow}>
+          <Text style={[styles.switchLabel, { color: colors.text }]}>{t.records.isLead}</Text>
+          <Switch value={isLead} onValueChange={setIsLead} accessibilityLabel={t.records.isLead} />
+        </View>
       </FormScreen>
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  switchLabel: { fontSize: 15 },
+});

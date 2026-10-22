@@ -12,8 +12,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { Edit3, Mail, MoreHorizontal, Phone, Plus, Trash2, X } from 'lucide-react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Archive, Edit3, Mail, MoreHorizontal, Phone, Plus, Trash2, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
@@ -22,9 +22,10 @@ import { usePagedList } from '@/hooks/use-paged-list';
 import { api, type CompanyRecord, type PersonRecord } from '@/services/api';
 import { interpolate, labelFor, useI18n, type Translations } from '@/lib/i18n';
 import { initialsOf } from '@/lib/crm';
-import { formatRelativeTime } from '@/lib/relative-time';
 
 type Segment = 'people' | 'companies';
+/** The web's People/Companies `filter`: a lead or a supplier is a flag on the record. */
+type Filter = 'all' | 'leads' | 'suppliers';
 
 /** What the row action sheet needs about the record it was opened for. */
 interface ActionTarget {
@@ -33,6 +34,7 @@ interface ActionTarget {
   name: string;
   email?: string;
   phone?: string;
+  archived: boolean;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -51,13 +53,12 @@ interface RecordCardProps {
   email?: string;
   phone?: string;
   status?: string;
-  createdAt: string;
-  updatedAt: string;
+  /** Small labels next to the name: Lead, Supplier, Archived. */
+  flags: string[];
   icon?: 'company';
   onPress: () => void;
   onMore: () => void;
   t: Translations;
-  intlLocale: string;
 }
 
 function RecordCard({
@@ -66,13 +67,11 @@ function RecordCard({
   email,
   phone,
   status,
-  createdAt,
-  updatedAt,
+  flags,
   icon,
   onPress,
   onMore,
   t,
-  intlLocale,
 }: Readonly<RecordCardProps>) {
   const { colors } = useTheme();
   return (
@@ -104,7 +103,25 @@ function RecordCard({
             <Text style={[styles.statusText, { color: statusColor(status) }]}>{labelFor(t.status, status)}</Text>
           </View>
         )}
+        <TouchableOpacity
+          onPress={onMore}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel={interpolate(t.contacts.actionsFor, { name: title })}
+        >
+          <MoreHorizontal size={18} color={colors.muted} />
+        </TouchableOpacity>
       </View>
+
+      {flags.length > 0 && (
+        <View style={styles.flags}>
+          {flags.map((flag) => (
+            <View key={flag} style={[styles.flag, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.flagText, { color: colors.text }]}>{flag}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {(!!email || !!phone) && (
         <View style={styles.details}>
@@ -127,47 +144,41 @@ function RecordCard({
         </View>
       )}
 
-      <View style={[styles.footer, { borderTopColor: colors.divider }]}>
-        <View style={styles.footerItem}>
-          <Text style={[styles.footerLabel, { color: colors.muted }]}>{t.contacts.created}</Text>
-          <Text style={[styles.footerValue, { color: colors.text }]}>{formatRelativeTime(createdAt, t, intlLocale)}</Text>
-        </View>
-        <View style={styles.footerItem}>
-          <Text style={[styles.footerLabel, { color: colors.muted }]}>{t.contacts.updated}</Text>
-          <Text style={[styles.footerValue, { color: colors.text }]}>{formatRelativeTime(updatedAt, t, intlLocale)}</Text>
-        </View>
-        <TouchableOpacity
-          onPress={onMore}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityRole="button"
-          accessibilityLabel={interpolate(t.contacts.actionsFor, { name: title })}
-        >
-          <MoreHorizontal size={18} color={colors.muted} />
-        </TouchableOpacity>
-      </View>
     </TouchableOpacity>
   );
 }
 
 export default function ContactsScreen() {
   const { colors } = useTheme();
-  const { t, intlLocale } = useI18n();
+  const { t } = useI18n();
   const toast = useToast();
   const [segment, setSegment] = useState<Segment>('people');
+  const [filter, setFilter] = useState<Filter>('all');
+  const params = useLocalSearchParams<{ segment?: string; filter?: string }>();
+
+  // Home's figures land here with ?segment= / ?filter=.
+  useEffect(() => {
+    if (!params.segment && !params.filter) return;
+    if (params.segment === 'people' || params.segment === 'companies') setSegment(params.segment);
+    if (params.filter === 'all' || params.filter === 'leads' || params.filter === 'suppliers') setFilter(params.filter);
+    router.setParams({ segment: undefined, filter: undefined });
+  }, [params.segment, params.filter]);
   const [search, setSearch] = useState('');
   const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
 
   const fetchPeople = useCallback(
-    (params: { cursor: string | null; search: string }) => api.getPeople(params),
-    [],
+    (params: { cursor: string | null; search: string }) =>
+      api.getPeople({ ...params, isLead: filter === 'leads', isSupplier: filter === 'suppliers' }),
+    [filter],
   );
   const fetchCompanies = useCallback(
-    (params: { cursor: string | null; search: string }) => api.getCompanies(params),
-    [],
+    (params: { cursor: string | null; search: string }) =>
+      api.getCompanies({ ...params, isLead: filter === 'leads', isSupplier: filter === 'suppliers' }),
+    [filter],
   );
 
-  const people = usePagedList<PersonRecord>(fetchPeople, { search, enabled: segment === 'people' });
-  const companies = usePagedList<CompanyRecord>(fetchCompanies, { search, enabled: segment === 'companies' });
+  const people = usePagedList<PersonRecord>(fetchPeople, { search, enabled: segment === 'people', resetKey: filter });
+  const companies = usePagedList<CompanyRecord>(fetchCompanies, { search, enabled: segment === 'companies', resetKey: filter });
   const active = segment === 'people' ? people : companies;
 
   // The search box is shared: switching between People and Companies starts a fresh search.
@@ -208,6 +219,30 @@ export default function ContactsScreen() {
     if (actionTarget) openRecord(actionTarget.kind, actionTarget.id, actionTarget.name, true);
     closeActions();
   };
+
+  const handleArchive = async () => {
+    const target = actionTarget;
+    closeActions();
+    if (!target) return;
+    const archive = !target.archived;
+    if (target.kind === 'people') {
+      const res = await api.setPersonArchived(target.id, archive);
+      if (res.success && res.data) people.updateItem(res.data);
+      else return toast.error(t.records.archiveFailed);
+    } else {
+      const res = await api.setCompanyArchived(target.id, archive);
+      if (res.success && res.data) companies.updateItem(res.data);
+      else return toast.error(t.records.archiveFailed);
+    }
+    toast.success(archive ? t.records.archivedToast : t.records.unarchivedToast);
+  };
+
+  const flagsOf = (record: { isLead: boolean; isSupplier: boolean; archivedAt?: string }) =>
+    [
+      record.isLead ? t.records.isLead : '',
+      record.isSupplier ? t.records.isSupplier : '',
+      record.archivedAt ? t.records.archived : '',
+    ].filter(Boolean);
 
   const handleDelete = () => {
     const target = actionTarget;
@@ -303,6 +338,31 @@ export default function ContactsScreen() {
         />
       </View>
 
+      <View style={styles.filters}>
+        {(['all', 'leads', 'suppliers'] as const).map((key) => {
+          const selected = filter === key;
+          return (
+            <TouchableOpacity
+              key={key}
+              style={[
+                styles.filterChip,
+                {
+                  backgroundColor: selected ? colors.text : colors.background,
+                  borderColor: selected ? colors.text : colors.buttonBorder,
+                },
+              ]}
+              onPress={() => setFilter(key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+            >
+              <Text style={[styles.filterText, { color: selected ? colors.background : colors.text }]}>
+                {t.contacts.filters[key]}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {active.loading && (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.text} />
@@ -327,8 +387,7 @@ export default function ContactsScreen() {
               email={item.email}
               phone={item.phone ?? item.mobile}
               status={item.status}
-              createdAt={item.createdAt}
-              updatedAt={item.updatedAt}
+              flags={flagsOf(item)}
               onPress={() => openRecord('people', item.id, item.name)}
               onMore={() =>
                 setActionTarget({
@@ -337,10 +396,10 @@ export default function ContactsScreen() {
                   name: item.name,
                   email: item.email,
                   phone: item.phone ?? item.mobile,
+                  archived: !!item.archivedAt,
                 })
               }
               t={t}
-              intlLocale={intlLocale}
             />
           )}
         />
@@ -365,14 +424,19 @@ export default function ContactsScreen() {
               email={item.email}
               phone={item.phone}
               status={item.status}
-              createdAt={item.createdAt}
-              updatedAt={item.updatedAt}
+              flags={flagsOf(item)}
               onPress={() => openRecord('companies', item.id, item.name)}
               onMore={() =>
-                setActionTarget({ kind: 'companies', id: item.id, name: item.name, email: item.email, phone: item.phone })
+                setActionTarget({
+                  kind: 'companies',
+                  id: item.id,
+                  name: item.name,
+                  email: item.email,
+                  phone: item.phone ?? item.mobile,
+                  archived: !!item.archivedAt,
+                })
               }
               t={t}
-              intlLocale={intlLocale}
             />
           )}
         />
@@ -389,17 +453,27 @@ export default function ContactsScreen() {
                 <X size={20} color={colors.muted} />
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.menuItem} onPress={handleCall}>
-              <Phone size={20} color={colors.text} />
-              <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.call}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={handleEmail}>
-              <Mail size={20} color={colors.text} />
-              <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.email}</Text>
-            </TouchableOpacity>
+            {!!actionTarget?.phone && (
+              <TouchableOpacity style={styles.menuItem} onPress={handleCall}>
+                <Phone size={20} color={colors.text} />
+                <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.call}</Text>
+              </TouchableOpacity>
+            )}
+            {!!actionTarget?.email && (
+              <TouchableOpacity style={styles.menuItem} onPress={handleEmail}>
+                <Mail size={20} color={colors.text} />
+                <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.email}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.menuItem} onPress={handleEdit}>
               <Edit3 size={20} color={colors.text} />
               <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.edit}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => void handleArchive()}>
+              <Archive size={20} color={colors.text} />
+              <Text style={[styles.menuItemText, { color: colors.text }]}>
+                {actionTarget?.archived ? t.records.unarchive : t.records.archive}
+              </Text>
             </TouchableOpacity>
             <View style={[styles.menuDivider, { backgroundColor: colors.divider }]} />
             <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
@@ -446,10 +520,12 @@ const styles = StyleSheet.create({
   details: { paddingHorizontal: 14, paddingBottom: 12, gap: 6 },
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   detailText: { fontSize: 13, flexShrink: 1 },
-  footer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1 },
-  footerItem: { flex: 1 },
-  footerLabel: { fontSize: 11 },
-  footerValue: { fontSize: 13, fontWeight: '600', marginTop: 2 },
+  flags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 14, paddingBottom: 12, marginTop: -4 },
+  flag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  flagText: { fontSize: 11, fontWeight: '600' },
+  filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 8 },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  filterText: { fontSize: 13, fontWeight: '500' },
   menuOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
   menuCard: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 34 },
   menuHeader: {

@@ -10,7 +10,7 @@ export interface GroupableTask {
   completed: boolean;
   status: TaskStatus;
   dueDate?: string;
-  linkedCompany?: { name: string };
+  record?: { name?: string };
 }
 
 export type TaskSectionKey = 'overdue' | 'today' | 'tomorrow' | 'thisWeek' | 'later' | 'noDate' | 'completed';
@@ -25,13 +25,13 @@ export const TASK_SECTION_ORDER: readonly TaskSectionKey[] = [
   'completed',
 ];
 
-/** Does the task match the search text (title or company) and the status filter (null = all)? */
+/** Does the task match the search text (title or linked record) and the status filter (null = all)? */
 export function matchesTaskFilters(task: GroupableTask, searchTerm: string, status: TaskStatus | null): boolean {
   const term = searchTerm.trim().toLowerCase();
   const matchesSearch =
     term.length === 0 ||
     task.title.toLowerCase().includes(term) ||
-    (task.linkedCompany?.name.toLowerCase().includes(term) ?? false);
+    (task.record?.name?.toLowerCase().includes(term) ?? false);
   return matchesSearch && (status === null || task.status === status);
 }
 

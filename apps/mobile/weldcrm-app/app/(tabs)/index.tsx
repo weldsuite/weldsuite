@@ -1,38 +1,38 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useObserve } from 'expo-observe';
 import {
-  TrendingUp,
-  TrendingDown,
-  Users,
-  Building2,
-  UserPlus,
-  DollarSign,
   Activity,
-  Target,
+  Building2,
   CheckSquare,
+  DollarSign,
+  FileText,
+  Mail,
+  Phone,
+  Target,
   Trophy,
+  UserPlus,
+  Users,
+  Video,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { api, type CrmDashboardStats, type CrmActivity } from '@/services/api';
+import { api, type CrmActivity, type CrmDashboardStats } from '@/services/api';
 import { hideAppSplash } from '@/utils/splash';
 import { interpolate, plural, useI18n } from '@/lib/i18n';
 import { formatMoney } from '@/lib/money';
-import { formatTrend } from '@/lib/trend';
 
 interface StatCard {
   key: string;
   title: string;
   value: string;
-  /** Percent change; the trend row is only drawn when there is a real figure. */
-  change?: number;
   note?: string;
   icon: LucideIcon;
   color: string;
+  onPress?: () => void;
 }
 
 interface QuickAction {
@@ -42,6 +42,14 @@ interface QuickAction {
   color: string;
   onPress: () => void;
 }
+
+const ACTIVITY_ICONS: Record<string, LucideIcon> = {
+  call: Phone,
+  email: Mail,
+  meeting: Video,
+  note: FileText,
+  task: CheckSquare,
+};
 
 export default function CrmDashboard() {
   const { markInteractive } = useObserve();
@@ -59,11 +67,11 @@ export default function CrmDashboard() {
     async (silent = false) => {
       const [statsResponse, activitiesResponse] = await Promise.all([
         api.getCrmDashboardStats(),
-        api.getCrmRecentActivities(5),
+        api.getActivities({ limit: 6 }),
       ]);
 
       if (statsResponse.success && statsResponse.data) setStats(statsResponse.data);
-      if (activitiesResponse.success && activitiesResponse.data) setRecentActivities(activitiesResponse.data);
+      if (activitiesResponse.success && activitiesResponse.data) setRecentActivities(activitiesResponse.data.items);
       if (!silent && !statsResponse.success) toast.error(t.home.loadFailed);
 
       loadedOnce.current = true;
@@ -113,33 +121,33 @@ export default function CrmDashboard() {
           key: 'people',
           title: t.home.kpi.people,
           value: formatNumber(stats.totalPeople),
-          change: stats.peopleChange,
           icon: Users,
           color: '#3B82F6',
+          onPress: () => router.navigate({ pathname: '/contacts', params: { segment: 'people' } }),
         },
         {
           key: 'companies',
           title: t.home.kpi.companies,
           value: formatNumber(stats.totalCompanies),
-          change: stats.companiesChange,
           icon: Building2,
           color: '#6366F1',
+          onPress: () => router.navigate({ pathname: '/contacts', params: { segment: 'companies' } }),
         },
         {
           key: 'leads',
-          title: t.home.kpi.newLeads,
-          value: formatNumber(stats.newLeads),
-          change: stats.leadsChange,
+          title: t.home.kpi.leads,
+          value: formatNumber(stats.leads),
           icon: UserPlus,
           color: '#10B981',
+          onPress: () => router.navigate({ pathname: '/contacts', params: { filter: 'leads' } }),
         },
         {
-          key: 'conversion',
-          title: t.home.kpi.conversionRate,
-          value: `${stats.conversionRate}%`,
-          change: stats.conversionRateChange,
+          key: 'open',
+          title: t.home.kpi.openDeals,
+          value: formatNumber(stats.openDeals),
           icon: Target,
           color: '#8B5CF6',
+          onPress: () => router.navigate('/deals'),
         },
         {
           key: 'won',
@@ -152,7 +160,6 @@ export default function CrmDashboard() {
           key: 'revenue',
           title: t.home.kpi.revenue,
           value: formatMoney(stats.revenue, stats.currency, intlLocale, { compact: true }),
-          change: stats.revenueChange,
           note: revenueNote || undefined,
           icon: DollarSign,
           color: '#F59E0B',
@@ -161,33 +168,15 @@ export default function CrmDashboard() {
     : [];
 
   const quickActions: QuickAction[] = [
+    { key: 'person', label: t.home.actions.addPerson, icon: Users, color: '#3B82F6', onPress: () => router.push('/person/new') },
+    { key: 'company', label: t.home.actions.addCompany, icon: Building2, color: '#6366F1', onPress: () => router.push('/company/new') },
+    { key: 'activity', label: t.home.actions.logActivity, icon: Activity, color: '#F59E0B', onPress: () => router.push('/activity/new') },
     {
-      key: 'person',
-      label: t.home.actions.addPerson,
-      icon: Users,
-      color: '#3B82F6',
-      onPress: () => router.push('/person/new'),
-    },
-    {
-      key: 'company',
-      label: t.home.actions.addCompany,
-      icon: Building2,
-      color: '#6366F1',
-      onPress: () => router.push('/company/new'),
-    },
-    {
-      key: 'lead',
-      label: t.home.actions.addLead,
-      icon: UserPlus,
+      key: 'note',
+      label: t.home.actions.newNote,
+      icon: FileText,
       color: '#10B981',
-      onPress: () => router.push('/lead/new'),
-    },
-    {
-      key: 'activity',
-      label: t.home.actions.logActivity,
-      icon: Activity,
-      color: '#F59E0B',
-      onPress: () => router.push('/activity/new'),
+      onPress: () => router.push({ pathname: '/note/[id]', params: { id: 'new' } }),
     },
     {
       key: 'deal',
@@ -211,6 +200,17 @@ export default function CrmDashboard() {
     return date.toLocaleString(intlLocale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   };
 
+  const openActivity = (activity: CrmActivity) => {
+    if (activity.type === 'note') {
+      router.push({ pathname: '/note/[id]', params: { id: activity.id } });
+    } else if (activity.record) {
+      router.push({
+        pathname: activity.record.kind === 'company' ? '/company/[id]' : '/person/[id]',
+        params: { id: activity.record.id, name: activity.record.name ?? '', tab: 'activity' },
+      });
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -223,50 +223,32 @@ export default function CrmDashboard() {
           {t.home.title}
         </Text>
 
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          {statCards.map((stat) => {
-            const Icon = stat.icon;
-            const trend = stat.change === undefined ? null : formatTrend(stat.change);
-            const TrendIcon = trend?.isPositive ? TrendingUp : TrendingDown;
-            const trendColor = trend?.isPositive ? '#10B981' : '#EF4444';
-            return (
-              <View key={stat.key} style={styles.statCard}>
-                <View style={[styles.iconContainer, { backgroundColor: stat.color + '20' }]}>
-                  <Icon size={24} color={stat.color} strokeWidth={2} />
-                </View>
-                <Text style={[styles.statValue, { color: colors.text }]}>{stat.value}</Text>
-                <Text style={[styles.statTitle, { color: colors.muted }]}>{stat.title}</Text>
-                {trend ? (
-                  <View style={styles.changeContainer}>
-                    <TrendIcon size={14} color={trendColor} strokeWidth={2} />
-                    <Text style={[styles.changeText, { color: trendColor }]}>{trend.label}</Text>
+        {loading ? (
+          <ActivityIndicator style={styles.loading} size="large" color={colors.text} accessibilityLabel={t.common.loading} />
+        ) : (
+          <View style={styles.statsGrid}>
+            {statCards.map((stat) => {
+              const Icon = stat.icon;
+              return (
+                <TouchableOpacity
+                  key={stat.key}
+                  style={styles.statCard}
+                  onPress={stat.onPress}
+                  disabled={!stat.onPress}
+                  accessibilityRole={stat.onPress ? 'button' : undefined}
+                  accessibilityLabel={`${stat.title}: ${stat.value}`}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: stat.color + '20' }]}>
+                    <Icon size={24} color={stat.color} strokeWidth={2} />
                   </View>
-                ) : null}
-                {stat.note ? <Text style={[styles.statNote, { color: colors.muted }]}>{stat.note}</Text> : null}
-              </View>
-            );
-          })}
-        </View>
-
-        {/* Recent Activities */}
-        <View style={[styles.section, { backgroundColor: colors.background, borderColor: colors.divider }]}>
-          <View style={styles.sectionHeader}>
-            <Activity size={20} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.recentActivities}</Text>
+                  <Text style={[styles.statValue, { color: colors.text }]}>{stat.value}</Text>
+                  <Text style={[styles.statTitle, { color: colors.muted }]}>{stat.title}</Text>
+                  {stat.note ? <Text style={[styles.statNote, { color: colors.muted }]}>{stat.note}</Text> : null}
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <View style={styles.activitiesList}>
-            {recentActivities.map((activity) => (
-              <View key={activity.id} style={[styles.activityItem, { borderBottomColor: colors.divider }]}>
-                <Text style={[styles.activityText, { color: colors.text }]}>{activity.text}</Text>
-                <Text style={[styles.activityTime, { color: colors.muted }]}>{formatActivityTime(activity.time)}</Text>
-              </View>
-            ))}
-            {recentActivities.length === 0 && (
-              <Text style={[styles.activityTime, { color: colors.muted }]}>{t.home.noActivity}</Text>
-            )}
-          </View>
-        </View>
+        )}
 
         {/* Quick Actions */}
         <View style={[styles.section, { backgroundColor: colors.background, borderColor: colors.divider }]}>
@@ -290,6 +272,46 @@ export default function CrmDashboard() {
             })}
           </View>
         </View>
+
+        {/* Recent Activities */}
+        <View style={[styles.section, { backgroundColor: colors.background, borderColor: colors.divider }]}>
+          <View style={styles.sectionHeader}>
+            <Activity size={20} color={colors.text} strokeWidth={2} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.recentActivities}</Text>
+          </View>
+          <View style={styles.activitiesList}>
+            {loading ? (
+              <ActivityIndicator color={colors.text} />
+            ) : (
+              recentActivities.map((activity) => {
+                const Icon = ACTIVITY_ICONS[activity.type] ?? Activity;
+                return (
+                  <TouchableOpacity
+                    key={activity.id}
+                    style={[styles.activityItem, { borderBottomColor: colors.divider }]}
+                    onPress={() => openActivity(activity)}
+                    disabled={activity.type !== 'note' && !activity.record}
+                    accessibilityRole="button"
+                    accessibilityLabel={activity.subject}
+                  >
+                    <Icon size={16} color={colors.muted} />
+                    <View style={styles.activityText}>
+                      <Text style={[styles.activityTitle, { color: colors.text }]} numberOfLines={1}>
+                        {activity.subject}
+                      </Text>
+                      <Text style={[styles.activityTime, { color: colors.muted }]} numberOfLines={1}>
+                        {[activity.record?.name, formatActivityTime(activity.createdAt)].filter(Boolean).join(' · ')}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+            {!loading && recentActivities.length === 0 && (
+              <Text style={[styles.activityTime, { color: colors.muted }]}>{t.home.noActivity}</Text>
+            )}
+          </View>
+        </View>
         <View style={{ height: 24 }} />
       </View>
     </ScrollView>
@@ -300,20 +322,20 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16 },
   pageTitle: { fontSize: 34, fontWeight: '700', marginBottom: 16 },
+  loading: { paddingVertical: 48 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 },
   statCard: { width: '50%', padding: 8, marginBottom: 8 },
   iconContainer: { width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   statValue: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
   statTitle: { fontSize: 13 },
-  changeContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
-  changeText: { fontSize: 13, fontWeight: '600' },
   statNote: { fontSize: 11, marginTop: 6 },
   section: { marginTop: 24, borderRadius: 12, padding: 16, borderWidth: 1 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '600' },
   activitiesList: { gap: 12 },
-  activityItem: { paddingBottom: 12, borderBottomWidth: 1 },
-  activityText: { fontSize: 14, marginBottom: 4 },
+  activityItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 12, borderBottomWidth: 1 },
+  activityText: { flex: 1 },
+  activityTitle: { fontSize: 14, marginBottom: 4 },
   activityTime: { fontSize: 13 },
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, marginHorizontal: -6 },
   actionCell: { width: '50%', padding: 6 },

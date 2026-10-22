@@ -13,7 +13,8 @@ import {
   validateActivity,
   validateCompany,
   validateDeal,
-  validateLead,
+  checkEmployeeCount,
+  checkWebsite,
   validatePerson,
   validateTask,
 } from '@/lib/validation';
@@ -89,9 +90,20 @@ describe('whole-form validation', () => {
     expect(validateCompany({ name: 'Acme', email: 'info@acme.com' })).toEqual({});
   });
 
-  it('a lead needs an email', () => {
-    expect(validateLead({ email: '' })).toEqual({ email: 'required' });
-    expect(validateLead({ email: 'lead@acme.com' })).toEqual({});
+  it('checks a website the way the API does', () => {
+    expect(checkWebsite('')).toBeNull();
+    expect(checkWebsite('acme.com')).toBeNull();
+    expect(checkWebsite('https://www.acme.co.uk/about')).toBeNull();
+    expect(checkWebsite('not a url')).toBe('invalidUrl');
+    expect(checkWebsite('localhost')).toBe('invalidUrl');
+  });
+
+  it('accepts an employee count or range', () => {
+    expect(checkEmployeeCount('')).toBeNull();
+    expect(checkEmployeeCount('42')).toBeNull();
+    expect(checkEmployeeCount('11-50')).toBeNull();
+    expect(checkEmployeeCount('10001+')).toBeNull();
+    expect(checkEmployeeCount('about 50')).toBe('invalidEmployees');
   });
 
   it('a task needs a title and a real due date when one is typed', () => {
