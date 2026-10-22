@@ -252,6 +252,7 @@ export const nl: Translations = {
       'WeldBooks houdt de administratie per rechtspersoon bij. Maak je bedrijf aan om te factureren, uitgaven te boeken en belasting voor te bereiden.',
     createCompany: 'Bedrijf aanmaken',
     sheetTitle: 'Stel je bedrijf in',
+    addSheetTitle: 'Bedrijf toevoegen',
     hint: 'De vestigingsplaats bepaalt je rekeningschema, btw-tarieven en factuurnummering. Dit kun je later niet meer wijzigen, dus kies waar het bedrijf is geregistreerd.',
     companyName: 'Bedrijfsnaam',
     companyNamePlaceholder: 'Acme B.V.',
@@ -520,9 +521,15 @@ export const nl: Translations = {
 
   expenseQuick: {
     title: 'Snelle uitgave',
-    amount: 'Bedrag',
+    amount: 'Betaald bedrag',
     amountError: 'Vul een bedrag groter dan nul in',
-    amountHint: 'excl. {rate}% {tax} · {total} incl.',
+    amountHint: 'incl. {amount} {tax} ({rate}%)',
+    mixedRates: 'De bon heeft meer dan één {tax}-tarief ({rates}); elke regel wordt tegen zijn eigen tarief geboekt.',
+    paidWith: 'Betaald met',
+    account: 'Geboekt op',
+    defaultAccount: 'Standaard kostenrekening',
+    rounding: 'Afronding',
+    notBooked: 'Opgeslagen als concept, maar niet geboekt: {reason}',
     amountHintUs: 'Wat je hebt betaald, inclusief eventuele sales tax. Betaalde belasting maakt deel uit van de kosten.',
     accrueUseTax: 'Use tax opbouwen',
     accrueUseTaxHint: 'De leverancier heeft geen sales tax berekend over deze aankoop. Use tax wordt opgebouwd voor je staat.',
@@ -536,7 +543,7 @@ export const nl: Translations = {
     descriptionPlaceholder: 'Waar was dit voor?',
     save: 'Uitgave opslaan',
     queue: 'Uitgave in wachtrij',
-    saved: 'Uitgave opgeslagen',
+    saved: 'Uitgave geboekt',
     saveFailed: 'Uitgave opslaan is mislukt',
     savedOffline: 'Offline opgeslagen — wordt gesynchroniseerd zodra je weer verbinding hebt',
     queuedRetry: 'Opgeslagen in de offlinerij — we proberen het zo opnieuw',
@@ -652,7 +659,6 @@ export const nl: Translations = {
     offlineBanner: 'Je bent offline. Vul de gegevens in; de afbeelding wordt geüpload zodra je weer verbinding hebt.',
     quickExpense: 'Snelle uitgave',
     createBill: 'Inkoopfactuur maken',
-    offlineQueued: 'Offline — de bon wordt geüpload zodra je weer verbinding hebt',
     uploadFailed: 'Afbeelding uploaden is mislukt — je kunt de gegevens nog handmatig invoeren',
     captureFailed: 'Foto maken is mislukt',
   },
@@ -661,6 +667,8 @@ export const nl: Translations = {
     title: 'Meer',
     administration: 'Administratie',
     tapToSwitch: 'Tik om te wisselen',
+    tapToAdd: 'Bedrijf toevoegen',
+    addAdministration: '{name}. Nog een bedrijf toevoegen',
     financial: 'Financieel',
     bankAccounts: 'Bankrekeningen',
     bankAccountsSub: 'Saldi en transacties',
@@ -971,8 +979,17 @@ export const nl: Translations = {
     taxPending: 'Berekend voor het afleveradres',
   },
 
+  receipt: {
+    title: 'Bon',
+    open: 'Bon schermvullend openen',
+    close: 'Sluiten',
+    unavailable: 'De bon kon niet worden geladen',
+  },
+
   administrations: {
     title: 'Administraties',
+    add: 'Bedrijf toevoegen',
+    addHint: 'Een aparte administratie met eigen boekhouding, btw en facturen',
   },
 
   screen: {

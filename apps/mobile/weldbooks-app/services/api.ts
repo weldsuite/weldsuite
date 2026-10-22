@@ -75,6 +75,7 @@ import { today } from '@/lib/date';
 import { BUILT_IN_JURISDICTIONS, DEFAULT_TERMINOLOGY, FALLBACK_CURRENCY, NO_FEATURES } from '@/lib/jurisdiction';
 import type { EntityUpdate } from '@/lib/company-form';
 import type { LineItemInput } from '@/lib/line-items';
+import { quickExpenseLines } from '@/lib/quick-expense';
 import type { DepositTarget } from '@/lib/payments';
 import { asText } from '@weldsuite/text';
 
@@ -125,6 +126,18 @@ async function readLocalFile(uri: string): Promise<ArrayBuffer | null> {
   } catch {
     return null;
   }
+}
+
+/** A queued expense's receipt photo, when it carries one. */
+function localReceipt(value: unknown): LocalReceipt | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const receipt = value as Json;
+  if (!receipt.localUri) return undefined;
+  return {
+    localUri: str(receipt.localUri),
+    fileName: str(receipt.fileName, 'offline-scan.jpg'),
+    mimeType: str(receipt.mimeType, 'image/jpeg'),
+  };
 }
 
 function nullableStr(value: unknown): string | null {
@@ -289,6 +302,31 @@ const client = createClientApi({
 });
 
 const workspacesApi = createWorkspacesApi(client);
+
+/** A receipt photo on this device that has no stored document yet. */
+export interface LocalReceipt {
+  localUri: string;
+  fileName: string;
+  mimeType: string;
+}
+
+/** The name a receipt photo is stored under: a PNG or HEIC from the gallery keeps its own extension. */
+export function receiptFileName(mimeType: string, at = Date.now()): string {
+  const extension = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+  return `receipt-${at}.${extension}`;
+}
+
+/** A quick expense whose bill was saved but could not be approved or paid; it stays a draft. */
+export class QuickExpenseNotBookedError extends Error {
+  readonly bill: Bill;
+
+  constructor(bill: Bill, cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'The expense was saved but not booked');
+    this.name = 'QuickExpenseNotBookedError';
+    this.bill = bill;
+    this.cause = cause;
+  }
+}
 
 class WeldBooksApi {
   setAccessToken(token: string | null) {
@@ -795,40 +833,92 @@ class WeldBooksApi {
 
   // ========== Quick Expense ==========
 
-  /** Quick expenses are one-line bills on app-api (no dedicated endpoint). */
+  /**
+   * A quick expense is a bill on books-api (there is no expense entity). A receipt has been
+   * paid, so the bill is approved and its payment recorded straight away: the cost is in the
+   * P&L and the VAT return without a second step.
+   *
+   * `amount` is what was paid, VAT included (see `lib/quick-expense.ts`). An entry queued by an
+   * older app version has no `amountIncludesTax`: it was typed excluding VAT and is saved as the
+   * draft it was meant to be.
+   *
+   * Once the bill exists, a failed approval or payment is a `QuickExpenseNotBookedError`, never
+   * a plain failure: retrying the whole expense would create the bill twice.
+   */
   async createQuickExpense(data: {
     amount: number;
+    amountIncludesTax?: boolean;
+    /** The category's label; the line description when there is none. */
     category: string;
     description?: string;
     vendorName?: string;
+    /** The supplier OCR matched (VAT number, KvK, IBAN), which beats a lookup by name. */
+    contactId?: string;
+    currency?: string;
     date?: string;
     documentId?: string;
+    /** A receipt photo not uploaded yet (scanned offline): stored first, then linked. */
+    receipt?: LocalReceipt;
     accountId?: string;
     /** VAT / GST percentage. A US expense is booked at what was paid (tax is part of the cost). */
     taxRate?: number;
+    /** The receipt's lines when they carry more than one VAT rate. */
+    receiptLines?: BillPrefill['items'];
+    roundingDescription?: string;
+    paymentMethod?: string;
     /** US: the vendor charged no sales tax, so accrue use tax. */
     accrueUseTax?: boolean;
     /** US: product tax code, used for the use tax rate. */
     taxCode?: string;
   }): Promise<Bill> {
     const expenseDate = data.date || today();
-    return this.createBill({
+    const description = data.description || data.category;
+    const useTax = data.accrueUseTax ? { accrueUseTax: true, taxCode: data.taxCode } : {};
+    const items: LineItemInput[] = data.amountIncludesTax
+      ? quickExpenseLines({
+          total: data.amount,
+          taxRate: data.taxRate ?? 0,
+          description,
+          roundingDescription: data.roundingDescription ?? 'Rounding',
+          accountId: data.accountId,
+          receiptLines: data.receiptLines,
+        }).map((line, index) => (index === 0 ? { ...line, ...useTax } : line))
+      : [
+          {
+            description,
+            quantity: 1,
+            unitPrice: data.amount,
+            taxRate: data.taxRate ?? 0,
+            accountId: data.accountId,
+            ...useTax,
+          },
+        ];
+
+    const documentId =
+      data.documentId ?? (data.receipt ? ((await this.uploadReceipt(data.receipt)) ?? undefined) : undefined);
+    const bill = await this.createBill({
+      contactId: data.contactId,
       contactName: data.vendorName || 'Quick Expense',
       issueDate: expenseDate,
       dueDate: expenseDate,
+      currency: data.currency,
       notes: data.description,
-      documentId: data.documentId,
-      items: [
-        {
-          description: data.description || data.category,
-          quantity: 1,
-          unitPrice: data.amount,
-          taxRate: data.taxRate ?? 0,
-          accountId: data.accountId,
-          ...(data.accrueUseTax ? { accrueUseTax: true, taxCode: data.taxCode } : {}),
-        },
-      ],
+      documentId,
+      items,
     });
+    if (!data.amountIncludesTax) return bill;
+
+    try {
+      const approved = await this.approveBill(bill.id);
+      await this.recordBillPayment(bill.id, {
+        amount: approved.total ?? bill.total,
+        date: expenseDate,
+        paymentMethod: data.paymentMethod ?? 'card',
+      });
+      return approved;
+    } catch (err) {
+      throw new QuickExpenseNotBookedError(bill, err);
+    }
   }
 
   // ========== Documents ==========
@@ -899,9 +989,9 @@ class WeldBooksApi {
   }
 
   /** Capture a scanned receipt: upload the image, then register the document. */
-  async uploadScannedDocument(localUri: string, fileName: string): Promise<{ id: string }> {
-    const fileKey = await this.uploadFile(localUri, fileName);
-    return this.createDocument({ type: 'receipt', fileName, fileKey });
+  async uploadScannedDocument(localUri: string, fileName: string, mimeType = 'image/jpeg'): Promise<{ id: string }> {
+    const fileKey = await this.uploadFile(localUri, fileName, mimeType);
+    return this.createDocument({ type: 'receipt', fileName, fileKey, mimeType });
   }
 
   /** Run vision OCR on an uploaded document. Throws if credits/gateway fail. */
@@ -916,6 +1006,28 @@ class WeldBooksApi {
   async getBillFromDocument(id: string): Promise<BillPrefill> {
     const res = await client.post<DataEnvelope<Json>>(`/bills/from-document/${id}`);
     return toBillPrefill(res.data ?? {});
+  }
+
+  /**
+   * Where to load a scanned document's image from: app-api's private object
+   * route (`/api/storage/private/<key>`), read with the member's own bearer,
+   * which a native <Image> can send as a header. (The browser's cookie and the
+   * signed URLs of `/storage/sign` are for clients that cannot.) Null when the
+   * document has no stored file.
+   */
+  async getDocumentFile(
+    id: string,
+  ): Promise<{ uri: string; headers: Record<string, string>; mimeType: string | null } | null> {
+    const doc = await client.get<DataEnvelope<Json>>(`/accounting-documents/${id}`);
+    const fileKey = doc.data?.fileKey ? str(doc.data.fileKey) : '';
+    if (!fileKey) return null;
+    const token = await getToken();
+    const path = fileKey.split('/').map(encodeURIComponent).join('/');
+    return {
+      uri: `${apiOrigins.originForModule('core')}/api/storage/private/${path}`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      mimeType: doc.data?.mimeType ? str(doc.data.mimeType) : null,
+    };
   }
 
   // ========== Bank Accounts ==========
@@ -1391,18 +1503,34 @@ class WeldBooksApi {
   }): Promise<{ type: string; id?: string; error?: string; dropped?: boolean }> {
     if (item.type === 'document') return this.replayDocument(item.data);
     if (item.type === 'expense') {
-      const bill = await this.createQuickExpense({
-        amount: num(item.data.amount),
-        category: str(item.data.category, 'Expense'),
-        description: item.data.description as string | undefined,
-        vendorName: item.data.vendorName as string | undefined,
-        date: item.data.date as string | undefined,
-        documentId: item.data.documentId as string | undefined,
-        taxRate: num(item.data.taxRate),
-        accrueUseTax: item.data.accrueUseTax === true,
-        taxCode: item.data.taxCode ? str(item.data.taxCode) : undefined,
-      });
-      return { type: 'expense', id: bill.id };
+      const optional = (key: string) => (item.data[key] ? str(item.data[key]) : undefined);
+      try {
+        const bill = await this.createQuickExpense({
+          amount: num(item.data.amount),
+          amountIncludesTax: item.data.amountIncludesTax === true,
+          category: str(item.data.category, 'Expense'),
+          description: optional('description'),
+          vendorName: optional('vendorName'),
+          contactId: optional('contactId'),
+          currency: optional('currency'),
+          date: optional('date'),
+          documentId: optional('documentId'),
+          receipt: localReceipt(item.data.receipt),
+          taxRate: num(item.data.taxRate),
+          receiptLines: Array.isArray(item.data.receiptLines)
+            ? (item.data.receiptLines as BillPrefill['items'])
+            : undefined,
+          roundingDescription: optional('roundingDescription'),
+          paymentMethod: optional('paymentMethod'),
+          accrueUseTax: item.data.accrueUseTax === true,
+          taxCode: optional('taxCode'),
+        });
+        return { type: 'expense', id: bill.id };
+      } catch (err) {
+        // The bill exists as a draft; queueing the expense again would create it twice.
+        if (err instanceof QuickExpenseNotBookedError) return { type: 'expense', id: err.bill.id };
+        throw err;
+      }
     }
     return { type: item.type, error: 'Unknown item type' };
   }
@@ -1416,14 +1544,38 @@ class WeldBooksApi {
   private async replayDocument(data: Json): Promise<{ type: string; id?: string; dropped?: boolean }> {
     const fileName = str(data.fileName, 'offline-scan.jpg');
     const mimeType = data.mimeType ? str(data.mimeType) : 'image/jpeg';
-    let fileKey = data.fileKey ? str(data.fileKey) : '';
-    if (!fileKey) {
-      const bytes = data.localUri ? await readLocalFile(str(data.localUri)) : null;
-      if (!bytes) return { type: 'document', dropped: true };
-      fileKey = await this.uploadBytes(bytes, fileName, mimeType);
+    if (data.fileKey) {
+      const doc = await this.createDocument({
+        type: str(data.type, 'receipt'),
+        fileName,
+        fileKey: str(data.fileKey),
+        mimeType,
+      });
+      return { type: 'document', id: doc.id };
     }
-    const doc = await this.createDocument({ type: str(data.type, 'receipt'), fileName, fileKey, mimeType });
-    return { type: 'document', id: doc.id };
+    const id = data.localUri
+      ? await this.uploadReceipt({ localUri: str(data.localUri), fileName, mimeType })
+      : null;
+    return id ? { type: 'document', id } : { type: 'document', dropped: true };
+  }
+
+  /**
+   * Stores a receipt photo that is still only on this device (scanned offline, or
+   * whose upload failed) as a document, for a bill or expense to link. Null when
+   * the OS has since cleared the photo: the expense is then saved without it
+   * rather than failing on every sync.
+   */
+  async uploadReceipt(receipt: LocalReceipt): Promise<string | null> {
+    const bytes = await readLocalFile(receipt.localUri);
+    if (!bytes) return null;
+    const fileKey = await this.uploadBytes(bytes, receipt.fileName, receipt.mimeType);
+    const doc = await this.createDocument({
+      type: 'receipt',
+      fileName: receipt.fileName,
+      fileKey,
+      mimeType: receipt.mimeType,
+    });
+    return doc.id;
   }
 }
 

@@ -35,6 +35,7 @@ import {
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
+import { StoredReceipt } from '@/components/receipt-preview';
 import { TaxBreakdownCard, TreatmentBreakdownCard } from '@/components/tax-breakdown';
 import { hasTreatmentRows } from '@/lib/tax-treatment';
 import type { Bill } from '@/types/accounting';
@@ -219,6 +220,8 @@ export default function BillDetailScreen() {
             <DetailRow label={t.billDetail.deliveredTo} value={deliveredTo.join('\n')} />
           ) : null}
         </SectionCard>
+
+        <StoredReceipt documentId={bill.sourceDocumentId} />
 
         <DocumentLineItems
           items={bill.items}

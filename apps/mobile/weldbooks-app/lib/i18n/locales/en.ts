@@ -249,6 +249,7 @@ export const en = {
       'WeldBooks keeps your books per legal entity. Create your company to start invoicing, recording expenses and preparing your taxes.',
     createCompany: 'Create company',
     sheetTitle: 'Set up your company',
+    addSheetTitle: 'Add a company',
     hint: "The jurisdiction decides your chart of accounts, tax rates and invoice numbering. It can't be changed later, so pick where the company is registered.",
     companyName: 'Company name',
     companyNamePlaceholder: 'Acme B.V.',
@@ -517,9 +518,15 @@ export const en = {
 
   expenseQuick: {
     title: 'Quick expense',
-    amount: 'Amount',
+    amount: 'Amount paid',
     amountError: 'Enter an amount greater than zero',
-    amountHint: 'excl. {rate}% {tax} · {total} incl.',
+    amountHint: 'incl. {amount} {tax} ({rate}%)',
+    mixedRates: 'The receipt has more than one {tax} rate ({rates}); each line is booked at its own rate.',
+    paidWith: 'Paid with',
+    account: 'Booked on',
+    defaultAccount: 'Default expense account',
+    rounding: 'Rounding',
+    notBooked: 'Saved as a draft but not booked: {reason}',
     amountHintUs: 'What you paid, including any sales tax. Tax you paid is part of the cost.',
     accrueUseTax: 'Accrue use tax',
     accrueUseTaxHint: 'The vendor charged no sales tax on this purchase. Use tax is accrued for your state.',
@@ -533,7 +540,7 @@ export const en = {
     descriptionPlaceholder: 'What was this for?',
     save: 'Save expense',
     queue: 'Queue expense',
-    saved: 'Expense saved',
+    saved: 'Expense booked',
     saveFailed: 'Could not save the expense',
     savedOffline: 'Saved offline — it will sync when you reconnect',
     queuedRetry: "Saved to the offline queue — we'll retry shortly",
@@ -649,7 +656,6 @@ export const en = {
     offlineBanner: "You're offline. Enter the details; the image will upload when you reconnect.",
     quickExpense: 'Quick expense',
     createBill: 'Create bill',
-    offlineQueued: 'Offline — the receipt will upload when you reconnect',
     uploadFailed: 'Could not upload the image — you can still enter the details',
     captureFailed: 'Failed to capture the photo',
   },
@@ -658,6 +664,8 @@ export const en = {
     title: 'More',
     administration: 'Administration',
     tapToSwitch: 'Tap to switch',
+    tapToAdd: 'Add a company',
+    addAdministration: '{name}. Add another company',
     financial: 'Financial',
     bankAccounts: 'Bank accounts',
     bankAccountsSub: 'Balances and transactions',
@@ -968,8 +976,17 @@ export const en = {
     taxPending: 'Calculated for the ship-to address',
   },
 
+  receipt: {
+    title: 'Receipt',
+    open: 'Open the receipt full screen',
+    close: 'Close',
+    unavailable: 'The receipt could not be loaded',
+  },
+
   administrations: {
     title: 'Administrations',
+    add: 'Add company',
+    addHint: 'A separate administration with its own books, VAT and invoices',
   },
 
   screen: {

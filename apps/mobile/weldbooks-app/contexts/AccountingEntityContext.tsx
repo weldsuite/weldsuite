@@ -38,6 +38,8 @@ interface AccountingEntityContextValue {
   /** True when the workspace has more than one active administration. */
   canSwitch: boolean;
   setActiveEntity: (id: string) => void;
+  /** Adds a company that was just created and makes it the active one. */
+  adoptEntity: (entity: AccountingEntity) => void;
   openSwitcher: () => void;
   closeSwitcher: () => void;
   switcherOpen: boolean;
@@ -105,15 +107,11 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
     load();
   }, [load]);
 
-  const setActiveEntity = useCallback(
-    (id: string) => {
-      if (id === selectedId) {
-        setSwitcherOpen(false);
-        return;
-      }
+  const select = useCallback(
+    (id: string, baseCurrency: string | null) => {
       setSelectedId(id);
       api.setAccountingEntityId(id);
-      api.setAccountingEntityCurrency(entities.find((entity) => entity.id === id)?.baseCurrency ?? null);
+      api.setAccountingEntityCurrency(baseCurrency);
       setSwitcherOpen(false);
       if (organizationId) {
         AsyncStorage.setItem(entityStorageKey(organizationId), id).catch((err) => {
@@ -121,7 +119,26 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
         });
       }
     },
-    [organizationId, selectedId, entities],
+    [organizationId],
+  );
+
+  const setActiveEntity = useCallback(
+    (id: string) => {
+      if (id === selectedId) {
+        setSwitcherOpen(false);
+        return;
+      }
+      select(id, entities.find((entity) => entity.id === id)?.baseCurrency ?? null);
+    },
+    [select, selectedId, entities],
+  );
+
+  const adoptEntity = useCallback(
+    (entity: AccountingEntity) => {
+      setEntities((prev) => (prev.some((row) => row.id === entity.id) ? prev : [...prev, entity]));
+      select(entity.id, entity.baseCurrency ?? null);
+    },
+    [select],
   );
 
   const openSwitcher = useCallback(() => {
@@ -140,6 +157,7 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
       hasEntity: switchable.length > 0,
       canSwitch: switchable.length > 1,
       setActiveEntity,
+      adoptEntity,
       openSwitcher,
       closeSwitcher,
       switcherOpen,
@@ -148,7 +166,7 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
       isRefreshing,
       refresh: load,
     };
-  }, [entities, selectedId, setActiveEntity, openSwitcher, closeSwitcher, switcherOpen, isLoading, loadError, isRefreshing, load]);
+  }, [entities, selectedId, setActiveEntity, adoptEntity, openSwitcher, closeSwitcher, switcherOpen, isLoading, loadError, isRefreshing, load]);
 
   return (
     <AccountingEntityContext.Provider value={value}>{children}</AccountingEntityContext.Provider>

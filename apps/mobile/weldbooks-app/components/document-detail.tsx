@@ -231,7 +231,9 @@ export function DocumentTotalsCard({
   const currency = documentCurrency(doc, entityCurrency);
   const balanceDue = toNumber(doc.balanceDue);
   const amountPaid = toNumber(doc.amountPaid);
-  const partiallyPaid = balanceDue > 0 && amountPaid > 0;
+  // Once anything is paid the bottom line is what is still open (€0.00 when settled):
+  // "Total" under "Paid" read as if the whole amount were still due.
+  const hasPayments = amountPaid > 0;
 
   let taxRows = [{ label: taxLabel, value: formatCurrency(doc.taxTotal, currency) }];
   if (hasTreatmentRows(taxBreakdown)) {
@@ -251,13 +253,16 @@ export function DocumentTotalsCard({
           { label: labels.subtotal, value: formatCurrency(doc.subtotal, currency) },
           ...taxRows,
           ...extraRows,
-          ...(amountPaid > 0
-            ? [{ label: labels.paid, value: `−${formatCurrency(amountPaid, currency)}` }]
+          ...(hasPayments
+            ? [
+                { label: labels.total, value: formatCurrency(doc.total, currency) },
+                { label: labels.paid, value: `−${formatCurrency(amountPaid, currency)}` },
+              ]
             : []),
         ]}
         total={{
-          label: partiallyPaid ? labels.balanceDue : labels.total,
-          value: formatCurrency(partiallyPaid ? balanceDue : doc.total, currency),
+          label: hasPayments ? labels.balanceDue : labels.total,
+          value: formatCurrency(hasPayments ? Math.max(balanceDue, 0) : doc.total, currency),
         }}
       />
     </SectionCard>
