@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import type { ColorValue } from 'react-native';
 import { ClipboardList, Package, Settings } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useI18n } from '@/lib/i18n';
 
 type TabIconProps = { color: ColorValue; size: number };
 
@@ -11,6 +12,7 @@ const SettingsTabIcon = ({ color, size }: TabIconProps) => <Settings size={size}
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const { t } = useI18n();
 
   return (
     <Tabs
@@ -24,21 +26,21 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Products',
+          title: t.tabs.products,
           tabBarIcon: ProductsTabIcon,
         }}
       />
       <Tabs.Screen
         name="picks"
         options={{
-          title: 'Picks',
+          title: t.tabs.picks,
           tabBarIcon: PicksTabIcon,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
+          title: t.tabs.settings,
           tabBarIcon: SettingsTabIcon,
         }}
       />

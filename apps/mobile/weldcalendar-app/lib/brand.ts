@@ -72,3 +72,6 @@ export function eventColor(
   if (color) return color;
   return EVENT_TYPE_COLORS[type ?? 'other'] ?? EVENT_TYPE_COLORS.other;
 }
+
+/** Chip colour for an event the platform placed from a task. */
+export const TASK_EVENT_COLOR = '#6366f1';

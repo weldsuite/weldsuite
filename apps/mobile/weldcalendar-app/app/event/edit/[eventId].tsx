@@ -8,7 +8,8 @@
  */
 
 import { useMemo } from 'react';
-import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
@@ -18,6 +19,7 @@ import { EventForm, toUpdateEventInput, type EventFormValues } from '@/component
 import { canEditEvent, writableCalendars } from '@/lib/calendar-access';
 import { useCalendars, useEvent, useUpdateEvent } from '@/hooks/use-weldcalendar';
 import { useI18n } from '@/lib/i18n';
+import { KEYBOARD_BOTTOM_OFFSET } from '@/lib/keyboard';
 
 export default function EditEventScreen() {
   const router = useRouter();
@@ -104,7 +106,11 @@ export default function EditEventScreen() {
 
   return (
     <Screen header={header}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={KEYBOARD_BOTTOM_OFFSET}
+      >
         <EventForm
           key={event.id}
           mode="edit"
@@ -114,7 +120,7 @@ export default function EditEventScreen() {
           isSubmitting={updateEvent.isPending}
           hasAttendees={(event.attendees?.length ?? 0) > 0}
         />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </Screen>
   );
 }

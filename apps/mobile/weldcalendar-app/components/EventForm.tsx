@@ -24,7 +24,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -38,8 +37,9 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND, eventColor } from '@/lib/brand';
 import { endOfDay, formatTime, startOfDay } from '@/lib/date';
 import { eventTypeLabel, priorityLabel, statusLabel, useI18n } from '@/lib/i18n';
-import { calendarPickerLabel } from '@/lib/calendar-access';
+import { calendarGroupLabel } from '@/lib/calendar-access';
 import { EventStatusBadge, EventTypeChip } from './status-badge';
+import { ThemedSwitch } from './themed-switch';
 import {
   EVENT_PRIORITIES,
   EVENT_STATUSES,
@@ -301,24 +301,22 @@ export function EventForm({
         fieldStyle={fieldStyle}
       />
 
-      <View style={styles.row}>
-        <CalendarField
-          calendar={selectedCalendar}
-          onPress={() => setPicker('calendar')}
-          fieldStyle={fieldStyle}
-        />
+      <CalendarField
+        calendar={selectedCalendar}
+        onPress={() => setPicker('calendar')}
+        fieldStyle={fieldStyle}
+      />
 
-        <View style={[styles.field, styles.rowCol]}>
-          <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.typeLabel}</Text>
-          <TouchableOpacity
-            style={[styles.pickerButton, fieldStyle]}
-            onPress={() => setPicker('type')}
-            accessibilityRole="button"
-          >
-            <EventTypeChip type={type} />
-            <ChevronDown size={18} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
+      <View style={styles.field}>
+        <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.typeLabel}</Text>
+        <TouchableOpacity
+          style={[styles.pickerButton, fieldStyle]}
+          onPress={() => setPicker('type')}
+          accessibilityRole="button"
+        >
+          <EventTypeChip type={type} />
+          <ChevronDown size={18} color={colors.muted} />
+        </TouchableOpacity>
       </View>
 
       <View style={[styles.switchRow, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}>
@@ -328,11 +326,7 @@ export function EventForm({
             {t.eventForm.allDayLabel}
           </Text>
         </View>
-        <Switch
-          value={allDay}
-          onValueChange={handleAllDayChange}
-          trackColor={{ true: BRAND, false: colors.border }}
-        />
+        <ThemedSwitch value={allDay} onValueChange={handleAllDayChange} />
       </View>
 
       <DateTimeField
@@ -506,7 +500,7 @@ function CalendarField({
   const { colors } = useTheme();
   const { t } = useI18n();
   return (
-    <View style={[styles.field, styles.rowCol]}>
+    <View style={styles.field}>
       <Text style={[styles.label, { color: colors.muted }]}>{t.eventForm.calendarLabel}</Text>
       <TouchableOpacity
         style={[styles.pickerButton, fieldStyle]}
@@ -515,12 +509,43 @@ function CalendarField({
       >
         <View style={styles.iconLeft}>
           <View style={[styles.swatch, { backgroundColor: calendar?.color || BRAND }]} />
-          <Text style={[styles.pickerText, { color: colors.text }]} numberOfLines={1}>
-            {calendar ? calendarPickerLabel(calendar, t.calendars.personal) : t.common.notSet}
-          </Text>
+          {calendar ? (
+            <CalendarName calendar={calendar} />
+          ) : (
+            <Text style={[styles.pickerText, { color: colors.text }]}>{t.common.notSet}</Text>
+          )}
         </View>
         <ChevronDown size={18} color={colors.muted} />
       </TouchableOpacity>
+    </View>
+  );
+}
+
+/**
+ * Calendar name with its owner (Personal, or the workspace) on a second line:
+ * two calendars can both be called "My Calendar", and one line truncated the
+ * name before the reader could tell them apart.
+ */
+function CalendarName({
+  calendar,
+  large = false,
+}: Readonly<{ calendar: Calendar; large?: boolean }>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const group = calendarGroupLabel(calendar, t.calendars.personal);
+  return (
+    <View style={styles.calendarName}>
+      <Text
+        style={[large ? styles.sheetOptionText : styles.pickerText, { color: colors.text }]}
+        numberOfLines={2}
+      >
+        {calendar.name}
+      </Text>
+      {group ? (
+        <Text style={[styles.calendarGroup, { color: colors.mutedForeground }]} numberOfLines={1}>
+          {group}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -602,11 +627,7 @@ function NotifyAttendeesRow({
       <Text style={[styles.switchLabel, { color: colors.text, flex: 1 }]}>
         {t.eventForm.notifyLabel}
       </Text>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        trackColor={{ true: BRAND, false: colors.border }}
-      />
+      <ThemedSwitch value={value} onValueChange={onChange} />
     </View>
   );
 }
@@ -702,7 +723,7 @@ function EventOptionSheets({
           >
             <View style={styles.iconLeft}>
               <View style={[styles.swatch, { backgroundColor: calendar.color || BRAND }]} />
-              <Text style={optionText}>{calendarPickerLabel(calendar, t.calendars.personal)}</Text>
+              <CalendarName calendar={calendar} large />
             </View>
           </SheetOption>
         ))}
@@ -981,6 +1002,8 @@ const styles = StyleSheet.create({
   iconLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
   pickerText: { fontSize: 14, flexShrink: 1 },
   swatch: { width: 12, height: 12, borderRadius: 6, flexShrink: 0 },
+  calendarName: { flex: 1, minWidth: 0 },
+  calendarGroup: { fontSize: 12, marginTop: 1 },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',

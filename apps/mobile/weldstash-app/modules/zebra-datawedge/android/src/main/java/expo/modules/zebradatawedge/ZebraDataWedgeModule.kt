@@ -60,20 +60,43 @@ class ZebraDataWedgeModule : Module() {
     Events(EVENT_SCAN)
 
     OnStartObserving {
-      registerScanReceiver()
-      configureProfile()
+      if (isDataWedgeAvailable()) {
+        registerScanReceiver()
+        configureProfile()
+      }
     }
 
     OnStopObserving {
       unregisterScanReceiver()
     }
 
+    // The module is compiled into every Android build, so its mere presence says
+    // nothing about the device: only report support when DataWedge itself is
+    // installed and enabled (a Zebra computer). JS gates the scan listener on it.
     Function("isSupported") {
-      true
+      isDataWedgeAvailable()
     }
 
     Function("configureProfile") {
-      configureProfile()
+      if (isDataWedgeAvailable()) configureProfile()
+    }
+  }
+
+  /**
+   * Whether DataWedge is installed and enabled on this device. Needs the
+   * `<queries>` entry for [DATAWEDGE_PACKAGE] in this module's manifest:
+   * without it Android 11+ hides the package and this is always false.
+   */
+  private fun isDataWedgeAvailable(): Boolean {
+    val host = try {
+      context
+    } catch (_: Exception) {
+      return false
+    }
+    return try {
+      host.packageManager.getApplicationInfo(DATAWEDGE_PACKAGE, 0).enabled
+    } catch (_: PackageManager.NameNotFoundException) {
+      false
     }
   }
 

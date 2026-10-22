@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +12,7 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { appApi } from '@/services/app-api';
 import { buildCreateProductPayload, normalizeBarcode } from '@/utils/barcode';
 import { weldstashKeys } from '@/lib/query-client';
+import { useI18n } from '@/lib/i18n';
 
 export default function NewProductScreen() {
   const { colors } = useTheme();
@@ -18,6 +20,7 @@ export default function NewProductScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { t } = useI18n();
   const params = useLocalSearchParams<{ barcode?: string }>();
 
   const initialBarcode = useMemo(
@@ -28,22 +31,31 @@ export default function NewProductScreen() {
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState(initialBarcode);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const onNameChange = (value: string) => {
+    setName(value);
+    if (nameError) setNameError(null);
+  };
+
   const onSave = async () => {
+    // Shown under the field, not as a toast: a toast is easy to miss and the
+    // button looked like it did nothing.
     if (!name.trim()) {
-      toast.error('Name is required');
+      setNameError(t.newProduct.nameRequired);
       return;
     }
+    setNameError(null);
     setSaving(true);
     try {
       const payload = buildCreateProductPayload({ name, sku, barcode });
       const created = await appApi.products.create(payload);
-      toast.success('Product created');
+      toast.success(t.newProduct.created);
       await queryClient.invalidateQueries({ queryKey: weldstashKeys.products() });
       router.replace(`/product/${created.data.id}`);
     } catch (err) {
-      toast.error((err as Error).message || 'Failed to create product');
+      toast.error((err as Error).message || t.newProduct.createFailed);
     } finally {
       setSaving(false);
     }
@@ -52,31 +64,47 @@ export default function NewProductScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t.common.back}
+        >
           <ChevronLeft size={28} color={colors.text} />
         </Pressable>
-        <Text style={[styles.title, { color: colors.text }]}>New product</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t.newProduct.title}</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-        <Input label="Name" value={name} onChangeText={setName} placeholder="Widget" autoFocus />
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.form}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={56}
+      >
         <Input
-          label="SKU"
+          label={t.newProduct.nameLabel}
+          value={name}
+          onChangeText={onNameChange}
+          placeholder={t.newProduct.namePlaceholder}
+          error={nameError ?? undefined}
+          autoFocus
+        />
+        <Input
+          label={t.newProduct.skuLabel}
           value={sku}
           onChangeText={setSku}
-          placeholder="WID-001"
+          placeholder={t.newProduct.skuPlaceholder}
           autoCapitalize="characters"
           autoCorrect={false}
         />
         <Input
-          label="Barcode"
+          label={t.newProduct.barcodeLabel}
           value={barcode}
           onChangeText={setBarcode}
-          placeholder="Scan or type barcode"
+          placeholder={t.newProduct.barcodePlaceholder}
           autoCapitalize="none"
           autoCorrect={false}
         />
-        <Button title="Create product" loading={saving} onPress={() => void onSave()} />
-      </ScrollView>
+        <Button title={t.newProduct.submit} loading={saving} onPress={() => void onSave()} />
+      </KeyboardAwareScrollView>
     </View>
   );
 }
