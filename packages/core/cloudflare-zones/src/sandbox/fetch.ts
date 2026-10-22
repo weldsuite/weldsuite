@@ -247,44 +247,81 @@ export function createSandboxZonesFetch(opts: SandboxFetchOptions): ZonesFetch {
     return record;
   }
 
-  async function handleZone(request: Request, url: URL, zoneId: string, rest: string[]): Promise<Response> {
+  const unsupported = (method: string, url: URL) =>
+    new SandboxError(405, 10000, `${method} ${url.pathname} is not supported by the DNS sandbox.`);
+
+  /** `/zones/:id` */
+  async function handleZoneRoot(method: string, url: URL, zone: SandboxZone): Promise<Response> {
+    if (method === 'GET') return ok(await settle(zone));
+    if (method === 'DELETE') {
+      await store.deleteZone(zone.id);
+      return ok({ id: zone.id });
+    }
+    throw unsupported(method, url);
+  }
+
+  /** `/zones/:id/dns_records` */
+  async function handleRecordList(request: Request, url: URL, zone: SandboxZone): Promise<Response> {
     const method = request.method.toUpperCase();
-    const zone = await requireZone(zoneId);
-
-    if (rest.length === 0) {
-      if (method === 'GET') return ok(await settle(zone));
-      if (method === 'DELETE') {
-        await store.deleteZone(zone.id);
-        return ok({ id: zone.id });
-      }
+    if (method === 'GET') {
+      const all = (await store.listRecords(zone.id)).sort((a, b) => a.created_on.localeCompare(b.created_on));
+      const { page, info } = paginate(all, url);
+      return ok(page, info);
     }
+    if (method === 'POST') return ok(await buildRecord(zone, await readJson<RecordBody>(request)));
+    throw unsupported(method, url);
+  }
 
-    if (rest[0] === 'dns_records' && rest.length === 1) {
-      if (method === 'GET') {
-        const all = (await store.listRecords(zone.id)).sort((a, b) => a.created_on.localeCompare(b.created_on));
-        const { page, info } = paginate(all, url);
-        return ok(page, info);
-      }
-      if (method === 'POST') return ok(await buildRecord(zone, await readJson<RecordBody>(request)));
-    }
-
-    if (rest[0] === 'dns_records' && rest.length === 2) {
-      const recordId = rest[1]!;
-      const existing = await store.getRecord(zone.id, recordId);
-      if (!existing) throw new SandboxError(404, 81044, 'Record does not exist.');
-      if (method === 'GET') return ok(existing);
-      if (method === 'DELETE') {
+  /** `/zones/:id/dns_records/:recordId` */
+  async function handleRecord(request: Request, url: URL, zone: SandboxZone, recordId: string): Promise<Response> {
+    const method = request.method.toUpperCase();
+    const existing = await store.getRecord(zone.id, recordId);
+    if (!existing) throw new SandboxError(404, 81044, 'Record does not exist.');
+    switch (method) {
+      case 'GET':
+        return ok(existing);
+      case 'DELETE':
         await store.deleteRecord(zone.id, recordId);
         return ok({ id: recordId });
-      }
-      if (method === 'PUT') return ok(await buildRecord(zone, await readJson<RecordBody>(request), existing));
-      if (method === 'PATCH') {
-        const patch = await readJson<RecordBody>(request);
-        return ok(await buildRecord(zone, { ...existing, ...patch }, existing));
-      }
+      case 'PUT':
+        return ok(await buildRecord(zone, await readJson<RecordBody>(request), existing));
+      case 'PATCH':
+        return ok(await buildRecord(zone, { ...existing, ...(await readJson<RecordBody>(request)) }, existing));
+      default:
+        throw unsupported(method, url);
     }
+  }
 
-    throw new SandboxError(405, 10000, `${method} ${url.pathname} is not supported by the DNS sandbox.`);
+  async function handleZone(request: Request, url: URL, zoneId: string, rest: string[]): Promise<Response> {
+    const zone = await requireZone(zoneId);
+    if (rest.length === 0) return handleZoneRoot(request.method.toUpperCase(), url, zone);
+    if (rest[0] === 'dns_records' && rest.length === 1) return handleRecordList(request, url, zone);
+    if (rest[0] === 'dns_records' && rest.length === 2) return handleRecord(request, url, zone, rest[1]!);
+    throw unsupported(request.method.toUpperCase(), url);
+  }
+
+  /** `GET /zones?name=`: names are unique, so a sandbox hit is the whole answer. */
+  async function findZone(url: URL, name: string): Promise<Response | null> {
+    const zone = await store.findZoneByName(name.trim().toLowerCase());
+    if (zone) {
+      const { page, info } = paginate([await settle(zone)], url);
+      return ok(page, info);
+    }
+    return opts.passthrough ? null : ok([], paginate([], url).info);
+  }
+
+  /** `/zones`. `null` means "not ours": pass it through. */
+  async function handleZones(request: Request, url: URL): Promise<Response | null> {
+    const method = request.method.toUpperCase();
+    if (method === 'POST') return createZone(request);
+    const name = url.searchParams.get('name');
+    return method === 'GET' && name ? findZone(url, name) : null;
+  }
+
+  async function route(request: Request, url: URL, segments: string[]): Promise<Response | null> {
+    if (segments.length === 1) return handleZones(request, url);
+    const zoneId = segments[1]!;
+    return isSandboxZoneId(zoneId) ? handleZone(request, url, zoneId, segments.slice(2)) : null;
   }
 
   return async (input, init) => {
@@ -295,24 +332,7 @@ export function createSandboxZonesFetch(opts: SandboxFetchOptions): ZonesFetch {
     if (segments[0] !== 'zones') return passthrough(input, init);
 
     try {
-      const method = request.method.toUpperCase();
-      if (segments.length === 1) {
-        if (method === 'POST') return await createZone(request);
-        const name = url.searchParams.get('name');
-        if (method === 'GET' && name) {
-          const zone = await store.findZoneByName(name.trim().toLowerCase());
-          // Names are unique, so a sandbox hit is the whole answer (page 1 only).
-          if (zone) {
-            const { page, info } = paginate([await settle(zone)], url);
-            return ok(page, info);
-          }
-          if (!opts.passthrough) return ok([], paginate([], url).info);
-        }
-        return await passthrough(input, init);
-      }
-      const zoneId = segments[1]!;
-      if (!isSandboxZoneId(zoneId)) return await passthrough(input, init);
-      return await handleZone(request, url, zoneId, segments.slice(2));
+      return (await route(request, url, segments)) ?? (await passthrough(input, init));
     } catch (err) {
       if (err instanceof SandboxError) return fail(err);
       throw err;
