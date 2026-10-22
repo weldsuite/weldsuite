@@ -68,6 +68,22 @@ export function isSafeObjectKey(key: string): boolean {
   return !key.split('/').some((s) => s === '' || s === '.' || s === '..');
 }
 
+/**
+ * True when `key` is a safe key under `workspaces/<id>/` for one of
+ * `workspaceIds`. Check every key a client hands in before storing or reading
+ * it, so a row can never point at another tenant's object. Pass the Clerk org
+ * id and, where known, the master `workspaces.id`: uploads are keyed by the
+ * first, a few server-side writers (accounting inbox mail) by the second.
+ */
+export function isWorkspaceObjectKey(
+  key: string,
+  ...workspaceIds: (string | null | undefined)[]
+): boolean {
+  if (!isSafeObjectKey(key)) return false;
+  const owner = workspaceOfKey(key);
+  return !!owner && workspaceIds.some((id) => id === owner);
+}
+
 /** `value` without any run of `char` at its end (no regex, so no backtracking). */
 function trimTrailing(value: string, char: string): string {
   let end = value.length;

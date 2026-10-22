@@ -22,7 +22,12 @@ import { shareDriveItemSchema } from '@weldsuite/core-api-client/schemas/drive-s
 import { tagsToSpaces } from '@weldsuite/text';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import { getStoredObject, putStoredObject, workspaceOfKey } from '@weldsuite/worker-kit/storage';
+import {
+  getStoredObject,
+  isWorkspaceObjectKey,
+  locateStoredObject,
+  putStoredObject,
+} from '@weldsuite/worker-kit/storage';
 import * as filesService from '@weldsuite/core-domain/files';
 import {
   canEdit,
@@ -158,6 +163,11 @@ app.get('/:id', requirePermission('files:read'), async (c) => {
   }
 });
 
+/** True when `key` is under the caller's own `workspaces/<id>/` prefix. */
+function isOwnWorkspaceKey(c: Context<{ Bindings: Env; Variables: Variables }>, key: string): boolean {
+  return isWorkspaceObjectKey(key, c.get('workspaceId') || c.get('orgId'));
+}
+
 // ============================================================================
 // POST /
 // ============================================================================
@@ -166,11 +176,20 @@ app.post('/', requirePermission('files:create'), zValidator('json', createFileSc
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
   const body = c.req.valid('json');
+  // The keys come from the client and the content routes serve by key: they
+  // must be this workspace's uploads (TASK-620). Content reads check again.
+  if (![body.storagePath, body.fileKey].every((key) => key === undefined || isOwnWorkspaceKey(c, key))) {
+    return error.badRequest(c, 'storagePath / fileKey is not a file of this workspace');
+  }
   try {
     const denied = checkDestination(c, await driveAccess(c), body.folderId);
     if (denied) return denied;
+    // The drive builds a keyed row's URL from its bucket: record where the
+    // object actually is.
+    const located = await locateStoredObject(c.env, body.fileKey ?? body.storagePath);
     const row = await filesService.createFile(c.get('tenantDb'), {
       ...body,
+      bucket: located?.bucket,
       uploadedById: userId,
     });
     publishEntityEvent({
@@ -356,12 +375,6 @@ app.post('/:id/pin', requirePermission('files:update'), async (c) => {
     return error.internal(c, 'Failed to toggle pin');
   }
 });
-
-/** True when `key` is under the caller's own `workspaces/<id>/` prefix. */
-function isOwnWorkspaceKey(c: Context<{ Bindings: Env; Variables: Variables }>, key: string): boolean {
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
-  return !!workspaceId && workspaceOfKey(key) === workspaceId;
-}
 
 // ============================================================================
 // GET /:id/content — stream the R2 object body

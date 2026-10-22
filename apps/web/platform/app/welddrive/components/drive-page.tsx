@@ -727,7 +727,6 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
             storagePath: result.fileKey || '',
             fileKey: result.fileKey,
             url: result.url,
-            bucket: result.bucket,
             folderId: currentFolderId || undefined,
           });
           uploaded++;

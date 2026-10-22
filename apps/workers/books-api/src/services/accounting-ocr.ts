@@ -20,7 +20,8 @@ import {
 } from '@weldsuite/ai';
 import type { Env } from '../types';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
-import { getStoredObject } from '@weldsuite/worker-kit/storage';
+import { getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
+import { getStoredObject, isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
 
 export { InsufficientAiCreditsError } from '@weldsuite/core-domain/ai-billing';
 
@@ -113,6 +114,17 @@ export interface ProcessDocumentOcrParams {
   metering: AiMetering | null;
 }
 
+/**
+ * True when `key` is a file of the workspace whose Clerk org id is `orgId`.
+ * Uploads are keyed by the org id; documents from the accounting inbox mail by
+ * the master `workspaces.id`, which is looked up only for a key that needs it.
+ */
+export async function isOwnDocumentKey(env: Env, key: string, orgId: string): Promise<boolean> {
+  if (isWorkspaceObjectKey(key, orgId)) return true;
+  const workspace = await getWorkspaceForOrg(env, orgId).catch(() => null);
+  return isWorkspaceObjectKey(key, workspace?.id);
+}
+
 interface OcrFile {
   bytes: Uint8Array;
   mediaType: OcrMediaType;
@@ -135,6 +147,12 @@ async function loadOcrFile(env: Env, params: ProcessDocumentOcrParams): Promise<
 
   if (!env.STORAGE && !env.PRIVATE_STORAGE) {
     throw new AccountingOcrError('FILE_NOT_FOUND', 'File storage is not configured.');
+  }
+
+  // The key came from the client: never read another tenant's file. Reported
+  // exactly like a missing one.
+  if (!(await isOwnDocumentKey(env, params.fileKey, params.workspaceId))) {
+    throw new AccountingOcrError('FILE_NOT_FOUND', `File not found: ${params.fileKey}`);
   }
 
   const stored = await getStoredObject(env, params.fileKey);

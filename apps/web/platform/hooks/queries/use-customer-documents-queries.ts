@@ -101,8 +101,6 @@ export function useConfirmDocumentUpload() {
   return useMutation({
     mutationFn: (params: {
       fileKey: string;
-      /** Bucket the broker put the object in; lets the drive build its URL. */
-      bucket?: 'public' | 'private';
       fileName: string;
       contentType: string;
       fileSize: number;
@@ -116,7 +114,6 @@ export function useConfirmDocumentUpload() {
         fileType: 'file',
         storagePath: params.fileKey,
         fileKey: params.fileKey,
-        bucket: params.bucket,
         entityType: toFilesEntityType(params.entityKind),
         entityId: params.customerId,
       }),
