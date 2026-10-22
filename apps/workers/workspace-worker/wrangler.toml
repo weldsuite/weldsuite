@@ -24,6 +24,12 @@ enabled = true
 
 [vars]
 ENVIRONMENT = "development"
+# Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
+# has its own apex zone, because a zone has ONE Email Routing catch-all and it
+# must point at this environment's inbound worker
+# (docs/plans/weldmail-test-mail-zone.md).
+WELDMAIL_DOMAIN = "weldmail.org"
+MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 APP_URL = "http://localhost:3000"
 # Warm database pool watermarks (instant provisioning). Shared slots = free
@@ -65,10 +71,11 @@ class_name = "MoveDatabaseWorkflow"
 
 # Keep the warm database pool topped up (test locally with
 # `wrangler dev --test-scheduled` + GET /__scheduled). The daily entry runs
-# the scheduled-deletion sweep (services/deletion-sweep.ts) instead — branched
-# on event.cron in the `scheduled` handler (src/index.ts).
+# the scheduled-deletion sweep (services/deletion-sweep.ts) instead, and the
+# hourly one repairs unrouted WeldMail domains (services/mail-repair-sweep.ts) —
+# branched on event.cron in the `scheduled` handler (src/index.ts).
 [triggers]
-crons = ["*/5 * * * *", "0 3 * * *"]
+crons = ["*/5 * * * *", "0 3 * * *", "17 * * * *"]
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -84,6 +91,12 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
+# has its own apex zone, because a zone has ONE Email Routing catch-all and it
+# must point at this environment's inbound worker
+# (docs/plans/weldmail-test-mail-zone.md).
+WELDMAIL_DOMAIN = "weldmail.org"
+MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 APP_URL = "https://app-test.weldsuite.org"
 POOL_TARGET_SHARED = "2"
@@ -114,7 +127,7 @@ binding = "MOVE_DATABASE"
 class_name = "MoveDatabaseWorkflow"
 
 [env.test.triggers]
-crons = ["*/5 * * * *", "0 3 * * *"]
+crons = ["*/5 * * * *", "0 3 * * *", "17 * * * *"]
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -140,6 +153,12 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
+# has its own apex zone, because a zone has ONE Email Routing catch-all and it
+# must point at this environment's inbound worker
+# (docs/plans/weldmail-test-mail-zone.md).
+WELDMAIL_DOMAIN = "weldmail.com"
+MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 POOL_TARGET_SHARED = "10"
 POOL_TARGET_DEDICATED = "2"
@@ -169,7 +188,7 @@ binding = "MOVE_DATABASE"
 class_name = "MoveDatabaseWorkflow"
 
 [env.production.triggers]
-crons = ["*/5 * * * *", "0 3 * * *"]
+crons = ["*/5 * * * *", "0 3 * * *", "17 * * * *"]
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"

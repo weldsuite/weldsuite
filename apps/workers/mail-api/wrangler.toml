@@ -19,8 +19,6 @@
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): /api/mail-ai
 #     (@weldsuite/ai). When unset, @weldsuite/ai uses CLOUDFLARE_API_TOKEN.
-#   MAIL_INBOUND_WORKER_NAME (optional; the worker the catch-all rule routes
-#     inbound mail to — defaults to weldsuite-mail-inbound, unset on app-api)
 #   OUTBOUND_ADMIN_SECRET (the outbound guard's staff API, /internal/outbound/*;
 #     same value as the admin console's; at least 32 characters)
 #
@@ -64,6 +62,12 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
+# has its own apex zone, because a zone has ONE Email Routing catch-all and it
+# must point at this environment's inbound worker
+# (docs/plans/weldmail-test-mail-zone.md).
+WELDMAIL_DOMAIN = "weldmail.org"
+MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 ABUSE_NOTIFY_EMAIL = "gert@weldsuite.org"
@@ -178,6 +182,12 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
+# has its own apex zone, because a zone has ONE Email Routing catch-all and it
+# must point at this environment's inbound worker
+# (docs/plans/weldmail-test-mail-zone.md).
+WELDMAIL_DOMAIN = "weldmail.org"
+MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound-test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -278,6 +288,12 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# Shared WeldMail workspace domains: {slug}.WELDMAIL_DOMAIN. Each environment
+# has its own apex zone, because a zone has ONE Email Routing catch-all and it
+# must point at this environment's inbound worker
+# (docs/plans/weldmail-test-mail-zone.md).
+WELDMAIL_DOMAIN = "weldmail.com"
+MAIL_INBOUND_WORKER_NAME = "weldsuite-mail-inbound"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
