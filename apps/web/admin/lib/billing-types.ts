@@ -3,6 +3,8 @@
 // (client components) consumes them. Shapes from the worker mirror
 // apps/workers/billing-worker/src/services/admin-billing.ts.
 
+import type { SsoAdminView } from '@weldsuite/app-api-client/schemas/sso';
+
 export type SubscriptionCycle = 'monthly' | 'yearly';
 export type ProrationBehavior = 'always_invoice' | 'create_prorations' | 'none';
 export type CollectionMethod = 'charge_automatically' | 'send_invoice';
@@ -200,4 +202,22 @@ export interface InvoicePreview {
 /** Results some billing actions return; `warnings` are shown as toasts. */
 export interface WithWarnings {
   warnings?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Single sign-on add-on (GET /api/internal/admin/workspaces/:id/sso)
+// ---------------------------------------------------------------------------
+
+/** SSO load result, like SnapshotState. */
+export type SsoViewState =
+  | { kind: 'ok'; view: SsoAdminView }
+  | { kind: 'not_configured' }
+  | { kind: 'error'; message: string };
+
+/** What `sso/grant` and `sso/revoke` did (billing-worker `SsoAdminResult`). */
+export interface SsoAdminResult {
+  action: 'created' | 'repriced' | 'canceled' | 'scheduled_cancel' | 'none';
+  subscriptionId: string | null;
+  entitled: boolean;
+  warnings: string[];
 }

@@ -17,6 +17,12 @@ describe('buildBreadcrumbSegments', () => {
     expect(labels('/settings/activity')).toEqual([en.settings.title, 'Activity Log']);
   });
 
+  it('labels the single sign-on page in the active locale', () => {
+    expect(labels('/settings/sso')).toEqual([en.settings.title, 'Single sign-on']);
+    const segments = buildBreadcrumbSegments('/settings/sso', nl.settings.title, nl.settings.menu);
+    expect(segments.at(-1)?.label).toBe(nl.settings.menu.sso);
+  });
+
   it('labels the legacy /settings/general alias like Business Settings', () => {
     expect(labels('/settings/general')).toEqual([en.settings.title, 'Business Settings']);
     expect(labels('/settings/business')).toEqual([en.settings.title, 'Business Settings']);

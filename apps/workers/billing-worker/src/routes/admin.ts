@@ -32,6 +32,7 @@ import {
   endComp,
   getStripeSnapshot,
   grantComp,
+  loadWorkspace,
   previewSubscriptionChange,
   reactivateSubscription,
   refundPayment,
@@ -40,6 +41,14 @@ import {
   voidInvoice,
 } from '../services/admin-billing';
 import { createPlan, resyncPlan, updatePlan } from '../services/admin-plans';
+import {
+  disableSsoConnection,
+  grantSsoPrice,
+  revokeSsoAddon,
+  ssoAdminView,
+  withSsoBillingLock,
+} from '../services/sso-billing';
+import { SSO_MAX_PRICE_CENTS, SSO_PRICE_CURRENCIES } from '@weldsuite/app-api-client/schemas/sso';
 import type { AdminAuditTargetType } from '@weldsuite/db/schema/master';
 
 export { stripeFailure } from './admin-http';
@@ -109,6 +118,16 @@ const schemas = {
     reason,
   }),
   refund: z.object({ amountCents: z.number().int().min(1).optional(), reason }),
+  ssoGrant: z
+    .object({
+      // null = the list price, 0 = free.
+      priceCents: z.number().int().min(0).max(SSO_MAX_PRICE_CENTS).nullable(),
+      currency: z.enum(SSO_PRICE_CURRENCIES).nullable().default(null),
+      switchOn: z.boolean(),
+      reason,
+    })
+    .refine((v) => !v.priceCents || v.currency !== null, { message: 'Choose the currency of the price' }),
+  ssoRevoke: z.object({ mode: z.enum(['period_end', 'immediately']), reason }),
 };
 
 const planFields = {
@@ -392,6 +411,78 @@ adminRoutes.post('/workspaces/:workspaceId/invoices/:invoiceId/void', (c) =>
       details: () => ({ invoiceId: c.req.param('invoiceId') }),
     },
     (ctx) => voidInvoice(ctx, c.req.param('workspaceId'), c.req.param('invoiceId')),
+  ),
+);
+
+// ============================================================================
+// Single sign-on add-on
+// ============================================================================
+
+adminRoutes.get('/workspaces/:workspaceId/sso', async (c) => {
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspace = await loadWorkspace(masterDb, c.req.param('workspaceId'));
+    return c.json({ data: await ssoAdminView(c.env, masterDb, workspace) });
+  } catch (err) {
+    return errorResponse(c, err);
+  }
+});
+
+adminRoutes.post('/workspaces/:workspaceId/sso/grant', (c) =>
+  runAction(
+    c,
+    schemas.ssoGrant,
+    {
+      action: 'sso.grant',
+      targetType: 'workspace',
+      target: onWorkspace(c),
+      details: ({ reason: _r, ...input }) => input,
+    },
+    async (ctx, body) => {
+      const workspace = await loadWorkspace(ctx.masterDb, c.req.param('workspaceId'));
+      return withSsoBillingLock(ctx.masterDb, workspace.id, (tx) =>
+        grantSsoPrice(
+          ctx.env,
+          tx,
+          workspace,
+          { priceCents: body.priceCents, currency: body.currency, switchOn: body.switchOn },
+          { actor: ctx.actor.email, reason: ctx.reason, requestId: ctx.requestId },
+        ),
+      );
+    },
+  ),
+);
+
+adminRoutes.post('/workspaces/:workspaceId/sso/revoke', (c) =>
+  runAction(
+    c,
+    schemas.ssoRevoke,
+    {
+      action: 'sso.revoke',
+      targetType: 'workspace',
+      target: onWorkspace(c),
+      details: (b) => ({ mode: b.mode }),
+    },
+    async (ctx, body) => {
+      const workspace = await loadWorkspace(ctx.masterDb, c.req.param('workspaceId'));
+      return withSsoBillingLock(ctx.masterDb, workspace.id, (tx) =>
+        revokeSsoAddon(ctx.env, tx, workspace, body.mode, { actor: ctx.actor.email, reason: ctx.reason }),
+      );
+    },
+  ),
+);
+
+// Support's off switch for a connection that locks people out; the workspace
+// admin switches it back on in Settings once the IdP is fixed.
+adminRoutes.post('/workspaces/:workspaceId/sso/connection/disable', (c) =>
+  runAction(
+    c,
+    schemas.simple,
+    { action: 'sso.connection.disable', targetType: 'workspace', target: onWorkspace(c) },
+    async (ctx) => {
+      const workspace = await loadWorkspace(ctx.masterDb, c.req.param('workspaceId'));
+      return disableSsoConnection(ctx.env, ctx.masterDb, workspace.id, ctx.actor.email);
+    },
   ),
 );
 

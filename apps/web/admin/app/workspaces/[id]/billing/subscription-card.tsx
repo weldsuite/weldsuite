@@ -302,7 +302,7 @@ const NOTICE_TONE = {
   destructive: 'border-destructive/30 bg-destructive/5 text-destructive',
 } as const;
 
-function Notice({ tone, children }: Readonly<{ tone: keyof typeof NOTICE_TONE; children: React.ReactNode }>) {
+export function Notice({ tone, children }: Readonly<{ tone: keyof typeof NOTICE_TONE; children: React.ReactNode }>) {
   return (
     <div className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${NOTICE_TONE[tone]}`}>
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

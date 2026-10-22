@@ -768,6 +768,18 @@ export const common = {
         needAccount: 'Nog geen account?',
         signUp: 'Registreren',
         signInWithInvitationHint: 'Meld u aan met dit e-mailadres om uw uitnodiging te accepteren',
+        signInWithSso: 'Aanmelden met SSO',
+        sso: {
+          title: 'Aanmelden met SSO',
+          subtitle: 'Voer uw zakelijke e-mailadres in en we brengen u naar de identiteitsprovider van uw bedrijf.',
+          emailLabel: 'Zakelijk e-mailadres',
+          emailPlaceholder: 'u@bedrijf.nl',
+          continue: 'Doorgaan met SSO',
+          notAvailable:
+            'We konden single sign-on niet starten voor dit e-mailadres. Controleer het adres, of vraag uw beheerder of single sign-on voor uw bedrijf is ingesteld.',
+          failed: 'Aanmelden met single sign-on is mislukt. Probeer het opnieuw of meld u op een andere manier aan.',
+          backToLogin: 'Terug naar aanmelden',
+        },
         twoFactor: {
           title: 'Tweestapsverificatie',
           subtitleAuthenticator: 'Voer de verificatiecode in van uw authenticatie-app.',

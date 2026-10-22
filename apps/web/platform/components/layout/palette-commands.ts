@@ -13,6 +13,7 @@ import {
   Building,
   Building2,
   CreditCard,
+  Fingerprint,
   History,
   Home,
   Keyboard,
@@ -312,6 +313,14 @@ export function settingsCommands(
       keywords: `${copy.roles} permissions access`,
       href: '/settings/roles',
       icon: ShieldCheck,
+    },
+    {
+      id: 'settings-sso',
+      title: menu.sso,
+      subtitle: settingsTitle,
+      keywords: `${menu.sso} ${search.sso} sso saml okta entra identity provider`,
+      href: '/settings/sso',
+      icon: Fingerprint,
     },
     {
       id: 'settings-plans',

@@ -209,6 +209,7 @@ import { Route as SocialAnalyticsIndexRouteImport } from './routes/social/analyt
 import { Route as SocialAccountsIndexRouteImport } from './routes/social/accounts/index'
 import { Route as SettingsWebhooksIndexRouteImport } from './routes/settings/webhooks/index'
 import { Route as SettingsTeamIndexRouteImport } from './routes/settings/team/index'
+import { Route as SettingsSsoIndexRouteImport } from './routes/settings/sso/index'
 import { Route as SettingsShortcutsIndexRouteImport } from './routes/settings/shortcuts/index'
 import { Route as SettingsSecurityIndexRouteImport } from './routes/settings/security/index'
 import { Route as SettingsRolesIndexRouteImport } from './routes/settings/roles/index'
@@ -1507,6 +1508,11 @@ const SettingsWebhooksIndexRoute = SettingsWebhooksIndexRouteImport.update({
 const SettingsTeamIndexRoute = SettingsTeamIndexRouteImport.update({
   id: '/team/',
   path: '/team/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsSsoIndexRoute = SettingsSsoIndexRouteImport.update({
+  id: '/sso/',
+  path: '/sso/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsShortcutsIndexRoute = SettingsShortcutsIndexRouteImport.update({
@@ -3236,6 +3242,7 @@ export interface FileRoutesByFullPath {
   '/settings/roles/': typeof SettingsRolesIndexRoute
   '/settings/security/': typeof SettingsSecurityIndexRoute
   '/settings/shortcuts/': typeof SettingsShortcutsIndexRoute
+  '/settings/sso/': typeof SettingsSsoIndexRoute
   '/settings/team/': typeof SettingsTeamIndexRoute
   '/settings/webhooks/': typeof SettingsWebhooksIndexRoute
   '/social/accounts/': typeof SocialAccountsIndexRoute
@@ -3676,6 +3683,7 @@ export interface FileRoutesByTo {
   '/settings/roles': typeof SettingsRolesIndexRoute
   '/settings/security': typeof SettingsSecurityIndexRoute
   '/settings/shortcuts': typeof SettingsShortcutsIndexRoute
+  '/settings/sso': typeof SettingsSsoIndexRoute
   '/settings/team': typeof SettingsTeamIndexRoute
   '/settings/webhooks': typeof SettingsWebhooksIndexRoute
   '/social/accounts': typeof SocialAccountsIndexRoute
@@ -4153,6 +4161,7 @@ export interface FileRoutesById {
   '/settings/roles/': typeof SettingsRolesIndexRoute
   '/settings/security/': typeof SettingsSecurityIndexRoute
   '/settings/shortcuts/': typeof SettingsShortcutsIndexRoute
+  '/settings/sso/': typeof SettingsSsoIndexRoute
   '/settings/team/': typeof SettingsTeamIndexRoute
   '/settings/webhooks/': typeof SettingsWebhooksIndexRoute
   '/social/accounts/': typeof SocialAccountsIndexRoute
@@ -4633,6 +4642,7 @@ export interface FileRouteTypes {
     | '/settings/roles/'
     | '/settings/security/'
     | '/settings/shortcuts/'
+    | '/settings/sso/'
     | '/settings/team/'
     | '/settings/webhooks/'
     | '/social/accounts/'
@@ -5073,6 +5083,7 @@ export interface FileRouteTypes {
     | '/settings/roles'
     | '/settings/security'
     | '/settings/shortcuts'
+    | '/settings/sso'
     | '/settings/team'
     | '/settings/webhooks'
     | '/social/accounts'
@@ -5549,6 +5560,7 @@ export interface FileRouteTypes {
     | '/settings/roles/'
     | '/settings/security/'
     | '/settings/shortcuts/'
+    | '/settings/sso/'
     | '/settings/team/'
     | '/settings/webhooks/'
     | '/social/accounts/'
@@ -7345,6 +7357,13 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/settings/team/'
       preLoaderRoute: typeof SettingsTeamIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/sso/': {
+      id: '/settings/sso/'
+      path: '/sso'
+      fullPath: '/settings/sso/'
+      preLoaderRoute: typeof SettingsSsoIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/shortcuts/': {
@@ -9366,6 +9385,7 @@ interface SettingsRouteRouteChildren {
   SettingsRolesIndexRoute: typeof SettingsRolesIndexRoute
   SettingsSecurityIndexRoute: typeof SettingsSecurityIndexRoute
   SettingsShortcutsIndexRoute: typeof SettingsShortcutsIndexRoute
+  SettingsSsoIndexRoute: typeof SettingsSsoIndexRoute
   SettingsTeamIndexRoute: typeof SettingsTeamIndexRoute
   SettingsWebhooksIndexRoute: typeof SettingsWebhooksIndexRoute
   SettingsIntegrationsAttioCallbackRoute: typeof SettingsIntegrationsAttioCallbackRoute
@@ -9427,6 +9447,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsRolesIndexRoute: SettingsRolesIndexRoute,
   SettingsSecurityIndexRoute: SettingsSecurityIndexRoute,
   SettingsShortcutsIndexRoute: SettingsShortcutsIndexRoute,
+  SettingsSsoIndexRoute: SettingsSsoIndexRoute,
   SettingsTeamIndexRoute: SettingsTeamIndexRoute,
   SettingsWebhooksIndexRoute: SettingsWebhooksIndexRoute,
   SettingsIntegrationsAttioCallbackRoute:

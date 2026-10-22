@@ -9,6 +9,7 @@ import {
   Shield,
   ShieldCheck,
   Key,
+  Fingerprint,
   Landmark,
   Keyboard,
   Receipt,
@@ -114,6 +115,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
         items: [
           { title: ts.menu.teamMembers, href: '/settings/team', icon: Users },
           { title: ts.roles.title, href: '/settings/roles', icon: ShieldCheck },
+          { title: ts.menu.sso, href: '/settings/sso', icon: Fingerprint },
           { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
           { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
           { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },

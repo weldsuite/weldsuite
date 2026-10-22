@@ -13,6 +13,7 @@ import { LicenceError, TerritoryConflictError } from '@weldsuite/core-domain/par
 import type { Env } from '../index';
 import type { AdminVariables } from '../middleware/admin-auth';
 import { AdminBillingError } from '../services/admin-billing';
+import { SsoBillingError } from '../services/sso-billing';
 
 export type AdminEnv = { Bindings: Env; Variables: AdminVariables };
 export type AdminCtx = Context<AdminEnv>;
@@ -81,6 +82,9 @@ export function errorResponse(c: AdminCtx, err: unknown) {
       LICENCE_ERROR_STATUS[err.code],
     );
   }
+  if (err instanceof SsoBillingError) {
+    return c.json({ error: { code: err.code, message: err.message } }, err.status);
+  }
   if (err instanceof TerritoryConflictError) {
     return c.json(
       { error: { code: 'TERRITORY_CONFLICT', message: err.message, details: { countries: err.countries } } },
@@ -100,7 +104,12 @@ export function errorResponse(c: AdminCtx, err: unknown) {
 }
 
 export function errorMessage(err: unknown): string {
-  if (err instanceof AdminBillingError || err instanceof LicenceError || err instanceof TerritoryConflictError) {
+  if (
+    err instanceof AdminBillingError ||
+    err instanceof LicenceError ||
+    err instanceof TerritoryConflictError ||
+    err instanceof SsoBillingError
+  ) {
     return err.message;
   }
   return stripeFailure(err)?.message ?? (err instanceof Error ? err.message : String(err));

@@ -414,6 +414,13 @@
       "when": 1792424127763,
       "tag": "0058_normal_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792688433014,
+      "tag": "0059_workspace_sso",
+      "breakpoints": true
     }
   ]
 }

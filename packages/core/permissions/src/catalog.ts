@@ -81,6 +81,18 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('roles',         'Roles & Permissions',  ['read', 'create', 'update', 'delete']),
   objectPermissions('apikeys',       'API Keys',             ['read', 'create', 'delete']),
   objectPermissions('billing',       'Billing',              ['read', 'manage']),
+  {
+    key: 'sso',
+    label: 'Single Sign-On',
+    permissions: [
+      { key: 'sso:read', label: 'View single sign-on settings' },
+      {
+        key: 'sso:manage',
+        label: 'Configure single sign-on',
+        description: 'Verify the company domain, connect the identity provider and switch SSO on or off. Buying the SSO add-on also needs Manage billing.',
+      },
+    ],
+  },
 
   // ── CRM ───────────────────────────────────────────────────────────────
   // `<obj>:scope:all` is an OPT-IN elevated grant — without it, a user with
@@ -587,6 +599,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'settings:apikeys:read', 'settings:apikeys:create', 'settings:apikeys:delete',
   'settings:billing:read',
   'settings:working-hours:edit-self',
+  // Single sign-on configuration (buying the add-on still takes billing:manage)
+  'sso:read', 'sso:manage',
   // All app modules (full access)
   'weldcrm:*', 'weldstash:*', 'weldbooks:*',
   'welddesk:*', 'weldparcel:*', 'weldflow:*', 'weldmail:*', 'weldhost:*',

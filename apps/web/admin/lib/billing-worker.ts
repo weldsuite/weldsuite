@@ -1,7 +1,8 @@
 import 'server-only';
 
+import type { SsoAdminView } from '@weldsuite/app-api-client/schemas/sso';
 import type { AdminIdentity } from './auth';
-import type { SnapshotState, StripeSnapshot } from './billing-types';
+import type { SnapshotState, SsoViewState, StripeSnapshot } from './billing-types';
 
 /**
  * Server-only client for the billing worker's admin API
@@ -88,6 +89,19 @@ export async function loadStripeSnapshot(identity: AdminIdentity, workspaceId: s
     { identity },
   );
   if (result.ok) return { kind: 'ok', snapshot: result.data };
+  if (result.code === 'NOT_CONFIGURED') return { kind: 'not_configured' };
+  return { kind: 'error', message: result.error };
+}
+
+/** The workspace's single sign-on (price, add-on, connection) for the billing tab; never throws. */
+export async function loadSsoView(identity: AdminIdentity, workspaceId: string): Promise<SsoViewState> {
+  if (!isBillingWorkerConfigured()) return { kind: 'not_configured' };
+  const result = await callBillingWorker<SsoAdminView>(
+    'GET',
+    `/workspaces/${encodeURIComponent(workspaceId)}/sso`,
+    { identity },
+  );
+  if (result.ok) return { kind: 'ok', view: result.data };
   if (result.code === 'NOT_CONFIGURED') return { kind: 'not_configured' };
   return { kind: 'error', message: result.error };
 }
