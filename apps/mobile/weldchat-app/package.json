@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
+    "test:e2e": "maestro test .maestro",
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios",

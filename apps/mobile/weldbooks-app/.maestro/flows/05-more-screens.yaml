@@ -1,0 +1,28 @@
+appId: com.weldsuite.weldbooks
+name: Reports, banking, VAT and settings open
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn: "More"
+- tapOn: "Contacts"
+- assertVisible: "Search contacts"
+- back
+- tapOn: "Profit & loss"
+- assertVisible: "Net profit"
+- back
+- tapOn: "Balance sheet"
+- waitForAnimationToEnd
+- back
+- tapOn: "Bank accounts"
+- waitForAnimationToEnd
+- back
+- tapOn: "VAT returns"
+- assertVisible: "All years"
+- back
+- tapOn: "Reconciliation"
+- assertVisible: "Unmatched"
+- back
+- scrollUntilVisible:
+    element: "Settings"
+- tapOn: "Settings"
+- assertVisible: "Base currency"
