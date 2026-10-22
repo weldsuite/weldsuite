@@ -95,6 +95,7 @@ import { isSystemLabel } from '../lib/label-config';
 import { hasLabel, withLabel, withoutLabel } from '../lib/message-labels';
 import { SNOOZE_PRESETS } from '../lib/snooze-presets';
 import { buildComposeBodies } from '../lib/compose-body';
+import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { appendQuotedOriginal, quoteSender } from '../lib/reply-quote';
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
@@ -2180,7 +2181,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             ref={editorRef}
             contentEditable
             data-placeholder={placeholder}
-            className="w-full min-h-36 text-sm outline-none bg-transparent text-foreground empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60 mt-px"
+            className={cn("w-full min-h-36 text-sm outline-none bg-transparent text-foreground empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60 mt-px", MAIL_EDITOR_PARAGRAPH_CLASSES)}
             suppressContentEditableWarning
           />
         </div>
