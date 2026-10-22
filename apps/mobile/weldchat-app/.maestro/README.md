@@ -23,8 +23,12 @@ load it before running.
 ## Test data
 
 No data is needed up front. `02-channel-message` creates the channel
-`#e2e-maestro` on its first run (the app can't delete channels), then posts a
-stamped message and deletes it again.
+`#e2e-maestro` on its first run and keeps it (to remove it, open the channel's
+details from its header and choose Delete channel), then posts a stamped message
+and deletes it again.
+
+The flows assert English text, so run them on an emulator set to English. The
+app follows the phone language (Dutch phones get Dutch).
 
 ## Run
 

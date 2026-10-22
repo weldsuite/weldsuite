@@ -15,11 +15,12 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useObserve } from 'expo-observe';
 import { Image } from 'expo-image';
-import { Hash, Lock, ChevronRight, Search, Check, Bookmark, SquarePen, Plus } from 'lucide-react-native';
+import { Hash, Lock, ChevronRight, Search, Check, Bookmark, SquarePen, Plus, MessageSquarePlus } from 'lucide-react-native';
 import { useOrganization, useOrganizationList, useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -44,6 +45,7 @@ interface Section {
 
 export default function HomeTab() {
   const { markInteractive } = useObserve();
+  const { t, plural } = useI18n();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
@@ -235,19 +237,23 @@ export default function HomeTab() {
     if (unsectioned.length > 0) {
       const hasDefaultSection = sections.some((s) => s.name === 'Channels');
       if (!hasDefaultSection) {
-        groups.push({ id: '__unsectioned__', name: 'Channels', channels: unsectioned });
+        groups.push({ id: '__unsectioned__', name: t.home.channelsGroup, channels: unsectioned });
       }
     }
 
     return groups;
-  }, [channels, sections, search]);
+  }, [channels, sections, search, t]);
+
+  // Nothing to list at all (not just nothing matching the search): point at the
+  // two ways to get started instead of an empty page.
+  const showEmptyState = !loading && channels.length === 0 && search.trim() === '';
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.headerRow}>
         <View style={styles.headerTitleWrap} pointerEvents="none">
-          <Text style={styles.headerTitle}>Home</Text>
+          <Text style={styles.headerTitle}>{t.tabs.home}</Text>
         </View>
 
         <TouchableOpacity
@@ -270,6 +276,8 @@ export default function HomeTab() {
           style={styles.headerSquareBtn}
           activeOpacity={0.7}
           onPress={() => router.push('/new-channel' as any)}
+          accessibilityRole="button"
+          accessibilityLabel={t.home.createChannel}
         >
           <Plus size={20} color={colors.text} />
         </TouchableOpacity>
@@ -280,7 +288,7 @@ export default function HomeTab() {
         <Search size={20} color={colors.mutedForeground} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search"
+          placeholder={t.common.search}
           placeholderTextColor={colors.mutedForeground}
           value={search}
           onChangeText={setSearch}
@@ -295,7 +303,7 @@ export default function HomeTab() {
           onPress={() => router.push('/later' as any)}
         >
           <Bookmark size={20} color={colors.text} strokeWidth={1.75} />
-          <Text style={styles.quickActionTitle}>Saved</Text>
+          <Text style={styles.quickActionTitle}>{t.home.saved}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickActionCard}
@@ -303,12 +311,39 @@ export default function HomeTab() {
           onPress={() => router.push('/drafts' as any)}
         >
           <SquarePen size={20} color={colors.text} strokeWidth={1.75} />
-          <Text style={styles.quickActionTitle}>Drafts</Text>
+          <Text style={styles.quickActionTitle}>{t.home.drafts}</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-        {groupedSections.map((section) => {
+        {showEmptyState && (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Hash size={30} color={colors.mutedForeground} strokeWidth={1.8} />
+            </View>
+            <Text style={styles.emptyTitle}>{t.home.emptyTitle}</Text>
+            <Text style={styles.emptyText}>{t.home.emptyHint}</Text>
+            <TouchableOpacity
+              style={styles.emptyPrimaryBtn}
+              activeOpacity={0.85}
+              onPress={() => router.push('/new-channel' as any)}
+              accessibilityRole="button"
+            >
+              <Plus size={18} color={colors.background} strokeWidth={2.4} />
+              <Text style={styles.emptyPrimaryText}>{t.home.emptyCreateChannel}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.emptySecondaryBtn}
+              activeOpacity={0.7}
+              onPress={() => router.push('/new-dm' as any)}
+              accessibilityRole="button"
+            >
+              <MessageSquarePlus size={18} color={colors.text} strokeWidth={2} />
+              <Text style={styles.emptySecondaryText}>{t.home.emptyStartDm}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {!showEmptyState && groupedSections.map((section) => {
           const isCollapsed = collapsedSections[section.id] ?? false;
           return (
             <View key={section.id}>
@@ -337,7 +372,7 @@ export default function HomeTab() {
                   }
                 >
                   <Plus size={18} color={colors.muted} strokeWidth={2} />
-                  <Text style={styles.addChannelText}>Add channel</Text>
+                  <Text style={styles.addChannelText}>{t.home.addChannel}</Text>
                 </Pressable>
               )}
 
@@ -346,7 +381,12 @@ export default function HomeTab() {
                   <Pressable
                     key={ch.id}
                     style={({ pressed }) => [styles.channelItem, pressed && styles.channelItemPressed]}
-                    onPress={() => router.push(`/channel/${ch.id}` as any)}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/channel/[channelId]',
+                        params: { channelId: ch.id, name: ch.name, type: ch.type },
+                      } as any)
+                    }
                   >
                     {(() => {
                       const iconColor = (ch.unreadCount ?? 0) > 0 ? colors.text : colors.mutedForeground;
@@ -442,7 +482,7 @@ export default function HomeTab() {
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetHeaderTitle} numberOfLines={1}>{sectionMenu?.name}</Text>
               <Text style={styles.sheetHeaderSubtitle}>
-                {groupedSections.find((s) => s.id === sectionMenu?.id)?.channels.length ?? 0} channels
+                {plural(groupedSections.find((s) => s.id === sectionMenu?.id)?.channels.length ?? 0, t.home.channelCount)}
               </Text>
             </View>
 
@@ -455,7 +495,7 @@ export default function HomeTab() {
               activeOpacity={0.6}
             >
               <Plus size={20} color={colors.mutedForeground} strokeWidth={2} />
-              <Text style={styles.sheetRowText}>Create channel</Text>
+              <Text style={styles.sheetRowText}>{t.home.createChannel}</Text>
             </TouchableOpacity>
 
            </Pressable>
@@ -608,6 +648,53 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       borderRadius: 12,
     },
     addChannelText: { fontSize: 15, color: c.muted, fontWeight: '500' },
+    emptyState: {
+      alignItems: 'center',
+      paddingHorizontal: 24,
+      paddingTop: 48,
+      paddingBottom: 24,
+    },
+    emptyIcon: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: c.cardBackground,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    emptyTitle: { fontSize: 17, fontWeight: '600', color: c.text, marginBottom: 6 },
+    emptyText: {
+      fontSize: 14,
+      color: c.muted,
+      textAlign: 'center',
+      lineHeight: 20,
+      marginBottom: 24,
+    },
+    emptyPrimaryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      alignSelf: 'stretch',
+      height: 46,
+      borderRadius: 14,
+      backgroundColor: c.text,
+    },
+    emptyPrimaryText: { fontSize: 15, fontWeight: '600', color: c.background },
+    emptySecondaryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      alignSelf: 'stretch',
+      height: 46,
+      borderRadius: 14,
+      marginTop: 10,
+      borderWidth: 1,
+      borderColor: c.secondary,
+    },
+    emptySecondaryText: { fontSize: 15, fontWeight: '600', color: c.text },
     channelName: { flex: 1, fontSize: 15, color: c.text, opacity: 0.7, fontWeight: '500' },
     channelNameUnread: { color: c.text, opacity: 1, fontWeight: '700' },
     badge: {

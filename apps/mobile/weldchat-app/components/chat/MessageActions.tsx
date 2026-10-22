@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 import type { ThemeColors } from '@/lib/theme-colors';
+import { useI18n } from '@/lib/i18n';
 
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '🙏', '🔥'];
@@ -51,6 +52,7 @@ export function MessageActions({
   onSave,
   isOwnMessage,
 }: Readonly<MessageActionsProps>) {
+  const { t } = useI18n();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.bottom), [colors, insets.bottom]);
@@ -154,6 +156,8 @@ export function MessageActions({
           <TouchableOpacity
             style={styles.emojiBtn}
             onPress={() => { onReact(); dismiss(); }}
+            accessibilityRole="button"
+            accessibilityLabel={t.messageActions.moreReactions}
           >
             <Smile size={22} color={colors.muted} />
           </TouchableOpacity>
@@ -164,33 +168,33 @@ export function MessageActions({
         {/* Actions */}
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onReply(); dismiss(); }}>
           <Reply size={20} color={colors.text} />
-          <Text style={styles.actionText}>Reply</Text>
+          <Text style={styles.actionText}>{t.messageActions.reply}</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onThread(); dismiss(); }}>
           <MessageSquare size={20} color={colors.text} />
-          <Text style={styles.actionText}>Reply in Thread</Text>
+          <Text style={styles.actionText}>{t.messageActions.replyInThread}</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onCopy(); dismiss(); }}>
           <Copy size={20} color={colors.text} />
-          <Text style={styles.actionText}>Copy Text</Text>
+          <Text style={styles.actionText}>{t.messageActions.copyText}</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onPin(); dismiss(); }}>
           {isPinned ? <PinOff size={20} color={colors.text} /> : <Pin size={20} color={colors.text} />}
-          <Text style={styles.actionText}>{isPinned ? 'Unpin' : 'Pin Message'}</Text>
+          <Text style={styles.actionText}>{isPinned ? t.messageActions.unpin : t.messageActions.pin}</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onSave?.(); dismiss(); }}>
           <Bookmark size={20} color={colors.text} />
-          <Text style={styles.actionText}>Save Message</Text>
+          <Text style={styles.actionText}>{t.messageActions.save}</Text>
         </Pressable>
 
         {isOwnMessage && message?.type !== 'system' && onEdit && (
           <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onEdit(); dismiss(); }}>
             <Pencil size={20} color={colors.text} />
-            <Text style={styles.actionText}>Edit Message</Text>
+            <Text style={styles.actionText}>{t.messageActions.edit}</Text>
           </Pressable>
         )}
 
@@ -199,7 +203,7 @@ export function MessageActions({
             <View style={styles.divider} />
             <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onDelete(); dismiss(); }}>
               <Trash2 size={20} color={colors.destructive} />
-              <Text style={[styles.actionText, { color: colors.destructive }]}>Delete</Text>
+              <Text style={[styles.actionText, { color: colors.destructive }]}>{t.messageActions.delete}</Text>
             </Pressable>
           </>
         )}

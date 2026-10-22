@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/expo';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -98,6 +99,7 @@ function formatMessageTime(dateStr?: string): string {
 }
 
 export default function DmsTab() {
+  const { t } = useI18n();
   const [dms, setDms] = useState<DmChannel[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -228,7 +230,7 @@ export default function DmsTab() {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <View style={styles.headerTitleWrap} pointerEvents="none">
-          <Text style={styles.headerTitle}>Chats</Text>
+          <Text style={styles.headerTitle}>{t.tabs.directMessages}</Text>
         </View>
 
         <View style={styles.headerRightGroup}>
@@ -236,6 +238,8 @@ export default function DmsTab() {
             style={styles.headerSquareBtn}
             activeOpacity={0.7}
             onPress={() => router.push('/new-dm')}
+            accessibilityRole="button"
+            accessibilityLabel={t.dms.newDm}
           >
             <Plus size={20} color={colors.text} />
           </TouchableOpacity>
@@ -265,7 +269,7 @@ export default function DmsTab() {
               </View>
             )}
             <SearchField
-              placeholder="Search"
+              placeholder={t.common.search}
               onPress={() => router.push('/search' as any)}
               style={styles.searchContainer}
             />
@@ -276,10 +280,10 @@ export default function DmsTab() {
               keyboardShouldPersistTaps="handled"
             >
               {([
-                { key: 'all', label: 'All' },
-                { key: 'unread', label: 'Unread' },
-                { key: 'favourites', label: 'Favourites' },
-                { key: 'muted', label: 'Muted' },
+                { key: 'all', label: t.dms.filterAll },
+                { key: 'unread', label: t.dms.filterUnread },
+                { key: 'favourites', label: t.dms.filterFavourites },
+                { key: 'muted', label: t.dms.filterMuted },
               ] as const).map((chip) => {
                 const active = filter === chip.key;
                 return (
@@ -322,14 +326,14 @@ export default function DmsTab() {
                 onPress={() => handleArchive(item)}
               >
                 <Archive size={20} color="#fff" />
-                <Text style={styles.swipeActionText}>Archive</Text>
+                <Text style={styles.swipeActionText}>{t.dms.archive}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.swipeAction, styles.swipeDelete]}
                 onPress={() => handleDelete(item)}
               >
                 <Trash2 size={20} color="#fff" />
-                <Text style={styles.swipeActionText}>Delete</Text>
+                <Text style={styles.swipeActionText}>{t.common.delete}</Text>
               </TouchableOpacity>
             </View>
           );
@@ -344,7 +348,7 @@ export default function DmsTab() {
                   ? <Bell size={20} color="#fff" />
                   : <BellOff size={20} color="#fff" />
                 }
-                <Text style={styles.swipeActionText}>{item.isMuted ? 'Unmute' : 'Mute'}</Text>
+                <Text style={styles.swipeActionText}>{item.isMuted ? t.dms.unmute : t.dms.mute}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.swipeAction, styles.swipePin]}
@@ -354,7 +358,7 @@ export default function DmsTab() {
                   ? <PinOff size={20} color="#fff" />
                   : <Pin size={20} color="#fff" />
                 }
-                <Text style={styles.swipeActionText}>{item.isPinned ? 'Unpin' : 'Pin'}</Text>
+                <Text style={styles.swipeActionText}>{item.isPinned ? t.dms.unpin : t.dms.pin}</Text>
               </TouchableOpacity>
             </View>
           );
@@ -376,7 +380,12 @@ export default function DmsTab() {
               <TouchableHighlight
                 style={[styles.dmItem, hasUnread && styles.dmItemUnread]}
                 underlayColor={colors.secondary}
-                onPress={() => router.push(`/dm/${item.id}` as any)}
+                onPress={() =>
+                  router.push({
+                    pathname: '/dm/[channelId]',
+                    params: { channelId: item.id, name: item.name, type: 'dm' },
+                  } as any)
+                }
               >
                 <View style={styles.dmItemInner}>
                   <View style={styles.avatarOuter}>
@@ -430,7 +439,7 @@ export default function DmsTab() {
                         style={[styles.dmLastMessage, hasUnread && styles.dmLastMessageUnread]}
                         numberOfLines={2}
                       >
-                        {item.lastMessagePreview || 'No messages yet'}
+                        {item.lastMessagePreview || t.dms.noMessagesPreview}
                       </Text>
                       {item.isMuted && <BellOff size={12} color={colors.muted} style={styles.mutedIcon} />}
                       {hasUnread && (item.unreadCount ?? 0) > 0 && (
@@ -474,8 +483,8 @@ export default function DmsTab() {
                 <Rect x="38" y="66" width="36" height="4" rx="2" fill={colors.secondary} />
               </Svg>
             </View>
-            <Text style={styles.emptyTitle}>No messages yet</Text>
-            <Text style={styles.emptyText}>Start a conversation with someone</Text>
+            <Text style={styles.emptyTitle}>{t.dms.emptyTitle}</Text>
+            <Text style={styles.emptyText}>{t.dms.emptyHint}</Text>
           </View>
         }
       />
