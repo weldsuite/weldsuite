@@ -34,11 +34,8 @@ export function SsoActivateStep({ config, canManage }: Readonly<SsoActivateStepP
   const blockedReason = !enabled && block ? copy.blocked[block] : null;
 
   // Switched on but paused (the add-on ended) says nothing here: the notice below does.
-  const statusLine = enabled
-    ? connection?.active
-      ? format(copy.statusOn, { domain })
-      : null
-    : (blockedReason ?? copy.statusOff);
+  let statusLine: string | null = blockedReason ?? copy.statusOff;
+  if (enabled) statusLine = connection?.active ? format(copy.statusOn, { domain }) : null;
 
   const activate = useActivateSso();
   const deactivate = useDeactivateSso();

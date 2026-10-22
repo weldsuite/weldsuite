@@ -23,7 +23,7 @@ import { useRemoveSsoDomain, useSetSsoDomain, useVerifySsoDomain } from '@/hooks
 import { CopyField } from './copy-field';
 import { ssoErrorMessage } from './sso-errors';
 import { InlineError, StepCard } from './sso-parts';
-import { domainIssue, formatSsoDate } from './sso-view';
+import { domainIssue, formatSsoDate, type DomainIssue } from './sso-view';
 
 interface DomainFormValues {
   domain: string;
@@ -59,9 +59,12 @@ export function SsoDomainStep({ config, canManage }: Readonly<SsoDomainStepProps
         domain: z.string().superRefine((value, ctx) => {
           const issue = domainIssue(value);
           if (!issue) return;
-          const message =
-            issue === 'required' ? ts.validation.required : issue === 'invalid' ? ts.errors.domainInvalid : ts.errors.domainPublic;
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+          const messages: Record<DomainIssue, string> = {
+            required: ts.validation.required,
+            invalid: ts.errors.domainInvalid,
+            public: ts.errors.domainPublic,
+          };
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: messages[issue] });
         }),
       }),
     [ts],
@@ -162,7 +165,11 @@ export function SsoDomainStep({ config, canManage }: Readonly<SsoDomainStepProps
             </div>
           </form>
         </Form>
-      ) : domain ? (
+      ) : null}
+
+      {!showForm && !domain && <p className="text-sm text-muted-foreground">{copy.none}</p>}
+
+      {!showForm && domain && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -208,8 +215,6 @@ export function SsoDomainStep({ config, canManage }: Readonly<SsoDomainStepProps
             </div>
           )}
         </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">{copy.none}</p>
       )}
 
       {error !== null && <InlineError>{ssoErrorMessage(error, ts.errors)}</InlineError>}

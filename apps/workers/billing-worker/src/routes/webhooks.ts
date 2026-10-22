@@ -1020,6 +1020,11 @@ async function handleConnectAccountUpdated(
 // ============================================================================
 
 /** True for the Stripe invoice of a partner statement (metadata, else the DB). */
+/** Invoices of the add-ons that carry no plan, seat or credit state (extra bank connections, SSO). */
+function isFlatAddOnInvoice(invoice: StripeInvoice): boolean {
+  return isBankConnectionInvoice(invoice) || isSsoInvoice(invoice);
+}
+
 async function isPartnerInvoice(masterDb: MasterDb, invoice: StripeInvoice): Promise<boolean> {
   if (invoice.metadata?.kind === 'partner_statement') return true;
   return isPartnerStatementInvoice(masterDb, invoice.id, invoice.customer);
@@ -1057,11 +1062,9 @@ async function handleInvoicePaid(
   // WeldReach inbox subscription: billing_status -> active, no plan credits
   if (await handleReachInvoiceEvent(masterDb, invoice, 'paid')) return;
 
-  // WeldBooks extra bank connections: no plan credits
-  if (isBankConnectionInvoice(invoice)) return;
-
-  // SSO add-on: no plan credits (its status follows customer.subscription.updated)
-  if (isSsoInvoice(invoice)) return;
+  // WeldBooks extra bank connections and the SSO add-on: no plan credits
+  // (the SSO status follows customer.subscription.updated)
+  if (isFlatAddOnInvoice(invoice)) return;
 
   // Check if this invoice belongs to a phone subscription — skip credit sync
   const [phoneWorkspace] = await masterDb
@@ -1285,14 +1288,9 @@ async function handleInvoicePaymentFailed(
     return;
   }
 
-  // WeldBooks extra bank connections: Stripe's own retries handle it; the invoice is recorded
-  if (isBankConnectionInvoice(invoice)) {
-    await handleInvoiceUpsert(masterDb, invoice);
-    return;
-  }
-
-  // SSO add-on: the same; SSO keeps working while past_due (customer.subscription.updated)
-  if (isSsoInvoice(invoice)) {
+  // WeldBooks extra bank connections and the SSO add-on: Stripe's own retries
+  // handle it; the invoice is recorded. SSO keeps working while past_due.
+  if (isFlatAddOnInvoice(invoice)) {
     await handleInvoiceUpsert(masterDb, invoice);
     return;
   }

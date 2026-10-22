@@ -60,6 +60,11 @@ export default function SsoSettingsPage() {
   }
 
   const status = ssoStatus(config);
+  const statusLabel: Record<SsoStatus, string> = {
+    active: ts.status.active,
+    off: ts.status.off,
+    not_set_up: ts.status.notSetUp,
+  };
   const canManage = config.canManage;
 
   return (
@@ -67,9 +72,7 @@ export default function SsoSettingsPage() {
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{ts.title}</h1>
-          <Badge variant={STATUS_BADGE[status]}>
-            {status === 'active' ? ts.status.active : status === 'off' ? ts.status.off : ts.status.notSetUp}
-          </Badge>
+          <Badge variant={STATUS_BADGE[status]}>{statusLabel[status]}</Badge>
         </div>
         <p className="text-muted-foreground">{ts.description}</p>
       </div>
