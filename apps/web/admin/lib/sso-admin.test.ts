@@ -26,7 +26,7 @@ function view(overrides: Partial<SsoAdminView> = {}): SsoAdminView {
   };
 }
 
-const running = (status: 'active' | 'past_due' | 'canceled'): SsoAdminView['subscription'] => ({
+const running = (status: 'active' | 'past_due' | 'unpaid' | 'canceled'): SsoAdminView['subscription'] => ({
   id: 'sub_123',
   status,
   currentPeriodEnd: '2026-11-22T00:00:00.000Z',
@@ -121,6 +121,7 @@ describe('ssoGrantRequest', () => {
       view({ billingMode: 'partner' }),
       view({ subscription: running('active') }),
       view({ subscription: running('past_due') }),
+      view({ subscription: running('unpaid') }),
     ];
     for (const v of cases) {
       expect(canOfferSwitchOn(v, 'list')).toBe(false);
@@ -139,6 +140,8 @@ describe('canRevokeSso', () => {
     expect(canRevokeSso(view({ planIncludesSso: true, entitlement: { entitled: true, source: 'plan' } }))).toBe(false);
     expect(canRevokeSso(view({ priceOverride: override(0, null) }))).toBe(true);
     expect(canRevokeSso(view({ subscription: running('past_due') }))).toBe(true);
+    // Unpaid still exists in Stripe: staff can end it.
+    expect(canRevokeSso(view({ subscription: running('unpaid') }))).toBe(true);
   });
 });
 

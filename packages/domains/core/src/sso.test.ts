@@ -36,6 +36,7 @@ describe('resolveSsoEntitlement', () => {
   it('a paid add-on counts while active or being retried, not once it ended', () => {
     expect(resolveSsoEntitlement({ ...base, subscriptionStatus: 'active' }).source).toBe('subscription');
     expect(resolveSsoEntitlement({ ...base, subscriptionStatus: 'past_due' }).entitled).toBe(true);
+    expect(resolveSsoEntitlement({ ...base, subscriptionStatus: 'unpaid' }).entitled).toBe(false);
     expect(resolveSsoEntitlement({ ...base, subscriptionStatus: 'canceled' }).entitled).toBe(false);
     expect(resolveSsoEntitlement({ ...base, subscriptionStatus: 'none' }).entitled).toBe(false);
   });

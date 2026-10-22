@@ -41,6 +41,7 @@ vi.mock('@weldsuite/worker-kit/db', async (orig) => {
 });
 vi.mock('@weldsuite/worker-kit/dns-lookup', () => ({ lookupTxt: vi.fn(async () => state.txt) }));
 vi.mock('@weldsuite/worker-kit/billing-worker', () => ({ callBillingWorker: vi.fn() }));
+vi.mock('@weldsuite/entity-events', () => ({ publishEntityEvent: vi.fn() }));
 vi.mock('@clerk/backend', () => {
   const notFound = () => Object.assign(new Error('not found'), { status: 404 });
   const clean = (params: Record<string, unknown>) =>
@@ -90,9 +91,11 @@ vi.mock('@clerk/backend', () => {
 
 import { ssoRoutes } from './index';
 import { callBillingWorker } from '@weldsuite/worker-kit/billing-worker';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 
 const { plans, workspaces, workspaceSso } = masterSchema;
 const mockedBilling = vi.mocked(callBillingWorker);
+const mockedPublish = vi.mocked(publishEntityEvent);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
 let db: any;
@@ -290,6 +293,32 @@ describe('connection', () => {
     const off = await call('POST', '/connection/deactivate');
     expect(off.json.data.connection).toMatchObject({ enabled: false, active: false });
     expect([...state.connections.values()][0]!.active).toBe(false);
+  });
+
+  it('records every change as workspace_settings.updated, without IdP details', async () => {
+    const ws = await seedWorkspace();
+    await verifiedDomain(ws, 'audit.example');
+    const call = api(ws);
+    await call('PUT', '/connection', {
+      provider: 'saml_okta',
+      idpMetadataUrl: 'https://acme.okta.com/app/metadata',
+    });
+    await call('POST', '/connection/activate');
+
+    const events = mockedPublish.mock.calls.map(([event]) => event);
+    expect(events.map((event) => (event.data as { change: string }).change)).toEqual([
+      'domain_claimed',
+      'domain_verified',
+      'connection_saved',
+      'enabled',
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      entityType: 'workspace_settings',
+      action: 'updated',
+      entityId: ws.id,
+      data: { field: 'sso', change: 'enabled', domain: 'audit.example', provider: 'saml_okta', enabled: true },
+    });
+    expect(JSON.stringify(events.map((event) => event.data))).not.toMatch(/okta\.com|metadata|certificate|acs/i);
   });
 
   it('a free staff grant entitles a Business workspace', async () => {

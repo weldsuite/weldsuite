@@ -53,7 +53,10 @@ export type SsoAddonState =
   /** The paid add-on is running. */
   | {
       kind: 'subscribed';
+      /** A payment failed and Stripe is retrying; SSO keeps working. */
       pastDue: boolean;
+      /** Retries are over: SSO is off until the open invoice is paid. */
+      unpaid: boolean;
       currentPeriodEnd: string | null;
       cancelAtPeriodEnd: boolean;
       /** The plan has since started to include SSO: the add-on is no longer needed. */
@@ -73,6 +76,7 @@ export function ssoAddonState(billing: SsoBillingView): SsoAddonState {
     return {
       kind: 'subscribed',
       pastDue: subscription.status === 'past_due',
+      unpaid: subscription.status === 'unpaid',
       currentPeriodEnd: subscription.currentPeriodEnd,
       cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
       includedInPlan: billing.unavailableReason === 'INCLUDED_IN_PLAN',

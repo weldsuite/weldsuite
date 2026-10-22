@@ -49,6 +49,8 @@ export function ssoErrorMessage(err: unknown, copy: SsoErrorCopy): string {
       return copy.alreadySubscribed;
     case SSO_ERRORS.NOT_SUBSCRIBED:
       return copy.notSubscribed;
+    case SSO_ERRORS.SUBSCRIPTION_UNPAID:
+      return copy.subscriptionUnpaid;
     case SSO_ERRORS.PAYMENT_METHOD_REQUIRED:
       return copy.paymentMethodRequired;
     case SSO_ERRORS.BILLING_ADMIN_REQUIRED:

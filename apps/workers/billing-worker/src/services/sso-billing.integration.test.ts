@@ -431,6 +431,62 @@ describe('POST /subscribe', () => {
   });
 });
 
+describe('an unpaid add-on', () => {
+  async function seedUnpaid() {
+    const ws = await seedWorkspace();
+    await db.insert(workspaceSso).values({
+      id: `wsso_${ws.id}`,
+      workspaceId: ws.id,
+      clerkOrgId: ws.orgId,
+      stripeSubscriptionId: 'sub_unpaid',
+      subscriptionStatus: 'unpaid',
+    });
+    return ws;
+  }
+
+  it('is shown as overdue, not offered for sale', async () => {
+    const ws = await seedUnpaid();
+    stubStripe({ [`GET /v1/customers/${ws.customerId}`]: customer(ws, null, true) });
+
+    const { json } = await settings(ws, 'GET', '/status');
+
+    expect(json.data).toMatchObject({
+      entitlement: { entitled: false },
+      purchasable: false,
+      subscription: { status: 'unpaid' },
+    });
+  });
+
+  it('is not bought again: the overdue invoice has to be paid', async () => {
+    const ws = await seedUnpaid();
+    const calls = stubStripe({
+      'GET /v1/subscriptions/sub_unpaid': ssoSubscription('sub_unpaid', ws, 'unpaid'),
+      [`GET /v1/customers/${ws.customerId}`]: customer(ws, null, true),
+    });
+
+    const { status, json } = await settings(ws, 'POST', '/subscribe');
+
+    expect(status).toBe(402);
+    expect(json.error?.code).toBe('SSO_SUBSCRIPTION_UNPAID');
+    expect(writes(calls)).toEqual([]);
+  });
+
+  it('can be cancelled, which ends it at once', async () => {
+    const ws = await seedUnpaid();
+    const calls = stubStripe({
+      'GET /v1/subscriptions/sub_unpaid': ssoSubscription('sub_unpaid', ws, 'unpaid'),
+      'DELETE /v1/subscriptions/sub_unpaid': ssoSubscription('sub_unpaid', ws, 'canceled'),
+      [`GET /v1/customers/${ws.customerId}`]: customer(ws, null, true),
+    });
+
+    const { status } = await settings(ws, 'POST', '/cancel');
+
+    expect(status).toBe(200);
+    expect(calls.some((c) => c.method === 'DELETE' && c.path === '/v1/subscriptions/sub_unpaid')).toBe(true);
+    expect(await ssoRow(ws.id)).toMatchObject({ subscriptionStatus: 'canceled' });
+  });
+});
+
 describe('POST /cancel and /resume', () => {
   it('ends the add-on at period end and can undo that', async () => {
     const ws = await seedWorkspace();
@@ -493,6 +549,22 @@ describe('Stripe webhooks', () => {
 
     expect(await ssoRow(ws.id)).toMatchObject({ subscriptionStatus: 'past_due', clerkActive: true });
     expect(state.clerk.updates).toEqual([]);
+  });
+
+  it('unpaid switches SSO off, and paying the overdue invoice switches it back on', async () => {
+    const ws = await seedWorkspace();
+    const connectionId = await seedConnection(ws, { clerkActive: true, stripeSubscriptionId: 'sub_overdue', subscriptionStatus: 'past_due' });
+    stubStripe({});
+
+    await sendEvent('customer.subscription.updated', ssoSubscription('sub_overdue', ws, 'unpaid'));
+    expect(await ssoRow(ws.id)).toMatchObject({ subscriptionStatus: 'unpaid', clerkActive: false });
+
+    await sendEvent('customer.subscription.updated', ssoSubscription('sub_overdue', ws, 'active'));
+    expect(await ssoRow(ws.id)).toMatchObject({ subscriptionStatus: 'active', clerkActive: true });
+    expect(state.clerk.updates).toEqual([
+      { id: connectionId, active: false },
+      { id: connectionId, active: true },
+    ]);
   });
 
   it('ignores a late event for an old add-on while a newer one runs', async () => {

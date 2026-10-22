@@ -234,7 +234,13 @@ function SubscribedAddon({
   if (billing.price.custom) lines.push(copy.customPrice);
 
   let actions: ReactNode = <OwnerOnly />;
-  if (canManageBilling && state.cancelAtPeriodEnd) {
+  if (canManageBilling && state.unpaid) {
+    actions = (
+      <Button asChild size="sm">
+        <Link href="/settings/billing">{copy.payInvoice}</Link>
+      </Button>
+    );
+  } else if (canManageBilling && state.cancelAtPeriodEnd) {
     actions = (
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onResume}>
         {resuming && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -251,14 +257,8 @@ function SubscribedAddon({
 
   return (
     <div className="space-y-3">
-      <Summary
-        title={price}
-        badge={
-          state.pastDue ? <Badge variant="warning">{copy.pastDue}</Badge> : <Badge variant="success">{copy.active}</Badge>
-        }
-        lines={lines}
-        actions={actions}
-      />
+      <Summary title={price} badge={<SubscriptionBadge state={state} />} lines={lines} actions={actions} />
+      {state.unpaid && <Notice tone="warning">{copy.unpaidDescription}</Notice>}
       {state.pastDue && (
         <Notice tone="warning">
           {copy.pastDueDescription}{' '}
@@ -272,6 +272,15 @@ function SubscribedAddon({
       {state.includedInPlan && <Notice>{copy.includedInPlanNow}</Notice>}
     </div>
   );
+}
+
+/** Active, retrying a failed payment, or overdue (SSO off until paid). */
+function SubscriptionBadge({ state }: Readonly<{ state: SubscribedState }>) {
+  const { t } = useI18n();
+  const copy = t.settings.sso.addon;
+  if (state.unpaid) return <Badge variant="destructive">{copy.unpaid}</Badge>;
+  if (state.pastDue) return <Badge variant="warning">{copy.pastDue}</Badge>;
+  return <Badge variant="success">{copy.active}</Badge>;
 }
 
 type PurchasableState = Extract<SsoAddonState, { kind: 'purchasable' }>;

@@ -18,20 +18,27 @@
  * (`/api/billing/sso/*`, which owns the Stripe subscription) with the caller's
  * Clerk JWT. Every configuration write answers with the configuration after it.
  *
- * State is master-DB only (`workspace_sso`) plus Clerk, keyed by the workspace,
- * so there is no tenant entity and no entity event: SSO is not a business
- * record, and the domain and IdP details do not belong on the event bus.
+ * State is master-DB only (`workspace_sso`) plus Clerk. Every configuration
+ * change publishes `workspace_settings.updated` with `field: 'sso'`, what
+ * changed, the domain, the provider and whether SSO is switched on, so it
+ * reaches the workspace's audit log. IdP details (metadata, certificate,
+ * entity id, URLs) never go on the event bus.
  */
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { createClerkClient } from '@clerk/backend';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { getMasterDb } from '@weldsuite/worker-kit/db';
 import { success } from '@weldsuite/worker-kit/response';
 import { lookupTxt } from '@weldsuite/worker-kit/dns-lookup';
 import { callBillingWorker } from '@weldsuite/worker-kit/billing-worker';
-import { ssoConnectionInputSchema, ssoDomainInputSchema } from '@weldsuite/app-api-client/schemas/sso';
+import {
+  ssoConnectionInputSchema,
+  ssoDomainInputSchema,
+  type SsoConfigView,
+} from '@weldsuite/app-api-client/schemas/sso';
 import type { SsoClerkClient, SsoContext } from '@weldsuite/core-domain/sso';
 import type { Env, Variables } from '../../types';
 import {
@@ -71,17 +78,43 @@ function fail(c: AppContext, err: unknown) {
   throw err;
 }
 
-async function view(c: AppContext) {
+async function currentView(c: AppContext): Promise<{ ctx: SsoContext; view: SsoConfigView }> {
   const ctx = await loadContext(getMasterDb(c.env), orgIdOf(c));
-  return success(c, await buildSsoView(clerkOf(c), ctx, await hasContextPermission(c, 'sso:manage')));
+  return { ctx, view: await buildSsoView(clerkOf(c), ctx, await hasContextPermission(c, 'sso:manage')) };
 }
 
-/** Load, change, answer with the configuration after the change. */
-async function change(c: AppContext, run: (ctx: SsoContext, actor: string) => Promise<void>) {
+/** What a configuration write changed, for the audit trail. */
+type SsoChange =
+  | 'domain_claimed'
+  | 'domain_removed'
+  | 'domain_verified'
+  | 'connection_saved'
+  | 'connection_removed'
+  | 'enabled'
+  | 'disabled';
+
+/** Load, change, record it, answer with the configuration after the change. */
+async function change(c: AppContext, kind: SsoChange, run: (ctx: SsoContext, actor: string) => Promise<void>) {
   try {
-    const ctx = await loadContext(getMasterDb(c.env), orgIdOf(c));
-    await run(ctx, c.get('userId'));
-    return await view(c);
+    const before = await loadContext(getMasterDb(c.env), orgIdOf(c));
+    await run(before, c.get('userId'));
+    const { ctx, view } = await currentView(c);
+    publishEntityEvent({
+      c,
+      entityType: 'workspace_settings',
+      entityId: ctx.workspace.id,
+      action: 'updated',
+      data: {
+        id: ctx.workspace.id,
+        field: 'sso',
+        change: kind,
+        domain: view.domain?.name ?? null,
+        domainVerified: view.domain?.verified ?? false,
+        provider: view.connection?.provider ?? null,
+        enabled: view.connection?.enabled ?? false,
+      },
+    });
+    return success(c, view);
   } catch (err) {
     return fail(c, err);
   }
@@ -89,36 +122,40 @@ async function change(c: AppContext, run: (ctx: SsoContext, actor: string) => Pr
 
 app.get('/', canRead, async (c) => {
   try {
-    return await view(c);
+    return success(c, (await currentView(c)).view);
   } catch (err) {
     return fail(c, err);
   }
 });
 
 app.put('/domain', canManage, zValidator('json', ssoDomainInputSchema), (c) =>
-  change(c, (ctx, actor) => setSsoDomain(getMasterDb(c.env), ctx, c.req.valid('json').domain, actor)),
+  change(c, 'domain_claimed', (ctx, actor) => setSsoDomain(getMasterDb(c.env), ctx, c.req.valid('json').domain, actor)),
 );
 
-app.delete('/domain', canManage, (c) => change(c, (ctx, actor) => removeSsoDomain(getMasterDb(c.env), ctx, actor)));
+app.delete('/domain', canManage, (c) =>
+  change(c, 'domain_removed', (ctx, actor) => removeSsoDomain(getMasterDb(c.env), ctx, actor)),
+);
 
 app.post('/domain/verify', canManage, (c) =>
-  change(c, (ctx, actor) => verifySsoDomain(getMasterDb(c.env), ctx, lookupTxt, actor)),
+  change(c, 'domain_verified', (ctx, actor) => verifySsoDomain(getMasterDb(c.env), ctx, lookupTxt, actor)),
 );
 
 app.put('/connection', canManage, zValidator('json', ssoConnectionInputSchema), (c) =>
-  change(c, (ctx, actor) => saveSsoConnection(getMasterDb(c.env), clerkOf(c), ctx, c.req.valid('json'), actor)),
+  change(c, 'connection_saved', (ctx, actor) =>
+    saveSsoConnection(getMasterDb(c.env), clerkOf(c), ctx, c.req.valid('json'), actor),
+  ),
 );
 
 app.delete('/connection', canManage, (c) =>
-  change(c, (ctx, actor) => removeSsoConnection(getMasterDb(c.env), clerkOf(c), ctx, actor)),
+  change(c, 'connection_removed', (ctx, actor) => removeSsoConnection(getMasterDb(c.env), clerkOf(c), ctx, actor)),
 );
 
 app.post('/connection/activate', canManage, (c) =>
-  change(c, (ctx, actor) => setSsoEnabled(getMasterDb(c.env), clerkOf(c), ctx, true, actor)),
+  change(c, 'enabled', (ctx, actor) => setSsoEnabled(getMasterDb(c.env), clerkOf(c), ctx, true, actor)),
 );
 
 app.post('/connection/deactivate', canManage, (c) =>
-  change(c, (ctx, actor) => setSsoEnabled(getMasterDb(c.env), clerkOf(c), ctx, false, actor)),
+  change(c, 'disabled', (ctx, actor) => setSsoEnabled(getMasterDb(c.env), clerkOf(c), ctx, false, actor)),
 );
 
 // ============================================================================

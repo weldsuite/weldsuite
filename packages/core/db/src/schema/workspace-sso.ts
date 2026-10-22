@@ -35,9 +35,11 @@ export type SsoProvider = (typeof SSO_PROVIDERS)[number];
 /**
  * The add-on subscription's state, from Stripe's subscription status:
  * active|trialing -> active, past_due -> past_due (Stripe is retrying, SSO keeps
- * working), unpaid|canceled|incomplete_expired -> canceled.
+ * working), unpaid -> unpaid (retries are over, SSO is off until the open
+ * invoice is paid, which brings the subscription back to active),
+ * canceled|incomplete_expired -> canceled (final for that subscription).
  */
-export const SSO_SUBSCRIPTION_STATUSES = ['none', 'active', 'past_due', 'canceled'] as const;
+export const SSO_SUBSCRIPTION_STATUSES = ['none', 'active', 'past_due', 'unpaid', 'canceled'] as const;
 export type SsoSubscriptionStatus = (typeof SSO_SUBSCRIPTION_STATUSES)[number];
 
 export const workspaceSso = pgTable(

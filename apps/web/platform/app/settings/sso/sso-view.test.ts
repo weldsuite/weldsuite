@@ -63,10 +63,21 @@ describe('ssoAddonState', () => {
     expect(state).toEqual({
       kind: 'subscribed',
       pastDue: true,
+      unpaid: false,
       currentPeriodEnd: '2026-11-14T00:00:00.000Z',
       cancelAtPeriodEnd: true,
       includedInPlan: false,
     });
+  });
+
+  it('flags an unpaid add-on, which switched SSO off until the invoice is paid', () => {
+    const state = ssoAddonState(
+      makeBilling({
+        purchasable: false,
+        subscription: { status: 'unpaid', currentPeriodEnd: null, cancelAtPeriodEnd: false },
+      }),
+    );
+    expect(state).toMatchObject({ kind: 'subscribed', unpaid: true, pastDue: false });
   });
 
   it('notes a subscription the plan has made redundant', () => {

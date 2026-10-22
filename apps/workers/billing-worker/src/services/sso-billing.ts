@@ -191,13 +191,20 @@ export function mapSsoSubscriptionStatus(status: string): Exclude<SsoSubscriptio
       return 'active';
     case 'past_due':
       return 'past_due';
+    // Not final: paying the open invoice brings the subscription back to active.
     case 'unpaid':
+      return 'unpaid';
     case 'canceled':
     case 'incomplete_expired':
       return 'canceled';
     default:
       return null;
   }
+}
+
+/** A row status whose subscription still exists in Stripe (whether or not it entitles). */
+function isLiveRowStatus(status: SsoSubscriptionStatus): status is 'active' | 'past_due' | 'unpaid' {
+  return status === 'active' || status === 'past_due' || status === 'unpaid';
 }
 
 function periodEnd(subscription: SsoStripeSubscription): Date | null {
@@ -219,8 +226,7 @@ export async function applySsoSubscription(
   if (!next) return null;
 
   const tracksIt = row.stripeSubscriptionId === subscription.id;
-  const tracksAnotherLive =
-    !tracksIt && Boolean(row.stripeSubscriptionId) && (row.subscriptionStatus === 'active' || row.subscriptionStatus === 'past_due');
+  const tracksAnotherLive = !tracksIt && Boolean(row.stripeSubscriptionId) && isLiveRowStatus(row.subscriptionStatus);
   if (tracksAnotherLive) return null;
   if (tracksIt && row.subscriptionStatus === 'canceled' && next !== 'canceled') return null;
   // A cancelled subscription the row never tracked changes nothing.
@@ -446,8 +452,7 @@ async function setCancelAtPeriodEnd(stripeKey: string, subscriptionId: string, c
 // ============================================================================
 
 function liveRowSubscription(row: WorkspaceSso | null): SsoBillingView['subscription'] {
-  if (!row?.stripeSubscriptionId) return null;
-  if (row.subscriptionStatus !== 'active' && row.subscriptionStatus !== 'past_due') return null;
+  if (!row?.stripeSubscriptionId || !isLiveRowStatus(row.subscriptionStatus)) return null;
   return {
     status: row.subscriptionStatus,
     currentPeriodEnd: row.subscriptionCurrentPeriodEnd?.toISOString() ?? null,
@@ -514,6 +519,14 @@ export async function subscribeToSso(
     customerId: workspace.stripeCustomerId,
     workspaceId: workspace.id,
   });
+  if (live?.status === 'unpaid') {
+    // Starting another one would leave the overdue invoice behind; paying it brings SSO back.
+    throw new SsoBillingError(
+      402,
+      SSO_ERRORS.SUBSCRIPTION_UNPAID,
+      'The single sign-on invoice is overdue. Pay it under Billing to switch single sign-on back on.',
+    );
+  }
   if (live) {
     // A double click, or one whose id never reached the row: adopt it, nothing to buy.
     await applySsoSubscription(db, row, live);
@@ -558,8 +571,21 @@ export async function setSsoCancelAtPeriodEnd(
         workspaceId: workspace.id,
       })
     : null;
-  if (!row || !live || live.status === 'unpaid') {
+  if (!row || !live) {
     throw new SsoBillingError(409, SSO_ERRORS.NOT_SUBSCRIBED, 'This workspace has no single sign-on add-on to change.');
+  }
+  if (live.status === 'unpaid') {
+    // SSO is already off and there is no paid period left to run out: cancelling ends it now.
+    if (!cancel) {
+      throw new SsoBillingError(
+        402,
+        SSO_ERRORS.SUBSCRIPTION_UNPAID,
+        'The single sign-on invoice is overdue. Pay it under Billing to switch single sign-on back on.',
+      );
+    }
+    await cancelSubscriptionImmediately(env.STRIPE_SECRET_KEY, live.id);
+    await markSsoSubscriptionCanceled(db, row, live.id);
+    return;
   }
   const updated = await setCancelAtPeriodEnd(env.STRIPE_SECRET_KEY, live.id, cancel);
   await applySsoSubscription(db, row, updated);
@@ -954,7 +980,10 @@ export async function runSsoSweep(env: Env, db: SsoBillingDb): Promise<{ checked
     .where(
       or(
         isNotNull(workspaceSso.clerkConnectionId),
-        and(isNotNull(workspaceSso.stripeSubscriptionId), inArray(workspaceSso.subscriptionStatus, ['active', 'past_due'])),
+        and(
+          isNotNull(workspaceSso.stripeSubscriptionId),
+          inArray(workspaceSso.subscriptionStatus, ['active', 'past_due', 'unpaid']),
+        ),
       ),
     )
     .orderBy(workspaceSso.updatedAt)

@@ -75,7 +75,8 @@ export interface SsoEntitlementInput {
 /**
  * Whether the workspace may use SSO right now. A past-due add-on still counts
  * while Stripe retries the payment: a failed card must not lock a company out
- * of signing in. Once Stripe gives up the status becomes `canceled`.
+ * of signing in. Once Stripe gives up the status becomes `unpaid` (SSO is off
+ * until the open invoice is paid) or `canceled`.
  */
 export function resolveSsoEntitlement(input: SsoEntitlementInput): SsoEntitlement {
   if (!input.workspaceActive) return { entitled: false, source: null };
@@ -189,6 +190,8 @@ export const SSO_ERRORS = {
   ADDON_UNAVAILABLE: 'SSO_ADDON_UNAVAILABLE',
   ALREADY_SUBSCRIBED: 'SSO_ALREADY_SUBSCRIBED',
   NOT_SUBSCRIBED: 'SSO_NOT_SUBSCRIBED',
+  /** The add-on's invoice is overdue and Stripe stopped retrying: pay it to get SSO back. */
+  SUBSCRIPTION_UNPAID: 'SSO_SUBSCRIPTION_UNPAID',
   PAYMENT_METHOD_REQUIRED: 'PAYMENT_METHOD_REQUIRED',
   BILLING_ADMIN_REQUIRED: 'BILLING_ADMIN_REQUIRED',
 } as const;
@@ -305,7 +308,8 @@ export const ssoBillingViewSchema = z.object({
   unavailableReason: z.enum(SSO_ADDON_UNAVAILABLE_REASONS).nullable(),
   subscription: z
     .object({
-      status: z.enum(['active', 'past_due', 'canceled']),
+      /** `unpaid`: retries are over and SSO is off until the open invoice is paid. */
+      status: z.enum(['active', 'past_due', 'unpaid', 'canceled']),
       currentPeriodEnd: z.string().nullable(),
       cancelAtPeriodEnd: z.boolean(),
     })
@@ -329,7 +333,7 @@ export interface SsoAdminView {
   } | null;
   subscription: {
     id: string;
-    status: 'active' | 'past_due' | 'canceled';
+    status: 'active' | 'past_due' | 'unpaid' | 'canceled';
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
     /** What Stripe charges per month now; null when Stripe could not be asked. */

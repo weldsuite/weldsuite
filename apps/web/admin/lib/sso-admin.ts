@@ -53,10 +53,14 @@ export function isSsoPriceCurrency(value: string | null | undefined): value is S
   return (SSO_PRICE_CURRENCIES as readonly string[]).includes(value ?? '');
 }
 
-/** The add-on subscription while Stripe still bills it (active, or retrying a payment). */
+/**
+ * The add-on subscription while it still exists in Stripe: active, retrying a
+ * payment, or unpaid (SSO off until the overdue invoice is paid; it can still
+ * be repriced or revoked).
+ */
 export function liveSsoSubscription(view: SsoAdminView): SsoAdminView['subscription'] {
   const sub = view.subscription;
-  return sub && (sub.status === 'active' || sub.status === 'past_due') ? sub : null;
+  return sub && sub.status !== 'canceled' ? sub : null;
 }
 
 /** The mode the price dialog opens with: what is saved now. Partner-managed workspaces can only be free. */
