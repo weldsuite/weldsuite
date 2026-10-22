@@ -73,6 +73,15 @@ overrides:
 patchedDependencies:
   # decode-uri-component 0.5 is ESM-only; take its default export.
   query-string@7.1.3: patches/query-string@7.1.3.patch
+  # Security backports for alerts with no fixed release yet. Drop each once
+  # upstream ships one and the lockfile moves past the patched version.
+  # GHSA-86w9-cpqp-85rv: PKCS#1 v1.5 verify accepted extra elements inside
+  # DigestAlgorithm (digitalbazaar/forge#1161). @expo/code-signing-certificates.
+  node-forge@1.4.0: patches/node-forge@1.4.0.patch
+  # GHSA-hp3w-g68c-fv3c: clamp %e/%f/%g precision instead of throwing a
+  # RangeError. argparse 1 (js-yaml 3, mammoth), roarr 2 (global-agent 3).
+  sprintf-js@1.0.3: patches/sprintf-js@1.0.3.patch
+  sprintf-js@1.1.3: patches/sprintf-js@1.1.3.patch
 
 onlyBuiltDependencies:
   - electron
