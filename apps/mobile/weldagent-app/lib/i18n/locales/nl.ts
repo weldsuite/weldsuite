@@ -158,6 +158,9 @@ export const nl: Translations = {
     pickAgent: 'Wie moet antwoorden?',
     personal: 'WeldAgent',
     personalSub: 'Je persoonlijke workspace-assistent',
+    yourAgents: 'Je agents',
+    needsCredits: 'Voor chats zijn credits nodig en je workspace heeft er geen meer. Laad bij om een chat te starten.',
+    composerNoCredits: 'Geen credits meer',
     composerPlaceholder: 'Vraag wat je wilt…',
     empty: 'Stuur een bericht om te beginnen',
     creditsEmpty: 'Deze workspace heeft geen AI-credits meer. Laad bij op het web om verder te chatten.',
@@ -196,7 +199,8 @@ export const nl: Translations = {
     low: 'Credits raken op.',
     topUpWeb: 'Bijladen op het web',
     topUpHint: 'Koop credits op app.weldsuite.org — in-app aankoop is nog niet beschikbaar.',
-    daysRemaining: '{count} dagen over in deze periode',
+    resets: 'Reset over',
+    daysRemaining: { one: '{count} dag', other: '{count} dagen' },
   },
 
   settings: {

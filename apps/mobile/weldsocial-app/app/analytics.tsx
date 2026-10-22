@@ -10,6 +10,7 @@ import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import type { SocialAnalyticsOverview, SocialDashboardStats , SocialPlatform } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
+import { useI18n } from '@/lib/i18n';
 import { PLATFORM_META, formatCompact } from '@/lib/social';
 
 
@@ -20,6 +21,7 @@ interface AnalyticsData {
 
 export default function AnalyticsScreen() {
   const { colors } = useTheme();
+  const { t, format } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -35,26 +37,26 @@ export default function AnalyticsScreen() {
 
   const tiles = data
     ? [
-        { label: 'Impressions', value: data.overview.totalImpressions },
-        { label: 'Reach', value: data.overview.totalReach },
-        { label: 'Engagement', value: data.overview.totalEngagement },
-        { label: 'Clicks', value: data.overview.totalClicks },
+        { label: t.analytics.impressions, value: data.overview.totalImpressions },
+        { label: t.analytics.reach, value: data.overview.totalReach },
+        { label: t.analytics.engagement, value: data.overview.totalEngagement },
+        { label: t.analytics.clicks, value: data.overview.totalClicks },
       ]
     : [];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.divider }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Back">
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t.common.back}>
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Analytics</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t.analytics.title}</Text>
         <View style={styles.headerButton} />
       </View>
 
       {loading && !data ? (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       ) : (
         <ScrollView
@@ -62,7 +64,7 @@ export default function AnalyticsScreen() {
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}
         >
           {error && (
-            <Banner variant="error" title="Couldn't load analytics">{error}</Banner>
+            <Banner variant="error" title={t.analytics.loadError}>{error}</Banner>
           )}
 
           {data && (
@@ -83,10 +85,10 @@ export default function AnalyticsScreen() {
                 <Text style={[styles.rateValue, { color: colors.text }]}>
                   {data.overview.engagementRate.toFixed(2)}%
                 </Text>
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Engagement rate</Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>{t.analytics.engagementRate}</Text>
               </View>
 
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Platforms</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.analytics.platforms}</Text>
               {data.overview.platformStats.length ? (
                 <View style={{ gap: 10 }}>
                   {data.overview.platformStats.map((stat, index) => {
@@ -102,10 +104,10 @@ export default function AnalyticsScreen() {
                         </Text>
                         <View style={styles.platformStats}>
                           <Text style={[styles.platformStat, { color: colors.mutedForeground }]}>
-                            {formatCompact(stat.followers)} followers
+                            {format(t.analytics.followers, { count: formatCompact(stat.followers) })}
                           </Text>
                           <Text style={[styles.platformStat, { color: colors.mutedForeground }]}>
-                            {stat.posts} posts
+                            {format(t.analytics.posts, { count: stat.posts })}
                           </Text>
                         </View>
                       </View>
@@ -115,8 +117,8 @@ export default function AnalyticsScreen() {
               ) : (
                 <EmptyState
                   icon={<BarChart3 size={40} color={colors.mutedForeground} />}
-                  title="No platform data yet"
-                  description="Connect accounts and publish posts to see analytics."
+                  title={t.analytics.emptyTitle}
+                  description={t.analytics.emptyDescription}
                 />
               )}
             </>

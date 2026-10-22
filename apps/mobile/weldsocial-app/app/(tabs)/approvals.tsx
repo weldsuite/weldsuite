@@ -17,7 +17,9 @@ import type { SocialApproval, SocialPost } from '@weldsuite/app-api-client/domai
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { useSocialRealtime } from '@/hooks/useSocialRealtime';
-import { APPROVAL_STATUS_META, formatDateTime } from '@/lib/social';
+import { useI18n } from '@/lib/i18n';
+import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
+import { APPROVAL_STATUS_VARIANT, formatDateTime, statusBadge } from '@/lib/social';
 
 type Segment = 'pending' | 'decided';
 
@@ -33,6 +35,8 @@ interface Decision {
 
 export default function ApprovalsScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
+  const sheetProps = useKeyboardSheet();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const toast = useToast();
@@ -90,11 +94,11 @@ export default function ApprovalsScreen() {
         status: decision.status,
         decisionNotes: notes.trim() || undefined,
       });
-      toast.success(decision.status === 'approved' ? 'Post approved' : 'Post rejected');
+      toast.success(decision.status === 'approved' ? t.approvals.approved : t.approvals.rejected);
       setDecision(null);
       await reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save decision');
+      toast.error(err instanceof Error ? err.message : t.approvals.saveFailed);
     } finally {
       setDeciding(false);
     }
@@ -105,7 +109,7 @@ export default function ApprovalsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Approvals</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t.approvals.title}</Text>
       </View>
 
       <View style={styles.segment}>
@@ -113,21 +117,21 @@ export default function ApprovalsScreen() {
           value={segment}
           onValueChange={(v) => setSegment(v as Segment)}
           options={[
-            { label: 'Pending', value: 'pending' },
-            { label: 'Decided', value: 'decided' },
+            { label: t.approvals.pending, value: 'pending' },
+            { label: t.approvals.decided, value: 'decided' },
           ]}
         />
       </View>
 
       {error && (
         <View style={styles.bannerWrap}>
-          <Banner variant="error" title="Couldn't load approvals">{error}</Banner>
+          <Banner variant="error" title={t.approvals.loadError}>{error}</Banner>
         </View>
       )}
 
       {loading && !data ? (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       ) : (
         <FlatList
@@ -137,11 +141,11 @@ export default function ApprovalsScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.muted} />}
           renderItem={({ item }) => {
             const post = data?.postsById.get(item.postId);
-            const meta = APPROVAL_STATUS_META[item.status] ?? { label: item.status, variant: 'outline' as const };
+            const meta = statusBadge(APPROVAL_STATUS_VARIANT, t.approvalStatus, item.status);
             return (
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.cardTop}>
-                  <Badge variant={meta.variant}>{meta.label}</Badge>
+                  <Badge variant={meta.variant} label={meta.label} />
                   <Text style={[styles.cardDate, { color: colors.muted }]}>{formatDateTime(item.createdAt)}</Text>
                 </View>
                 <Text
@@ -149,7 +153,7 @@ export default function ApprovalsScreen() {
                   numberOfLines={3}
                   onPress={() => router.push(`/post/${item.postId}`)}
                 >
-                  {post?.title || post?.content || 'View post…'}
+                  {post?.title || post?.content || t.approvals.viewPost}
                 </Text>
                 {!!item.decisionNotes && (
                   <Text style={[styles.notes, { color: colors.mutedForeground }]} numberOfLines={2}>
@@ -159,12 +163,12 @@ export default function ApprovalsScreen() {
                 {item.status === 'pending' && (
                   <View style={styles.actions}>
                     <Button
-                      title="Reject"
+                      title={t.approvals.reject}
                       variant="outline"
                       size="sm"
                       onPress={() => openDecision(item, 'rejected')}
                     />
-                    <Button title="Approve" size="sm" onPress={() => openDecision(item, 'approved')} />
+                    <Button title={t.approvals.approve} size="sm" onPress={() => openDecision(item, 'approved')} />
                   </View>
                 )}
               </View>
@@ -173,11 +177,11 @@ export default function ApprovalsScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={<BadgeCheck size={40} color={colors.mutedForeground} />}
-              title={segment === 'pending' ? 'Nothing to review' : 'No decisions yet'}
+              title={segment === 'pending' ? t.approvals.emptyPendingTitle : t.approvals.emptyDecidedTitle}
               description={
                 segment === 'pending'
-                  ? 'Posts submitted for approval will show up here.'
-                  : 'Approved and rejected posts appear here.'
+                  ? t.approvals.emptyPendingDescription
+                  : t.approvals.emptyDecidedDescription
               }
             />
           }
@@ -185,19 +189,20 @@ export default function ApprovalsScreen() {
       )}
 
       <Sheet
+        {...sheetProps}
         visible={decision !== null}
         onClose={() => setDecision(null)}
-        title={decision?.status === 'approved' ? 'Approve post' : 'Reject post'}
+        title={decision?.status === 'approved' ? t.approvals.approveSheetTitle : t.approvals.rejectSheetTitle}
       >
         <View style={{ gap: 12 }}>
           <Textarea
-            label="Notes"
-            placeholder={decision?.status === 'approved' ? 'Optional' : 'Why is this rejected?'}
+            label={t.approvals.notes}
+            placeholder={decision?.status === 'approved' ? t.common.optional : t.approvals.notesRejectPlaceholder}
             value={notes}
             onChangeText={setNotes}
           />
           <Button
-            title={decision?.status === 'approved' ? 'Approve' : 'Reject'}
+            title={decision?.status === 'approved' ? t.approvals.approve : t.approvals.reject}
             variant={decision?.status === 'rejected' ? 'destructive' : 'primary'}
             onPress={submitDecision}
             loading={deciding}

@@ -4,7 +4,8 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Badge } from '@weldsuite/mobile-ui/components/Badge';
 import { Clock, Image as ImageIcon } from 'lucide-react-native';
 import type { SocialAccount, SocialPost } from '@weldsuite/app-api-client/domains/social';
-import { PLATFORM_META, POST_STATUS_META, formatDateTime } from '@/lib/social';
+import { useI18n } from '@/lib/i18n';
+import { PLATFORM_META, POST_STATUS_VARIANT, formatDateTime, statusBadge } from '@/lib/social';
 
 interface PostCardProps {
   post: SocialPost;
@@ -15,7 +16,8 @@ interface PostCardProps {
 
 export function PostCard({ post, accountsById, onPress }: Readonly<PostCardProps>) {
   const { colors } = useTheme();
-  const status = POST_STATUS_META[post.status] ?? { label: post.status, variant: 'outline' as const };
+  const { t } = useI18n();
+  const status = statusBadge(POST_STATUS_VARIANT, t.postStatus, post.status);
   const targets = (post.targetAccountIds ?? [])
     .map((id) => accountsById?.get(id))
     .filter((a): a is SocialAccount => !!a);
@@ -38,10 +40,10 @@ export function PostCard({ post, accountsById, onPress }: Readonly<PostCardProps
               />
             ))
           ) : (
-            <View style={[styles.dot, { backgroundColor: colors.border }]} />
+            <Text style={[styles.noAccounts, { color: colors.muted }]}>{t.postCard.noAccounts}</Text>
           )}
         </View>
-        <Badge variant={status.variant}>{status.label}</Badge>
+        <Badge variant={status.variant} label={status.label} />
       </View>
 
       {!!post.title && (
@@ -50,7 +52,7 @@ export function PostCard({ post, accountsById, onPress }: Readonly<PostCardProps
         </Text>
       )}
       <Text style={[styles.content, { color: post.title ? colors.mutedForeground : colors.text }]} numberOfLines={2}>
-        {post.content || 'No content yet'}
+        {post.content || t.postCard.noContent}
       </Text>
 
       <View style={styles.bottomRow}>
@@ -74,7 +76,8 @@ export function PostCard({ post, accountsById, onPress }: Readonly<PostCardProps
 const styles = StyleSheet.create({
   card: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 6 },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  platformDots: { flexDirection: 'row', gap: 4 },
+  platformDots: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  noAccounts: { fontSize: 12 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   title: { fontSize: 16, fontWeight: '600' },
   content: { fontSize: 14, lineHeight: 20 },

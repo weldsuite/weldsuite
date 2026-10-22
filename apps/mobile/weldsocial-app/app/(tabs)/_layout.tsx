@@ -2,6 +2,7 @@ import type { ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Home, Rows3, CalendarDays, BadgeCheck, Menu } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useI18n } from '@/lib/i18n';
 
 interface TabIconProps {
   color: ColorValue;
@@ -16,6 +17,7 @@ const MoreIcon = ({ color, size }: TabIconProps) => <Menu size={size} color={col
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const { t } = useI18n();
 
   return (
     <Tabs
@@ -29,35 +31,40 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t.tabs.home,
+          tabBarAccessibilityLabel: t.tabs.home,
           tabBarIcon: HomeIcon,
         }}
       />
       <Tabs.Screen
         name="queue"
         options={{
-          title: 'Queue',
+          title: t.tabs.queue,
+          tabBarAccessibilityLabel: t.tabs.queue,
           tabBarIcon: QueueIcon,
         }}
       />
       <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Calendar',
+          title: t.tabs.calendar,
+          tabBarAccessibilityLabel: t.tabs.calendar,
           tabBarIcon: CalendarIcon,
         }}
       />
       <Tabs.Screen
         name="approvals"
         options={{
-          title: 'Approvals',
+          title: t.tabs.approvals,
+          tabBarAccessibilityLabel: t.tabs.approvals,
           tabBarIcon: ApprovalsIcon,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
-          title: 'More',
+          title: t.tabs.more,
+          tabBarAccessibilityLabel: t.tabs.more,
           tabBarIcon: MoreIcon,
         }}
       />

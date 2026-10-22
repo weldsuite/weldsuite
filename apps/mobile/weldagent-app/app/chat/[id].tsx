@@ -18,6 +18,7 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { ErrorState, LoadingState } from '@/components/data-states';
 import { useI18n } from '@/lib/i18n';
 import { BRAND } from '@/lib/brand';
+import { useCreditsBalance } from '@/lib/credits';
 import appApi from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
 import type { WeldAgentMessageRow } from '@weldsuite/app-api-client/schemas/weldagent';
@@ -78,6 +79,7 @@ export default function ChatThreadScreen() {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
   const scrollRef = useRef<ScrollView>(null);
+  const { outOfCredits } = useCreditsBalance();
 
   const [title, setTitle] = useState<string>(t.chat.title);
   const [messages, setMessages] = useState<WeldAgentMessageRow[]>([]);
@@ -115,7 +117,7 @@ export default function ChatThreadScreen() {
 
   const send = async (text?: string) => {
     const content = (text ?? draft).trim();
-    if (!content || !id || sending) return;
+    if (!content || !id || sending || outOfCredits) return;
     setDraft('');
     setSending(true);
     setCreditsEmpty(false);
@@ -221,7 +223,7 @@ export default function ChatThreadScreen() {
               <Text style={[styles.bubbleText, { color: colors.mutedForeground }]}>{t.common.thinking}</Text>
             </View>
           ) : null}
-          {creditsEmpty ? (
+          {creditsEmpty || outOfCredits ? (
             <Pressable onPress={() => router.push('/credits')} style={styles.creditsWarn}>
               <Text style={[styles.creditsText, { color: colors.destructive }]}>{t.chat.creditsEmpty}</Text>
               <Text style={[styles.creditsLink, { color: BRAND }]}>{t.chat.topUp}</Text>
@@ -242,18 +244,21 @@ export default function ChatThreadScreen() {
           <TextInput
             value={draft}
             onChangeText={setDraft}
-            placeholder={t.chat.composerPlaceholder}
+            placeholder={outOfCredits ? t.chat.composerNoCredits : t.chat.composerPlaceholder}
             placeholderTextColor={colors.mutedForeground}
             multiline
             style={[styles.input, { color: colors.text, backgroundColor: colors.secondary }]}
-            editable={!sending}
+            editable={!sending && !outOfCredits}
           />
           <Pressable
             onPress={() => void send()}
-            disabled={sending || !draft.trim()}
+            disabled={sending || outOfCredits || !draft.trim()}
             accessibilityRole="button"
             accessibilityLabel={t.common.send}
-            style={[styles.send, { backgroundColor: BRAND, opacity: sending || !draft.trim() ? 0.5 : 1 }]}
+            style={[
+              styles.send,
+              { backgroundColor: BRAND, opacity: sending || outOfCredits || !draft.trim() ? 0.5 : 1 },
+            ]}
           >
             <Send size={18} color="#fff" />
           </Pressable>

@@ -54,6 +54,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t.tabs.home,
+          tabBarAccessibilityLabel: t.tabs.home,
           tabBarIcon: renderHomeIcon,
         }}
       />
@@ -61,6 +62,7 @@ export default function TabLayout() {
         name="agents"
         options={{
           title: t.tabs.agents,
+          tabBarAccessibilityLabel: t.tabs.agents,
           tabBarIcon: renderAgentsIcon,
         }}
       />
@@ -68,6 +70,7 @@ export default function TabLayout() {
         name="new-placeholder"
         options={{
           title: t.tabs.newChat,
+          tabBarAccessibilityLabel: t.tabs.newChat,
           tabBarIcon: renderNewChatIcon,
         }}
         listeners={{
@@ -81,6 +84,7 @@ export default function TabLayout() {
         name="activity"
         options={{
           title: t.tabs.activity,
+          tabBarAccessibilityLabel: t.tabs.activity,
           tabBarIcon: renderActivityIcon,
         }}
       />
@@ -88,6 +92,7 @@ export default function TabLayout() {
         name="more"
         options={{
           title: t.tabs.more,
+          tabBarAccessibilityLabel: t.tabs.more,
           tabBarIcon: renderMoreIcon,
         }}
       />

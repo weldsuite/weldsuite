@@ -12,9 +12,13 @@ import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { PostCard } from '@/components/PostCard';
+import { useI18n } from '@/lib/i18n';
 import { toDayKey } from '@/lib/social';
 
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/** Short weekday names, Monday first, in the device locale (2024-01-01 was a Monday). */
+const WEEKDAYS = Array.from({ length: 7 }, (_, i) =>
+  new Date(2024, 0, 1 + i).toLocaleDateString(undefined, { weekday: 'short' }),
+);
 
 interface CalendarData {
   posts: SocialPost[];
@@ -32,6 +36,7 @@ function buildMonthGrid(year: number, month: number): Date[] {
 
 export default function CalendarScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -108,13 +113,13 @@ export default function CalendarScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Calendar</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t.calendar.title}</Text>
         <View style={styles.monthNav}>
-          <TouchableOpacity onPress={() => shiftMonth(-1)} style={styles.navButton} accessibilityLabel="Previous month">
+          <TouchableOpacity onPress={() => shiftMonth(-1)} style={styles.navButton} accessibilityRole="button" accessibilityLabel={t.calendar.previousMonth}>
             <ChevronLeft size={20} color={colors.text} />
           </TouchableOpacity>
           <Text style={[styles.monthLabel, { color: colors.text }]}>{monthLabel}</Text>
-          <TouchableOpacity onPress={() => shiftMonth(1)} style={styles.navButton} accessibilityLabel="Next month">
+          <TouchableOpacity onPress={() => shiftMonth(1)} style={styles.navButton} accessibilityRole="button" accessibilityLabel={t.calendar.nextMonth}>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
@@ -122,13 +127,13 @@ export default function CalendarScreen() {
 
       {error && (
         <View style={styles.bannerWrap}>
-          <Banner variant="error" title="Couldn't load calendar">{error}</Banner>
+          <Banner variant="error" title={t.calendar.loadError}>{error}</Banner>
         </View>
       )}
 
       {loading && !data ? (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       ) : (
         <ScrollView
@@ -214,7 +219,7 @@ export default function CalendarScreen() {
             ) : (
               <EmptyState
                 icon={<CalendarOff size={36} color={colors.mutedForeground} />}
-                title="No posts this day"
+                title={t.calendar.noPosts}
               />
             )}
           </View>

@@ -8,9 +8,11 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { useI18n } from '@/lib/i18n';
 
 export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const toast = useToast();
@@ -24,7 +26,7 @@ export default function SettingsScreen() {
       return;
     }
     const granted = await requestPermissions();
-    if (granted) toast.success('Push notifications enabled');
+    if (granted) toast.success(t.settings.pushEnabled);
     else await openNotificationSettings();
   };
 
@@ -34,47 +36,47 @@ export default function SettingsScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
     >
       <View style={[styles.headerRow, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityLabel="Back">
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel={t.common.back}>
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t.settings.title}</Text>
       </View>
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>
-        <Text style={[styles.sectionTitle, { color: colors.muted }]}>Account</Text>
+        <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.settings.account}</Text>
         <View style={[styles.row, { borderBottomColor: colors.divider }]}>
-          <Text style={[styles.label, { color: colors.text }]}>{user?.fullName || user?.email || 'User'}</Text>
+          <Text style={[styles.label, { color: colors.text }]}>{user?.fullName || user?.email || t.settings.userFallback}</Text>
           <Text style={[styles.value, { color: colors.muted }]}>{user?.email}</Text>
         </View>
         {currentWorkspace && (
           <View style={styles.row}>
-            <Text style={[styles.label, { color: colors.text }]}>Workspace</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t.settings.workspace}</Text>
             <Text style={[styles.value, { color: colors.muted }]}>{currentWorkspace.name}</Text>
           </View>
         )}
       </View>
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>
-        <Text style={[styles.sectionTitle, { color: colors.muted }]}>Preferences</Text>
+        <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.settings.preferences}</Text>
         <TouchableOpacity style={[styles.row, { borderBottomColor: colors.divider }]} onPress={handleNotifications}>
           <View style={styles.rowLeft}>
             <Bell size={20} color={colors.text} />
-            <Text style={[styles.label, { color: colors.text }]}>Push notifications</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t.settings.pushNotifications}</Text>
           </View>
-          <Text style={[styles.value, { color: colors.muted }]}>{isPermissionGranted ? 'On' : 'Off'}</Text>
+          <Text style={[styles.value, { color: colors.muted }]}>{isPermissionGranted ? t.settings.on : t.settings.off}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.row} onPress={toggleTheme}>
           <View style={styles.rowLeft}>
             {theme === 'dark' ? <Moon size={20} color={colors.text} /> : <Sun size={20} color={colors.text} />}
-            <Text style={[styles.label, { color: colors.text }]}>Dark Mode</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t.settings.darkMode}</Text>
           </View>
-          <Text style={[styles.value, { color: colors.muted }]}>{theme === 'dark' ? 'On' : 'Off'}</Text>
+          <Text style={[styles.value, { color: colors.muted }]}>{theme === 'dark' ? t.settings.on : t.settings.off}</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.signOutButton} onPress={signOut}>
         <LogOut size={20} color="#EF4444" />
-        <Text style={styles.signOutText}>Sign Out</Text>
+        <Text style={styles.signOutText}>{t.settings.signOut}</Text>
       </TouchableOpacity>
     </ScrollView>
   );
