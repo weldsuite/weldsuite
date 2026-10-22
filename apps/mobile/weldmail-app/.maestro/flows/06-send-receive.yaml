@@ -1,0 +1,46 @@
+appId: com.weldsuite.weldmail
+name: Send a mail to yourself and receive it
+tags: [writes, mail-roundtrip]
+---
+# Sends one mail from the test mailbox to its own address and waits for it to
+# arrive. Needs working outbound and inbound mail on the test environment.
+# MAESTRO_TEST_MAILBOX defaults to the e2e workspace's team address.
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.to = (typeof MAESTRO_TEST_MAILBOX !== 'undefined' && MAESTRO_TEST_MAILBOX) || 'team@maestro-test-workspace.weldmail.org'}
+- evalScript: ${output.subject = 'E2E roundtrip ' + Date.now()}
+
+- tapOn: "Compose"
+- extendedWaitUntil:
+    visible:
+      id: compose-to
+    timeout: 10000
+- tapOn:
+    id: compose-to
+- inputText: ${output.to}
+- pressKey: Enter
+- tapOn:
+    id: compose-subject
+- inputText: ${output.subject}
+# Body: a WebView editor without a testID, tapped by position
+- tapOn:
+    point: "50%,29%"
+- inputText: "Sent by the Maestro e2e suite"
+- hideKeyboard
+- tapOn:
+    id: compose-send
+- extendedWaitUntil:
+    visible:
+      id: inbox-list
+    timeout: 15000
+
+# Inbound mail can take a little while; pull to refresh until it shows up.
+- repeat:
+    while:
+      notVisible: ${output.subject}
+    times: 12
+    commands:
+      - swipe:
+          direction: DOWN
+      - waitForAnimationToEnd:
+          timeout: 5000
+- assertVisible: ${output.subject}

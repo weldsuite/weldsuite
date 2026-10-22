@@ -15,3 +15,6 @@ test-results/
 coverage/
 google-services.json
 GoogleService-Info.plist
+
+# Maestro run output
+.maestro/output/

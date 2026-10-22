@@ -1,0 +1,11 @@
+appId: com.weldsuite.weldstash
+name: Products, picks and settings load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn: "Picks"
+- assertVisible: "No assigned picks|Picks"
+- tapOn: "Settings"
+- assertVisible: "Sign Out"
+- tapOn: "Products"
+- assertVisible: "Search or scan barcode"

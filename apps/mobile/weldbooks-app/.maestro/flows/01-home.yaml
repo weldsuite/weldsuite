@@ -1,0 +1,10 @@
+appId: com.weldsuite.weldbooks
+name: Home loads after sign-in
+tags: [smoke]
+---
+# Needs a company (entity) in the test workspace (see README).
+- runFlow: ../subflows/login.yaml
+- assertVisible: "Outstanding"
+- assertVisible: "Invoice"
+- assertVisible: "Expense"
+- assertVisible: "Reports"

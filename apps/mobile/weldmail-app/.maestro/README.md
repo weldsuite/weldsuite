@@ -58,6 +58,14 @@ subprojects { sub ->
 }
 ```
 
+## Mail round trip
+
+`06-send-receive` sends one mail from the test mailbox to itself and waits
+for it to arrive (tag `mail-roundtrip`). It needs working outbound and inbound
+mail on the test environment; skip it with `--exclude-tags mail-roundtrip`.
+Set `MAESTRO_TEST_MAILBOX` if the test mailbox isn't
+`team@maestro-test-workspace.weldmail.org`.
+
 ## Run
 
 ```bash

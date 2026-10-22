@@ -45,3 +45,6 @@ app-example
 # test artifacts
 test-results/
 coverage/
+
+# Maestro run output
+.maestro/output/
