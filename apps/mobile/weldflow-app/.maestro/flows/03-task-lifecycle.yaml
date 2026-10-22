@@ -1,0 +1,74 @@
+appId: com.weldsuite.weldflow
+name: Create, assign and complete a task
+tags: [smoke, writes]
+---
+# Needs at least one project the test user belongs to (see README).
+# Creates one task per run, with a unique title, and leaves it Done.
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.title = 'E2E task ' + Date.now()}
+
+# Open the first project and start a new task
+- tapOn: "Projects"
+- tapOn:
+    id: project-row
+    index: 0
+- tapOn: "New task"
+- extendedWaitUntil:
+    visible:
+      id: task-form-title
+    timeout: 10000
+
+# Title is required
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+- tapOn:
+    id: task-form-submit
+- scrollUntilVisible:
+    element: "Title is required"
+    direction: UP
+
+# Fill in and create, assigned to the test user
+- tapOn:
+    id: task-form-title
+- inputText: ${output.title}
+- tapOn:
+    id: task-form-description
+- inputText: "Created by the Maestro e2e suite"
+- tapOn: "Unassigned"
+- tapOn: "Maestro"
+- tapOn: "Done"
+- scrollUntilVisible:
+    element:
+      id: task-form-submit
+- tapOn:
+    id: task-form-submit
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+
+# It shows up under My tasks
+- back
+- tapOn: "My tasks"
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+
+# Complete it from the detail screen
+- tapOn: ${output.title}
+- extendedWaitUntil:
+    visible: "Change status"
+    timeout: 10000
+- tapOn: "Change status"
+- tapOn: "Done"
+- assertVisible: "Done"
+- back
+
+# Gone from Open, listed under Done
+- extendedWaitUntil:
+    notVisible: ${output.title}
+    timeout: 15000
+- tapOn: "Done"
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000

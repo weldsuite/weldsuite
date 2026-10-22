@@ -844,7 +844,7 @@ function ComposeHeader({ title, sendFromAccount, canPickAccount, colors, sending
 
   return (
     <View style={[styles.header, { borderBottomColor: colors.border || colors.divider }]}>
-      <TouchableOpacity onPress={onClose} style={styles.closeButton} disabled={sending} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+      <TouchableOpacity testID="compose-close" onPress={onClose} style={styles.closeButton} disabled={sending} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
         <X size={22} color={colors.text} strokeWidth={2} />
       </TouchableOpacity>
 
@@ -875,6 +875,7 @@ function ComposeHeader({ title, sendFromAccount, canPickAccount, colors, sending
       </TouchableOpacity>
 
       <TouchableOpacity
+        testID="compose-send"
         onPress={onSend}
         style={styles.sendArrow}
         disabled={sending}
@@ -924,6 +925,7 @@ function RecipientRow({ field, label, recipients, input, setRecipients, colors, 
           </TouchableOpacity>
         ))}
         <TextInput
+          testID={`compose-${field}`}
           style={[styles.toChipInput, { color: colors.text }]}
           value={input}
           onChangeText={(text) => onInputChange(field, text)}
@@ -1063,6 +1065,7 @@ function ComposeBody({ subject, onChangeSubject, attachments, onRemoveAttachment
             </Text>
           )}
           <TextInput
+            testID="compose-subject"
             style={[styles.subjectInput, { color: colors.text }]}
             value={subject}
             onChangeText={onChangeSubject}

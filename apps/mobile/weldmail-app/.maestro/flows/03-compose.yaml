@@ -1,0 +1,21 @@
+appId: com.weldsuite.weldmail
+name: Open and close the composer
+tags: [smoke]
+---
+# Closes an empty composer, so nothing is sent and no draft is saved.
+- runFlow: ../subflows/login.yaml
+- tapOn: "Compose"
+- extendedWaitUntil:
+    visible:
+      id: compose-to
+    timeout: 10000
+- assertVisible:
+    id: compose-subject
+- assertVisible:
+    id: compose-send
+- tapOn:
+    id: compose-close
+- extendedWaitUntil:
+    visible:
+      id: inbox-list
+    timeout: 10000

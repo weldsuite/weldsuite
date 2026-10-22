@@ -655,6 +655,7 @@ function TitleField({ value, error, autoFocus, colors, onChange }: Readonly<{ va
             borderColor: error ? '#DC2626' : colors.divider,
           },
         ]}
+        testID="task-form-title"
         placeholder="Task title"
         placeholderTextColor={colors.muted}
         value={value}
@@ -670,6 +671,7 @@ function TitleField({ value, error, autoFocus, colors, onChange }: Readonly<{ va
 function SubmitButton({ isSubmitting, label, onPress }: Readonly<{ isSubmitting: boolean; label: string; onPress: () => void }>) {
   return (
     <TouchableOpacity
+      testID="task-form-submit"
       style={[styles.submitBtn, isSubmitting && { opacity: 0.7 }]}
       onPress={onPress}
       disabled={isSubmitting}
@@ -823,6 +825,7 @@ export function TaskForm({
             styles.multiline,
             { color: colors.text, backgroundColor: colors.cardBackground, borderColor: colors.divider },
           ]}
+          testID="task-form-description"
           placeholder="Add more detail (optional)"
           placeholderTextColor={colors.muted}
           value={description}

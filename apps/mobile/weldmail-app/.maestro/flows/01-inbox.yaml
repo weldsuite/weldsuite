@@ -1,0 +1,14 @@
+appId: com.weldsuite.weldmail
+name: Inbox loads after sign-in
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible:
+    id: inbox-list
+- assertVisible: "Search mail"
+- assertVisible: "Compose"
+# Pull to refresh must not blank the list.
+- swipe:
+    direction: DOWN
+- assertVisible:
+    id: inbox-list
