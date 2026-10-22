@@ -26,7 +26,7 @@ import {
 } from '../lib/mailpool/testing-db';
 import { approvedAccess } from '../lib/mailpool/testing-routes';
 import type { Env } from '../types';
-import { MAX_WORKSPACES_PER_RUN, runWarmupSweep, WARMUP_INDEX_SEED_KEY } from './warmup-sweep';
+import { MAX_WORKSPACES_PER_RUN, runWarmupSweep, WARMUP_INDEX_SEED_KEY, type WarmupSweepDeps } from './warmup-sweep';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
@@ -73,7 +73,7 @@ beforeEach(async () => {
   } as unknown as Env;
 });
 
-function sweepDeps(overrides: { openTenant?: ReturnType<typeof vi.fn>; readAccess?: ReturnType<typeof vi.fn> } = {}) {
+function sweepDeps(overrides: Pick<WarmupSweepDeps, 'openTenant' | 'readAccess'> = {}) {
   return {
     mailpool: createFakeMailpool(),
     master,

@@ -35,7 +35,7 @@
     "@types/node": "^20",
     "tsx": "^4.0.0",
     "typescript": "^5.7",
-    "vitest": "^3.2.6",
+    "vitest": "^4.1.12",
     "wrangler": "^4.0.0"
   }
 }

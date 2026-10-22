@@ -8,7 +8,7 @@
  * signed with a real Svix signature, the Neon drop a spy.
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Webhook } from 'svix';
 import { workspaceDatabaseMoves, workspaces } from '@weldsuite/db/schema/master';
@@ -50,7 +50,7 @@ const WEBHOOK_SECRET = `whsec_${Buffer.from('a-test-secret-of-some-length-1234')
 
 let master: MoveMaster;
 let world: LightWorld;
-let deleteWorkspaceDatabase: ReturnType<typeof vi.fn>;
+let deleteWorkspaceDatabase: Mock<(...args: unknown[]) => Promise<{ success: boolean; error?: string }>>;
 
 beforeAll(async () => {
   master = await createMoveMaster();
