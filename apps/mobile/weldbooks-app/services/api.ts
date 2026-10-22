@@ -303,6 +303,18 @@ const client = createClientApi({
 
 const workspacesApi = createWorkspacesApi(client);
 
+/**
+ * The outcome of one replayed queue item. `patch` is merged into a failed item's
+ * data before it is queued again.
+ */
+export interface QueueOutcome {
+  type: string;
+  id?: string;
+  error?: string;
+  dropped?: boolean;
+  patch?: Record<string, unknown>;
+}
+
 /** A receipt photo on this device that has no stored document yet. */
 export interface LocalReceipt {
   localUri: string;
@@ -857,8 +869,6 @@ class WeldBooksApi {
     currency?: string;
     date?: string;
     documentId?: string;
-    /** A receipt photo not uploaded yet (scanned offline): stored first, then linked. */
-    receipt?: LocalReceipt;
     accountId?: string;
     /** VAT / GST percentage. A US expense is booked at what was paid (tax is part of the cost). */
     taxRate?: number;
@@ -894,8 +904,6 @@ class WeldBooksApi {
           },
         ];
 
-    const documentId =
-      data.documentId ?? (data.receipt ? ((await this.uploadReceipt(data.receipt)) ?? undefined) : undefined);
     const bill = await this.createBill({
       contactId: data.contactId,
       contactName: data.vendorName || 'Quick Expense',
@@ -903,7 +911,7 @@ class WeldBooksApi {
       dueDate: expenseDate,
       currency: data.currency,
       notes: data.description,
-      documentId,
+      documentId: data.documentId,
       items,
     });
     if (!data.amountIncludesTax) return bill;
@@ -1474,8 +1482,8 @@ class WeldBooksApi {
    */
   async uploadOfflineQueue(
     items: { type: string; data: Json; entityId?: string }[],
-  ): Promise<{ index: number; type: string; id?: string; error?: string; dropped?: boolean }[]> {
-    const results: { index: number; type: string; id?: string; error?: string; dropped?: boolean }[] = [];
+  ): Promise<(QueueOutcome & { index: number })[]> {
+    const results: (QueueOutcome & { index: number })[] = [];
     const previousEntityId = accountingEntityId;
 
     for (let i = 0; i < items.length; i++) {
@@ -1500,39 +1508,51 @@ class WeldBooksApi {
   private async replayOfflineItem(item: {
     type: string;
     data: Json;
-  }): Promise<{ type: string; id?: string; error?: string; dropped?: boolean }> {
+  }): Promise<QueueOutcome> {
     if (item.type === 'document') return this.replayDocument(item.data);
-    if (item.type === 'expense') {
-      const optional = (key: string) => (item.data[key] ? str(item.data[key]) : undefined);
-      try {
-        const bill = await this.createQuickExpense({
-          amount: num(item.data.amount),
-          amountIncludesTax: item.data.amountIncludesTax === true,
-          category: str(item.data.category, 'Expense'),
-          description: optional('description'),
-          vendorName: optional('vendorName'),
-          contactId: optional('contactId'),
-          currency: optional('currency'),
-          date: optional('date'),
-          documentId: optional('documentId'),
-          receipt: localReceipt(item.data.receipt),
-          taxRate: num(item.data.taxRate),
-          receiptLines: Array.isArray(item.data.receiptLines)
-            ? (item.data.receiptLines as BillPrefill['items'])
-            : undefined,
-          roundingDescription: optional('roundingDescription'),
-          paymentMethod: optional('paymentMethod'),
-          accrueUseTax: item.data.accrueUseTax === true,
-          taxCode: optional('taxCode'),
-        });
-        return { type: 'expense', id: bill.id };
-      } catch (err) {
-        // The bill exists as a draft; queueing the expense again would create it twice.
-        if (err instanceof QuickExpenseNotBookedError) return { type: 'expense', id: err.bill.id };
-        throw err;
-      }
-    }
+    if (item.type === 'expense') return this.replayExpense(item.data);
     return { type: item.type, error: 'Unknown item type' };
+  }
+
+  /**
+   * A queued quick expense. Its photo (scanned offline) is stored first; when the
+   * expense then fails, the stored document's id goes back into the queued item
+   * (`patch`), so the retry links it instead of storing the photo again.
+   */
+  private async replayExpense(data: Json): Promise<QueueOutcome> {
+    const optional = (key: string) => (data[key] ? str(data[key]) : undefined);
+    const receipt = localReceipt(data.receipt);
+    let documentId = optional('documentId');
+    if (!documentId && receipt) documentId = (await this.uploadReceipt(receipt)) ?? undefined;
+    try {
+      const bill = await this.createQuickExpense({
+        amount: num(data.amount),
+        amountIncludesTax: data.amountIncludesTax === true,
+        category: str(data.category, 'Expense'),
+        description: optional('description'),
+        vendorName: optional('vendorName'),
+        contactId: optional('contactId'),
+        currency: optional('currency'),
+        date: optional('date'),
+        documentId,
+        accountId: optional('accountId'),
+        taxRate: num(data.taxRate),
+        receiptLines: Array.isArray(data.receiptLines) ? (data.receiptLines as BillPrefill['items']) : undefined,
+        roundingDescription: optional('roundingDescription'),
+        paymentMethod: optional('paymentMethod'),
+        accrueUseTax: data.accrueUseTax === true,
+        taxCode: optional('taxCode'),
+      });
+      return { type: 'expense', id: bill.id };
+    } catch (err) {
+      // The bill exists as a draft; queueing the expense again would create it twice.
+      if (err instanceof QuickExpenseNotBookedError) return { type: 'expense', id: err.bill.id };
+      return {
+        type: 'expense',
+        error: err instanceof Error ? err.message : 'Failed to process',
+        ...(receipt ? { patch: { documentId: documentId ?? null, receipt: null } } : {}),
+      };
+    }
   }
 
   /**
@@ -1541,7 +1561,7 @@ class WeldBooksApi {
    * cleared can never be created, so it is dropped rather than failing on
    * every sync.
    */
-  private async replayDocument(data: Json): Promise<{ type: string; id?: string; dropped?: boolean }> {
+  private async replayDocument(data: Json): Promise<QueueOutcome> {
     const fileName = str(data.fileName, 'offline-scan.jpg');
     const mimeType = data.mimeType ? str(data.mimeType) : 'image/jpeg';
     if (data.fileKey) {

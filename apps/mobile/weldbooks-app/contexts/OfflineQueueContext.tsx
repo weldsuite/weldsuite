@@ -84,9 +84,18 @@ export function OfflineQueueProvider({ children }: Readonly<{ children: React.Re
         items.map((item) => ({ type: item.type, data: item.data, entityId: item.entityId })),
       );
 
-      // Keep only the items that failed; everything else made it to app-api.
-      const failedIndices = new Set(results.filter((r) => r.error).map((r) => r.index));
-      await persist(items.filter((_, i) => failedIndices.has(i)));
+      // Keep only the items that failed; everything else made it to app-api. A failed
+      // item keeps what its attempt already stored (`patch`), e.g. its receipt's document.
+      const failed = new Map(results.filter((r) => r.error).map((r) => [r.index, r.patch]));
+      await persist(
+        items
+          .map((item, i) => {
+            if (!failed.has(i)) return null;
+            const patch = failed.get(i);
+            return patch ? { ...item, data: { ...item.data, ...patch } } : item;
+          })
+          .filter((item): item is QueueItem => item !== null),
+      );
     } catch (err) {
       // A transport-level failure leaves the whole queue intact for the retry.
       console.error('Failed to sync offline queue:', err);

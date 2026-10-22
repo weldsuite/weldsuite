@@ -223,6 +223,43 @@ describe('createQuickExpense', () => {
       expect(bill.sourceDocumentId).toBe('doc_9');
     });
 
+    it('keeps the stored photo for the retry when the bill fails, so it is not stored twice', async () => {
+      globalThis.fetch = jest.fn((url: string) =>
+        Promise.resolve(
+          url === 'file:///cache/receipt.png'
+            ? { ok: true, arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)) }
+            : { ok: true },
+        ),
+      ) as unknown as typeof fetch;
+      client.post.mockImplementation((path: string) => {
+        if (path === '/storage/generate-upload-url') {
+          return Promise.resolve({ success: true, uploadUrl: 'https://up/x', uploadToken: 'upl_1', fileKey: KEY });
+        }
+        if (path === '/accounting-documents') return Promise.resolve({ data: { id: 'doc_9' } });
+        if (path === '/bills') return Promise.reject(new Error('Network request failed'));
+        return Promise.resolve({ success: true });
+      });
+
+      const [result] = await api.uploadOfflineQueue([
+        {
+          type: 'expense',
+          data: {
+            amount: 32.48,
+            amountIncludesTax: true,
+            category: 'Food',
+            taxRate: 21,
+            receipt: { localUri: 'file:///cache/receipt.png', fileName: 'receipt-1.png', mimeType: 'image/png' },
+          },
+        },
+      ]);
+
+      expect(result).toMatchObject({
+        type: 'expense',
+        error: 'Network request failed',
+        patch: { documentId: 'doc_9', receipt: null },
+      });
+    });
+
     it('books the expense without the photo once the OS has cleared it', async () => {
       globalThis.fetch = jest.fn(() => Promise.reject(new Error('no such file'))) as unknown as typeof fetch;
       client.post.mockResolvedValue({ data: { id: 'bill_1', total: '32.48' } });

@@ -7,7 +7,7 @@
  * enters the figures by hand.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,7 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
-import api, { receiptFileName } from '@/services/api';
+import api, { receiptFileName, type LocalReceipt } from '@/services/api';
 import { BRAND } from '@/lib/brand';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
@@ -48,7 +48,19 @@ export default function ScanScreen() {
   const cameraRef = useRef<CameraView>(null);
   const requestIdRef = useRef(0);
   const [permission, requestPermission] = useCameraPermissions();
-  const { isOnline } = useOfflineQueue();
+  const { isOnline, addToQueue } = useOfflineQueue();
+  // A photo taken offline that no quick expense took along yet. Leaving the screen
+  // any other way (Close, back) queues it as a document, so the receipt is kept.
+  const unsavedRef = useRef<LocalReceipt | null>(null);
+  const addToQueueRef = useRef(addToQueue);
+  addToQueueRef.current = addToQueue;
+  useEffect(
+    () => () => {
+      const receipt = unsavedRef.current;
+      if (receipt) void addToQueueRef.current({ type: 'document', data: { type: 'receipt', ...receipt } });
+    },
+    [],
+  );
   const { t, format } = useI18n();
   const { formatCurrency, currency: entityCurrency } = useLocaleFormatters();
 
@@ -89,7 +101,8 @@ export default function ScanScreen() {
       const fileName = receiptFileName(mimeType);
 
       if (!isOnline) {
-        // The form takes the photo along and stores it with the expense, so the two stay linked.
+        // A quick expense takes the photo along and stores it with the expense, so the two stay linked.
+        unsavedRef.current = { localUri: uri, fileName, mimeType };
         setScanStatus('offline');
         return;
       }
@@ -121,6 +134,7 @@ export default function ScanScreen() {
 
   const processImage = useCallback(
     (uri: string, mimeType = 'image/jpeg') => {
+      unsavedRef.current = null;
       setCapturedUri(uri);
       setCapturedType(mimeType);
       setDocumentId(null);
@@ -157,6 +171,8 @@ export default function ScanScreen() {
 
   const handleRetake = useCallback(() => {
     requestIdRef.current += 1;
+    // Retaking discards the photo on purpose.
+    unsavedRef.current = null;
     setCapturedUri(null);
     setDocumentId(null);
     setPrefill(null);
@@ -165,8 +181,10 @@ export default function ScanScreen() {
 
   const goTo = useCallback(
     (path: '/bill/new' | '/expense/quick') => {
-      if (busy) return;
+      // A bill is only made online; offline the photo goes with a quick expense.
+      if (busy || (path === '/bill/new' && scanStatus === 'offline')) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      unsavedRef.current = null;
       const params: Record<string, string> = {};
       if (documentId) params.documentId = documentId;
       // The form shows the photo while the figures are checked or typed from it.
@@ -176,7 +194,7 @@ export default function ScanScreen() {
       }
       router.replace({ pathname: path, params } as never);
     },
-    [router, documentId, capturedUri, capturedType, busy],
+    [router, documentId, capturedUri, capturedType, busy, scanStatus],
   );
 
   if (!permission) {
@@ -312,7 +330,7 @@ export default function ScanScreen() {
           variant="outline"
           leftIcon={<FileText size={18} color={colors.text} />}
           onPress={() => goTo('/bill/new')}
-          disabled={busy}
+          disabled={busy || scanStatus === 'offline'}
           fullWidth
         />
       </View>

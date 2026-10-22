@@ -656,7 +656,8 @@ export const nl: Translations = {
     ocrFailed: 'Bon kon niet worden gelezen. Vul de gegevens in — de afbeelding blijft gekoppeld.',
     ocrNoCredits: 'Niet genoeg AI-tegoed om de bon te lezen. Vul de gegevens in — de afbeelding blijft gekoppeld.',
     ocrTooLarge: 'De foto is te groot om te lezen. Maak hem opnieuw iets dichterbij, of vul de gegevens in.',
-    offlineBanner: 'Je bent offline. Vul de gegevens in; de afbeelding wordt geüpload zodra je weer verbinding hebt.',
+    offlineBanner:
+      'Je bent offline. Boek de bon nu als snelle uitgave, of sluit: de bon wordt bewaard en naar je documenten geüpload zodra je weer verbinding hebt.',
     quickExpense: 'Snelle uitgave',
     createBill: 'Inkoopfactuur maken',
     uploadFailed: 'Afbeelding uploaden is mislukt — je kunt de gegevens nog handmatig invoeren',

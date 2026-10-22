@@ -41,10 +41,10 @@ import { Switch } from '@weldsuite/mobile-ui/components/Switch';
 
 import { isApiError } from '@weldsuite/api-client/client';
 
-import api, { QuickExpenseNotBookedError, receiptFileName } from '@/services/api';
+import api, { QuickExpenseNotBookedError, receiptFileName, type LocalReceipt } from '@/services/api';
 import { today } from '@/lib/date';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
-import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { useI18n, useLocaleFormatters, type Translations } from '@/lib/i18n';
 import { defaultTaxRateFor } from '@/lib/jurisdiction';
 import { paymentMethodsFor, type PaymentMethodValue } from '@/lib/payments';
 import {
@@ -75,6 +75,27 @@ const CATEGORY_KEYS: { key: ExpenseCategory; icon: typeof Utensils }[] = [
   { key: 'other', icon: Tag },
 ];
 
+type OcrState = 'idle' | 'loading' | 'ready' | 'failed';
+
+/**
+ * What the save keeps from a scan: the supplier OCR matched (only while the name
+ * is still the scanned one), the receipt's currency, and its lines when they
+ * carry more than one rate.
+ */
+interface Scanned {
+  vendorName: string | null;
+  contactId: string | null;
+  currency: string | null;
+  total: string | null;
+  lines: BillPrefill['items'] | null;
+  rates: number[];
+}
+
+type ExpensePayload = Parameters<typeof api.createQuickExpense>[0] & {
+  /** A photo with no stored document yet (scanned offline, or its upload failed). */
+  receipt?: LocalReceipt;
+};
+
 /** How a receipt is usually paid: at the till, by card. */
 function defaultExpenseMethod(isUs: boolean): PaymentMethodValue {
   return isUs ? 'debit_card' : 'card';
@@ -99,6 +120,234 @@ function mainTaxRate(prefill: BillPrefill): string | null {
   return best;
 }
 
+/** The form fields a scan fills in, and what the save keeps from it. */
+function fieldsFromPrefill(prefill: BillPrefill, isUs: boolean) {
+  const total = totalFromPrefill(prefill);
+  const amount = total != null && total > 0 ? amountInput(total) : null;
+  const firstLine = prefill.items[0]?.description?.trim();
+  const rates = isUs ? [] : prefillTaxRates(prefill);
+  const scanned: Scanned = {
+    vendorName: prefill.contactName,
+    contactId: prefill.matchedContactId,
+    currency: prefill.currency,
+    total: amount,
+    lines: rates.length > 1 ? prefill.items : null,
+    rates,
+  };
+  return {
+    vendorName: prefill.contactName,
+    date: prefill.issueDate,
+    amount,
+    taxRate: isUs ? null : mainTaxRate(prefill),
+    description: firstLine && firstLine !== prefill.contactName ? firstLine : null,
+    scanned,
+  };
+}
+
+/** The photo to store with the expense: only one that has no document yet. */
+function receiptToStore(documentId?: string, receiptUri?: string, receiptType?: string) {
+  if (documentId || !receiptUri) return {};
+  const mimeType = receiptType || 'image/jpeg';
+  return { receipt: { localUri: receiptUri, mimeType, fileName: receiptFileName(mimeType) } };
+}
+
+/** What the save takes from the scan, while the form still matches it. */
+function fromScan(scanned: Scanned | null, vendorName: string, amountText: string) {
+  if (!scanned) return {};
+  return {
+    ...(scanned.contactId && vendorName === scanned.vendorName?.trim() ? { contactId: scanned.contactId } : {}),
+    ...(scanned.currency ? { currency: scanned.currency } : {}),
+    // The receipt's own lines only while its total is what gets booked.
+    ...(scanned.lines && amountText === scanned.total ? { receiptLines: scanned.lines } : {}),
+  };
+}
+
+type SaveResult =
+  | { kind: 'booked' | 'queued' | 'retryQueued' }
+  | { kind: 'notBooked'; err: QuickExpenseNotBookedError }
+  | { kind: 'failed'; err: unknown };
+
+/**
+ * Saves the expense, or queues it when offline. Online, a photo without a
+ * document is stored before the bill: if the connection then drops, the queued
+ * expense carries the document instead of storing the photo a second time.
+ */
+async function saveExpense(
+  payload: ExpensePayload,
+  isOnline: boolean,
+  queue: (data: ExpensePayload) => Promise<void>,
+): Promise<SaveResult> {
+  if (!isOnline) {
+    await queue(payload);
+    return { kind: 'queued' };
+  }
+  let pending = payload;
+  try {
+    if (pending.receipt) {
+      const documentId = (await api.uploadReceipt(pending.receipt)) ?? undefined;
+      pending = { ...pending, documentId, receipt: undefined };
+    }
+    await api.createQuickExpense(pending);
+    return { kind: 'booked' };
+  } catch (err) {
+    // The bill exists; saving again would create it twice.
+    if (err instanceof QuickExpenseNotBookedError) return { kind: 'notBooked', err };
+    // The server answered: queueing would only fail the same way on every sync.
+    if (isApiError(err)) return { kind: 'failed', err };
+    // The request never got an answer while nominally online — queue it rather than losing what was typed.
+    try {
+      await queue(pending);
+      return { kind: 'retryQueued' };
+    } catch {
+      return { kind: 'failed', err };
+    }
+  }
+}
+
+function ScanBanners({ isOnline, ocrState }: Readonly<{ isOnline: boolean; ocrState: OcrState }>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const ocr: Record<Exclude<OcrState, 'idle'>, { variant: 'info' | 'success' | 'warning'; text: string }> = {
+    loading: { variant: 'info', text: t.expenseQuick.ocrLoading },
+    ready: { variant: 'success', text: t.expenseQuick.ocrReady },
+    failed: { variant: 'warning', text: t.expenseQuick.ocrFailed },
+  };
+  const shown = ocrState === 'idle' ? null : ocr[ocrState];
+  return (
+    <>
+      {isOnline ? null : (
+        <Banner variant="warning" icon={<WifiOff size={18} color={colors.warning} />} style={styles.banner}>
+          {t.expenseQuick.offlineBanner}
+        </Banner>
+      )}
+      {shown ? (
+        <Banner variant={shown.variant} style={styles.banner}>
+          {shown.text}
+        </Banner>
+      ) : null}
+    </>
+  );
+}
+
+/** Under the amount: the VAT inside it, or for a US expense what the amount means. */
+function AmountHint({ amount, taxRate, isUs }: Readonly<{ amount: string; taxRate: string; isUs: boolean }>) {
+  const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const { labels } = useJurisdiction();
+  const { formatCurrency, parseAmount } = useLocaleFormatters();
+  const rate = parseAmount(taxRate || '0');
+  const text = isUs
+    ? t.expenseQuick.amountHintUs
+    : format(t.expenseQuick.amountHint, {
+        rate,
+        tax: labels.tax,
+        amount: formatCurrency(splitInclusiveTotal(parseAmount(amount || '0'), rate).tax),
+      });
+  return <Text style={[styles.amountHint, { color: colors.mutedForeground }]}>{text}</Text>;
+}
+
+/** US: accrue use tax when the vendor charged no sales tax. */
+function UseTaxFields({
+  accrueUseTax,
+  onAccrueUseTax,
+  taxCode,
+  onTaxCode,
+}: Readonly<{
+  accrueUseTax: boolean;
+  onAccrueUseTax: (value: boolean) => void;
+  taxCode: string;
+  onTaxCode: (value: string) => void;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  return (
+    <>
+      <Switch label={t.expenseQuick.accrueUseTax} value={accrueUseTax} onValueChange={onAccrueUseTax} />
+      <Text style={[styles.amountHint, styles.leftHint, { color: colors.mutedForeground }]}>
+        {t.expenseQuick.accrueUseTaxHint}
+      </Text>
+      {accrueUseTax ? (
+        <Select
+          label={t.salesTax.taxCode}
+          value={taxCode}
+          onValueChange={onTaxCode}
+          options={WELD_TAX_CODES.map((option) => ({ label: t.salesTax.codes[option], value: option }))}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** VAT / GST: the rate field, or a note when the receipt's lines carry several rates. */
+function TaxRateField({
+  taxRate,
+  onTaxRate,
+  placeholder,
+  mixedRates,
+}: Readonly<{ taxRate: string; onTaxRate: (value: string) => void; placeholder: string; mixedRates: number[] | null }>) {
+  const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const { labels } = useJurisdiction();
+  if (mixedRates) {
+    return (
+      <Text style={[styles.amountHint, styles.leftHint, { color: colors.mutedForeground }]}>
+        {format(t.expenseQuick.mixedRates, {
+          tax: labels.tax,
+          rates: mixedRates.map((rate) => `${rate}%`).join(', '),
+        })}
+      </Text>
+    );
+  }
+  return (
+    <Input
+      label={labels.taxPercent}
+      value={taxRate}
+      onChangeText={onTaxRate}
+      keyboardType="decimal-pad"
+      placeholder={placeholder}
+    />
+  );
+}
+
+function methodLabels(t: Translations): Record<PaymentMethodValue, string> {
+  return {
+    check: t.payments.check,
+    ach: t.payments.ach,
+    wire: t.payments.wire,
+    credit_card: t.payments.creditCard,
+    debit_card: t.payments.debitCard,
+    cash: t.payments.cash,
+    other: t.payments.other,
+    bank_transfer: t.payments.bankTransfer,
+    card: t.payments.card,
+    direct_debit: t.payments.directDebit,
+    manual: t.payments.other,
+  };
+}
+
+/** The expense account: follows the category until the user picks one. Hidden without a chart. */
+function AccountPicker({
+  accounts,
+  accountId,
+  onPick,
+}: Readonly<{ accounts: GlAccount[]; accountId: string; onPick: (id: string) => void }>) {
+  const { t } = useI18n();
+  if (accounts.length === 0) return null;
+  return (
+    <View style={styles.accountPicker}>
+      <Select
+        label={t.expenseQuick.account}
+        value={accountId}
+        onValueChange={onPick}
+        options={[
+          { label: t.expenseQuick.defaultAccount, value: '' },
+          ...accounts.map((account) => ({ label: `${account.code} ${account.name}`, value: account.id })),
+        ]}
+      />
+    </View>
+  );
+}
+
 export default function QuickExpenseScreen() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -115,33 +364,8 @@ export default function QuickExpenseScreen() {
   }>();
   const { t, format } = useI18n();
   const { isUs, code, labels } = useJurisdiction();
-  const { formatCurrency, parseAmount: parseTyped } = useLocaleFormatters();
+  const { parseAmount: parseTyped } = useLocaleFormatters();
   const defaultTaxRate = defaultTaxRateFor(code);
-
-  const categoryLabels: Record<ExpenseCategory, string> = {
-    food: t.expenseQuick.food,
-    transport: t.expenseQuick.transport,
-    office: t.expenseQuick.office,
-    travel: t.expenseQuick.travel,
-    supplies: t.expenseQuick.supplies,
-    utilities: t.expenseQuick.utilities,
-    insurance: t.expenseQuick.insurance,
-    other: t.expenseQuick.other,
-  };
-
-  const methodLabels: Record<PaymentMethodValue, string> = {
-    check: t.payments.check,
-    ach: t.payments.ach,
-    wire: t.payments.wire,
-    credit_card: t.payments.creditCard,
-    debit_card: t.payments.debitCard,
-    cash: t.payments.cash,
-    other: t.payments.other,
-    bank_transfer: t.payments.bankTransfer,
-    card: t.payments.card,
-    direct_debit: t.payments.directDebit,
-    manual: t.payments.other,
-  };
 
   const [amount, setAmount] = useState(params.amount ?? '');
   const [category, setCategory] = useState<ExpenseCategory>('other');
@@ -157,21 +381,11 @@ export default function QuickExpenseScreen() {
   const [accounts, setAccounts] = useState<GlAccount[]>([]);
   const [accountId, setAccountId] = useState('');
   const [accountTouched, setAccountTouched] = useState(false);
-  // From the scan: the supplier OCR matched (only while the name is still the scanned one),
-  // the receipt's currency, and its lines when they carry more than one rate.
-  const [scanned, setScanned] = useState<{
-    vendorName: string | null;
-    contactId: string | null;
-    currency: string | null;
-    total: string | null;
-    lines: BillPrefill['items'] | null;
-    rates: number[];
-  } | null>(null);
+  const [scanned, setScanned] = useState<Scanned | null>(null);
   const [saving, setSaving] = useState(false);
   const [amountError, setAmountError] = useState<string | undefined>();
-  const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
-    params.documentId ? 'loading' : 'idle',
-  );
+  const [ocrState, setOcrState] = useState<OcrState>(params.documentId ? 'loading' : 'idle');
+
   useEffect(() => {
     if (!isOnline) return;
     let cancelled = false;
@@ -192,39 +406,29 @@ export default function QuickExpenseScreen() {
   }, [category, accounts, accountTouched]);
 
   // Booked per receipt line while the scanned total stands; editing it falls back to one rate.
-  const mixedRates = Boolean(scanned?.lines) && amount === scanned?.total;
+  const mixedRates = scanned?.lines && amount === scanned.total ? scanned.rates : null;
 
   useEffect(() => {
-    if (!params.documentId) return;
+    const documentId = params.documentId;
+    if (!documentId) return;
     let cancelled = false;
     setOcrState('loading');
-    void (async () => {
-      try {
-        const prefill = await api.getBillFromDocument(params.documentId!);
+    api
+      .getBillFromDocument(documentId)
+      .then((prefill) => {
         if (cancelled) return;
-        if (prefill.contactName) setVendorName(prefill.contactName);
-        if (prefill.issueDate) setDate(prefill.issueDate);
-        const total = totalFromPrefill(prefill);
-        const totalText = total != null && total > 0 ? amountInput(total) : null;
-        if (totalText) setAmount(totalText);
-        const rate = mainTaxRate(prefill);
-        if (rate && !isUs) setTaxRate(rate);
-        const firstLine = prefill.items[0]?.description?.trim();
-        if (firstLine && firstLine !== prefill.contactName) setDescription(firstLine);
-        const rates = isUs ? [] : prefillTaxRates(prefill);
-        setScanned({
-          vendorName: prefill.contactName,
-          contactId: prefill.matchedContactId,
-          currency: prefill.currency,
-          total: totalText,
-          lines: rates.length > 1 ? prefill.items : null,
-          rates,
-        });
+        const fields = fieldsFromPrefill(prefill, isUs);
+        if (fields.vendorName) setVendorName(fields.vendorName);
+        if (fields.date) setDate(fields.date);
+        if (fields.amount) setAmount(fields.amount);
+        if (fields.taxRate) setTaxRate(fields.taxRate);
+        if (fields.description) setDescription(fields.description);
+        setScanned(fields.scanned);
         setOcrState('ready');
-      } catch {
+      })
+      .catch(() => {
         if (!cancelled) setOcrState('failed');
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
@@ -239,76 +443,49 @@ export default function QuickExpenseScreen() {
     setAmountError(undefined);
 
     const name = vendorName.trim();
-    const sameSupplier = scanned?.contactId && name === scanned.vendorName?.trim();
-    // The receipt's own lines only while its total is what gets booked.
-    const receiptLines = scanned?.lines && amount === scanned.total ? scanned.lines : undefined;
-    const payload = {
+    const payload: ExpensePayload = {
       amount: value,
       amountIncludesTax: true,
       // The label, not the key: it is the line's description when none is typed.
       category: t.expenseQuick[category],
       description: description.trim() || undefined,
       vendorName: name || undefined,
-      ...(sameSupplier ? { contactId: scanned.contactId! } : {}),
-      ...(scanned?.currency ? { currency: scanned.currency } : {}),
       date,
       documentId: params.documentId || undefined,
-      // A photo scanned offline (or whose upload failed) is stored with the expense, so it stays linked.
-      ...(!params.documentId && params.receiptUri
-        ? {
-            receipt: {
-              localUri: params.receiptUri,
-              mimeType: params.receiptType || 'image/jpeg',
-              fileName: receiptFileName(params.receiptType || 'image/jpeg'),
-            },
-          }
-        : {}),
+      ...receiptToStore(params.documentId, params.receiptUri, params.receiptType),
+      ...fromScan(scanned, name, amount),
       ...(accountId ? { accountId } : {}),
       // A US expense is booked at what was paid: the tax in it is part of the cost, and use tax is accrued on request.
       taxRate: isUs ? 0 : parseTyped(taxRate || '0'),
-      ...(receiptLines ? { receiptLines } : {}),
       roundingDescription: t.expenseQuick.rounding,
       paymentMethod,
       ...(isUs && accrueUseTax ? { accrueUseTax: true, taxCode } : {}),
     };
 
     setSaving(true);
-    try {
-      if (!isOnline) {
-        await addToQueue({ type: 'expense', data: payload });
+    const result = await saveExpense(payload, isOnline, (data) => addToQueue({ type: 'expense', data }));
+    setSaving(false);
+
+    switch (result.kind) {
+      case 'failed':
+        toast.error(describeApiError(result.err, t, t.expenseQuick.saveFailed));
+        return;
+      case 'notBooked':
+        toast.info(format(t.expenseQuick.notBooked, { reason: describeApiError(result.err.cause, t, result.err.message) }));
+        break;
+      case 'booked':
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        toast.success(t.expenseQuick.saved);
+        break;
+      case 'queued':
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         toast.info(t.expenseQuick.savedOffline);
-        router.back();
-        return;
-      }
-
-      await api.createQuickExpense(payload);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      toast.success(t.expenseQuick.saved);
-      router.back();
-    } catch (err) {
-      if (err instanceof QuickExpenseNotBookedError) {
-        // The bill exists; saving again would create it twice.
-        toast.info(format(t.expenseQuick.notBooked, { reason: describeApiError(err.cause, t, err.message) }));
-        router.back();
-        return;
-      }
-      if (isApiError(err)) {
-        // The server answered: queueing would only fail the same way on every sync.
-        toast.error(describeApiError(err, t, t.expenseQuick.saveFailed));
-        return;
-      }
-      // The request never got an answer while nominally online — queue it rather than losing what was typed.
-      try {
-        await addToQueue({ type: 'expense', data: payload });
+        break;
+      case 'retryQueued':
         toast.info(t.expenseQuick.queuedRetry);
-        router.back();
-      } catch {
-        toast.error(describeApiError(err, t, t.expenseQuick.saveFailed));
-      }
-    } finally {
-      setSaving(false);
+        break;
     }
+    router.back();
   }, [
     amount,
     category,
@@ -334,33 +511,12 @@ export default function QuickExpenseScreen() {
     format,
   ]);
 
+  const methods = methodLabels(t);
+
   return (
     <Screen header={<ScreenHeader title={t.expenseQuick.title} showBack />}>
       <FormScrollView contentContainerStyle={styles.content}>
-          {!isOnline ? (
-            <Banner
-              variant="warning"
-              icon={<WifiOff size={18} color={colors.warning} />}
-              style={styles.banner}
-            >
-              {t.expenseQuick.offlineBanner}
-            </Banner>
-          ) : null}
-          {ocrState === 'loading' ? (
-            <Banner variant="info" style={styles.banner}>
-              {t.expenseQuick.ocrLoading}
-            </Banner>
-          ) : null}
-          {ocrState === 'ready' ? (
-            <Banner variant="success" style={styles.banner}>
-              {t.expenseQuick.ocrReady}
-            </Banner>
-          ) : null}
-          {ocrState === 'failed' ? (
-            <Banner variant="warning" style={styles.banner}>
-              {t.expenseQuick.ocrFailed}
-            </Banner>
-          ) : null}
+          <ScanBanners isOnline={isOnline} ocrState={ocrState} />
 
           <ReceiptPreview uri={params.receiptUri} style={styles.receipt} />
 
@@ -377,7 +533,7 @@ export default function QuickExpenseScreen() {
                   value={amount}
                   onChangeText={(text) => {
                     setAmount(text);
-                    if (amountError) setAmountError(undefined);
+                    setAmountError(undefined);
                   }}
                   keyboardType="decimal-pad"
                   placeholder="0.00"
@@ -395,17 +551,7 @@ export default function QuickExpenseScreen() {
             {amountError ? (
               <Text style={[styles.amountError, { color: colors.destructive }]}>{amountError}</Text>
             ) : (
-              <Text style={[styles.amountHint, { color: colors.mutedForeground }]}>
-                {isUs
-                  ? t.expenseQuick.amountHintUs
-                  : format(t.expenseQuick.amountHint, {
-                      rate: parseTyped(taxRate || '0'),
-                      tax: labels.tax,
-                      amount: formatCurrency(
-                        splitInclusiveTotal(parseTyped(amount || '0'), parseTyped(taxRate || '0')).tax,
-                      ),
-                    })}
-              </Text>
+              <AmountHint amount={amount} taxRate={taxRate} isUs={isUs} />
             )}
           </Card>
 
@@ -413,7 +559,8 @@ export default function QuickExpenseScreen() {
             <View style={styles.categories}>
               {CATEGORY_KEYS.map(({ key, icon: Icon }) => {
                 const selected = category === key;
-                const label = categoryLabels[key];
+                const label = t.expenseQuick[key];
+                const color = selected ? BRAND : colors.mutedForeground;
                 return (
                   <Pressable
                     key={key}
@@ -426,41 +573,25 @@ export default function QuickExpenseScreen() {
                     accessibilityLabel={label}
                     style={[
                       styles.category,
-                      {
-                        borderColor: selected ? BRAND : colors.border,
-                        backgroundColor: selected ? tint(BRAND) : 'transparent',
-                      },
+                      selected
+                        ? { borderColor: BRAND, backgroundColor: tint(BRAND) }
+                        : { borderColor: colors.border, backgroundColor: 'transparent' },
                     ]}
                   >
-                    <Icon size={20} color={selected ? BRAND : colors.mutedForeground} />
-                    <Text
-                      style={[
-                        styles.categoryLabel,
-                        { color: selected ? BRAND : colors.mutedForeground },
-                      ]}
-                    >
-                      {label}
-                    </Text>
+                    <Icon size={20} color={color} />
+                    <Text style={[styles.categoryLabel, { color }]}>{label}</Text>
                   </Pressable>
                 );
               })}
             </View>
-            {accounts.length > 0 ? (
-              <View style={styles.accountPicker}>
-                <Select
-                  label={t.expenseQuick.account}
-                  value={accountId}
-                  onValueChange={(value) => {
-                    setAccountId(value);
-                    setAccountTouched(true);
-                  }}
-                  options={[
-                    { label: t.expenseQuick.defaultAccount, value: '' },
-                    ...accounts.map((account) => ({ label: `${account.code} ${account.name}`, value: account.id })),
-                  ]}
-                />
-              </View>
-            ) : null}
+            <AccountPicker
+              accounts={accounts}
+              accountId={accountId}
+              onPick={(value) => {
+                setAccountId(value);
+                setAccountTouched(true);
+              }}
+            />
           </SectionCard>
 
           <SectionCard title={t.expenseQuick.details}>
@@ -474,52 +605,27 @@ export default function QuickExpenseScreen() {
             />
             <DateField label={t.expenseQuick.date} value={date} onChange={setDate} testID="expense-date" />
             {isUs ? (
-              <>
-                <Switch
-                  label={t.expenseQuick.accrueUseTax}
-                  value={accrueUseTax}
-                  onValueChange={setAccrueUseTax}
-                />
-                <Text style={[styles.amountHint, styles.leftHint, { color: colors.mutedForeground }]}>
-                  {t.expenseQuick.accrueUseTaxHint}
-                </Text>
-                {accrueUseTax ? (
-                  <Select
-                    label={t.salesTax.taxCode}
-                    value={taxCode}
-                    onValueChange={setTaxCode}
-                    options={WELD_TAX_CODES.map((option) => ({
-                      label: t.salesTax.codes[option],
-                      value: option,
-                    }))}
-                  />
-                ) : null}
-              </>
-            ) : null}
-            {!isUs && mixedRates ? (
-              <Text style={[styles.amountHint, styles.leftHint, { color: colors.mutedForeground }]}>
-                {format(t.expenseQuick.mixedRates, {
-                  tax: labels.tax,
-                  rates: scanned!.rates.map((rate) => `${rate}%`).join(', '),
-                })}
-              </Text>
-            ) : null}
-            {!isUs && !mixedRates ? (
-              <Input
-                label={labels.taxPercent}
-                value={taxRate}
-                onChangeText={setTaxRate}
-                keyboardType="decimal-pad"
-                placeholder={defaultTaxRate}
+              <UseTaxFields
+                accrueUseTax={accrueUseTax}
+                onAccrueUseTax={setAccrueUseTax}
+                taxCode={taxCode}
+                onTaxCode={setTaxCode}
               />
-            ) : null}
+            ) : (
+              <TaxRateField
+                taxRate={taxRate}
+                onTaxRate={setTaxRate}
+                placeholder={defaultTaxRate}
+                mixedRates={mixedRates}
+              />
+            )}
             <Select
               label={t.expenseQuick.paidWith}
               value={paymentMethod}
               onValueChange={setPaymentMethod}
               options={paymentMethodsFor(isUs)
                 .filter((method) => method !== 'manual')
-                .map((method) => ({ label: methodLabels[method], value: method }))}
+                .map((method) => ({ label: methods[method], value: method }))}
             />
             <Textarea
               label={t.expenseQuick.description}

@@ -29,7 +29,7 @@ function taxCents(netCents: number, rate: number): number {
 /** The net price of `total` (VAT included) at `rate`, and the rounding that is left. */
 export function splitInclusiveTotal(total: number, rate: number): { net: number; tax: number; rounding: number } {
   const totalCents = toCents(total);
-  if (!(rate > 0)) return { net: totalCents / 100, tax: 0, rounding: 0 };
+  if (!Number.isFinite(rate) || rate <= 0) return { net: totalCents / 100, tax: 0, rounding: 0 };
 
   const guess = Math.round(totalCents / (1 + rate / 100));
   let best = guess;

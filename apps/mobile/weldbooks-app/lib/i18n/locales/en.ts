@@ -653,7 +653,8 @@ export const en = {
     ocrFailed: 'Could not read the receipt. Enter the details — the image is still attached.',
     ocrNoCredits: 'Not enough AI credits to read the receipt. Enter the details — the image is still attached.',
     ocrTooLarge: 'The photo is too large to read. Retake it a bit closer, then enter the details if needed.',
-    offlineBanner: "You're offline. Enter the details; the image will upload when you reconnect.",
+    offlineBanner:
+      "You're offline. Book it as a quick expense now, or close: the receipt is kept and uploads to your documents when you reconnect.",
     quickExpense: 'Quick expense',
     createBill: 'Create bill',
     uploadFailed: 'Could not upload the image — you can still enter the details',
