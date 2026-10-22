@@ -5,22 +5,24 @@ import {
   FlatList,
   Modal,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { MoreHorizontal, Pause, Play, Plus, UserMinus, X } from 'lucide-react-native';
+import { MoreHorizontal, Pause, Play, Plus, UserMinus, Users, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
+import { Chip } from '@weldsuite/mobile-ui/components/Chip';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { StackHeader } from '@/components/headers';
+import { InitialsTile, Pill, RecordRow } from '@/components/record-row';
 import { PersonPicker } from '@/components/company-picker';
 import { usePagedList } from '@/hooks/use-paged-list';
 import { sequencesApi, type CrmSequence, type SequenceEnrollment } from '@/services/sequences';
-import { initialsOf } from '@/lib/crm';
 import { interpolate, labelFor, useI18n } from '@/lib/i18n';
 
 type StatusFilter = 'all' | 'active' | 'paused' | 'pending' | 'completed' | 'failed';
@@ -301,7 +303,7 @@ export default function SequenceDetailScreen() {
           {sequenceLoading ? (
             <ActivityIndicator color={colors.text} />
           ) : (
-            <Text style={[styles.emptyText, { color: colors.muted }]}>{t.sequences.notFound}</Text>
+            <Text style={[styles.notFound, { color: colors.mutedForeground }]}>{t.sequences.notFound}</Text>
           )}
         </View>
       );
@@ -314,10 +316,8 @@ export default function SequenceDetailScreen() {
     return (
       <View style={styles.summary}>
         <View style={styles.summaryTop}>
-          <View style={[styles.statusBadge, { backgroundColor: `${color}20` }]}>
-            <Text style={[styles.statusText, { color }]}>{labelFor(t.sequences.status, sequence.status)}</Text>
-          </View>
-          <Text style={[styles.summaryMeta, { color: colors.muted }]} numberOfLines={1}>
+          <Pill label={labelFor(t.sequences.status, sequence.status)} color={color} />
+          <Text style={[styles.summaryMeta, { color: colors.mutedForeground }]} numberOfLines={1}>
             {[plural(sequence.stepCount, t.sequences.stepCount), lastRun].join(' · ')}
           </Text>
         </View>
@@ -326,9 +326,9 @@ export default function SequenceDetailScreen() {
         )}
         <View style={styles.stats}>
           {stats.map((stat) => (
-            <View key={stat.key} style={[styles.stat, { borderColor: colors.divider }]}>
+            <View key={stat.key} style={styles.stat}>
               <Text style={[styles.statValue, { color: colors.text }]}>{stat.value}</Text>
-              <Text style={[styles.statLabel, { color: colors.muted }]} numberOfLines={1}>
+              <Text style={[styles.statLabel, { color: colors.mutedForeground }]} numberOfLines={1}>
                 {stat.label}
               </Text>
             </View>
@@ -361,7 +361,7 @@ export default function SequenceDetailScreen() {
             )}
           </TouchableOpacity>
         )}
-        <Text style={[styles.hint, { color: colors.muted }]}>{t.sequences.webOnlyHint}</Text>
+        <Text style={[styles.hint, { color: colors.mutedForeground }]}>{t.sequences.webOnlyHint}</Text>
       </View>
     );
   };
@@ -372,45 +372,31 @@ export default function SequenceDetailScreen() {
       <Text style={[styles.sectionTitle, { color: colors.text }]} accessibilityRole="header">
         {t.sequences.peopleTitle}
       </Text>
-      <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
-        <TextInput
-          style={[styles.searchInput, { color: colors.text }]}
-          placeholder={t.sequences.searchPeople}
-          placeholderTextColor={colors.muted}
+      <View style={styles.controls}>
+        <SearchBar
           value={search}
           onChangeText={setSearch}
+          placeholder={t.sequences.searchPeople}
           autoCapitalize="none"
           autoCorrect={false}
-          returnKeyType="search"
-          accessibilityLabel={t.sequences.searchPeople}
+          containerStyle={styles.search}
         />
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
-        {STATUS_FILTERS.map((value) => {
-          const selected = statusFilter === value;
-          return (
-            <TouchableOpacity
+        <View style={styles.chips}>
+          {STATUS_FILTERS.map((value) => (
+            <Chip
               key={value}
-              style={[
-                styles.filterButton,
-                { backgroundColor: selected ? colors.text : 'transparent', borderColor: selected ? colors.text : colors.divider },
-              ]}
+              label={filterLabel(value)}
+              selected={statusFilter === value}
               onPress={() => setStatusFilter(value)}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              accessibilityLabel={filterLabel(value)}
-            >
-              <Text style={[styles.filterButtonText, { color: selected ? colors.background : colors.text }]}>
-                {filterLabel(value)}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+            />
+          ))}
+        </View>
+      </View>
     </View>
   );
 
   const renderEmpty = () => {
+    const icon = <Users size={32} color={colors.mutedForeground} />;
     if (enrollments.loading) {
       return (
         <View style={styles.center}>
@@ -419,21 +405,15 @@ export default function SequenceDetailScreen() {
       );
     }
     if (enrollments.error) {
-      return (
-        <View style={styles.emptyState}>
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>{t.sequences.peopleLoadFailed}</Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>{t.common.pullToRetry}</Text>
-        </View>
-      );
+      return <EmptyState icon={icon} title={t.sequences.peopleLoadFailed} description={t.common.pullToRetry} />;
     }
     const filtered = !!search || statusFilter !== 'all';
     return (
-      <View style={styles.emptyState}>
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>
-          {filtered ? t.sequences.peopleEmptyFiltered : t.sequences.peopleEmpty}
-        </Text>
-        {!filtered && <Text style={[styles.emptyText, { color: colors.muted }]}>{t.sequences.peopleEmptyHint}</Text>}
-      </View>
+      <EmptyState
+        icon={icon}
+        title={filtered ? t.sequences.peopleEmptyFiltered : t.sequences.peopleEmpty}
+        description={filtered ? undefined : t.sequences.peopleEmptyHint}
+      />
     );
   };
 
@@ -453,48 +433,29 @@ export default function SequenceDetailScreen() {
       .filter(Boolean)
       .join(' · ');
     return (
-      <View style={[styles.row, { borderBottomColor: colors.divider }]}>
-        <TouchableOpacity
-          style={styles.rowMain}
-          activeOpacity={0.7}
-          onPress={() => openPerson(item)}
-          accessibilityRole="button"
-          accessibilityLabel={`${item.name}, ${statusLabel}`}
-        >
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initialsOf(item.name)}</Text>
-          </View>
-          <View style={styles.rowText}>
-            <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <Text style={[styles.sub, { color: colors.muted }]} numberOfLines={1}>
-              {detail}
-            </Text>
-            {item.status === 'failed' && !!item.errorMessage && (
-              <Text style={[styles.sub, { color: colors.destructive }]} numberOfLines={2}>
-                {item.errorMessage}
-              </Text>
+      <RecordRow
+        leading={<InitialsTile name={item.name} round />}
+        title={item.name}
+        subtitle={detail}
+        meta={item.status === 'failed' && item.errorMessage ? item.errorMessage : undefined}
+        metaColor={colors.destructive}
+        badge={
+          <View style={styles.badgeRow}>
+            <Pill label={statusLabel} color={color} />
+            {canAct(item.status) ? (
+              <IconButton
+                icon={<MoreHorizontal size={20} color={colors.mutedForeground} />}
+                size="sm"
+                accessibilityLabel={interpolate(t.sequences.actionsFor, { name: item.name })}
+                onPress={() => setTarget(item)}
+              />
+            ) : (
+              <View style={styles.badgeSpacer} />
             )}
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: `${color}20` }]}>
-            <Text style={[styles.statusText, { color }]}>{statusLabel}</Text>
-          </View>
-        </TouchableOpacity>
-        {canAct(item.status) ? (
-          <TouchableOpacity
-            style={styles.moreButton}
-            onPress={() => setTarget(item)}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel={interpolate(t.sequences.actionsFor, { name: item.name })}
-          >
-            <MoreHorizontal size={20} color={colors.muted} />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.moreButton} />
-        )}
-      </View>
+        }
+        onPress={() => openPerson(item)}
+      />
     );
   };
 
@@ -506,14 +467,11 @@ export default function SequenceDetailScreen() {
         onBack={() => router.back()}
         right={
           sequence ? (
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => setPicking(true)}
-              accessibilityRole="button"
+            <IconButton
+              icon={<Plus size={24} color={colors.text} />}
               accessibilityLabel={t.sequences.enroll}
-            >
-              <Plus size={24} color={colors.text} />
-            </TouchableOpacity>
+              onPress={() => setPicking(true)}
+            />
           ) : null
         }
       />
@@ -605,18 +563,23 @@ export default function SequenceDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48 },
-  iconButton: { padding: 8 },
   listContent: { flexGrow: 1, paddingBottom: 24 },
   footerSpinner: { paddingVertical: 16 },
   summary: { padding: 16, gap: 12 },
   summaryEmpty: { padding: 32, alignItems: 'center' },
+  notFound: { fontSize: 13, textAlign: 'center' },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 20, rowGap: 6 },
+  stat: { flexDirection: 'row', alignItems: 'baseline', gap: 5 },
+  statValue: { fontSize: 17, fontWeight: '700' },
+  statLabel: { fontSize: 13 },
+  controls: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8, gap: 10 },
+  search: { borderRadius: 12 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  badgeSpacer: { width: 32 },
   summaryTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   summaryMeta: { flex: 1, fontSize: 13 },
   description: { fontSize: 14 },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  stat: { minWidth: 92, flexGrow: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  statValue: { fontSize: 18, fontWeight: '700' },
-  statLabel: { fontSize: 11, marginTop: 2 },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -628,25 +591,7 @@ const styles = StyleSheet.create({
   },
   actionButtonText: { fontSize: 15, fontWeight: '600' },
   hint: { fontSize: 12 },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  statusText: { fontSize: 11, fontWeight: '600' },
   sectionTitle: { fontSize: 17, fontWeight: '600', paddingHorizontal: 16, paddingTop: 8 },
-  searchBar: { marginHorizontal: 16, marginTop: 10, marginBottom: 4, borderRadius: 10 },
-  searchInput: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
-  filterList: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
-  filterButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
-  filterButtonText: { fontSize: 13, fontWeight: '500' },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
-  emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
-  emptyText: { fontSize: 13, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, paddingRight: 8 },
-  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 16, paddingVertical: 12 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E0E7FF', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 13, fontWeight: '600', color: '#4F46E5' },
-  rowText: { flex: 1 },
-  name: { fontSize: 15, fontWeight: '500' },
-  sub: { fontSize: 12, marginTop: 2 },
-  moreButton: { width: 36, alignItems: 'center', justifyContent: 'center', paddingVertical: 8 },
   menuOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
   menuCard: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 34 },
   menuHeader: {

@@ -13,15 +13,17 @@ import {
   View,
 } from 'react-native';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Edit3, MoreHorizontal, Plus, Trash2, X } from 'lucide-react-native';
+import { Edit3, ListChecks, MoreHorizontal, Plus, Trash2, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { StackHeader } from '@/components/headers';
+import { InitialsTile, RecordRow } from '@/components/record-row';
 import { FormField } from '@/components/form';
 import { CompanyPicker, PersonPicker } from '@/components/company-picker';
 import { listsApi, type CrmList, type ListKind, type ListMember } from '@/services/lists';
 import type { CompanyRecord, PersonRecord } from '@/services/api';
-import { initialsOf } from '@/lib/crm';
 import { interpolate, useI18n } from '@/lib/i18n';
 
 type LoadMode = 'initial' | 'refresh' | 'silent';
@@ -279,6 +281,7 @@ export default function ListDetailScreen() {
   };
 
   const renderEmpty = () => {
+    const icon = <ListChecks size={32} color={colors.mutedForeground} />;
     if (loading) {
       return (
         <View style={styles.center}>
@@ -288,57 +291,37 @@ export default function ListDetailScreen() {
     }
     if (error) {
       return (
-        <View style={styles.emptyState}>
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>
-            {list ? t.lists.membersLoadFailed : t.lists.notFound}
-          </Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>{t.common.pullToRetry}</Text>
-        </View>
+        <EmptyState
+          icon={icon}
+          title={list ? t.lists.membersLoadFailed : t.lists.notFound}
+          description={t.common.pullToRetry}
+        />
       );
     }
     return (
-      <View style={styles.emptyState}>
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>
-          {kind === 'company' ? t.lists.emptyMembersCompany : t.lists.emptyMembersPerson}
-        </Text>
-        <Text style={[styles.emptyText, { color: colors.muted }]}>{t.lists.emptyMembersHint}</Text>
-      </View>
+      <EmptyState
+        icon={icon}
+        title={kind === 'company' ? t.lists.emptyMembersCompany : t.lists.emptyMembersPerson}
+        description={t.lists.emptyMembersHint}
+      />
     );
   };
 
   const renderMember = ({ item }: { item: ListMember }) => (
-    <View style={[styles.row, { borderBottomColor: colors.divider }]}>
-      <TouchableOpacity
-        style={styles.rowMain}
-        activeOpacity={0.7}
-        onPress={() => openMember(item)}
-        accessibilityRole="button"
-        accessibilityLabel={item.name}
-      >
-        <View style={[styles.avatar, item.kind === 'person' && styles.avatarRound]}>
-          <Text style={styles.avatarText}>{initialsOf(item.name)}</Text>
-        </View>
-        <View style={styles.rowText}>
-          <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          {!!item.subtitle && (
-            <Text style={[styles.sub, { color: colors.muted }]} numberOfLines={1}>
-              {item.subtitle}
-            </Text>
-          )}
-        </View>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.removeButton}
-        onPress={() => confirmRemove(item)}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        accessibilityRole="button"
-        accessibilityLabel={interpolate(t.lists.removeMember, { name: item.name })}
-      >
-        <X size={18} color={colors.muted} />
-      </TouchableOpacity>
-    </View>
+    <RecordRow
+      leading={<InitialsTile name={item.name} round={item.kind === 'person'} />}
+      title={item.name}
+      subtitle={item.subtitle || undefined}
+      badge={
+        <IconButton
+          icon={<X size={18} color={colors.mutedForeground} />}
+          size="sm"
+          accessibilityLabel={interpolate(t.lists.removeMember, { name: item.name })}
+          onPress={() => confirmRemove(item)}
+        />
+      }
+      onPress={() => openMember(item)}
+    />
   );
 
   return (
@@ -350,22 +333,16 @@ export default function ListDetailScreen() {
         right={
           list ? (
             <>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() => setPicking(true)}
-                accessibilityRole="button"
+              <IconButton
+                icon={<Plus size={24} color={colors.text} />}
                 accessibilityLabel={t.lists.addMember}
-              >
-                <Plus size={24} color={colors.text} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() => setMenuOpen(true)}
-                accessibilityRole="button"
+                onPress={() => setPicking(true)}
+              />
+              <IconButton
+                icon={<MoreHorizontal size={22} color={colors.text} />}
                 accessibilityLabel={interpolate(t.lists.actionsFor, { name: title })}
-              >
-                <MoreHorizontal size={22} color={colors.text} />
-              </TouchableOpacity>
+                onPress={() => setMenuOpen(true)}
+              />
             </>
           ) : null
         }
@@ -375,7 +352,7 @@ export default function ListDetailScreen() {
         <View style={[styles.summary, { borderBottomColor: colors.divider }]}>
           <Text style={[styles.summaryCount, { color: colors.text }]}>{countText}</Text>
           {!!list.description && (
-            <Text style={[styles.summaryDescription, { color: colors.muted }]}>{list.description}</Text>
+            <Text style={[styles.summaryDescription, { color: colors.mutedForeground }]}>{list.description}</Text>
           )}
         </View>
       )}
@@ -464,23 +441,10 @@ export default function ListDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48 },
-  iconButton: { padding: 8 },
   summary: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   summaryCount: { fontSize: 15, fontWeight: '600' },
   summaryDescription: { fontSize: 13, marginTop: 2 },
   listContent: { flexGrow: 1 },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
-  emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
-  emptyText: { fontSize: 13, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, paddingRight: 16 },
-  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  avatar: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#E0E7FF', alignItems: 'center', justifyContent: 'center' },
-  avatarRound: { borderRadius: 20 },
-  avatarText: { fontSize: 13, fontWeight: '600', color: '#4F46E5' },
-  rowText: { flex: 1 },
-  name: { fontSize: 15, fontWeight: '500' },
-  sub: { fontSize: 12, marginTop: 2 },
-  removeButton: { padding: 6 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', padding: 24 },
   modalCard: { borderRadius: 16, padding: 20 },
   modalTitle: { fontSize: 17, fontWeight: '600', marginBottom: 16 },

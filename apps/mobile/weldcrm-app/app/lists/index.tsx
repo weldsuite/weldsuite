@@ -6,19 +6,22 @@ import {
   Modal,
   Platform,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
-import { Building2, ChevronRight, Plus, User } from 'lucide-react-native';
+import { Building2, ListChecks, Plus, User } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
+import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
+import { Chip } from '@weldsuite/mobile-ui/components/Chip';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { StackHeader } from '@/components/headers';
+import { RecordRow } from '@/components/record-row';
 import { FormField } from '@/components/form';
 import { usePagedList } from '@/hooks/use-paged-list';
 import { listsApi, type CrmList, type ListKind } from '@/services/lists';
@@ -173,6 +176,7 @@ export default function ListsScreen() {
   };
 
   const renderEmpty = () => {
+    const icon = <ListChecks size={32} color={colors.mutedForeground} />;
     if (lists.loading) {
       return (
         <View style={styles.center}>
@@ -181,21 +185,15 @@ export default function ListsScreen() {
       );
     }
     if (lists.error) {
-      return (
-        <View style={styles.emptyState}>
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>{t.lists.loadFailed}</Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>{t.common.pullToRetry}</Text>
-        </View>
-      );
+      return <EmptyState icon={icon} title={t.lists.loadFailed} description={t.common.pullToRetry} />;
     }
     const filtered = !!search || kind !== 'all';
     return (
-      <View style={styles.emptyState}>
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>
-          {filtered ? t.lists.emptyFiltered : t.lists.empty}
-        </Text>
-        {!filtered && <Text style={[styles.emptyText, { color: colors.muted }]}>{t.lists.emptyHint}</Text>}
-      </View>
+      <EmptyState
+        icon={icon}
+        title={filtered ? t.lists.emptyFiltered : t.lists.empty}
+        description={filtered ? undefined : t.lists.emptyHint}
+      />
     );
   };
 
@@ -206,26 +204,16 @@ export default function ListsScreen() {
       item.kind === 'company' ? t.lists.memberCountCompany : t.lists.memberCountPerson,
     );
     return (
-      <TouchableOpacity
-        style={[styles.card, { backgroundColor: colors.background, borderColor: colors.divider }]}
-        activeOpacity={0.7}
+      <RecordRow
+        leading={
+          <View style={[styles.tile, item.kind === 'person' && styles.tileRound]}>
+            <Icon size={20} color="#4F46E5" />
+          </View>
+        }
+        title={item.name}
+        subtitle={item.description ? `${count} · ${item.description}` : count}
         onPress={() => openList(item)}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${count}`}
-      >
-        <View style={[styles.avatar, item.kind === 'person' && styles.avatarRound]}>
-          <Icon size={20} color="#4F46E5" />
-        </View>
-        <View style={styles.cardMain}>
-          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          <Text style={[styles.cardSubtitle, { color: colors.muted }]} numberOfLines={1}>
-            {item.description ? `${count} · ${item.description}` : count}
-          </Text>
-        </View>
-        <ChevronRight size={18} color={colors.muted} />
-      </TouchableOpacity>
+      />
     );
   };
 
@@ -236,54 +224,28 @@ export default function ListsScreen() {
         title={t.lists.title}
         onBack={() => router.back()}
         right={
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => setCreating(true)}
-            accessibilityRole="button"
+          <IconButton
+            icon={<Plus size={24} color={colors.text} />}
             accessibilityLabel={t.lists.add}
-          >
-            <Plus size={24} color={colors.text} />
-          </TouchableOpacity>
+            onPress={() => setCreating(true)}
+          />
         }
       />
 
-      <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
-        <TextInput
-          style={[styles.searchInput, { color: colors.text }]}
-          placeholder={t.lists.searchPlaceholder}
-          placeholderTextColor={colors.muted}
+      <View style={styles.controls}>
+        <SearchBar
           value={search}
           onChangeText={setSearch}
+          placeholder={t.lists.searchPlaceholder}
           autoCapitalize="none"
           autoCorrect={false}
-          returnKeyType="search"
-          accessibilityLabel={t.lists.searchPlaceholder}
+          containerStyle={styles.search}
         />
-      </View>
-
-      <View style={styles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
-          {KIND_FILTERS.map((value) => {
-            const selected = kind === value;
-            return (
-              <TouchableOpacity
-                key={value}
-                style={[
-                  styles.filterButton,
-                  { backgroundColor: selected ? colors.text : 'transparent', borderColor: selected ? colors.text : colors.divider },
-                ]}
-                onPress={() => setKind(value)}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                accessibilityLabel={kindLabel(value)}
-              >
-                <Text style={[styles.filterButtonText, { color: selected ? colors.background : colors.text }]}>
-                  {kindLabel(value)}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        <View style={styles.chips}>
+          {KIND_FILTERS.map((value) => (
+            <Chip key={value} label={kindLabel(value)} selected={kind === value} onPress={() => setKind(value)} />
+          ))}
+        </View>
       </View>
 
       <FlatList
@@ -307,24 +269,13 @@ export default function ListsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48 },
-  iconButton: { padding: 8 },
-  searchBar: { marginHorizontal: 16, marginTop: 12, marginBottom: 4, borderRadius: 10 },
-  searchInput: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
-  filterContainer: { paddingTop: 8, paddingBottom: 8 },
-  filterList: { flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
-  filterButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
-  filterButtonText: { fontSize: 13, fontWeight: '500' },
-  listContent: { padding: 16, paddingTop: 8, flexGrow: 1 },
+  controls: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, gap: 10 },
+  search: { borderRadius: 12 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  listContent: { flexGrow: 1 },
   footerSpinner: { paddingVertical: 16 },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
-  emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
-  emptyText: { fontSize: 13, textAlign: 'center' },
-  card: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#E0E7FF', justifyContent: 'center', alignItems: 'center' },
-  avatarRound: { borderRadius: 22 },
-  cardMain: { flex: 1 },
-  cardTitle: { fontSize: 15, fontWeight: '600' },
-  cardSubtitle: { fontSize: 13, marginTop: 2 },
+  tile: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#E0E7FF', justifyContent: 'center', alignItems: 'center' },
+  tileRound: { borderRadius: 19 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', padding: 24 },
   modalCard: { borderRadius: 16, padding: 20 },
   modalTitle: { fontSize: 17, fontWeight: '600', marginBottom: 16 },

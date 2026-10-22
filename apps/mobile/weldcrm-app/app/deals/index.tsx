@@ -12,6 +12,7 @@ import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router
 import { Building2, Calendar, ChevronDown, DollarSign, FileText, Plus } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 import { StackHeader } from '@/components/headers';
 import { OptionSheet } from '@/components/option-sheet';
 import { api, type DealRecord, type PipelineWithStages } from '@/services/api';
@@ -183,14 +184,11 @@ export default function DealsScreen() {
         onBack={() => router.back()}
         right={
           pipeline ? (
-            <TouchableOpacity
-              style={[styles.addButton, { borderColor: colors.buttonBorder }]}
-              onPress={() => startCreate(pipeline.stages[0]?.id)}
-              accessibilityRole="button"
+            <IconButton
+              icon={<Plus size={22} color={colors.text} />}
               accessibilityLabel={t.deals.newDeal}
-            >
-              <Plus size={18} color={colors.text} strokeWidth={2} />
-            </TouchableOpacity>
+              onPress={() => startCreate(pipeline.stages[0]?.id)}
+            />
           ) : null
         }
       />
@@ -333,7 +331,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   emptyText: { fontSize: 15, textAlign: 'center' },
-  addButton: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   pipelineButton: {
     flexDirection: 'row',
     alignItems: 'center',

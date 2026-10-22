@@ -4,16 +4,16 @@ import {
   FlatList,
   RefreshControl,
   StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
-import { ChevronRight } from 'lucide-react-native';
+import { Workflow } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { StackHeader } from '@/components/headers';
+import { Pill, RecordRow } from '@/components/record-row';
 import { usePagedList } from '@/hooks/use-paged-list';
 import { sequencesApi, type CrmSequence } from '@/services/sequences';
 import { interpolate, labelFor, useI18n } from '@/lib/i18n';
@@ -59,6 +59,7 @@ export default function SequencesScreen() {
       : t.sequences.neverRun;
 
   const renderEmpty = () => {
+    const icon = <Workflow size={32} color={colors.mutedForeground} />;
     if (sequences.loading) {
       return (
         <View style={styles.center}>
@@ -67,63 +68,31 @@ export default function SequencesScreen() {
       );
     }
     if (sequences.error) {
-      return (
-        <View style={styles.emptyState}>
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>{t.sequences.loadFailed}</Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>{t.common.pullToRetry}</Text>
-        </View>
-      );
+      return <EmptyState icon={icon} title={t.sequences.loadFailed} description={t.common.pullToRetry} />;
     }
     return (
-      <View style={styles.emptyState}>
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>
-          {search ? t.sequences.emptyFiltered : t.sequences.empty}
-        </Text>
-        {!search && <Text style={[styles.emptyText, { color: colors.muted }]}>{t.sequences.emptyHint}</Text>}
-      </View>
+      <EmptyState
+        icon={icon}
+        title={search ? t.sequences.emptyFiltered : t.sequences.empty}
+        description={search ? undefined : t.sequences.emptyHint}
+      />
     );
   };
 
   const renderItem = ({ item }: { item: CrmSequence }) => {
-    const color = statusColor(item.status);
     const statusLabel = labelFor(t.sequences.status, item.status);
     const summary = [
       plural(item.stepCount, t.sequences.stepCount),
       plural(item.enrolledCount, t.sequences.enrolledCount),
     ].join(' · ');
     return (
-      <TouchableOpacity
-        style={[styles.card, { backgroundColor: colors.background, borderColor: colors.divider }]}
-        activeOpacity={0.7}
+      <RecordRow
+        title={item.name}
+        subtitle={item.description || undefined}
+        meta={`${summary} · ${lastRunText(item)}`}
+        badge={<Pill label={statusLabel} color={statusColor(item.status)} />}
         onPress={() => openSequence(item)}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${statusLabel}, ${summary}`}
-      >
-        <View style={styles.cardHeader}>
-          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          <View style={[styles.statusBadge, { backgroundColor: `${color}20` }]}>
-            <Text style={[styles.statusText, { color }]}>{statusLabel}</Text>
-          </View>
-        </View>
-        {!!item.description && (
-          <Text style={[styles.cardDescription, { color: colors.muted }]} numberOfLines={2}>
-            {item.description}
-          </Text>
-        )}
-        <View style={styles.cardFooter}>
-          <View style={styles.cardFooterText}>
-            <Text style={[styles.cardMeta, { color: colors.text }]} numberOfLines={1}>
-              {summary}
-            </Text>
-            <Text style={[styles.cardMetaMuted, { color: colors.muted }]} numberOfLines={1}>
-              {lastRunText(item)}
-            </Text>
-          </View>
-          <ChevronRight size={18} color={colors.muted} />
-        </View>
-      </TouchableOpacity>
+      />
     );
   };
 
@@ -132,17 +101,14 @@ export default function SequencesScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <StackHeader title={t.sequences.title} onBack={() => router.back()} />
 
-      <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
-        <TextInput
-          style={[styles.searchInput, { color: colors.text }]}
-          placeholder={t.sequences.searchPlaceholder}
-          placeholderTextColor={colors.muted}
+      <View style={styles.controls}>
+        <SearchBar
           value={search}
           onChangeText={setSearch}
+          placeholder={t.sequences.searchPlaceholder}
           autoCapitalize="none"
           autoCorrect={false}
-          returnKeyType="search"
-          accessibilityLabel={t.sequences.searchPlaceholder}
+          containerStyle={styles.search}
         />
       </View>
 
@@ -169,21 +135,8 @@ export default function SequencesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48 },
-  searchBar: { marginHorizontal: 16, marginTop: 12, marginBottom: 4, borderRadius: 10 },
-  searchInput: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
-  listContent: { padding: 16, paddingTop: 8, flexGrow: 1 },
+  controls: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 },
+  search: { borderRadius: 12 },
+  listContent: { flexGrow: 1 },
   footerSpinner: { paddingVertical: 16 },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
-  emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
-  emptyText: { fontSize: 13, textAlign: 'center' },
-  card: { borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 12, gap: 8 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  cardTitle: { flex: 1, fontSize: 15, fontWeight: '600' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  statusText: { fontSize: 11, fontWeight: '600' },
-  cardDescription: { fontSize: 13 },
-  cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  cardFooterText: { flex: 1, gap: 2 },
-  cardMeta: { fontSize: 13, fontWeight: '500' },
-  cardMetaMuted: { fontSize: 12 },
 });

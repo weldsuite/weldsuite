@@ -1,30 +1,30 @@
+/**
+ * The Companies and People tabs: search, the web's All / Leads / Suppliers
+ * filter, and full-bleed rows like WeldFlow's lists. Long press a row for
+ * call, email, edit, archive and delete.
+ */
+
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Linking,
-  Modal,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Linking, RefreshControl, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Archive, Edit3, Mail, MoreHorizontal, Phone, Plus, Trash2, X } from 'lucide-react-native';
+import { Building2, Plus, Users } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { Chip } from '@weldsuite/mobile-ui/components/Chip';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
 import { TabHeader } from '@/components/headers';
+import { OptionSheet } from '@/components/option-sheet';
+import { InitialsTile, Pill, RecordRow } from '@/components/record-row';
 import { usePagedList } from '@/hooks/use-paged-list';
 import { api, type CompanyRecord, type PersonRecord } from '@/services/api';
-import { interpolate, labelFor, useI18n, type Translations } from '@/lib/i18n';
-import { initialsOf } from '@/lib/crm';
+import { interpolate, labelFor, useI18n } from '@/lib/i18n';
 
 export type Segment = 'people' | 'companies';
 /** The web's People/Companies `filter`: a lead or a supplier is a flag on the record. */
 type Filter = 'all' | 'leads' | 'suppliers';
+type RowAction = 'call' | 'email' | 'edit' | 'archive' | 'delete';
 
 /** What the row action sheet needs about the record it was opened for. */
 interface ActionTarget {
@@ -42,117 +42,40 @@ const STATUS_COLORS: Record<string, string> = {
   prospect: '#F59E0B',
   customer: '#10B981',
   inactive: '#9CA3AF',
+  churned: '#EF4444',
 };
 
 const statusColor = (status?: string) => STATUS_COLORS[status?.toLowerCase() ?? ''] ?? '#6B7280';
 
-interface RecordCardProps {
-  title: string;
-  subtitle?: string;
-  email?: string;
-  phone?: string;
-  status?: string;
-  /** Small labels next to the name: Lead, Supplier, Archived. */
-  flags: string[];
-  icon?: 'company';
-  onPress: () => void;
-  onMore: () => void;
-  t: Translations;
+type ListRecord = Pick<PersonRecord, 'id' | 'name' | 'email' | 'phone' | 'mobile' | 'archivedAt'>;
+
+const targetOf = (kind: Segment, item: ListRecord): ActionTarget => ({
+  kind,
+  id: item.id,
+  name: item.name,
+  email: item.email || undefined,
+  phone: item.phone ?? item.mobile,
+  archived: !!item.archivedAt,
+});
+
+/** Empty-list copy: a load error wins, and a search or filter drops the hint. */
+function useEmptyCopy(isPeople: boolean, failed: boolean, narrowed: boolean) {
+  const { t } = useI18n();
+  if (failed) return { emptyTitle: t.contacts.loadFailed, emptyText: t.common.pullToRetry };
+  const hint = isPeople ? t.contacts.emptyPeopleHint : t.contacts.emptyCompaniesHint;
+  return {
+    emptyTitle: isPeople ? t.contacts.emptyPeople : t.contacts.emptyCompanies,
+    emptyText: narrowed ? undefined : hint,
+  };
 }
 
-function RecordCard({
-  title,
-  subtitle,
-  email,
-  phone,
-  status,
-  flags,
-  icon,
-  onPress,
-  onMore,
-  t,
-}: Readonly<RecordCardProps>) {
-  const { colors } = useTheme();
-  return (
-    <TouchableOpacity
-      style={[styles.card, { backgroundColor: colors.background, borderColor: colors.divider }]}
-      activeOpacity={0.7}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-    >
-      <View style={styles.cardHeader}>
-        <View style={[styles.avatar, icon === 'company' && styles.avatarSquare]}>
-          <Text style={styles.avatarText}>{initialsOf(title)}</Text>
-        </View>
-        <View style={styles.cardMain}>
-          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
-            {title}
-          </Text>
-          {!!subtitle && (
-            <View style={styles.subtitleRow}>
-              <Text style={[styles.cardSubtitle, { color: colors.muted }]} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            </View>
-          )}
-        </View>
-        {!!status && (
-          <View style={[styles.statusBadge, { backgroundColor: `${statusColor(status)}20` }]}>
-            <Text style={[styles.statusText, { color: statusColor(status) }]}>{labelFor(t.status, status)}</Text>
-          </View>
-        )}
-        <TouchableOpacity
-          onPress={onMore}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityRole="button"
-          accessibilityLabel={interpolate(t.contacts.actionsFor, { name: title })}
-        >
-          <MoreHorizontal size={18} color={colors.muted} />
-        </TouchableOpacity>
-      </View>
-
-      {flags.length > 0 && (
-        <View style={styles.flags}>
-          {flags.map((flag) => (
-            <View key={flag} style={[styles.flag, { backgroundColor: colors.secondary }]}>
-              <Text style={[styles.flagText, { color: colors.text }]}>{flag}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {(!!email || !!phone) && (
-        <View style={styles.details}>
-          {!!email && (
-            <View style={styles.detailRow}>
-              <Mail size={14} color={colors.muted} />
-              <Text style={[styles.detailText, { color: colors.text }]} numberOfLines={1}>
-                {email}
-              </Text>
-            </View>
-          )}
-          {!!phone && (
-            <View style={styles.detailRow}>
-              <Phone size={14} color={colors.muted} />
-              <Text style={[styles.detailText, { color: colors.text }]} numberOfLines={1}>
-                {phone}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
-
-    </TouchableOpacity>
-  );
-}
-
-/** The Companies or the People tab: search, the All / Leads / Suppliers filter and the cards. */
 export function ContactsList({ segment }: Readonly<{ segment: Segment }>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
   const [filter, setFilter] = useState<Filter>('all');
+  const [search, setSearch] = useState('');
+  const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
   const params = useLocalSearchParams<{ filter?: string }>();
 
   // Other screens can land here with ?filter=leads.
@@ -161,17 +84,15 @@ export function ContactsList({ segment }: Readonly<{ segment: Segment }>) {
     if (params.filter === 'all' || params.filter === 'leads' || params.filter === 'suppliers') setFilter(params.filter);
     router.setParams({ filter: undefined });
   }, [params.filter]);
-  const [search, setSearch] = useState('');
-  const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
 
   const fetchPeople = useCallback(
-    (params: { cursor: string | null; search: string }) =>
-      api.getPeople({ ...params, isLead: filter === 'leads', isSupplier: filter === 'suppliers' }),
+    (page: { cursor: string | null; search: string }) =>
+      api.getPeople({ ...page, isLead: filter === 'leads', isSupplier: filter === 'suppliers' }),
     [filter],
   );
   const fetchCompanies = useCallback(
-    (params: { cursor: string | null; search: string }) =>
-      api.getCompanies({ ...params, isLead: filter === 'leads', isSupplier: filter === 'suppliers' }),
+    (page: { cursor: string | null; search: string }) =>
+      api.getCompanies({ ...page, isLead: filter === 'leads', isSupplier: filter === 'suppliers' }),
     [filter],
   );
 
@@ -183,51 +104,53 @@ export function ContactsList({ segment }: Readonly<{ segment: Segment }>) {
     if (active.error) toast.error(t.contacts.loadFailed);
   }, [active.error, t, toast]);
 
-  const openRecord = (kind: Segment, id: string, name: string, edit?: boolean) => {
+  const openRecord = (id: string, name: string, edit?: boolean) => {
     router.push({
-      pathname: kind === 'people' ? '/person/[id]' : '/company/[id]',
+      pathname: segment === 'people' ? '/person/[id]' : '/company/[id]',
       params: { id, name, ...(edit ? { edit: 'true' } : {}) },
     });
   };
 
-  const handleAdd = () => router.push(segment === 'people' ? '/person/new' : '/company/new');
-
-  const closeActions = () => setActionTarget(null);
-
-  const handleCall = () => {
-    if (actionTarget?.phone) {
-      void Linking.openURL(`tel:${actionTarget.phone}`);
-    } else {
-      toast.error(t.common.noPhone);
-    }
-    closeActions();
-  };
-
-  const handleEmail = () => {
-    if (actionTarget?.email) void Linking.openURL(`mailto:${actionTarget.email}`);
-    closeActions();
-  };
-
-  const handleEdit = () => {
-    if (actionTarget) openRecord(actionTarget.kind, actionTarget.id, actionTarget.name, true);
-    closeActions();
-  };
-
-  const handleArchive = async () => {
-    const target = actionTarget;
-    closeActions();
-    if (!target) return;
-    const archive = !target.archived;
+  const archive = async (target: ActionTarget) => {
+    const next = !target.archived;
     if (target.kind === 'people') {
-      const res = await api.setPersonArchived(target.id, archive);
-      if (res.success && res.data) people.updateItem(res.data);
-      else return toast.error(t.records.archiveFailed);
+      const res = await api.setPersonArchived(target.id, next);
+      if (!res.success || !res.data) return toast.error(t.records.archiveFailed);
+      people.updateItem(res.data);
     } else {
-      const res = await api.setCompanyArchived(target.id, archive);
-      if (res.success && res.data) companies.updateItem(res.data);
-      else return toast.error(t.records.archiveFailed);
+      const res = await api.setCompanyArchived(target.id, next);
+      if (!res.success || !res.data) return toast.error(t.records.archiveFailed);
+      companies.updateItem(res.data);
     }
-    toast.success(archive ? t.records.archivedToast : t.records.unarchivedToast);
+    toast.success(next ? t.records.archivedToast : t.records.unarchivedToast);
+  };
+
+  const remove = async (target: ActionTarget) => {
+    const copy = target.kind === 'people' ? t.person : t.company;
+    const res = target.kind === 'people' ? await api.deletePerson(target.id) : await api.deleteCompany(target.id);
+    if (!res.success) {
+      toast.error(typeof res.error === 'string' ? res.error : t.contacts.deleteFailed);
+      return;
+    }
+    (target.kind === 'people' ? people : companies).removeItem(target.id);
+    toast.success(copy.deletedToast);
+  };
+
+  const runAction = (action: RowAction | null) => {
+    const target = actionTarget;
+    setActionTarget(null);
+    if (!target || !action) return;
+    if (action === 'call' && target.phone) void Linking.openURL(`tel:${target.phone}`);
+    if (action === 'email' && target.email) void Linking.openURL(`mailto:${target.email}`);
+    if (action === 'edit') openRecord(target.id, target.name, true);
+    if (action === 'archive') void archive(target);
+    if (action === 'delete') {
+      const copy = target.kind === 'people' ? t.person : t.company;
+      Alert.alert(copy.deleteTitle, interpolate(copy.deleteMessage, { name: target.name }), [
+        { text: t.common.cancel, style: 'cancel' },
+        { text: t.common.delete, style: 'destructive', onPress: () => void remove(target) },
+      ]);
+    }
   };
 
   const flagsOf = (record: { isLead: boolean; isSupplier: boolean; archivedAt?: string }) =>
@@ -237,290 +160,117 @@ export function ContactsList({ segment }: Readonly<{ segment: Segment }>) {
       record.archivedAt ? t.records.archived : '',
     ].filter(Boolean);
 
-  const handleDelete = () => {
-    const target = actionTarget;
-    closeActions();
-    if (!target) return;
-    const copy = target.kind === 'people' ? t.person : t.company;
-    Alert.alert(copy.deleteTitle, interpolate(copy.deleteMessage, { name: target.name }), [
-      { text: t.common.cancel, style: 'cancel' },
-      {
-        text: t.common.delete,
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            const res = target.kind === 'people' ? await api.deletePerson(target.id) : await api.deleteCompany(target.id);
-            if (res.success) {
-              (target.kind === 'people' ? people : companies).removeItem(target.id);
-              toast.success(copy.deletedToast);
-            } else {
-              toast.error(typeof res.error === 'string' ? res.error : t.contacts.deleteFailed);
-            }
-          })();
-        },
-      },
-    ]);
-  };
+  const badgeFor = (status?: string) =>
+    status ? <Pill label={labelFor(t.status, status)} color={statusColor(status)} /> : undefined;
 
-  const renderEmpty = () => {
-    if (active.loading) return null;
-    return (
-      <View style={styles.emptyState}>
-        {active.error ? (
-          <>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>{t.contacts.loadFailed}</Text>
-            <Text style={[styles.emptyText, { color: colors.muted }]}>{t.common.pullToRetry}</Text>
-          </>
-        ) : (
-          <>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              {segment === 'people' ? t.contacts.emptyPeople : t.contacts.emptyCompanies}
-            </Text>
-            {!search && (
-              <Text style={[styles.emptyText, { color: colors.muted }]}>
-                {segment === 'people' ? t.contacts.emptyPeopleHint : t.contacts.emptyCompaniesHint}
-              </Text>
-            )}
-          </>
-        )}
-      </View>
-    );
-  };
+  const actionOptions = actionTarget
+    ? [
+        ...(actionTarget.phone ? [{ value: 'call' as const, label: t.common.call }] : []),
+        ...(actionTarget.email ? [{ value: 'email' as const, label: t.common.email }] : []),
+        { value: 'edit' as const, label: t.common.edit },
+        { value: 'archive' as const, label: actionTarget.archived ? t.records.unarchive : t.records.archive },
+        { value: 'delete' as const, label: t.common.delete, color: colors.destructive },
+      ]
+    : [];
 
-  const refreshControl = <RefreshControl refreshing={active.refreshing} onRefresh={() => void active.refresh()} />;
-  const footer = active.loadingMore ? <ActivityIndicator style={styles.footerSpinner} color={colors.text} /> : null;
-  const showPeople = !active.loading && segment === 'people';
-  const showCompanies = !active.loading && segment === 'companies';
+  const isPeople = segment === 'people';
+  const EmptyIcon = isPeople ? Users : Building2;
+  const { emptyTitle, emptyText } = useEmptyCopy(isPeople, !!active.error, !!search || filter !== 'all');
+
+  const listProps = {
+    contentContainerStyle: active.items.length === 0 ? styles.emptyContainer : undefined,
+    refreshControl: <RefreshControl refreshing={active.refreshing} onRefresh={() => void active.refresh()} />,
+    onEndReached: () => void active.loadMore(),
+    onEndReachedThreshold: 0.4,
+    ListFooterComponent: active.loadingMore ? <ActivityIndicator style={styles.footer} color={colors.text} /> : null,
+    ListEmptyComponent: active.loading ? null : (
+      <EmptyState icon={<EmptyIcon size={32} color={colors.mutedForeground} />} title={emptyTitle} description={emptyText} />
+    ),
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TabHeader
-        title={segment === 'people' ? t.contacts.people : t.contacts.companies}
+        title={isPeople ? t.contacts.people : t.contacts.companies}
         right={
-          <TouchableOpacity
-            style={[styles.addButton, { borderColor: colors.buttonBorder }]}
-            onPress={handleAdd}
-            accessibilityRole="button"
-            accessibilityLabel={segment === 'people' ? t.contacts.addPerson : t.contacts.addCompany}
-          >
-            <Plus size={18} color={colors.text} strokeWidth={2} />
-          </TouchableOpacity>
+          <IconButton
+            icon={<Plus size={22} color={colors.text} />}
+            accessibilityLabel={isPeople ? t.contacts.addPerson : t.contacts.addCompany}
+            onPress={() => router.push(isPeople ? '/person/new' : '/company/new')}
+          />
         }
-      />
-
-      <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
-        <TextInput
-          style={[styles.searchInput, { color: colors.text }]}
-          placeholder={segment === 'people' ? t.contacts.searchPeople : t.contacts.searchCompanies}
-          placeholderTextColor={colors.muted}
+      >
+        <SearchBar
           value={search}
           onChangeText={setSearch}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
+          placeholder={isPeople ? t.contacts.searchPeople : t.contacts.searchCompanies}
+          containerStyle={styles.search}
         />
-      </View>
-
-      <View style={styles.filters}>
-        {(['all', 'leads', 'suppliers'] as const).map((key) => {
-          const selected = filter === key;
-          return (
-            <TouchableOpacity
-              key={key}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: selected ? colors.text : colors.background,
-                  borderColor: selected ? colors.text : colors.buttonBorder,
-                },
-              ]}
-              onPress={() => setFilter(key)}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-            >
-              <Text style={[styles.filterText, { color: selected ? colors.background : colors.text }]}>
-                {t.contacts.filters[key]}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {active.loading && (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.text} />
+        <View style={styles.chips}>
+          {(['all', 'leads', 'suppliers'] as const).map((key) => (
+            <Chip key={key} label={t.contacts.filters[key]} selected={filter === key} onPress={() => setFilter(key)} />
+          ))}
         </View>
-      )}
+      </TabHeader>
 
-      {showPeople && (
+      {active.loading && <ActivityIndicator style={styles.loading} size="large" color={colors.text} />}
+
+      {!active.loading && isPeople && (
         <FlatList
+          {...listProps}
           data={people.items}
           keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-          refreshControl={refreshControl}
-          onEndReached={() => void people.loadMore()}
-          onEndReachedThreshold={0.4}
-          ListEmptyComponent={renderEmpty}
-          ListFooterComponent={footer}
           renderItem={({ item }) => (
-            <RecordCard
+            <RecordRow
+              testID="person-row"
+              leading={<InitialsTile name={item.name} round />}
               title={item.name}
-              subtitle={item.jobTitle}
-              email={item.email}
-              phone={item.phone ?? item.mobile}
-              status={item.status}
-              flags={flagsOf(item)}
-              onPress={() => openRecord('people', item.id, item.name)}
-              onMore={() =>
-                setActionTarget({
-                  kind: 'people',
-                  id: item.id,
-                  name: item.name,
-                  email: item.email,
-                  phone: item.phone ?? item.mobile,
-                  archived: !!item.archivedAt,
-                })
-              }
-              t={t}
+              subtitle={[item.jobTitle, ...flagsOf(item)].filter(Boolean).join(' · ') || undefined}
+              meta={item.email || item.phone || item.mobile}
+              badge={badgeFor(item.status)}
+              onPress={() => openRecord(item.id, item.name)}
+              onLongPress={() => setActionTarget(targetOf('people', item))}
             />
           )}
         />
       )}
 
-      {showCompanies && (
+      {!active.loading && !isPeople && (
         <FlatList
+          {...listProps}
           data={companies.items}
           keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-          refreshControl={refreshControl}
-          onEndReached={() => void companies.loadMore()}
-          onEndReachedThreshold={0.4}
-          ListEmptyComponent={renderEmpty}
-          ListFooterComponent={footer}
           renderItem={({ item }) => (
-            <RecordCard
-              icon="company"
+            <RecordRow
+              testID="company-row"
+              leading={<InitialsTile name={item.name} />}
               title={item.name}
-              subtitle={item.industry}
-              email={item.email}
-              phone={item.phone}
-              status={item.status}
-              flags={flagsOf(item)}
-              onPress={() => openRecord('companies', item.id, item.name)}
-              onMore={() =>
-                setActionTarget({
-                  kind: 'companies',
-                  id: item.id,
-                  name: item.name,
-                  email: item.email,
-                  phone: item.phone ?? item.mobile,
-                  archived: !!item.archivedAt,
-                })
-              }
-              t={t}
+              subtitle={[item.industry, ...flagsOf(item)].filter(Boolean).join(' · ') || undefined}
+              meta={item.email || item.phone || item.website}
+              badge={badgeFor(item.status)}
+              onPress={() => openRecord(item.id, item.name)}
+              onLongPress={() => setActionTarget(targetOf('companies', item))}
             />
           )}
         />
       )}
 
-      <Modal visible={!!actionTarget} animationType="fade" transparent onRequestClose={closeActions}>
-        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={closeActions}>
-          <View style={[styles.menuCard, { backgroundColor: colors.background }]}>
-            <View style={[styles.menuHeader, { borderBottomColor: colors.divider }]}>
-              <Text style={[styles.menuName, { color: colors.text }]} numberOfLines={1}>
-                {actionTarget?.name}
-              </Text>
-              <TouchableOpacity onPress={closeActions} accessibilityRole="button" accessibilityLabel={t.common.close}>
-                <X size={20} color={colors.muted} />
-              </TouchableOpacity>
-            </View>
-            {!!actionTarget?.phone && (
-              <TouchableOpacity style={styles.menuItem} onPress={handleCall}>
-                <Phone size={20} color={colors.text} />
-                <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.call}</Text>
-              </TouchableOpacity>
-            )}
-            {!!actionTarget?.email && (
-              <TouchableOpacity style={styles.menuItem} onPress={handleEmail}>
-                <Mail size={20} color={colors.text} />
-                <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.email}</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.menuItem} onPress={handleEdit}>
-              <Edit3 size={20} color={colors.text} />
-              <Text style={[styles.menuItemText, { color: colors.text }]}>{t.common.edit}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => void handleArchive()}>
-              <Archive size={20} color={colors.text} />
-              <Text style={[styles.menuItemText, { color: colors.text }]}>
-                {actionTarget?.archived ? t.records.unarchive : t.records.archive}
-              </Text>
-            </TouchableOpacity>
-            <View style={[styles.menuDivider, { backgroundColor: colors.divider }]} />
-            <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
-              <Trash2 size={20} color={colors.destructive} />
-              <Text style={[styles.menuItemText, { color: colors.destructive }]}>{t.common.delete}</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      <OptionSheet<RowAction>
+        visible={!!actionTarget}
+        title={actionTarget?.name ?? ''}
+        options={actionOptions}
+        onSelect={runAction}
+        onClose={() => setActionTarget(null)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  addButton: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  searchBar: { marginHorizontal: 16, marginTop: 12, marginBottom: 4, borderRadius: 10 },
-  searchInput: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
-  listContent: { padding: 16, paddingTop: 8, flexGrow: 1 },
-  footerSpinner: { paddingVertical: 16 },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
-  emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
-  emptyText: { fontSize: 13, textAlign: 'center' },
-  card: { borderRadius: 12, borderWidth: 1, marginBottom: 12, overflow: 'hidden' },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#E0E7FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarSquare: { borderRadius: 10 },
-  avatarText: { fontSize: 14, fontWeight: '600', color: '#4F46E5' },
-  cardMain: { flex: 1 },
-  cardTitle: { fontSize: 15, fontWeight: '600' },
-  subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  cardSubtitle: { fontSize: 13, flexShrink: 1 },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  statusText: { fontSize: 11, fontWeight: '600' },
-  details: { paddingHorizontal: 14, paddingBottom: 12, gap: 6 },
-  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  detailText: { fontSize: 13, flexShrink: 1 },
-  flags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 14, paddingBottom: 12, marginTop: -4 },
-  flag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  flagText: { fontSize: 11, fontWeight: '600' },
-  filters: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 8 },
-  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
-  filterText: { fontSize: 13, fontWeight: '500' },
-  menuOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
-  menuCard: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 34 },
-  menuHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    gap: 12,
-  },
-  menuName: { flex: 1, fontSize: 16, fontWeight: '600' },
-  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingVertical: 14 },
-  menuItemText: { fontSize: 16 },
-  menuDivider: { height: 1, marginVertical: 4, marginHorizontal: 20 },
+  search: { borderRadius: 12 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  loading: { marginTop: 48 },
+  footer: { paddingVertical: 16 },
+  emptyContainer: { flexGrow: 1 },
 });

@@ -5,19 +5,19 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Check, Plus } from 'lucide-react-native';
+import { CheckSquare, Plus } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
+import { Chip } from '@weldsuite/mobile-ui/components/Chip';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
 import { TabHeader } from '@/components/headers';
 import { TaskItem } from '@/components/task-item';
 import { TaskSheet, type TaskSheetMode } from '@/components/task-sheet';
@@ -111,79 +111,31 @@ export default function TasksScreen() {
       <TabHeader
         title={interpolate(t.tasks.titleWithCount, { count: filteredTasks.length })}
         right={
-          <TouchableOpacity
-            style={[styles.addButton, { borderColor: colors.buttonBorder }]}
-            onPress={() => setSheet({ visible: true, mode: 'create', task: null })}
-            accessibilityRole="button"
+          <IconButton
+            icon={<Plus size={22} color={colors.text} />}
             accessibilityLabel={t.tasks.add}
-          >
-            <Plus size={16} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.addButtonText, { color: colors.text }]}>{t.tasks.add}</Text>
-          </TouchableOpacity>
+            onPress={() => setSheet({ visible: true, mode: 'create', task: null })}
+          />
         }
       >
-        <SegmentedControl
-          options={[
-            { value: 'mine', label: t.tasks.scopeMine },
-            { value: 'all', label: t.tasks.scopeAll },
-          ]}
-          value={scope}
-          onValueChange={(value) => setScope(value as Scope)}
-          style={styles.segments}
-        />
+        <SearchBar value={searchTerm} onChangeText={setSearchTerm} placeholder={t.tasks.search} containerStyle={styles.search} />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          <Chip label={t.tasks.scopeMine} selected={scope === 'mine'} onPress={() => setScope('mine')} />
+          <Chip label={t.tasks.scopeAll} selected={scope === 'all'} onPress={() => setScope('all')} />
+          <View style={[styles.chipDivider, { backgroundColor: colors.border }]} />
+          {statusOptions.map((item) => (
+            <Chip
+              key={item.key ?? 'all'}
+              label={`${item.label} ${item.count}`}
+              selected={selectedStatus === item.key}
+              onPress={() => setSelectedStatus(item.key)}
+            />
+          ))}
+        </ScrollView>
       </TabHeader>
 
-      <View style={styles.searchBarContainer}>
-        <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
-          <Ionicons name="search" size={16} color={colors.muted} />
-          <TextInput
-            style={[styles.searchInput, { color: colors.text }]}
-            placeholder={t.tasks.search}
-            placeholderTextColor={colors.muted}
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
-        </View>
-      </View>
-
-      <View style={styles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
-          {statusOptions.map((item) => {
-            const selected = selectedStatus === item.key;
-            return (
-              <TouchableOpacity
-                key={item.key ?? 'all'}
-                style={[
-                  styles.filterButton,
-                  {
-                    backgroundColor: selected ? colors.text : colors.background,
-                    borderColor: selected ? colors.text : colors.buttonBorder,
-                  },
-                ]}
-                onPress={() => setSelectedStatus(item.key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-              >
-                <Text style={[styles.filterButtonText, { color: selected ? colors.background : colors.text }]}>
-                  {item.label}
-                </Text>
-                <Text style={[styles.filterButtonCount, { color: selected ? colors.background : colors.muted }]}>
-                  ({item.count})
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
       {list.loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.text} />
-          <Text style={[styles.loadingText, { color: colors.muted }]}>{t.tasks.loading}</Text>
-        </View>
+        <ActivityIndicator style={styles.loading} size="large" color={colors.text} accessibilityLabel={t.tasks.loading} />
       ) : (
         <ScrollView
           style={styles.scrollView}
@@ -196,12 +148,9 @@ export default function TasksScreen() {
           {TASK_SECTION_ORDER.map((key) =>
             groups[key].length === 0 ? null : (
               <View key={key} style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.tasks.sections[key]}</Text>
-                  <View style={[styles.countBadge, { backgroundColor: colors.secondary }]}>
-                    <Text style={[styles.countText, { color: colors.mutedForeground }]}>{groups[key].length}</Text>
-                  </View>
-                </View>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+                  {`${t.tasks.sections[key]} · ${groups[key].length}`}
+                </Text>
                 {groups[key].map((task) => (
                   <TaskItem key={task.id} task={task} onPress={openTask} onToggle={(item) => void toggleTask(item)} />
                 ))}
@@ -212,17 +161,11 @@ export default function TasksScreen() {
           {list.loadingMore && <ActivityIndicator style={styles.footerSpinner} color={colors.text} />}
 
           {filteredTasks.length === 0 && (
-            <View style={styles.emptyState}>
-              <View style={[styles.emptyCheckbox, { borderColor: colors.divider }]}>
-                <Check size={32} color={colors.muted} strokeWidth={1.5} />
-              </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                {list.error ? t.tasks.loadFailed : t.tasks.emptyTitle}
-              </Text>
-              <Text style={[styles.emptyText, { color: colors.muted }]}>
-                {list.error ? t.common.pullToRetry : t.tasks.emptyText}
-              </Text>
-            </View>
+            <EmptyState
+              icon={<CheckSquare size={32} color={colors.mutedForeground} />}
+              title={list.error ? t.tasks.loadFailed : t.tasks.emptyTitle}
+              description={list.error ? t.common.pullToRetry : t.tasks.emptyText}
+            />
           )}
         </ScrollView>
       )}
@@ -251,37 +194,13 @@ export default function TasksScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 16, fontSize: 12 },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  addButtonText: { fontSize: 13, fontWeight: '500' },
-  segments: { marginTop: 12 },
-  searchBarContainer: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
-  searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, gap: 8 },
-  searchInput: { flex: 1, fontSize: 14, fontWeight: '400', padding: 0 },
-  filterContainer: { paddingTop: 4, paddingBottom: 12 },
-  filterList: { flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
-  filterButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, gap: 4 },
-  filterButtonText: { fontSize: 13, fontWeight: '500' },
-  filterButtonCount: { fontSize: 13, fontWeight: '400' },
+  loading: { marginTop: 48 },
+  search: { borderRadius: 12 },
+  chips: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  chipDivider: { width: StyleSheet.hairlineWidth, height: 20, marginHorizontal: 2 },
   scrollView: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20, flexGrow: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 20, flexGrow: 1 },
   footerSpinner: { paddingVertical: 16 },
-  section: { marginBottom: 24 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: '600' },
-  countBadge: { minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 5, justifyContent: 'center', alignItems: 'center' },
-  countText: { fontSize: 9, fontWeight: '600' },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80, paddingHorizontal: 40 },
-  emptyCheckbox: { width: 64, height: 64, borderRadius: 8, borderWidth: 2, justifyContent: 'center', alignItems: 'center' },
-  emptyTitle: { fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 8 },
-  emptyText: { fontSize: 13, textAlign: 'center' },
+  section: { marginBottom: 16 },
+  sectionLabel: { fontSize: 13, fontWeight: '600', marginTop: 12, marginBottom: 4 },
 });

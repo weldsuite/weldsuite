@@ -1,24 +1,34 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check, ChevronRight, FileText, ListChecks, LogOut, Moon, Send, Sun, Target, type LucideIcon } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
+import { TabHeader } from '@/components/headers';
 import { APP_LANGUAGES, isAppLanguage, useI18n } from '@/lib/i18n';
+
+/** Rounded tinted square holding an icon, WeldFlow's menu-row motif. */
+function IconTile({ icon: Icon, color }: Readonly<{ icon: LucideIcon; color: string }>) {
+  return (
+    <View style={[styles.iconTile, { backgroundColor: `${color}1F` }]}>
+      <Icon size={19} color={color} />
+    </View>
+  );
+}
 
 interface LinkRowProps {
   icon: LucideIcon;
+  color: string;
   label: string;
   hint: string;
   onPress: () => void;
   last?: boolean;
 }
 
-function LinkRow({ icon: Icon, label, hint, onPress, last }: Readonly<LinkRowProps>) {
+function LinkRow({ icon, color, label, hint, onPress, last }: Readonly<LinkRowProps>) {
   const { colors } = useTheme();
   return (
     <TouchableOpacity
@@ -28,7 +38,7 @@ function LinkRow({ icon: Icon, label, hint, onPress, last }: Readonly<LinkRowPro
       accessibilityLabel={label}
     >
       <View style={styles.rowLeft}>
-        <Icon size={20} color={colors.text} />
+        <IconTile icon={icon} color={color} />
         <View style={styles.rowText}>
           <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
           <Text style={[styles.hint, { color: colors.muted }]} numberOfLines={1}>
@@ -47,7 +57,6 @@ export default function MoreScreen() {
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const { t, language, setLanguage } = useI18n();
   const toast = useToast();
-  const insets = useSafeAreaInsets();
   const [switchingId, setSwitchingId] = useState<string | null>(null);
 
   const handleSwitch = async (clerkOrgId: string) => {
@@ -67,19 +76,16 @@ export default function MoreScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={{ paddingBottom: 32 }}
     >
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]} accessibilityRole="header">
-          {t.more.title}
-        </Text>
-      </View>
+      <TabHeader title={t.more.title} />
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>
         <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.more.crm}</Text>
-        <LinkRow icon={Target} label={t.more.deals} hint={t.more.dealsHint} onPress={() => router.push('/deals')} />
-        <LinkRow icon={FileText} label={t.more.notes} hint={t.more.notesHint} onPress={() => router.push('/notes')} />
-        <LinkRow icon={ListChecks} label={t.more.lists} hint={t.more.listsHint} onPress={() => router.push('/lists')} />
+        <LinkRow icon={Target} color="#8B5CF6" label={t.more.deals} hint={t.more.dealsHint} onPress={() => router.push('/deals')} />
+        <LinkRow icon={FileText} color="#10B981" label={t.more.notes} hint={t.more.notesHint} onPress={() => router.push('/notes')} />
+        <LinkRow icon={ListChecks} color="#3B82F6" label={t.more.lists} hint={t.more.listsHint} onPress={() => router.push('/lists')} />
         <LinkRow
           icon={Send}
+          color="#F59E0B"
           label={t.more.sequences}
           hint={t.more.sequencesHint}
           onPress={() => router.push('/sequences')}
@@ -178,9 +184,8 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingBottom: 16 },
-  headerTitle: { fontSize: 34, fontWeight: '700' },
-  section: { marginHorizontal: 16, marginBottom: 24, borderRadius: 12, overflow: 'hidden' },
+  iconTile: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  section: { marginHorizontal: 16, marginBottom: 24, borderRadius: 20, overflow: 'hidden' },
   sectionTitle: {
     fontSize: 13,
     fontWeight: '500',
