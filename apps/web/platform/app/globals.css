@@ -152,6 +152,27 @@
   background: rgba(143, 153, 168, 0.6);
 }
 
+/* App rail (far-left icon bar) scrollbar.
+   The icons are 46px in a 60px rail, so a normal scrollbar (Chrome's `thin`
+   is 10px) pushes them off-centre. Reserve the same gutter on both sides and
+   keep the bar 3px wide, so the icons stay centred on the rail whether or not
+   it scrolls. `scrollbar-width`/`scrollbar-color` must be `auto` for Chromium
+   to honour the ::-webkit-scrollbar width; Firefox can't go below `thin`
+   (too wide for the rail), so the bar is hidden there instead. */
+.app-rail-scroll {
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: none;
+}
+@supports selector(::-webkit-scrollbar) {
+  .app-rail-scroll {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  .app-rail-scroll::-webkit-scrollbar {
+    width: 3px;
+  }
+}
+
 /* Gantt Chart Scrollbar - adapts to dark mode */
 .gantt-scroll {
   scrollbar-width: thin;

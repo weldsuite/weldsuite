@@ -310,7 +310,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
             Only render DnD context after mount to avoid hydration mismatch. */}
         <div
           data-testid="app-sidebar-apps"
-          className="flex-1 min-h-0 w-full flex flex-col items-center gap-2 py-1 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex-1 min-h-0 w-full flex flex-col items-center gap-2 py-1 overflow-y-auto overflow-x-hidden app-rail-scroll"
         >
           {mounted ? (
             <DndContext
