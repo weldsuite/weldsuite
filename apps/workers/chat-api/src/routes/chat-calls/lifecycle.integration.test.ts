@@ -8,7 +8,7 @@
  * the people still talking. Only an explicit POST /:id/end is unconditional.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -37,6 +37,13 @@ vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   kickAllParticipants: vi.fn(),
   endMeeting: vi.fn(),
   getLiveParticipantCount: vi.fn(),
+}));
+
+// The 25s ring timeout would keep afterEach waiting (see backgroundWork below);
+// no test here relies on it.
+vi.mock('@weldsuite/chat-domain/call-lifecycle', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/chat-domain/call-lifecycle')>()),
+  scheduleRingTimeout: vi.fn(),
 }));
 
 vi.mock('@weldsuite/notifications', async (importOriginal) => ({
@@ -149,8 +156,17 @@ async function seed(
   return { channelId, callId, cfAppId };
 }
 
+// `waitUntil` work (the one-call-at-a-time eviction) outlives the response.
+// Let it finish after each test: left running, it ends this test's calls in
+// the next one, after beforeEach has reset the RealtimeKit mocks.
+const backgroundWork: Promise<unknown>[] = [];
+
+afterEach(async () => {
+  await Promise.allSettled(backgroundWork.splice(0));
+});
+
 function appFor(userId: string, envOverride?: Env) {
-  return createTestApp('/api/chat-calls', chatCallsRoutes, {
+  const app = createTestApp('/api/chat-calls', chatCallsRoutes, {
     context: {
       userId,
       permissions: permissions('channels:read', 'channels:create', 'channels:update'),
@@ -158,6 +174,10 @@ function appFor(userId: string, envOverride?: Env) {
     },
     env: envOverride ?? env(),
   });
+  app.executionCtx.waitUntil = (promise: Promise<unknown>) => {
+    backgroundWork.push(promise);
+  };
+  return app;
 }
 
 const post = (userId: string, path: string, body?: unknown) =>

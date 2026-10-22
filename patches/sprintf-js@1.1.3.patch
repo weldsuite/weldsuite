@@ -1,0 +1,21 @@
+diff --git a/src/sprintf.js b/src/sprintf.js
+index 65d6324645ef1d0133614a71497751009dc5c912..5cce28758ca828cacab027a1b10b5d0ce4193a3d 100644
+--- a/src/sprintf.js
++++ b/src/sprintf.js
+@@ -81,13 +81,13 @@
+                         arg = JSON.stringify(arg, null, ph.width ? parseInt(ph.width) : 0)
+                         break
+                     case 'e':
+-                        arg = ph.precision ? parseFloat(arg).toExponential(ph.precision) : parseFloat(arg).toExponential()
++                        arg = ph.precision ? parseFloat(arg).toExponential(Math.min(ph.precision, 100)) : parseFloat(arg).toExponential()
+                         break
+                     case 'f':
+-                        arg = ph.precision ? parseFloat(arg).toFixed(ph.precision) : parseFloat(arg)
++                        arg = ph.precision ? parseFloat(arg).toFixed(Math.min(ph.precision, 100)) : parseFloat(arg)
+                         break
+                     case 'g':
+-                        arg = ph.precision ? String(Number(arg.toPrecision(ph.precision))) : parseFloat(arg)
++                        arg = ph.precision ? String(Number(arg.toPrecision(Math.max(1, Math.min(ph.precision, 100))))) : parseFloat(arg)
+                         break
+                     case 'o':
+                         arg = (parseInt(arg, 10) >>> 0).toString(8)

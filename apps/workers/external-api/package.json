@@ -44,7 +44,7 @@
     "@weldsuite/smtp": "workspace:*",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.6",
+    "vitest": "^4.1.12",
     "wrangler": "^4.0.0"
   }
 }

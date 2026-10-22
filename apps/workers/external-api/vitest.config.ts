@@ -19,11 +19,7 @@ export default defineConfig({
     // migrations run exactly once. (Parallel forks each booting their own
     // pglite race the WASM error stack: "ERRORDATA_STACK_SIZE exceeded".)
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    maxWorkers: 1,
     isolate: false,
     // pglite WASM download + full tenant migration on first call is slow.
     testTimeout: 30_000,

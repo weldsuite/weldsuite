@@ -98,7 +98,7 @@
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^4.3.0",
-    "@vitest/coverage-v8": "^3.2.6",
+    "@vitest/coverage-v8": "^4.1.12",
     "dotenv": "^17.2.3",
     "jsdom": "^25.0.1",
     "rollup-plugin-visualizer": "^7.0.1",
@@ -106,7 +106,7 @@
     "tsx": "^4.0.0",
     "typescript": "^5.7",
     "vite": "^6.4.4",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.12"
   },
   "name": "platform",
   "license": "AGPL-3.0-only",

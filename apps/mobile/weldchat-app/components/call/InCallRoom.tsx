@@ -32,19 +32,12 @@ provideRtkDesignSystem({
   borderRadius: 'rounded',
 });
 
-function formatDuration(totalSeconds: number): string {
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
 function JoinedCallBody({
   meeting,
   peerName,
   peerAvatar,
   callType,
-  duration,
-  reconnecting,
+  status,
   onMinimize,
   onLeave,
 }: Readonly<{
@@ -52,9 +45,8 @@ function JoinedCallBody({
   peerName?: string;
   peerAvatar?: string;
   callType: 'voice' | 'video';
-  duration: number;
-  /** The connection dropped and the SDK is restoring it. */
-  reconnecting?: boolean;
+  /** Header subtitle: the running timer, or Ringing / Connecting / Reconnecting. */
+  status: string;
   onMinimize: () => void;
   onLeave: () => void;
 }>) {
@@ -130,7 +122,7 @@ function JoinedCallBody({
             {peerName || (isVideo ? 'Video call' : 'Voice call')}
           </Text>
           <Text style={[styles.headerSubtitle, { color: colors.muted }]}>
-            {reconnecting ? 'Reconnecting…' : formatDuration(duration)}
+            {status}
           </Text>
         </View>
         <View style={styles.headerBtn} />
@@ -202,8 +194,7 @@ export function InCallRoom({
   peerName,
   peerAvatar,
   callType,
-  duration,
-  reconnecting,
+  status,
   onMinimize,
   onLeave,
 }: Readonly<{
@@ -211,9 +202,8 @@ export function InCallRoom({
   peerName?: string;
   peerAvatar?: string;
   callType: 'voice' | 'video';
-  duration: number;
-  /** The connection dropped and the SDK is restoring it. */
-  reconnecting?: boolean;
+  /** Header subtitle: the running timer, or Ringing / Connecting / Reconnecting. */
+  status: string;
   onMinimize: () => void;
   onLeave: () => void;
 }>) {
@@ -224,8 +214,7 @@ export function InCallRoom({
         peerName={peerName}
         peerAvatar={peerAvatar}
         callType={callType}
-        duration={duration}
-        reconnecting={reconnecting}
+        status={status}
         onMinimize={onMinimize}
         onLeave={onLeave}
       />

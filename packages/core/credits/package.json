@@ -23,6 +23,6 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.12"
   }
 }

@@ -141,7 +141,7 @@ function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverE
           onMouseLeave={onHoverEnd}
           onFocus={onHover}
           className={cn(
-            'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors cursor-grab overflow-visible',
+            'group relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors cursor-grab overflow-visible',
             isHomePage
               ? 'text-white/70 hover:text-white hover:bg-white/10'
               : 'hover:bg-accent hover:text-accent-foreground',
@@ -282,7 +282,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               href="/"
               data-testid="app-nav-home"
               className={cn(
-                'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors',
+                'group relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10'
                   : 'hover:bg-accent hover:text-accent-foreground',
@@ -305,99 +305,104 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
           </TooltipContent>
         </Tooltip>
 
-        {/* Draggable Apps - Only render DnD context after mount to avoid hydration mismatch */}
-        {mounted ? (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={orderedApps.map(a => a.appCode)}
-              strategy={verticalListSortingStrategy}
+        {/* Draggable Apps - scroll on their own when they outgrow the rail, so
+            Home stays on top and WeldAgent + App Store stay on the bottom.
+            Only render DnD context after mount to avoid hydration mismatch. */}
+        <div
+          data-testid="app-sidebar-apps"
+          className="flex-1 min-h-0 w-full flex flex-col items-center gap-2 py-1 overflow-y-auto overflow-x-hidden app-rail-scroll"
+        >
+          {mounted ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
             >
+              <SortableContext
+                items={orderedApps.map(a => a.appCode)}
+                strategy={verticalListSortingStrategy}
+              >
+                {orderedApps.map((app) => {
+                  const icon = <SidebarAppIcon appCode={app.appCode} name={app.name} icon={app.icon} appType={app.appType} />;
+                  const appPath = appHref(app.appCode, app.appType);
+
+                  return (
+                    <SortableAppItem
+                      key={app.id}
+                      app={app}
+                      href={workspaceHref(appPath)}
+                      icon={icon}
+                      isActive={isActive(appPath)}
+                      onClick={handleAppClick(appPath)}
+                      onHover={() => {
+                        // Rail items are plain <a> tags (dnd-kit needs the node
+                        // ref), so TanStack's Link-level intent preload never
+                        // fires here — warm the route chunk and the app's
+                        // landing data ourselves on hover.
+                        router.prefetch(appPath);
+                        prefetchApp(app.appCode);
+                        // WeldApps: start booting the iframe so the click is instant.
+                        if (app.appType === 'user') preloadWeldApp(app.appCode);
+                      }}
+                      onHoverEnd={() => cancelPrefetch(app.appCode)}
+                      isHomePage={isHomePage}
+                      showBeta={betaAppCodes?.has(app.appCode) ?? false}
+                    />
+                  );
+                })}
+              </SortableContext>
+
+              <DragOverlay>
+                {activeApp && (
+                  <div className="h-11.5 w-11.5 flex items-center justify-center rounded-lg bg-gray-200/60 dark:bg-accent/60 shadow-lg">
+                    <SidebarAppIcon appCode={activeApp.appCode} name={activeApp.name} imgSize={56} icon={activeApp.icon} appType={activeApp.appType} />
+                  </div>
+                )}
+              </DragOverlay>
+            </DndContext>
+          ) : (
+            // Static version for SSR/initial render
+            <>
               {orderedApps.map((app) => {
-                const icon = <SidebarAppIcon appCode={app.appCode} name={app.name} icon={app.icon} appType={app.appType} />;
+                const icon = <SidebarAppIcon appCode={app.appCode} name={app.name} imgSize={56} icon={app.icon} appType={app.appType} />;
                 const appPath = appHref(app.appCode, app.appType);
 
                 return (
-                  <SortableAppItem
-                    key={app.id}
-                    app={app}
-                    href={workspaceHref(appPath)}
-                    icon={icon}
-                    isActive={isActive(appPath)}
-                    onClick={handleAppClick(appPath)}
-                    onHover={() => {
-                      // Rail items are plain <a> tags (dnd-kit needs the node
-                      // ref), so TanStack's Link-level intent preload never
-                      // fires here — warm the route chunk and the app's
-                      // landing data ourselves on hover.
-                      router.prefetch(appPath);
-                      prefetchApp(app.appCode);
-                      // WeldApps: start booting the iframe so the click is instant.
-                      if (app.appType === 'user') preloadWeldApp(app.appCode);
-                    }}
-                    onHoverEnd={() => cancelPrefetch(app.appCode)}
-                    isHomePage={isHomePage}
-                    showBeta={betaAppCodes?.has(app.appCode) ?? false}
-                  />
+                  <Tooltip key={app.id}>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={appPath}
+                        data-testid={appNavTestId(app.appCode)}
+                        onMouseEnter={() => {
+                          prefetchApp(app.appCode);
+                          if (app.appType === 'user') preloadWeldApp(app.appCode);
+                        }}
+                        onMouseLeave={() => cancelPrefetch(app.appCode)}
+                        onFocus={() => prefetchApp(app.appCode)}
+                        className={cn(
+                          'group relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors overflow-visible',
+                          isHomePage
+                            ? 'text-white/70 hover:text-white hover:bg-white/10'
+                            : 'hover:bg-accent hover:text-accent-foreground',
+                          isActive(appPath) && (isHomePage ? 'bg-white/15 text-white' : 'bg-gray-200/60 dark:bg-accent/60')
+                        )}
+                      >
+                        <span className={cn('transition-all', !isActive(appPath) && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
+                          {icon}
+                        </span>
+                        {betaAppCodes?.has(app.appCode) ? <BetaBadge /> : null}
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>{app.name}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 );
               })}
-            </SortableContext>
-
-            <DragOverlay>
-              {activeApp && (
-                <div className="h-11.5 w-11.5 flex items-center justify-center rounded-lg bg-gray-200/60 dark:bg-accent/60 shadow-lg">
-                  <SidebarAppIcon appCode={activeApp.appCode} name={activeApp.name} imgSize={56} icon={activeApp.icon} appType={activeApp.appType} />
-                </div>
-              )}
-            </DragOverlay>
-          </DndContext>
-        ) : (
-          // Static version for SSR/initial render
-          <>
-            {orderedApps.map((app) => {
-              const icon = <SidebarAppIcon appCode={app.appCode} name={app.name} imgSize={56} icon={app.icon} appType={app.appType} />;
-              const appPath = appHref(app.appCode, app.appType);
-
-              return (
-                <Tooltip key={app.id}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href={appPath}
-                      data-testid={appNavTestId(app.appCode)}
-                      onMouseEnter={() => {
-                        prefetchApp(app.appCode);
-                        if (app.appType === 'user') preloadWeldApp(app.appCode);
-                      }}
-                      onMouseLeave={() => cancelPrefetch(app.appCode)}
-                      onFocus={() => prefetchApp(app.appCode)}
-                      className={cn(
-                        'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors overflow-visible',
-                        isHomePage
-                          ? 'text-white/70 hover:text-white hover:bg-white/10'
-                          : 'hover:bg-accent hover:text-accent-foreground',
-                        isActive(appPath) && (isHomePage ? 'bg-white/15 text-white' : 'bg-gray-200/60 dark:bg-accent/60')
-                      )}
-                    >
-                      <span className={cn('transition-all', !isActive(appPath) && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
-                        {icon}
-                      </span>
-                      {betaAppCodes?.has(app.appCode) ? <BetaBadge /> : null}
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{app.name}</p>
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
-          </>
-        )}
-
-        <div className="flex-1" />
+            </>
+          )}
+        </div>
 
         {/* AI Agents */}
         <Tooltip>
@@ -408,7 +413,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               onMouseEnter={() => router.prefetch('/agents')}
               onFocus={() => router.prefetch('/agents')}
               className={cn(
-                'relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors',
+                'relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10'
                   : 'hover:bg-accent hover:text-accent-foreground',
@@ -436,7 +441,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               href="/appstore"
               data-testid="app-nav-appstore"
               className={cn(
-                'h-11.5 w-11.5 flex items-center justify-center rounded-md transition-colors border border-dashed',
+                'h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-md transition-colors border border-dashed',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10 border-white/30'
                   : 'hover:bg-accent hover:text-accent-foreground border-gray-300 dark:border-border',

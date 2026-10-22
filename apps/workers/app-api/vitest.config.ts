@@ -17,11 +17,6 @@ export default defineConfig({
     reporters: ['default', 'junit'],
     outputFile: { junit: './test-results/vitest-junit.xml' },
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: false,
-      },
-    },
     // lcov is for coverage tooling (editor gutters, report viewers); text keeps
     // the local run readable.
     //
