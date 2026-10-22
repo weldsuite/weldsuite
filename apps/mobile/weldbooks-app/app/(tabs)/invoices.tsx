@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { View, FlatList, RefreshControl, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, FlatList, ScrollView, RefreshControl, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { FileText, Plus } from 'lucide-react-native';
@@ -111,7 +111,14 @@ export default function InvoicesScreen() {
             placeholder={t.invoices.searchPlaceholder}
             containerStyle={styles.search}
           />
-          <View style={styles.chips}>
+          {/* One row that scrolls sideways, so a longer label set never wraps onto a second line. */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.chips}
+            style={styles.chipsScroll}
+          >
             {FILTERS.map((f) => (
               <Chip
                 key={f.key}
@@ -120,7 +127,7 @@ export default function InvoicesScreen() {
                 onPress={() => setFilter(f.key)}
               />
             ))}
-          </View>
+          </ScrollView>
         </View>
       }
     />
@@ -197,7 +204,8 @@ export default function InvoicesScreen() {
 const styles = StyleSheet.create({
   controls: { gap: 10, paddingBottom: 8 },
   search: { borderRadius: 12, minHeight: 40 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chipsScroll: { flexGrow: 0 },
+  chips: { gap: 6 },
   list: { paddingBottom: 8 },
   listEmpty: { flexGrow: 1, justifyContent: 'center' },
   footer: { paddingVertical: 20 },

@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
@@ -50,6 +50,8 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import { AddressFields, type AddressErrors } from '@/components/address-fields';
 import { LineItemsEditor } from '@/components/line-items';
+import { DateField } from '@/components/date-field';
+import { FormScrollView } from '@/components/form-scroll';
 import { TaxBreakdownCard } from '@/components/tax-breakdown';
 
 const PREVIEW_DEBOUNCE_MS = 800;
@@ -60,17 +62,18 @@ export default function NewInvoiceScreen() {
   const router = useRouter();
   const toast = useToast();
   const { colors } = useTheme();
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const { isUs, code } = useJurisdiction();
-  const { parseDateInput, formatDateInput, datePlaceholder, currency } = useLocaleFormatters();
+  const { currency } = useLocaleFormatters();
 
   const mode = lineItemTaxMode(isUs, 'invoice');
   const defaultTaxRate = defaultTaxRateFor(code);
 
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
-  const [issueDate, setIssueDate] = useState(() => formatDateInput(today()));
-  const [dueDate, setDueDate] = useState(() => formatDateInput(addDays(30)));
+  // Calendar days as `YYYY-MM-DD`; the date fields show them in the company's locale.
+  const [issueDate, setIssueDate] = useState(() => today());
+  const [dueDate, setDueDate] = useState(() => addDays(30));
   const [items, setItems] = useState<LineItemDraft[]>(() => [
     createEmptyLineItem({ taxRate: defaultTaxRate }),
   ]);
@@ -83,7 +86,6 @@ export default function NewInvoiceScreen() {
   const [errors, setErrors] = useState<{
     contactName?: string;
     items?: string;
-    issueDate?: string;
     dueDate?: string;
     shipTo?: AddressErrors;
     billTo?: AddressErrors;
@@ -93,15 +95,13 @@ export default function NewInvoiceScreen() {
   const [previewState, setPreviewState] = useState<PreviewState>('idle');
   const contactIds = useRef(new Map<string, string | null>());
 
-  const dateHint = datePlaceholder;
   const billingAddress = billSame ? shipTo : billTo;
 
   // US: preview the sales tax the server would charge, once there is something to tax and a place to tax it.
   useEffect(() => {
     if (!isUs) return;
-    const issueIso = parseDateInput(issueDate);
     const lines = toLineItemInputs(items, 'code');
-    if (lines.length === 0 || !issueIso || !isUsAddressTaxable(shipTo)) {
+    if (lines.length === 0 || !issueDate || !isUsAddressTaxable(shipTo)) {
       setPreview(null);
       setPreviewState('idle');
       return;
@@ -118,7 +118,7 @@ export default function NewInvoiceScreen() {
         const result = await api.previewSalesTax({
           kind: 'invoice',
           contactId: (name && contactIds.current.get(name)) || undefined,
-          issueDate: issueIso,
+          issueDate,
           shippingAddress: toApiAddress(shipTo),
           billingAddress: toApiAddress(billingAddress),
           items: lines,
@@ -135,19 +135,15 @@ export default function NewInvoiceScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isUs, items, shipTo, billingAddress, issueDate, contactName, parseDateInput]);
+  }, [isUs, items, shipTo, billingAddress, issueDate, contactName]);
 
   const handleSave = useCallback(async () => {
     const name = contactName.trim();
     const usable = validLineItems(items);
-    const issueIso = parseDateInput(issueDate);
-    const dueIso = parseDateInput(dueDate);
-
     const nextErrors: typeof errors = {};
     if (!name) nextErrors.contactName = t.invoiceNew.nameError;
     if (usable.length === 0) nextErrors.items = t.invoiceNew.itemsError;
-    if (!issueIso) nextErrors.issueDate = format(t.invoiceNew.dateError, { example: dateHint });
-    if (!dueIso) nextErrors.dueDate = format(t.invoiceNew.dateError, { example: dateHint });
+    if (dueDate < issueDate) nextErrors.dueDate = t.invoiceNew.dueBeforeIssue;
     if (isUs) {
       // A draft without a state and ZIP can't be finalised, and the app can't edit a draft afterwards.
       const ship = usAddressProblems(shipTo, { requireStateAndZip: true });
@@ -158,15 +154,15 @@ export default function NewInvoiceScreen() {
       }
     }
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0 || !issueIso || !dueIso) return;
+    if (Object.keys(nextErrors).length > 0) return;
 
     setSaving(true);
     try {
       const invoice = await api.createInvoice({
         contactName: name,
         contactEmail: contactEmail.trim() || undefined,
-        issueDate: issueIso,
-        dueDate: dueIso,
+        issueDate,
+        dueDate,
         notes: notes.trim() || undefined,
         reference: reference.trim() || undefined,
         ...(isUs ? { shippingAddress: toApiAddress(shipTo), billingAddress: toApiAddress(billingAddress) } : {}),
@@ -194,12 +190,9 @@ export default function NewInvoiceScreen() {
     billingAddress,
     isUs,
     mode,
-    dateHint,
-    parseDateInput,
     router,
     toast,
     t,
-    format,
   ]);
 
   const serverTax = isUs
@@ -208,11 +201,7 @@ export default function NewInvoiceScreen() {
 
   return (
     <Screen header={<ScreenHeader title={t.invoiceNew.title} showBack />}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}
-      >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <FormScrollView contentContainerStyle={styles.content}>
           <SectionCard title={t.invoiceNew.customer}>
             <Input
               label={t.invoiceNew.name}
@@ -273,29 +262,24 @@ export default function NewInvoiceScreen() {
           ) : null}
 
           <SectionCard title={t.invoiceNew.dates}>
-            <Input
+            <DateField
               label={t.invoiceNew.issueDate}
               value={issueDate}
-              onChangeText={(text) => {
-                setIssueDate(text);
-                if (errors.issueDate) setErrors((e) => ({ ...e, issueDate: undefined }));
-              }}
-              placeholder={isUs ? dateHint : t.invoiceNew.datePlaceholder}
-              error={errors.issueDate}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Input
-              label={t.invoiceNew.dueDate}
-              value={dueDate}
-              onChangeText={(text) => {
-                setDueDate(text);
+              onChange={(iso) => {
+                setIssueDate(iso);
                 if (errors.dueDate) setErrors((e) => ({ ...e, dueDate: undefined }));
               }}
-              placeholder={isUs ? dateHint : t.invoiceNew.datePlaceholder}
+              testID="invoice-issue-date"
+            />
+            <DateField
+              label={t.invoiceNew.dueDate}
+              value={dueDate}
+              onChange={(iso) => {
+                setDueDate(iso);
+                if (errors.dueDate) setErrors((e) => ({ ...e, dueDate: undefined }));
+              }}
               error={errors.dueDate}
-              autoCapitalize="none"
-              autoCorrect={false}
+              testID="invoice-due-date"
             />
           </SectionCard>
 
@@ -363,14 +347,12 @@ export default function NewInvoiceScreen() {
             fullWidth
             style={styles.submit}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   content: { paddingBottom: 40, paddingTop: 4 },
   hint: { fontSize: 13, lineHeight: 19, marginBottom: 8 },
   pending: { fontSize: 12, lineHeight: 17, marginHorizontal: 16, marginTop: 10 },

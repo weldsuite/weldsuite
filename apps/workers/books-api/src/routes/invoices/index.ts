@@ -88,12 +88,17 @@ function accountingErrorResponse(c: AppContext, err: unknown): Response | undefi
   // Sales tax refusals carry their own code (ADDRESS_REQUIRED, TAX_ENGINE_UNAVAILABLE, ...).
   const salesTax = salesTaxErrorResponse(c, err);
   if (salesTax) return salesTax;
+  // The entity fields a refusal is about travel as `details.missingFields`, next to the message, so a client can send the user to them.
+  if (err instanceof InvoiceComplianceError) {
+    return err.missingFields.length > 0
+      ? error.badRequest(c, err.message, { code: 'ENTITY_INVOICE_FIELDS_MISSING', missingFields: err.missingFields })
+      : error.badRequest(c, err.message);
+  }
   if (
     err instanceof ClosedPeriodError ||
     err instanceof LockedPeriodError ||
     err instanceof PostingError ||
-    err instanceof TaxCalculationError ||
-    err instanceof InvoiceComplianceError
+    err instanceof TaxCalculationError
   ) {
     return error.badRequest(c, err.message);
   }

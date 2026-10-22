@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import Constants from 'expo-constants';
-import { Moon, Sun, LogOut, RefreshCw, ChevronRight } from 'lucide-react-native';
+import { Moon, Sun, LogOut, RefreshCw, ChevronRight, Pencil } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
@@ -21,10 +21,13 @@ import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 import api from '@/services/api';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow } from '@/components/detail';
+import { EditCompanySheet } from '@/components/edit-company-sheet';
 import { DetailSkeleton } from '@/components/data-states';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
-import { useJurisdiction } from '@/hooks/useJurisdiction';
+import { useJurisdiction, useJurisdictions } from '@/hooks/useJurisdiction';
+import { fiscalYearStartLabel, missingInvoiceFields, requiredInvoiceFields } from '@/lib/company';
+import { invoiceFieldNames, listInvoiceFields } from '@/lib/company-form';
 import { useI18n } from '@/lib/i18n';
 import { addressLines } from '@/lib/us';
 import type { AppSettings } from '@/types/accounting';
@@ -39,12 +42,14 @@ export default function SettingsScreen() {
   const { queue, isOnline, isSyncing, syncQueue } = useOfflineQueue();
   const toast = useToast();
   const { t, format, plural, language } = useI18n();
-  const { isUs, labels, currency: entityCurrency } = useJurisdiction();
+  const { isUs, code, labels, formatLocale, currency: entityCurrency } = useJurisdiction();
+  const { data: loadedJurisdictions } = useJurisdictions();
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -72,6 +77,13 @@ export default function SettingsScreen() {
       activeEntity.taxClassification)
     : undefined;
   const entityAddress = addressLines(activeEntity?.address);
+  const requiredFields = requiredInvoiceFields(code, loadedJurisdictions);
+  const missingFields = missingInvoiceFields(activeEntity, requiredFields);
+  const fieldNames = invoiceFieldNames(t, labels);
+  // A field the jurisdiction needs on invoices shows as "Not set" while it is empty, instead of vanishing.
+  const notSet = (
+    <Text style={[styles.notSet, { color: colors.warning }]}>{t.company.notSet}</Text>
+  );
 
   return (
     <Screen header={<ScreenHeader title={t.settings.title} showBack />}>
@@ -115,17 +127,50 @@ export default function SettingsScreen() {
               <DetailRow label={t.settings.baseCurrency} value={settings?.currency ?? entityCurrency} />
               <DetailRow
                 label={t.settings.fiscalYearStart}
-                value={settings?.fiscalYearStart ?? t.settings.fiscalYearFallback}
+                value={
+                  fiscalYearStartLabel(activeEntity?.fiscalYearStart ?? settings?.fiscalYearStart, formatLocale) ??
+                  t.settings.fiscalYearFallback
+                }
               />
-              {taxIdValue ? <DetailRow label={labels.taxId} value={taxIdValue} /> : null}
+              {taxIdValue || requiredFields.includes('vatNumber') ? (
+                <DetailRow label={labels.taxId} value={taxIdValue ?? notSet} />
+              ) : null}
+              {activeEntity?.registrationNumber || requiredFields.includes('registrationNumber') ? (
+                <DetailRow
+                  label={labels.registrationId}
+                  value={activeEntity?.registrationNumber ?? notSet}
+                />
+              ) : null}
+              {activeEntity?.iban || requiredFields.includes('iban') ? (
+                <DetailRow label={t.company.iban} value={activeEntity?.iban ?? notSet} />
+              ) : null}
               {isUs && legalForm ? <DetailRow label={t.settings.legalForm} value={legalForm} /> : null}
               {isUs && classification ? (
                 <DetailRow label={t.settings.taxClassification} value={classification} />
               ) : null}
               {isUs && activeEntity?.dba ? <DetailRow label={t.settings.dba} value={activeEntity.dba} /> : null}
-              {isUs && entityAddress.length > 0 ? (
-                <DetailRow label={t.settings.address} value={entityAddress.join('\n')} />
+              <DetailRow
+                label={t.settings.address}
+                value={entityAddress.length > 0 ? entityAddress.join('\n') : notSet}
+              />
+              {missingFields.length > 0 ? (
+                <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+                  {format(t.settings.missingForInvoices, {
+                    fields: listInvoiceFields(missingFields, fieldNames, {
+                      comma: ', ',
+                      and: t.company.listAnd,
+                    }),
+                  })}
+                </Text>
               ) : null}
+              <Button
+                title={t.settings.editCompany}
+                variant="outline"
+                size="sm"
+                leftIcon={<Pencil size={16} color={colors.text} />}
+                onPress={() => setEditOpen(true)}
+                style={styles.editCompany}
+              />
               {error ? (
                 <Text style={[styles.error, { color: colors.destructive }]}>{error}</Text>
               ) : null}
@@ -198,6 +243,8 @@ export default function SettingsScreen() {
         )}
       </ScrollView>
 
+      <EditCompanySheet visible={editOpen} onClose={() => setEditOpen(false)} />
+
       <ConfirmModal
         visible={confirmSignOut}
         title={t.settings.signOutTitle}
@@ -236,5 +283,7 @@ const styles = StyleSheet.create({
   adminLabel: { fontSize: 13 },
   adminValue: { fontSize: 16, fontWeight: '600', marginTop: 2 },
   syncButton: { marginTop: 12, alignSelf: 'flex-start' },
+  editCompany: { marginTop: 12, alignSelf: 'flex-start' },
+  notSet: { fontSize: 14, fontWeight: '500' },
   signOut: { marginHorizontal: 12, marginTop: 24 },
 });

@@ -1,0 +1,52 @@
+appId: com.weldsuite.weldbooks
+name: Create the first company (only when the workspace has none)
+tags: [writes]
+---
+# A workspace without a company stops at "No company set up yet" (see the README),
+# so this flow only does something on such a workspace; with a company it signs in
+# and passes straight through. It covers TASK-1164: the "Set up your company" sheet
+# used to open empty on Android, and its button was out of reach with the keyboard open.
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: login-email
+    timeout: 30000
+- tapOn:
+    id: login-email
+- inputText: ${MAESTRO_TEST_EMAIL}
+- tapOn:
+    id: login-password
+- inputText: ${MAESTRO_TEST_PASSWORD}
+- tapOn:
+    id: login-submit
+# Either the tab bar (a company exists) or the setup door.
+- extendedWaitUntil:
+    visible: "Invoices|No company set up yet"
+    timeout: 45000
+- runFlow:
+    when:
+      visible: "No company set up yet"
+    commands:
+      # The door offers a way out besides creating one.
+      - assertVisible: "Sign out"
+      - assertVisible: "Check again"
+      - tapOn:
+          id: create-company-open
+      # The sheet has its content (it used to open empty).
+      - extendedWaitUntil:
+          visible: "Set up your company"
+          timeout: 10000
+      - assertVisible: "Company name"
+      - tapOn: "Acme B.V."
+      - inputText: "E2E Company BV"
+      # The button stays reachable with the keyboard open.
+      - scrollUntilVisible:
+          element:
+            id: create-company-submit
+      - tapOn:
+          id: create-company-submit
+      # Saving lands on the dashboard.
+      - extendedWaitUntil:
+          visible: "Outstanding"
+          timeout: 30000

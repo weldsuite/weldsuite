@@ -1,4 +1,4 @@
-import type { JurisdictionAdapter, JurisdictionFeatures, JurisdictionTerminology } from './types';
+import type { InvoiceField, JurisdictionAdapter, JurisdictionFeatures, JurisdictionTerminology } from './types';
 import { nlAdapter } from './nl';
 import { inAdapter } from './in';
 import { usAdapter } from './us';
@@ -32,6 +32,17 @@ export interface JurisdictionSummary {
   defaultCurrency: string;
   features: JurisdictionFeatures;
   terminology: JurisdictionTerminology;
+  /**
+   * The entity fields an invoice of this jurisdiction cannot be finalized without (the supplier's
+   * address always among them), so a client can ask for them up front.
+   */
+  invoiceRequiredFields: InvoiceField[];
+}
+
+/** The fields the entity must carry before an invoice can be finalized: the adapter's list plus the address. */
+function invoiceRequiredFieldsOf(adapter: JurisdictionAdapter): InvoiceField[] {
+  const fields = adapter.getInvoiceRequirements(adapter.defaultLocale).requiredFields;
+  return fields.includes('address') ? [...fields] : [...fields, 'address'];
 }
 
 export function listJurisdictions(): JurisdictionSummary[] {
@@ -42,6 +53,7 @@ export function listJurisdictions(): JurisdictionSummary[] {
     defaultCurrency: a.defaultCurrency,
     features: a.features,
     terminology: a.terminology,
+    invoiceRequiredFields: invoiceRequiredFieldsOf(a),
   }));
 }
 

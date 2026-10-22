@@ -10,11 +10,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   Pressable,
-  KeyboardAvoidingView,
-  Platform,
   TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -52,6 +49,8 @@ import { DEFAULT_TAX_CODE, WELD_TAX_CODES } from '@/lib/us';
 import { BRAND, tint } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
+import { DateField } from '@/components/date-field';
+import { FormScrollView } from '@/components/form-scroll';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
 import type { BillPrefill, ExpenseCategory } from '@/types/accounting';
 
@@ -100,13 +99,7 @@ export default function QuickExpenseScreen() {
   const params = useLocalSearchParams<{ amount?: string; vendorName?: string; documentId?: string }>();
   const { t, format } = useI18n();
   const { isUs, code, labels } = useJurisdiction();
-  const {
-    formatCurrency,
-    parseAmount: parseTyped,
-    parseDateInput,
-    formatDateInput,
-    datePlaceholder,
-  } = useLocaleFormatters();
+  const { formatCurrency, parseAmount: parseTyped } = useLocaleFormatters();
   const defaultTaxRate = defaultTaxRateFor(code);
 
   const categoryLabels: Record<ExpenseCategory, string> = {
@@ -124,13 +117,13 @@ export default function QuickExpenseScreen() {
   const [category, setCategory] = useState<ExpenseCategory>('other');
   const [vendorName, setVendorName] = useState(params.vendorName ?? '');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(() => formatDateInput(today()));
+  // A calendar day as `YYYY-MM-DD`; the date field shows it in the company's locale.
+  const [date, setDate] = useState(() => today());
   const [taxRate, setTaxRate] = useState(defaultTaxRate);
   const [accrueUseTax, setAccrueUseTax] = useState(false);
   const [taxCode, setTaxCode] = useState<string>(DEFAULT_TAX_CODE);
   const [saving, setSaving] = useState(false);
   const [amountError, setAmountError] = useState<string | undefined>();
-  const [dateError, setDateError] = useState<string | undefined>();
   const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
     params.documentId ? 'loading' : 'idle',
   );
@@ -144,7 +137,7 @@ export default function QuickExpenseScreen() {
         const prefill = await api.getBillFromDocument(params.documentId!);
         if (cancelled) return;
         if (prefill.contactName) setVendorName(prefill.contactName);
-        if (prefill.issueDate) setDate(formatDateInput(prefill.issueDate));
+        if (prefill.issueDate) setDate(prefill.issueDate);
         const prefillAmount = amountFromPrefill(prefill, isUs);
         if (prefillAmount != null && prefillAmount > 0) setAmount(amountInput(prefillAmount));
         const rate = prefill.items.find((item) => item.taxRate)?.taxRate;
@@ -159,7 +152,7 @@ export default function QuickExpenseScreen() {
     return () => {
       cancelled = true;
     };
-  }, [params.documentId, isUs, formatDateInput]);
+  }, [params.documentId, isUs]);
 
   const handleSave = useCallback(async () => {
     const value = parseTyped(amount);
@@ -169,19 +162,12 @@ export default function QuickExpenseScreen() {
     }
     setAmountError(undefined);
 
-    const isoDate = parseDateInput(date);
-    if (!isoDate) {
-      setDateError(format(t.expenseQuick.dateError, { example: datePlaceholder }));
-      return;
-    }
-    setDateError(undefined);
-
     const payload = {
       amount: value,
       category,
       description: description.trim() || undefined,
       vendorName: vendorName.trim() || undefined,
-      date: isoDate,
+      date,
       documentId: params.documentId || undefined,
       // A US expense is booked at what was paid: the tax in it is part of the cost, and use tax is accrued on request.
       taxRate: isUs ? 0 : parseTyped(taxRate || '0'),
@@ -226,24 +212,17 @@ export default function QuickExpenseScreen() {
     taxCode,
     isUs,
     parseTyped,
-    parseDateInput,
-    datePlaceholder,
     params.documentId,
     isOnline,
     addToQueue,
     router,
     toast,
     t,
-    format,
   ]);
 
   return (
     <Screen header={<ScreenHeader title={t.expenseQuick.title} showBack />}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}
-      >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <FormScrollView contentContainerStyle={styles.content}>
           {!isOnline ? (
             <Banner
               variant="warning"
@@ -285,6 +264,10 @@ export default function QuickExpenseScreen() {
                 placeholder="0.00"
                 placeholderTextColor={colors.placeholder}
                 style={[styles.amountInput, { color: colors.text }]}
+                // The big centred figure is the display; a caret blinking beside it (on Android it
+                // sits at the far edge of the card, away from the digits) only points at the wrong place.
+                caretHidden
+                selectionColor={BRAND}
                 autoFocus={!params.documentId}
               />
             </Pressable>
@@ -351,18 +334,7 @@ export default function QuickExpenseScreen() {
               placeholder={t.expenseQuick.vendorPlaceholder}
               autoCapitalize="words"
             />
-            <Input
-              label={t.expenseQuick.date}
-              value={date}
-              onChangeText={(text) => {
-                setDate(text);
-                if (dateError) setDateError(undefined);
-              }}
-              placeholder={isUs ? datePlaceholder : t.expenseQuick.datePlaceholder}
-              error={dateError}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+            <DateField label={t.expenseQuick.date} value={date} onChange={setDate} testID="expense-date" />
             {isUs ? (
               <>
                 <Switch
@@ -410,14 +382,12 @@ export default function QuickExpenseScreen() {
             fullWidth
             style={styles.submit}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   content: { paddingBottom: 40, paddingTop: 8 },
   banner: { marginHorizontal: 12, marginBottom: 4 },
   amountCard: { marginHorizontal: 12, padding: 20, alignItems: 'center' },

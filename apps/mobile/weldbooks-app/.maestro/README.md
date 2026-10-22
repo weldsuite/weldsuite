@@ -24,8 +24,12 @@ load it before running.
 
 The test workspace needs a **company (entity)**; without one the app stops at
 "No company set up yet". Create it on the web (WeldBooks › Create entity):
-the in-app "Create company" sheet opens empty on Android (TASK-1164). The
-e2e workspace has "E2E Company BV" (NL, EUR).
+the in-app "Create company" sheet used to open empty on Android (TASK-1164, fixed).
+The e2e workspace has "E2E Company BV" (NL, EUR).
+
+`06-create-company` only does something on a workspace without a company: it
+signs in, and if it lands on "No company set up yet" it creates "E2E Company BV"
+through the sheet. On a workspace that already has one it passes straight through.
 
 `03-invoice-draft` creates a draft invoice (and, the first time, the
 "E2E Customer" contact) and deletes the draft again. `04-quick-expense` saves

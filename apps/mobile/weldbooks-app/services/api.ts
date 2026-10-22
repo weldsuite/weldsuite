@@ -73,6 +73,7 @@ import type {
 } from '@/types/accounting';
 import { today } from '@/lib/date';
 import { BUILT_IN_JURISDICTIONS, DEFAULT_TERMINOLOGY, FALLBACK_CURRENCY, NO_FEATURES } from '@/lib/jurisdiction';
+import type { EntityUpdate } from '@/lib/company-form';
 import type { LineItemInput } from '@/lib/line-items';
 import type { DepositTarget } from '@/lib/payments';
 import { asText } from '@weldsuite/text';
@@ -413,6 +414,9 @@ class WeldBooksApi {
     taxClassification?: string;
     dba?: string;
     ein?: string;
+    /** KvK number (NL), PAN (IN), ... */
+    registrationNumber?: string;
+    iban?: string;
     address?: PostalAddress | null;
     isDefault?: boolean;
   }): Promise<AccountingEntity> {
@@ -425,12 +429,44 @@ class WeldBooksApi {
       ...(data.entityType ? { entityType: data.entityType } : {}),
       ...(data.taxClassification ? { taxClassification: data.taxClassification } : {}),
       ...(data.dba ? { dba: data.dba } : {}),
-      ...(data.ein ? { taxIdentifiers: { einOrSsn: data.ein } } : {}),
+      ...(data.ein || data.registrationNumber
+        ? {
+            taxIdentifiers: {
+              ...(data.ein ? { einOrSsn: data.ein } : {}),
+              ...(data.registrationNumber ? { registrationNumber: data.registrationNumber } : {}),
+            },
+          }
+        : {}),
+      ...(data.iban ? { bankDetails: { iban: data.iban } } : {}),
       ...(data.address ? { address: data.address } : {}),
       isDefault: data.isDefault ?? true,
       seedDefaults: true,
     });
     return toEntity(res.data ?? {}, data);
+  }
+
+  /**
+   * Updates the company: its name, tax IDs, bank details and address. Only the fields of `update`
+   * are sent. books-api replaces `bankDetails` as a whole, so the stored object is read first and
+   * the IBAN / BIC merged into it (the account number, routing number and bank name survive).
+   */
+  async updateEntity(id: string, update: EntityUpdate): Promise<AccountingEntity> {
+    let bankDetails: Json | undefined;
+    if (update.bankDetails) {
+      const current = await client.get<DataEnvelope<Json>>(`/accounting-entities/${id}`);
+      bankDetails = { ...((current.data?.bankDetails ?? {}) as Json) };
+      for (const [key, value] of Object.entries(update.bankDetails)) {
+        if (value) bankDetails[key] = value;
+        else delete bankDetails[key];
+      }
+    }
+    const res = await client.patch<DataEnvelope>(`/accounting-entities/${id}`, {
+      ...(update.name ? { name: update.name } : {}),
+      ...(update.taxIdentifiers ? { taxIdentifiers: update.taxIdentifiers } : {}),
+      ...(bankDetails ? { bankDetails } : {}),
+      ...(update.address ? { address: update.address } : {}),
+    });
+    return toEntity(res.data ?? {});
   }
 
   // ========== Dashboard ==========
@@ -1398,6 +1434,9 @@ export function toEntity(
 ): AccountingEntity {
   const jurisdictionCode = str(row.jurisdictionCode ?? row.jurisdiction, fallback.jurisdictionCode ?? 'NL');
   const identifiers = (row.taxIdentifiers ?? {}) as Json;
+  const bankDetails = (row.bankDetails ?? {}) as Json;
+  const text = (value: unknown): string | undefined =>
+    typeof value === 'string' && value.trim() ? value.trim() : undefined;
   const einValue = typeof identifiers.einOrSsn === 'string' ? identifiers.einOrSsn.trim() : '';
   const defaults = BUILT_IN_JURISDICTIONS.find((j) => j.code === jurisdictionCode.toUpperCase());
 
@@ -1414,6 +1453,11 @@ export function toEntity(
     taxClassification: row.taxClassification ? str(row.taxClassification) : undefined,
     dba: row.dba ? str(row.dba) : undefined,
     ein: /^\d{2}-\d{7}$/.test(einValue) ? einValue : undefined,
+    vatNumber: text(identifiers.vatNumber),
+    registrationNumber: text(identifiers.registrationNumber),
+    iban: text(bankDetails.iban),
+    bic: text(bankDetails.bic),
+    fiscalYearStart: typeof row.fiscalYearStart === 'number' ? row.fiscalYearStart : undefined,
     isDefault: Boolean(row.isDefault),
     isActive: row.isActive !== false,
   };
@@ -1481,6 +1525,9 @@ function toJurisdiction(row: Json): Jurisdiction {
       : (builtIn?.defaultCurrency ?? FALLBACK_CURRENCY),
     features: toFeatures(row.features, code),
     terminology: toTerminology(row.terminology, code),
+    invoiceRequiredFields: Array.isArray(row.invoiceRequiredFields)
+      ? row.invoiceRequiredFields.filter((field): field is string => typeof field === 'string')
+      : undefined,
     entityTypes: toEntityTypes(row.entityTypes),
   };
 }

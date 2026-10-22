@@ -7,8 +7,8 @@
  * invoice is corrected with a credit note.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, RefreshControl } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { MoreHorizontal, FileText, Send, CreditCard, Lock } from 'lucide-react-native';
@@ -21,7 +21,10 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
 import { toNumber } from '@/lib/currency';
-import { useJurisdiction } from '@/hooks/useJurisdiction';
+import { useJurisdiction, useJurisdictions } from '@/hooks/useJurisdiction';
+import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { missingInvoiceFields, requiredInvoiceFields } from '@/lib/company';
+import { invoiceFieldNames, listInvoiceFields } from '@/lib/company-form';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Translations } from '@/lib/i18n/locales/en';
 import { BRAND } from '@/lib/brand';
@@ -38,13 +41,13 @@ import {
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
+import { ActionSheet, type ActionSheetOption } from '@/components/action-sheet';
+import { EditCompanySheet } from '@/components/edit-company-sheet';
 import { TaxBreakdownCard, TreatmentBreakdownCard } from '@/components/tax-breakdown';
 import { hasTreatmentRows } from '@/lib/tax-treatment';
 import type { Invoice } from '@/types/accounting';
 
 type Confirm = 'delete' | 'cancel' | 'creditNote' | null;
-
-type MoreOption = { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void };
 
 function isSettled(status: Invoice['status']): boolean {
   return status === 'paid' || status === 'cancelled' || status === 'uncollectible';
@@ -56,14 +59,14 @@ function statusOptions(
   t: Translations,
   setConfirm: (confirm: Confirm) => void,
   createCreditNote: string,
-): MoreOption[] {
+): ActionSheetOption[] {
   if (status === 'draft') {
-    return [{ text: t.invoiceDetail.deleteDraft, style: 'destructive', onPress: () => setConfirm('delete') }];
+    return [{ label: t.invoiceDetail.deleteDraft, destructive: true, onPress: () => setConfirm('delete') }];
   }
   if (status === 'cancelled') return [];
   return [
-    { text: createCreditNote, onPress: () => setConfirm('creditNote') },
-    { text: t.invoiceDetail.cancelInvoice, style: 'destructive', onPress: () => setConfirm('cancel') },
+    { label: createCreditNote, onPress: () => setConfirm('creditNote') },
+    { label: t.invoiceDetail.cancelInvoice, destructive: true, onPress: () => setConfirm('cancel') },
   ];
 }
 
@@ -189,7 +192,12 @@ export default function InvoiceDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [companyOpen, setCompanyOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
+  const { activeEntity, refresh: refreshEntity } = useAccountingEntity();
+  const { code } = useJurisdiction();
+  const { data: loadedJurisdictions } = useJurisdictions();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -210,15 +218,13 @@ export default function InvoiceDetailScreen() {
   }, [load]);
 
   /** `run` refreshes after each mutation so derived fields (balance, status) are current. */
-  const { busy, run, remove, error: actionError, clearError } = useDocumentMutations(load);
+  const { busy, run, remove, error: actionError, errorFields, clearError } = useDocumentMutations(load);
 
-  const handleMore = useCallback(() => {
-    if (!invoice) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const options: MoreOption[] = [
+  const actionOptions = useMemo<ActionSheetOption[]>(() => {
+    if (!invoice) return [];
+    return [
       {
-        text: t.invoiceDetail.duplicate,
+        label: t.invoiceDetail.duplicate,
         onPress: () =>
           run(async () => {
             const copy = await api.duplicateInvoice(invoice.id);
@@ -226,11 +232,23 @@ export default function InvoiceDetailScreen() {
           }, t.invoiceDetail.duplicated),
       },
       ...statusOptions(invoice.status, t, setConfirm, format(t.invoiceDetail.createCreditNote, terms)),
-      { text: t.common.dismiss, style: 'cancel' },
     ];
-
-    Alert.alert(t.invoiceDetail.actionsTitle, undefined, options);
   }, [invoice, run, router, t, format, terms]);
+
+  const handleMore = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setActionsOpen(true);
+  }, []);
+
+  // What the company still has to fill in before this draft can be finalised.
+  const companyMissing = useMemo(
+    () => missingInvoiceFields(activeEntity, requiredInvoiceFields(code, loadedJurisdictions)),
+    [activeEntity, code, loadedJurisdictions],
+  );
+  const fieldNames = invoiceFieldNames(t, labels);
+  const separators = { comma: ', ', and: t.company.listAnd };
+  const listFields = (fields: Parameters<typeof listInvoiceFields>[0]) =>
+    listInvoiceFields(fields, fieldNames, separators);
 
   const header = (
     <ScreenHeader
@@ -281,6 +299,9 @@ export default function InvoiceDetailScreen() {
   const currency = documentCurrency(invoice, entityCurrency);
   const balanceDue = toNumber(invoice.balanceDue);
   const missingAddress = isMissingUsAddress(invoice, isUs);
+  // The refusal that names fields (ENTITY_INVOICE_FIELDS_MISSING) replaces the server's English sentence.
+  const rejectedFields = errorFields.length > 0 ? errorFields : null;
+  const warnCompany = invoice.status === 'draft' && companyMissing.length > 0 && !rejectedFields;
 
   return (
     <Screen header={header}>
@@ -291,6 +312,8 @@ export default function InvoiceDetailScreen() {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
+              // The company too: its fields may have been filled in on the web since.
+              void refreshEntity();
               load();
             }}
             tintColor={BRAND}
@@ -316,15 +339,38 @@ export default function InvoiceDetailScreen() {
           </Banner>
         ) : null}
 
+        {warnCompany ? (
+          <View style={styles.banner}>
+            <Banner variant="warning">
+              {format(t.invoiceDetail.companyFieldsMissing, { fields: listFields(companyMissing) })}
+            </Banner>
+            <Button
+              title={t.invoiceDetail.addCompanyDetails}
+              variant="outline"
+              size="sm"
+              onPress={() => setCompanyOpen(true)}
+              style={styles.bannerAction}
+            />
+          </View>
+        ) : null}
+
         {actionError ? (
-          <Banner
-            variant="error"
-            title={t.invoiceDetail.finaliseFailed}
-            onClose={clearError}
-            style={styles.banner}
-          >
-            {actionError}
-          </Banner>
+          <View style={styles.banner}>
+            <Banner variant="error" title={t.invoiceDetail.finaliseFailed} onClose={clearError}>
+              {rejectedFields
+                ? format(t.invoiceDetail.companyFieldsRejected, { fields: listFields(rejectedFields) })
+                : actionError}
+            </Banner>
+            {rejectedFields ? (
+              <Button
+                title={t.invoiceDetail.addCompanyDetails}
+                variant="outline"
+                size="sm"
+                onPress={() => setCompanyOpen(true)}
+                style={styles.bannerAction}
+              />
+            ) : null}
+          </View>
         ) : null}
 
         <InvoiceDetailsSection invoice={invoice} isUs={isUs} creditNoteLabel={labels.creditNote} />
@@ -372,6 +418,15 @@ export default function InvoiceDetailScreen() {
           onViewDocument={() => router.push(`/invoice/document?id=${invoice.id}` as never)}
         />
       </ScrollView>
+
+      <ActionSheet
+        visible={actionsOpen}
+        onClose={() => setActionsOpen(false)}
+        title={t.invoiceDetail.actionsTitle}
+        options={actionOptions}
+      />
+
+      <EditCompanySheet visible={companyOpen} onClose={() => setCompanyOpen(false)} onSaved={clearError} />
 
       <RecordPaymentSheet
         visible={paymentOpen}
@@ -440,6 +495,7 @@ export default function InvoiceDetailScreen() {
 const styles = StyleSheet.create({
   content: { paddingBottom: 40, paddingTop: 4 },
   banner: { marginHorizontal: 12, marginTop: 8 },
+  bannerAction: { alignSelf: 'flex-start', marginTop: 8 },
   notes: { fontSize: 14, lineHeight: 20 },
   actions: { padding: 12, paddingTop: 20, gap: 8 },
 });

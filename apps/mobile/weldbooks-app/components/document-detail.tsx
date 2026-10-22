@@ -18,6 +18,7 @@ import { toNumber } from '@/lib/currency';
 import { daysUntil } from '@/lib/date';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { missingFieldsFromError, type InvoiceField } from '@/lib/company';
 import { describeApiError } from '@/lib/sales-tax';
 import { hasTreatmentRows, treatmentTotals } from '@/lib/tax-treatment';
 import { SectionCard, TotalsBlock } from '@/components/detail';
@@ -274,6 +275,8 @@ export function useDocumentMutations(load: () => Promise<void>) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The company fields books-api says are missing, when that is why the action was refused.
+  const [errorFields, setErrorFields] = useState<InvoiceField[]>([]);
 
   /**
    * Runs `action`, then reloads. A failure is a toast and also stays in
@@ -284,6 +287,7 @@ export function useDocumentMutations(load: () => Promise<void>) {
     async (action: () => Promise<unknown>, successMessage: string): Promise<boolean> => {
       setBusy(true);
       setError(null);
+      setErrorFields([]);
       try {
         await action();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -293,6 +297,7 @@ export function useDocumentMutations(load: () => Promise<void>) {
       } catch (err) {
         const message = describeApiError(err, t, t.common.actionFailed);
         setError(message);
+        setErrorFields(missingFieldsFromError(err));
         toast.error(message);
         return false;
       } finally {
@@ -318,7 +323,17 @@ export function useDocumentMutations(load: () => Promise<void>) {
     [toast, router, t],
   );
 
-  return { busy, run, remove, error, clearError: () => setError(null) };
+  return {
+    busy,
+    run,
+    remove,
+    error,
+    errorFields,
+    clearError: () => {
+      setError(null);
+      setErrorFields([]);
+    },
+  };
 }
 
 const styles = StyleSheet.create({

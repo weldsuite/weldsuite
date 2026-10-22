@@ -39,7 +39,14 @@ function gstSplitMissing(invoice: typeof schema.invoices.$inferSelect): boolean 
 }
 
 export class InvoiceComplianceError extends Error {
-  constructor(message: string) {
+  /**
+   * @param missingFields codes (`vatNumber`, `registrationNumber`, `iban`, `bic`, `address`) of the entity
+   *   fields the refusal is about, for clients that point the user at them; empty for other refusals.
+   */
+  constructor(
+    message: string,
+    readonly missingFields: readonly string[] = [],
+  ) {
     super(message);
     this.name = 'InvoiceComplianceError';
   }
@@ -94,7 +101,7 @@ async function enforceCompliance(
     );
     compliance.ok = false;
   }
-  if (!compliance.ok) throw new InvoiceComplianceError(compliance.errors.join(' '));
+  if (!compliance.ok) throw new InvoiceComplianceError(compliance.errors.join(' '), compliance.missingEntityFields);
   return compliance.warnings;
 }
 

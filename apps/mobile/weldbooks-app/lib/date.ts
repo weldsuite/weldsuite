@@ -92,6 +92,16 @@ export function toDateInput(value: Date | string | null | undefined): string {
   return date.toISOString().split('T')[0];
 }
 
+/**
+ * `YYYY-MM-DD` → local noon of that day, the value a native date picker starts on (noon, so a
+ * time zone shift can't change the day). Today when the text isn't a date.
+ */
+export function isoToPickerDate(iso: string): Date {
+  const match = ISO_DATE.exec(iso);
+  if (!match) return new Date();
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+}
+
 export function today(): string {
   return toDateInput(new Date());
 }
