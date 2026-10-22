@@ -1,0 +1,12 @@
+appId: com.weldsuite.weldmail
+name: Open settings and go back
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Settings"
+    timeout: 10000
+- back
+- assertVisible:
+    id: inbox-list

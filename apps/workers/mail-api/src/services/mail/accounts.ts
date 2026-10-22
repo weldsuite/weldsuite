@@ -21,10 +21,19 @@ import {
   userAccessCondition,
 } from '@weldsuite/mail-domain/access';
 import { clearCatchAllForAccount } from './domains';
+import { weldMailDomainFor } from './weldmail';
+import {
+  SHARED_WELDMAIL_APEXES,
+  isSharedWeldMailDomain,
+} from '@weldsuite/app-api-client/schemas/outbound-mail';
 
 const { mailAccounts, mailDomains, mailLabels, hostDomains, workspaceMembers } = schema;
 
-const BARE_WELDMAIL_DOMAINS = new Set(['weldmail.com', 'test.weldmail.com', 'preview.weldmail.com']);
+const BARE_WELDMAIL_DOMAINS = new Set([
+  ...SHARED_WELDMAIL_APEXES,
+  'test.weldmail.com',
+  'preview.weldmail.com',
+]);
 
 const SYSTEM_LABEL_SEEDS = [
   { name: 'Inbox', slug: 'INBOX' },
@@ -248,7 +257,7 @@ async function assertWeldmailDomainAllowed(env: Env, orgId: string, emailDomain:
       'Cannot create accounts directly on WeldMail domains. Use the WeldMail address flow instead.',
     );
   }
-  if (!emailDomain.endsWith('.weldmail.com')) return;
+  if (!isSharedWeldMailDomain(emailDomain)) return;
 
   const masterDb = getMasterDb(env);
   const [ws] = await masterDb
@@ -256,7 +265,7 @@ async function assertWeldmailDomainAllowed(env: Env, orgId: string, emailDomain:
     .from(masterSchema.workspaces)
     .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
     .limit(1);
-  const allowedDomain = ws ? `${ws.slug}.weldmail.com` : null;
+  const allowedDomain = ws ? weldMailDomainFor(env, ws.slug) : null;
   if (!allowedDomain || emailDomain !== allowedDomain) {
     throw new MailAccountError(
       'WRONG_WELDMAIL_SUBDOMAIN',

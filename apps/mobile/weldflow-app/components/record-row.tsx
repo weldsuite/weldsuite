@@ -24,6 +24,7 @@ export interface RecordRowProps {
   leading?: React.ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;
+  testID?: string;
 }
 
 export function RecordRow({
@@ -37,6 +38,7 @@ export function RecordRow({
   leading,
   onPress,
   onLongPress,
+  testID,
 }: Readonly<RecordRowProps>) {
   const { colors } = useTheme();
 
@@ -76,6 +78,7 @@ export function RecordRow({
 
   return (
     <Pressable
+      testID={testID}
       onPress={onPress}
       onLongPress={onLongPress}
       accessibilityRole="button"

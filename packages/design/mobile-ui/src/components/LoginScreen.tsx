@@ -433,7 +433,7 @@ function LoginLogo({ logoElement, logo, appName, iconW, iconH, accentColor, colo
 function FormErrorBox({ message, colors }: Readonly<{ message: string | null; colors: ThemeColors }>) {
   if (!message) return null;
   return (
-    <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
+    <View testID="login-error" style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
       <Text style={[styles.formErrorText, { color: colors.destructive }]}>{message}</Text>
     </View>
   );
@@ -444,11 +444,13 @@ interface SubmitButtonProps {
   loading: boolean;
   onPress: () => void;
   label: string;
+  testID?: string;
 }
 
-function SubmitButton({ accentColor, loading, onPress, label }: Readonly<SubmitButtonProps>) {
+function SubmitButton({ accentColor, loading, onPress, label, testID }: Readonly<SubmitButtonProps>) {
   return (
     <TouchableOpacity
+      testID={testID}
       style={[styles.signInButton, { backgroundColor: accentColor }, loading && styles.buttonDisabled]}
       onPress={onPress}
       activeOpacity={0.8}
@@ -1052,6 +1054,7 @@ export function LoginScreen({
                         setEmail(text);
                         if (formError) setFormError(null);
                       }}
+                      testID="login-email"
                       placeholder={labels.emailPlaceholder}
                       keyboardType="email-address"
                       autoCapitalize="none"
@@ -1070,6 +1073,7 @@ export function LoginScreen({
                         setPassword(text);
                         if (formError) setFormError(null);
                       }}
+                      testID="login-password"
                       placeholder={labels.passwordPlaceholder}
                       secureTextEntry={!showPassword}
                       autoCapitalize="none"
@@ -1099,7 +1103,7 @@ export function LoginScreen({
               <FormErrorBox message={formError} colors={colors} />
 
               {showEmailLogin && (
-                <SubmitButton accentColor={accentColor} loading={isValidating} onPress={onSignIn} label={labels.signIn} />
+                <SubmitButton accentColor={accentColor} loading={isValidating} onPress={onSignIn} label={labels.signIn} testID="login-submit" />
               )}
 
               {showEmailLogin &&

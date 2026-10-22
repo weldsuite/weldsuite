@@ -292,6 +292,7 @@ export default function SearchScreen() {
           <TextInput
             ref={inputRef}
             style={[styles.searchInput, { color: colors.text }]}
+            testID="search-input"
             placeholder="Search in mail"
             placeholderTextColor={colors.muted}
             value={searchQuery}

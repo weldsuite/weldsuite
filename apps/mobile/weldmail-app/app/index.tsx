@@ -155,6 +155,7 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
       enableTrackpadTwoFingerGesture
     >
       <TouchableOpacity
+        testID="inbox-email-row"
         onPress={() => onPress(item)}
         activeOpacity={0.7}
         delayPressIn={50}
@@ -1043,6 +1044,7 @@ export default function MailScreen() {
     <Screen header={header} edges={isTablet ? [] : ['top']} style={styles.container}>
       <Animated.View style={[styles.listRegion, { opacity: listOpacity }]}>
         <SectionList
+          testID="inbox-list"
           sections={emailSections}
           renderItem={renderEmail}
           renderSectionHeader={renderSectionHeader}

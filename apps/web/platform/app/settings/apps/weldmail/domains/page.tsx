@@ -18,11 +18,11 @@ import { useMailAppSettings } from '@/hooks/queries/use-app-settings-queries';
 import { useUpdateMailDomain } from '@/hooks/queries/use-mail-queries';
 import { getTranslations } from '@/lib/i18n';
 import type { MailDomainRow } from '@weldsuite/app-api-client/domains/mail-domains';
+import { isSharedWeldMailDomain } from '@weldsuite/app-api-client/schemas/outbound-mail';
 import type { EmailAccount } from '../accounts/email-accounts-list';
 
 function isCustomMailDomain(domainName: string): boolean {
-  const d = domainName.toLowerCase();
-  return d !== 'weldmail.com' && !d.endsWith('.weldmail.com');
+  return !isSharedWeldMailDomain(domainName);
 }
 
 function accountHost(email: string): string {

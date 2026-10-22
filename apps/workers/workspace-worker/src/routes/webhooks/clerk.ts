@@ -21,6 +21,7 @@ import { generateId } from '../../lib/id';
 import { autoJoinUserToPublicChannels } from '../../lib/weldchat-auto-join';
 import { createProvisioningService, type InitialMember } from '@weldsuite/neon-provisioning';
 import { provisionWorkspaceDatabase } from '../../services/provisioning';
+import { deprovisionMailDomain } from '../../services/mail-provisioning';
 import { DatabaseMoveActiveError } from '../../services/database-move/errors';
 import { hasActiveMove } from '../../services/database-move/state';
 import {
@@ -367,6 +368,17 @@ async function handleOrganizationDeleted(
     .where(eq(userWorkspaces.workspaceId, workspace.id));
 
   console.log(`[Clerk Webhook] Soft-deleted workspace ${workspace.id}`);
+
+  // Give the workspace's {slug}.{apex} mail domain back to the shared zone,
+  // which holds at most 30 mail domains. Non-fatal: a failure here must not
+  // hold up (or, via Svix redelivery, repeat) the database teardown below.
+  if (workspace.slug) {
+    try {
+      await deprovisionMailDomain(env, workspace.slug);
+    } catch (mailErr) {
+      console.error(`[Clerk Webhook] Mail domain deprovisioning failed for workspace ${workspace.id} (non-blocking):`, mailErr);
+    }
+  }
 
   if (env.NEON_API_KEY && workspace.neonProjectId) {
     // A move may have been started since the check above; look again right before the irreversible part.

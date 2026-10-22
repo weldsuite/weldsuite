@@ -18,6 +18,12 @@ describe('isSharedWeldMailDomain', () => {
     expect(isSharedWeldMailDomain('acme.weldmail.com')).toBe(true);
     expect(isSharedWeldMailDomain('custom.com')).toBe(false);
   });
+
+  it('treats the test environment apex as shared', () => {
+    expect(isSharedWeldMailDomain('weldmail.org')).toBe(true);
+    expect(isSharedWeldMailDomain('Acme.WeldMail.org')).toBe(true);
+    expect(isSharedWeldMailDomain('notweldmail.org')).toBe(false);
+  });
 });
 
 describe('isCatchAllRegistryEmail', () => {
