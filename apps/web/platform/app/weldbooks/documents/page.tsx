@@ -110,7 +110,13 @@ const DOCUMENT_STATUS_TONES: Partial<Record<string, ChipTone>> = {
   linked: 'indigo',
 };
 
-const ACCEPTED_TYPES = 'image/jpeg,image/jpg,image/png,image/webp';
+const ACCEPTED_TYPES = 'application/pdf,.pdf,image/jpeg,image/jpg,image/png,image/webp';
+
+/** PDFs and the image formats OCR reads. Some systems hand over a PDF with no type. */
+function isScannableFile(file: File): boolean {
+  if (file.type === 'application/pdf' || /^image\/(jpe?g|png|webp)$/.test(file.type)) return true;
+  return !file.type && file.name.toLowerCase().endsWith('.pdf');
+}
 
 export default function DocumentInboxPage() {
   const { formatMoney: fmt } = useCurrentEntityCurrency();
@@ -224,13 +230,23 @@ export default function DocumentInboxPage() {
   });
 
   const handleFiles = useCallback(async (files: File[]) => {
-    const accepted = files.filter((f) => f.type.startsWith('image/'));
-    const rejected = files.length - accepted.length;
-    if (rejected > 0) {
-      console.warn(`[WeldBooks] Skipped ${rejected} non-image file(s). Only JPG, PNG, WEBP are supported for OCR.`);
+    const accepted = files.filter(isScannableFile);
+    const rejected = files.filter((f) => !isScannableFile(f));
+    if (rejected.length > 0) {
+      setUploadQueue((q) => [
+        ...q,
+        ...rejected.map((f) => ({
+          id: `${Date.now()}-${f.name}`,
+          name: f.name,
+          phase: 'failed' as const,
+          error: td.unsupportedFileType,
+        })),
+      ]);
     }
 
-    for (const file of accepted) {
+    for (const picked of accepted) {
+      // A typeless file only got here as a .pdf; give it the type storage expects.
+      const file = picked.type ? picked : new File([picked], picked.name, { type: 'application/pdf' });
       const queueId = `${Date.now()}-${file.name}`;
       setUploadQueue((q) => [...q, { id: queueId, name: file.name, phase: 'uploading' }]);
 
@@ -266,7 +282,7 @@ export default function DocumentInboxPage() {
         setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: message } : it));
       }
     }
-  }, [fileUpload, processDoc, qc, st]);
+  }, [fileUpload, processDoc, qc, st, td.unsupportedFileType]);
 
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -378,7 +394,7 @@ export default function DocumentInboxPage() {
   ];
 
   return (
-    // The whole page is a drop target for invoice images; the toolbar's upload button opens the picker.
+    // The whole page is a drop target for invoice PDFs and images; the toolbar's upload button opens the picker.
     <div
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false); }}

@@ -540,6 +540,33 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Home composer → full chat page (app/home-page.tsx → app/new-chat-page.tsx).
+   Both pages tag their composer, so it holds its place while the rest of the
+   page cross-fades, and the handed-off prompt rises into the thread from the
+   composer below it. Only the two route components carry these names, and
+   they never render together. */
+.weldagent-composer-vt {
+  view-transition-name: weldagent-composer;
+}
+.weldagent-prompt-vt {
+  view-transition-name: weldagent-prompt;
+}
+::view-transition-group(weldagent-composer),
+::view-transition-old(weldagent-composer),
+::view-transition-new(weldagent-composer) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+::view-transition-new(weldagent-prompt) {
+  animation: weldagent-prompt-in 360ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+@keyframes weldagent-prompt-in {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+}
+
 /* Embedded chat inside the task detail panel: remove the horizontal/outer
    padding that the weldchat MessageItem and MessageInput ship with, so
    messages align flush with the panel's own padding. */
@@ -564,7 +591,11 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
     animation-duration: 1ms !important;
   }
   ::view-transition-old(root),
-  ::view-transition-new(root) {
+  ::view-transition-new(root),
+  ::view-transition-group(weldagent-composer),
+  ::view-transition-old(weldagent-composer),
+  ::view-transition-new(weldagent-composer),
+  ::view-transition-new(weldagent-prompt) {
     animation-duration: 1ms !important;
   }
 }

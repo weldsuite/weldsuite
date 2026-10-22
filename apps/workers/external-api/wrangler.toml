@@ -121,6 +121,12 @@ service = "weldsuite-realtime"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# Private uploads (TASK-620): no public domain; read only through
+# @weldsuite/worker-kit/storage (app-api serves /api/storage/private/*).
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 # WeldMail sending (POST /v1/mail-accounts/:id/send, reply, forward, draft
 # send). Same Cloudflare Email Sending binding as mail-api: the sending domain
 # must be verified on the account once per environment. Locally there is no
@@ -190,6 +196,10 @@ service = "weldsuite-realtime-test"
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
 
 # Native rate limiting (test) — distinct namespace_id range; not inherited from top-level.
 [[env.test.ratelimits]]
@@ -352,6 +362,10 @@ service = "weldsuite-realtime-production"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
 
 [observability]
 enabled = true

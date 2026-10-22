@@ -5,6 +5,7 @@
  * Permissions: files:read | files:create | files:update | files:delete.
  */
 
+import { deleteStoredObject } from '@weldsuite/worker-kit/storage';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
@@ -310,10 +311,10 @@ async function deleteReplacedObject(
   key: string,
   scope: { workspaceId: string | null | undefined; projectId: string | null; fileId: string },
 ): Promise<void> {
-  if (!c.env.STORAGE) return;
+  if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) return;
   try {
     if (!(await canDeleteReplacedObject(db, key, scope))) return;
-    await c.env.STORAGE.delete(key);
+    await deleteStoredObject(c.env, key);
   } catch (cleanupErr) {
     console.error('[app-api/project-files] failed to delete replaced R2 object:', key, cleanupErr);
   }

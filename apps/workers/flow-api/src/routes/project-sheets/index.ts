@@ -19,6 +19,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { canAccessProject, canWriteProject } from '../../lib/project-access';
 import * as filesService from '@weldsuite/core-domain/files';
 import { buildEmptyXlsx } from '../../lib/office-templates';
+import { getStoredObject } from '@weldsuite/worker-kit/storage';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -108,7 +109,7 @@ app.post(
           )
           .limit(1);
         if (!source) return error.notFound(c, 'Sheet', copyFromFileId);
-        const sourceObject = c.env.STORAGE ? await c.env.STORAGE.get(source.fileKey ?? source.storagePath) : null;
+        const sourceObject = await getStoredObject(c.env, source.fileKey ?? source.storagePath);
         if (sourceObject) content = await sourceObject.arrayBuffer();
       }
       if (c.env.STORAGE) {

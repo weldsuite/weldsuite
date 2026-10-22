@@ -7,9 +7,11 @@
  *   - Finding 665: the PUT writes exactly the declared size, once, under an
  *     allowlisted content type.
  *   - Finding 667: folder / entityType / entityId are plain path segments.
+ *   - TASK-620: `isPublic` picks the bucket; private objects are readable only
+ *     by a member of the key's workspace (files cookie, bearer, signed URL).
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { storageRoutes, storageUploadTokenRoute } from './index';
 import { MAX_UPLOAD_BYTES } from '../../lib/storage-upload';
@@ -501,6 +503,233 @@ describe('GET /api/storage/public/* (local dev only)', () => {
 
   it('404s outside development', async () => {
     const res = await app.request(`http://localhost:8787/api/storage/public/${VICTIM_KEY}`, {}, { ...env, ENVIRONMENT: 'test' });
+    expect(res.status).toBe(404);
+  });
+});
+
+// ============================================================================
+// TASK-620: public vs private bucket, and the private read route
+// ============================================================================
+
+vi.mock('@clerk/backend', () => ({
+  verifyToken: async (token: string) => {
+    if (token === 'jwt-org-a') return { sub: 'user_a', o: { id: 'org_a' } };
+    if (token === 'jwt-org-b') return { sub: 'user_b', o: { id: 'org_b' } };
+    if (token === 'jwt-org-a-foreign-azp') return { sub: 'user_a', o: { id: 'org_a' }, azp: 'https://evil.example' };
+    throw new Error('bad token');
+  },
+}));
+
+const API = 'https://app-api.example';
+const SIGNING_KEY = 'test-signing-key';
+const OWN_KEY = 'workspaces/org_a/drive/general/1_y/payroll.pdf';
+
+/** In-memory R2 that keeps content type and custom metadata, for reads. */
+function richBucket(initial: Record<string, { body: string; contentType: string }> = {}) {
+  const objects = new Map<string, { body: string; contentType: string; fileName?: string }>(Object.entries(initial));
+  const toObject = (key: string) => {
+    const o = objects.get(key)!;
+    return {
+      key,
+      size: o.body.length,
+      body: o.body,
+      httpEtag: '"e"',
+      customMetadata: o.fileName ? { fileName: o.fileName } : {},
+      writeHttpMetadata: (h: Headers) => h.set('content-type', o.contentType),
+    };
+  };
+  const bucket = {
+    head: async (key: string) => (objects.has(key) ? toObject(key) : null),
+    get: async (key: string) => (objects.has(key) ? toObject(key) : null),
+    put: async (
+      key: string,
+      value: Uint8Array,
+      opts?: { httpMetadata?: { contentType?: string }; customMetadata?: { fileName?: string } },
+    ) => {
+      objects.set(key, {
+        body: new TextDecoder().decode(value),
+        contentType: opts?.httpMetadata?.contentType ?? 'application/octet-stream',
+        fileName: opts?.customMetadata?.fileName,
+      });
+      return { etag: 'etag-1' };
+    },
+  };
+  return Object.assign(bucket as unknown as R2Bucket, { objects });
+}
+
+interface Buckets {
+  STORAGE: ReturnType<typeof richBucket>;
+  PRIVATE_STORAGE?: ReturnType<typeof richBucket>;
+}
+
+function splitApp(kv: KVNamespace, buckets: Buckets, extraEnv: Record<string, unknown> = {}) {
+  return createTestApp('/api/storage', storageRoutes, {
+    context: { userId: 'user_a', workspaceId: 'org_a', orgId: 'org_a' },
+    env: {
+      WORKSPACE_CACHE: kv,
+      R2_PUBLIC_URL: 'https://files.example',
+      STORAGE_SIGNING_KEY: SIGNING_KEY,
+      ...buckets,
+      ...extraEnv,
+    } as never,
+  });
+}
+
+function postTo(app: ReturnType<typeof splitApp>, path: string, body: unknown) {
+  return app.request(`${API}/api/storage${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+const tokenApp = new Hono().route('/', storageUploadTokenRoute);
+
+/** Generate → PUT → confirm, returning what confirm-upload hands back. */
+async function uploadThrough(buckets: Buckets, input: Record<string, unknown>) {
+  const kv = memoryKv();
+  const app = splitApp(kv, buckets);
+  const gen = await postTo(app, '/generate-upload-url', {
+    fileName: 'payroll.pdf',
+    contentType: 'application/pdf',
+    fileSize: 6,
+    ...input,
+  });
+  expect(gen.status).toBe(200);
+  const { uploadToken, fileKey, uploadUrl } = (await gen.json()) as Minted;
+  const put = await tokenApp.request(uploadUrl, { method: 'PUT', body: 'secret' }, { WORKSPACE_CACHE: kv, ...buckets });
+  expect(put.status).toBe(200);
+  const res = await postTo(app, '/confirm-upload', { uploadToken, fileKey });
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { file: { fileKey: string; url: string; isPublic: boolean; bucket: string } }).file;
+}
+
+describe('isPublic picks the bucket (TASK-620)', () => {
+  it('puts a private upload in the private bucket, behind an app-api URL', async () => {
+    const buckets = { STORAGE: richBucket(), PRIVATE_STORAGE: richBucket() };
+    const file = await uploadThrough(buckets, {});
+    expect(file).toMatchObject({ isPublic: false, bucket: 'private' });
+    expect(file.url).toBe(`${API}/api/storage/private/${file.fileKey}`);
+    expect(buckets.PRIVATE_STORAGE.objects.has(file.fileKey)).toBe(true);
+    expect(buckets.STORAGE.objects.size).toBe(0);
+  });
+
+  it('puts a public upload on the public domain', async () => {
+    const buckets = { STORAGE: richBucket(), PRIVATE_STORAGE: richBucket() };
+    const file = await uploadThrough(buckets, { isPublic: true });
+    expect(file).toMatchObject({ isPublic: true, bucket: 'public' });
+    expect(file.url).toBe(`https://files.example/${file.fileKey}`);
+    expect(buckets.PRIVATE_STORAGE.objects.size).toBe(0);
+  });
+
+  it('keeps avatars and app logos public whatever isPublic says', async () => {
+    for (const entityType of ['customer-avatar', 'contact-avatar', 'user-app-logo']) {
+      const buckets = { STORAGE: richBucket(), PRIVATE_STORAGE: richBucket() };
+      const file = await uploadThrough(buckets, {
+        entityType,
+        entityId: 'x1',
+        fileName: 'logo.png',
+        contentType: 'image/png',
+        isPublic: false,
+      });
+      expect(file.bucket).toBe('public');
+    }
+  });
+
+  it('refuses a private upload in production without the private bucket', async () => {
+    const app = splitApp(memoryKv(), { STORAGE: richBucket() }, { ENVIRONMENT: 'production' });
+    const res = await postTo(app, '/generate-upload-url', { fileName: 'a.pdf', contentType: 'application/pdf', fileSize: 1 });
+    expect(res.status).toBe(503);
+  });
+
+  it('falls back to the public bucket outside production without the private bucket', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const file = await uploadThrough({ STORAGE: richBucket() }, {});
+    warn.mockRestore();
+    expect(file.bucket).toBe('public');
+  });
+});
+
+describe('GET /api/storage/private/* (TASK-620)', () => {
+  const env = () => ({
+    STORAGE_SIGNING_KEY: SIGNING_KEY,
+    CLERK_SECRET_KEY: 'sk_test',
+    PRIVATE_STORAGE: richBucket({
+      [OWN_KEY]: { body: 'secret', contentType: 'application/pdf' },
+      [VICTIM_KEY]: { body: 'secret', contentType: 'application/pdf' },
+    }),
+  });
+  const url = (key: string) => `${API}/api/storage/private/${key}`;
+
+  async function filesCookie(workspaceId = 'org_a') {
+    const app = createTestApp('/api/storage', storageRoutes, {
+      context: { userId: 'user_a', workspaceId, orgId: workspaceId },
+      env: { STORAGE_SIGNING_KEY: SIGNING_KEY } as never,
+    });
+    const res = await app.request(`${API}/api/storage/access`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get('Set-Cookie')!;
+    expect(setCookie).toContain(`Path=/api/storage/private/workspaces/${workspaceId}/`);
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie).toContain('Secure');
+    return setCookie.split(';')[0]!;
+  }
+
+  it('401s without any credential', async () => {
+    expect((await tokenApp.request(url(OWN_KEY), {}, env())).status).toBe(401);
+  });
+
+  it("serves the caller's workspace with its files cookie", async () => {
+    const res = await tokenApp.request(url(OWN_KEY), { headers: { Cookie: await filesCookie() } }, env());
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('secret');
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=300');
+  });
+
+  it("404s another workspace's key with a valid cookie", async () => {
+    const res = await tokenApp.request(url(VICTIM_KEY), { headers: { Cookie: await filesCookie() } }, env());
+    expect(res.status).toBe(404);
+  });
+
+  it('accepts a bearer token for the same workspace only, from an authorized party', async () => {
+    const as = (jwt: string) => tokenApp.request(url(OWN_KEY), { headers: { Authorization: `Bearer ${jwt}` } }, env());
+    expect((await as('jwt-org-a')).status).toBe(200);
+    expect((await as('jwt-org-b')).status).toBe(404);
+    expect((await as('jwt-org-a-foreign-azp')).status).toBe(404);
+    expect((await as('forged')).status).toBe(404);
+  });
+
+  it('serves a signed URL for its own key only', async () => {
+    const app = splitApp(memoryKv(), { STORAGE: richBucket() });
+    const res = await postTo(app, '/sign', { files: [url(OWN_KEY), VICTIM_KEY] });
+    const { data } = (await res.json()) as { data: Record<string, { url: string }> };
+    expect(Object.keys(data)).toEqual([url(OWN_KEY)]);
+
+    const signed = data[url(OWN_KEY)]!.url;
+    expect((await tokenApp.request(signed, {}, env())).status).toBe(200);
+    const sig = new URL(signed).search;
+    expect((await tokenApp.request(`${url(VICTIM_KEY)}${sig}`, {}, env())).status).toBe(404);
+  });
+
+  it('never renders active content inline', async () => {
+    const key = 'workspaces/org_a/x/1_z/page.html';
+    const res = await tokenApp.request(
+      url(key),
+      { headers: { Authorization: 'Bearer jwt-org-a' } },
+      { ...env(), PRIVATE_STORAGE: richBucket({ [key]: { body: '<script>', contentType: 'text/html' } }) },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Disposition')).toMatch(/^attachment;/);
+    expect(res.headers.get('Content-Security-Policy')).toContain('sandbox');
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+  });
+
+  it('rejects traversal in the key', async () => {
+    const res = await tokenApp.request(
+      `${API}/api/storage/private/workspaces/org_a/..%2Forg_victim/uploads/x`,
+      { headers: { Authorization: 'Bearer jwt-org-a' } },
+      env(),
+    );
     expect(res.status).toBe(404);
   });
 });

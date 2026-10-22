@@ -14,6 +14,7 @@ import { PresenceProvider } from '@/contexts/presence-context';
 import { TeamMemberPanelProvider } from '@/contexts/team-member-panel-context';
 import { AppShellClient } from '@/components/app-shell-client';
 import { PreferencesSync } from '@/components/preferences-sync';
+import { PrivateFilesAccess } from '@/components/private-files-access';
 import { Toaster } from '@weldsuite/ui/components/sonner';
 import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -103,6 +104,7 @@ function RootComponent() {
                                 stubs — removed in Phase 9. */}
                             <RealtimeSyncBridge />
                             <DesktopAuthBridge />
+                            <PrivateFilesAccess />
                             {/* Must stay mounted for the whole session: the
                                 shell denies screen-share requests whenever no
                                 picker is registered. */}

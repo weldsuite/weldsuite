@@ -46,6 +46,8 @@ export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUN
    * WeldMail attachments (downloads, API uploads, sent copies).
    */
   STORAGE?: R2Bucket;
+  /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */
+  PRIVATE_STORAGE?: R2Bucket;
   /** Public hostname that serves STORAGE objects (contact avatars made on send). */
   R2_PUBLIC_URL?: string;
 

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Send, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
-import { Button } from '@weldsuite/ui/components/button';
-import { Textarea } from '@weldsuite/ui/components/textarea';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { ModuleContent } from '@/components/layout/module-content';
+import { AgentChatInput } from '@/components/weldagent/agent-chat-input';
+import { AssistantMessage, TypingIndicator, UserMessage } from '@/components/weldagent/chat/chat-message';
 import { getTranslations } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 import { useWeldAgentChat, type ChatMessage } from '@/hooks/queries/use-ai-chat';
 import {
   useCreateConversation,
@@ -24,6 +23,12 @@ import {
 // (keyed by conversation id, see the wrapper) BEFORE any streaming starts, so
 // no in-flight stream is ever lost. From then on each turn is streamed through
 // `/api/ai/chat/stream` and persisted via `POST .../messages`.
+//
+// The page uses the same composer as the home page (`AgentChatInput`), in the
+// same spot, and the home page navigates here with a view transition: the
+// composer stays put while the page cross-fades around it and the prompt rises
+// into the thread (`.weldagent-composer-vt` / `.weldagent-prompt-vt` in
+// globals.css).
 
 const routeApi = getRouteApi('/new-chat');
 
@@ -50,16 +55,23 @@ function ChatSession() {
   const createConversation = useCreateConversation();
   const saveMessage = useSaveMessage();
 
-  // Existing conversation → load its history to seed the chat. A conversation
-  // id that we created ourselves this mount starts with no server messages, so
-  // loading it is harmless (returns []), but we still gate on `conversation`.
-  const { data: loadedRows } = useWeldAgentConversationMessages(conversation ?? null);
+  // A chat started here (a prompt handed off from the home page, or carried
+  // through the create-conversation redirect) has no history to load.
+  const [startedHere] = useState(() => !!prompt?.trim());
+  // Set on this session's first send. From then on the in-memory thread is the
+  // source of truth: every saved turn invalidates the messages query, and a
+  // re-seed from that refetch would wipe a reply that is still streaming in.
+  const [hasSent, setHasSent] = useState(false);
+
+  // Existing conversation → load its history (once) to seed the chat.
+  const historyQuery = useWeldAgentConversationMessages(startedHere ? null : (conversation ?? null));
+  const loadedRows = historyQuery.data;
   const initialMessages = useMemo<ChatMessage[] | undefined>(() => {
-    if (!conversation || !loadedRows) return undefined;
+    if (hasSent || !conversation || !loadedRows) return undefined;
     return loadedRows
       .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role !== 'system')
       .map((m) => ({ id: m.id, role: m.role, content: m.content }));
-  }, [conversation, loadedRows]);
+  }, [hasSent, conversation, loadedRows]);
 
   // Where to persist. Set for an existing conversation; null for a fresh chat
   // until the first send creates one (via redirect — see `startChat`).
@@ -83,16 +95,23 @@ function ChatSession() {
   // owns the actual send — the stream is never started before it has somewhere
   // to persist, and never interrupted by a mid-flight remount.
   const creatingRef = useRef(false);
+  // The message being started while its conversation is created, shown in the
+  // thread right away instead of an empty page.
+  const [startingText, setStartingText] = useState<string | null>(null);
+  const [createFailed, setCreateFailed] = useState(false);
   const startChat = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       if (conversationIdRef.current) {
+        setHasSent(true);
         sendMessage(trimmed);
         return;
       }
       if (creatingRef.current) return;
       creatingRef.current = true;
+      setStartingText(trimmed);
+      setCreateFailed(false);
       createConversation
         .mutateAsync({ name: deriveTitle(trimmed) })
         .then((conv) => {
@@ -104,6 +123,7 @@ function ChatSession() {
         })
         .catch(() => {
           creatingRef.current = false;
+          setCreateFailed(true);
         });
     },
     [createConversation, navigate, sendMessage],
@@ -129,25 +149,38 @@ function ChatSession() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt, conversation]);
 
+  // Until the first turn is in the thread, the message being started is shown
+  // in its place — while the conversation is created and across the keyed
+  // remount — so it never blinks out on the way from the home composer.
+  const pendingPrompt = messages.length === 0 ? (startingText ?? (prompt?.trim() || null)) : null;
+  const isCreating = pendingPrompt !== null && !createFailed;
+  const isLoadingHistory = !startedHere && !!conversation && historyQuery.isPending;
+  const isBusy = isSending || isCreating || isLoadingHistory;
+
   // Keep the latest message / thinking indicator in view.
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, isSending]);
+  }, [messages, isSending, pendingPrompt]);
 
-  const submit = useCallback(() => {
-    if (!input.trim() || isSending) return;
-    startChat(input);
-    setInput('');
-  }, [input, isSending, startChat]);
+  const submit = useCallback(
+    (text: string) => {
+      if (!text.trim() || isBusy) return;
+      startChat(text);
+      setInput('');
+    },
+    [isBusy, startChat],
+  );
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
-  };
+  const retryStart = useCallback(() => {
+    if (pendingPrompt) startChat(pendingPrompt);
+  }, [pendingPrompt, startChat]);
 
-  const isEmpty = messages.length === 0;
+  const isEmpty = messages.length === 0 && pendingPrompt === null;
+  const lastMessage = messages.at(-1);
+
+  let errorBanner: { message: string; onRetry: (() => void) | null } | null = null;
+  if (createFailed) errorBanner = { message: t.error, onRetry: retryStart };
+  else if (error) errorBanner = { message: error === 'credits' ? t.insufficientCredits : t.error, onRetry: error === 'generic' ? retry : null };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
@@ -162,7 +195,7 @@ function ChatSession() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-6 py-6">
             <div className="mx-auto w-full max-w-3xl">
-              {isEmpty && !isSending ? (
+              {isEmpty && !isLoadingHistory && (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-3 text-center">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                     <Sparkles className="h-6 w-6 text-primary" />
@@ -172,81 +205,48 @@ function ChatSession() {
                     <p className="max-w-xs text-sm text-muted-foreground">{t.emptyBody}</p>
                   </div>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}
-                    >
-                      <div
-                        className={cn(
-                          'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm',
-                          m.role === 'user'
-                            ? 'bg-primary text-primary-foreground rounded-br-sm'
-                            : 'bg-muted text-foreground rounded-bl-sm',
-                        )}
-                      >
-                        {m.role === 'assistant' && !m.content && isSending ? (
-                          <span className="flex items-center gap-2 text-muted-foreground">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            {t.thinking}
-                          </span>
-                        ) : (
-                          m.content
-                        )}
+              )}
+              {!isEmpty && (
+                <div className="space-y-6">
+                  {pendingPrompt !== null ? (
+                    <>
+                      <div className="weldagent-prompt-vt">
+                        <UserMessage>{pendingPrompt}</UserMessage>
                       </div>
-                    </div>
-                  ))}
+                      {isCreating && <TypingIndicator />}
+                    </>
+                  ) : (
+                    messages.map((m) => {
+                      if (m.role === 'user') return <UserMessage key={m.id}>{m.content}</UserMessage>;
+                      if (m.content) return <AssistantMessage key={m.id} content={m.content} />;
+                      return isSending && m === lastMessage ? <TypingIndicator key={m.id} /> : null;
+                    })
+                  )}
                   <div ref={scrollEndRef} />
                 </div>
               )}
             </div>
           </div>
 
-          {/* Error banner */}
-          {error && (
-            <div className="mx-auto mb-2 flex w-full max-w-3xl items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <span>{error === 'credits' ? t.insufficientCredits : t.error}</span>
-              {error === 'generic' && (
-                <button
-                  type="button"
-                  onClick={retry}
-                  className="font-medium underline underline-offset-2 hover:opacity-80"
-                >
-                  {t.retry}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Composer */}
+          {/* Composer — same component and spot as the home page's. */}
           <div className="flex-shrink-0 px-6 pb-6">
             <div className="mx-auto w-full max-w-3xl">
-              <div className="flex items-end gap-2">
-                <Textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={t.placeholder}
-                  rows={1}
-                  autoFocus
-                  className="max-h-40 min-h-[44px] resize-none"
-                  disabled={isSending}
-                />
-                <Button
-                  size="sm"
-                  className="h-11 w-11 flex-shrink-0 p-0"
-                  onClick={submit}
-                  disabled={!input.trim() || isSending}
-                  aria-label={t.send}
-                >
-                  {isSending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
+              {errorBanner && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <span>{errorBanner.message}</span>
+                  {errorBanner.onRetry && (
+                    <button
+                      type="button"
+                      onClick={errorBanner.onRetry}
+                      className="font-medium underline underline-offset-2 hover:opacity-80"
+                    >
+                      {t.retry}
+                    </button>
                   )}
-                </Button>
+                </div>
+              )}
+              <div className="weldagent-composer-vt">
+                <AgentChatInput value={input} onChange={setInput} onSubmit={submit} isSending={isBusy} autoFocus />
               </div>
             </div>
           </div>

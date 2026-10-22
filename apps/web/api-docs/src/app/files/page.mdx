@@ -1,6 +1,6 @@
 # Files
 
-Files represent file metadata records in WeldDrive. The API manages metadata only, file content upload and download are handled separately via your storage provider. Deleting a file is a soft delete (`deletedAt` is set, the record remains). Mutations require the `files:write` scope; reads require `files:read`. {{ className: 'lead' }}
+Files represent file records in WeldDrive. The API manages the records and downloads their content with [Download a file](#download-a-file); uploading content is not part of the API. Deleting a file is a soft delete (`deletedAt` is set, the record remains). Mutations require the `files:write` scope; reads and downloads require `files:read`. {{ className: 'lead' }}
 
 <ResourceVersionBanner />
 
@@ -17,10 +17,10 @@ Files represent file metadata records in WeldDrive. The API manages metadata onl
   <Property name="mimeType" type="string">MIME type (e.g. `image/png`).</Property>
   <Property name="fileSize" type="integer">File size in bytes.</Property>
   <Property name="fileType" type="string">Semantic type: `image`, `video`, `audio`, `pdf`, `document`, `spreadsheet`, `presentation`, `archive`, `code`, `file`, `recording`, `whiteboard`, or `rich-document`.</Property>
-  <Property name="storagePath" type="string">Internal storage path.</Property>
-  <Property name="fileKey" type="string">Storage provider key.</Property>
-  <Property name="bucket" type="string">Storage bucket name.</Property>
-  <Property name="url" type="string">Public or pre-signed download URL.</Property>
+  <Property name="storagePath" type="string">Storage key, under the workspace's own `workspaces/<workspaceId>/` prefix.</Property>
+  <Property name="fileKey" type="string">Storage key, when it differs from `storagePath`.</Property>
+  <Property name="bucket" type="string">`private` or `public`, set by WeldSuite from where the stored file is. `null` when no stored file was found.</Property>
+  <Property name="url" type="string">Link the WeldSuite apps open the file with. For a private file it only works for signed-in workspace members, so download private files with [Download a file](#download-a-file).</Property>
   <Property name="thumbnailUrl" type="string">Thumbnail URL (images and videos).</Property>
   <Property name="storageProvider" type="string">Storage provider identifier.</Property>
   <Property name="folderId" type="string">ID of the containing folder. `null` for root-level files.</Property>
@@ -98,7 +98,9 @@ Files represent file metadata records in WeldDrive. The API manages metadata onl
 <Row>
   <Col>
 
-    Create a new file metadata record. Upload the binary content to your storage provider separately and reference it here via `storagePath`.
+    Create a new file record for a file already stored in this workspace, referenced by its storage key.
+
+    `storagePath` and `fileKey` must be keys under this workspace's own `workspaces/<workspaceId>/` prefix. Any other key, including one of another workspace or one with `..` segments, is refused with `400`. WeldSuite sets `bucket` itself; a `bucket` in the request is ignored.
 
     ### Required attributes
 
@@ -106,7 +108,7 @@ Files represent file metadata records in WeldDrive. The API manages metadata onl
       <Property name="fileName" type="string">File display name (max 500 characters).</Property>
       <Property name="mimeType" type="string">MIME type.</Property>
       <Property name="fileSize" type="integer">File size in bytes.</Property>
-      <Property name="storagePath" type="string">Storage path.</Property>
+      <Property name="storagePath" type="string">Storage key (max 1000 characters).</Property>
     </Properties>
 
     ### Optional attributes
@@ -114,9 +116,8 @@ Files represent file metadata records in WeldDrive. The API manages metadata onl
     <Properties>
       <Property name="originalName" type="string">Original filename.</Property>
       <Property name="fileType" type="string">Semantic file type (defaults to `file`).</Property>
-      <Property name="fileKey" type="string">Storage provider key.</Property>
-      <Property name="bucket" type="string">Storage bucket.</Property>
-      <Property name="url" type="string">Public URL.</Property>
+      <Property name="fileKey" type="string">Storage key, when it differs from `storagePath` (max 1000 characters).</Property>
+      <Property name="url" type="string">Link to open the file with.</Property>
       <Property name="thumbnailUrl" type="string">Thumbnail URL.</Property>
       <Property name="folderId" type="string">Containing folder ID.</Property>
       <Property name="isPublic" type="boolean">Public flag.</Property>
@@ -137,7 +138,7 @@ Files represent file metadata records in WeldDrive. The API manages metadata onl
         "fileName": "company-logo.png",
         "mimeType": "image/png",
         "fileSize": 48200,
-        "storagePath": "uploads/company-logo.png",
+        "storagePath": "workspaces/org_2abc123/drive/general/company-logo.png",
         "fileType": "image",
         "isPublic": true
       }'
@@ -197,6 +198,46 @@ Files represent file metadata records in WeldDrive. The API manages metadata onl
         "deletedAt": null
       }
     }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Download a file {{ tag: 'GET', label: '/v1/files/:id/content' }}
+
+<Row>
+  <Col>
+
+    Download the stored file, private files included. Requires the `files:read` scope and follows the same sharing rules as reading the record: a file you cannot see is a `404`. The response body is the raw file, not JSON, with these headers:
+
+    - `Content-Type`, the file's MIME type (`application/octet-stream` when unknown)
+    - `Content-Length`, the size in bytes
+    - `Content-Disposition: attachment`, with the file name
+    - `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`
+
+    Returns `404` when the file has no stored content or its key is not one of this workspace's. Returns `503` with code `STORAGE_UNAVAILABLE` when file storage is not configured.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/files/file_abc123/content">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/files/file_abc123/content \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -o company-logo.png
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    200 OK
+    Content-Type: image/png
+    Content-Disposition: attachment; filename="company-logo.png"; filename*=UTF-8''company-logo.png
+
+    <file bytes>
     ```
 
   </Col>

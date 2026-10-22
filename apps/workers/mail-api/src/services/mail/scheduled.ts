@@ -27,6 +27,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
 import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
+import { locateStoredObject } from '@weldsuite/worker-kit/storage';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
@@ -469,7 +470,7 @@ async function validateScheduledAttachments(
   data: ScheduleEmailInput,
 ) {
   if (!data.attachments?.length) return [];
-  if (!env.STORAGE) {
+  if (!env.STORAGE && !env.PRIVATE_STORAGE) {
     throw new MailScheduledError(
       'STORAGE_BINDING_MISSING',
       'Storage binding not configured',
@@ -488,7 +489,7 @@ async function validateScheduledAttachments(
         `Attachment ${att.filename} is not in this workspace`,
       );
     }
-    const head = await env.STORAGE.head(att.fileKey);
+    const head = (await locateStoredObject(env, att.fileKey))?.head;
     if (!head) {
       throw new MailScheduledError(
         'ATTACHMENT_NOT_IN_STORAGE',

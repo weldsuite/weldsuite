@@ -16,6 +16,8 @@ export const generateUploadUrlSchema = z.object({
   folder: z.string().optional(),
   entityType: z.string().optional(),
   entityId: z.string().nullish(),
+  /** false (default): the private bucket, readable by workspace members only.
+   *  true: the public bucket, for anything shown outside the workspace. */
   isPublic: z.boolean().optional().default(false),
 });
 
@@ -28,11 +30,15 @@ export const confirmUploadSchema = z.object({
 export type GenerateUploadUrlInput = z.infer<typeof generateUploadUrlSchema>;
 export type ConfirmUploadInput = z.infer<typeof confirmUploadSchema>;
 
+/** `private` objects are served by app-api `/api/storage/private/*` only. */
+export type StorageBucket = 'public' | 'private';
+
 export interface GenerateUploadUrlResponse {
   success: boolean;
   uploadUrl: string;
   uploadToken: string;
   fileKey: string;
+  bucket: StorageBucket;
 }
 
 export interface ConfirmUploadResponse {
@@ -45,5 +51,6 @@ export interface ConfirmUploadResponse {
     mimeType: string;
     url: string;
     isPublic: boolean;
+    bucket: StorageBucket;
   };
 }

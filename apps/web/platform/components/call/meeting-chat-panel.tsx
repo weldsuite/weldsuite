@@ -199,6 +199,9 @@ function MeetingChatDataProvider({
           fileName: file.name,
           fileSize: file.size,
           contentType: file.type,
+          // Guests in the meeting portal open these links without a WeldSuite
+          // session, so meeting-chat files stay on the public bucket.
+          isPublic: true,
         });
         const { uploadUrl, uploadToken, fileKey } = urlRes;
         await fetch(uploadUrl, {

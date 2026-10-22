@@ -17,6 +17,7 @@ import type { ExecutionContext } from 'hono';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { getStoredObject } from '@weldsuite/worker-kit/storage';
 import * as cfEmail from '@weldsuite/worker-email';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { buildRfc5322 } from '@weldsuite/email/core/mime';
@@ -53,7 +54,10 @@ export interface MailSendEnv
   extends cfEmail.WorkerEmailEnv,
     RecipientValidationEnv,
     MailContactsEnv,
-    OutboundGuardEnv {}
+    OutboundGuardEnv {
+  /** Private uploads (compose attachments); read with the public bucket as fallback. */
+  PRIVATE_STORAGE?: R2Bucket;
+}
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 
@@ -816,7 +820,7 @@ async function resolveAttachments(
   if (extraBytes > 0 && totalBytes > MAX_EMAIL_SIZE_BYTES) throw tooLarge();
 
   if (!data.attachments?.length) return [];
-  if (!env.STORAGE) {
+  if (!env.STORAGE && !env.PRIVATE_STORAGE) {
     throw new MailSendError('STORAGE_BINDING_MISSING', 'Storage binding not configured');
   }
 
@@ -830,7 +834,7 @@ async function resolveAttachments(
         `Attachment ${att.filename} is not in this workspace`,
       );
     }
-    const obj = await env.STORAGE.get(att.fileKey);
+    const obj = await getStoredObject(env, att.fileKey);
     if (!obj) {
       throw new MailSendError(
         'ATTACHMENT_NOT_IN_STORAGE',
@@ -915,13 +919,13 @@ async function loadOriginalAttachments(
     .where(and(eq(mailAttachments.messageId, originalMessageId), isNull(mailAttachments.deletedAt)));
   const wanted = rows.filter((r) => !r.isInline && r.storagePath && !excludeIds.includes(r.id));
   if (wanted.length === 0) return [];
-  if (!env.STORAGE) {
+  if (!env.STORAGE && !env.PRIVATE_STORAGE) {
     throw new MailSendError('STORAGE_BINDING_MISSING', 'Storage binding not configured');
   }
 
   const loaded: InlineAttachment[] = [];
   for (const row of wanted) {
-    const obj = await env.STORAGE.get(row.storagePath!);
+    const obj = await getStoredObject(env, row.storagePath!);
     if (!obj) {
       throw new MailSendError(
         'ATTACHMENT_NOT_IN_STORAGE',

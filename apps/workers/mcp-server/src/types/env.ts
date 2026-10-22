@@ -63,6 +63,8 @@ export interface Env {
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
+  /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */
+  PRIVATE_STORAGE?: R2Bucket;
   /**
    * Public base URL for objects in STORAGE (no trailing slash). Used when
    * `upload_social_media` stores bytes so PostPeer can fetch the asset.

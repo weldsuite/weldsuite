@@ -2812,7 +2812,7 @@ export const accounting = {
         linkContact: 'Link Contact',
       },
       // Upload zone & OCR
-      dropHint: 'Drop invoice images here — WeldAgent will extract supplier, amounts, line items, and totals.',
+      dropHint: 'Drop invoices here (PDF or photo) — WeldAgent will extract supplier, amounts, line items, and totals.',
       uploadInvoice: 'Upload invoice',
       noDocumentsInbox: 'No documents in inbox',
       emptyDescription: 'Upload your first invoice to get started',
@@ -2820,6 +2820,7 @@ export const accounting = {
       phaseProcessing: 'Scanning with WeldAgent…',
       phaseDone: 'Done',
       phaseFailed: 'Failed',
+      unsupportedFileType: 'Only PDF, JPG, PNG and WebP files can be scanned',
       // OCR result dialog
       ocrResult: 'OCR Result',
       colFileName: 'File Name',

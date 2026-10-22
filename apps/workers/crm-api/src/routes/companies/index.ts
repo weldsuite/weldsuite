@@ -25,11 +25,9 @@ import {
   importCompaniesSchema,
   exportCompaniesQuery,
 } from '@weldsuite/app-api-client/schemas/companies';
-import type { CompanyAttributes } from '@weldsuite/app-api-client/schemas/companies';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as companiesService from '@weldsuite/crm-domain/companies';
-import { getCompanyAttributes } from '@weldsuite/crm-domain/company-attributes';
 import { fetchAndStoreLogo } from '../../lib/logo-fetch';
 import { companyChatRoutes } from './chat';
 
@@ -53,15 +51,11 @@ app.get(
     const params = c.req.valid('query');
     const scope = await scopeFor(c);
     try {
+      // `include=attributes` is resolved by the service, alongside the page.
       const result = await companiesService.listCompanies(db, params, scope);
-      let rows: Array<(typeof result.data)[number] & { attributes?: CompanyAttributes }> = result.data;
-      if (params.include === 'attributes') {
-        const attributes = await getCompanyAttributes(db, rows.map((r) => r.id));
-        rows = rows.map((r) => ({ ...r, attributes: attributes.get(r.id) }));
-      }
       return list(
         c,
-        rows,
+        result.data,
         cursorPagination(result.totalCount, result.hasMore, result.cursor),
       );
     } catch (err) {

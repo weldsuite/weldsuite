@@ -24,6 +24,8 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const OVERRIDES: Record<string, Record<string, unknown>> = {
   // A conversation must identify a customer (route requires customerName).
   conversations: { customerName: 'Test Customer' },
+  // A file's key must be under the workspace's own prefix.
+  files: { storagePath: 'workspaces/ws_test/drive/general/test.txt' },
 };
 
 /**

@@ -4,10 +4,11 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { filesRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 
@@ -45,7 +46,7 @@ async function upload(fileName: string): Promise<FileRow> {
     fileName,
     mimeType: 'text/plain',
     fileSize: 600,
-    storagePath: `workspaces/w/${fileName}`,
+    storagePath: `workspaces/org_test_default/${fileName}`,
   });
   expect(res.status).toBe(201);
   return ((await res.json()) as { data: FileRow }).data;
@@ -100,5 +101,87 @@ describe('PATCH /api/files/:id · description', () => {
     const after = await app().request('/api/files?pageSize=200');
     const cleared = ((await after.json()) as { data: ListedFile[] }).data.find((f) => f.id === contract.id);
     expect(cleared?.description).toBeNull();
+  });
+});
+
+describe('GET|PUT /api/files/:id/content · tenant keys (TASK-620)', () => {
+  const OWN = 'workspaces/org_test_default/drive/general/1_a/own.txt';
+  const FOREIGN = 'workspaces/org_victim/drive/general/1_b/payroll.txt';
+  const objects = new Map<string, string>([[OWN, 'mine'], [FOREIGN, 'theirs']]);
+  const bucket = {
+    head: async (k: string) => (objects.has(k) ? { key: k } : null),
+    get: async (k: string) =>
+      objects.has(k) ? { body: objects.get(k), size: objects.get(k)!.length, httpMetadata: {} } : null,
+    put: async (k: string, body: ArrayBuffer) => {
+      objects.set(k, new TextDecoder().decode(body));
+      return { key: k };
+    },
+  } as unknown as R2Bucket;
+  const withStorage = () =>
+    createTestApp('/api/files', filesRoutes, {
+      context: {
+        tenantDb: db,
+        userId: 'user_test',
+        permissions: permissions('files:read', 'files:create', 'files:update'),
+      },
+      env: { PRIVATE_STORAGE: bucket } as never,
+    });
+  const create = async (storagePath: string) => {
+    const res = await withStorage().request('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: `${storagePath.split('/').pop()}`, mimeType: 'text/plain', fileSize: 4, storagePath, fileKey: storagePath }),
+    });
+    return ((await res.json()) as { data: FileRow }).data;
+  };
+
+  it("serves the caller's own workspace key", async () => {
+    const row = await create(OWN);
+    const res = await withStorage().request(`/api/files/${row.id}/content`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('mine');
+  });
+
+  it("refuses to store another workspace's key", async () => {
+    const post = (body: Record<string, unknown>) =>
+      withStorage().request('/api/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: 'x.txt', mimeType: 'text/plain', fileSize: 4, ...body }),
+      });
+    expect((await post({ storagePath: FOREIGN })).status).toBe(400);
+    expect((await post({ storagePath: OWN, fileKey: FOREIGN })).status).toBe(400);
+    expect((await post({ storagePath: 'workspaces/org_test_default/../org_victim/x.txt' })).status).toBe(400);
+    expect((await post({ storagePath: 'avatars/x.txt' })).status).toBe(400);
+  });
+
+  it('records the bucket the object is in, whatever the client says', async () => {
+    const res = await withStorage().request('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: 'b.txt', mimeType: 'text/plain', fileSize: 4, storagePath: OWN, bucket: 'public' }),
+    });
+    expect(res.status).toBe(201);
+    const { data } = (await res.json()) as { data: { id: string } };
+    const [row] = await db.select().from(schema.files).where(eq(schema.files.id, data.id));
+    expect(row?.bucket).toBe('private');
+  });
+
+  it("refuses a row that points at another workspace's key", async () => {
+    // Rows written before the write-time check could hold any key.
+    const row = { id: 'fil_foreign_key' };
+    await db.insert(schema.files).values({
+      id: row.id,
+      fileName: 'payroll.txt',
+      mimeType: 'text/plain',
+      fileSize: 6,
+      storagePath: FOREIGN,
+      fileKey: FOREIGN,
+      uploadedById: 'user_test',
+    } as typeof schema.files.$inferInsert);
+    expect((await withStorage().request(`/api/files/${row.id}/content`)).status).toBe(404);
+    const put = await withStorage().request(`/api/files/${row.id}/content`, { method: 'PUT', body: 'pwned' });
+    expect(put.status).toBe(404);
+    expect(objects.get(FOREIGN)).toBe('theirs');
   });
 });

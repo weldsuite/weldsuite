@@ -2846,7 +2846,7 @@ export const accounting = {
         linkContact: 'Contact Koppelen',
       },
       // Upload zone & OCR
-      dropHint: 'Sleep factuurafbeeldingen hier naartoe — WeldAgent extraheert leverancier, bedragen, regelitems en totalen.',
+      dropHint: 'Sleep facturen hier naartoe (pdf of foto) — WeldAgent extraheert leverancier, bedragen, regelitems en totalen.',
       uploadInvoice: 'Factuur uploaden',
       noDocumentsInbox: 'Geen documenten in inbox',
       emptyDescription: 'Upload je eerste factuur om te beginnen',
@@ -2854,6 +2854,7 @@ export const accounting = {
       phaseProcessing: 'Scannen met WeldAgent…',
       phaseDone: 'Klaar',
       phaseFailed: 'Mislukt',
+      unsupportedFileType: 'Alleen pdf-, jpg-, png- en webp-bestanden kunnen worden gescand',
       // OCR result dialog
       ocrResult: 'OCR-resultaat',
       colFileName: 'Bestandsnaam',

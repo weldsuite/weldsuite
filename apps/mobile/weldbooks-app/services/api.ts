@@ -114,6 +114,18 @@ function str(value: unknown, fallback = ''): string {
   return value == null ? fallback : asText(value);
 }
 
+/** The bytes of a local file (a captured photo), or null when it can't be read or is empty. */
+async function readLocalFile(uri: string): Promise<ArrayBuffer | null> {
+  try {
+    const res = await fetch(uri);
+    if (!res.ok) return null;
+    const bytes = await res.arrayBuffer();
+    return bytes.byteLength > 0 ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
 function nullableStr(value: unknown): string | null {
   if (value == null || value === '') return null;
   return asText(value);
@@ -786,11 +798,12 @@ class WeldBooksApi {
    * `fileKey` to attach to a document record.
    */
   async uploadFile(localUri: string, fileName: string, mimeType = 'image/jpeg'): Promise<string> {
-    const fileRes = await fetch(localUri);
-    if (!fileRes.ok) throw new Error('Could not read the photo');
-    const bytes = await fileRes.arrayBuffer();
-    if (bytes.byteLength === 0) throw new Error('The photo file is empty');
+    const bytes = await readLocalFile(localUri);
+    if (!bytes) throw new Error('Could not read the photo');
+    return this.uploadBytes(bytes, fileName, mimeType);
+  }
 
+  private async uploadBytes(bytes: ArrayBuffer, fileName: string, mimeType: string): Promise<string> {
     const ticket = await client.post<{
       success: boolean;
       uploadUrl: string;
@@ -824,17 +837,18 @@ class WeldBooksApi {
     return ticket.fileKey;
   }
 
+  /** `fileKey` is the key `uploadFile` returned: books-api refuses any other. */
   async createDocument(data: {
     type?: string;
     fileName: string;
-    fileKey?: string;
+    fileKey: string;
     mimeType?: string;
   }): Promise<{ id: string }> {
     const res = await client.post<DataEnvelope<{ id: string }>>('/accounting-documents', {
       type: data.type || 'receipt',
       fileName: data.fileName,
       originalFileName: data.fileName,
-      fileKey: data.fileKey || data.fileName,
+      fileKey: data.fileKey,
       mimeType: data.mimeType || 'image/jpeg',
       source: 'scan',
     });
@@ -1305,8 +1319,8 @@ class WeldBooksApi {
    */
   async uploadOfflineQueue(
     items: { type: string; data: Json; entityId?: string }[],
-  ): Promise<{ index: number; type: string; id?: string; error?: string }[]> {
-    const results: { index: number; type: string; id?: string; error?: string }[] = [];
+  ): Promise<{ index: number; type: string; id?: string; error?: string; dropped?: boolean }[]> {
+    const results: { index: number; type: string; id?: string; error?: string; dropped?: boolean }[] = [];
     const previousEntityId = accountingEntityId;
 
     for (let i = 0; i < items.length; i++) {
@@ -1331,16 +1345,8 @@ class WeldBooksApi {
   private async replayOfflineItem(item: {
     type: string;
     data: Json;
-  }): Promise<{ type: string; id?: string; error?: string }> {
-    if (item.type === 'document') {
-      const doc = await this.createDocument({
-        type: str(item.data.type, 'receipt'),
-        fileName: str(item.data.fileName, 'offline-scan'),
-        fileKey: item.data.fileKey ? str(item.data.fileKey) : undefined,
-        mimeType: item.data.mimeType ? str(item.data.mimeType) : undefined,
-      });
-      return { type: 'document', id: doc.id };
-    }
+  }): Promise<{ type: string; id?: string; error?: string; dropped?: boolean }> {
+    if (item.type === 'document') return this.replayDocument(item.data);
     if (item.type === 'expense') {
       const bill = await this.createQuickExpense({
         amount: num(item.data.amount),
@@ -1356,6 +1362,25 @@ class WeldBooksApi {
       return { type: 'expense', id: bill.id };
     }
     return { type: item.type, error: 'Unknown item type' };
+  }
+
+  /**
+   * A queued scan: upload its photo now, then register the document. A scan
+   * queued without one (older app versions) or whose photo the OS has since
+   * cleared can never be created, so it is dropped rather than failing on
+   * every sync.
+   */
+  private async replayDocument(data: Json): Promise<{ type: string; id?: string; dropped?: boolean }> {
+    const fileName = str(data.fileName, 'offline-scan.jpg');
+    const mimeType = data.mimeType ? str(data.mimeType) : 'image/jpeg';
+    let fileKey = data.fileKey ? str(data.fileKey) : '';
+    if (!fileKey) {
+      const bytes = data.localUri ? await readLocalFile(str(data.localUri)) : null;
+      if (!bytes) return { type: 'document', dropped: true };
+      fileKey = await this.uploadBytes(bytes, fileName, mimeType);
+    }
+    const doc = await this.createDocument({ type: str(data.type, 'receipt'), fileName, fileKey, mimeType });
+    return { type: 'document', id: doc.id };
   }
 }
 

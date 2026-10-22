@@ -1,9 +1,11 @@
 
-import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   GridContextValue,
+  GridRowContextValue,
+  GridRowConfig,
   GridState,
   EntityGridConfig,
   EntityGridActions,
@@ -28,6 +30,7 @@ import { matchesFilter } from './utils/grid-filter';
 
 // Create the context with a generic type
 const GridContext = createContext<GridContextValue<unknown> | null>(null);
+const GridRowContext = createContext<GridRowContextValue<unknown> | null>(null);
 
 // Provider props
 interface GridProviderProps<TEntity> {
@@ -302,12 +305,17 @@ export function GridProvider<TEntity>({
   const configColumnsRef = useRef(config.columns);
   useEffect(() => {
     if (configColumnsRef.current === config.columns) return;
+    const previousConfigById = new Map(configColumnsRef.current.map((c) => [c.id, c]));
     configColumnsRef.current = config.columns;
 
     setColumns((prev) => {
       const prevById = new Map(prev.map((c) => [c.id, c]));
       const merged = config.columns.map((configCol) => {
         const existing = prevById.get(configCol.id);
+        // The same definition as before (the config is rebuilt whenever one
+        // column changes, e.g. the tag options when a page of rows loads):
+        // keep the column object, so the cells of that column do not re-render.
+        if (existing && previousConfigById.get(configCol.id) === configCol) return existing;
         if (existing) {
           // Keep user's visibility override, update the rest from config
           return { ...configCol, visible: existing.visible };
@@ -337,10 +345,9 @@ export function GridProvider<TEntity>({
     });
   }, [config.columns, config.initialColumnWidths, config.initialVisibility]);
 
-  // Get visible columns
-  const getVisibleColumns = useCallback(() => {
-    return columns.filter((col) => col.visible !== false);
-  }, [columns]);
+  // Visible columns, one array per `columns` so rows can compare it.
+  const visibleColumns = useMemo(() => columns.filter((col) => col.visible !== false), [columns]);
+  const getVisibleColumns = useCallback(() => visibleColumns, [visibleColumns]);
 
   // Filter entities based on active filters
   const filteredEntities = useMemo(() => {
@@ -369,21 +376,30 @@ export function GridProvider<TEntity>({
     [config, optimisticUpdates]
   );
 
+  // This render's values, for the callbacks below that keep one identity (so
+  // the row context does not change with them) but must act on the current
+  // columns, rows and actions when they run.
+  const latestRef = useRef({ columns, entities, config, actions, editValue, t });
+  useLayoutEffect(() => {
+    latestRef.current = { columns, entities, config, actions, editValue, t };
+  });
+
   // Update entity field
   const updateEntityField = useCallback(
     async (entityId: string, fieldId: string, value: unknown) => {
-      const column = columns.find((c) => c.id === fieldId);
+      const latest = latestRef.current;
+      const column = latest.columns.find((c) => c.id === fieldId);
       if (!column?.setValue) {
         // Defense in depth — the cell layer already refuses to open an
         // editor for a column with no `setValue` (or `editable: false`), so
         // this should be unreachable in practice. If it ever is, surface it
         // instead of silently dropping the edit.
         console.warn(`Cannot update field ${fieldId}: no setValue defined`);
-        toast.error(t('sweep.entities.updateFailed'));
+        toast.error(latest.t('sweep.entities.updateFailed'));
         return;
       }
 
-      const entity = entities.find((e) => config.getEntityId(e) === entityId);
+      const entity = latest.entities.find((e) => latest.config.getEntityId(e) === entityId);
       if (!entity) return;
 
       const updateData = column.setValue(entity, value);
@@ -394,17 +410,17 @@ export function GridProvider<TEntity>({
         [entityId]: { ...prev[entityId], ...updateData } as Partial<TEntity>,
       }));
 
-      const result = await actions.onUpdateEntity(entityId, updateData);
+      const result = await latest.actions.onUpdateEntity(entityId, updateData);
       if (!result.success) {
         // Revert optimistic update on failure
         setOptimisticUpdates((prev) => {
           const { [entityId]: _, ...rest } = prev;
           return rest;
         });
-        toast.error(result.error || t('sweep.entities.updateFailed'));
+        toast.error(result.error || latest.t('sweep.entities.updateFailed'));
       }
     },
-    [columns, entities, config, actions, t]
+    []
   );
 
   // Update custom field value
@@ -642,9 +658,70 @@ export function GridProvider<TEntity>({
     getCalculationResult,
   ]);
 
+  // Rows and cells read this instead of the context above (see
+  // GridRowContextValue). Built from the config's fields rather than the
+  // config object, which the grids rebuild whenever a column changes.
+  const rowConfig = useMemo((): GridRowConfig<TEntity> => ({
+    getEntityId: config.getEntityId,
+    getEntityName: config.getEntityName,
+    getEntityInitials: config.getEntityInitials,
+    getEntityAvatar: config.getEntityAvatar,
+    renderRowContextMenu: config.renderRowContextMenu,
+    enableRowSelection: config.enableRowSelection,
+    enableInlineEditing: config.enableInlineEditing,
+    fillViewport: config.fillViewport,
+    showRowNumbers: config.showRowNumbers,
+    allowCustomColumns: config.allowCustomColumns,
+  }), [
+    config.getEntityId, config.getEntityName, config.getEntityInitials, config.getEntityAvatar,
+    config.renderRowContextMenu, config.enableRowSelection, config.enableInlineEditing,
+    config.fillViewport, config.showRowNumbers, config.allowCustomColumns,
+  ]);
+
+  const setRowSelected = useCallback((entityId: string, selected: boolean) => {
+    setSelectedRows((prev) => {
+      if (prev.has(entityId) === selected) return prev;
+      const next = new Set(prev);
+      if (selected) next.add(entityId);
+      else next.delete(entityId);
+      return next;
+    });
+  }, []);
+
+  const patchOptimisticUpdate = useCallback((entityId: string, patch: Partial<TEntity>) => {
+    setOptimisticUpdates((prev) => ({
+      ...prev,
+      [entityId]: { ...prev[entityId], ...patch } as Partial<TEntity>,
+    }));
+  }, []);
+
+  const updateEntity = useCallback<GridRowContextValue<TEntity>['updateEntity']>(
+    (id, updates) => latestRef.current.actions.onUpdateEntity(id, updates),
+    [],
+  );
+  const openRow = useCallback((entity: TEntity) => latestRef.current.actions.onRowClick?.(entity), []);
+  const getEditValue = useCallback(() => latestRef.current.editValue, []);
+
+  const rowContextValue = useMemo((): GridRowContextValue<TEntity> => ({
+    config: rowConfig,
+    setOpenPopover,
+    setRowSelected,
+    patchOptimisticUpdate,
+    updateEntity,
+    openRow,
+    updateEntityField,
+    updateCustomFieldValue,
+    getEditValue,
+  }), [
+    rowConfig, setOpenPopover, setRowSelected, patchOptimisticUpdate, updateEntity, openRow,
+    updateEntityField, updateCustomFieldValue, getEditValue,
+  ]);
+
   return (
     <GridContext.Provider value={contextValue as unknown as GridContextValue<unknown>}>
-      {children}
+      <GridRowContext.Provider value={rowContextValue as unknown as GridRowContextValue<unknown>}>
+        {children}
+      </GridRowContext.Provider>
     </GridContext.Provider>
   );
 }
@@ -656,4 +733,13 @@ export function useGridContext<TEntity>(): GridContextValue<TEntity> {
     throw new Error('useGridContext must be used within a GridProvider');
   }
   return context as GridContextValue<TEntity>;
+}
+
+/** What rows and cells take from the grid; see GridRowContextValue. */
+export function useGridRowContext<TEntity>(): GridRowContextValue<TEntity> {
+  const context = useContext(GridRowContext);
+  if (!context) {
+    throw new Error('useGridRowContext must be used within a GridProvider');
+  }
+  return context as GridRowContextValue<TEntity>;
 }

@@ -41,13 +41,15 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
   if (cachedError) throw cachedError;
 
   try {
-    const [{ PGlite }, { vector }, drizzlePg, schemaModule, fs, path, url] = await Promise.all([
+    const [{ PGlite }, { vector }, { pg_trgm }, drizzlePg, schemaModule, fs, path, url] = await Promise.all([
       import('@electric-sql/pglite'),
       // pgvector is not compiled into the base pglite build — it ships as a
       // separate extension bundle that has to be registered at construction.
       // Without it, tenant migration 0175 fails with `extension "vector" is
       // not available` and takes every pglite-backed test down with it.
       import('@electric-sql/pglite/vector'),
+      // pg_trgm backs the CRM list search indexes (tenant migration 0219).
+      import('@electric-sql/pglite/contrib/pg_trgm'),
       import('drizzle-orm/pglite'),
       import('@weldsuite/db/schema'),
       import('node:fs/promises'),
@@ -55,7 +57,7 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
       import('node:url'),
     ]);
 
-    const client = new PGlite({ extensions: { vector } });
+    const client = new PGlite({ extensions: { vector, pg_trgm } });
     const db = drizzlePg.drizzle(client, { schema: schemaModule });
 
     // Apply tenant migrations in order. The SQL files live in the

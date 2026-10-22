@@ -80,7 +80,7 @@ async function upload(who: ReturnType<typeof as>, fileName: string, folderId?: s
     fileName,
     mimeType: 'text/plain',
     fileSize: 10,
-    storagePath: `workspaces/w/${fileName}`,
+    storagePath: `workspaces/org_test_default/${fileName}`,
     folderId,
   });
   expect(res.status).toBe(201);
@@ -229,7 +229,7 @@ describe('sharing a folder', () => {
       fileName: 'sneaky.txt',
       mimeType: 'text/plain',
       fileSize: 1,
-      storagePath: 'workspaces/w/sneaky.txt',
+      storagePath: 'workspaces/org_test_default/sneaky.txt',
       folderId: folder.id,
     })).status).toBe(404);
   });

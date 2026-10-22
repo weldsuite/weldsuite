@@ -295,7 +295,7 @@ describe('uploadOfflineQueue', () => {
     });
 
     const results = await api.uploadOfflineQueue([
-      { type: 'document', data: { fileName: 'receipt.jpg' } },
+      { type: 'document', data: { fileName: 'receipt.jpg', fileKey: 'workspaces/org_1/accounting-documents/r.jpg' } },
       { type: 'expense', data: { amount: '12.50', category: 'food' } },
       { type: 'mystery', data: {} },
     ]);
@@ -304,6 +304,56 @@ describe('uploadOfflineQueue', () => {
     expect(results[1]).toMatchObject({ index: 1, type: 'expense' });
     expect(results[1].error).toBe('bill rejected');
     expect(results[2]).toMatchObject({ index: 2, error: 'Unknown item type' });
+  });
+
+  describe('a queued scan', () => {
+    const KEY = 'workspaces/org_1/accounting-documents/general/1_x/receipt.jpg';
+    const realFetch = global.fetch;
+    afterEach(() => {
+      global.fetch = realFetch;
+    });
+
+    it('uploads its photo, then creates the document with the uploaded key', async () => {
+      const fetchMock = jest.fn((url: string) =>
+        Promise.resolve(
+          url === 'file:///cache/receipt.jpg'
+            ? { ok: true, arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)) }
+            : { ok: true },
+        ),
+      );
+      global.fetch = fetchMock as unknown as typeof fetch;
+      client.post.mockImplementation((path: string) => {
+        if (path === '/storage/generate-upload-url') {
+          return Promise.resolve({ success: true, uploadUrl: 'https://up/x', uploadToken: 'upl_1', fileKey: KEY });
+        }
+        if (path === '/accounting-documents') return Promise.resolve({ data: { id: 'doc_2' } });
+        return Promise.resolve({ success: true });
+      });
+
+      const [result] = await api.uploadOfflineQueue([
+        { type: 'document', data: { fileName: 'receipt.jpg', localUri: 'file:///cache/receipt.jpg' } },
+      ]);
+
+      expect(result).toMatchObject({ type: 'document', id: 'doc_2' });
+      expect(fetchMock).toHaveBeenCalledWith('https://up/x', expect.objectContaining({ method: 'PUT' }));
+      const created = client.post.mock.calls.find(([path]: [string]) => path === '/accounting-documents');
+      expect(created[1].fileKey).toBe(KEY);
+    });
+
+    it('is dropped, not retried, when there is no photo to upload', async () => {
+      global.fetch = jest.fn(() => Promise.reject(new Error('no such file'))) as unknown as typeof fetch;
+
+      const results = await api.uploadOfflineQueue([
+        { type: 'document', data: { fileName: 'receipt.jpg' } },
+        { type: 'document', data: { fileName: 'gone.jpg', localUri: 'file:///cache/gone.jpg' } },
+      ]);
+
+      for (const result of results) {
+        expect(result).toMatchObject({ type: 'document', dropped: true });
+        expect(result.error).toBeUndefined();
+      }
+      expect(client.post).not.toHaveBeenCalledWith('/accounting-documents', expect.anything());
+    });
   });
 });
 

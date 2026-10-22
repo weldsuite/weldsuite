@@ -1,28 +1,48 @@
 
-import React from 'react';
-import { useGridContext } from '../context';
+import React, { useMemo } from 'react';
+import { useGridRowContext } from '../context';
 import { useCellSelectionActions, useCellSelectionState } from '../cell-selection-context';
 import { GridCell } from './grid-cell';
 import { cn } from '@/lib/utils';
 import { SPREADSHEET_EXTRA_COLUMNS } from '../spreadsheet';
+import type { GridColumnDef } from '../types';
 
 interface GridRowProps<TEntity> {
   entity: TEntity;
   rowIndex?: number;
+  /** The visible columns; the same array until the columns change. */
+  columns: GridColumnDef<TEntity>[];
+  isSelected: boolean;
+  /** This row's optimistic edits, if any. */
+  optimisticUpdate: Partial<TEntity> | undefined;
+  /** The column whose popover is open in this row, if any. */
+  openPopoverFieldId: string | null;
 }
 
-export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEntity>>) {
-  const { config, state, getVisibleColumns, getEntityWithOptimisticUpdates } =
-    useGridContext<TEntity>();
+/**
+ * Memoised on its props, which only change when something about this row
+ * does. The grid's own context is deliberately not read here: it changes on
+ * every selection, popover, resize and edit, and a row reading it would
+ * re-render every loaded row (and all their cells) each time.
+ */
+export const GridRow = React.memo(function GridRow<TEntity>({
+  entity,
+  rowIndex,
+  columns: visibleColumns,
+  isSelected,
+  optimisticUpdate,
+  openPopoverFieldId,
+}: Readonly<GridRowProps<TEntity>>) {
+  const { config } = useGridRowContext<TEntity>();
   // Stable references — these never change identity, so subscribing to them
   // doesn't drag the row through a re-render every time the selection moves.
   const { startSelection, extendSelection } = useCellSelectionActions();
 
-  const { selectedRows, openPopover } = state;
-  const visibleColumns = getVisibleColumns();
   const entityId = config.getEntityId(entity);
-  const optimisticEntity = getEntityWithOptimisticUpdates(entity);
-  const isSelected = selectedRows.has(entityId);
+  const optimisticEntity = useMemo(
+    () => (optimisticUpdate ? { ...entity, ...optimisticUpdate } : entity),
+    [entity, optimisticUpdate],
+  );
   const rowH = config.fillViewport ? 21 : 40;
   // GridRow receives a 1-based rowIndex (used for the row-number column);
   // for the cell-selection math we want the entity's 0-based slot in
@@ -52,8 +72,7 @@ export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEn
       )}
 
       {visibleColumns.map((column, index) => {
-        const isCellPopoverOpen =
-          openPopover?.rowId === entityId && openPopover?.fieldId === column.id;
+        const isCellPopoverOpen = openPopoverFieldId === column.id;
         return (
           <SelectableCell
             key={column.id}
@@ -93,6 +112,10 @@ export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEn
               entity={optimisticEntity}
               column={column}
               isFirstColumn={index === 0}
+              isPopoverOpen={isCellPopoverOpen}
+              // Only the first cell shows the row's checkbox; the others
+              // need not re-render when the row is ticked.
+              isRowSelected={index === 0 && isSelected}
             />
           </SelectableCell>
         );
@@ -113,7 +136,7 @@ export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEn
       )}
     </tr>
   );
-}
+}) as <TEntity>(props: Readonly<GridRowProps<TEntity>>) => React.ReactElement;
 
 interface SelectableCellProps {
   row: number;

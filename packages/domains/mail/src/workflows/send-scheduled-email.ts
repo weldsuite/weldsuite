@@ -19,6 +19,7 @@ import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:work
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
+import { getStoredObject, type StorageBindings } from '@weldsuite/worker-kit/storage';
 import * as cfEmail from '@weldsuite/worker-email';
 import type { OutboundKind } from '@weldsuite/app-api-client/schemas/outbound-mail';
 import {
@@ -39,8 +40,9 @@ export interface SendScheduledEmailEnv
   extends DbEnv,
     cfEmail.WorkerEmailEnv,
     Omit<OutboundGuardEnv, 'WORKSPACE_CACHE' | 'DATABASE_URL_MASTER' | 'NEON_API_KEY'> {
-  /** R2 bucket holding the scheduled message's attachments. */
+  /** R2 buckets holding the scheduled message's attachments (private first). */
   STORAGE?: R2Bucket;
+  PRIVATE_STORAGE?: R2Bucket;
 }
 
 /**
@@ -105,7 +107,7 @@ function buildExtraHeaders(message: MailMessageRow): Record<string, string> {
  */
 async function resolveAttachments(
   db: TenantDb,
-  storage: R2Bucket | undefined,
+  storage: StorageBindings,
   messageId: string,
 ): Promise<ResolvedAttachment[]> {
   const { mailAttachments } = schema;
@@ -114,12 +116,12 @@ async function resolveAttachments(
     .from(mailAttachments)
     .where(and(eq(mailAttachments.messageId, messageId), isNull(mailAttachments.deletedAt)));
 
-  if (attachmentRows.length === 0 || !storage) return [];
+  if (attachmentRows.length === 0 || (!storage.STORAGE && !storage.PRIVATE_STORAGE)) return [];
 
   const resolved = await Promise.all(
     attachmentRows.map(async (row): Promise<ResolvedAttachment | null> => {
       if (!row.storagePath) return null;
-      const obj = await storage.get(row.storagePath);
+      const obj = await getStoredObject(storage, row.storagePath);
       if (!obj) {
         console.warn(`[SendScheduledEmail] Attachment ${row.id} missing from R2 at ${row.storagePath}`);
         return null;
@@ -303,7 +305,7 @@ async function transmitScheduledSend(
   const fromAddress = account.displayName ? `${account.displayName} <${account.email}>` : account.email;
   const extraHeaders = buildExtraHeaders(message);
   try {
-    const resolvedAttachments = await resolveAttachments(db, env.STORAGE, message.id);
+    const resolvedAttachments = await resolveAttachments(db, env, message.id);
     const result = await cfEmail.sendEmail(env, {
       from: fromAddress,
       to: recipients.to,
