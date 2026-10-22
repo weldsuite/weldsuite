@@ -1,0 +1,30 @@
+appId: com.weldsuite.weldsocial
+name: Save and delete a draft post
+tags: [smoke, writes]
+---
+# Saves a draft (nothing is published: no accounts are selected) and deletes it.
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.text = 'E2E draft ' + Date.now()}
+- tapOn: "Queue"
+# Compose pencil in the Queue header (no accessibility label yet)
+- tapOn:
+    point: "92%,7%"
+- extendedWaitUntil:
+    visible: "New post"
+    timeout: 10000
+- tapOn: "What do you want to share?"
+- inputText: ${output.text}
+- hideKeyboard
+- tapOn: "Save draft"
+- tapOn: "Drafts"
+- extendedWaitUntil:
+    visible: ${output.text}
+    timeout: 15000
+- tapOn: ${output.text}
+- tapOn: "Delete post"
+- tapOn:
+    text: "^Delete$"
+    optional: true
+- extendedWaitUntil:
+    notVisible: ${output.text}
+    timeout: 15000
