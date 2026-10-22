@@ -61,3 +61,14 @@ export function groupTasks<T extends GroupableTask>(tasks: readonly T[], now: Da
   for (const task of tasks) groups[sectionFor(task, now)].push(task);
   return groups;
 }
+
+/** Open tasks due today or earlier, oldest due date first: what Home lists under Today. */
+export function dueToday<T extends GroupableTask>(tasks: readonly T[], now: Date = new Date()): T[] {
+  return tasks
+    .filter((task) => {
+      if (task.completed) return false;
+      const due = parseDate(task.dueDate);
+      return !!due && (isToday(due, now) || isOverdue(due, now));
+    })
+    .sort((a, b) => (parseDate(a.dueDate)?.getTime() ?? 0) - (parseDate(b.dueDate)?.getTime() ?? 0));
+}

@@ -8,11 +8,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Building2, Calendar, ChevronDown, DollarSign, FileText, Plus } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { TabHeader } from '@/components/headers';
+import { StackHeader } from '@/components/headers';
 import { OptionSheet } from '@/components/option-sheet';
 import { api, type DealRecord, type PipelineWithStages } from '@/services/api';
 import { interpolate, useI18n } from '@/lib/i18n';
@@ -177,8 +177,10 @@ export default function DealsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <TabHeader
+      <Stack.Screen options={{ headerShown: false }} />
+      <StackHeader
         title={t.deals.title}
+        onBack={() => router.back()}
         right={
           pipeline ? (
             <TouchableOpacity
@@ -191,23 +193,22 @@ export default function DealsScreen() {
             </TouchableOpacity>
           ) : null
         }
-      >
-        {pipelines.length > 0 && (
-          <TouchableOpacity
-            style={[styles.pipelineButton, { borderColor: colors.divider }]}
-            onPress={() => setPipelinePickerVisible(true)}
-            disabled={pipelines.length < 2}
-            accessibilityRole="button"
-            accessibilityLabel={`${t.deals.pipeline}: ${pipeline?.name ?? ''}`}
-          >
-            {pipeline?.color ? <View style={[styles.columnDot, { backgroundColor: pipeline.color }]} /> : null}
-            <Text style={[styles.pipelineText, { color: colors.text }]} numberOfLines={1}>
-              {pipeline?.name}
-            </Text>
-            {pipelines.length > 1 && <ChevronDown size={16} color={colors.muted} />}
-          </TouchableOpacity>
-        )}
-      </TabHeader>
+      />
+      {pipelines.length > 0 && (
+        <TouchableOpacity
+          style={[styles.pipelineButton, { borderColor: colors.divider }]}
+          onPress={() => setPipelinePickerVisible(true)}
+          disabled={pipelines.length < 2}
+          accessibilityRole="button"
+          accessibilityLabel={`${t.deals.pipeline}: ${pipeline?.name ?? ''}`}
+        >
+          {pipeline?.color ? <View style={[styles.columnDot, { backgroundColor: pipeline.color }]} /> : null}
+          <Text style={[styles.pipelineText, { color: colors.text }]} numberOfLines={1}>
+            {pipeline?.name}
+          </Text>
+          {pipelines.length > 1 && <ChevronDown size={16} color={colors.muted} />}
+        </TouchableOpacity>
+      )}
 
       {loading && (
         <View style={styles.center}>
@@ -338,12 +339,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     alignSelf: 'flex-start',
-    marginTop: 10,
+    marginTop: 12,
+    marginHorizontal: 16,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
-    maxWidth: '100%',
+    maxWidth: '90%',
   },
   pipelineText: { fontSize: 14, fontWeight: '600', flexShrink: 1 },
   columns: { flexDirection: 'row', paddingVertical: 12 },

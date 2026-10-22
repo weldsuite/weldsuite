@@ -16,14 +16,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Archive, Edit3, Mail, MoreHorizontal, Phone, Plus, Trash2, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import { TabHeader } from '@/components/headers';
 import { usePagedList } from '@/hooks/use-paged-list';
 import { api, type CompanyRecord, type PersonRecord } from '@/services/api';
 import { interpolate, labelFor, useI18n, type Translations } from '@/lib/i18n';
 import { initialsOf } from '@/lib/crm';
 
-type Segment = 'people' | 'companies';
+export type Segment = 'people' | 'companies';
 /** The web's People/Companies `filter`: a lead or a supplier is a flag on the record. */
 type Filter = 'all' | 'leads' | 'suppliers';
 
@@ -148,21 +147,20 @@ function RecordCard({
   );
 }
 
-export default function ContactsScreen() {
+/** The Companies or the People tab: search, the All / Leads / Suppliers filter and the cards. */
+export function ContactsList({ segment }: Readonly<{ segment: Segment }>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
-  const [segment, setSegment] = useState<Segment>('people');
   const [filter, setFilter] = useState<Filter>('all');
-  const params = useLocalSearchParams<{ segment?: string; filter?: string }>();
+  const params = useLocalSearchParams<{ filter?: string }>();
 
-  // Home's figures land here with ?segment= / ?filter=.
+  // Other screens can land here with ?filter=leads.
   useEffect(() => {
-    if (!params.segment && !params.filter) return;
-    if (params.segment === 'people' || params.segment === 'companies') setSegment(params.segment);
+    if (!params.filter) return;
     if (params.filter === 'all' || params.filter === 'leads' || params.filter === 'suppliers') setFilter(params.filter);
-    router.setParams({ segment: undefined, filter: undefined });
-  }, [params.segment, params.filter]);
+    router.setParams({ filter: undefined });
+  }, [params.filter]);
   const [search, setSearch] = useState('');
   const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
 
@@ -180,11 +178,6 @@ export default function ContactsScreen() {
   const people = usePagedList<PersonRecord>(fetchPeople, { search, enabled: segment === 'people', resetKey: filter });
   const companies = usePagedList<CompanyRecord>(fetchCompanies, { search, enabled: segment === 'companies', resetKey: filter });
   const active = segment === 'people' ? people : companies;
-
-  // The search box is shared: switching between People and Companies starts a fresh search.
-  useEffect(() => {
-    setSearch('');
-  }, [segment]);
 
   useEffect(() => {
     if (active.error) toast.error(t.contacts.loadFailed);
@@ -302,7 +295,7 @@ export default function ContactsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TabHeader
-        title={t.contacts.title}
+        title={segment === 'people' ? t.contacts.people : t.contacts.companies}
         right={
           <TouchableOpacity
             style={[styles.addButton, { borderColor: colors.buttonBorder }]}
@@ -313,17 +306,7 @@ export default function ContactsScreen() {
             <Plus size={18} color={colors.text} strokeWidth={2} />
           </TouchableOpacity>
         }
-      >
-        <SegmentedControl
-          options={[
-            { value: 'people', label: t.contacts.people },
-            { value: 'companies', label: t.contacts.companies },
-          ]}
-          value={segment}
-          onValueChange={(value) => setSegment(value as Segment)}
-          style={styles.segments}
-        />
-      </TabHeader>
+      />
 
       <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
         <TextInput
@@ -491,7 +474,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   addButton: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  segments: { marginTop: 12 },
   searchBar: { marginHorizontal: 16, marginTop: 12, marginBottom: 4, borderRadius: 10 },
   searchInput: { paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
   listContent: { padding: 16, paddingTop: 8, flexGrow: 1 },

@@ -18,5 +18,5 @@ appId: com.weldsuite.weldcrm
 - tapOn:
     id: login-submit
 - extendedWaitUntil:
-    visible: "Quick Actions"
+    visible: "Recent activity"
     timeout: 45000

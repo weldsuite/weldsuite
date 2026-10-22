@@ -1,47 +1,20 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useObserve } from 'expo-observe';
-import {
-  Activity,
-  Building2,
-  CheckSquare,
-  DollarSign,
-  FileText,
-  Mail,
-  Phone,
-  Target,
-  Trophy,
-  UserPlus,
-  Users,
-  Video,
-  type LucideIcon,
-} from 'lucide-react-native';
+import { Activity, CheckSquare, FileText, Mail, Phone, Plus, Video, type LucideIcon } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { api, type CrmActivity, type CrmDashboardStats } from '@/services/api';
+import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { OptionSheet } from '@/components/option-sheet';
+import { TaskItem } from '@/components/task-item';
+import { TaskSheet } from '@/components/task-sheet';
+import { api, type CrmActivity } from '@/services/api';
+import { tasksApi, type CrmTask } from '@/services/tasks';
 import { hideAppSplash } from '@/utils/splash';
-import { interpolate, plural, useI18n } from '@/lib/i18n';
-import { formatMoney } from '@/lib/money';
-
-interface StatCard {
-  key: string;
-  title: string;
-  value: string;
-  note?: string;
-  icon: LucideIcon;
-  color: string;
-  onPress?: () => void;
-}
-
-interface QuickAction {
-  key: string;
-  label: string;
-  icon: LucideIcon;
-  color: string;
-  onPress: () => void;
-}
+import { useI18n } from '@/lib/i18n';
+import { dueToday } from '@/lib/task-groups';
 
 const ACTIVITY_ICONS: Record<string, LucideIcon> = {
   call: Phone,
@@ -51,45 +24,68 @@ const ACTIVITY_ICONS: Record<string, LucideIcon> = {
   task: CheckSquare,
 };
 
-export default function CrmDashboard() {
+type CreateAction = 'person' | 'company' | 'task' | 'note' | 'deal' | 'activity';
+
+const CREATE_ROUTES: Record<Exclude<CreateAction, 'task'>, Href> = {
+  person: '/person/new',
+  company: '/company/new',
+  note: { pathname: '/note/[id]', params: { id: 'new' } },
+  deal: '/deal/new',
+  activity: '/activity/new',
+};
+
+function greetingKey(now: Date): 'morning' | 'afternoon' | 'evening' {
+  const hour = now.getHours();
+  if (hour < 12) return 'morning';
+  return hour < 18 ? 'afternoon' : 'evening';
+}
+
+export default function HomeScreen() {
   const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const { t, intlLocale } = useI18n();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const [stats, setStats] = useState<CrmDashboardStats | null>(null);
-  const [recentActivities, setRecentActivities] = useState<CrmActivity[]>([]);
+  const { user } = useClerkAuth();
+
+  const [tasks, setTasks] = useState<CrmTask[]>([]);
+  const [activities, setActivities] = useState<CrmActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [sheet, setSheet] = useState<{ visible: boolean; task: CrmTask | null; mode: 'view' | 'create' }>({
+    visible: false,
+    task: null,
+    mode: 'view',
+  });
   const loadedOnce = useRef(false);
+  const userId = user?.id;
 
-  const loadDashboardData = useCallback(
+  const load = useCallback(
     async (silent = false) => {
-      const [statsResponse, activitiesResponse] = await Promise.all([
-        api.getCrmDashboardStats(),
+      const [tasksRes, activitiesRes] = await Promise.all([
+        userId ? tasksApi.list({ assigneeId: userId, limit: 100 }) : Promise.resolve(null),
         api.getActivities({ limit: 6 }),
       ]);
-
-      if (statsResponse.success && statsResponse.data) setStats(statsResponse.data);
-      if (activitiesResponse.success && activitiesResponse.data) setRecentActivities(activitiesResponse.data.items);
-      if (!silent && !statsResponse.success) toast.error(t.home.loadFailed);
-
+      if (tasksRes?.success && tasksRes.data) setTasks(dueToday(tasksRes.data.items));
+      if (activitiesRes.success && activitiesRes.data) setActivities(activitiesRes.data.items);
+      if (!silent && (tasksRes?.success === false || !activitiesRes.success)) toast.error(t.home.loadFailed);
       loadedOnce.current = true;
       setLoading(false);
       setRefreshing(false);
     },
-    [t, toast],
+    [userId, t, toast],
   );
 
   useEffect(() => {
-    void loadDashboardData();
-  }, [loadDashboardData]);
+    void load();
+  }, [load]);
 
-  // Coming back from a create screen: refresh the figures quietly.
+  // Coming back from another screen: refresh quietly.
   useFocusEffect(
     useCallback(() => {
-      if (loadedOnce.current) void loadDashboardData(true);
-    }, [loadDashboardData]),
+      if (loadedOnce.current) void load(true);
+    }, [load]),
   );
 
   useEffect(() => {
@@ -99,246 +95,185 @@ export default function CrmDashboard() {
     }
   }, [loading, markInteractive]);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    void loadDashboardData();
+  const create = (action: CreateAction | null) => {
+    setCreateOpen(false);
+    if (!action) return;
+    if (action === 'task') setSheet({ visible: true, task: null, mode: 'create' });
+    else router.push(CREATE_ROUTES[action]);
   };
 
-  const formatNumber = (value: number): string => value.toLocaleString(intlLocale);
-
-  const revenueNote = stats
-    ? [
-        stats.revenueExcluded > 0 ? plural(stats.revenueExcluded, t.home.revenueExcluded) : null,
-        stats.revenuePartial ? interpolate(t.home.revenuePartial, { count: formatNumber(stats.revenueDealsRead) }) : null,
-      ]
-        .filter(Boolean)
-        .join('. ')
-    : '';
-
-  const statCards: StatCard[] = stats
-    ? [
-        {
-          key: 'people',
-          title: t.home.kpi.people,
-          value: formatNumber(stats.totalPeople),
-          icon: Users,
-          color: '#3B82F6',
-          onPress: () => router.navigate({ pathname: '/contacts', params: { segment: 'people' } }),
-        },
-        {
-          key: 'companies',
-          title: t.home.kpi.companies,
-          value: formatNumber(stats.totalCompanies),
-          icon: Building2,
-          color: '#6366F1',
-          onPress: () => router.navigate({ pathname: '/contacts', params: { segment: 'companies' } }),
-        },
-        {
-          key: 'leads',
-          title: t.home.kpi.leads,
-          value: formatNumber(stats.leads),
-          icon: UserPlus,
-          color: '#10B981',
-          onPress: () => router.navigate({ pathname: '/contacts', params: { filter: 'leads' } }),
-        },
-        {
-          key: 'open',
-          title: t.home.kpi.openDeals,
-          value: formatNumber(stats.openDeals),
-          icon: Target,
-          color: '#8B5CF6',
-          onPress: () => router.navigate('/deals'),
-        },
-        {
-          key: 'won',
-          title: t.home.kpi.wonDeals,
-          value: formatNumber(stats.wonDeals),
-          icon: Trophy,
-          color: '#EC4899',
-        },
-        {
-          key: 'revenue',
-          title: t.home.kpi.revenue,
-          value: formatMoney(stats.revenue, stats.currency, intlLocale, { compact: true }),
-          note: revenueNote || undefined,
-          icon: DollarSign,
-          color: '#F59E0B',
-        },
-      ]
-    : [];
-
-  const quickActions: QuickAction[] = [
-    { key: 'person', label: t.home.actions.addPerson, icon: Users, color: '#3B82F6', onPress: () => router.push('/person/new') },
-    { key: 'company', label: t.home.actions.addCompany, icon: Building2, color: '#6366F1', onPress: () => router.push('/company/new') },
-    { key: 'activity', label: t.home.actions.logActivity, icon: Activity, color: '#F59E0B', onPress: () => router.push('/activity/new') },
-    {
-      key: 'note',
-      label: t.home.actions.newNote,
-      icon: FileText,
-      color: '#10B981',
-      onPress: () => router.push({ pathname: '/note/[id]', params: { id: 'new' } }),
-    },
-    {
-      key: 'deal',
-      label: t.home.actions.createDeal,
-      icon: Target,
-      color: '#8B5CF6',
-      onPress: () => router.navigate({ pathname: '/deals', params: { new: '1' } }),
-    },
-    {
-      key: 'task',
-      label: t.home.actions.newTask,
-      icon: CheckSquare,
-      color: '#EF4444',
-      onPress: () => router.navigate({ pathname: '/tasks', params: { new: '1' } }),
-    },
-  ];
-
-  const formatActivityTime = (iso: string) => {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return t.common.dash;
-    return date.toLocaleString(intlLocale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const toggleTask = async (task: CrmTask) => {
+    const res = await tasksApi.update(task.id, { status: task.completed ? 'todo' : 'done' });
+    if (res.success && res.data) {
+      const saved = res.data;
+      setTasks((prev) => prev.map((item) => (item.id === saved.id ? saved : item)));
+    } else {
+      toast.error(t.tasks.updateFailed);
+    }
   };
 
   const openActivity = (activity: CrmActivity) => {
     if (activity.type === 'note') {
       router.push({ pathname: '/note/[id]', params: { id: activity.id } });
-    } else if (activity.record) {
-      router.push({
-        pathname: activity.record.kind === 'company' ? '/company/[id]' : '/person/[id]',
-        params: { id: activity.record.id, name: activity.record.name ?? '', tab: 'activity' },
-      });
+      return;
     }
+    if (!activity.record) return;
+    router.push({
+      pathname: activity.record.kind === 'company' ? '/company/[id]' : '/person/[id]',
+      params: { id: activity.record.id, name: activity.record.name ?? '', tab: 'activity' },
+    });
   };
 
+  const now = new Date();
+  const firstName = user?.fullName?.split(' ')[0];
+  const greeting = t.home.greeting[greetingKey(now)];
+  const closeSheet = () => setSheet((prev) => ({ ...prev, visible: false }));
+  const activityTime = (iso: string) =>
+    new Date(iso).toLocaleString(intlLocale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  let todayContent: React.ReactNode;
+  if (loading) {
+    todayContent = <ActivityIndicator style={styles.spinner} color={colors.text} />;
+  } else if (tasks.length === 0) {
+    todayContent = <Text style={[styles.empty, { color: colors.muted }]}>{t.home.nothingDue}</Text>;
+  } else {
+    todayContent = tasks.map((task) => (
+      <TaskItem
+        key={task.id}
+        task={task}
+        onPress={(item) => setSheet({ visible: true, task: item, mode: 'view' })}
+        onToggle={(item) => void toggleTask(item)}
+      />
+    ));
+  }
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-      contentContainerStyle={{ paddingTop: insets.top + 8 }}
-    >
-      <View style={styles.content}>
-        <Text style={[styles.pageTitle, { color: colors.text }]} accessibilityRole="header">
-          {t.home.title}
-        </Text>
-
-        {loading ? (
-          <ActivityIndicator style={styles.loading} size="large" color={colors.text} accessibilityLabel={t.common.loading} />
-        ) : (
-          <View style={styles.statsGrid}>
-            {statCards.map((stat) => {
-              const Icon = stat.icon;
-              return (
-                <TouchableOpacity
-                  key={stat.key}
-                  style={styles.statCard}
-                  onPress={stat.onPress}
-                  disabled={!stat.onPress}
-                  accessibilityRole={stat.onPress ? 'button' : undefined}
-                  accessibilityLabel={`${stat.title}: ${stat.value}`}
-                >
-                  <View style={[styles.iconContainer, { backgroundColor: stat.color + '20' }]}>
-                    <Icon size={24} color={stat.color} strokeWidth={2} />
-                  </View>
-                  <Text style={[styles.statValue, { color: colors.text }]}>{stat.value}</Text>
-                  <Text style={[styles.statTitle, { color: colors.muted }]}>{stat.title}</Text>
-                  {stat.note ? <Text style={[styles.statNote, { color: colors.muted }]}>{stat.note}</Text> : null}
-                </TouchableOpacity>
-              );
-            })}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              void load();
+            }}
+          />
+        }
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]}
+      >
+        <View style={styles.header}>
+          <View style={styles.headerText}>
+            <Text style={[styles.greeting, { color: colors.text }]} accessibilityRole="header">
+              {firstName ? `${greeting}, ${firstName}` : greeting}
+            </Text>
+            <Text style={[styles.date, { color: colors.muted }]}>
+              {now.toLocaleDateString(intlLocale, { weekday: 'long', day: 'numeric', month: 'long' })}
+            </Text>
           </View>
-        )}
+          <TouchableOpacity
+            style={[styles.createButton, { backgroundColor: colors.text }]}
+            onPress={() => setCreateOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={t.home.create}
+          >
+            <Plus size={22} color={colors.background} strokeWidth={2.2} />
+          </TouchableOpacity>
+        </View>
 
-        {/* Quick Actions */}
-        <View style={[styles.section, { backgroundColor: colors.background, borderColor: colors.divider }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.quickActions}</Text>
-          <View style={styles.actionsGrid}>
-            {quickActions.map((action) => {
-              const Icon = action.icon;
-              return (
-                <View key={action.key} style={styles.actionCell}>
-                  <TouchableOpacity
-                    style={[styles.actionButton, { borderColor: colors.divider }]}
-                    onPress={action.onPress}
-                    accessibilityRole="button"
-                    accessibilityLabel={action.label}
-                  >
-                    <Icon size={20} color={action.color} strokeWidth={2} />
-                    <Text style={[styles.actionText, { color: colors.text }]}>{action.label}</Text>
-                  </TouchableOpacity>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.today}</Text>
+          <TouchableOpacity onPress={() => router.navigate('/tasks')} accessibilityRole="link">
+            <Text style={[styles.sectionLink, { color: colors.muted }]}>{t.home.allTasks}</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.section}>{todayContent}</View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.recentActivities}</Text>
+        </View>
+        <View style={styles.section}>
+          {!loading && activities.length === 0 && (
+            <Text style={[styles.empty, { color: colors.muted }]}>{t.home.noActivity}</Text>
+          )}
+          {activities.map((activity) => {
+            const Icon = ACTIVITY_ICONS[activity.type] ?? Activity;
+            return (
+              <TouchableOpacity
+                key={activity.id}
+                style={[styles.activity, { borderBottomColor: colors.divider }]}
+                onPress={() => openActivity(activity)}
+                disabled={activity.type !== 'note' && !activity.record}
+                accessibilityRole="button"
+                accessibilityLabel={activity.subject}
+              >
+                <Icon size={16} color={colors.muted} />
+                <View style={styles.activityText}>
+                  <Text style={[styles.activityTitle, { color: colors.text }]} numberOfLines={1}>
+                    {activity.subject}
+                  </Text>
+                  <Text style={[styles.activityMeta, { color: colors.muted }]} numberOfLines={1}>
+                    {[activity.record?.name, activityTime(activity.createdAt)].filter(Boolean).join(' · ')}
+                  </Text>
                 </View>
-              );
-            })}
-          </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
+      </ScrollView>
 
-        {/* Recent Activities */}
-        <View style={[styles.section, { backgroundColor: colors.background, borderColor: colors.divider }]}>
-          <View style={styles.sectionHeader}>
-            <Activity size={20} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.recentActivities}</Text>
-          </View>
-          <View style={styles.activitiesList}>
-            {loading ? (
-              <ActivityIndicator color={colors.text} />
-            ) : (
-              recentActivities.map((activity) => {
-                const Icon = ACTIVITY_ICONS[activity.type] ?? Activity;
-                return (
-                  <TouchableOpacity
-                    key={activity.id}
-                    style={[styles.activityItem, { borderBottomColor: colors.divider }]}
-                    onPress={() => openActivity(activity)}
-                    disabled={activity.type !== 'note' && !activity.record}
-                    accessibilityRole="button"
-                    accessibilityLabel={activity.subject}
-                  >
-                    <Icon size={16} color={colors.muted} />
-                    <View style={styles.activityText}>
-                      <Text style={[styles.activityTitle, { color: colors.text }]} numberOfLines={1}>
-                        {activity.subject}
-                      </Text>
-                      <Text style={[styles.activityTime, { color: colors.muted }]} numberOfLines={1}>
-                        {[activity.record?.name, formatActivityTime(activity.createdAt)].filter(Boolean).join(' · ')}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-            {!loading && recentActivities.length === 0 && (
-              <Text style={[styles.activityTime, { color: colors.muted }]}>{t.home.noActivity}</Text>
-            )}
-          </View>
-        </View>
-        <View style={{ height: 24 }} />
-      </View>
-    </ScrollView>
+      <OptionSheet<CreateAction>
+        visible={createOpen}
+        title={t.home.create}
+        options={[
+          { value: 'person', label: t.home.actions.addPerson },
+          { value: 'company', label: t.home.actions.addCompany },
+          { value: 'task', label: t.home.actions.newTask },
+          { value: 'note', label: t.home.actions.newNote },
+          { value: 'deal', label: t.home.actions.createDeal },
+          { value: 'activity', label: t.home.actions.logActivity },
+        ]}
+        onSelect={create}
+        onClose={() => setCreateOpen(false)}
+      />
+      <TaskSheet
+        visible={sheet.visible}
+        initialMode={sheet.mode}
+        task={sheet.task}
+        onClose={closeSheet}
+        onCreated={() => {
+          closeSheet();
+          void load(true);
+        }}
+        onUpdated={(task) => {
+          setTasks((prev) => prev.map((item) => (item.id === task.id ? task : item)));
+          setSheet((prev) => (prev.task?.id === task.id ? { ...prev, task } : prev));
+        }}
+        onDeleted={(id) => {
+          setTasks((prev) => prev.filter((item) => item.id !== id));
+          closeSheet();
+        }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 16 },
-  pageTitle: { fontSize: 34, fontWeight: '700', marginBottom: 16 },
-  loading: { paddingVertical: 48 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 },
-  statCard: { width: '50%', padding: 8, marginBottom: 8 },
-  iconContainer: { width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  statValue: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  statTitle: { fontSize: 13 },
-  statNote: { fontSize: 11, marginTop: 6 },
-  section: { marginTop: 24, borderRadius: 12, padding: 16, borderWidth: 1 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: '600' },
-  activitiesList: { gap: 12 },
-  activityItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 12, borderBottomWidth: 1 },
+  content: { paddingHorizontal: 20, paddingBottom: 32 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 28 },
+  headerText: { flex: 1 },
+  greeting: { fontSize: 28, fontWeight: '700' },
+  date: { fontSize: 15, marginTop: 4 },
+  createButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  sectionTitle: { fontSize: 18, fontWeight: '600' },
+  sectionLink: { fontSize: 14 },
+  section: { marginBottom: 28 },
+  spinner: { paddingVertical: 24 },
+  empty: { fontSize: 14, paddingVertical: 8 },
+  activity: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   activityText: { flex: 1 },
-  activityTitle: { fontSize: 14, marginBottom: 4 },
-  activityTime: { fontSize: 13 },
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, marginHorizontal: -6 },
-  actionCell: { width: '50%', padding: 6 },
-  actionButton: { borderWidth: 1, borderRadius: 8, alignItems: 'center', paddingVertical: 16, paddingHorizontal: 8 },
-  actionText: { fontSize: 14, fontWeight: '500', marginTop: 8, textAlign: 'center' },
+  activityTitle: { fontSize: 15 },
+  activityMeta: { fontSize: 13, marginTop: 2 },
 });

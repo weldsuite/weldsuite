@@ -57,10 +57,9 @@ export const nl: Translations = {
 
   tabs: {
     home: 'Start',
-    contacts: 'Contacten',
-    deals: 'Deals',
+    companies: 'Bedrijven',
+    people: 'Personen',
     tasks: 'Taken',
-    notes: 'Notities',
     more: 'Meer',
   },
 
@@ -80,36 +79,29 @@ export const nl: Translations = {
   },
 
   home: {
-    title: 'CRM',
-    loadFailed: 'Dashboardgegevens laden mislukt',
-    kpi: {
-      people: 'Personen',
-      companies: 'Bedrijven',
-      leads: 'Leads',
-      openDeals: 'Open deals',
-      wonDeals: 'Gewonnen deals',
-      revenue: 'Omzet (gewonnen deals)',
+    greeting: {
+      morning: 'Goedemorgen',
+      afternoon: 'Goedemiddag',
+      evening: 'Goedenavond',
     },
-    revenueExcluded: {
-      one: '1 gewonnen deal in een andere valuta is niet meegeteld',
-      other: '{count} gewonnen deals in een andere valuta zijn niet meegeteld',
-    },
-    revenuePartial: 'Op basis van de laatste {count} gewonnen deals',
-    recentActivities: 'Recente activiteiten',
+    create: 'Aanmaken',
+    today: 'Vandaag',
+    allTasks: 'Alle taken',
+    nothingDue: 'Niets voor vandaag.',
+    loadFailed: 'Je dag laden mislukt',
+    recentActivities: 'Recente activiteit',
     noActivity: 'Geen recente activiteit.',
-    quickActions: 'Snelle acties',
     actions: {
-      addPerson: 'Persoon toevoegen',
-      addCompany: 'Bedrijf toevoegen',
+      addPerson: 'Persoon',
+      addCompany: 'Bedrijf',
+      newTask: 'Taak',
+      newNote: 'Notitie',
+      createDeal: 'Deal',
       logActivity: 'Activiteit vastleggen',
-      newNote: 'Nieuwe notitie',
-      createDeal: 'Deal aanmaken',
-      newTask: 'Nieuwe taak',
     },
   },
 
   contacts: {
-    title: 'Contacten',
     people: 'Personen',
     companies: 'Bedrijven',
     searchPeople: 'Personen zoeken...',
@@ -663,6 +655,10 @@ export const nl: Translations = {
   more: {
     title: 'Meer',
     crm: 'WeldCRM',
+    deals: 'Deals',
+    dealsHint: 'Pijplijnen en dealborden',
+    notes: 'Notities',
+    notesHint: 'Alle notities in één lijst',
     lists: 'Lijsten',
     listsHint: 'Groepen bedrijven of personen',
     sequences: 'Sequenties',

@@ -9,11 +9,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { FileText, Plus, Star } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { TabHeader } from '@/components/headers';
+import { StackHeader } from '@/components/headers';
 import { useMembers } from '@/components/member-picker';
 import { usePagedList } from '@/hooks/use-paged-list';
 import { notesApi, type NoteRecord } from '@/services/notes';
@@ -44,8 +44,10 @@ export default function NotesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <TabHeader
+      <Stack.Screen options={{ headerShown: false }} />
+      <StackHeader
         title={t.notes.title}
+        onBack={() => router.back()}
         right={
           <TouchableOpacity
             style={[styles.addButton, { borderColor: colors.buttonBorder }]}

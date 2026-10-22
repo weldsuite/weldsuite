@@ -13,7 +13,6 @@
  *   members         GET /api/team-members (owner / manager / assignee pickers)
  *   custom fields   GET /api/custom-fields?entityType=
  *   statuses        GET /api/customer-statuses
- *   dashboard       derived from the list endpoints' totals
  *   currency        GET /api/workspace-settings
  *
  * Tasks live in `tasks.ts` (flow-api `/tasks`, like the platform's My Tasks),
@@ -31,7 +30,7 @@ import type { ApiResponse } from '@weldsuite/mobile-ui/types';
 import { appApiClient } from './app-api';
 import { recordOfActivity, recordLinkPayload, type RecordRef } from './notes';
 import { resolveName, type LoggableActivityType } from '@/lib/crm';
-import { DEFAULT_CURRENCY, resolveCurrency, sumInCurrency, toNumber } from '@/lib/money';
+import { DEFAULT_CURRENCY, resolveCurrency, toNumber } from '@/lib/money';
 
 // ============================================================================
 // Public types
@@ -55,25 +54,6 @@ export interface Address {
   city?: string;
   state?: string;
   country?: string;
-}
-
-export interface CrmDashboardStats {
-  totalPeople: number;
-  totalCompanies: number;
-  /** People and companies flagged as a lead. */
-  leads: number;
-  openDeals: number;
-  wonDeals: number;
-  /** Sum of won deals in `currency`. */
-  revenue: number;
-  /** The workspace currency `revenue` is in. */
-  currency: string;
-  /** Won deals left out of `revenue` because they are in another currency. */
-  revenueExcluded: number;
-  /** True when there are more won deals than the pages that were read. */
-  revenuePartial: boolean;
-  /** How many won deals were read for `revenue`. */
-  revenueDealsRead: number;
 }
 
 /** An activity on the timeline (call, email, meeting, note, task, …). */
@@ -711,10 +691,6 @@ const KNOWN_FIELD_TYPES = new Set<string>([
   'url', 'email', 'phone', 'currency', 'rating', 'file', 'user_ref', 'entity_ref',
 ]);
 
-/** Won deals are read in pages of 100; this caps a dashboard load at 1,000 of them. */
-const WON_DEALS_PAGE_LIMIT = 100;
-const WON_DEALS_MAX_PAGES = 10;
-
 /**
  * Per-workspace caches (currency, members, custom fields, statuses), keyed by
  * workspace id so switching workspace, or signing in as someone else, never
@@ -923,60 +899,6 @@ const api = {
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map((row) => ({ value: row.slug, label: row.name, color: optional(row.color) })),
       );
-    } catch (err) {
-      return fail(err);
-    }
-  },
-
-  // ========== Dashboard ==========
-  /**
-   * The API has no CRM stats endpoint, so the counters come from the list
-   * endpoints' totals. Revenue adds up the won deals that are in the workspace
-   * currency, across every page up to 1,000 deals; deals in other currencies
-   * are counted in `revenueExcluded` and never converted or added.
-   */
-  async getCrmDashboardStats(): Promise<ApiResponse<CrmDashboardStats>> {
-    try {
-      const [people, companies, leadPeople, leadCompanies, openDeals, currency] = await Promise.all([
-        appApiClient.get<ListEnvelope<unknown>>('/people?limit=1&inCrm=true'),
-        appApiClient.get<ListEnvelope<unknown>>('/companies?limit=1'),
-        appApiClient.get<ListEnvelope<unknown>>('/people?limit=1&inCrm=true&isLead=true'),
-        appApiClient.get<ListEnvelope<unknown>>('/companies?limit=1&isLead=true'),
-        appApiClient.get<ListEnvelope<unknown>>('/opportunities?limit=1&status=open'),
-        api.getWorkspaceCurrency(),
-      ]);
-
-      const wonDeals: OpportunityRow[] = [];
-      let wonTotalCount = 0;
-      let cursor: string | null = null;
-      let revenuePartial = false;
-      for (let pageIndex = 0; pageIndex < WON_DEALS_MAX_PAGES; pageIndex += 1) {
-        const res: ListEnvelope<OpportunityRow> = await appApiClient.get<ListEnvelope<OpportunityRow>>(
-          `/opportunities${query({ status: 'won', limit: WON_DEALS_PAGE_LIMIT, cursor })}`,
-        );
-        wonDeals.push(...res.data);
-        wonTotalCount = res.pagination.totalCount;
-        cursor = res.pagination.cursor;
-        if (!res.pagination.hasMore || !cursor) break;
-        if (pageIndex === WON_DEALS_MAX_PAGES - 1) revenuePartial = true;
-      }
-
-      const revenue = sumInCurrency(
-        wonDeals.map((deal) => ({ amount: deal.amount, currency: deal.currency })),
-        currency,
-      );
-      return ok({
-        totalPeople: people.pagination.totalCount,
-        totalCompanies: companies.pagination.totalCount,
-        leads: leadPeople.pagination.totalCount + leadCompanies.pagination.totalCount,
-        openDeals: openDeals.pagination.totalCount,
-        wonDeals: wonTotalCount,
-        revenue: revenue.total,
-        currency,
-        revenueExcluded: revenue.excluded,
-        revenuePartial,
-        revenueDealsRead: wonDeals.length,
-      });
     } catch (err) {
       return fail(err);
     }

@@ -3,24 +3,24 @@ name: Home and tabs load
 tags: [smoke]
 ---
 - runFlow: ../subflows/login.yaml
-- assertVisible: "Quick Actions"
-- scrollUntilVisible:
-    element: "Recent Activities"
-    direction: DOWN
-- tapOn: "Contacts"
-- assertVisible: "Search people..."
-- assertVisible: "Leads"
+- assertVisible: "Today"
+- assertVisible: "Recent activity"
 - tapOn: "Companies"
 - assertVisible: "Search companies..."
-- tapOn: "Deals"
-- assertVisible: ".*Add deal.*|No pipeline yet.*"
+- assertVisible: "Leads"
+- tapOn: "People"
+- assertVisible: "Search people..."
 - tapOn: "Tasks"
 - assertVisible: "Search tasks, companies..."
 - assertVisible: "My tasks"
-- tapOn: "Notes"
-- assertVisible: "Search notes..."
 - tapOn: "More"
 - assertVisible: "Sign Out"
+- tapOn: "Deals"
+- assertVisible: ".*Add deal.*|No pipeline yet.*"
+- back
+- tapOn: "Notes"
+- assertVisible: "Search notes..."
+- back
 - tapOn: "Lists"
 - assertVisible: "Search lists..."
 - back

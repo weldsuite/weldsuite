@@ -1,4 +1,4 @@
-import { TASK_SECTION_ORDER, groupTasks, matchesTaskFilters, sectionFor, type GroupableTask } from '@/lib/task-groups';
+import { TASK_SECTION_ORDER, dueToday, groupTasks, matchesTaskFilters, sectionFor, type GroupableTask } from '@/lib/task-groups';
 
 const NOW = new Date(2026, 7, 5, 9, 30);
 const at = (day: number) => new Date(2026, 7, day, 12).toISOString();
@@ -46,5 +46,18 @@ describe('matchesTaskFilters', () => {
   it('applies the status filter', () => {
     expect(matchesTaskFilters(task({ status: 'backlog' }), '', 'backlog')).toBe(true);
     expect(matchesTaskFilters(task({ status: 'backlog' }), '', 'done')).toBe(false);
+  });
+});
+
+describe('dueToday', () => {
+  it('keeps open tasks due today or overdue, oldest first', () => {
+    const tasks = [
+      task({ title: 'today', dueDate: at(5) }),
+      task({ title: 'tomorrow', dueDate: at(6) }),
+      task({ title: 'overdue', dueDate: at(2) }),
+      task({ title: 'done', dueDate: at(4), completed: true, status: 'done' }),
+      task({ title: 'no date' }),
+    ];
+    expect(dueToday(tasks, NOW).map((item) => item.title)).toEqual(['overdue', 'today']);
   });
 });

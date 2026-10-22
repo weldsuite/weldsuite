@@ -37,62 +37,6 @@ describe('payload builders', () => {
   });
 });
 
-describe('getCrmDashboardStats', () => {
-  const mockDashboard = (won: { pages: { amount: string; currency: string | null }[][]; totalCount: number }) => {
-    let wonPage = 0;
-    client.get.mockImplementation((path: string) => {
-      if (path.startsWith('/workspace-settings')) return Promise.resolve({ data: { currency: 'EUR' } });
-      if (path.startsWith('/people') && path.includes('isLead=true')) return Promise.resolve(list([], 4));
-      if (path.startsWith('/people')) return Promise.resolve(list([], 42));
-      if (path.startsWith('/companies') && path.includes('isLead=true')) return Promise.resolve(list([], 1));
-      if (path.startsWith('/companies')) return Promise.resolve(list([], 7));
-      if (path.startsWith('/opportunities') && path.includes('status=open')) return Promise.resolve(list([], 9));
-      if (path.startsWith('/opportunities')) {
-        const rows = won.pages[wonPage] ?? [];
-        wonPage += 1;
-        const next = wonPage < won.pages.length ? `cursor_${wonPage}` : null;
-        return Promise.resolve(list(rows, won.totalCount, next));
-      }
-      return Promise.reject(new Error(`unexpected ${path}`));
-    });
-  };
-
-  it('sums won deals across every page, only in the workspace currency', async () => {
-    mockDashboard({
-      pages: [
-        [
-          { amount: '1000.00', currency: 'EUR' },
-          { amount: '500.00', currency: 'USD' },
-        ],
-        [{ amount: '250.50', currency: 'EUR' }],
-      ],
-      totalCount: 3,
-    });
-
-    const res = await api.getCrmDashboardStats();
-
-    expect(res.success).toBe(true);
-    expect(res.data).toMatchObject({
-      totalPeople: 42,
-      totalCompanies: 7,
-      leads: 5,
-      openDeals: 9,
-      wonDeals: 3,
-      revenue: 1250.5,
-      currency: 'EUR',
-      revenueExcluded: 1,
-      revenuePartial: false,
-      revenueDealsRead: 3,
-    });
-  });
-
-  it('reports a failure instead of throwing', async () => {
-    client.get.mockRejectedValue(new Error('offline'));
-    const res = await api.getCrmDashboardStats();
-    expect(res).toEqual({ success: false, error: 'offline' });
-  });
-});
-
 describe('people and companies', () => {
   it('lists people the way the platform grid does (CRM members only) and maps rows', async () => {
     client.get.mockResolvedValue(

@@ -5,7 +5,7 @@ tags: [writes]
 # Creates "E2E Person <timestamp>" and "E2E Company <timestamp>", then deletes both.
 - runFlow: ../subflows/login.yaml
 - evalScript: ${output.stamp = Date.now()}
-- tapOn: "Contacts"
+- tapOn: "People"
 - tapOn: "Add person"
 - assertVisible: "New person"
 # First name is required.

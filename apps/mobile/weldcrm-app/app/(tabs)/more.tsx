@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, ChevronRight, ListChecks, LogOut, Moon, Send, Sun, type LucideIcon } from 'lucide-react-native';
+import { Check, ChevronRight, FileText, ListChecks, LogOut, Moon, Send, Sun, Target, type LucideIcon } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -75,6 +75,8 @@ export default function MoreScreen() {
 
       <View style={[styles.section, { backgroundColor: colors.card }]}>
         <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.more.crm}</Text>
+        <LinkRow icon={Target} label={t.more.deals} hint={t.more.dealsHint} onPress={() => router.push('/deals')} />
+        <LinkRow icon={FileText} label={t.more.notes} hint={t.more.notesHint} onPress={() => router.push('/notes')} />
         <LinkRow icon={ListChecks} label={t.more.lists} hint={t.more.listsHint} onPress={() => router.push('/lists')} />
         <LinkRow
           icon={Send}

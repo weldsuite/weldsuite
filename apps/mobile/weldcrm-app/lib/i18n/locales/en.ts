@@ -55,10 +55,9 @@ export const en = {
 
   tabs: {
     home: 'Home',
-    contacts: 'Contacts',
-    deals: 'Deals',
+    companies: 'Companies',
+    people: 'People',
     tasks: 'Tasks',
-    notes: 'Notes',
     more: 'More',
   },
 
@@ -78,36 +77,29 @@ export const en = {
   },
 
   home: {
-    title: 'CRM',
-    loadFailed: 'Failed to load dashboard data',
-    kpi: {
-      people: 'People',
-      companies: 'Companies',
-      leads: 'Leads',
-      openDeals: 'Open Deals',
-      wonDeals: 'Won Deals',
-      revenue: 'Revenue (won deals)',
+    greeting: {
+      morning: 'Good morning',
+      afternoon: 'Good afternoon',
+      evening: 'Good evening',
     },
-    revenueExcluded: {
-      one: '1 won deal in another currency is not included',
-      other: '{count} won deals in another currency are not included',
-    },
-    revenuePartial: 'Based on the most recent {count} won deals',
-    recentActivities: 'Recent Activities',
+    create: 'Create',
+    today: 'Today',
+    allTasks: 'All tasks',
+    nothingDue: 'Nothing due today.',
+    loadFailed: 'Failed to load your day',
+    recentActivities: 'Recent activity',
     noActivity: 'No recent activity.',
-    quickActions: 'Quick Actions',
     actions: {
-      addPerson: 'Add Person',
-      addCompany: 'Add Company',
-      logActivity: 'Log Activity',
-      newNote: 'New Note',
-      createDeal: 'Create Deal',
-      newTask: 'New Task',
+      addPerson: 'Person',
+      addCompany: 'Company',
+      newTask: 'Task',
+      newNote: 'Note',
+      createDeal: 'Deal',
+      logActivity: 'Log an activity',
     },
   },
 
   contacts: {
-    title: 'Contacts',
     people: 'People',
     companies: 'Companies',
     searchPeople: 'Search people...',
@@ -661,6 +653,10 @@ export const en = {
   more: {
     title: 'More',
     crm: 'WeldCRM',
+    deals: 'Deals',
+    dealsHint: 'Pipelines and deal boards',
+    notes: 'Notes',
+    notesHint: 'All notes in one list',
     lists: 'Lists',
     listsHint: 'Groups of companies or people',
     sequences: 'Sequences',
