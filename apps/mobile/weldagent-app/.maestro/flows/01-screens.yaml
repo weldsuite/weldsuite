@@ -1,0 +1,20 @@
+appId: com.weldsuite.weldagent
+name: Home, agents, activity, credits and new-agent form load
+tags: [smoke]
+---
+# Read-only on purpose: creating agents syncs them to Anthropic and chats
+# spend AI credits, so this flow opens the screens without submitting.
+- runFlow: ../subflows/login.yaml
+- assertVisible: "Recent chats"
+- tapOn: "Agents"
+- assertVisible: "Search agents"
+- tapOn: "Activity"
+- waitForAnimationToEnd
+- tapOn: "More"
+- tapOn: "Credits"
+- assertVisible: "Balance"
+- back
+- tapOn: "Home"
+- tapOn: "New agent"
+- assertVisible: "Lead helper"
+- back
