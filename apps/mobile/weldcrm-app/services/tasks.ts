@@ -99,15 +99,23 @@ function toPerson(row: PersonRow): TaskPerson {
   return { id: row.id, name: row.name || '', avatarUrl: row.avatar ?? undefined };
 }
 
+/** The company or person a task row points at (a task links to one or the other). */
+function recordOfTask(row: TaskRow): RecordRef | undefined {
+  if (row.linkedCompany) return { kind: 'company', id: row.linkedCompany.id, name: row.linkedCompany.name ?? undefined };
+  if (row.customerId) return { kind: 'company', id: row.customerId };
+  if (row.linkedPerson) return { kind: 'person', id: row.linkedPerson.id, name: row.linkedPerson.name ?? undefined };
+  const personId = row.personId || row.contactId;
+  return personId ? { kind: 'person', id: personId } : undefined;
+}
+
+/** All assignees; older rows only have the single `assignee`. */
+function assigneesOf(row: TaskRow): TaskPerson[] {
+  if (row.assignees?.length) return row.assignees.map(toPerson);
+  return row.assignee ? [toPerson(row.assignee)] : [];
+}
+
 export function mapTask(row: TaskRow): CrmTask {
   const status = normalizeTaskStatus(row.status);
-  let record: RecordRef | undefined;
-  if (row.linkedCompany) record = { kind: 'company', id: row.linkedCompany.id, name: row.linkedCompany.name ?? undefined };
-  else if (row.customerId) record = { kind: 'company', id: row.customerId };
-  else if (row.linkedPerson) record = { kind: 'person', id: row.linkedPerson.id, name: row.linkedPerson.name ?? undefined };
-  else if (row.personId || row.contactId) record = { kind: 'person', id: (row.personId || row.contactId) as string };
-
-  const assignees = (row.assignees?.length ? row.assignees : row.assignee ? [row.assignee] : []).map(toPerson);
   return {
     id: row.id,
     number: row.number ?? undefined,
@@ -119,44 +127,46 @@ export function mapTask(row: TaskRow): CrmTask {
     dueDate: row.dueDate ?? undefined,
     labels: row.labels ?? [],
     repeat: row.repeat ?? undefined,
-    assignees,
-    record,
+    assignees: assigneesOf(row),
+    record: recordOfTask(row),
     createdAt: row.createdAt,
   };
 }
 
+type Mode = 'create' | 'update';
+
+/**
+ * A clearable field: a value is sent as is; `null` clears it on update and is
+ * left out on create (there is nothing to clear yet).
+ */
+function clearable<T>(payload: Record<string, unknown>, key: string, value: T | null | undefined, mode: Mode) {
+  if (value === undefined) return;
+  if (value !== null || mode === 'update') payload[key] = value;
+}
+
+/** A task links to a company XOR a person; an update always writes both columns. */
+function recordLink(payload: Record<string, unknown>, record: RecordRef | null, mode: Mode) {
+  const companyId = record?.kind === 'company' ? record.id : null;
+  const personId = record?.kind === 'person' ? record.id : null;
+  clearable(payload, 'customerId', companyId, mode);
+  clearable(payload, 'personId', personId, mode);
+}
+
 /** The request body for a create or update; fields that weren't given are left out. */
-export function taskPayload(input: TaskInput, mode: 'create' | 'update'): Record<string, unknown> {
+export function taskPayload(input: TaskInput, mode: Mode): Record<string, unknown> {
   const payload: Record<string, unknown> = {};
   if (input.title !== undefined) payload.title = input.title.trim();
-  if (input.description !== undefined) {
-    const text = input.description?.trim();
-    if (text) payload.description = text;
-    else if (mode === 'update') payload.description = null;
-  }
+  if (input.description !== undefined) clearable(payload, 'description', input.description?.trim() || null, mode);
   if (input.status !== undefined) payload.status = input.status;
   // "No priority" is left out, like the platform's dialog does.
   if (input.priority) payload.priority = input.priority;
-  if (input.dueDate !== undefined && (input.dueDate !== null || mode === 'update')) payload.dueDate = input.dueDate;
+  clearable(payload, 'dueDate', input.dueDate, mode);
   if (input.labels !== undefined) payload.labels = input.labels;
-  if (input.repeat !== undefined && (input.repeat !== null || mode === 'update')) payload.repeat = input.repeat;
+  clearable(payload, 'repeat', input.repeat, mode);
   if (input.assigneeIds !== undefined) {
-    const ids = input.assigneeIds ?? [];
-    if (ids.length > 0) payload.assigneeIds = ids;
-    else if (mode === 'update') payload.assigneeIds = null;
+    clearable(payload, 'assigneeIds', input.assigneeIds?.length ? input.assigneeIds : null, mode);
   }
-  if (input.record !== undefined) {
-    // A task links to a company XOR a person.
-    const companyId = input.record?.kind === 'company' ? input.record.id : null;
-    const personId = input.record?.kind === 'person' ? input.record.id : null;
-    if (mode === 'update') {
-      payload.customerId = companyId;
-      payload.personId = personId;
-    } else {
-      if (companyId) payload.customerId = companyId;
-      if (personId) payload.personId = personId;
-    }
-  }
+  if (input.record !== undefined) recordLink(payload, input.record, mode);
   return payload;
 }
 

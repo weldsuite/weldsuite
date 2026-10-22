@@ -202,10 +202,11 @@ export function TaskSheet({
       repeat: form.repeat ? { frequency: form.repeat } : null,
     };
 
+    if (mode !== 'create' && !task) return;
     setBusy(true);
-    const res = mode === 'create' ? await tasksApi.create(input) : task ? await tasksApi.update(task.id, input) : null;
+    const res = task && mode !== 'create' ? await tasksApi.update(task.id, input) : await tasksApi.create(input);
     setBusy(false);
-    if (res?.success && res.data) {
+    if (res.success && res.data) {
       if (mode === 'create') {
         toast.success(t.tasks.createdToast);
         onCreated(res.data);
@@ -216,7 +217,7 @@ export function TaskSheet({
       }
       return;
     }
-    toast.error(errorText(res?.error, mode === 'create' ? t.tasks.createFailed : t.tasks.updateFailed));
+    toast.error(errorText(res.error, mode === 'create' ? t.tasks.createFailed : t.tasks.updateFailed));
   };
 
   const changeStatus = async (next: TaskStatus) => {
@@ -491,7 +492,8 @@ export function TaskSheet({
           </View>
         </View>
 
-        {mode === 'view' ? (task ? renderView(task) : null) : renderForm()}
+        {mode === 'view' && task ? renderView(task) : null}
+        {mode === 'view' ? null : renderForm()}
 
         <OptionSheet<TaskStatus>
           visible={picker === 'status'}

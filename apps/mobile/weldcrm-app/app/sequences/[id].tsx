@@ -25,6 +25,19 @@ import { interpolate, labelFor, useI18n } from '@/lib/i18n';
 
 type StatusFilter = 'all' | 'active' | 'paused' | 'pending' | 'completed' | 'failed';
 type SequenceAction = 'launch' | 'pause' | 'resume';
+
+const SEQUENCE_ACTION_CALLS: Record<SequenceAction, (id: string) => ReturnType<typeof sequencesApi.launch>> = {
+  launch: (id) => sequencesApi.launch(id),
+  pause: (id) => sequencesApi.pause(id),
+  resume: (id) => sequencesApi.resume(id),
+};
+
+/** The run action a sequence offers in each status; other statuses offer none. */
+const STATUS_ACTIONS: Record<string, SequenceAction | undefined> = {
+  draft: 'launch',
+  active: 'pause',
+  paused: 'resume',
+};
 type LoadMode = 'initial' | 'refresh' | 'silent';
 
 const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'active', 'paused', 'pending', 'completed', 'failed'];
@@ -125,35 +138,48 @@ export default function SequenceDetailScreen() {
 
   // ---- Sequence actions -------------------------------------------------
 
+  const actionCopy: Record<
+    SequenceAction,
+    { title: string; message: string; button: string; done: string; failed: string }
+  > = {
+    launch: {
+      title: t.sequences.launchTitle,
+      message: t.sequences.launchMessage,
+      button: t.sequences.launch,
+      done: t.sequences.launchedToast,
+      failed: t.sequences.launchFailed,
+    },
+    pause: {
+      title: t.sequences.pauseTitle,
+      message: t.sequences.pauseMessage,
+      button: t.sequences.pause,
+      done: t.sequences.pausedToast,
+      failed: t.sequences.pauseFailed,
+    },
+    resume: {
+      title: t.sequences.resumeTitle,
+      message: t.sequences.resumeMessage,
+      button: t.sequences.resume,
+      done: t.sequences.resumedToast,
+      failed: t.sequences.resumeFailed,
+    },
+  };
+
   const runSequenceAction = async (action: SequenceAction) => {
     setBusy(true);
-    const res =
-      action === 'launch'
-        ? await sequencesApi.launch(id)
-        : action === 'pause'
-          ? await sequencesApi.pause(id)
-          : await sequencesApi.resume(id);
+    const res = await SEQUENCE_ACTION_CALLS[action](id);
     setBusy(false);
     if (res.success) {
-      toast.success(
-        action === 'launch' ? t.sequences.launchedToast : action === 'pause' ? t.sequences.pausedToast : t.sequences.resumedToast,
-      );
+      toast.success(actionCopy[action].done);
       await Promise.all([loadSequence('silent'), enrollments.refresh()]);
       return;
     }
-    const failed =
-      action === 'launch' ? t.sequences.launchFailed : action === 'pause' ? t.sequences.pauseFailed : t.sequences.resumeFailed;
     // Launching is refused with a reason ("add a step first"), which is worth showing as-is.
-    toast.error(action === 'launch' && typeof res.error === 'string' ? res.error : failed);
+    toast.error(action === 'launch' && typeof res.error === 'string' ? res.error : actionCopy[action].failed);
   };
 
   const confirmSequenceAction = (action: SequenceAction) => {
-    const copy =
-      action === 'launch'
-        ? { title: t.sequences.launchTitle, message: t.sequences.launchMessage, button: t.sequences.launch }
-        : action === 'pause'
-          ? { title: t.sequences.pauseTitle, message: t.sequences.pauseMessage, button: t.sequences.pause }
-          : { title: t.sequences.resumeTitle, message: t.sequences.resumeMessage, button: t.sequences.resume };
+    const copy = actionCopy[action];
     Alert.alert(copy.title, interpolate(copy.message, { name: title }), [
       { text: t.common.cancel, style: 'cancel' },
       { text: copy.button, onPress: () => void runSequenceAction(action) },
@@ -263,14 +289,10 @@ export default function SequenceDetailScreen() {
       ]
     : [];
 
-  const action: { kind: SequenceAction; label: string; Icon: typeof Play } | null =
-    status === 'draft'
-      ? { kind: 'launch', label: t.sequences.launch, Icon: Play }
-      : status === 'active'
-        ? { kind: 'pause', label: t.sequences.pause, Icon: Pause }
-        : status === 'paused'
-          ? { kind: 'resume', label: t.sequences.resume, Icon: Play }
-          : null;
+  const actionKind = STATUS_ACTIONS[status];
+  const action: { kind: SequenceAction; label: string; Icon: typeof Play } | null = actionKind
+    ? { kind: actionKind, label: actionCopy[actionKind].button, Icon: actionKind === 'pause' ? Pause : Play }
+    : null;
 
   const renderSummary = () => {
     if (!sequence) {

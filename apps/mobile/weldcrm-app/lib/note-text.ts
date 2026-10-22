@@ -16,9 +16,36 @@ const MAX_SUBJECT_LENGTH = 255;
 
 const HEADING = /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i;
 const LINE_BREAKING_TAG = /<\/(?:p|div|h[1-6]|li|blockquote|pre)>|<br\s*\/?>/gi;
-const ANY_TAG = /<[^>]*>/g;
 /** Tags the app writes itself; anything else is formatting it would lose. */
-const PLAIN_TAGS = /^<\/?(?:p|br|h1|h2|h3|div|span)(?:\s[^>]*)?\/?>$/i;
+const PLAIN_TAG_NAMES = new Set(['p', 'br', 'h1', 'h2', 'h3', 'div', 'span']);
+
+/** Every `<…>` tag in the HTML, in order (a linear scan, no backtracking). */
+function tagsOf(html: string): string[] {
+  const tags: string[] = [];
+  let start = html.indexOf('<');
+  while (start !== -1) {
+    const end = html.indexOf('>', start);
+    if (end === -1) break;
+    tags.push(html.slice(start + 1, end));
+    start = html.indexOf('<', end);
+  }
+  return tags;
+}
+
+/** The HTML with every tag removed. */
+function stripTags(html: string): string {
+  let text = '';
+  let index = 0;
+  let start = html.indexOf('<');
+  while (start !== -1) {
+    const end = html.indexOf('>', start);
+    if (end === -1) break;
+    text += html.slice(index, start);
+    index = end + 1;
+    start = html.indexOf('<', index);
+  }
+  return text + html.slice(index);
+}
 
 const ENTITIES: Record<string, string> = {
   '&nbsp;': ' ',
@@ -41,7 +68,7 @@ function escape(text: string): string {
 /** HTML to text with one line per block; trims leading and trailing blank lines. */
 export function htmlToText(html: string | null | undefined): string {
   if (!html) return '';
-  return decode(html.replaceAll(LINE_BREAKING_TAG, '\n').replaceAll(ANY_TAG, ''))
+  return decode(stripTags(html.replaceAll(LINE_BREAKING_TAG, '\n')))
     .split('\n')
     .map((line) => line.trimEnd())
     .join('\n')
@@ -51,7 +78,10 @@ export function htmlToText(html: string | null | undefined): string {
 /** True when the HTML only uses headings, paragraphs and line breaks. */
 export function isPlainNoteHtml(html: string | null | undefined): boolean {
   if (!html) return true;
-  return (html.match(ANY_TAG) ?? []).every((tag) => PLAIN_TAGS.test(tag));
+  return tagsOf(html).every((tag) => {
+    const name = tag.replace(/^\//, '').split(/[\s/]/)[0].toLowerCase();
+    return PLAIN_TAG_NAMES.has(name);
+  });
 }
 
 export interface NoteParts {
@@ -73,10 +103,12 @@ export function splitNote(html: string | null | undefined): NoteParts {
 export function buildNoteHtml({ title, body }: NoteParts): string {
   const parts: string[] = [];
   if (title.trim()) parts.push(`<h1>${escape(title.trim())}</h1>`);
-  for (const line of body.trim().split('\n')) {
-    parts.push(line.trim() ? `<p>${escape(line.trim())}</p>` : '<p></p>');
+  if (body.trim()) {
+    for (const line of body.trim().split('\n')) {
+      parts.push(line.trim() ? `<p>${escape(line.trim())}</p>` : '<p></p>');
+    }
   }
-  return body.trim() ? parts.join('') : parts.slice(0, title.trim() ? 1 : 0).join('');
+  return parts.join('');
 }
 
 /** The activity subject for a note: its title, else its first line, else "Note". */

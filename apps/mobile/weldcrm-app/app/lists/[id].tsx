@@ -239,24 +239,20 @@ export default function ListDetailScreen() {
       email: record.email || undefined,
     });
 
+  const removeMember = async (member: ListMember) => {
+    const res = await listsApi.removeMember(id, member.id);
+    if (!res.success) {
+      toast.error(t.lists.removeFailed);
+      return;
+    }
+    setMembers((prev) => prev.filter((item) => item.id !== member.id));
+    toast.success(t.lists.removedToast);
+  };
+
   const confirmRemove = (member: ListMember) => {
     Alert.alert(t.lists.removeTitle, interpolate(t.lists.removeMessage, { name: member.name }), [
       { text: t.common.cancel, style: 'cancel' },
-      {
-        text: t.common.delete,
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            const res = await listsApi.removeMember(id, member.id);
-            if (res.success) {
-              setMembers((prev) => prev.filter((item) => item.id !== member.id));
-              toast.success(t.lists.removedToast);
-            } else {
-              toast.error(t.lists.removeFailed);
-            }
-          })();
-        },
-      },
+      { text: t.common.delete, style: 'destructive', onPress: () => void removeMember(member) },
     ]);
   };
 
