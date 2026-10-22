@@ -1,63 +1,48 @@
-# Mobile App Template
+# WeldCRM mobile app
 
-This folder is **not a real app**. It's the scaffold that `pnpm create:mobile-app` copies when spinning up a new Expo mobile app inside `apps/mobile/`.
+Expo (React Native) app for WeldCRM. It follows the platform's WeldCRM
+(`apps/web/platform/app/weldcrm`) and reads and writes the same data through the
+first-party API, so a record changed on the phone is the same record on the web.
 
-It is excluded from the pnpm workspace (see `pnpm-workspace.yaml`) so the `{{PLACEHOLDERS}}` in its files never cause `pnpm install` to choke.
+## Screens
 
-## Creating a new app
+| Tab / screen | What it does | Data |
+| --- | --- | --- |
+| Home | Your tasks due today or overdue, recent activity, and a + button to create a person, company, task, note, deal or activity | flow-api `/tasks`, `/activities` |
+| Companies / People (tabs) | Search and an All / Leads / Suppliers filter; call, email, edit, archive, delete | `/companies`, `/people?inCrm=true` |
+| Company / person (`/company/[id]`, `/person/[id]`) | Every Details field (owner, manager, status, lifecycle, language, tags, address, custom fields, …) and the record tabs: Activity, People / Companies, Deals, Notes, Tasks, Emails, Calls, Meetings, Files, Audit log, Chat | see `components/record-panels.tsx` |
+| Deals (More, `/deals`) | Pipeline board with a pipeline switcher; long press moves a deal to another stage | `/pipelines`, `/pipeline-stages?pipeline=`, `/opportunities` |
+| Deal (`/deal/[id]`, `/deal/new`) | All deal fields, stage, mark won / lost / reopen, delete, the deal's activity | `/opportunities/:id` |
+| Tasks | My tasks or all CRM tasks, grouped by due date; status, priority, assignees, linked company or person, labels, repeat | flow-api `/tasks?crmLinked=true`, the same rows as the web's My Tasks |
+| Notes (More, `/notes`, `/note/[id]`) | Notes with title and text, pinned first; linked to a company or person | `/activities?type=note` (HTML body, as the web editor writes it) |
+| More | Deals, Notes, Lists, Sequences, workspace switcher, dark mode, language, sign out | `/lists`, `/sequences` |
+| Log activity (`/activity/new`) | Call, email, meeting or note for a company, person or deal | `/activities` |
 
-From the repo root:
+## Code layout
+
+- `services/api.ts`: people, companies, links, members, custom fields, pipelines, deals, activities, dashboard.
+- `services/tasks.ts`, `services/notes.ts`, `services/record-tabs.ts`, `services/lists.ts`, `services/sequences.ts`.
+- `components/record-screen.tsx`: the shared company / person screen; `components/record-panels.tsx`: its tabs.
+- `lib/`: pure helpers (dates, money, validation, note HTML, custom fields, field options) with tests in `__tests__/`.
+- Strings: `lib/i18n/locales/en.ts` and `nl.ts` (`nl` is typed against `en`, so a missing key fails type-check).
+
+Two server rules the data layer relies on: people / company / deal PATCH schemas drop
+unknown keys silently, and `customFields` on PATCH replaces the stored map, so the app
+always sends the whole merged map.
+
+## Run
 
 ```bash
-pnpm create:mobile-app --name "WeldFoo" --code weldfoo --subtitle "Foo for your team"
+pnpm --filter weldcrm-app start          # dev client
+node ../../../node_modules/jest/bin/jest.js   # unit tests (jest is hoisted to the repo root)
+pnpm --filter weldcrm-app lint
+maestro test .maestro                    # e2e, see .maestro/README.md
 ```
 
-Flags:
+`.env` is gitignored; copy the `preview` profile env from `eas.json` (test API) plus the
+Clerk publishable key.
 
-| Flag          | Example                    | Default                             |
-| ------------- | -------------------------- | ----------------------------------- |
-| `--name`      | `"WeldFoo"`                | *required*, human display name     |
-| `--code`      | `weldfoo`                  | *required*, one-word lowercase id  |
-| `--slug`      | `weldfoo-app`              | `<code>-app`                        |
-| `--bundle`    | `com.weldsuite.weldfoo`    | `com.weldsuite.<code>`              |
-| `--subtitle`  | `"Foo for your team"`      | `""`                                |
-| `--color`     | `#3B82F6`                  | `#3B82F6`                           |
-| `--eas-id`    | `<uuid>`                   | `00000000-0000-0000-0000-000000000000` (placeholder) |
-| `--eas-init`  | (boolean)                  | off, pass it to run `eas init --force` in the new app folder |
+## Images
 
-The scaffolder writes to `apps/mobile/<slug>/`, substitutes all placeholders, and copies the placeholder PNGs in `assets/images/` (replace these with real art before shipping).
-
-Pass `--eas-init` to have the scaffolder run `eas init --force` in the new app folder and sync the resulting project id into both `app.json` (`expo.extra.eas.projectId` + `expo.updates.url`) and `.env` (`EXPO_PUBLIC_EAS_PROJECT_ID`). Requires `eas-cli` installed globally and an Expo login with access to the `weldsuite` organization.
-
-## After scaffolding
-
-1. `.env` is copied from `.env.example`, fill in the Clerk publishable key.
-2. If you didn't use `--eas-init`, run `eas init` inside the new app to get a real EAS project id, then paste it into `app.json` (`expo.extra.eas.projectId` + `expo.updates.url`) and into `.env` (`EXPO_PUBLIC_EAS_PROJECT_ID`).
-3. Replace `assets/images/*.png` with branded art (icon 1024×1024, splash 200×200, notification 96×96, logo as needed).
-4. Add the new app's path to each other mobile app's `.easignore` so sibling builds skip it.
-5. `pnpm install` from the repo root.
-6. `pnpm --filter <slug> dev` to start Expo.
-
-## Placeholders used by the scaffolder
-
-All occur as literal text inside files; the scaffolder does a plain string replace:
-
-- `WeldCRM`, display name (e.g. `WeldFoo`)
-- `weldcrm-app`, workspace + folder name (e.g. `weldfoo-app`)
-- `weldcrm`, lowercase one-word id, used for scheme, bundle suffix, notification `APP_CODE` (e.g. `weldfoo`)
-- `Your CRM on the go`, tagline shown on the login screen
-- `com.weldsuite.weldcrm`, iOS bundle id / Android package (e.g. `com.weldsuite.weldfoo`)
-- `#7C3AED`, hex color for brand accents, splash, notification icon
-- `00000000-0000-0000-0000-000000000000`, EAS project UUID
-
-## What's included
-
-- Clerk auth (`@clerk/expo`) with `LoginScreen` from `@weldsuite/mobile-ui`
-- AuthGuard + auto-select-first-org
-- `no-workspace` screen for users without a Clerk org
-- Bottom tabs (Home + Settings)
-- `services/app-api.ts` (app-api client via `@weldsuite/api-client` + domain clients) and `services/api.ts` (CRM data layer over app-api)
-- Realtime WebSocket provider (`@weldsuite/realtime/react`)
-- Push notifications (`expo-notifications`) scaffolding
-- EAS build config (development/preview/production channels)
-- Android manifest fixes for OAuth redirect + OSGI META-INF duplicate resources
+`assets/images/` holds the WeldCRM icon, splash and sign-in mark, generated from the
+platform's brand SVG; see `assets/images/README.md`.

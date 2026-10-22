@@ -7,7 +7,7 @@
 import { interpolate } from './i18n/interpolate';
 import type { Translations } from './i18n/locales/en';
 
-export type FieldError = 'required' | 'invalidEmail' | 'invalidDate' | 'invalidNumber';
+export type FieldError = 'required' | 'invalidEmail' | 'invalidDate' | 'invalidNumber' | 'invalidUrl' | 'invalidEmployees';
 
 const WHITESPACE = /\s/;
 
@@ -46,6 +46,25 @@ export function checkRequiredEmail(value: string | null | undefined): FieldError
 export function checkOptionalEmail(value: string | null | undefined): FieldError | null {
   if (isBlank(value)) return null;
   return isValidEmail(value ?? '') ? null : 'invalidEmail';
+}
+
+/**
+ * An optional website, as the API checks it: a bare domain ("acme.com") or a
+ * full URL whose host has a dot, no spaces.
+ */
+export function checkWebsite(value: string | null | undefined): FieldError | null {
+  if (isBlank(value)) return null;
+  const text = (value ?? '').trim();
+  if (WHITESPACE.test(text)) return 'invalidUrl';
+  const host = text.replace(/^https?:\/\//i, '').split(/[/?#]/)[0];
+  const dot = host.indexOf('.');
+  return dot > 0 && dot < host.length - 1 ? null : 'invalidUrl';
+}
+
+/** An optional employee count: a number or a range such as "11-50" or "10001+". */
+export function checkEmployeeCount(value: string | null | undefined): FieldError | null {
+  if (isBlank(value)) return null;
+  return /^\d+(-\d+)?\+?$/.test((value ?? '').trim()) ? null : 'invalidEmployees';
 }
 
 /** An optional non-negative amount such as a deal value. */
@@ -107,10 +126,6 @@ export function validatePerson(values: {
 
 export function validateCompany(values: { name: string; email: string }): FormErrors<'name' | 'email'> {
   return collect({ name: checkRequired(values.name), email: checkOptionalEmail(values.email) });
-}
-
-export function validateLead(values: { email: string }): FormErrors<'email'> {
-  return collect({ email: checkRequiredEmail(values.email) });
 }
 
 /** `dueDate` is the text of the date field: empty is fine, anything else must be a real day. */

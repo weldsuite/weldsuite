@@ -22,8 +22,9 @@ load it before running.
 
 ## Test data
 
-No data is needed up front. `02-create-task` creates a task ("E2E CRM task <timestamp>"),
-renames it and deletes it again. `03-create-person` does the same for a person and a company
+The workspace needs at least one company: a CRM task has to point at a company or a person
+(as on the web), and `02-create-task` links its task to the first company in the picker. It
+creates the task ("E2E CRM task <timestamp>"), renames it and deletes it again. `03-create-person` does the same for a person and a company
 ("E2E Person <timestamp>", "E2E Company <timestamp>"). Both clean up after themselves unless a
 step fails halfway.
 

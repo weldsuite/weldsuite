@@ -1,7 +1,7 @@
 /**
- * Full-screen picker that lists the workspace's companies with server-side
- * search. Used where a record has to belong to a company: a deal (required) and
- * a new person (optional).
+ * Full-screen pickers that list the workspace's companies or people with
+ * server-side search. Used wherever a record has to point at a company or a
+ * person: deals, tasks, notes, activities, list members, links.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -16,64 +16,94 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Building2, X } from 'lucide-react-native';
+import { Building2, User, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { api, type CompanyRecord } from '@/services/api';
+import { api, type CompanyRecord, type PersonRecord } from '@/services/api';
 import { useI18n } from '@/lib/i18n';
 import { initialsOf } from '@/lib/crm';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
-interface CompanyPickerProps {
-  visible: boolean;
-  onClose: () => void;
-  onSelect: (company: CompanyRecord) => void;
+interface PickerRow {
+  id: string;
+  name: string;
+  sub?: string;
 }
 
-export function CompanyPicker({ visible, onClose, onSelect }: Readonly<CompanyPickerProps>) {
+interface RecordPickerProps<T extends { id: string }> {
+  visible: boolean;
+  title: string;
+  searchPlaceholder: string;
+  emptyTitle: string;
+  emptyHint: string;
+  icon: 'company' | 'person';
+  /** Ids already chosen; shown but not selectable. */
+  excludeIds?: readonly string[];
+  load: (search: string) => Promise<T[] | null>;
+  toRow: (item: T) => PickerRow;
+  onClose: () => void;
+  onSelect: (item: T) => void;
+}
+
+function RecordPicker<T extends { id: string }>({
+  visible,
+  title,
+  searchPlaceholder,
+  emptyTitle,
+  emptyHint,
+  icon,
+  excludeIds,
+  load,
+  toRow,
+  onClose,
+  onSelect,
+}: Readonly<RecordPickerProps<T>>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
-  const [companies, setCompanies] = useState<CompanyRecord[]>([]);
+  const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   // Only the latest request may write state, so a slow earlier search can't overwrite a newer one.
   const requestId = useRef(0);
 
-  const load = useCallback(
+  const run = useCallback(
     async (term: string) => {
       const current = ++requestId.current;
       setLoading(true);
-      const res = await api.getCompanies({ search: term, limit: 50 });
+      const found = await load(term);
       if (current !== requestId.current) return;
-      if (res.success && res.data) {
-        setCompanies(res.data.items);
+      if (found) {
+        setItems(found);
       } else {
         toast.error(t.picker.loadFailed);
       }
       setLoading(false);
     },
-    [t, toast],
+    [load, t, toast],
   );
 
   useEffect(() => {
     if (!visible) return;
-    const timer = setTimeout(() => void load(search), search ? SEARCH_DEBOUNCE_MS : 0);
+    const timer = setTimeout(() => void run(search), search ? SEARCH_DEBOUNCE_MS : 0);
     return () => clearTimeout(timer);
-  }, [visible, search, load]);
+  }, [visible, search, run]);
 
   useEffect(() => {
     if (visible) setSearch('');
   }, [visible]);
+
+  const excluded = new Set(excludeIds ?? []);
+  const Icon = icon === 'company' ? Building2 : User;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={[styles.screen, { backgroundColor: colors.background, paddingTop: insets.top }]}>
         <View style={[styles.header, { borderBottomColor: colors.divider }]}>
           <Text style={[styles.title, { color: colors.text }]} accessibilityRole="header">
-            {t.picker.companyTitle}
+            {title}
           </Text>
           <TouchableOpacity
             onPress={onClose}
@@ -87,7 +117,7 @@ export function CompanyPicker({ visible, onClose, onSelect }: Readonly<CompanyPi
         <View style={[styles.searchBox, { backgroundColor: colors.inputBackground }]}>
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
-            placeholder={t.picker.searchCompanies}
+            placeholder={searchPlaceholder}
             placeholderTextColor={colors.muted}
             value={search}
             onChangeText={setSearch}
@@ -96,52 +126,112 @@ export function CompanyPicker({ visible, onClose, onSelect }: Readonly<CompanyPi
             returnKeyType="search"
           />
         </View>
-        {loading && companies.length === 0 ? (
+        {loading && items.length === 0 ? (
           <View style={styles.center}>
             <ActivityIndicator color={colors.text} />
           </View>
         ) : (
           <FlatList
-            data={companies}
+            data={items}
             keyExtractor={(item) => item.id}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: insets.bottom + 16, flexGrow: 1 }}
             ListEmptyComponent={
               <View style={styles.center}>
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>{t.picker.noCompanies}</Text>
-                <Text style={[styles.emptyHint, { color: colors.muted }]}>{t.picker.noCompaniesHint}</Text>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>{emptyTitle}</Text>
+                <Text style={[styles.emptyHint, { color: colors.muted }]}>{emptyHint}</Text>
               </View>
             }
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[styles.row, { borderBottomColor: colors.divider }]}
-                onPress={() => onSelect(item)}
-                accessibilityRole="button"
-                accessibilityLabel={item.name}
-              >
-                <View style={styles.avatar}>
-                  {item.name ? (
-                    <Text style={styles.avatarText}>{initialsOf(item.name)}</Text>
-                  ) : (
-                    <Building2 size={16} color="#4F46E5" />
-                  )}
-                </View>
-                <View style={styles.rowText}>
-                  <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  {!!(item.industry || item.email) && (
-                    <Text style={[styles.sub, { color: colors.muted }]} numberOfLines={1}>
-                      {item.industry || item.email}
+            renderItem={({ item }) => {
+              const row = toRow(item);
+              const disabled = excluded.has(item.id);
+              return (
+                <TouchableOpacity
+                  style={[styles.row, { borderBottomColor: colors.divider, opacity: disabled ? 0.4 : 1 }]}
+                  onPress={() => onSelect(item)}
+                  disabled={disabled}
+                  testID="picker-row"
+                  accessibilityRole="button"
+                  accessibilityLabel={row.name}
+                  accessibilityState={{ disabled }}
+                >
+                  <View style={[styles.avatar, icon === 'person' && styles.avatarRound]}>
+                    {row.name ? (
+                      <Text style={styles.avatarText}>{initialsOf(row.name)}</Text>
+                    ) : (
+                      <Icon size={16} color="#4F46E5" />
+                    )}
+                  </View>
+                  <View style={styles.rowText}>
+                    <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
+                      {row.name}
                     </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            )}
+                    {!!row.sub && (
+                      <Text style={[styles.sub, { color: colors.muted }]} numberOfLines={1}>
+                        {row.sub}
+                      </Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
           />
         )}
       </View>
     </Modal>
+  );
+}
+
+interface PickerProps<T> {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (record: T) => void;
+  excludeIds?: readonly string[];
+}
+
+export function CompanyPicker({ visible, onClose, onSelect, excludeIds }: Readonly<PickerProps<CompanyRecord>>) {
+  const { t } = useI18n();
+  const load = useCallback(async (search: string) => {
+    const res = await api.getCompanies({ search, limit: 50 });
+    return res.success && res.data ? res.data.items : null;
+  }, []);
+  return (
+    <RecordPicker<CompanyRecord>
+      visible={visible}
+      title={t.picker.companyTitle}
+      searchPlaceholder={t.picker.searchCompanies}
+      emptyTitle={t.picker.noCompanies}
+      emptyHint={t.picker.noCompaniesHint}
+      icon="company"
+      excludeIds={excludeIds}
+      load={load}
+      toRow={(item) => ({ id: item.id, name: item.name, sub: item.industry || item.email || undefined })}
+      onClose={onClose}
+      onSelect={onSelect}
+    />
+  );
+}
+
+export function PersonPicker({ visible, onClose, onSelect, excludeIds }: Readonly<PickerProps<PersonRecord>>) {
+  const { t } = useI18n();
+  const load = useCallback(async (search: string) => {
+    const res = await api.getPeople({ search, limit: 50 });
+    return res.success && res.data ? res.data.items : null;
+  }, []);
+  return (
+    <RecordPicker<PersonRecord>
+      visible={visible}
+      title={t.picker.personTitle}
+      searchPlaceholder={t.picker.searchPeople}
+      emptyTitle={t.picker.noPeople}
+      emptyHint={t.picker.noPeopleHint}
+      icon="person"
+      excludeIds={excludeIds}
+      load={load}
+      toRow={(item) => ({ id: item.id, name: item.name, sub: item.jobTitle || item.email || undefined })}
+      onClose={onClose}
+      onSelect={onSelect}
+    />
   );
 }
 
@@ -178,6 +268,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  avatarRound: { borderRadius: 20 },
   avatarText: { fontSize: 13, fontWeight: '600', color: '#4F46E5' },
   rowText: { flex: 1 },
   name: { fontSize: 15, fontWeight: '500' },

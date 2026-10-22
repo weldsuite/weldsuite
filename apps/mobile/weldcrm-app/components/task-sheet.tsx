@@ -1,6 +1,8 @@
 /**
  * The task sheet: create a task, read its details, edit it, change its status
  * and delete it. One modal with three modes so the screens only manage the list.
+ * Same fields as the platform's task dialog: status, priority, due date,
+ * assignees, the company or person it's about, labels and repeat.
  */
 
 import React, { useEffect, useState, type ReactNode } from 'react';
@@ -16,23 +18,47 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Calendar, Edit3, Trash2, X } from 'lucide-react-native';
+import { Calendar, ChevronRight, Edit3, Repeat, Trash2, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { DueDateField } from '@/components/due-date-field';
 import { FormField } from '@/components/form';
-import { api, type CrmTask } from '@/services/api';
+import { MemberPicker, useMembers } from '@/components/member-picker';
+import { OptionSheet, SelectField, TagInput } from '@/components/option-sheet';
+import { RecordRefField } from '@/components/record-ref-field';
+import { tasksApi, type CrmTask, type TaskInput } from '@/services/tasks';
+import type { RecordRef } from '@/services/notes';
 import { interpolate, useI18n } from '@/lib/i18n';
-import { TASK_STATUSES, type TaskStatus } from '@/lib/crm';
+import {
+  REPEAT_FREQUENCIES,
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  repeatInput,
+  type RepeatFrequency,
+  type TaskPriority,
+  type TaskStatus,
+} from '@/lib/crm';
 import { formatDueLabel, parseDate, parseDateInput, toDateInput } from '@/lib/dates';
-import { describeError, optionalText, validateTask, type FormErrors } from '@/lib/validation';
+import { describeError, validateTask, type FormErrors } from '@/lib/validation';
 
 export const TASK_STATUS_COLORS: Record<TaskStatus, { color: string; bgColor: string }> = {
+  backlog: { color: '#6B7280', bgColor: '#F3F4F6' },
   todo: { color: '#6B7280', bgColor: '#F3F4F6' },
-  'in-progress': { color: '#3B82F6', bgColor: '#DBEAFE' },
-  blocked: { color: '#EF4444', bgColor: '#FEE2E2' },
+  in_progress: { color: '#3B82F6', bgColor: '#DBEAFE' },
+  review: { color: '#CA8A04', bgColor: '#FEF9C3' },
+  testing: { color: '#9333EA', bgColor: '#F3E8FF' },
   done: { color: '#10B981', bgColor: '#D1FAE5' },
+  cancelled: { color: '#EF4444', bgColor: '#FEE2E2' },
+};
+
+export const TASK_PRIORITY_COLORS: Record<TaskPriority, string> = {
+  low: '#6B7280',
+  medium: '#3B82F6',
+  high: '#F97316',
+  urgent: '#EF4444',
 };
 
 export type TaskSheetMode = 'create' | 'view' | 'edit';
@@ -42,48 +68,12 @@ interface TaskSheetProps {
   /** `create` opens an empty form; `view` shows `task`. */
   initialMode: TaskSheetMode;
   task: CrmTask | null;
+  /** Create mode: the record the new task is for (a record's Tasks tab). */
+  defaultRecord?: RecordRef;
   onClose: () => void;
   onCreated: (task: CrmTask) => void;
   onUpdated: (task: CrmTask) => void;
   onDeleted: (taskId: string) => void;
-}
-
-function StatusChips({
-  value,
-  onSelect,
-  disabled,
-}: Readonly<{ value: TaskStatus; onSelect: (status: TaskStatus) => void; disabled?: boolean }>) {
-  const { colors } = useTheme();
-  const { t } = useI18n();
-  return (
-    <View style={styles.chips}>
-      {TASK_STATUSES.map((status) => {
-        const config = TASK_STATUS_COLORS[status];
-        const selected = status === value;
-        return (
-          <TouchableOpacity
-            key={status}
-            style={[
-              styles.chip,
-              {
-                backgroundColor: selected ? config.bgColor : colors.background,
-                borderColor: selected ? config.color : colors.divider,
-                opacity: disabled ? 0.6 : 1,
-              },
-            ]}
-            onPress={() => onSelect(status)}
-            disabled={disabled}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-          >
-            <Text style={[styles.chipText, { color: selected ? config.color : colors.text }]}>
-              {t.tasks.status[status]}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
 }
 
 /** The API's error text when it sent one, else the screen's own message. */
@@ -91,195 +81,64 @@ function errorText(error: unknown, fallback: string): string {
   return typeof error === 'string' ? error : fallback;
 }
 
-interface TaskValues {
+interface FormState {
   title: string;
   description: string;
   status: TaskStatus;
-  dueDate?: string;
-}
-
-interface TaskActionsOptions {
-  task: CrmTask | null;
-  busy: boolean;
-  setBusy: (busy: boolean) => void;
-  onCreated: (task: CrmTask) => void;
-  onUpdated: (task: CrmTask) => void;
-  onDeleted: (taskId: string) => void;
-}
-
-/** The sheet's calls to the API, each with its toast. */
-function useTaskActions({ task, busy, setBusy, onCreated, onUpdated, onDeleted }: TaskActionsOptions) {
-  const { t } = useI18n();
-  const toast = useToast();
-
-  const create = async (values: TaskValues) => {
-    setBusy(true);
-    const res = await api.createCrmTask({
-      title: values.title,
-      description: optionalText(values.description),
-      status: values.status,
-      dueDate: values.dueDate,
-    });
-    setBusy(false);
-    if (res.success && res.data) {
-      toast.success(t.tasks.createdToast);
-      onCreated(res.data);
-      return;
-    }
-    toast.error(errorText(res.error, t.tasks.createFailed));
-  };
-
-  /** Resolves true when the task was saved. */
-  const update = async (values: TaskValues): Promise<boolean> => {
-    if (!task) return false;
-    setBusy(true);
-    const res = await api.updateCrmTask(task.id, {
-      title: values.title,
-      description: values.description.trim(),
-      status: values.status,
-      // Left out when empty: the API cannot clear a due date.
-      dueDate: values.dueDate,
-    });
-    setBusy(false);
-    if (res.success && res.data) {
-      toast.success(t.tasks.updatedToast);
-      onUpdated(res.data);
-      return true;
-    }
-    toast.error(errorText(res.error, t.tasks.updateFailed));
-    return false;
-  };
-
-  /** Resolves true when the status was changed. */
-  const changeStatus = async (next: TaskStatus): Promise<boolean> => {
-    if (!task || next === task.status || busy) return false;
-    setBusy(true);
-    const res = await api.updateCrmTask(task.id, { status: next });
-    setBusy(false);
-    if (res.success && res.data) {
-      onUpdated(res.data);
-      return true;
-    }
-    toast.error(errorText(res.error, t.tasks.updateFailed));
-    return false;
-  };
-
-  const remove = async (target: CrmTask) => {
-    setBusy(true);
-    const res = await api.deleteCrmTask(target.id);
-    setBusy(false);
-    if (res.success) {
-      toast.success(t.tasks.deletedToast);
-      onDeleted(target.id);
-      return;
-    }
-    toast.error(errorText(res.error, t.tasks.deleteFailed));
-  };
-
-  const confirmDelete = () => {
-    if (!task) return;
-    Alert.alert(t.tasks.deleteTitle, interpolate(t.tasks.deleteMessage, { title: task.title }), [
-      { text: t.common.cancel, style: 'cancel' },
-      { text: t.common.delete, style: 'destructive', onPress: () => void remove(task) },
-    ]);
-  };
-
-  return { create, update, changeStatus, confirmDelete };
-}
-
-interface TaskFormBodyProps {
-  mode: TaskSheetMode;
-  task: CrmTask | null;
-  title: string;
-  description: string;
-  status: TaskStatus;
+  priority: TaskPriority | null;
   dueDate: string;
-  errors: FormErrors<'title' | 'dueDate'>;
-  busy: boolean;
-  onTitleChange: (value: string) => void;
-  onDescriptionChange: (value: string) => void;
-  onStatusChange: (status: TaskStatus) => void;
-  onDueDateChange: (value: string) => void;
-  onSubmit: () => void;
+  assigneeIds: string[];
+  record?: RecordRef;
+  labels: string[];
+  repeat: RepeatFrequency | null;
 }
 
-/** The create and edit form, with its submit button. */
-function TaskFormBody({
-  mode,
-  task,
-  title,
-  description,
-  status,
-  dueDate,
-  errors,
-  busy,
-  onTitleChange,
-  onDescriptionChange,
-  onStatusChange,
-  onDueDateChange,
-  onSubmit,
-}: Readonly<TaskFormBodyProps>) {
-  const { colors } = useTheme();
-  const { t } = useI18n();
-  const insets = useSafeAreaInsets();
-  const submitLabel = mode === 'create' ? t.tasks.createTask : t.tasks.saveChanges;
-
-  return (
-    <>
-      <ScrollView
-        style={styles.body}
-        contentContainerStyle={styles.bodyContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <FormField
-          label={t.tasks.fieldTitle}
-          required
-          value={title}
-          onChangeText={onTitleChange}
-          placeholder={t.tasks.titlePlaceholder}
-          error={errors.title ? describeError(t, errors.title, t.tasks.fieldTitle) : null}
-          autoCapitalize="sentences"
-        />
-        <FormField
-          label={t.tasks.fieldDescriptionOptional}
-          value={description}
-          onChangeText={onDescriptionChange}
-          placeholder={t.tasks.descriptionPlaceholder}
-          multiline
-          numberOfLines={4}
-        />
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldStatus}</Text>
-          <StatusChips value={status} onSelect={onStatusChange} />
-        </View>
-        <DueDateField
-          label={t.tasks.fieldDueDateOptional}
-          value={dueDate}
-          onChange={onDueDateChange}
-          error={errors.dueDate ? describeError(t, errors.dueDate, t.tasks.fieldDueDate) : null}
-          // The API cannot clear a due date, so an existing one can only be changed.
-          allowClear={mode === 'create' || !task?.dueDate}
-        />
-      </ScrollView>
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12), borderTopColor: colors.divider }]}>
-        <TouchableOpacity
-          style={[styles.submit, { backgroundColor: colors.text, opacity: busy ? 0.6 : 1 }]}
-          onPress={onSubmit}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={submitLabel}
-        >
-          {busy ? (
-            <ActivityIndicator color={colors.background} />
-          ) : (
-            <Text style={[styles.submitText, { color: colors.background }]}>{submitLabel}</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </>
-  );
+function formFromTask(task: CrmTask | null, defaultRecord: RecordRef | undefined, userId: string | undefined): FormState {
+  if (!task) {
+    return {
+      title: '',
+      description: '',
+      status: 'todo',
+      priority: null,
+      dueDate: '',
+      // New tasks are yours unless you assign them to someone else, as on the web.
+      assigneeIds: userId ? [userId] : [],
+      record: defaultRecord,
+      labels: [],
+      repeat: null,
+    };
+  }
+  return {
+    title: task.title,
+    description: task.description ?? '',
+    status: task.status,
+    priority: task.priority ?? null,
+    dueDate: toDateInput(parseDate(task.dueDate)),
+    assigneeIds: task.assignees.map((person) => person.id),
+    record: task.record,
+    labels: task.labels,
+    repeat: task.repeat?.frequency ?? null,
+  };
 }
+
+/** What to save; `original` is the task being edited (null when creating). */
+function taskInputFrom(form: FormState, original: CrmTask | null): TaskInput {
+  const due = parseDateInput(form.dueDate).date;
+  return {
+    title: form.title,
+    description: form.description,
+    // The form shows statuses it doesn't know as the nearest one; only send a status the user picked.
+    status: original?.status === form.status ? undefined : form.status,
+    priority: form.priority,
+    dueDate: due ? due.toISOString() : null,
+    assigneeIds: form.assigneeIds,
+    record: form.record ?? null,
+    labels: form.labels,
+    repeat: repeatInput(form.repeat, original?.repeat),
+  };
+}
+
+type SheetPicker = 'status' | 'priority' | 'repeat' | 'assignees' | null;
 
 /** One labelled read-only value in the details view. */
 function DetailSection({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
@@ -292,98 +151,50 @@ function DetailSection({ label, children }: Readonly<{ label: string; children: 
   );
 }
 
-interface TaskDetailsProps {
-  task: CrmTask;
-  busy: boolean;
-  onStatusChange: (status: TaskStatus) => void;
-}
-
-/** The read-only view of a task. */
-function TaskDetails({ task, busy, onStatusChange }: Readonly<TaskDetailsProps>) {
+export function TaskSheet({
+  visible,
+  initialMode,
+  task,
+  defaultRecord,
+  onClose,
+  onCreated,
+  onUpdated,
+  onDeleted,
+}: Readonly<TaskSheetProps>) {
   const { colors } = useTheme();
   const { t, intlLocale } = useI18n();
+  const toast = useToast();
   const insets = useSafeAreaInsets();
-  const dueDateValue = parseDate(task.dueDate);
-
-  return (
-    <ScrollView
-      style={styles.body}
-      contentContainerStyle={[styles.bodyContent, { paddingBottom: insets.bottom + 24 }]}
-      showsVerticalScrollIndicator={false}
-    >
-      <DetailSection label={t.tasks.fieldTitle}>
-        <Text style={[styles.taskTitle, { color: colors.text }]}>{task.title}</Text>
-      </DetailSection>
-
-      {!!task.description && (
-        <DetailSection label={t.tasks.fieldDescription}>
-          <Text style={[styles.text, { color: colors.text }]}>{task.description}</Text>
-        </DetailSection>
-      )}
-
-      <DetailSection label={t.tasks.fieldStatus}>
-        <StatusChips value={task.status} onSelect={onStatusChange} disabled={busy} />
-      </DetailSection>
-
-      {!!task.linkedCompany && (
-        <DetailSection label={t.tasks.fieldCompany}>
-          <Text style={[styles.text, { color: colors.text }]}>{task.linkedCompany.name}</Text>
-        </DetailSection>
-      )}
-
-      {!!dueDateValue && (
-        <DetailSection label={t.tasks.fieldDueDate}>
-          <View style={styles.row}>
-            <Calendar size={16} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.text, { color: colors.text }]}>{formatDueLabel(dueDateValue, t, intlLocale)}</Text>
-          </View>
-        </DetailSection>
-      )}
-
-      {!!task.assignee && (
-        <DetailSection label={t.tasks.fieldAssignee}>
-          <Text style={[styles.text, { color: colors.text }]}>{task.assignee.name}</Text>
-        </DetailSection>
-      )}
-
-      <DetailSection label={t.tasks.fieldCreated}>
-        <Text style={[styles.text, { color: colors.text }]}>
-          {new Date(task.createdAt).toLocaleDateString(intlLocale, {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          })}
-        </Text>
-      </DetailSection>
-    </ScrollView>
-  );
-}
-
-export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUpdated, onDeleted }: Readonly<TaskSheetProps>) {
-  const { colors } = useTheme();
-  const { t } = useI18n();
-  const insets = useSafeAreaInsets();
+  const { user } = useClerkAuth();
+  const { members, byId } = useMembers();
 
   const [mode, setMode] = useState<TaskSheetMode>(initialMode);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<TaskStatus>('todo');
-  const [dueDate, setDueDate] = useState('');
-  const [errors, setErrors] = useState<FormErrors<'title' | 'dueDate'>>({});
+  const [form, setForm] = useState<FormState>(() => formFromTask(task, defaultRecord, user?.id));
+  const [errors, setErrors] = useState<FormErrors<'title' | 'dueDate' | 'record'>>({});
   const [busy, setBusy] = useState(false);
-  const actions = useTaskActions({ task, busy, setBusy, onCreated, onUpdated, onDeleted });
+  const [picker, setPicker] = useState<SheetPicker>(null);
 
   // Each time the sheet opens, start in the requested mode with the task's values (or empty).
   useEffect(() => {
     if (!visible) return;
     setMode(initialMode);
-    setTitle(task?.title ?? '');
-    setDescription(task?.description ?? '');
-    setStatus(task?.status ?? 'todo');
-    setDueDate(toDateInput(parseDate(task?.dueDate)));
+    setForm(formFromTask(task, defaultRecord, user?.id));
     setErrors({});
     setBusy(false);
-  }, [visible, initialMode, task]);
+    setPicker(null);
+  }, [visible, initialMode, task, defaultRecord, user?.id]);
+
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const statusLabel = (status: TaskStatus) => t.tasks.status[status];
+  const priorityLabel = (priority: TaskPriority) => t.tasks.priority[priority];
+  const repeatLabel = (repeat: RepeatFrequency) => t.tasks.repeat[repeat];
+  const assigneeNames = (ids: readonly string[]) =>
+    ids.map((id) => byId.get(id)?.name ?? task?.assignees.find((a) => a.id === id)?.name ?? t.common.unknown).join(', ');
+
+  // flow-api can't clear a priority once set, so don't offer "None" for one.
+  const canClearPriority = mode === 'create' || !task?.priority;
+  const clearPriority = canClearPriority ? () => set('priority', null) : undefined;
 
   const headings: Record<TaskSheetMode, string> = {
     create: t.tasks.newTitle,
@@ -392,44 +203,265 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
   };
 
   const handleSubmit = async () => {
-    const found = validateTask({ title, dueDate }, parseDateInput);
+    const found: FormErrors<'title' | 'dueDate' | 'record'> = {
+      ...validateTask({ title: form.title, dueDate: form.dueDate }, parseDateInput),
+      // The platform only saves CRM tasks that point at a company or a person.
+      ...(form.record ? {} : { record: 'required' as const }),
+    };
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
-    const values = { title, description, status, dueDate: parseDateInput(dueDate).date?.toISOString() };
-    if (mode === 'create') {
-      await actions.create(values);
+    const input = taskInputFrom(form, task && mode !== 'create' ? task : null);
+
+    if (mode !== 'create' && !task) return;
+    setBusy(true);
+    const res = task && mode !== 'create' ? await tasksApi.update(task.id, input) : await tasksApi.create(input);
+    setBusy(false);
+    if (res.success && res.data) {
+      if (mode === 'create') {
+        toast.success(t.tasks.createdToast);
+        onCreated(res.data);
+      } else {
+        toast.success(t.tasks.updatedToast);
+        onUpdated(res.data);
+        setMode('view');
+      }
       return;
     }
-    if (await actions.update(values)) setMode('view');
+    toast.error(errorText(res.error, mode === 'create' ? t.tasks.createFailed : t.tasks.updateFailed));
   };
 
-  const handleStatusChange = async (next: TaskStatus) => {
-    if (await actions.changeStatus(next)) setStatus(next);
+  const changeStatus = async (next: TaskStatus) => {
+    if (!task || next === task.status || busy) return;
+    setBusy(true);
+    const res = await tasksApi.update(task.id, { status: next });
+    setBusy(false);
+    if (res.success && res.data) onUpdated(res.data);
+    else toast.error(errorText(res.error, t.tasks.updateFailed));
   };
 
-  let body: ReactNode = null;
-  if (mode === 'view') {
-    if (task) body = <TaskDetails task={task} busy={busy} onStatusChange={(next) => void handleStatusChange(next)} />;
-  } else {
-    body = (
-      <TaskFormBody
-        mode={mode}
-        task={task}
-        title={title}
-        description={description}
-        status={status}
-        dueDate={dueDate}
-        errors={errors}
-        busy={busy}
-        onTitleChange={setTitle}
-        onDescriptionChange={setDescription}
-        onStatusChange={setStatus}
-        onDueDateChange={setDueDate}
-        onSubmit={() => void handleSubmit()}
-      />
+  const confirmDelete = () => {
+    if (!task) return;
+    Alert.alert(t.tasks.deleteTitle, interpolate(t.tasks.deleteMessage, { title: task.title }), [
+      { text: t.common.cancel, style: 'cancel' },
+      {
+        text: t.common.delete,
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            setBusy(true);
+            const res = await tasksApi.remove(task.id);
+            setBusy(false);
+            if (res.success) {
+              toast.success(t.tasks.deletedToast);
+              onDeleted(task.id);
+            } else {
+              toast.error(errorText(res.error, t.tasks.deleteFailed));
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
+  const openRecord = (record: RecordRef) => {
+    onClose();
+    router.push({
+      pathname: record.kind === 'company' ? '/company/[id]' : '/person/[id]',
+      params: { id: record.id, name: record.name ?? '' },
+    });
+  };
+
+  const renderView = (current: CrmTask) => {
+    const due = parseDate(current.dueDate);
+    const statusColors = TASK_STATUS_COLORS[current.status];
+    return (
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={[styles.bodyContent, { paddingBottom: insets.bottom + 24 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <DetailSection label={t.tasks.fieldTitle}>
+          <Text style={[styles.taskTitle, { color: colors.text }]}>{current.title}</Text>
+        </DetailSection>
+
+        {!!current.description && (
+          <DetailSection label={t.tasks.fieldDescription}>
+            <Text style={[styles.text, { color: colors.text }]}>{current.description}</Text>
+          </DetailSection>
+        )}
+
+        <DetailSection label={t.tasks.fieldStatus}>
+          <TouchableOpacity
+            style={[styles.statusButton, { backgroundColor: statusColors.bgColor, opacity: busy ? 0.6 : 1 }]}
+            onPress={() => setPicker('status')}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={`${t.tasks.fieldStatus}: ${statusLabel(current.status)}`}
+          >
+            <Text style={[styles.statusButtonText, { color: statusColors.color }]}>{statusLabel(current.status)}</Text>
+          </TouchableOpacity>
+        </DetailSection>
+
+        {!!current.priority && (
+          <DetailSection label={t.tasks.fieldPriority}>
+            <Text style={[styles.text, { color: TASK_PRIORITY_COLORS[current.priority] }]}>
+              {priorityLabel(current.priority)}
+            </Text>
+          </DetailSection>
+        )}
+
+        {!!current.record && (
+          <DetailSection label={t.tasks.fieldRecord}>
+            <TouchableOpacity style={styles.row} onPress={() => openRecord(current.record as RecordRef)} accessibilityRole="link">
+              <Text style={[styles.text, styles.link]}>
+                {current.record.name || t.common.unknown}
+              </Text>
+              <ChevronRight size={14} color={colors.muted} />
+            </TouchableOpacity>
+          </DetailSection>
+        )}
+
+        {!!due && (
+          <DetailSection label={t.tasks.fieldDueDate}>
+            <View style={styles.row}>
+              <Calendar size={16} color={colors.text} strokeWidth={2} />
+              <Text style={[styles.text, { color: colors.text }]}>{formatDueLabel(due, t, intlLocale)}</Text>
+            </View>
+          </DetailSection>
+        )}
+
+        {!!current.repeat && (
+          <DetailSection label={t.tasks.fieldRepeat}>
+            <View style={styles.row}>
+              <Repeat size={16} color={colors.text} strokeWidth={2} />
+              <Text style={[styles.text, { color: colors.text }]}>{repeatLabel(current.repeat.frequency)}</Text>
+            </View>
+          </DetailSection>
+        )}
+
+        {current.assignees.length > 0 && (
+          <DetailSection label={t.tasks.fieldAssignees}>
+            <Text style={[styles.text, { color: colors.text }]}>{assigneeNames(current.assignees.map((a) => a.id))}</Text>
+          </DetailSection>
+        )}
+
+        {current.labels.length > 0 && (
+          <DetailSection label={t.tasks.fieldLabels}>
+            <View style={styles.labels}>
+              {current.labels.map((label) => (
+                <View key={label} style={[styles.labelChip, { backgroundColor: colors.secondary }]}>
+                  <Text style={[styles.labelText, { color: colors.text }]}>{label}</Text>
+                </View>
+              ))}
+            </View>
+          </DetailSection>
+        )}
+
+        <DetailSection label={t.tasks.fieldCreated}>
+          <Text style={[styles.text, { color: colors.text }]}>
+            {new Date(current.createdAt).toLocaleDateString(intlLocale, { day: 'numeric', month: 'long', year: 'numeric' })}
+          </Text>
+        </DetailSection>
+      </ScrollView>
     );
-  }
+  };
+
+  const renderForm = () => {
+    const submitLabel = mode === 'create' ? t.tasks.createTask : t.tasks.saveChanges;
+    return (
+      <>
+        <ScrollView
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <FormField
+            label={t.tasks.fieldTitle}
+            required
+            value={form.title}
+            onChangeText={(value) => set('title', value)}
+            placeholder={t.tasks.titlePlaceholder}
+            error={errors.title ? describeError(t, errors.title, t.tasks.fieldTitle) : null}
+            autoCapitalize="sentences"
+          />
+          <FormField
+            label={t.tasks.fieldDescriptionOptional}
+            value={form.description}
+            onChangeText={(value) => set('description', value)}
+            placeholder={t.tasks.descriptionPlaceholder}
+            multiline
+            numberOfLines={4}
+          />
+          <RecordRefField
+            label={t.tasks.fieldRecord}
+            value={form.record}
+            onChange={(record) => set('record', record)}
+            required
+            error={errors.record ? describeError(t, errors.record, t.tasks.fieldRecord) : null}
+          />
+          <SelectField
+            label={t.tasks.fieldStatus}
+            value={statusLabel(form.status)}
+            color={TASK_STATUS_COLORS[form.status].color}
+            onPress={() => setPicker('status')}
+          />
+          <SelectField
+            label={t.tasks.fieldPriority}
+            value={form.priority ? priorityLabel(form.priority) : null}
+            placeholder={t.tasks.noPriority}
+            color={form.priority ? TASK_PRIORITY_COLORS[form.priority] : undefined}
+            onPress={() => setPicker('priority')}
+            onClear={clearPriority}
+          />
+          <DueDateField
+            label={t.tasks.fieldDueDateOptional}
+            value={form.dueDate}
+            onChange={(value) => set('dueDate', value)}
+            error={errors.dueDate ? describeError(t, errors.dueDate, t.tasks.fieldDueDate) : null}
+          />
+          <SelectField
+            label={t.tasks.fieldAssignees}
+            value={form.assigneeIds.length > 0 ? assigneeNames(form.assigneeIds) : null}
+            placeholder={t.tasks.unassigned}
+            onPress={() => setPicker('assignees')}
+            onClear={() => set('assigneeIds', [])}
+          />
+          <SelectField
+            label={t.tasks.fieldRepeat}
+            value={form.repeat ? repeatLabel(form.repeat) : null}
+            placeholder={t.tasks.repeatNever}
+            onPress={() => setPicker('repeat')}
+            onClear={() => set('repeat', null)}
+          />
+          <TagInput
+            label={t.tasks.fieldLabels}
+            value={form.labels}
+            placeholder={t.tasks.labelsPlaceholder}
+            onChange={(labels) => set('labels', labels)}
+          />
+        </ScrollView>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12), borderTopColor: colors.divider }]}>
+          <TouchableOpacity
+            style={[styles.submit, { backgroundColor: colors.text, opacity: busy ? 0.6 : 1 }]}
+            onPress={() => void handleSubmit()}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={submitLabel}
+          >
+            {busy ? (
+              <ActivityIndicator color={colors.background} />
+            ) : (
+              <Text style={[styles.submitText, { color: colors.background }]}>{submitLabel}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </>
+    );
+  };
+
+  const currentStatus = mode === 'view' && task ? task.status : form.status;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -445,7 +477,10 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
             {mode === 'view' && task ? (
               <>
                 <TouchableOpacity
-                  onPress={() => setMode('edit')}
+                  onPress={() => {
+                    setForm(formFromTask(task, defaultRecord, user?.id));
+                    setMode('edit');
+                  }}
                   style={styles.iconButton}
                   accessibilityRole="button"
                   accessibilityLabel={t.tasks.editTask}
@@ -453,7 +488,7 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
                   <Edit3 size={20} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={actions.confirmDelete}
+                  onPress={confirmDelete}
                   style={styles.iconButton}
                   accessibilityRole="button"
                   accessibilityLabel={t.tasks.deleteTask}
@@ -462,18 +497,69 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
                 </TouchableOpacity>
               </>
             ) : null}
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.iconButton}
-              accessibilityRole="button"
-              accessibilityLabel={t.common.close}
-            >
+            <TouchableOpacity onPress={onClose} style={styles.iconButton} accessibilityRole="button" accessibilityLabel={t.common.close}>
               <X size={20} color={colors.text} strokeWidth={2} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {body}
+        {mode === 'view' && task ? renderView(task) : null}
+        {mode === 'view' ? null : renderForm()}
+
+        <OptionSheet<TaskStatus>
+          visible={picker === 'status'}
+          title={t.tasks.fieldStatus}
+          options={TASK_STATUSES.map((status) => ({
+            value: status,
+            label: statusLabel(status),
+            color: TASK_STATUS_COLORS[status].color,
+          }))}
+          selected={currentStatus}
+          onSelect={(value) => {
+            setPicker(null);
+            if (!value) return;
+            if (mode === 'view') void changeStatus(value);
+            else set('status', value);
+          }}
+          onClose={() => setPicker(null)}
+        />
+        <OptionSheet<TaskPriority>
+          visible={picker === 'priority'}
+          title={t.tasks.fieldPriority}
+          options={TASK_PRIORITIES.map((priority) => ({
+            value: priority,
+            label: priorityLabel(priority),
+            color: TASK_PRIORITY_COLORS[priority],
+          }))}
+          selected={form.priority}
+          allowNone={canClearPriority}
+          onSelect={(value) => {
+            set('priority', value);
+            setPicker(null);
+          }}
+          onClose={() => setPicker(null)}
+        />
+        <OptionSheet<RepeatFrequency>
+          visible={picker === 'repeat'}
+          title={t.tasks.fieldRepeat}
+          options={REPEAT_FREQUENCIES.map((frequency) => ({ value: frequency, label: repeatLabel(frequency) }))}
+          selected={form.repeat}
+          allowNone
+          onSelect={(value) => {
+            set('repeat', value);
+            setPicker(null);
+          }}
+          onClose={() => setPicker(null)}
+        />
+        <MemberPicker
+          visible={picker === 'assignees'}
+          title={t.tasks.fieldAssignees}
+          members={members}
+          selected={form.assigneeIds}
+          multiple
+          onChange={(ids) => set('assigneeIds', ids)}
+          onClose={() => setPicker(null)}
+        />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -499,10 +585,13 @@ const styles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '500', marginBottom: 6 },
   taskTitle: { fontSize: 18, fontWeight: '600', lineHeight: 24 },
   text: { fontSize: 15, lineHeight: 22 },
+  link: { color: '#7C3AED' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6, borderWidth: 1 },
-  chipText: { fontSize: 13, fontWeight: '500' },
+  statusButton: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6 },
+  statusButtonText: { fontSize: 13, fontWeight: '600' },
+  labels: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  labelChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  labelText: { fontSize: 13 },
   footer: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   submit: { paddingVertical: 14, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   submitText: { fontSize: 15, fontWeight: '600' },

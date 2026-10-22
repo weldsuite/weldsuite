@@ -1,13 +1,12 @@
 import {
   TASK_STATUSES,
-  TASK_TO_ACTIVITY_STATUS,
-  activityStatusToTaskStatus,
   initialsOf,
   isTaskStatus,
+  normalizeTaskStatus,
+  repeatInput,
   resolveName,
 } from '@/lib/crm';
 import { formatRelativeTime } from '@/lib/relative-time';
-import { formatTrend } from '@/lib/trend';
 import { en } from '@/lib/i18n/locales/en';
 import { nl } from '@/lib/i18n/locales/nl';
 
@@ -31,17 +30,17 @@ describe('initialsOf', () => {
   });
 });
 
-describe('task status mapping', () => {
-  it('round-trips every app status through crm_activities', () => {
-    for (const status of TASK_STATUSES) {
-      expect(activityStatusToTaskStatus(TASK_TO_ACTIVITY_STATUS[status])).toBe(status);
-    }
+describe('task statuses', () => {
+  it('keeps every status the platform uses', () => {
+    for (const status of TASK_STATUSES) expect(normalizeTaskStatus(status)).toBe(status);
   });
 
-  it('maps unknown and cancelled activity statuses sensibly', () => {
-    expect(activityStatusToTaskStatus(undefined)).toBe('todo');
-    expect(activityStatusToTaskStatus('planned')).toBe('todo');
-    expect(activityStatusToTaskStatus('cancelled')).toBe('blocked');
+  it('maps legacy and unknown statuses', () => {
+    expect(normalizeTaskStatus('in-progress')).toBe('in_progress');
+    expect(normalizeTaskStatus('in_review')).toBe('review');
+    expect(normalizeTaskStatus('blocked')).toBe('backlog');
+    expect(normalizeTaskStatus(undefined)).toBe('todo');
+    expect(normalizeTaskStatus('stage_custom')).toBe('todo');
   });
 
   it('narrows strings', () => {
@@ -50,17 +49,20 @@ describe('task status mapping', () => {
   });
 });
 
-describe('formatTrend', () => {
-  it('shows nothing without a real figure', () => {
-    expect(formatTrend(undefined)).toBeNull();
-    expect(formatTrend(null)).toBeNull();
-    expect(formatTrend(Number.NaN)).toBeNull();
+describe('repeatInput', () => {
+  const everyThreeWeeks = { frequency: 'custom' as const, interval: 3, unit: 'weeks' as const };
+
+  it('keeps the stored rule when the frequency is unchanged', () => {
+    expect(repeatInput('custom', everyThreeWeeks)).toBe(everyThreeWeeks);
   });
 
-  it('signs positive figures and flags negative ones', () => {
-    expect(formatTrend(12.4)).toEqual({ label: '+12%', isPositive: true });
-    expect(formatTrend(-4)).toEqual({ label: '-4%', isPositive: false });
-    expect(formatTrend(0)).toEqual({ label: '0%', isPositive: true });
+  it('sends just the frequency when it changed', () => {
+    expect(repeatInput('weekly', everyThreeWeeks)).toEqual({ frequency: 'weekly' });
+    expect(repeatInput('daily')).toEqual({ frequency: 'daily' });
+  });
+
+  it('clears the repeat', () => {
+    expect(repeatInput(null, everyThreeWeeks)).toBeNull();
   });
 });
 

@@ -145,4 +145,29 @@ describe('/api/pipelines · pglite integration', () => {
     );
     expect(names((await second.json()) as { data: { name: string }[] })).toEqual(['Order test A']);
   });
+
+  it('DELETE /:id also retires the pipeline\'s stages, and only those', async () => {
+    const now = new Date();
+    await db.insert(schema.crmPipelines).values([
+      { id: 'pl_del_a', name: 'Delete me', createdAt: now, updatedAt: now },
+      { id: 'pl_del_b', name: 'Keep me', createdAt: now, updatedAt: now },
+    ]);
+    await db.insert(schema.crmPipelineStages).values([
+      { id: 'st_del_a1', name: 'Lead', position: 0, pipeline: 'pl_del_a' },
+      { id: 'st_del_a2', name: 'Won', position: 1, pipeline: 'pl_del_a' },
+      { id: 'st_del_b1', name: 'Lead', position: 0, pipeline: 'pl_del_b' },
+    ]);
+
+    const { request } = createTestApp('/api/pipelines', pipelinesRoutes, {
+      context: { permissions: permissions('pipelines:delete'), tenantDb: db },
+    });
+    const res = await request('/api/pipelines/pl_del_a', { method: 'DELETE' });
+    expect(res.status).toBe(204);
+
+    const stages = await db.select().from(schema.crmPipelineStages);
+    const deleted = (id: string) => stages.find((s) => s.id === id)?.deletedAt != null;
+    expect(deleted('st_del_a1')).toBe(true);
+    expect(deleted('st_del_a2')).toBe(true);
+    expect(deleted('st_del_b1')).toBe(false);
+  });
 });

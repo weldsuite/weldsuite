@@ -1,25 +1,36 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { router, Stack } from 'expo-router';
-import { Building2, ChevronRight } from 'lucide-react-native';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { CompanyPicker } from '@/components/company-picker';
 import { FormField, FormScreen } from '@/components/form';
-import { api, type CompanyRecord } from '@/services/api';
+import { RecordRefField } from '@/components/record-ref-field';
+import { api } from '@/services/api';
+import type { RecordKind, RecordRef } from '@/services/notes';
 import { useI18n } from '@/lib/i18n';
 import { LOGGABLE_ACTIVITY_TYPES, type LoggableActivityType } from '@/lib/crm';
 import { describeError, optionalText, validateActivity, type FormErrors } from '@/lib/validation';
 
+/**
+ * Log a call, email, meeting or note. Opened from a record (`recordKind`,
+ * `recordId`, `recordName`) or a deal (`opportunityId`) it is linked to them.
+ */
 export default function LogActivityScreen() {
+  const params = useLocalSearchParams<{
+    recordKind?: RecordKind;
+    recordId?: string;
+    recordName?: string;
+    opportunityId?: string;
+  }>();
   const { colors } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
   const [type, setType] = useState<LoggableActivityType>('call');
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [company, setCompany] = useState<CompanyRecord | null>(null);
-  const [pickerVisible, setPickerVisible] = useState(false);
+  const [record, setRecord] = useState<RecordRef | undefined>(
+    params.recordKind && params.recordId ? { kind: params.recordKind, id: params.recordId, name: params.recordName } : undefined,
+  );
   const [errors, setErrors] = useState<FormErrors<'subject'>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,7 +44,8 @@ export default function LogActivityScreen() {
       type,
       subject,
       description: optionalText(description),
-      companyId: company?.id,
+      record,
+      opportunityId: params.opportunityId || undefined,
     });
     setSubmitting(false);
 
@@ -100,42 +112,8 @@ export default function LogActivityScreen() {
           multiline
           numberOfLines={4}
         />
-
-        <View style={styles.field}>
-          <Text style={[styles.label, { color: colors.muted }]}>{t.activity.company}</Text>
-          <TouchableOpacity
-            style={[styles.select, { borderColor: colors.divider, backgroundColor: colors.background }]}
-            onPress={() => setPickerVisible(true)}
-            accessibilityRole="button"
-            accessibilityLabel={t.activity.company}
-          >
-            <Building2 size={16} color={colors.muted} />
-            <Text style={[styles.selectText, { color: company ? colors.text : colors.muted }]} numberOfLines={1}>
-              {company ? company.name : t.common.select}
-            </Text>
-            {company ? (
-              <TouchableOpacity
-                onPress={() => setCompany(null)}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={t.common.clear}
-              >
-                <Text style={[styles.clear, { color: colors.muted }]}>{t.common.clear}</Text>
-              </TouchableOpacity>
-            ) : (
-              <ChevronRight size={16} color={colors.muted} />
-            )}
-          </TouchableOpacity>
-        </View>
+        <RecordRefField label={t.activity.record} value={record} onChange={setRecord} />
       </FormScreen>
-      <CompanyPicker
-        visible={pickerVisible}
-        onClose={() => setPickerVisible(false)}
-        onSelect={(selected) => {
-          setCompany(selected);
-          setPickerVisible(false);
-        }}
-      />
     </>
   );
 }
@@ -146,15 +124,4 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
   chipText: { fontSize: 14, fontWeight: '500' },
-  select: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  selectText: { flex: 1, fontSize: 15 },
-  clear: { fontSize: 13, textDecorationLine: 'underline' },
 });
