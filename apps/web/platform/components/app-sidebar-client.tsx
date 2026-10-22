@@ -141,7 +141,7 @@ function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverE
           onMouseLeave={onHoverEnd}
           onFocus={onHover}
           className={cn(
-            'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors cursor-grab overflow-visible',
+            'group relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors cursor-grab overflow-visible',
             isHomePage
               ? 'text-white/70 hover:text-white hover:bg-white/10'
               : 'hover:bg-accent hover:text-accent-foreground',
@@ -282,7 +282,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               href="/"
               data-testid="app-nav-home"
               className={cn(
-                'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors',
+                'group relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10'
                   : 'hover:bg-accent hover:text-accent-foreground',
@@ -381,7 +381,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
                         onMouseLeave={() => cancelPrefetch(app.appCode)}
                         onFocus={() => prefetchApp(app.appCode)}
                         className={cn(
-                          'group relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors overflow-visible',
+                          'group relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors overflow-visible',
                           isHomePage
                             ? 'text-white/70 hover:text-white hover:bg-white/10'
                             : 'hover:bg-accent hover:text-accent-foreground',
@@ -413,7 +413,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               onMouseEnter={() => router.prefetch('/agents')}
               onFocus={() => router.prefetch('/agents')}
               className={cn(
-                'relative h-11.5 w-11.5 flex items-center justify-center rounded-lg transition-colors',
+                'relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10'
                   : 'hover:bg-accent hover:text-accent-foreground',
@@ -441,7 +441,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
               href="/appstore"
               data-testid="app-nav-appstore"
               className={cn(
-                'h-11.5 w-11.5 flex items-center justify-center rounded-md transition-colors border border-dashed',
+                'h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-md transition-colors border border-dashed',
                 isHomePage
                   ? 'text-white/70 hover:text-white hover:bg-white/10 border-white/30'
                   : 'hover:bg-accent hover:text-accent-foreground border-gray-300 dark:border-border',
