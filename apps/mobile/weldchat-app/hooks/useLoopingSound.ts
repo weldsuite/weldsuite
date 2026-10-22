@@ -7,7 +7,15 @@
 import { useEffect, useRef } from 'react';
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 
-export function useLoopingSound(active: boolean, source: number) {
+export function useLoopingSound(
+  active: boolean,
+  source: number,
+  /**
+   * The sound plays while the call's mic is live (ringback). Keeps recording
+   * allowed: a playback-only audio session cuts the WebRTC mic on iOS.
+   */
+  { duringCall = false }: { duringCall?: boolean } = {},
+) {
   const playerRef = useRef<AudioPlayer | null>(null);
 
   useEffect(() => {
@@ -20,7 +28,7 @@ export function useLoopingSound(active: boolean, source: number) {
           // we don't fight the WebRTC audio session once the call connects.
           await setAudioModeAsync({
             playsInSilentMode: true,
-            allowsRecording: false,
+            allowsRecording: duringCall,
             interruptionMode: 'mixWithOthers',
           });
           const player = createAudioPlayer(source);
@@ -50,5 +58,5 @@ export function useLoopingSound(active: boolean, source: number) {
         player.release();
       }
     };
-  }, [active, source]);
+  }, [active, source, duringCall]);
 }
