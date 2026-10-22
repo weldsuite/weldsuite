@@ -220,8 +220,10 @@ jobs:
     # iOS needs Xcode; Android is cheaper on Linux. Both are free for public
     # repositories on GitHub-hosted runners. macos-26 rather than macos-15,
     # whose Xcode 16 cannot resolve the project's Swift package graph, see
-    # "Select Xcode".
-    runs-on: ${{ matrix.platform == 'ios' && 'macos-26' || 'ubuntu-latest' }}
+    # "Select Xcode". ubuntu-24.04 rather than ubuntu-latest: on 26.04 `/tmp`
+    # is a RAM-backed tmpfs with a ~6 GB per-user quota
+    # (actions/runner-images#14777), see EAS_LOCAL_BUILD_WORKINGDIR below.
+    runs-on: ${{ matrix.platform == 'ios' && 'macos-26' || 'ubuntu-24.04' }}
     # Holds EXPO_TOKEN. Add required reviewers here for an approval step.
     environment: ${{ inputs.channel == 'production' && 'production' || 'test' }}
     timeout-minutes: 120
@@ -307,6 +309,12 @@ jobs:
           AUTO_SUBMIT: ${{ inputs.auto-submit }}
           APP: ${{ matrix.app }}
           ARTIFACT_DIR: ${{ runner.temp }}/build
+          # `--local` copies the whole monorepo, installs every workspace and
+          # runs Gradle inside its working directory, which defaults to /tmp.
+          # On ubuntu-26.04 that is a quota-limited tmpfs, and the Android
+          # builds died with "Disk quota exceeded" halfway through. runner.temp
+          # sits on the root disk on every image.
+          EAS_LOCAL_BUILD_WORKINGDIR: ${{ runner.temp }}/eas-build
           MESSAGE: manual build of ${{ github.sha }} (${{ inputs.channel }}) by ${{ github.actor }}
         run: |
           set -euo pipefail
