@@ -35,6 +35,10 @@ export interface Env extends KitEnv {
   VERCEL_HELPCENTER_PROJECT_ID?: string;
   /** Vercel team id, when the helpcenter project lives under a team. */
   VERCEL_TEAM_ID?: string;
+  /** `sandbox` on test: help center records go to the WeldHost DNS sandbox (DNS_SANDBOX). */
+  WELDHOST_DNS_MODE?: string;
+  /** Test-only D1 holding WeldHost sandbox zones and records. Never bound in production. */
+  DNS_SANDBOX?: D1Database;
 
   // --- Helpdesk analytics (R2 SQL / Iceberg, @weldsuite/core-domain/analytics-query) ---
   CF_ACCOUNT_ID?: string;

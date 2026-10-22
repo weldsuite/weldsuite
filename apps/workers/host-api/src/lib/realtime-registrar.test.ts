@@ -33,5 +33,20 @@ describe('getRealtimeRegistrar', () => {
       }),
     );
     expect(rtr!.hasAdac).toBe(false);
+    expect(rtr!.canSearch).toBe(false);
+  });
+
+  it('ignores the ADAC key on OTE but can still search', () => {
+    const rtr = getRealtimeRegistrar(
+      env({
+        REALTIME_REGISTER_API_KEY: 'key',
+        REALTIME_REGISTER_CUSTOMER: 'cust',
+        REALTIME_REGISTER_ADAC_API_KEY: 'adac_key',
+        REALTIME_REGISTER_OTE: 'TRUE',
+      }),
+    );
+    expect(rtr!.isOte).toBe(true);
+    expect(rtr!.hasAdac).toBe(false);
+    expect(rtr!.canSearch).toBe(true);
   });
 });

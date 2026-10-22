@@ -34,11 +34,21 @@ ENVIRONMENT = "development"
 APP_API_URL = "http://localhost:8789"
 # Platform SPA origin.
 APP_URL = "http://localhost:3000"
+# Domain registrations put their DNS zone in the WeldHost DNS sandbox D1, never
+# in Cloudflare (@weldsuite/cloudflare-zones/sandbox).
+WELDHOST_DNS_MODE = "sandbox"
 # Partner portal (apps/web/partner): links in partner emails.
 PARTNER_PORTAL_URL = "http://localhost:3203"
 # Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
 # simulated and writes mail to disk instead of sending it.
 EMAIL_TRANSPORT = "cloudflare"
+
+# WeldHost DNS sandbox (local dev + test only; never in production). Shared
+# with host-api and desk-api.
+[[d1_databases]]
+binding = "DNS_SANDBOX"
+database_name = "weldhost-dns-sandbox-test"
+database_id = "93f483fb-0cf3-44ce-ae66-b6661aea5375"
 
 # Hourly sweeps. Test locally with `wrangler dev --test-scheduled` + GET /__scheduled.
 #  - comp sweep: ends expired comp plans and renews comped workspaces' monthly
@@ -88,6 +98,12 @@ APP_API_URL = "https://app-api-test.weldsuite.org"
 APP_URL = "https://app-test.weldsuite.org"
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 EMAIL_TRANSPORT = "cloudflare"
+WELDHOST_DNS_MODE = "sandbox"
+
+[[env.test.d1_databases]]
+binding = "DNS_SANDBOX"
+database_name = "weldhost-dns-sandbox-test"
+database_id = "93f483fb-0cf3-44ce-ae66-b6661aea5375"
 
 # Bindings are not inherited by named environments: without this the test
 # worker has no master DB at all (every admin/partner/webhook query fails).

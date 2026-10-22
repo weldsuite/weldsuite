@@ -44,6 +44,14 @@ export interface Env extends KitEnv {
   REALTIME_REGISTER_WEBHOOK_SECRET?: string;
   /** Stripe secret key used to mint domain registration Checkout Sessions. */
   STRIPE_SECRET_KEY?: string;
+
+  // --- Test environment DNS sandbox (@weldsuite/cloudflare-zones/sandbox) --
+  /** `sandbox` on test: customer zones go to the DNS_SANDBOX emulator, not Cloudflare. */
+  WELDHOST_DNS_MODE?: string;
+  /** Test-only D1 holding sandbox zones and records. Never bound in production. */
+  DNS_SANDBOX?: D1Database;
+  /** Comma-separated nameservers handed out for sandbox zones. */
+  DNS_SANDBOX_NAMESERVERS?: string;
 }
 
 export type Variables = KitVariables;

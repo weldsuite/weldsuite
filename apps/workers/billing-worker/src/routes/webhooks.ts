@@ -46,6 +46,11 @@ import {
   findZoneIdByName,
   getCloudflareZone,
 } from '@weldsuite/cloudflare-zones';
+import {
+  isSandboxZoneId,
+  isZonesSandboxEnabled,
+  sandboxNameserversFromEnv,
+} from '@weldsuite/cloudflare-zones/sandbox';
 import { generateId } from '../lib/id';
 import type {
   StripeEvent,
@@ -1902,6 +1907,9 @@ async function handleDomainRegistrationCheckout(
   }
 }
 
+/** Stand-in Cloudflare token/account in DNS sandbox mode; the sandbox never sends them anywhere. */
+const SANDBOX_CLOUDFLARE_PLACEHOLDER = 'dns-sandbox';
+
 function parseRegistrationIds(raw: string): string[] | null {
   try {
     return JSON.parse(raw) as string[];
@@ -1911,13 +1919,19 @@ function parseRegistrationIds(raw: string): string[] | null {
   }
 }
 
-function resolveRegistrarConfig(
+/**
+ * Credentials for one registration run. In DNS sandbox mode (test) the zone is
+ * created in the sandbox, which ignores the Cloudflare token and account, so
+ * missing CLOUDFLARE_* fall back to placeholders instead of blocking the run.
+ */
+export function resolveRegistrarConfig(
   env: Env,
 ): { rtrKey: string; rtrCustomer: string; cfToken: string; cfAccountId: string } | null {
   const rtrKey = env.REALTIME_REGISTER_API_KEY;
   const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
-  const cfToken = env.CLOUDFLARE_API_TOKEN;
-  const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const sandbox = isZonesSandboxEnabled(env);
+  const cfToken = env.CLOUDFLARE_API_TOKEN || (sandbox ? SANDBOX_CLOUDFLARE_PLACEHOLDER : undefined);
+  const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID || (sandbox ? SANDBOX_CLOUDFLARE_PLACEHOLDER : undefined);
   if (!rtrKey || !rtrCustomer) {
     console.error('[Domain Registration] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
     return null;
@@ -2121,12 +2135,18 @@ async function registerClaimedDomain(
 
   const privacyProtect = privacyProtectForDomain(domainRow.fullDomain);
 
+  // Test DNS sandbox: its placeholder nameservers resolve nowhere and some OTE
+  // registries check delegation, so hand them over only when they were set
+  // explicitly (DNS_SANDBOX_NAMESERVERS) as ones OTE accepts.
+  const registerNameservers =
+    isSandboxZoneId(zoneId) && sandboxNameserversFromEnv(ctx.env).length === 0 ? [] : nameservers;
+
   // 3) Register at Realtime Register with CF nameservers
   const result = await rtr.register({
     name: domainRow.fullDomain,
     registrant: platform.registrant,
     contacts: platform.contacts,
-    nameservers: nameservers.length ? nameservers : undefined,
+    nameservers: registerNameservers.length ? registerNameservers : undefined,
     // Stripe invoices auto-renew; keep RTR auto-renew off so the
     // registrar does not bill WeldSuite independently of the customer.
     autoRenew: false,
