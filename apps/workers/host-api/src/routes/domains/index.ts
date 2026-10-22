@@ -215,7 +215,7 @@ app.get(
         503,
       );
     }
-    if (!rtr.hasAdac) {
+    if (!rtr.canSearch) {
       return c.json(
         {
           error: {
@@ -249,7 +249,7 @@ app.post(
         503,
       );
     }
-    if (!rtr.hasAdac) {
+    if (!rtr.canSearch) {
       return c.json(
         {
           error: {

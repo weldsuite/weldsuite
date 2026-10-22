@@ -9,6 +9,7 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { configureZonesSandbox } from '@weldsuite/cloudflare-zones/sandbox';
 import { logger } from 'hono/logger';
 import { webhookRoutes } from './routes/webhooks';
 import { billingRoutes } from './routes/billing';
@@ -94,6 +95,12 @@ export interface Env {
   REALTIME_REGISTER_CONTACT_ADMIN?: string;
   REALTIME_REGISTER_CONTACT_TECH?: string;
   REALTIME_REGISTER_CONTACT_BILLING?: string;
+  // Test environment DNS sandbox (@weldsuite/cloudflare-zones/sandbox): on test
+  // the registration's zone goes to the DNS_SANDBOX emulator, not Cloudflare.
+  WELDHOST_DNS_MODE?: string;
+  DNS_SANDBOX?: D1Database;
+  /** Nameservers for sandbox zones; when unset, OTE registrations carry none. */
+  DNS_SANDBOX_NAMESERVERS?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -209,7 +216,12 @@ app.onError((err, c) => {
 });
 
 export default {
-  fetch: app.fetch,
+  // On test (WELDHOST_DNS_MODE=sandbox) the zone a domain registration creates
+  // lives in the WeldHost DNS sandbox, not Cloudflare. A no-op everywhere else.
+  fetch(request, env, ctx) {
+    configureZonesSandbox(env);
+    return app.fetch(request, env, ctx);
+  },
   // Hourly (wrangler.toml [triggers]): end expired comp plans and renew the
   // monthly credits of comped workspaces, then the reseller-licensing sweeps
   // (seat snapshots, licensed-credit reset, dunning daily at 02:xx UTC; the

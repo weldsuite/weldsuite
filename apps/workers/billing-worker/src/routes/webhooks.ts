@@ -46,6 +46,7 @@ import {
   findZoneIdByName,
   getCloudflareZone,
 } from '@weldsuite/cloudflare-zones';
+import { isSandboxZoneId, sandboxNameserversFromEnv } from '@weldsuite/cloudflare-zones/sandbox';
 import { generateId } from '../lib/id';
 import type {
   StripeEvent,
@@ -2121,12 +2122,18 @@ async function registerClaimedDomain(
 
   const privacyProtect = privacyProtectForDomain(domainRow.fullDomain);
 
+  // Test DNS sandbox: its placeholder nameservers resolve nowhere and some OTE
+  // registries check delegation, so hand them over only when they were set
+  // explicitly (DNS_SANDBOX_NAMESERVERS) as ones OTE accepts.
+  const registerNameservers =
+    isSandboxZoneId(zoneId) && sandboxNameserversFromEnv(ctx.env).length === 0 ? [] : nameservers;
+
   // 3) Register at Realtime Register with CF nameservers
   const result = await rtr.register({
     name: domainRow.fullDomain,
     registrant: platform.registrant,
     contacts: platform.contacts,
-    nameservers: nameservers.length ? nameservers : undefined,
+    nameservers: registerNameservers.length ? registerNameservers : undefined,
     // Stripe invoices auto-renew; keep RTR auto-renew off so the
     // registrar does not bill WeldSuite independently of the customer.
     autoRenew: false,

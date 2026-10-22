@@ -19,6 +19,7 @@ import {
   postAdacAction,
 } from './adac';
 import {
+  domainSearchSld,
   isExactSldMatch,
   normalizeDomainSearchQuery,
   rankExactDomainSearchResults,
@@ -455,11 +456,18 @@ function requestHttpError(status: number, endpoint: string, body: unknown): Real
 // Client
 // ============================================================================
 
+/** TLDs an OTE search checks when the caller passes none. */
+export const OTE_SEARCH_DEFAULT_TLDS = ['com', 'net', 'org', 'eu', 'io'] as const;
+
+/** Upper bound on REST checks per OTE search; each name is one registrar call. */
+export const OTE_SEARCH_MAX_NAMES = 10;
+
 export class RealtimeRegistrar {
   private readonly apiKey: string;
   private readonly customer: string;
   private readonly adacApiKey: string | undefined;
   private readonly adacTldSetToken: string | undefined;
+  private readonly ote: boolean;
   private readonly baseURL: string;
   private readonly fetchImpl: RegistrarFetch;
   private readonly timeoutMs: number;
@@ -489,6 +497,7 @@ export class RealtimeRegistrar {
     this.customer = customer.trim();
     this.adacApiKey = adacApiKey?.trim() || undefined;
     this.adacTldSetToken = adacTldSetToken?.trim() || undefined;
+    this.ote = ote;
     this.baseURL =
       baseURL ??
       (ote ? 'https://api.yoursrs-ote.com/v2/' : 'https://api.yoursrs.com/v2/');
@@ -504,8 +513,22 @@ export class RealtimeRegistrar {
     return this.customer;
   }
 
+  get isOte(): boolean {
+    return this.ote;
+  }
+
+  /**
+   * True when search and check go through ADAC. Never on OTE: ADAC only sees
+   * the live registries, so on OTE it would report names as available that the
+   * OTE registry already holds (and the reverse).
+   */
   get hasAdac(): boolean {
-    return Boolean(this.adacApiKey);
+    return Boolean(this.adacApiKey) && !this.ote;
+  }
+
+  /** Search works through ADAC, or on OTE through the registrar REST check. */
+  get canSearch(): boolean {
+    return this.hasAdac || this.ote;
   }
 
   private requireAdac(): string {
@@ -595,8 +618,8 @@ export class RealtimeRegistrar {
    * ADAC `input` action — one POST returns availability for the typed name
    * across the TLD set. Suggestion tools are disabled; similar names are
    * dropped. Taken domains stay in the list (not sorted behind available ones).
-   * `tlds` is accepted for call-site compatibility and used only as a suffix
-   * filter when non-empty.
+   * With ADAC, `tlds` is only a suffix filter when non-empty. On OTE it is the
+   * list of TLDs to check (see {@link searchDomainsViaRest}).
    */
   async searchDomains(
     query: string,
@@ -605,6 +628,8 @@ export class RealtimeRegistrar {
   ): Promise<DomainCheckResult[]> {
     const cleaned = normalizeDomainSearchQuery(query);
     if (!cleaned) return [];
+
+    if (this.ote) return this.searchDomainsViaRest(cleaned, tlds, limit);
 
     const events = await postAdacAction(this.fetchImpl, {
       apiKey: this.requireAdac(),
@@ -629,15 +654,37 @@ export class RealtimeRegistrar {
   }
 
   /**
+   * OTE search: ADAC has no OTE counterpart, so check `<sld>.<tld>` against the
+   * OTE registry one name at a time. A typed FQDN is checked first; the rest
+   * come from `tlds` (the caller's priced TLDs), else {@link OTE_SEARCH_DEFAULT_TLDS},
+   * capped at {@link OTE_SEARCH_MAX_NAMES} names.
+   */
+  private async searchDomainsViaRest(
+    cleaned: string,
+    tlds: string[],
+    limit: number,
+  ): Promise<DomainCheckResult[]> {
+    const sld = domainSearchSld(cleaned);
+    if (!sld) return [];
+    const suffixes = tlds.map((t) => t.replace(/^\./, '').toLowerCase()).filter(Boolean);
+    const candidates = [
+      ...(cleaned.includes('.') ? [cleaned] : []),
+      ...(suffixes.length ? suffixes : OTE_SEARCH_DEFAULT_TLDS).map((t) => `${sld}.${t}`),
+    ];
+    const names = [...new Set(candidates)].slice(0, Math.min(limit, OTE_SEARCH_MAX_NAMES));
+    return this.checkDomainsViaRest(names);
+  }
+
+  /**
    * ADAC `check` action per domain (single-name availability, including premium
    * price when ADAC returns one). Falls back to the registrar REST check when
-   * ADAC is not configured.
+   * ADAC is not configured, and always uses it on OTE.
    */
   async checkDomains(domains: string[]): Promise<DomainCheckResult[]> {
     const names = domains.map((d) => d.trim().toLowerCase()).filter(Boolean);
     if (names.length === 0) return [];
 
-    if (!this.adacApiKey) {
+    if (!this.hasAdac) {
       return this.checkDomainsViaRest(names);
     }
 

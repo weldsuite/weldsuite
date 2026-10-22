@@ -162,6 +162,8 @@ export function DomainDetailContent({
   // Whether the zone is editable. Internally this is gated on having a
   // configured DNS provider; the UI never surfaces the provider name.
   const canManageDns = dnsZone?.provider === 'cloudflare' && !!dnsZone?.externalZoneId;
+  // Test environment DNS sandbox (@weldsuite/cloudflare-zones/sandbox) zone ids start with `sbx`.
+  const isSandboxDnsZone = !!dnsZone?.externalZoneId?.startsWith('sbx');
 
   const isExternalDomain = isExternalDomainRegistrar(domain.registrar);
   const status = statusPill[domain.status] ?? statusPill.active;
@@ -466,6 +468,14 @@ export function DomainDetailContent({
               </h1>
               <span className={cn(PILL, status.color, 'shrink-0')}>{t.host.domainsList[status.labelKey]}</span>
               {domain.usedByWeldReach && <UsedByWeldReachBadge />}
+              {isSandboxDnsZone && (
+                <span
+                  className={cn(PILL, 'text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950', 'shrink-0')}
+                  title={td.sandboxDnsHint}
+                >
+                  {td.sandboxDns}
+                </span>
+              )}
             </div>
           </div>
 

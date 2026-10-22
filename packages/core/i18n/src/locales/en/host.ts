@@ -599,6 +599,9 @@ export const host = {
       updated: 'Updated',
       zone: 'Zone',
       provider: 'Provider',
+      sandboxDns: 'Simulated DNS',
+      sandboxDnsHint:
+        'Test environment: this DNS zone is simulated. Records are saved but nothing resolves publicly, and mail for this domain is not delivered.',
       autoRenew: 'Auto-renew',
       ssl: 'SSL',
       emailForwarding: 'Email forwarding',

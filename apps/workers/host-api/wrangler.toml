@@ -39,10 +39,20 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+# Customer DNS zones go to the DNS sandbox D1 below, never to Cloudflare
+# (@weldsuite/cloudflare-zones/sandbox, docs/plans/weldhost-test-environment.md).
+WELDHOST_DNS_MODE = "sandbox"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
+
+# WeldHost DNS sandbox (local dev + test only; never in production). Tables are
+# created on first use. Shared with billing-worker and desk-api.
+[[d1_databases]]
+binding = "DNS_SANDBOX"
+database_name = "weldhost-dns-sandbox-test"
+database_id = "93f483fb-0cf3-44ce-ae66-b6661aea5375"
 
 # Schedule-index D1 (shared with workflow-worker / agent-api): the daily
 # auto-renew sweep reads workspace_due_index (kind domain_renew) and opens
@@ -79,6 +89,7 @@ routes = [
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
+WELDHOST_DNS_MODE = "sandbox"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -92,6 +103,11 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[env.test.d1_databases]]
+binding = "DNS_SANDBOX"
+database_name = "weldhost-dns-sandbox-test"
+database_id = "93f483fb-0cf3-44ce-ae66-b6661aea5375"
 
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
