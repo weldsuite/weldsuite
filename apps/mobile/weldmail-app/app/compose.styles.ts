@@ -109,6 +109,7 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     gap: 0,
   },
+  recipientError: { fontSize: 13, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 2 },
   toChipContainer: {
     flex: 1,
     flexDirection: 'row',

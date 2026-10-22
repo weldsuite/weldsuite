@@ -63,6 +63,18 @@ export default function ProjectsScreen() {
   } = useInfiniteProjects(params);
   const projects = useMemo(() => flattenPages(data?.pages), [data]);
 
+  // An empty result for a search or status filter isn't "no projects yet".
+  const query = search.trim();
+  let emptyTitle = t.projects.emptyTitle;
+  let emptyDescription = t.projects.emptyDescription;
+  if (query) {
+    emptyTitle = format(t.projects.noSearchResults, { query });
+    emptyDescription = t.projects.noResultsDescription;
+  } else if (statusFilter !== 'all') {
+    emptyTitle = t.projects.noFilterResults;
+    emptyDescription = t.projects.noResultsDescription;
+  }
+
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
@@ -162,8 +174,8 @@ export default function ProjectsScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<FolderKanban size={32} color={colors.mutedForeground} />}
-            title={t.projects.emptyTitle}
-            description={t.projects.emptyDescription}
+            title={emptyTitle}
+            description={emptyDescription}
           />
         }
       />

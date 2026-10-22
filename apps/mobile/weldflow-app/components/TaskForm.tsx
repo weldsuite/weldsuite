@@ -610,12 +610,16 @@ function DatePickerModal({ picker, startDate, dueDate, colors, bottomInset, onCh
     if (Platform.OS === 'android') onClose();
   };
 
+  // The dialog's header and selected day take the coral from the
+  // datetimepicker config plugin in app.json (native); the buttons are set here.
   if (Platform.OS !== 'ios') {
     return (
       <DateTimePicker
         value={value}
         mode="date"
         display="default"
+        positiveButton={{ textColor: ACCENT }}
+        negativeButton={{ textColor: ACCENT }}
         onValueChange={handleValueChange}
         onDismiss={handleDismiss}
       />

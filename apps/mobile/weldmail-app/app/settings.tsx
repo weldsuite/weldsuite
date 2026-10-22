@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Updates from 'expo-updates';
 import * as Application from 'expo-application';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
+import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useMail } from '@/contexts/MailContext';
 import { LogOut, Moon, Sun, Building2, Check, User } from 'lucide-react-native';
 import { Screen, ScreenHeader, SectionLabel } from '@/components/screen';
 import { BRAND, BRAND_TINT, tint, ACCENTS } from '@/lib/brand';
+import { t } from '@/lib/i18n';
 
 function getUpdateStatus(): string {
   if (!Updates.isEnabled) return 'Dev build';
@@ -38,7 +40,7 @@ function WorkspaceTrailing({ isSwitching, isActive, borderColor }: Readonly<{
 }
 
 export default function SettingsScreen() {
-  const { theme, colors, toggleTheme } = useTheme();
+  const { theme, preference, colors, setPreference } = useTheme();
   const { user, signOut } = useClerkAuth();
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const { unregisterDevice, prepareWorkspaceSwitch } = useNotifications();
@@ -81,11 +83,12 @@ export default function SettingsScreen() {
       header={<ScreenHeader title="Settings" onBack={() => router.back()} />}
     >
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <SectionLabel>Account</SectionLabel>
+        <SectionLabel>{t.settings.account}</SectionLabel>
         <Card style={styles.card}>
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
-            <Text style={[styles.label, { color: colors.text }]}>{user?.fullName || user?.email || 'User'}</Text>
-            <Text style={[styles.value, { color: colors.mutedForeground }]}>{user?.email}</Text>
+            {/* Without a name, label the row instead of repeating the email. */}
+            <Text style={[styles.label, { color: colors.text }]}>{user?.fullName || t.settings.signedInAs}</Text>
+            <Text style={[styles.value, { color: colors.mutedForeground }]} numberOfLines={1}>{user?.email}</Text>
           </View>
           {currentWorkspace ? (
             <View style={[styles.row, { borderBottomWidth: 0 }]}>
@@ -156,9 +159,9 @@ export default function SettingsScreen() {
           })}
         </Card>
 
-        <SectionLabel>Appearance</SectionLabel>
+        <SectionLabel>{t.settings.appearance}</SectionLabel>
         <Card style={styles.card}>
-          <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} onPress={toggleTheme} activeOpacity={0.6}>
+          <View style={styles.themeBlock}>
             <View style={styles.rowLeft}>
               <View style={[styles.iconTile, { backgroundColor: tint(ACCENTS.settings) }]}>
                 {theme === 'dark' ? (
@@ -167,15 +170,18 @@ export default function SettingsScreen() {
                   <Sun size={18} color={colors.muted} />
                 )}
               </View>
-              <Text style={[styles.label, { color: colors.text }]}>Dark Mode</Text>
+              <Text style={[styles.label, { color: colors.text }]}>{t.settings.theme}</Text>
             </View>
-            <Switch
-              value={theme === 'dark'}
-              onValueChange={toggleTheme}
-              trackColor={{ false: colors.border, true: BRAND }}
-              thumbColor="#FFFFFF"
+            <SegmentedControl
+              options={[
+                { value: 'system', label: t.settings.themeSystem },
+                { value: 'light', label: t.settings.themeLight },
+                { value: 'dark', label: t.settings.themeDark },
+              ]}
+              value={preference}
+              onValueChange={(value) => void setPreference(value as ThemePreference)}
             />
-          </TouchableOpacity>
+          </View>
         </Card>
 
         <SectionLabel>About</SectionLabel>
@@ -221,6 +227,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 },
+  themeBlock: { paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
   iconTile: {
     width: 34,
     height: 34,

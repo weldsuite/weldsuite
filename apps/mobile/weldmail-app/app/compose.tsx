@@ -37,6 +37,7 @@ import { appApi, appApiClient } from '@/services/app-api';
 import { sendFromAccount as sendMailFromAccount, createDraft, isPersonalAccount } from '@/services/mail-tenant';
 import { describeSendError } from '@/utils/send-error';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
+import { t } from '@/lib/i18n';
 
 const buildEditorHtml = (textColor: string) => `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;background:transparent}#e{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;color:${textColor};padding:10px 0;min-height:180px;outline:none;-webkit-user-select:text;word-wrap:break-word}#e:empty:before{content:attr(data-placeholder);color:#9CA3AF;pointer-events:none}#e ul,#e ol{padding-left:20px;margin:4px 0}#e a{color:#3B82F6}</style></head><body><div id="e" contenteditable="true" data-placeholder="Compose email"></div><script>var e=document.getElementById('e'),p=window.ReactNativeWebView.postMessage.bind(window.ReactNativeWebView),s=function(){p(JSON.stringify({t:'c',h:e.innerHTML,x:e.innerText}))},f=function(){p(JSON.stringify({t:'f',b:document.queryCommandState('bold'),i:document.queryCommandState('italic'),u:document.queryCommandState('underline'),l:document.queryCommandState('insertUnorderedList'),ol:document.queryCommandState('insertOrderedList')}))};e.addEventListener('input',s);e.addEventListener('focus',function(){p(JSON.stringify({t:'fo'}))});e.addEventListener('blur',function(){p(JSON.stringify({t:'bl'}))});document.addEventListener('selectionchange',f);var h=function(ev){try{var m=JSON.parse(ev.data);if(m.t==='fmt'){document.execCommand(m.c,false,m.v||null);e.focus();f();s()}}catch(x){}};document.addEventListener('message',h);window.addEventListener('message',h)</script></body></html>`;
 
@@ -322,10 +323,12 @@ async function pickFiles(): Promise<Attachment[]> {
 
 type SendCheck = { ok: true; account: ComposeAccount } | { ok: false; title: string; message: string };
 
-/** Shared pre-send validation: an account, a recipient, and no attachments where they can't go. */
-function checkSendReady(account: ComposeAccount | null, to: string, attachmentsMessage: string | null): SendCheck {
+/**
+ * Shared pre-send validation: an account and no attachments where they can't
+ * go. A missing recipient is checked before this and shown on the To field.
+ */
+function checkSendReady(account: ComposeAccount | null, attachmentsMessage: string | null): SendCheck {
   if (!account) return { ok: false, title: 'Error', message: 'No email account available' };
-  if (!to.trim()) return { ok: false, title: 'Error', message: 'Please enter a recipient' };
   if (attachmentsMessage) return { ok: false, title: 'Attachments not supported', message: attachmentsMessage };
   return { ok: true, account };
 }
@@ -665,9 +668,11 @@ interface SendActionsInput {
   closeComposer: () => void;
   dismissKeyboard: () => void;
   outbox: MailOutbox;
+  /** Called instead of sending when there is no recipient yet. */
+  onMissingRecipient: () => void;
 }
 
-function useSendActions({ sendFromAccount, to, scheduledDate, attachments, buildPayloadInput, closeComposer, dismissKeyboard, outbox }: SendActionsInput) {
+function useSendActions({ sendFromAccount, to, scheduledDate, attachments, buildPayloadInput, closeComposer, dismissKeyboard, outbox, onMissingRecipient }: SendActionsInput) {
   const [sending, setSending] = useState(false);
   // Synchronous guard against double-send: `setSending` is async, so a fast
   // double-tap can re-enter handleSend/sendScheduled before the disabled state
@@ -696,10 +701,14 @@ function useSendActions({ sendFromAccount, to, scheduledDate, attachments, build
 
   const handleSend = useCallback(async () => {
     if (sendingRef.current) return;
+    if (!to.trim()) {
+      onMissingRecipient();
+      return;
+    }
     // Scheduled emails can't carry attachments yet — tell the user instead of
     // silently dropping the files they attached.
     const attachmentsMessage = scheduledDate && attachments.length > 0 ? ATTACHMENTS_SCHEDULED_SEND_MSG : null;
-    const check = checkSendReady(sendFromAccount, to, attachmentsMessage);
+    const check = checkSendReady(sendFromAccount, attachmentsMessage);
     if (!check.ok) {
       Alert.alert(check.title, check.message);
       return;
@@ -713,12 +722,16 @@ function useSendActions({ sendFromAccount, to, scheduledDate, attachments, build
       scheduledDate ? 'Failed to schedule email' : 'Failed to send email',
       'Send error:',
     );
-  }, [sendFromAccount, to, scheduledDate, attachments, buildPayloadInput, runSend, outbox]);
+  }, [sendFromAccount, to, scheduledDate, attachments, buildPayloadInput, runSend, outbox, onMissingRecipient]);
 
   // Schedule the email for a given time AND send it (one-tap "Send later").
   const sendScheduled = useCallback(async (date: Date) => {
     if (sendingRef.current) return;
-    const check = checkSendReady(sendFromAccount, to, attachments.length > 0 ? ATTACHMENTS_SCHEDULED_LATER_MSG : null);
+    if (!to.trim()) {
+      onMissingRecipient();
+      return;
+    }
+    const check = checkSendReady(sendFromAccount, attachments.length > 0 ? ATTACHMENTS_SCHEDULED_LATER_MSG : null);
     if (!check.ok) {
       Alert.alert(check.title, check.message);
       return;
@@ -729,7 +742,7 @@ function useSendActions({ sendFromAccount, to, scheduledDate, attachments, build
       'Failed to schedule email',
       'Schedule error:',
     );
-  }, [sendFromAccount, to, buildPayloadInput, attachments, runSend]);
+  }, [sendFromAccount, to, buildPayloadInput, attachments, runSend, onMissingRecipient]);
 
   return { sending, handleSend, sendScheduled };
 }
@@ -739,10 +752,11 @@ interface SendTimePickerInput {
   hasRecipient: boolean;
   sendScheduled: (date: Date) => Promise<void>;
   setScheduledDate: (date: Date | null) => void;
+  onMissingRecipient: () => void;
 }
 
 /** "Send later" / "Schedule send" flow: options sheet + custom date/time picker. */
-function useSendTimePicker({ hasAccount, hasRecipient, sendScheduled, setScheduledDate }: SendTimePickerInput) {
+function useSendTimePicker({ hasAccount, hasRecipient, sendScheduled, setScheduledDate, onMissingRecipient }: SendTimePickerInput) {
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -766,7 +780,7 @@ function useSendTimePicker({ hasAccount, hasRecipient, sendScheduled, setSchedul
       return false;
     }
     if (!hasRecipient) {
-      Alert.alert('Error', 'Please enter a recipient');
+      onMissingRecipient();
       return false;
     }
     return true;
@@ -828,13 +842,14 @@ function useSendTimePicker({ hasAccount, hasRecipient, sendScheduled, setSchedul
 // Presentational components
 // ---------------------------------------------------------------------------
 
-function ComposeHeader({ title, sendFromAccount, canPickAccount, colors, sending, hasContent, onClose, onSend, onFromPress }: Readonly<{
+function ComposeHeader({ title, sendFromAccount, canPickAccount, colors, sending, hasRecipient, onClose, onSend, onFromPress }: Readonly<{
   title: string;
   sendFromAccount: ComposeAccount | null;
   canPickAccount: boolean;
   colors: ThemeColors;
   sending: boolean;
-  hasContent: boolean;
+  /** The send arrow stays dimmed until there is someone to send to. */
+  hasRecipient: boolean;
   onClose: () => void;
   onSend: () => void;
   onFromPress: () => void;
@@ -844,7 +859,7 @@ function ComposeHeader({ title, sendFromAccount, canPickAccount, colors, sending
 
   return (
     <View style={[styles.header, { borderBottomColor: colors.border || colors.divider }]}>
-      <TouchableOpacity testID="compose-close" onPress={onClose} style={styles.closeButton} disabled={sending} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+      <TouchableOpacity testID="compose-close" onPress={onClose} style={styles.closeButton} disabled={sending} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel={t.compose.close}>
         <X size={22} color={colors.text} strokeWidth={2} />
       </TouchableOpacity>
 
@@ -881,19 +896,24 @@ function ComposeHeader({ title, sendFromAccount, canPickAccount, colors, sending
         disabled={sending}
         activeOpacity={0.6}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={t.compose.send}
+        accessibilityState={{ busy: sending }}
       >
         {sending ? (
           <MaterialSpinner size={18} strokeWidth={2.4} color={colors.text} spinning />
         ) : (
-          <SendHorizontal size={22} color={hasContent ? '#2563EB' : colors.muted} strokeWidth={2} />
+          <SendHorizontal size={22} color={hasRecipient ? '#2563EB' : colors.muted} strokeWidth={2} />
         )}
       </TouchableOpacity>
     </View>
   );
 }
 
-function RecipientRow({ field, label, recipients, input, setRecipients, colors, showCcBcc, onToggleCcBcc, onInputChange, onFocusField, onBlurField, onCommitInput }: Readonly<{
+function RecipientRow({ field, label, recipients, input, setRecipients, colors, invalid = false, showCcBcc, onToggleCcBcc, onInputChange, onFocusField, onBlurField, onCommitInput }: Readonly<{
   field: RecipientField;
+  /** Marks the label red, e.g. Send was tapped with no recipient. */
+  invalid?: boolean;
   label: string;
   recipients: string[];
   input: string;
@@ -909,7 +929,7 @@ function RecipientRow({ field, label, recipients, input, setRecipients, colors, 
   const ToggleChevron = showCcBcc ? ChevronUp : ChevronDown;
   return (
     <View style={[styles.toChipRow, { borderBottomColor: colors.border || colors.divider }]}>
-      <Text style={[styles.outlookFieldLabel, { color: colors.muted, marginTop: 14 }]}>{label}</Text>
+      <Text style={[styles.outlookFieldLabel, { color: invalid ? colors.destructive : colors.muted, marginTop: 14 }]}>{label}</Text>
       <View style={styles.toChipContainer}>
         {recipients.map((email, index) => (
           <TouchableOpacity
@@ -1412,16 +1432,26 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
     if (onCloseOverride) onCloseOverride(); else router.back();
   }, [onCloseOverride, router]);
 
+  const hasRecipient = toRecipients.length > 0 || !!toInput.trim();
+  // Send without a recipient flags the To field inline rather than popping an
+  // alert; typing an address clears it.
+  const [recipientMissing, setRecipientMissing] = useState(false);
+  useEffect(() => {
+    if (hasRecipient) setRecipientMissing(false);
+  }, [hasRecipient]);
+  const onMissingRecipient = useCallback(() => setRecipientMissing(true), []);
+
   const { sending, handleSend, sendScheduled } = useSendActions({
     sendFromAccount, to, scheduledDate, attachments, buildPayloadInput,
-    closeComposer, dismissKeyboard, outbox,
+    closeComposer, dismissKeyboard, outbox, onMissingRecipient,
   });
 
   const sendTime = useSendTimePicker({
     hasAccount: !!sendFromAccount,
-    hasRecipient: toRecipients.length > 0 || !!toInput.trim(),
+    hasRecipient,
     sendScheduled,
     setScheduledDate,
+    onMissingRecipient,
   });
 
   const handleClose = useCallback(async () => {
@@ -1481,7 +1511,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
         canPickAccount={accounts.length > 1}
         colors={colors}
         sending={sending}
-        hasContent={!!hasContent}
+        hasRecipient={hasRecipient}
         onClose={handleClose}
         onSend={handleSend}
         onFromPress={handleFromPress}
@@ -1505,6 +1535,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
                 input={fields.inputs[field]}
                 setRecipients={fields.setters[field].setRecipients}
                 colors={colors}
+                invalid={field === 'to' && recipientMissing}
                 showCcBcc={fields.showCcBcc}
                 onToggleCcBcc={() => fields.setShowCcBcc(!fields.showCcBcc)}
                 onInputChange={fields.handleRecipientInputChange}
@@ -1512,6 +1543,15 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
                 onBlurField={fields.blurRecipientField}
                 onCommitInput={fields.commitRecipientInput}
               />
+            )}
+            {field === 'to' && recipientMissing && (
+              <Text
+                style={[styles.recipientError, { color: colors.destructive }]}
+                accessibilityRole="alert"
+                accessibilityLiveRegion="polite"
+              >
+                {t.compose.recipientRequired}
+              </Text>
             )}
             {activeRecipientField === field && suggestionsElement}
           </React.Fragment>

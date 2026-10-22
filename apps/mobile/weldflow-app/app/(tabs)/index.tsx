@@ -91,7 +91,8 @@ export default function HomeScreen() {
   const QUICK_ACTIONS = [
     { label: t.dashboard.projects, icon: FolderKanban, route: '/(tabs)/projects' },
     { label: t.dashboard.myTasks, icon: CheckSquare, route: '/(tabs)/my-tasks' },
-    { label: t.dashboard.newTask, icon: Plus, route: '/(tabs)/my-tasks' },
+    // Opens My tasks with its project picker up, the first step of creating a task.
+    { label: t.dashboard.newTask, icon: Plus, route: '/(tabs)/my-tasks?new=1' },
     { label: t.dashboard.settings, icon: Settings, route: '/settings' },
   ] as const;
 
@@ -131,12 +132,13 @@ export default function HomeScreen() {
             <KpiCard
               label={t.dashboard.openTasks}
               value={String(openTaskCount)}
-              sub={plural(allTaskCount, t.dashboard.taskCount)}
+              sub={plural(allTaskCount, t.dashboard.assignedCount)}
               onPress={() => navigate('/(tabs)/my-tasks')}
             />
             <KpiCard
               label={t.dashboard.overdue}
               value={String(overdueCount)}
+              sub={plural(overdueCount, t.dashboard.taskCount)}
               warn={overdueCount > 0}
               onPress={() => navigate('/(tabs)/my-tasks')}
             />

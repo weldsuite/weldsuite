@@ -26,6 +26,40 @@ export const ACCENTS = {
   notifications: '#F59E0B',
 } as const;
 
+/**
+ * The web app stores project colours as Tailwind classes from its colour
+ * picker (`bg-blue-500`), not hex. These are the 500 shades it offers.
+ */
+const TAILWIND_500: Record<string, string> = {
+  red: '#EF4444',
+  pink: '#EC4899',
+  purple: '#A855F7',
+  indigo: '#6366F1',
+  blue: '#3B82F6',
+  cyan: '#06B6D4',
+  teal: '#14B8A6',
+  green: '#22C55E',
+  yellow: '#EAB308',
+  orange: '#F97316',
+  amber: '#F59E0B',
+  gray: '#6B7280',
+};
+
+/**
+ * A stored project colour as `#rrggbb`: hex (`#abc`, `#aabbcc`, `#aabbccdd`)
+ * or a Tailwind `bg-<name>-500` class. Anything else gets the brand coral.
+ */
+export function projectColor(value: string | null | undefined): string {
+  const color = value?.trim() ?? '';
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(color)?.[1];
+  if (hex) {
+    if (hex.length === 3) return `#${[...hex].map((c) => c + c).join('')}`.toUpperCase();
+    return `#${hex.slice(0, 6)}`.toUpperCase();
+  }
+  const name = /^(?:bg-)?([a-z]+)-500$/.exec(color)?.[1];
+  return (name && TAILWIND_500[name]) || BRAND;
+}
+
 /** ~12% tint of an accent, for the rounded icon tiles on menu rows. */
 export function tint(hex: string): string {
   const value = hex.replace('#', '');

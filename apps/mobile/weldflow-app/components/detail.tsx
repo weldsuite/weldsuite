@@ -8,7 +8,7 @@ import React from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Card, CardContent, CardTitle } from '@weldsuite/mobile-ui/components/Card';
-import { tint } from '@/lib/brand';
+import { projectColor, tint } from '@/lib/brand';
 
 /** A titled card. `padded={false}` for cards that hold their own list rows. */
 export function SectionCard({
@@ -93,7 +93,8 @@ export function IconTile({
 }
 
 /** Solid colour swatch used as a project leading tile. */
-export function ColorSwatch({ color, size = 38 }: Readonly<{ color: string; size?: number }>) {
+export function ColorSwatch({ color: stored, size = 38 }: Readonly<{ color: string; size?: number }>) {
+  const color = projectColor(stored);
   return (
     <View
       style={[

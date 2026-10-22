@@ -19,7 +19,7 @@ import {
   Building2,
 } from 'lucide-react-native';
 
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Divider } from '@weldsuite/mobile-ui/components/Divider';
@@ -32,8 +32,15 @@ import { IconTile } from '@/components/detail';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { useI18n } from '@/lib/i18n';
 
+/** Tapping the theme row steps through the same three choices as Settings. */
+const NEXT_THEME: Record<ThemePreference, ThemePreference> = {
+  system: 'light',
+  light: 'dark',
+  dark: 'system',
+};
+
 export default function MoreScreen() {
-  const { colors, theme, toggleTheme } = useTheme();
+  const { colors, theme, preference, setPreference } = useTheme();
   const router = useRouter();
   const { user, signOut } = useClerkAuth();
   const { organization } = useOrganization();
@@ -51,12 +58,21 @@ export default function MoreScreen() {
     [router],
   );
 
-  const handleNotifications = () => {
+  const themeLabel = {
+    system: t.settings.themeSystem,
+    light: t.settings.themeLight,
+    dark: t.settings.themeDark,
+  }[preference];
+
+  const handleNotifications = async () => {
     if (isPermissionGranted) {
-      openNotificationSettings();
-    } else {
-      void requestPermissions();
+      void openNotificationSettings();
+      return;
     }
+    if (await requestPermissions()) return;
+    // Denied (or no token): the OS won't ask again, so point to its settings.
+    toast.warning(t.settings.notificationsBlocked, 5000);
+    void openNotificationSettings();
   };
 
   return (
@@ -100,9 +116,9 @@ export default function MoreScreen() {
           </Pressable>
           <Divider inset={62} />
           <Pressable
-            onPress={() => void toggleTheme()}
+            onPress={() => void setPreference(NEXT_THEME[preference])}
             accessibilityRole="button"
-            accessibilityLabel={t.more.darkMode}
+            accessibilityLabel={`${t.more.theme}: ${themeLabel}`}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.pressed }]}
           >
             <IconTile
@@ -110,15 +126,15 @@ export default function MoreScreen() {
               color={ACCENTS.notifications}
             />
             <View style={styles.rowText}>
-              <Text style={[styles.rowTitle, { color: colors.text }]}>{t.more.darkMode}</Text>
+              <Text style={[styles.rowTitle, { color: colors.text }]}>{t.more.theme}</Text>
               <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
-                {theme === 'dark' ? 'On' : 'Off'}
+                {themeLabel}
               </Text>
             </View>
           </Pressable>
           <Divider inset={62} />
           <Pressable
-            onPress={handleNotifications}
+            onPress={() => void handleNotifications()}
             accessibilityRole="button"
             accessibilityLabel={t.more.notifications}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.pressed }]}
