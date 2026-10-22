@@ -215,6 +215,7 @@ export default function MyTasksScreen() {
           const projectName = item.project?.name;
           return (
             <RecordRow
+              testID="my-task-row"
               leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
               title={item.title}
               subtitle={joinSubtitle(formatTaskNumber(item.number), projectName)}

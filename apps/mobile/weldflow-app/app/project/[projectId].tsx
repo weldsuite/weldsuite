@@ -142,6 +142,7 @@ export default function ProjectDetailScreen() {
             const overdue = isTaskOverdue(item.dueDate, item.status);
             return (
               <RecordRow
+                testID="project-task-row"
                 leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
                 title={item.title}
                 subtitle={joinSubtitle(

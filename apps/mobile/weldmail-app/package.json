@@ -11,6 +11,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "test:e2e": "maestro test .maestro",
     "fallow": "fallow dead-code --root . && fallow dupes --root . && fallow health --root ."
   },
   "dependencies": {

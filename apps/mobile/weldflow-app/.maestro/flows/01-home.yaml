@@ -1,0 +1,8 @@
+appId: com.weldsuite.weldflow
+name: Home loads after sign-in
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible: "Open tasks"
+- assertVisible: "Recent projects"
+- assertVisible: "My open tasks"

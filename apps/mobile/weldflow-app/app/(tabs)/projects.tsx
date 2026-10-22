@@ -126,6 +126,7 @@ export default function ProjectsScreen() {
           const progress = Number(item.progress ?? 0);
           return (
             <RecordRow
+              testID="project-row"
               leading={<ColorSwatch color={item.color || BRAND} />}
               title={item.name}
               subtitle={item.code || undefined}
