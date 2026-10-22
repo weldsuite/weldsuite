@@ -58,46 +58,68 @@ const PREVIEW_DEBOUNCE_MS = 800;
 
 type PreviewState = 'idle' | 'loading' | 'ready' | 'failed';
 
-export default function NewInvoiceScreen() {
-  const router = useRouter();
-  const toast = useToast();
-  const { colors } = useTheme();
-  const { t } = useI18n();
-  const { isUs, code } = useJurisdiction();
-  const { currency } = useLocaleFormatters();
+type FormErrors = {
+  contactName?: string;
+  items?: string;
+  dueDate?: string;
+  shipTo?: AddressErrors;
+  billTo?: AddressErrors;
+};
 
-  const mode = lineItemTaxMode(isUs, 'invoice');
-  const defaultTaxRate = defaultTaxRateFor(code);
+type Strings = ReturnType<typeof useI18n>['t'];
 
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
-  // Calendar days as `YYYY-MM-DD`; the date fields show them in the company's locale.
-  const [issueDate, setIssueDate] = useState(() => today());
-  const [dueDate, setDueDate] = useState(() => addDays(30));
-  const [items, setItems] = useState<LineItemDraft[]>(() => [
-    createEmptyLineItem({ taxRate: defaultTaxRate }),
-  ]);
-  const [shipTo, setShipTo] = useState<AddressDraft>({ ...EMPTY_ADDRESS });
-  const [billSame, setBillSame] = useState(true);
-  const [billTo, setBillTo] = useState<AddressDraft>({ ...EMPTY_ADDRESS });
-  const [notes, setNotes] = useState('');
-  const [reference, setReference] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<{
-    contactName?: string;
-    items?: string;
-    dueDate?: string;
-    shipTo?: AddressErrors;
-    billTo?: AddressErrors;
-  }>({});
+interface FormValues {
+  contactName: string;
+  items: LineItemDraft[];
+  issueDate: string;
+  dueDate: string;
+  shipTo: AddressDraft;
+  billTo: AddressDraft;
+  billSame: boolean;
+}
 
+/** US only: a draft without a state and ZIP can't be finalised, and the app can't edit a draft afterwards. */
+function usAddressErrors(values: FormValues): Pick<FormErrors, 'shipTo' | 'billTo'> {
+  const errors: Pick<FormErrors, 'shipTo' | 'billTo'> = {};
+  const ship = usAddressProblems(values.shipTo, { requireStateAndZip: true });
+  if (Object.keys(ship).length > 0) errors.shipTo = ship;
+  if (!values.billSame) {
+    const bill = usAddressProblems(values.billTo);
+    if (Object.keys(bill).length > 0) errors.billTo = bill;
+  }
+  return errors;
+}
+
+function validateInvoiceForm(values: FormValues, isUs: boolean, t: Strings): FormErrors {
+  const errors: FormErrors = isUs ? usAddressErrors(values) : {};
+  if (!values.contactName.trim()) errors.contactName = t.invoiceNew.nameError;
+  if (validLineItems(values.items).length === 0) errors.items = t.invoiceNew.itemsError;
+  if (values.dueDate < values.issueDate) errors.dueDate = t.invoiceNew.dueBeforeIssue;
+  return errors;
+}
+
+interface PreviewInput {
+  isUs: boolean;
+  items: LineItemDraft[];
+  shipTo: AddressDraft;
+  billingAddress: AddressDraft;
+  issueDate: string;
+  contactName: string;
+}
+
+/** US: preview the sales tax the server would charge, once there is something to tax and a place to tax it. */
+function useSalesTaxPreview({
+  isUs,
+  items,
+  shipTo,
+  billingAddress,
+  issueDate,
+  contactName,
+}: PreviewInput) {
   const [preview, setPreview] = useState<TaxPreview | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>('idle');
   const contactIds = useRef(new Map<string, string | null>());
 
-  const billingAddress = billSame ? shipTo : billTo;
-
-  // US: preview the sales tax the server would charge, once there is something to tax and a place to tax it.
   useEffect(() => {
     if (!isUs) return;
     const lines = toLineItemInputs(items, 'code');
@@ -137,22 +159,146 @@ export default function NewInvoiceScreen() {
     };
   }, [isUs, items, shipTo, billingAddress, issueDate, contactName]);
 
+  return { preview, previewState };
+}
+
+/** What the sales tax preview is doing: waiting for an address, calculating, failed, or the breakdown. */
+function TaxPreviewSection({
+  preview,
+  previewState,
+}: Readonly<{ preview: TaxPreview | null; previewState: PreviewState }>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const { currency } = useLocaleFormatters();
+
+  switch (previewState) {
+    case 'idle':
+      return (
+        <Text style={[styles.pending, { color: colors.mutedForeground }]}>{t.salesTax.needsAddress}</Text>
+      );
+    case 'loading':
+      return (
+        <Banner variant="info" style={styles.banner}>
+          {t.salesTax.calculating}
+        </Banner>
+      );
+    case 'failed':
+      return (
+        <Banner variant="warning" style={styles.banner}>
+          {t.salesTax.previewFailed}
+        </Banner>
+      );
+    default:
+      return preview ? (
+        <TaxBreakdownCard
+          rows={preview.taxBreakdown}
+          warnings={preview.warnings}
+          currency={currency}
+          footnote={t.salesTax.estimateNote}
+        />
+      ) : null;
+  }
+}
+
+/** US: where the goods go, and a bill-to that can differ. */
+function AddressSections({
+  shipTo,
+  setShipTo,
+  billTo,
+  setBillTo,
+  billSame,
+  setBillSame,
+  errors,
+  clearError,
+}: Readonly<{
+  shipTo: AddressDraft;
+  setShipTo: (next: AddressDraft) => void;
+  billTo: AddressDraft;
+  setBillTo: (next: AddressDraft) => void;
+  billSame: boolean;
+  setBillSame: (same: boolean) => void;
+  errors: FormErrors;
+  clearError: (field: 'shipTo' | 'billTo') => void;
+}>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+
+  return (
+    <>
+      <SectionCard title={t.invoiceNew.shipTo}>
+        <Text style={[styles.hint, { color: colors.mutedForeground }]}>{t.invoiceNew.shipToHint}</Text>
+        <AddressFields
+          value={shipTo}
+          onChange={(next) => {
+            setShipTo(next);
+            clearError('shipTo');
+          }}
+          errors={errors.shipTo}
+        />
+        <Switch label={t.invoiceNew.billToSame} value={billSame} onValueChange={setBillSame} />
+      </SectionCard>
+      {billSame ? null : (
+        <SectionCard title={t.invoiceNew.billTo}>
+          <AddressFields
+            value={billTo}
+            onChange={(next) => {
+              setBillTo(next);
+              clearError('billTo');
+            }}
+            errors={errors.billTo}
+          />
+        </SectionCard>
+      )}
+    </>
+  );
+}
+
+export default function NewInvoiceScreen() {
+  const router = useRouter();
+  const toast = useToast();
+  const { t } = useI18n();
+  const { isUs, code } = useJurisdiction();
+  const { currency } = useLocaleFormatters();
+
+  const mode = lineItemTaxMode(isUs, 'invoice');
+  const defaultTaxRate = defaultTaxRateFor(code);
+
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  // Calendar days as `YYYY-MM-DD`; the date fields show them in the company's locale.
+  const [issueDate, setIssueDate] = useState(() => today());
+  const [dueDate, setDueDate] = useState(() => addDays(30));
+  const [items, setItems] = useState<LineItemDraft[]>(() => [
+    createEmptyLineItem({ taxRate: defaultTaxRate }),
+  ]);
+  const [shipTo, setShipTo] = useState<AddressDraft>({ ...EMPTY_ADDRESS });
+  const [billSame, setBillSame] = useState(true);
+  const [billTo, setBillTo] = useState<AddressDraft>({ ...EMPTY_ADDRESS });
+  const [notes, setNotes] = useState('');
+  const [reference, setReference] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  const billingAddress = billSame ? shipTo : billTo;
+  const { preview, previewState } = useSalesTaxPreview({
+    isUs,
+    items,
+    shipTo,
+    billingAddress,
+    issueDate,
+    contactName,
+  });
+  const clearError = (field: keyof FormErrors) => {
+    setErrors((e) => (e[field] ? { ...e, [field]: undefined } : e));
+  };
+
   const handleSave = useCallback(async () => {
     const name = contactName.trim();
-    const usable = validLineItems(items);
-    const nextErrors: typeof errors = {};
-    if (!name) nextErrors.contactName = t.invoiceNew.nameError;
-    if (usable.length === 0) nextErrors.items = t.invoiceNew.itemsError;
-    if (dueDate < issueDate) nextErrors.dueDate = t.invoiceNew.dueBeforeIssue;
-    if (isUs) {
-      // A draft without a state and ZIP can't be finalised, and the app can't edit a draft afterwards.
-      const ship = usAddressProblems(shipTo, { requireStateAndZip: true });
-      if (Object.keys(ship).length > 0) nextErrors.shipTo = ship;
-      if (!billSame) {
-        const bill = usAddressProblems(billTo);
-        if (Object.keys(bill).length > 0) nextErrors.billTo = bill;
-      }
-    }
+    const nextErrors = validateInvoiceForm(
+      { contactName, items, issueDate, dueDate, shipTo, billTo, billSame },
+      isUs,
+      t,
+    );
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
@@ -208,7 +354,7 @@ export default function NewInvoiceScreen() {
               value={contactName}
               onChangeText={(text) => {
                 setContactName(text);
-                if (errors.contactName) setErrors((e) => ({ ...e, contactName: undefined }));
+                clearError('contactName');
               }}
               placeholder={isUs ? t.examples.companyUs : t.invoiceNew.namePlaceholder}
               error={errors.contactName}
@@ -227,38 +373,16 @@ export default function NewInvoiceScreen() {
           </SectionCard>
 
           {isUs ? (
-            <>
-              <SectionCard title={t.invoiceNew.shipTo}>
-                <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-                  {t.invoiceNew.shipToHint}
-                </Text>
-                <AddressFields
-                  value={shipTo}
-                  onChange={(next) => {
-                    setShipTo(next);
-                    if (errors.shipTo) setErrors((e) => ({ ...e, shipTo: undefined }));
-                  }}
-                  errors={errors.shipTo}
-                />
-                <Switch
-                  label={t.invoiceNew.billToSame}
-                  value={billSame}
-                  onValueChange={setBillSame}
-                />
-              </SectionCard>
-              {billSame ? null : (
-                <SectionCard title={t.invoiceNew.billTo}>
-                  <AddressFields
-                    value={billTo}
-                    onChange={(next) => {
-                      setBillTo(next);
-                      if (errors.billTo) setErrors((e) => ({ ...e, billTo: undefined }));
-                    }}
-                    errors={errors.billTo}
-                  />
-                </SectionCard>
-              )}
-            </>
+            <AddressSections
+              shipTo={shipTo}
+              setShipTo={setShipTo}
+              billTo={billTo}
+              setBillTo={setBillTo}
+              billSame={billSame}
+              setBillSame={setBillSame}
+              errors={errors}
+              clearError={clearError}
+            />
           ) : null}
 
           <SectionCard title={t.invoiceNew.dates}>
@@ -267,7 +391,7 @@ export default function NewInvoiceScreen() {
               value={issueDate}
               onChange={(iso) => {
                 setIssueDate(iso);
-                if (errors.dueDate) setErrors((e) => ({ ...e, dueDate: undefined }));
+                clearError('dueDate');
               }}
               testID="invoice-issue-date"
             />
@@ -276,7 +400,7 @@ export default function NewInvoiceScreen() {
               value={dueDate}
               onChange={(iso) => {
                 setDueDate(iso);
-                if (errors.dueDate) setErrors((e) => ({ ...e, dueDate: undefined }));
+                clearError('dueDate');
               }}
               error={errors.dueDate}
               testID="invoice-due-date"
@@ -292,37 +416,11 @@ export default function NewInvoiceScreen() {
             serverTax={serverTax}
             onChange={(next) => {
               setItems(next);
-              if (errors.items) setErrors((e) => ({ ...e, items: undefined }));
+              clearError('items');
             }}
           />
 
-          {isUs ? (
-            <>
-              {previewState === 'idle' ? (
-                <Text style={[styles.pending, { color: colors.mutedForeground }]}>
-                  {t.salesTax.needsAddress}
-                </Text>
-              ) : null}
-              {previewState === 'loading' ? (
-                <Banner variant="info" style={styles.banner}>
-                  {t.salesTax.calculating}
-                </Banner>
-              ) : null}
-              {previewState === 'failed' ? (
-                <Banner variant="warning" style={styles.banner}>
-                  {t.salesTax.previewFailed}
-                </Banner>
-              ) : null}
-              {previewState === 'ready' && preview ? (
-                <TaxBreakdownCard
-                  rows={preview.taxBreakdown}
-                  warnings={preview.warnings}
-                  currency={currency}
-                  footnote={t.salesTax.estimateNote}
-                />
-              ) : null}
-            </>
-          ) : null}
+          {isUs ? <TaxPreviewSection preview={preview} previewState={previewState} /> : null}
 
           <SectionCard title={t.invoiceNew.extras}>
             <Textarea

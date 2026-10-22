@@ -179,6 +179,171 @@ function InvoiceDetailsSection({
   );
 }
 
+type Mutations = ReturnType<typeof useDocumentMutations>;
+type FieldList = Parameters<typeof listInvoiceFields>[0];
+
+/** Warnings above the details: US address, missing company fields, and the last refused action. */
+function InvoiceBanners({
+  invoice,
+  isUs,
+  companyMissing,
+  errorFields,
+  actionError,
+  clearError,
+  listFields,
+  onAddCompany,
+}: Readonly<{
+  invoice: Invoice;
+  isUs: boolean;
+  companyMissing: FieldList;
+  errorFields: Mutations['errorFields'];
+  actionError: Mutations['error'];
+  clearError: () => void;
+  listFields: (fields: FieldList) => string;
+  onAddCompany: () => void;
+}>) {
+  const { t, format } = useI18n();
+  // The refusal that names fields (ENTITY_INVOICE_FIELDS_MISSING) replaces the server's English sentence.
+  const rejectedFields = errorFields.length > 0 ? errorFields : null;
+  const warnCompany = invoice.status === 'draft' && companyMissing.length > 0 && !rejectedFields;
+
+  return (
+    <>
+      {isMissingUsAddress(invoice, isUs) ? (
+        <Banner variant="warning" style={styles.banner}>
+          {t.invoiceDetail.addressMissing}
+        </Banner>
+      ) : null}
+
+      {warnCompany ? (
+        <View style={styles.banner}>
+          <Banner variant="warning">
+            {format(t.invoiceDetail.companyFieldsMissing, { fields: listFields(companyMissing) })}
+          </Banner>
+          <Button
+            title={t.invoiceDetail.addCompanyDetails}
+            variant="outline"
+            size="sm"
+            onPress={onAddCompany}
+            style={styles.bannerAction}
+          />
+        </View>
+      ) : null}
+
+      {actionError ? (
+        <View style={styles.banner}>
+          <Banner variant="error" title={t.invoiceDetail.finaliseFailed} onClose={clearError}>
+            {rejectedFields
+              ? format(t.invoiceDetail.companyFieldsRejected, { fields: listFields(rejectedFields) })
+              : actionError}
+          </Banner>
+          {rejectedFields ? (
+            <Button
+              title={t.invoiceDetail.addCompanyDetails}
+              variant="outline"
+              size="sm"
+              onPress={onAddCompany}
+              style={styles.bannerAction}
+            />
+          ) : null}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+/** Sales tax breakdown for US invoices, the VAT treatment breakdown for everyone else. */
+function InvoiceTaxSections({
+  invoice,
+  isUs,
+  currency,
+}: Readonly<{ invoice: Invoice; isUs: boolean; currency: string }>) {
+  if (isUs) {
+    return (
+      <TaxBreakdownCard
+        rows={invoice.taxBreakdown}
+        warnings={invoice.taxWarnings}
+        currency={currency}
+        initiallyExpanded={invoice.status === 'draft'}
+      />
+    );
+  }
+  if (hasTreatmentRows(invoice.taxBreakdown)) {
+    return <TreatmentBreakdownCard rows={invoice.taxBreakdown} currency={currency} />;
+  }
+  return null;
+}
+
+/** The delete, cancel and credit note confirmations; at most one is open at a time. */
+function InvoiceConfirmModals({
+  invoice,
+  confirm,
+  setConfirm,
+  busy,
+  run,
+  remove,
+}: Readonly<{
+  invoice: Invoice;
+  confirm: Confirm;
+  setConfirm: (confirm: Confirm) => void;
+  busy: boolean;
+  run: Mutations['run'];
+  remove: Mutations['remove'];
+}>) {
+  const router = useRouter();
+  const { t, format } = useI18n();
+  const { terms } = useJurisdiction();
+
+  return (
+    <>
+      <ConfirmModal
+        visible={confirm === 'delete'}
+        title={t.invoiceDetail.deleteTitle}
+        message={t.invoiceDetail.deleteMessage}
+        confirmText={t.common.delete}
+        variant="destructive"
+        loading={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          remove(() => api.deleteInvoice(invoice.id), t.invoiceDetail.deleted, t.invoiceDetail.deleteFailed);
+        }}
+      />
+
+      <ConfirmModal
+        visible={confirm === 'cancel'}
+        title={t.invoiceDetail.cancelTitle}
+        message={t.invoiceDetail.cancelMessage}
+        confirmText={t.invoiceDetail.cancelInvoice}
+        cancelText={t.common.keep}
+        variant="destructive"
+        loading={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          run(() => api.setInvoiceStatus(invoice.id, 'cancelled'), t.invoiceDetail.cancelled);
+        }}
+      />
+
+      <ConfirmModal
+        visible={confirm === 'creditNote'}
+        title={format(t.invoiceDetail.creditNoteTitle, terms)}
+        message={t.invoiceDetail.creditNoteMessage}
+        confirmText={t.common.create}
+        loading={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          run(async () => {
+            const note = await api.createCreditNote(invoice.id);
+            router.replace(`/invoice/${note.id}`);
+          }, format(t.invoiceDetail.creditNoteCreated, terms));
+        }}
+      />
+    </>
+  );
+}
+
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
@@ -298,10 +463,6 @@ export default function InvoiceDetailScreen() {
 
   const currency = documentCurrency(invoice, entityCurrency);
   const balanceDue = toNumber(invoice.balanceDue);
-  const missingAddress = isMissingUsAddress(invoice, isUs);
-  // The refusal that names fields (ENTITY_INVOICE_FIELDS_MISSING) replaces the server's English sentence.
-  const rejectedFields = errorFields.length > 0 ? errorFields : null;
-  const warnCompany = invoice.status === 'draft' && companyMissing.length > 0 && !rejectedFields;
 
   return (
     <Screen header={header}>
@@ -333,45 +494,16 @@ export default function InvoiceDetailScreen() {
           }
         />
 
-        {missingAddress ? (
-          <Banner variant="warning" style={styles.banner}>
-            {t.invoiceDetail.addressMissing}
-          </Banner>
-        ) : null}
-
-        {warnCompany ? (
-          <View style={styles.banner}>
-            <Banner variant="warning">
-              {format(t.invoiceDetail.companyFieldsMissing, { fields: listFields(companyMissing) })}
-            </Banner>
-            <Button
-              title={t.invoiceDetail.addCompanyDetails}
-              variant="outline"
-              size="sm"
-              onPress={() => setCompanyOpen(true)}
-              style={styles.bannerAction}
-            />
-          </View>
-        ) : null}
-
-        {actionError ? (
-          <View style={styles.banner}>
-            <Banner variant="error" title={t.invoiceDetail.finaliseFailed} onClose={clearError}>
-              {rejectedFields
-                ? format(t.invoiceDetail.companyFieldsRejected, { fields: listFields(rejectedFields) })
-                : actionError}
-            </Banner>
-            {rejectedFields ? (
-              <Button
-                title={t.invoiceDetail.addCompanyDetails}
-                variant="outline"
-                size="sm"
-                onPress={() => setCompanyOpen(true)}
-                style={styles.bannerAction}
-              />
-            ) : null}
-          </View>
-        ) : null}
+        <InvoiceBanners
+          invoice={invoice}
+          isUs={isUs}
+          companyMissing={companyMissing}
+          errorFields={errorFields}
+          actionError={actionError}
+          clearError={clearError}
+          listFields={listFields}
+          onAddCompany={() => setCompanyOpen(true)}
+        />
 
         <InvoiceDetailsSection invoice={invoice} isUs={isUs} creditNoteLabel={labels.creditNote} />
 
@@ -389,18 +521,7 @@ export default function InvoiceDetailScreen() {
           taxBreakdown={invoice.taxBreakdown}
         />
 
-        {isUs ? (
-          <TaxBreakdownCard
-            rows={invoice.taxBreakdown}
-            warnings={invoice.taxWarnings}
-            currency={currency}
-            initiallyExpanded={invoice.status === 'draft'}
-          />
-        ) : null}
-
-        {!isUs && hasTreatmentRows(invoice.taxBreakdown) ? (
-          <TreatmentBreakdownCard rows={invoice.taxBreakdown} currency={currency} />
-        ) : null}
+        <InvoiceTaxSections invoice={invoice} isUs={isUs} currency={currency} />
 
         {invoice.notes ? (
           <SectionCard title={t.invoiceDetail.notes}>
@@ -444,49 +565,13 @@ export default function InvoiceDetailScreen() {
         }}
       />
 
-      <ConfirmModal
-        visible={confirm === 'delete'}
-        title={t.invoiceDetail.deleteTitle}
-        message={t.invoiceDetail.deleteMessage}
-        confirmText={t.common.delete}
-        variant="destructive"
-        loading={busy}
-        onCancel={() => setConfirm(null)}
-        onConfirm={() => {
-          setConfirm(null);
-          remove(() => api.deleteInvoice(invoice.id), t.invoiceDetail.deleted, t.invoiceDetail.deleteFailed);
-        }}
-      />
-
-      <ConfirmModal
-        visible={confirm === 'cancel'}
-        title={t.invoiceDetail.cancelTitle}
-        message={t.invoiceDetail.cancelMessage}
-        confirmText={t.invoiceDetail.cancelInvoice}
-        cancelText={t.common.keep}
-        variant="destructive"
-        loading={busy}
-        onCancel={() => setConfirm(null)}
-        onConfirm={() => {
-          setConfirm(null);
-          run(() => api.setInvoiceStatus(invoice.id, 'cancelled'), t.invoiceDetail.cancelled);
-        }}
-      />
-
-      <ConfirmModal
-        visible={confirm === 'creditNote'}
-        title={format(t.invoiceDetail.creditNoteTitle, terms)}
-        message={t.invoiceDetail.creditNoteMessage}
-        confirmText={t.common.create}
-        loading={busy}
-        onCancel={() => setConfirm(null)}
-        onConfirm={() => {
-          setConfirm(null);
-          run(async () => {
-            const note = await api.createCreditNote(invoice.id);
-            router.replace(`/invoice/${note.id}`);
-          }, format(t.invoiceDetail.creditNoteCreated, terms));
-        }}
+      <InvoiceConfirmModals
+        invoice={invoice}
+        confirm={confirm}
+        setConfirm={setConfirm}
+        busy={busy}
+        run={run}
+        remove={remove}
       />
     </Screen>
   );

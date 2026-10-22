@@ -1,4 +1,4 @@
-import { api, companyPayload, personPayload } from '@/services/api';
+import { api, companyPayload, personPayload, setActiveWorkspaceId } from '@/services/api';
 import { appApiClient } from '@/services/app-api';
 
 jest.mock('@/services/app-api', () => ({
@@ -240,5 +240,62 @@ describe('deals and activities', () => {
       '/leads',
       expect.objectContaining({ email: 'lead@acme.com', firstName: 'Lee', source: 'mobile' }),
     );
+  });
+});
+
+describe('getWorkspaceCurrency', () => {
+  const settings = (currency: string | null) => Promise.resolve({ data: { currency } });
+
+  beforeEach(() => {
+    client.get.mockReset();
+    setActiveWorkspaceId(null);
+  });
+
+  it('reads the currency once per workspace', async () => {
+    setActiveWorkspaceId('org_a');
+    client.get.mockImplementation(() => settings('USD'));
+    expect(await api.getWorkspaceCurrency()).toBe('USD');
+    expect(await api.getWorkspaceCurrency()).toBe('USD');
+    expect(client.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse one workspace currency for another', async () => {
+    setActiveWorkspaceId('org_b');
+    client.get.mockImplementation(() => settings('GBP'));
+    expect(await api.getWorkspaceCurrency()).toBe('GBP');
+
+    setActiveWorkspaceId('org_c');
+    client.get.mockImplementation(() => settings('CHF'));
+    expect(await api.getWorkspaceCurrency()).toBe('CHF');
+
+    setActiveWorkspaceId('org_b');
+    expect(await api.getWorkspaceCurrency()).toBe('GBP');
+    expect(client.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not keep an answer while signed out', async () => {
+    client.get.mockImplementation(() => settings('USD'));
+    expect(await api.getWorkspaceCurrency()).toBe('USD');
+    client.get.mockImplementation(() => settings('SEK'));
+    expect(await api.getWorkspaceCurrency()).toBe('SEK');
+  });
+
+  it('drops an answer that arrives after the workspace changed', async () => {
+    setActiveWorkspaceId('org_d');
+    client.get.mockImplementationOnce(() => {
+      setActiveWorkspaceId('org_e');
+      return settings('JPY');
+    });
+    expect(await api.getWorkspaceCurrency()).toBe('JPY');
+
+    setActiveWorkspaceId('org_d');
+    client.get.mockImplementation(() => settings('NOK'));
+    expect(await api.getWorkspaceCurrency()).toBe('NOK');
+  });
+
+  it('falls back to EUR when the settings cannot be read', async () => {
+    setActiveWorkspaceId('org_f');
+    client.get.mockRejectedValue(new Error('offline'));
+    expect(await api.getWorkspaceCurrency()).toBe('EUR');
   });
 });

@@ -255,6 +255,12 @@ let accountingEntityId: string | null = null;
 /** Base currency of the selected administration: what a payload without a currency is denominated in. */
 let accountingEntityCurrency: string | null = null;
 
+/** The create body's `bankDetails`, with only the values given; nothing at all when there are none. */
+function bankDetailsBody(iban?: string, bic?: string): { bankDetails?: { iban?: string; bic?: string } } {
+  if (!iban && !bic) return {};
+  return { bankDetails: { ...(iban ? { iban } : {}), ...(bic ? { bic } : {}) } };
+}
+
 function fallbackCurrency(): string {
   return accountingEntityCurrency ?? FALLBACK_CURRENCY;
 }
@@ -417,6 +423,7 @@ class WeldBooksApi {
     /** KvK number (NL), PAN (IN), ... */
     registrationNumber?: string;
     iban?: string;
+    bic?: string;
     address?: PostalAddress | null;
     isDefault?: boolean;
   }): Promise<AccountingEntity> {
@@ -437,7 +444,7 @@ class WeldBooksApi {
             },
           }
         : {}),
-      ...(data.iban ? { bankDetails: { iban: data.iban } } : {}),
+      ...bankDetailsBody(data.iban, data.bic),
       ...(data.address ? { address: data.address } : {}),
       isDefault: data.isDefault ?? true,
       seedDefaults: true,

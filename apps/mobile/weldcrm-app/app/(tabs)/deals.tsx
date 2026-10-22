@@ -52,6 +52,37 @@ function buildColumns(pipeline: PipelineWithStages, deals: DealRecord[]): Column
   }));
 }
 
+/** Reads a pipeline's deals page by page; `failed` when a page could not be loaded. */
+async function fetchDeals(pipelineId: string): Promise<{ deals: DealRecord[]; failed: boolean }> {
+  const deals: DealRecord[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_DEAL_PAGES; page += 1) {
+    const res = await api.getDeals({ cursor, pipelineId });
+    if (!res.success || !res.data) return { deals, failed: true };
+    deals.push(...res.data.items);
+    cursor = res.data.cursor;
+    if (!res.data.hasMore || !cursor) break;
+  }
+  return { deals, failed: false };
+}
+
+interface Board {
+  pipeline: PipelineWithStages | null;
+  deals: DealRecord[];
+  currency: string;
+  failed: boolean;
+}
+
+/** The first pipeline with its deals, plus the workspace currency. */
+async function fetchBoard(): Promise<Board> {
+  const [pipelinesRes, workspaceCurrency] = await Promise.all([api.getPipelines(), api.getWorkspaceCurrency()]);
+  const currency = resolveCurrency(workspaceCurrency);
+  const first = pipelinesRes.success ? pipelinesRes.data?.[0] : undefined;
+  if (!first) return { pipeline: null, deals: [], currency, failed: !pipelinesRes.success };
+  const { deals, failed } = await fetchDeals(first.id);
+  return { pipeline: first, deals, currency, failed };
+}
+
 export default function DealsScreen() {
   const { colors } = useTheme();
   const { t, intlLocale } = useI18n();
@@ -83,32 +114,11 @@ export default function DealsScreen() {
       if (mode === 'initial') setLoading(true);
       if (mode === 'refresh') setRefreshing(true);
 
-      const [pipelinesRes, workspaceCurrency] = await Promise.all([api.getPipelines(), api.getWorkspaceCurrency()]);
-      setCurrency(resolveCurrency(workspaceCurrency));
-
-      const first = pipelinesRes.success ? pipelinesRes.data?.[0] : undefined;
-      if (first) {
-        const deals: DealRecord[] = [];
-        let cursor: string | null = null;
-        let failed = false;
-        for (let page = 0; page < MAX_DEAL_PAGES; page += 1) {
-          const res = await api.getDeals({ cursor, pipelineId: first.id });
-          if (!res.success || !res.data) {
-            failed = true;
-            break;
-          }
-          deals.push(...res.data.items);
-          cursor = res.data.cursor;
-          if (!res.data.hasMore || !cursor) break;
-        }
-        setPipeline(first);
-        setColumns(buildColumns(first, deals));
-        if (failed && mode !== 'silent') toast.error(t.deals.loadFailed);
-      } else {
-        setPipeline(null);
-        setColumns([]);
-        if (!pipelinesRes.success && mode !== 'silent') toast.error(t.deals.loadFailed);
-      }
+      const board = await fetchBoard();
+      setCurrency(board.currency);
+      setPipeline(board.pipeline);
+      setColumns(board.pipeline ? buildColumns(board.pipeline, board.deals) : []);
+      if (board.failed && mode !== 'silent') toast.error(t.deals.loadFailed);
 
       loadedOnce.current = true;
       setLoading(false);
@@ -202,18 +212,22 @@ export default function DealsScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TabHeader title={t.deals.title} />
 
-      {loading ? (
+      {loading && (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.text} />
         </View>
-      ) : !pipeline ? (
+      )}
+
+      {!loading && !pipeline && (
         <ScrollView
           contentContainerStyle={styles.center}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load('refresh')} />}
         >
           <Text style={[styles.emptyText, { color: colors.muted }]}>{t.deals.noPipeline}</Text>
         </ScrollView>
-      ) : (
+      )}
+
+      {!loading && !!pipeline && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}

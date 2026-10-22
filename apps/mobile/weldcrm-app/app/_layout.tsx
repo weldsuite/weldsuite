@@ -22,6 +22,7 @@ import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContex
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
+import { setActiveWorkspaceId } from '@/services/api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
@@ -66,6 +67,8 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   } else {
     setAppApiTokenGetter(null);
   }
+  // Same for the active workspace: per-workspace caches in the data layer key on it.
+  setActiveWorkspaceId(user ? (organizationId ?? null) : null);
 
   // Route guard
   useEffect(() => {

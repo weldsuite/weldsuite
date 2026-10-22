@@ -28,28 +28,21 @@ type ChannelDetails = ChannelWithMembers & { topic?: string | null };
 
 type Busy = 'rename' | 'leave' | 'delete' | null;
 
+type Colors = ReturnType<typeof useTheme>['colors'];
+type Strings = ReturnType<typeof useI18n>['t'];
+type Permissions = ReturnType<typeof getChannelPermissions>;
+type ChannelActions = ReturnType<typeof useChannelActions>;
+
 /** Same normalisation as the new-channel screen: lowercase, dashes, no symbols. */
 function normalizeChannelName(text: string): string {
   return text.toLowerCase().replaceAll(/\s+/g, '-').replaceAll(/[^a-z0-9-]/g, '');
 }
 
-export default function ChannelInfoScreen() {
-  const { channelId, name: initialName } = useLocalSearchParams<{
-    channelId: string;
-    name?: string;
-  }>();
-  const { t, format, plural } = useI18n();
-  const { colors } = useTheme();
-  const { userId } = useAuth();
-  const toast = useToast();
-  const router = useRouter();
-
+/** Loads the channel (with members) and exposes a reload for the retry button. */
+function useChannelDetails(channelId: string) {
   const [channel, setChannel] = useState<ChannelDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draftName, setDraftName] = useState('');
-  const [busy, setBusy] = useState<Busy>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,18 +62,33 @@ export default function ChannelInfoScreen() {
     void load();
   }, [load]);
 
-  // The API enforces this (owners and admins may rename or delete); it also
-  // returns each member's role, which is all the client needs to hide actions
-  // the caller would only be refused.
+  return { channel, setChannel, loading, failed, load };
+}
+
+// The API enforces this (owners and admins may rename or delete); it also
+// returns each member's role, which is all the client needs to hide actions
+// the caller would only be refused.
+function getChannelPermissions(channel: ChannelDetails | null, userId: string | null | undefined) {
   const myRole = channel?.members.find((m) => m.userId === userId)?.role ?? null;
   const isMember = myRole !== null;
   const isOwner = myRole === 'owner';
   const canManage = myRole === 'owner' || myRole === 'admin';
   const canLeave = isMember && !isOwner;
+  return { isOwner, canManage, canLeave, showActions: canManage || canLeave || isOwner };
+}
 
-  const channelName = channel?.name ?? initialName ?? '';
-  const memberCount = channel?.memberCount ?? channel?.members.length ?? 0;
-  const description = channel?.description || channel?.topic || '';
+/** Rename, leave and delete, each with its own toast and busy flag. */
+function useChannelActions(
+  channel: ChannelDetails | null,
+  setChannel: (next: ChannelDetails) => void,
+  channelName: string,
+) {
+  const { t, format } = useI18n();
+  const toast = useToast();
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [busy, setBusy] = useState<Busy>(null);
 
   // Back to Home, which reloads its channel list when it regains focus.
   const goHome = useCallback(() => {
@@ -157,8 +165,274 @@ export default function ChannelInfoScreen() {
     ]);
   };
 
-  const ChannelIcon = channel?.type === 'private' ? Lock : Hash;
-  const showActions = canManage || canLeave || isOwner;
+  return {
+    editing,
+    setEditing,
+    draftName,
+    setDraftName,
+    busy,
+    startRename,
+    submitRename,
+    confirmLeave,
+    confirmDelete,
+  };
+}
+
+function RenameRow({
+  draftName,
+  setDraftName,
+  busy,
+  onSubmit,
+  onCancel,
+  colors,
+  t,
+}: Readonly<{
+  draftName: string;
+  setDraftName: (name: string) => void;
+  busy: Busy;
+  onSubmit: () => void;
+  onCancel: () => void;
+  colors: Colors;
+  t: Strings;
+}>) {
+  const canSave = Boolean(draftName.trim());
+  return (
+    <View style={[styles.renameRow, { borderColor: colors.secondary }]}>
+      <Hash size={18} color={colors.muted} />
+      <TextInput
+        style={[styles.renameInput, { color: colors.text }]}
+        value={draftName}
+        onChangeText={(text) => setDraftName(normalizeChannelName(text))}
+        placeholder={t.channelInfo.renamePlaceholder}
+        placeholderTextColor={colors.muted}
+        accessibilityLabel={t.channelInfo.renameLabel}
+        autoFocus
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="done"
+        onSubmitEditing={onSubmit}
+      />
+      {busy === 'rename' ? (
+        <ActivityIndicator size="small" color={BRAND} />
+      ) : (
+        <>
+          <TouchableOpacity
+            onPress={onSubmit}
+            disabled={!canSave}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t.common.save}
+          >
+            <Check size={22} color={canSave ? BRAND : colors.muted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onCancel}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t.common.cancel}
+          >
+            <X size={22} color={colors.muted} />
+          </TouchableOpacity>
+        </>
+      )}
+    </View>
+  );
+}
+
+function ChannelHero({
+  channel,
+  channelName,
+  actions,
+  colors,
+  t,
+}: Readonly<{
+  channel: ChannelDetails;
+  channelName: string;
+  actions: ChannelActions;
+  colors: Colors;
+  t: Strings;
+}>) {
+  const ChannelIcon = channel.type === 'private' ? Lock : Hash;
+  return (
+    <View style={styles.hero}>
+      <View style={[styles.heroIcon, { backgroundColor: colors.cardBackground }]}>
+        <ChannelIcon size={30} color={colors.text} strokeWidth={2.2} />
+      </View>
+      {actions.editing ? (
+        <RenameRow
+          draftName={actions.draftName}
+          setDraftName={actions.setDraftName}
+          busy={actions.busy}
+          onSubmit={() => void actions.submitRename()}
+          onCancel={() => actions.setEditing(false)}
+          colors={colors}
+          t={t}
+        />
+      ) : (
+        <Text style={[styles.heroName, { color: colors.text }]} numberOfLines={2}>
+          #{channelName}
+        </Text>
+      )}
+      <Text style={[styles.heroType, { color: colors.mutedForeground }]}>
+        {channel.type === 'private' ? t.channelInfo.privateChannel : t.channelInfo.publicChannel}
+      </Text>
+    </View>
+  );
+}
+
+function ChannelActionsCard({
+  permissions,
+  actions,
+  colors,
+  t,
+}: Readonly<{
+  permissions: Permissions;
+  actions: ChannelActions;
+  colors: Colors;
+  t: Strings;
+}>) {
+  const { canManage, canLeave, isOwner } = permissions;
+  const { busy } = actions;
+  return (
+    <>
+      <SectionLabel>{t.channelInfo.actions}</SectionLabel>
+      <Card style={styles.card}>
+        {canManage ? (
+          <TouchableOpacity
+            style={[styles.actionRow, { borderBottomColor: colors.border }]}
+            onPress={actions.startRename}
+            disabled={busy !== null}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+          >
+            <Pencil size={20} color={colors.text} />
+            <Text style={[styles.actionText, { color: colors.text }]}>{t.channelInfo.rename}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {canLeave ? (
+          <TouchableOpacity
+            style={[
+              styles.actionRow,
+              canManage ? { borderBottomColor: colors.border } : styles.actionRowLast,
+            ]}
+            onPress={actions.confirmLeave}
+            disabled={busy !== null}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+          >
+            <LogOut size={20} color={colors.destructive} />
+            <Text style={[styles.actionText, { color: colors.destructive }]}>{t.channelInfo.leave}</Text>
+            {busy === 'leave' ? <ActivityIndicator size="small" color={colors.destructive} /> : null}
+          </TouchableOpacity>
+        ) : null}
+        {canManage ? (
+          <TouchableOpacity
+            style={[styles.actionRow, styles.actionRowLast]}
+            onPress={actions.confirmDelete}
+            disabled={busy !== null}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+          >
+            <Trash2 size={20} color={colors.destructive} />
+            <Text style={[styles.actionText, { color: colors.destructive }]}>{t.channelInfo.delete}</Text>
+            {busy === 'delete' ? <ActivityIndicator size="small" color={colors.destructive} /> : null}
+          </TouchableOpacity>
+        ) : null}
+      </Card>
+      {isOwner ? (
+        <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+          {t.channelInfo.ownerCannotLeave}
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
+function ChannelInfoContent({
+  channel,
+  channelName,
+  permissions,
+  actions,
+}: Readonly<{
+  channel: ChannelDetails;
+  channelName: string;
+  permissions: Permissions;
+  actions: ChannelActions;
+}>) {
+  const { t, plural } = useI18n();
+  const { colors } = useTheme();
+  const memberCount = channel.memberCount ?? channel.members.length;
+  const description = channel.description || channel.topic || '';
+
+  return (
+    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ChannelHero
+        channel={channel}
+        channelName={channelName}
+        actions={actions}
+        colors={colors}
+        t={t}
+      />
+
+      <SectionLabel>{t.channelInfo.description}</SectionLabel>
+      <Card style={styles.card}>
+        <View style={styles.textRow}>
+          <Text style={[styles.bodyText, { color: description ? colors.text : colors.mutedForeground }]}>
+            {description || t.channelInfo.noDescription}
+          </Text>
+        </View>
+      </Card>
+
+      <SectionLabel>{t.channelInfo.members}</SectionLabel>
+      <Card style={styles.card}>
+        <View style={[styles.textRow, styles.memberRow]}>
+          <Users size={20} color={colors.mutedForeground} />
+          <Text style={[styles.bodyText, { color: colors.text }]}>
+            {plural(memberCount, t.channelInfo.memberCount)}
+          </Text>
+        </View>
+      </Card>
+
+      {permissions.showActions ? (
+        <ChannelActionsCard permissions={permissions} actions={actions} colors={colors} t={t} />
+      ) : null}
+    </ScrollView>
+  );
+}
+
+function ChannelInfoLoadFailed({ onRetry }: Readonly<{ onRetry: () => void }>) {
+  const { t } = useI18n();
+  const { colors } = useTheme();
+  return (
+    <View style={styles.center}>
+      <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
+        {t.channelInfo.loadFailed}
+      </Text>
+      <TouchableOpacity
+        style={[styles.retryBtn, { borderColor: colors.border }]}
+        onPress={onRetry}
+        accessibilityRole="button"
+      >
+        <Text style={[styles.retryText, { color: colors.text }]}>{t.common.retry}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+export default function ChannelInfoScreen() {
+  const { channelId, name: initialName } = useLocalSearchParams<{
+    channelId: string;
+    name?: string;
+  }>();
+  const { t } = useI18n();
+  const { colors } = useTheme();
+  const { userId } = useAuth();
+  const router = useRouter();
+
+  const { channel, setChannel, loading, failed, load } = useChannelDetails(channelId);
+  const permissions = getChannelPermissions(channel, userId);
+  const channelName = channel?.name ?? initialName ?? '';
+  const actions = useChannelActions(channel, setChannel, channelName);
 
   let body: React.ReactNode;
   if (loading && !channel) {
@@ -168,156 +442,15 @@ export default function ChannelInfoScreen() {
       </View>
     );
   } else if (failed || !channel) {
-    body = (
-      <View style={styles.center}>
-        <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
-          {t.channelInfo.loadFailed}
-        </Text>
-        <TouchableOpacity
-          style={[styles.retryBtn, { borderColor: colors.border }]}
-          onPress={() => void load()}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.retryText, { color: colors.text }]}>{t.common.retry}</Text>
-        </TouchableOpacity>
-      </View>
-    );
+    body = <ChannelInfoLoadFailed onRetry={() => void load()} />;
   } else {
     body = (
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={[styles.heroIcon, { backgroundColor: colors.cardBackground }]}>
-            <ChannelIcon size={30} color={colors.text} strokeWidth={2.2} />
-          </View>
-          {editing ? (
-            <View style={[styles.renameRow, { borderColor: colors.secondary }]}>
-              <Hash size={18} color={colors.muted} />
-              <TextInput
-                style={[styles.renameInput, { color: colors.text }]}
-                value={draftName}
-                onChangeText={(text) => setDraftName(normalizeChannelName(text))}
-                placeholder={t.channelInfo.renamePlaceholder}
-                placeholderTextColor={colors.muted}
-                accessibilityLabel={t.channelInfo.renameLabel}
-                autoFocus
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="done"
-                onSubmitEditing={() => void submitRename()}
-              />
-              {busy === 'rename' ? (
-                <ActivityIndicator size="small" color={BRAND} />
-              ) : (
-                <>
-                  <TouchableOpacity
-                    onPress={() => void submitRename()}
-                    disabled={!draftName.trim()}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={t.common.save}
-                  >
-                    <Check size={22} color={draftName.trim() ? BRAND : colors.muted} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setEditing(false)}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={t.common.cancel}
-                  >
-                    <X size={22} color={colors.muted} />
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          ) : (
-            <Text style={[styles.heroName, { color: colors.text }]} numberOfLines={2}>
-              #{channelName}
-            </Text>
-          )}
-          <Text style={[styles.heroType, { color: colors.mutedForeground }]}>
-            {channel.type === 'private' ? t.channelInfo.privateChannel : t.channelInfo.publicChannel}
-          </Text>
-        </View>
-
-        <SectionLabel>{t.channelInfo.description}</SectionLabel>
-        <Card style={styles.card}>
-          <View style={styles.textRow}>
-            <Text
-              style={[styles.bodyText, { color: description ? colors.text : colors.mutedForeground }]}
-            >
-              {description || t.channelInfo.noDescription}
-            </Text>
-          </View>
-        </Card>
-
-        <SectionLabel>{t.channelInfo.members}</SectionLabel>
-        <Card style={styles.card}>
-          <View style={[styles.textRow, styles.memberRow]}>
-            <Users size={20} color={colors.mutedForeground} />
-            <Text style={[styles.bodyText, { color: colors.text }]}>
-              {plural(memberCount, t.channelInfo.memberCount)}
-            </Text>
-          </View>
-        </Card>
-
-        {showActions ? (
-          <>
-            <SectionLabel>{t.channelInfo.actions}</SectionLabel>
-            <Card style={styles.card}>
-              {canManage ? (
-                <TouchableOpacity
-                  style={[styles.actionRow, { borderBottomColor: colors.border }]}
-                  onPress={startRename}
-                  disabled={busy !== null}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                >
-                  <Pencil size={20} color={colors.text} />
-                  <Text style={[styles.actionText, { color: colors.text }]}>{t.channelInfo.rename}</Text>
-                </TouchableOpacity>
-              ) : null}
-              {canLeave ? (
-                <TouchableOpacity
-                  style={[
-                    styles.actionRow,
-                    canManage ? { borderBottomColor: colors.border } : styles.actionRowLast,
-                  ]}
-                  onPress={confirmLeave}
-                  disabled={busy !== null}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                >
-                  <LogOut size={20} color={colors.destructive} />
-                  <Text style={[styles.actionText, { color: colors.destructive }]}>
-                    {t.channelInfo.leave}
-                  </Text>
-                  {busy === 'leave' ? <ActivityIndicator size="small" color={colors.destructive} /> : null}
-                </TouchableOpacity>
-              ) : null}
-              {canManage ? (
-                <TouchableOpacity
-                  style={[styles.actionRow, styles.actionRowLast]}
-                  onPress={confirmDelete}
-                  disabled={busy !== null}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                >
-                  <Trash2 size={20} color={colors.destructive} />
-                  <Text style={[styles.actionText, { color: colors.destructive }]}>
-                    {t.channelInfo.delete}
-                  </Text>
-                  {busy === 'delete' ? <ActivityIndicator size="small" color={colors.destructive} /> : null}
-                </TouchableOpacity>
-              ) : null}
-            </Card>
-            {isOwner ? (
-              <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-                {t.channelInfo.ownerCannotLeave}
-              </Text>
-            ) : null}
-          </>
-        ) : null}
-      </ScrollView>
+      <ChannelInfoContent
+        channel={channel}
+        channelName={channelName}
+        permissions={permissions}
+        actions={actions}
+      />
     );
   }
 

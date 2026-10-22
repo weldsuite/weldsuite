@@ -51,7 +51,8 @@ export function formatMoney(
         : { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
     }).format(value);
   } catch {
-    return `${code ? `${code} ` : ''}${value.toFixed(2)}`;
+    const prefix = code ? `${code} ` : '';
+    return `${prefix}${value.toFixed(2)}`;
   }
 }
 

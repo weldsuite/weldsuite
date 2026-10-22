@@ -43,6 +43,7 @@ export function usePagedList<T extends { id: string }>(
   const requestId = useRef(0);
   const fetchRef = useRef(fetchPage);
   const loadedOnce = useRef(false);
+  const reloadRef = useRef<(mode: Mode) => Promise<void>>(() => Promise.resolve());
 
   useEffect(() => {
     fetchRef.current = fetchPage;
@@ -79,11 +80,17 @@ export function usePagedList<T extends { id: string }>(
     if (enabled) void reload('initial');
   }, [enabled, reload, resetKey]);
 
+  // Read through a ref: a focus effect re-runs when its callback changes, and
+  // `reload` changes with every search, which would add a second request.
+  useEffect(() => {
+    reloadRef.current = reload;
+  }, [reload]);
+
   useFocusEffect(
     useCallback(() => {
       // The first focus is the initial load above; later ones refetch quietly.
-      if (enabled && loadedOnce.current) void reload('silent');
-    }, [enabled, reload]),
+      if (enabled && loadedOnce.current) void reloadRef.current('silent');
+    }, [enabled]),
   );
 
   const refresh = useCallback(() => reload('refresh'), [reload]);

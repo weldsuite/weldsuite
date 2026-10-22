@@ -37,6 +37,66 @@ function taxIdHelper(
   return required ? texts.needed : undefined;
 }
 
+/** Tax ID as typed: an EIN or a CNPJ is shaped as the user types, anything else is left alone. */
+function formatTaxIdInput(code: string, text: string): string {
+  if (code === 'US') return formatEinInput(text);
+  if (code === 'BR') return formatCnpjInput(text);
+  return text;
+}
+
+/** The text of a field problem, or undefined when the field is fine. */
+function problemMessage(
+  problem: Parameters<typeof companyProblemText>[0] | undefined,
+  t: ReturnType<typeof useI18n>['t'],
+): string | undefined {
+  return problem ? companyProblemText(problem, t) : undefined;
+}
+
+/** Street, postal code and city for a company outside the US (the US has its own address form). */
+function SimpleAddressFields({
+  draft,
+  set,
+  problems,
+}: Readonly<{
+  draft: CompanyDraft;
+  set: (patch: Partial<CompanyDraft>) => void;
+  problems: CompanyProblems;
+}>) {
+  const { t } = useI18n();
+  return (
+    <View style={styles.fields}>
+      <Input
+        label={t.address.line1}
+        value={draft.address.line1}
+        onChangeText={(line1) => set({ address: { ...draft.address, line1 } })}
+        placeholder={t.address.line1Placeholder}
+        error={problems.address?.line1 ? t.company.line1Required : undefined}
+        autoCapitalize="words"
+        autoComplete="address-line1"
+      />
+      <View style={styles.row}>
+        <Input
+          label={t.company.postalCode}
+          value={draft.address.postalCode}
+          onChangeText={(postalCode) => set({ address: { ...draft.address, postalCode } })}
+          placeholder={t.company.postalCodePlaceholder}
+          containerStyle={styles.postal}
+          autoCapitalize="characters"
+          autoComplete="postal-code"
+        />
+        <Input
+          label={t.address.city}
+          value={draft.address.city}
+          onChangeText={(city) => set({ address: { ...draft.address, city } })}
+          error={problems.address?.city ? t.company.cityRequired : undefined}
+          containerStyle={styles.city}
+          autoCapitalize="words"
+        />
+      </View>
+    </View>
+  );
+}
+
 export function CompanyFields({
   code,
   draft,
@@ -63,15 +123,12 @@ export function CompanyFields({
   const { colors } = useTheme();
   const { t } = useI18n();
   const isUs = code === 'US';
-  const isBr = code === 'BR';
   const needs = (field: InvoiceField) => requiredFields.includes(field);
   const set = (patch: Partial<CompanyDraft>) => onChange({ ...draft, ...patch });
 
-  const taxIdError = problems.taxId ? companyProblemText(problems.taxId, t) : undefined;
-  const registrationError = problems.registrationNumber
-    ? companyProblemText(problems.registrationNumber, t)
-    : undefined;
-  const ibanError = problems.iban ? companyProblemText(problems.iban, t) : undefined;
+  const taxIdError = problemMessage(problems.taxId, t);
+  const registrationError = problemMessage(problems.registrationNumber, t);
+  const ibanError = problemMessage(problems.iban, t);
   const registrationPlaceholder =
     (t.company.registrationPlaceholder as Record<string, string>)[terminology.registrationId] ?? '';
 
@@ -80,10 +137,7 @@ export function CompanyFields({
       <Input
         label={taxIdLabel}
         value={draft.taxId}
-        onChangeText={(text) => {
-          if (isUs) set({ taxId: formatEinInput(text) });
-          else set({ taxId: isBr ? formatCnpjInput(text) : text });
-        }}
+        onChangeText={(text) => set({ taxId: formatTaxIdInput(code, text) })}
         placeholder={labels.taxIdPlaceholder}
         helperText={taxIdHelper(code, needs('vatNumber'), taxIdError, {
           einHint: t.entitySetup.einHint,
@@ -145,36 +199,7 @@ export function CompanyFields({
             errors={usAddressErrors}
           />
         ) : (
-          <View style={styles.fields}>
-            <Input
-              label={t.address.line1}
-              value={draft.address.line1}
-              onChangeText={(line1) => set({ address: { ...draft.address, line1 } })}
-              placeholder={t.address.line1Placeholder}
-              error={problems.address?.line1 ? t.company.line1Required : undefined}
-              autoCapitalize="words"
-              autoComplete="address-line1"
-            />
-            <View style={styles.row}>
-              <Input
-                label={t.company.postalCode}
-                value={draft.address.postalCode}
-                onChangeText={(postalCode) => set({ address: { ...draft.address, postalCode } })}
-                placeholder={t.company.postalCodePlaceholder}
-                containerStyle={styles.postal}
-                autoCapitalize="characters"
-                autoComplete="postal-code"
-              />
-              <Input
-                label={t.address.city}
-                value={draft.address.city}
-                onChangeText={(city) => set({ address: { ...draft.address, city } })}
-                error={problems.address?.city ? t.company.cityRequired : undefined}
-                containerStyle={styles.city}
-                autoCapitalize="words"
-              />
-            </View>
-          </View>
+          <SimpleAddressFields draft={draft} set={set} problems={problems} />
         )}
       </View>
     </>

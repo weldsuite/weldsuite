@@ -26,6 +26,23 @@ describe('email checks', () => {
     expect(isValidEmail('jane acme.com')).toBe(false);
   });
 
+  it('rejects the edge cases a pattern would be tempted to let through', () => {
+    expect(isValidEmail('@acme.com')).toBe(false);
+    expect(isValidEmail('jane@.com')).toBe(false);
+    expect(isValidEmail('jane@acme.c')).toBe(false);
+    expect(isValidEmail('jane@@acme.com')).toBe(false);
+    expect(isValidEmail('jane@acme .com')).toBe(false);
+    expect(isValidEmail('jane@mail.acme.co')).toBe(true);
+  });
+
+  it('answers a long pathological input straight away', () => {
+    const started = Date.now();
+    expect(isValidEmail(`${'a'.repeat(50_000)}@${'b.'.repeat(50_000)}`)).toBe(true);
+    expect(isValidEmail(`${'a'.repeat(50_000)}@${'b'.repeat(50_000)}`)).toBe(false);
+    expect(isValidEmail(`a@${'b.'.repeat(25_000)} ${'b.'.repeat(25_000)}`)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
   it('required email is required and must be valid', () => {
     expect(checkRequiredEmail('')).toBe('required');
     expect(checkRequiredEmail('nope')).toBe('invalidEmail');

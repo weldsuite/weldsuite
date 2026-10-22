@@ -485,7 +485,20 @@ function mapLead(row: LeadRow): CrmLead {
 const WON_DEALS_PAGE_LIMIT = 100;
 const WON_DEALS_MAX_PAGES = 10;
 
-let workspaceCurrencyCache: string | null = null;
+/**
+ * Workspace currencies already read, by workspace id. Keyed so that switching
+ * workspace, or signing in as someone else, never reuses another workspace's.
+ */
+const workspaceCurrencyCache = new Map<string, string>();
+let activeWorkspaceId: string | null = null;
+
+/**
+ * Tell the data layer which workspace is active (the Clerk organization id), or
+ * null when signed out. Wired from `app/_layout.tsx`, like the token getter.
+ */
+export function setActiveWorkspaceId(workspaceId: string | null) {
+  activeWorkspaceId = workspaceId;
+}
 
 // ============================================================================
 // API client
@@ -498,11 +511,15 @@ const api = {
    * never saved one uses EUR, which is also what a deal without a currency is.
    */
   async getWorkspaceCurrency(): Promise<string> {
-    if (workspaceCurrencyCache) return workspaceCurrencyCache;
+    const workspaceId = activeWorkspaceId;
+    const cached = workspaceId ? workspaceCurrencyCache.get(workspaceId) : undefined;
+    if (cached) return cached;
     try {
       const res = await appApiClient.get<DataEnvelope<WorkspaceSettingsRow | null>>('/workspace-settings');
-      workspaceCurrencyCache = resolveCurrency(res.data?.currency);
-      return workspaceCurrencyCache;
+      const currency = resolveCurrency(res.data?.currency);
+      // Not kept when there is no workspace yet, or it changed while this was loading.
+      if (workspaceId && workspaceId === activeWorkspaceId) workspaceCurrencyCache.set(workspaceId, currency);
+      return currency;
     } catch {
       return DEFAULT_CURRENCY;
     }

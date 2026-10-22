@@ -261,6 +261,8 @@ export default function ContactsScreen() {
 
   const refreshControl = <RefreshControl refreshing={active.refreshing} onRefresh={() => void active.refresh()} />;
   const footer = active.loadingMore ? <ActivityIndicator style={styles.footerSpinner} color={colors.text} /> : null;
+  const showPeople = !active.loading && segment === 'people';
+  const showCompanies = !active.loading && segment === 'companies';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -301,11 +303,13 @@ export default function ContactsScreen() {
         />
       </View>
 
-      {active.loading ? (
+      {active.loading && (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.text} />
         </View>
-      ) : segment === 'people' ? (
+      )}
+
+      {showPeople && (
         <FlatList
           data={people.items}
           keyExtractor={(item) => item.id}
@@ -340,7 +344,9 @@ export default function ContactsScreen() {
             />
           )}
         />
-      ) : (
+      )}
+
+      {showCompanies && (
         <FlatList
           data={companies.items}
           keyExtractor={(item) => item.id}

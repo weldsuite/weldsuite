@@ -9,7 +9,7 @@ import {
   StyleSheet,
   Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Image as ExpoImage } from 'expo-image';
 import {
   Hash,
@@ -50,6 +50,23 @@ interface DmChannel {
 }
 
 const SIDEBAR_WIDTH = 320;
+
+/**
+ * What the sidebar should have open after a reload. A selection that is no
+ * longer in either list (the channel was deleted, or the user left it) is
+ * cleared; with nothing selected, the first channel, else the first DM.
+ */
+function nextSelection(
+  prev: string | null,
+  channels: readonly Channel[],
+  dms: readonly DmChannel[],
+): string | null {
+  if (prev) {
+    const stillListed = channels.some((c) => c.id === prev) || dms.some((d) => d.id === prev);
+    return stillListed ? prev : null;
+  }
+  return channels[0]?.id ?? dms[0]?.id ?? null;
+}
 
 export function IPadLayout() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -99,22 +116,21 @@ export function IPadLayout() {
       setChannels(chs);
       setDms(dmList);
       void cache.setChannels(chs);
-      // Auto-select first channel if none selected
-      setSelectedChannelId((prev) => {
-        if (prev) return prev;
-        if (chs.length > 0) return chs[0].id;
-        if (dmList.length > 0) return dmList[0].id;
-        return null;
-      });
+      // Auto-select the first channel if none is selected; drop a selection that is gone.
+      setSelectedChannelId((prev) => nextSelection(prev, chs, dmList));
     } catch (err) {
       // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load data:', err);
     }
   }, [cache]);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  // Also reloads when the tabs regain focus: leaving or deleting a channel from
+  // its info screen only publishes to that channel's room, not to this list.
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+    }, [loadData]),
+  );
 
   useChatUserEvents(loadData);
 

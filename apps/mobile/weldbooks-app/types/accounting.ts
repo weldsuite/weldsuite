@@ -81,6 +81,8 @@ export interface PostalAddress {
   line2?: string;
   city?: string;
   state?: string;
+  /** Stored for some jurisdictions (IN, BR, US); the app shows it but does not edit it. */
+  county?: string;
   postalCode?: string;
   country?: string;
 }

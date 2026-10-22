@@ -135,17 +135,57 @@ interface RecordFieldProps<K extends string> {
   onChange: (key: K, text: string) => void;
 }
 
-/** A labelled value that turns into a text input while editing. */
-export function RecordField<K extends string>({ config, value, isEditing, error, onChange }: Readonly<RecordFieldProps<K>>) {
+interface RecordFieldInputProps<K extends string> {
+  config: RecordFieldConfig<K>;
+  value: string;
+  error?: string | null;
+  onChange: (key: K, text: string) => void;
+}
+
+function RecordFieldInput<K extends string>({ config, value, error, onChange }: Readonly<RecordFieldInputProps<K>>) {
+  const { colors } = useTheme();
+  return (
+    <>
+      <TextInput
+        accessibilityLabel={config.label}
+        style={[
+          config.multiline ? styles.textArea : styles.input,
+          { color: colors.text, borderColor: error ? colors.destructive : colors.divider },
+        ]}
+        value={value}
+        onChangeText={(next) => onChange(config.key, next)}
+        placeholder={config.placeholder}
+        placeholderTextColor={colors.muted}
+        multiline={config.multiline}
+        textAlignVertical={config.multiline ? 'top' : 'center'}
+        {...config.inputProps}
+      />
+      {error ? <Text style={[styles.error, { color: colors.destructive }]}>{error}</Text> : null}
+    </>
+  );
+}
+
+function RecordFieldValue<K extends string>({ config, value }: Readonly<{ config: RecordFieldConfig<K>; value: string }>) {
   const { colors } = useTheme();
   const { t } = useI18n();
-  const Icon = config.icon;
   const isLink = config.viewLink === 'always' || (config.viewLink === 'whenFilled' && !!value);
   const text = (
     <Text style={[styles.fieldValue, isLink ? { color: ACCENT } : { color: colors.text }]}>
       {value || t.common.dash}
     </Text>
   );
+  if (!config.onPressView || !value) return text;
+  return (
+    <TouchableOpacity onPress={config.onPressView} accessibilityRole="link">
+      {text}
+    </TouchableOpacity>
+  );
+}
+
+/** A labelled value that turns into a text input while editing. */
+export function RecordField<K extends string>({ config, value, isEditing, error, onChange }: Readonly<RecordFieldProps<K>>) {
+  const { colors } = useTheme();
+  const Icon = config.icon;
 
   return (
     <View style={styles.field}>
@@ -155,29 +195,9 @@ export function RecordField<K extends string>({ config, value, isEditing, error,
         {isEditing && config.required ? <Text style={{ color: colors.destructive, fontSize: 13 }}>*</Text> : null}
       </View>
       {isEditing ? (
-        <>
-          <TextInput
-            accessibilityLabel={config.label}
-            style={[
-              config.multiline ? styles.textArea : styles.input,
-              { color: colors.text, borderColor: error ? colors.destructive : colors.divider },
-            ]}
-            value={value}
-            onChangeText={(next) => onChange(config.key, next)}
-            placeholder={config.placeholder}
-            placeholderTextColor={colors.muted}
-            multiline={config.multiline}
-            textAlignVertical={config.multiline ? 'top' : 'center'}
-            {...config.inputProps}
-          />
-          {error ? <Text style={[styles.error, { color: colors.destructive }]}>{error}</Text> : null}
-        </>
-      ) : config.onPressView && value ? (
-        <TouchableOpacity onPress={config.onPressView} accessibilityRole="link">
-          {text}
-        </TouchableOpacity>
+        <RecordFieldInput config={config} value={value} error={error} onChange={onChange} />
       ) : (
-        text
+        <RecordFieldValue config={config} value={value} />
       )}
     </View>
   );

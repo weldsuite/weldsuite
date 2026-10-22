@@ -107,6 +107,7 @@ function jurisdictionPayload(draft: {
   vatNumber?: string;
   registrationNumber?: string;
   iban?: string;
+  bic?: string;
   address?: PostalAddress | null;
 } {
   const { company } = draft;
@@ -133,6 +134,7 @@ function jurisdictionPayload(draft: {
     vatNumber: taxId || undefined,
     registrationNumber: company.registrationNumber.trim() || undefined,
     iban: company.iban.trim() ? company.iban.replaceAll(/\s+/g, '').toUpperCase() : undefined,
+    bic: company.bic.trim().toUpperCase() || undefined,
     address,
   };
 }

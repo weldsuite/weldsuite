@@ -78,18 +78,25 @@ function normalizeRegistration(value: string, code: string | null | undefined): 
   return code?.toUpperCase() === 'NL' ? normalizeKvk(value) : value.trim().replaceAll(/\s+/g, ' ');
 }
 
-/** A non-US address as the API takes it: trimmed, blank parts dropped, `country` set. Null for a blank address. */
-export function toGenericAddress(draft: AddressDraft, country: string): PostalAddress | null {
+/**
+ * A non-US address as the API takes it: trimmed, blank parts dropped, `country` set. Null for a blank address.
+ *
+ * The PATCH replaces the stored address as a whole, so pass the `stored` one when editing: the parts the
+ * form does not show (`state`, `county`, ...) are carried through and only the street, city and postal
+ * code are overwritten. They drive place of supply, ICMS and the time zone.
+ */
+export function toGenericAddress(
+  draft: AddressDraft,
+  country: string,
+  stored?: PostalAddress | null,
+): PostalAddress | null {
   if (isAddressBlank(draft)) return null;
-  const out: PostalAddress = { country };
-  const line1 = draft.line1.trim();
-  const line2 = draft.line2.trim();
-  const city = draft.city.trim();
-  const postalCode = draft.postalCode.trim();
-  if (line1) out.line1 = line1;
-  if (line2) out.line2 = line2;
-  if (city) out.city = city;
-  if (postalCode) out.postalCode = postalCode;
+  const out: PostalAddress = { ...stored, country };
+  for (const key of ['line1', 'line2', 'city', 'postalCode'] as const) {
+    const value = draft[key].trim();
+    if (value) out[key] = value;
+    else delete out[key];
+  }
   return out;
 }
 
@@ -236,7 +243,7 @@ export function buildEntityUpdate(entity: AccountingEntity, draft: CompanyDraft)
   if (Object.keys(bank).length > 0) update.bankDetails = bank;
 
   if (!isAddressBlank(draft.address) && !sameAddress(draft.address, entity.address)) {
-    const address = isUs ? toApiAddress(draft.address) : toGenericAddress(draft.address, code.toUpperCase());
+    const address = isUs ? toApiAddress(draft.address) : toGenericAddress(draft.address, code.toUpperCase(), entity.address);
     if (address) update.address = address;
   }
   return update;

@@ -3,7 +3,7 @@
  * and delete it. One modal with three modes so the screens only manage the list.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -86,10 +86,282 @@ function StatusChips({
   );
 }
 
-export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUpdated, onDeleted }: Readonly<TaskSheetProps>) {
+/** The API's error text when it sent one, else the screen's own message. */
+function errorText(error: unknown, fallback: string): string {
+  return typeof error === 'string' ? error : fallback;
+}
+
+interface TaskValues {
+  title: string;
+  description: string;
+  status: TaskStatus;
+  dueDate?: string;
+}
+
+interface TaskActionsOptions {
+  task: CrmTask | null;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  onCreated: (task: CrmTask) => void;
+  onUpdated: (task: CrmTask) => void;
+  onDeleted: (taskId: string) => void;
+}
+
+/** The sheet's calls to the API, each with its toast. */
+function useTaskActions({ task, busy, setBusy, onCreated, onUpdated, onDeleted }: TaskActionsOptions) {
+  const { t } = useI18n();
+  const toast = useToast();
+
+  const create = async (values: TaskValues) => {
+    setBusy(true);
+    const res = await api.createCrmTask({
+      title: values.title,
+      description: optionalText(values.description),
+      status: values.status,
+      dueDate: values.dueDate,
+    });
+    setBusy(false);
+    if (res.success && res.data) {
+      toast.success(t.tasks.createdToast);
+      onCreated(res.data);
+      return;
+    }
+    toast.error(errorText(res.error, t.tasks.createFailed));
+  };
+
+  /** Resolves true when the task was saved. */
+  const update = async (values: TaskValues): Promise<boolean> => {
+    if (!task) return false;
+    setBusy(true);
+    const res = await api.updateCrmTask(task.id, {
+      title: values.title,
+      description: values.description.trim(),
+      status: values.status,
+      // Left out when empty: the API cannot clear a due date.
+      dueDate: values.dueDate,
+    });
+    setBusy(false);
+    if (res.success && res.data) {
+      toast.success(t.tasks.updatedToast);
+      onUpdated(res.data);
+      return true;
+    }
+    toast.error(errorText(res.error, t.tasks.updateFailed));
+    return false;
+  };
+
+  /** Resolves true when the status was changed. */
+  const changeStatus = async (next: TaskStatus): Promise<boolean> => {
+    if (!task || next === task.status || busy) return false;
+    setBusy(true);
+    const res = await api.updateCrmTask(task.id, { status: next });
+    setBusy(false);
+    if (res.success && res.data) {
+      onUpdated(res.data);
+      return true;
+    }
+    toast.error(errorText(res.error, t.tasks.updateFailed));
+    return false;
+  };
+
+  const remove = async (target: CrmTask) => {
+    setBusy(true);
+    const res = await api.deleteCrmTask(target.id);
+    setBusy(false);
+    if (res.success) {
+      toast.success(t.tasks.deletedToast);
+      onDeleted(target.id);
+      return;
+    }
+    toast.error(errorText(res.error, t.tasks.deleteFailed));
+  };
+
+  const confirmDelete = () => {
+    if (!task) return;
+    Alert.alert(t.tasks.deleteTitle, interpolate(t.tasks.deleteMessage, { title: task.title }), [
+      { text: t.common.cancel, style: 'cancel' },
+      { text: t.common.delete, style: 'destructive', onPress: () => void remove(task) },
+    ]);
+  };
+
+  return { create, update, changeStatus, confirmDelete };
+}
+
+interface TaskFormBodyProps {
+  mode: TaskSheetMode;
+  task: CrmTask | null;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  dueDate: string;
+  errors: FormErrors<'title' | 'dueDate'>;
+  busy: boolean;
+  onTitleChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onStatusChange: (status: TaskStatus) => void;
+  onDueDateChange: (value: string) => void;
+  onSubmit: () => void;
+}
+
+/** The create and edit form, with its submit button. */
+function TaskFormBody({
+  mode,
+  task,
+  title,
+  description,
+  status,
+  dueDate,
+  errors,
+  busy,
+  onTitleChange,
+  onDescriptionChange,
+  onStatusChange,
+  onDueDateChange,
+  onSubmit,
+}: Readonly<TaskFormBodyProps>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  const insets = useSafeAreaInsets();
+  const submitLabel = mode === 'create' ? t.tasks.createTask : t.tasks.saveChanges;
+
+  return (
+    <>
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <FormField
+          label={t.tasks.fieldTitle}
+          required
+          value={title}
+          onChangeText={onTitleChange}
+          placeholder={t.tasks.titlePlaceholder}
+          error={errors.title ? describeError(t, errors.title, t.tasks.fieldTitle) : null}
+          autoCapitalize="sentences"
+        />
+        <FormField
+          label={t.tasks.fieldDescriptionOptional}
+          value={description}
+          onChangeText={onDescriptionChange}
+          placeholder={t.tasks.descriptionPlaceholder}
+          multiline
+          numberOfLines={4}
+        />
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldStatus}</Text>
+          <StatusChips value={status} onSelect={onStatusChange} />
+        </View>
+        <DueDateField
+          label={t.tasks.fieldDueDateOptional}
+          value={dueDate}
+          onChange={onDueDateChange}
+          error={errors.dueDate ? describeError(t, errors.dueDate, t.tasks.fieldDueDate) : null}
+          // The API cannot clear a due date, so an existing one can only be changed.
+          allowClear={mode === 'create' || !task?.dueDate}
+        />
+      </ScrollView>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12), borderTopColor: colors.divider }]}>
+        <TouchableOpacity
+          style={[styles.submit, { backgroundColor: colors.text, opacity: busy ? 0.6 : 1 }]}
+          onPress={onSubmit}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={submitLabel}
+        >
+          {busy ? (
+            <ActivityIndicator color={colors.background} />
+          ) : (
+            <Text style={[styles.submitText, { color: colors.background }]}>{submitLabel}</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+}
+
+/** One labelled read-only value in the details view. */
+function DetailSection({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.section}>
+      <Text style={[styles.label, { color: colors.muted }]}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+interface TaskDetailsProps {
+  task: CrmTask;
+  busy: boolean;
+  onStatusChange: (status: TaskStatus) => void;
+}
+
+/** The read-only view of a task. */
+function TaskDetails({ task, busy, onStatusChange }: Readonly<TaskDetailsProps>) {
   const { colors } = useTheme();
   const { t, intlLocale } = useI18n();
-  const toast = useToast();
+  const insets = useSafeAreaInsets();
+  const dueDateValue = parseDate(task.dueDate);
+
+  return (
+    <ScrollView
+      style={styles.body}
+      contentContainerStyle={[styles.bodyContent, { paddingBottom: insets.bottom + 24 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <DetailSection label={t.tasks.fieldTitle}>
+        <Text style={[styles.taskTitle, { color: colors.text }]}>{task.title}</Text>
+      </DetailSection>
+
+      {!!task.description && (
+        <DetailSection label={t.tasks.fieldDescription}>
+          <Text style={[styles.text, { color: colors.text }]}>{task.description}</Text>
+        </DetailSection>
+      )}
+
+      <DetailSection label={t.tasks.fieldStatus}>
+        <StatusChips value={task.status} onSelect={onStatusChange} disabled={busy} />
+      </DetailSection>
+
+      {!!task.linkedCompany && (
+        <DetailSection label={t.tasks.fieldCompany}>
+          <Text style={[styles.text, { color: colors.text }]}>{task.linkedCompany.name}</Text>
+        </DetailSection>
+      )}
+
+      {!!dueDateValue && (
+        <DetailSection label={t.tasks.fieldDueDate}>
+          <View style={styles.row}>
+            <Calendar size={16} color={colors.text} strokeWidth={2} />
+            <Text style={[styles.text, { color: colors.text }]}>{formatDueLabel(dueDateValue, t, intlLocale)}</Text>
+          </View>
+        </DetailSection>
+      )}
+
+      {!!task.assignee && (
+        <DetailSection label={t.tasks.fieldAssignee}>
+          <Text style={[styles.text, { color: colors.text }]}>{task.assignee.name}</Text>
+        </DetailSection>
+      )}
+
+      <DetailSection label={t.tasks.fieldCreated}>
+        <Text style={[styles.text, { color: colors.text }]}>
+          {new Date(task.createdAt).toLocaleDateString(intlLocale, {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })}
+        </Text>
+      </DetailSection>
+    </ScrollView>
+  );
+}
+
+export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUpdated, onDeleted }: Readonly<TaskSheetProps>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
 
   const [mode, setMode] = useState<TaskSheetMode>(initialMode);
@@ -99,6 +371,7 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
   const [dueDate, setDueDate] = useState('');
   const [errors, setErrors] = useState<FormErrors<'title' | 'dueDate'>>({});
   const [busy, setBusy] = useState(false);
+  const actions = useTaskActions({ task, busy, setBusy, onCreated, onUpdated, onDeleted });
 
   // Each time the sheet opens, start in the requested mode with the task's values (or empty).
   useEffect(() => {
@@ -112,90 +385,51 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
     setBusy(false);
   }, [visible, initialMode, task]);
 
-  const isForm = mode === 'create' || mode === 'edit';
-  const heading =
-    mode === 'create' ? t.tasks.newTitle : mode === 'edit' ? t.tasks.editTitle : t.tasks.detailsTitle;
+  const headings: Record<TaskSheetMode, string> = {
+    create: t.tasks.newTitle,
+    edit: t.tasks.editTitle,
+    view: t.tasks.detailsTitle,
+  };
 
   const handleSubmit = async () => {
     const found = validateTask({ title, dueDate }, parseDateInput);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
-    const parsed = parseDateInput(dueDate).date;
-    setBusy(true);
+    const values = { title, description, status, dueDate: parseDateInput(dueDate).date?.toISOString() };
     if (mode === 'create') {
-      const res = await api.createCrmTask({
-        title,
-        description: optionalText(description),
-        status,
-        dueDate: parsed?.toISOString(),
-      });
-      setBusy(false);
-      if (res.success && res.data) {
-        toast.success(t.tasks.createdToast);
-        onCreated(res.data);
-      } else {
-        toast.error(typeof res.error === 'string' ? res.error : t.tasks.createFailed);
-      }
+      await actions.create(values);
       return;
     }
-
-    if (!task) return;
-    const res = await api.updateCrmTask(task.id, {
-      title,
-      description: description.trim(),
-      status,
-      // Left out when empty: the API cannot clear a due date.
-      dueDate: parsed?.toISOString(),
-    });
-    setBusy(false);
-    if (res.success && res.data) {
-      toast.success(t.tasks.updatedToast);
-      onUpdated(res.data);
-      setMode('view');
-    } else {
-      toast.error(typeof res.error === 'string' ? res.error : t.tasks.updateFailed);
-    }
+    if (await actions.update(values)) setMode('view');
   };
 
   const handleStatusChange = async (next: TaskStatus) => {
-    if (!task || next === task.status || busy) return;
-    setBusy(true);
-    const res = await api.updateCrmTask(task.id, { status: next });
-    setBusy(false);
-    if (res.success && res.data) {
-      onUpdated(res.data);
-      setStatus(next);
-    } else {
-      toast.error(typeof res.error === 'string' ? res.error : t.tasks.updateFailed);
-    }
+    if (await actions.changeStatus(next)) setStatus(next);
   };
 
-  const handleDelete = () => {
-    if (!task) return;
-    Alert.alert(t.tasks.deleteTitle, interpolate(t.tasks.deleteMessage, { title: task.title }), [
-      { text: t.common.cancel, style: 'cancel' },
-      {
-        text: t.common.delete,
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setBusy(true);
-            const res = await api.deleteCrmTask(task.id);
-            setBusy(false);
-            if (res.success) {
-              toast.success(t.tasks.deletedToast);
-              onDeleted(task.id);
-            } else {
-              toast.error(typeof res.error === 'string' ? res.error : t.tasks.deleteFailed);
-            }
-          })();
-        },
-      },
-    ]);
-  };
-
-  const dueDateValue = parseDate(task?.dueDate);
+  let body: ReactNode = null;
+  if (mode === 'view') {
+    if (task) body = <TaskDetails task={task} busy={busy} onStatusChange={(next) => void handleStatusChange(next)} />;
+  } else {
+    body = (
+      <TaskFormBody
+        mode={mode}
+        task={task}
+        title={title}
+        description={description}
+        status={status}
+        dueDate={dueDate}
+        errors={errors}
+        busy={busy}
+        onTitleChange={setTitle}
+        onDescriptionChange={setDescription}
+        onStatusChange={setStatus}
+        onDueDateChange={setDueDate}
+        onSubmit={() => void handleSubmit()}
+      />
+    );
+  }
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -205,7 +439,7 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
       >
         <View style={[styles.header, { borderBottomColor: colors.divider }]}>
           <Text style={[styles.headerTitle, { color: colors.text }]} accessibilityRole="header">
-            {heading}
+            {headings[mode]}
           </Text>
           <View style={styles.headerActions}>
             {mode === 'view' && task ? (
@@ -219,7 +453,7 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
                   <Edit3 size={20} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={handleDelete}
+                  onPress={actions.confirmDelete}
                   style={styles.iconButton}
                   accessibilityRole="button"
                   accessibilityLabel={t.tasks.deleteTask}
@@ -239,121 +473,7 @@ export function TaskSheet({ visible, initialMode, task, onClose, onCreated, onUp
           </View>
         </View>
 
-        {isForm ? (
-          <>
-            <ScrollView
-              style={styles.body}
-              contentContainerStyle={styles.bodyContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <FormField
-                label={t.tasks.fieldTitle}
-                required
-                value={title}
-                onChangeText={setTitle}
-                placeholder={t.tasks.titlePlaceholder}
-                error={errors.title ? describeError(t, errors.title, t.tasks.fieldTitle) : null}
-                autoCapitalize="sentences"
-              />
-              <FormField
-                label={t.tasks.fieldDescriptionOptional}
-                value={description}
-                onChangeText={setDescription}
-                placeholder={t.tasks.descriptionPlaceholder}
-                multiline
-                numberOfLines={4}
-              />
-              <View style={styles.section}>
-                <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldStatus}</Text>
-                <StatusChips value={status} onSelect={setStatus} />
-              </View>
-              <DueDateField
-                label={t.tasks.fieldDueDateOptional}
-                value={dueDate}
-                onChange={setDueDate}
-                error={errors.dueDate ? describeError(t, errors.dueDate, t.tasks.fieldDueDate) : null}
-                // The API cannot clear a due date, so an existing one can only be changed.
-                allowClear={mode === 'create' || !task?.dueDate}
-              />
-            </ScrollView>
-            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12), borderTopColor: colors.divider }]}>
-              <TouchableOpacity
-                style={[styles.submit, { backgroundColor: colors.text, opacity: busy ? 0.6 : 1 }]}
-                onPress={() => void handleSubmit()}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel={mode === 'create' ? t.tasks.createTask : t.tasks.saveChanges}
-              >
-                {busy ? (
-                  <ActivityIndicator color={colors.background} />
-                ) : (
-                  <Text style={[styles.submitText, { color: colors.background }]}>
-                    {mode === 'create' ? t.tasks.createTask : t.tasks.saveChanges}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : task ? (
-          <ScrollView
-            style={styles.body}
-            contentContainerStyle={[styles.bodyContent, { paddingBottom: insets.bottom + 24 }]}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.section}>
-              <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldTitle}</Text>
-              <Text style={[styles.taskTitle, { color: colors.text }]}>{task.title}</Text>
-            </View>
-
-            {!!task.description && (
-              <View style={styles.section}>
-                <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldDescription}</Text>
-                <Text style={[styles.text, { color: colors.text }]}>{task.description}</Text>
-              </View>
-            )}
-
-            <View style={styles.section}>
-              <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldStatus}</Text>
-              <StatusChips value={task.status} onSelect={(next) => void handleStatusChange(next)} disabled={busy} />
-            </View>
-
-            {!!task.linkedCompany && (
-              <View style={styles.section}>
-                <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldCompany}</Text>
-                <Text style={[styles.text, { color: colors.text }]}>{task.linkedCompany.name}</Text>
-              </View>
-            )}
-
-            {!!dueDateValue && (
-              <View style={styles.section}>
-                <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldDueDate}</Text>
-                <View style={styles.row}>
-                  <Calendar size={16} color={colors.text} strokeWidth={2} />
-                  <Text style={[styles.text, { color: colors.text }]}>{formatDueLabel(dueDateValue, t, intlLocale)}</Text>
-                </View>
-              </View>
-            )}
-
-            {!!task.assignee && (
-              <View style={styles.section}>
-                <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldAssignee}</Text>
-                <Text style={[styles.text, { color: colors.text }]}>{task.assignee.name}</Text>
-              </View>
-            )}
-
-            <View style={styles.section}>
-              <Text style={[styles.label, { color: colors.muted }]}>{t.tasks.fieldCreated}</Text>
-              <Text style={[styles.text, { color: colors.text }]}>
-                {new Date(task.createdAt).toLocaleDateString(intlLocale, {
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                })}
-              </Text>
-            </View>
-          </ScrollView>
-        ) : null}
+        {body}
       </KeyboardAvoidingView>
     </Modal>
   );

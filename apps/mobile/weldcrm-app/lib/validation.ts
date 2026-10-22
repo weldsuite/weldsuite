@@ -9,14 +9,26 @@ import type { Translations } from './i18n/locales/en';
 
 export type FieldError = 'required' | 'invalidEmail' | 'invalidDate' | 'invalidNumber';
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const WHITESPACE = /\s/;
 
 export function isBlank(value: string | null | undefined): boolean {
   return !value || value.trim().length === 0;
 }
 
+/**
+ * "local@domain.tld": one "@", no whitespace, a non-empty local part, and a
+ * domain with a dot that has something before it and at least two characters
+ * after it. Checked with plain string scans so a long input can't make it slow.
+ */
 export function isValidEmail(value: string): boolean {
-  return EMAIL.test(value.trim());
+  const email = value.trim();
+  if (WHITESPACE.test(email)) return false;
+  const parts = email.split('@');
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  if (!local) return false;
+  const dot = domain.indexOf('.', 1);
+  return dot !== -1 && domain.length - dot - 1 >= 2;
 }
 
 /** A required text field. */

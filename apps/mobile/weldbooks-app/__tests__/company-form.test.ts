@@ -9,6 +9,7 @@ import {
   toGenericAddress,
 } from '@/lib/company-form';
 import { en } from '@/lib/i18n/locales/en';
+import { toAddressDraft } from '@/lib/us';
 import { nl } from '@/lib/i18n/locales/nl';
 import type { AccountingEntity } from '@/types/accounting';
 
@@ -144,6 +145,47 @@ describe('toGenericAddress', () => {
     expect(
       toGenericAddress({ ...emptyCompanyDraft().address, line1: 'Damrak 1', city: ' Amsterdam' }, 'NL'),
     ).toEqual({ country: 'NL', line1: 'Damrak 1', city: 'Amsterdam' });
+  });
+
+  it('carries the stored state and county through, overwriting only what the form edits', () => {
+    const stored = {
+      line1: 'Old Rd 1',
+      line2: 'Floor 2',
+      city: 'Mumbai',
+      state: 'MH',
+      county: 'Thane',
+      postalCode: '400001',
+      country: 'IN',
+    };
+    expect(
+      toGenericAddress({ ...toAddressDraft(stored), line1: 'New Rd 5', line2: '' }, 'IN', stored),
+    ).toEqual({
+      line1: 'New Rd 5',
+      city: 'Mumbai',
+      state: 'MH',
+      county: 'Thane',
+      postalCode: '400001',
+      country: 'IN',
+    });
+  });
+
+  it('keeps the stored state in the update when only the street of an IN company changes', () => {
+    const inEntity: AccountingEntity = {
+      id: 'ent_3',
+      name: 'Asha Pvt Ltd',
+      jurisdictionCode: 'IN',
+      baseCurrency: 'INR',
+      address: { line1: 'Old Rd 1', city: 'Mumbai', state: 'MH', postalCode: '400001', country: 'IN' },
+    };
+    const draft = toCompanyDraft(inEntity);
+    const update = buildEntityUpdate(inEntity, { ...draft, address: { ...draft.address, line1: 'New Rd 5' } });
+    expect(update.address).toEqual({
+      line1: 'New Rd 5',
+      city: 'Mumbai',
+      state: 'MH',
+      postalCode: '400001',
+      country: 'IN',
+    });
   });
 });
 

@@ -122,11 +122,8 @@ export default function LeadsScreen() {
 
   const renderEmpty = () => {
     if (leads.loading) return null;
-    const message = leads.error
-      ? t.common.pullToRetry
-      : searchQuery || selectedStatus
-        ? t.leads.emptyFiltered
-        : t.leads.emptyNone;
+    const emptyMessage = searchQuery || selectedStatus ? t.leads.emptyFiltered : t.leads.emptyNone;
+    const message = leads.error ? t.common.pullToRetry : emptyMessage;
     return (
       <View style={styles.emptyContainer}>
         <View style={[styles.emptyIconContainer, { backgroundColor: colors.secondary }]}>
