@@ -1,0 +1,26 @@
+appId: com.weldsuite.weldbooks
+name: Add a quick expense
+tags: [smoke, writes]
+---
+# Saves one €25 expense per run.
+- runFlow: ../subflows/login.yaml
+- tapOn: "Expense"
+- extendedWaitUntil:
+    visible: "Quick expense"
+    timeout: 10000
+# The amount field has focus on open; the keyboard has to go before the form
+# can scroll (see the Mobile apps bug about edge-to-edge forms).
+- inputText: "25"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "e.g. Shell, Amazon"
+- tapOn: "e.g. Shell, Amazon"
+- inputText: "E2E Supplier"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Save expense"
+- tapOn: "Save expense"
+# Saving returns to Home (the "Expense saved" toast is too brief to assert on).
+- extendedWaitUntil:
+    visible: "Outstanding"
+    timeout: 15000

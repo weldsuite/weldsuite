@@ -1,0 +1,24 @@
+appId: com.weldsuite.weldcrm
+name: Create a task
+tags: [smoke, writes]
+---
+# Creates one task per run (title "E2E CRM task <timestamp>", due today).
+# The app has no way to delete a task, so these accumulate in the test workspace.
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.title = 'E2E CRM task ' + Date.now()}
+- tapOn: "Tasks"
+- tapOn: "Add"
+- extendedWaitUntil:
+    visible: "New Task"
+    timeout: 10000
+- tapOn: "Enter task title"
+- inputText: ${output.title}
+- hideKeyboard
+- tapOn: "Today"
+- tapOn: "Create Task"
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+- tapOn: ${output.title}
+- assertVisible: "Task Details"
+- assertVisible: "Today"
