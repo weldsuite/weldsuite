@@ -6,9 +6,9 @@ import {
   Text,
   TouchableOpacity,
   TextInput,
-  ScrollView,
   Alert,
 } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -580,19 +580,24 @@ export default function AddAccountScreen() {
         <View style={styles.headerButton} />
       </View>
 
-      <ScrollView
+      {/* Keyboard-aware: with Android 15 edge-to-edge the window is not resized
+          for the keyboard, so the form pads itself by the keyboard height and the
+          footer button rides on top of the keyboard. */}
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: cta ? 24 : insets.bottom + 24 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        bottomOffset={96}
       >
         {screen === 'select' && renderProviderSelection()}
         {(screen === 'weldmail' || screen === 'personal') && renderWeldMailForm()}
         {screen === 'custom-domain' && renderCustomDomainForm()}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Sticky CTA */}
       {cta && (
+        <KeyboardStickyView>
         <View style={[styles.footer, { paddingBottom: insets.bottom + 12, backgroundColor: colors.background, borderTopColor: colors.divider }]}>
           <TouchableOpacity
             style={[styles.submitButton, cta.disabled && styles.submitButtonDisabled]}
@@ -607,6 +612,7 @@ export default function AddAccountScreen() {
             )}
           </TouchableOpacity>
         </View>
+        </KeyboardStickyView>
       )}
     </View>
   );

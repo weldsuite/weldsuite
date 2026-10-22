@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TextInput,
   Pressable,
   Switch,
@@ -11,10 +10,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useRouter, Stack } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWeldmeetApi } from '@/services/app-api';
+import { KEYBOARD_BOTTOM_OFFSET } from '@/lib/keyboard';
 
 export default function NewMeetingScreen() {
   const router = useRouter();
@@ -66,7 +67,12 @@ export default function NewMeetingScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      {/* Keyboard-aware: Android 15 edge-to-edge does not resize the window for the keyboard. */}
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={KEYBOARD_BOTTOM_OFFSET}
+      >
         <Text style={[styles.label, { color: colors.muted }]}>Title</Text>
         <TextInput
           value={title}
@@ -122,7 +128,7 @@ export default function NewMeetingScreen() {
         >
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.createText}>Create meeting</Text>}
         </Pressable>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

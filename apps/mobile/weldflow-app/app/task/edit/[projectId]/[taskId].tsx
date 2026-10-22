@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
@@ -8,6 +9,7 @@ import { DetailSkeleton } from '@/components/data-states';
 import { TaskForm, toUpdateTaskInput, type TaskFormValues } from '@/components/TaskForm';
 import { useTask, useUpdateTask } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
+import { KEYBOARD_BOTTOM_OFFSET } from '@/lib/keyboard';
 import type { TaskPriority, TaskStatus } from '@/types/weldflow';
 
 export default function EditTaskScreen() {
@@ -55,7 +57,11 @@ export default function EditTaskScreen() {
       {isLoading || !initialValues ? (
         <DetailSkeleton />
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          bottomOffset={KEYBOARD_BOTTOM_OFFSET}
+        >
           <TaskForm
             mode="edit"
             projectId={projectId}
@@ -63,7 +69,7 @@ export default function EditTaskScreen() {
             onSubmit={handleSubmit}
             isSubmitting={updateTask.isPending}
           />
-        </ScrollView>
+        </KeyboardAwareScrollView>
       )}
     </Screen>
   );
