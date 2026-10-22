@@ -72,32 +72,38 @@ export default function DealsScreen() {
 
   const pipeline = pipelines.find((p) => p.id === pipelineId) ?? null;
 
+  // Bumped per load, so a slower earlier load (another pipeline) can't overwrite a newer one.
+  const requestRef = useRef(0);
+
   const load = useCallback(
     async (mode: 'initial' | 'refresh' | 'silent') => {
+      const request = ++requestRef.current;
+      const isStale = () => request !== requestRef.current;
+      const finish = () => {
+        loadedOnce.current = true;
+        setLoading(false);
+        setRefreshing(false);
+      };
       if (mode === 'initial') setLoading(true);
       if (mode === 'refresh') setRefreshing(true);
 
       const [pipelinesRes, workspaceCurrency] = await Promise.all([api.getPipelines(), api.getWorkspaceCurrency()]);
+      if (isStale()) return;
+      const all = pipelinesRes.success && pipelinesRes.data ? pipelinesRes.data : null;
+      // A failed quiet reload keeps the board that is showing.
+      if (!all && mode === 'silent') return finish();
+      const current = all?.find((p) => p.id === selectedRef.current) ?? all?.[0] ?? null;
+      const result = current ? await fetchDeals(current.id) : null;
+      if (isStale()) return;
+      if (result?.failed && mode === 'silent') return finish();
+
       setCurrency(resolveCurrency(workspaceCurrency));
-      const all = pipelinesRes.success && pipelinesRes.data ? pipelinesRes.data : [];
-      setPipelines(all);
-      const current = all.find((p) => p.id === selectedRef.current) ?? all[0] ?? null;
+      setPipelines(all ?? []);
       selectedRef.current = current?.id ?? null;
       setPipelineId(current?.id ?? null);
-
-      let failed = !pipelinesRes.success;
-      if (current) {
-        const result = await fetchDeals(current.id);
-        failed = failed || result.failed;
-        setColumns(buildColumns(current, result.deals));
-      } else {
-        setColumns([]);
-      }
-      if (failed && mode !== 'silent') toast.error(t.deals.loadFailed);
-
-      loadedOnce.current = true;
-      setLoading(false);
-      setRefreshing(false);
+      setColumns(current && result ? buildColumns(current, result.deals) : []);
+      if (!all || result?.failed) toast.error(t.deals.loadFailed);
+      finish();
     },
     [t, toast],
   );

@@ -1014,7 +1014,9 @@ const api = {
 
   async updatePerson(id: string, input: PersonInput): Promise<ApiResponse<PersonRecord>> {
     try {
-      const res = await appApiClient.patch<DataEnvelope<PersonRow>>(`/people/${id}`, personPayload(input));
+      // Read back: the PATCH response is built before the custom-field values are written.
+      await appApiClient.patch(`/people/${id}`, personPayload(input));
+      const res = await appApiClient.get<DataEnvelope<PersonRow>>(`/people/${id}`);
       return ok(mapPerson(res.data));
     } catch (err) {
       return fail(err);
@@ -1126,7 +1128,9 @@ const api = {
 
   async updateCompany(id: string, input: CompanyInput): Promise<ApiResponse<CompanyRecord>> {
     try {
-      const res = await appApiClient.patch<DataEnvelope<CompanyRow>>(`/companies/${id}`, companyPayload(input));
+      // Read back: the PATCH response is built before the custom-field values are written.
+      await appApiClient.patch(`/companies/${id}`, companyPayload(input));
+      const res = await appApiClient.get<DataEnvelope<CompanyRow>>(`/companies/${id}`);
       return ok(mapCompany(res.data));
     } catch (err) {
       return fail(err);

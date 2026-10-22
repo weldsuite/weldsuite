@@ -162,7 +162,8 @@ export function recordInput(
     ownerId: form.ownerId ?? undefined,
     accountManagerId: form.accountManagerId,
     tags: form.tags,
-    language: form.language || undefined,
+    // The API takes no null here: a cleared language is saved as ''.
+    language: form.language || (record.language ? '' : undefined),
     address: addressToSave(form, record),
     isLead: form.isLead,
     isSupplier: form.isSupplier,

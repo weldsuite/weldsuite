@@ -379,9 +379,10 @@ export function RecordScreen({ kind }: Readonly<{ kind: RecordKind }>) {
   const [picker, setPicker] = useState<Picker>(null);
 
   // A fresh form whenever the record (re)loads, unless a half-filled one is open.
+  // Opening with ?edit=true still needs the first one.
   useEffect(() => {
-    if (record && !isEditing) setForm(formFromRecord(kind, record, defs ?? []));
-  }, [record, defs, kind, isEditing]);
+    if (record && (!isEditing || form === null)) setForm(formFromRecord(kind, record, defs ?? []));
+  }, [record, defs, kind, isEditing, form]);
 
   useEffect(() => {
     if (!data.loading) {

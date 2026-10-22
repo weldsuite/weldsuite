@@ -3,6 +3,7 @@ import {
   initialsOf,
   isTaskStatus,
   normalizeTaskStatus,
+  repeatInput,
   resolveName,
 } from '@/lib/crm';
 import { formatRelativeTime } from '@/lib/relative-time';
@@ -45,6 +46,23 @@ describe('task statuses', () => {
   it('narrows strings', () => {
     expect(isTaskStatus('done')).toBe(true);
     expect(isTaskStatus('planned')).toBe(false);
+  });
+});
+
+describe('repeatInput', () => {
+  const everyThreeWeeks = { frequency: 'custom' as const, interval: 3, unit: 'weeks' as const };
+
+  it('keeps the stored rule when the frequency is unchanged', () => {
+    expect(repeatInput('custom', everyThreeWeeks)).toBe(everyThreeWeeks);
+  });
+
+  it('sends just the frequency when it changed', () => {
+    expect(repeatInput('weekly', everyThreeWeeks)).toEqual({ frequency: 'weekly' });
+    expect(repeatInput('daily')).toEqual({ frequency: 'daily' });
+  });
+
+  it('clears the repeat', () => {
+    expect(repeatInput(null, everyThreeWeeks)).toBeNull();
   });
 });
 

@@ -81,6 +81,17 @@ export interface TaskRepeat {
   unit?: 'days' | 'weeks' | 'months' | 'years';
 }
 
+/**
+ * The repeat to save. The form only picks a frequency, and a PATCH replaces
+ * `repeat` whole, so an unchanged frequency keeps the stored rule (a web
+ * task's "every 3 weeks" keeps its interval and unit).
+ */
+export function repeatInput(frequency: RepeatFrequency | null, original?: TaskRepeat): TaskRepeat | null {
+  if (!frequency) return null;
+  if (original?.frequency === frequency) return original;
+  return { frequency };
+}
+
 /** The kinds of activity the app can log (a subset of the server's `activityType`). */
 export const LOGGABLE_ACTIVITY_TYPES = ['call', 'email', 'meeting', 'note'] as const;
 export type LoggableActivityType = (typeof LOGGABLE_ACTIVITY_TYPES)[number];

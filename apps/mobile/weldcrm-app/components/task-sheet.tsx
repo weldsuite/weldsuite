@@ -29,13 +29,14 @@ import { FormField } from '@/components/form';
 import { MemberPicker, useMembers } from '@/components/member-picker';
 import { OptionSheet, SelectField, TagInput } from '@/components/option-sheet';
 import { RecordRefField } from '@/components/record-ref-field';
-import { tasksApi, type CrmTask } from '@/services/tasks';
+import { tasksApi, type CrmTask, type TaskInput } from '@/services/tasks';
 import type { RecordRef } from '@/services/notes';
 import { interpolate, useI18n } from '@/lib/i18n';
 import {
   REPEAT_FREQUENCIES,
   TASK_PRIORITIES,
   TASK_STATUSES,
+  repeatInput,
   type RepeatFrequency,
   type TaskPriority,
   type TaskStatus,
@@ -120,6 +121,23 @@ function formFromTask(task: CrmTask | null, defaultRecord: RecordRef | undefined
   };
 }
 
+/** What to save; `original` is the task being edited (null when creating). */
+function taskInputFrom(form: FormState, original: CrmTask | null): TaskInput {
+  const due = parseDateInput(form.dueDate).date;
+  return {
+    title: form.title,
+    description: form.description,
+    // The form shows statuses it doesn't know as the nearest one; only send a status the user picked.
+    status: original?.status === form.status ? undefined : form.status,
+    priority: form.priority,
+    dueDate: due ? due.toISOString() : null,
+    assigneeIds: form.assigneeIds,
+    record: form.record ?? null,
+    labels: form.labels,
+    repeat: repeatInput(form.repeat, original?.repeat),
+  };
+}
+
 type SheetPicker = 'status' | 'priority' | 'repeat' | 'assignees' | null;
 
 /** One labelled read-only value in the details view. */
@@ -174,6 +192,10 @@ export function TaskSheet({
   const assigneeNames = (ids: readonly string[]) =>
     ids.map((id) => byId.get(id)?.name ?? task?.assignees.find((a) => a.id === id)?.name ?? t.common.unknown).join(', ');
 
+  // flow-api can't clear a priority once set, so don't offer "None" for one.
+  const canClearPriority = mode === 'create' || !task?.priority;
+  const clearPriority = canClearPriority ? () => set('priority', null) : undefined;
+
   const headings: Record<TaskSheetMode, string> = {
     create: t.tasks.newTitle,
     edit: t.tasks.editTitle,
@@ -189,18 +211,7 @@ export function TaskSheet({
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
-    const due = parseDateInput(form.dueDate).date;
-    const input = {
-      title: form.title,
-      description: form.description,
-      status: form.status,
-      priority: form.priority,
-      dueDate: due ? due.toISOString() : null,
-      assigneeIds: form.assigneeIds,
-      record: form.record ?? null,
-      labels: form.labels,
-      repeat: form.repeat ? { frequency: form.repeat } : null,
-    };
+    const input = taskInputFrom(form, task && mode !== 'create' ? task : null);
 
     if (mode !== 'create' && !task) return;
     setBusy(true);
@@ -402,7 +413,7 @@ export function TaskSheet({
             placeholder={t.tasks.noPriority}
             color={form.priority ? TASK_PRIORITY_COLORS[form.priority] : undefined}
             onPress={() => setPicker('priority')}
-            onClear={() => set('priority', null)}
+            onClear={clearPriority}
           />
           <DueDateField
             label={t.tasks.fieldDueDateOptional}
@@ -521,7 +532,7 @@ export function TaskSheet({
             color: TASK_PRIORITY_COLORS[priority],
           }))}
           selected={form.priority}
-          allowNone
+          allowNone={canClearPriority}
           onSelect={(value) => {
             set('priority', value);
             setPicker(null);
