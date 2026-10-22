@@ -12,7 +12,11 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
   type GestureResponderEvent,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { useOrganization, useAuth, useUser } from '@clerk/expo';
 import { useObserve } from 'expo-observe';
@@ -32,6 +36,7 @@ import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -772,10 +777,11 @@ function ChannelHeader({
   picture,
   peerIsOnline,
   inCall,
+  identityEnabled,
   colors,
   styles,
   onBack,
-  onOpenProfile,
+  onOpenIdentity,
   onStartCall,
 }: Readonly<{
   hideBackButton?: boolean;
@@ -785,12 +791,15 @@ function ChannelHeader({
   picture?: string | null;
   peerIsOnline: boolean | null;
   inCall: boolean;
+  /** Tapping the name opens the DM peer's profile, or the channel details. */
+  identityEnabled: boolean;
   colors: ThemeColors;
   styles: Styles;
   onBack: () => void;
-  onOpenProfile: () => void;
+  onOpenIdentity: () => void;
   onStartCall: (callType: 'voice' | 'video') => void;
 }>) {
+  const { t } = useI18n();
   return (
     <View style={styles.header}>
       <View style={styles.headerContent}>
@@ -803,8 +812,12 @@ function ChannelHeader({
         <TouchableOpacity
           style={styles.headerIdentity}
           activeOpacity={0.7}
-          onPress={onOpenProfile}
-          disabled={!isDm}
+          onPress={onOpenIdentity}
+          disabled={!identityEnabled}
+          accessibilityRole={identityEnabled ? 'button' : undefined}
+          accessibilityLabel={
+            identityEnabled && !isDm ? `${channelName}, ${t.channel.channelDetails}` : undefined
+          }
         >
           <HeaderAvatar
             isDm={isDm}
@@ -816,11 +829,11 @@ function ChannelHeader({
           />
           <View style={styles.headerIdentityText}>
             <Text style={styles.headerTitle} numberOfLines={1}>
-              {channelName}
+              {channelName || t.channel.loadingTitle}
             </Text>
             {isDm && peerIsOnline !== null && (
               <Text style={styles.headerPresenceText} numberOfLines={1}>
-                {peerIsOnline ? 'Active now' : 'Offline'}
+                {peerIsOnline ? t.channel.activeNow : t.channel.offline}
               </Text>
             )}
           </View>
@@ -834,6 +847,8 @@ function ChannelHeader({
             activeOpacity={0.6}
             disabled={inCall}
             onPress={() => onStartCall('video')}
+            accessibilityRole="button"
+            accessibilityLabel={t.channel.startVideoCall}
           >
             <VideoCameraIcon size={30} color={colors.text} strokeWidth={1.6} />
           </TouchableOpacity>
@@ -842,6 +857,8 @@ function ChannelHeader({
             activeOpacity={0.6}
             disabled={inCall}
             onPress={() => onStartCall('voice')}
+            accessibilityRole="button"
+            accessibilityLabel={t.channel.startVoiceCall}
           >
             <Phone size={22} color={colors.text} strokeWidth={2} />
           </TouchableOpacity>
@@ -1163,6 +1180,7 @@ function ExpandedComposer({
   onSend,
   onStartRecording,
 }: Readonly<ExpandedComposerProps>) {
+  const { t } = useI18n();
   const hasMentions = hasMentionTokens(input);
   return (
     <View style={styles.composerShadow}>
@@ -1224,7 +1242,13 @@ function ExpandedComposer({
         {/* Bottom action bar — ChatGPT-style: "+" on the left, mic + a solid
             circular voice/send button on the right. */}
         <View style={styles.inputActions}>
-          <TouchableOpacity style={styles.composerPlusBtn} onPress={onAttach} activeOpacity={0.6}>
+          <TouchableOpacity
+            style={styles.composerPlusBtn}
+            onPress={onAttach}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={t.composer.attach}
+          >
             <Plus size={24} color={colors.text} strokeWidth={2.1} />
           </TouchableOpacity>
           <View style={styles.composerActionsRight}>
@@ -1233,6 +1257,9 @@ function ExpandedComposer({
               onPress={canSend ? onSend : onStartRecording}
               disabled={uploading}
               activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={canSend ? t.composer.send : t.composer.recordVoice}
+              accessibilityState={{ disabled: uploading }}
             >
               <SendButtonIcon uploading={uploading} canSend={canSend} colors={colors} />
             </TouchableOpacity>
@@ -1260,6 +1287,7 @@ function CollapsedComposer({
   onExpand: () => void;
   onStartRecording: () => void;
 }>) {
+  const { t } = useI18n();
   return (
     <View style={styles.composerShadowCollapsed}>
       <View style={styles.inputContainerCollapsed}>
@@ -1270,7 +1298,12 @@ function CollapsedComposer({
           style={styles.composerGlass}
           pointerEvents="none"
         />
-        <TouchableOpacity style={styles.plainBtn} onPress={onAttach}>
+        <TouchableOpacity
+          style={styles.plainBtn}
+          onPress={onAttach}
+          accessibilityRole="button"
+          accessibilityLabel={t.composer.attach}
+        >
           <Plus size={24} color={colors.text} strokeWidth={2.1} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.collapsedInputArea} onPress={onExpand} activeOpacity={0.7}>
@@ -1282,6 +1315,8 @@ function CollapsedComposer({
           style={styles.composerSolidBtn}
           onPress={onStartRecording}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={t.composer.recordVoice}
         >
           <AudioLines size={19} color={colors.background} strokeWidth={2} />
         </TouchableOpacity>
@@ -1307,7 +1342,13 @@ interface ComposerProps extends Omit<ExpandedComposerProps, 'onFocus' | 'onBlur'
 /** Archived banner plus the input bar (recording / expanded / collapsed). */
 function Composer(props: Readonly<ComposerProps>) {
   const { isArchived, isRecording, isInputExpanded, colors, styles } = props;
-  const placeholder = props.isDm ? 'Message...' : `Message #${props.channelName}`;
+  const { t, format } = useI18n();
+  // Until the channel name is known (route param or loaded channel) the
+  // placeholder stays neutral instead of reading "Message #".
+  const placeholder =
+    props.isDm || !props.channelName
+      ? t.composer.messageDm
+      : format(t.composer.messageChannel, { name: props.channelName });
 
   let inputBody: React.ReactNode;
   if (isRecording) {
@@ -1348,9 +1389,9 @@ function Composer(props: Readonly<ComposerProps>) {
       {isArchived ? (
         <View style={styles.archivedBanner}>
           <Archive size={16} color={colors.muted} />
-          <Text style={styles.archivedText}>This conversation is archived</Text>
+          <Text style={styles.archivedText}>{t.channel.archivedNotice}</Text>
           <TouchableOpacity style={styles.unarchiveBtn} onPress={props.onUnarchive}>
-            <Text style={styles.unarchiveBtnText}>Unarchive</Text>
+            <Text style={styles.unarchiveBtnText}>{t.channel.unarchive}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -1454,19 +1495,46 @@ function PinDurationModal({
   );
 }
 
+/**
+ * Shown as the inverted list's ListEmptyComponent.
+ *
+ * VirtualizedList hands every empty component a `style` (and `onLayout`) via
+ * cloneElement: the counter-transform that undoes the list's own inversion
+ * (scaleY on iOS, scale on Android). A component that drops them renders
+ * flipped, so both are forwarded to the root view here.
+ */
 function EmptyChannel({
   isDm,
   channelName,
+  loading,
+  colors,
   styles,
-}: Readonly<{ isDm: boolean; channelName: string; styles: Styles }>) {
+  style,
+  onLayout,
+}: Readonly<{
+  isDm: boolean;
+  channelName: string;
+  /** Messages or channel still loading: no welcome text yet. */
+  loading: boolean;
+  colors: ThemeColors;
+  styles: Styles;
+  style?: StyleProp<ViewStyle>;
+  onLayout?: (event: LayoutChangeEvent) => void;
+}>) {
+  const { t, format } = useI18n();
+  if (loading) {
+    return (
+      <View style={[styles.empty, style]} onLayout={onLayout}>
+        <ActivityIndicator size="small" color={colors.muted} />
+      </View>
+    );
+  }
   return (
-    <View style={styles.empty}>
+    <View style={[styles.empty, style]} onLayout={onLayout}>
       <Text style={styles.emptyTitle}>
-        {isDm ? `Conversation with ${channelName}` : `Welcome to #${channelName}`}
+        {format(isDm ? t.channel.dmConversation : t.channel.welcome, { name: channelName })}
       </Text>
-      <Text style={styles.emptyText}>
-        This is the start of the conversation.
-      </Text>
+      <Text style={styles.emptyText}>{t.channel.startOfConversation}</Text>
     </View>
   );
 }
@@ -1475,10 +1543,21 @@ interface ChannelViewProps {
   channelId: string;
   hideBackButton?: boolean;
   hideHeader?: boolean;
+  /** Name from the list the user tapped, shown until the channel itself loads. */
+  initialName?: string;
+  /** Channel type from the same list item ('dm', 'public', 'private'). */
+  initialType?: string;
 }
 
-export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<ChannelViewProps>) {
+export function ChannelView({
+  channelId,
+  hideBackButton,
+  hideHeader,
+  initialName,
+  initialType,
+}: Readonly<ChannelViewProps>) {
   const { markInteractive } = useObserve();
+  const { t } = useI18n();
   const { userId } = useAuth();
   const { user } = useUser();
   const { organization } = useOrganization();
@@ -2100,12 +2179,12 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     const msg = selectedMessage;
     if (!msg) return;
     Alert.alert(
-      'Delete Message',
-      'Are you sure you want to delete this message? This cannot be undone.',
+      t.channel.deleteMessageTitle,
+      t.channel.deleteMessageBody,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t.common.cancel, style: 'cancel' },
         {
-          text: 'Delete',
+          text: t.common.delete,
           style: 'destructive',
           onPress: async () => {
             // Optimistic remove
@@ -2121,17 +2200,25 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
         },
       ],
     );
-  }, [selectedMessage]);
+  }, [selectedMessage, t]);
 
   const openThread = useCallback((message: Message) => {
     router.push({ pathname: '/thread/[messageId]', params: { messageId: message.id, channelId } } as any);
   }, [channelId]);
 
+  // Bring the keyboard back to the composer. The message menu dismisses it, which
+  // collapses an empty composer; expanding it again mounts a TextInput that
+  // autofocuses, and an already expanded one is focused directly.
+  const focusComposer = useCallback(() => {
+    setIsInputFocused(true);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
+
   const startReply = useCallback((message: Message) => {
     setReplyTo(replyTargetFor(message));
     setReplyMention(true);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }, []);
+    focusComposer();
+  }, [focusComposer]);
 
   // Discord-style "this is becoming a conversation" nudge: shown while replying
   // deep into a reply chain, offers to continue in a thread on the chain's root.
@@ -2200,6 +2287,9 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     const onLongPress = () => {
       if (item.pending) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // The actions sheet is part of this screen (not a native modal), so an open
+      // keyboard would cover its lower rows. Close it first.
+      Keyboard.dismiss();
       setSelectedMessage(item);
       setShowActions(true);
     };
@@ -2285,9 +2375,11 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     );
   };
 
-  const channelName = channel?.name || '';
-  const isPrivate = channel?.type === 'private';
-  const isDm = channel?.type === 'dm';
+  // The list item's name covers the gap until the channel request answers.
+  const channelName: string = channel?.name || initialName || '';
+  const channelType: string | undefined = channel?.type ?? initialType;
+  const isPrivate = channelType === 'private';
+  const isDm = channelType === 'dm';
   const isArchived = channel?.isArchived === true;
   // A call is already in progress (possibly minimized) → block starting another.
   const inCall = !!session;
@@ -2354,6 +2446,13 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     if (targetUserId) router.push(`/user/${targetUserId}` as any);
   };
 
+  const openChannelInfo = () => {
+    router.push({
+      pathname: '/channel-info/[channelId]',
+      params: { channelId, name: channelName },
+    } as never);
+  };
+
   const handlePinnedBarPress = () => {
     if (!currentPinned) return;
     if (pinnedMessages.length > 1) {
@@ -2409,10 +2508,11 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           picture={channel?.picture}
           peerIsOnline={peerIsOnline}
           inCall={inCall}
+          identityEnabled={isDm || channel !== null}
           colors={colors}
           styles={styles}
           onBack={() => router.back()}
-          onOpenProfile={openPeerProfile}
+          onOpenIdentity={isDm ? openPeerProfile : openChannelInfo}
           onStartCall={handleStartCall}
         />
       )}
@@ -2472,7 +2572,13 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           windowSize={10}
           removeClippedSubviews
           ListEmptyComponent={
-            <EmptyChannel isDm={isDm} channelName={channelName} styles={styles} />
+            <EmptyChannel
+              isDm={isDm}
+              channelName={channelName}
+              loading={messagesLoading || (channel === null && !channelName)}
+              colors={colors}
+              styles={styles}
+            />
           }
         />
       </Animated.View>
@@ -2499,7 +2605,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           style={styles.scrollToBottomBtn}
           activeOpacity={0.85}
           onPress={scrollToBottom}
-          accessibilityLabel="Scroll to latest messages"
+          accessibilityLabel={t.channel.scrollToLatest}
         >
           <BlurView
             intensity={100}
@@ -2623,7 +2729,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
           if (selectedMessage) {
             setEditingMessage(selectedMessage);
             setInput(selectedMessage.content);
-            setTimeout(() => inputRef.current?.focus(), 0);
+            focusComposer();
           }
         }}
         onDelete={handleDeleteMessage}

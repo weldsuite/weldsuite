@@ -16,13 +16,13 @@ import {
 import MaterialSpinner from '@/components/MaterialSpinner';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardStickyView } from 'react-native-keyboard-controller';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { getRandomBytes } from 'expo-crypto';
 import { uploadMailAttachments } from '@/utils/upload-attachment';
-import { buildQuotedSuffix, mapContactSuggestions, buildSendPayload, buildScheduledPayload, sendThenQueueOnOffline, withPendingInput, draftBodyFields, resolveOptionalRecipients, type ComposePayloadInput, type ContactSuggestion } from '@/utils/compose-helpers';
+import { buildQuotedSuffix, hasNoBodyContent, mapContactSuggestions, buildSendPayload, buildScheduledPayload, sendThenQueueOnOffline, withPendingInput, draftBodyFields, resolveOptionalRecipients, type ComposePayloadInput, type ContactSuggestion } from '@/utils/compose-helpers';
 import { MAX_SCHEDULE_DAYS, combineDateAndTime, formatClock, isWithinScheduleWindow, stepTime } from '@/utils/schedule-time';
 import SendTimePickerModal from '@/components/SendTimePickerModal';
 import {
@@ -35,7 +35,7 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { appApi, appApiClient } from '@/services/app-api';
 import { sendFromAccount as sendMailFromAccount, createDraft, isPersonalAccount } from '@/services/mail-tenant';
-import { describeSendError } from '@/utils/send-error';
+import { describeSendError, serverErrorMessage } from '@/utils/send-error';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 import { t } from '@/lib/i18n';
 
@@ -140,6 +140,9 @@ const HEADER_TITLES = new Map<string, string>([
   ['replyAll', 'Reply All'],
   ['forward', 'Forward'],
 ]);
+
+/** Gap kept between a focused field and the keyboard: clears the sticky toolbar (~60). */
+const COMPOSE_KEYBOARD_BOTTOM_OFFSET = 72;
 
 const ATTACHMENTS_SCHEDULED_SEND_MSG = 'Scheduled emails can’t include attachments yet. Send now, or remove the attachments to schedule.';
 const ATTACHMENTS_SCHEDULED_LATER_MSG = 'Scheduled emails can’t include attachments yet. Remove them, or send the email now.';
@@ -331,6 +334,21 @@ function checkSendReady(account: ComposeAccount | null, attachmentsMessage: stri
   if (!account) return { ok: false, title: 'Error', message: 'No email account available' };
   if (attachmentsMessage) return { ok: false, title: 'Attachments not supported', message: attachmentsMessage };
   return { ok: true, account };
+}
+
+/** Asks whether to send a mail that has no body text; resolves false when the person backs out. */
+function confirmSendWithoutBody(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      t.compose.sendWithoutBodyTitle,
+      t.compose.sendWithoutBodyMessage,
+      [
+        { text: t.compose.cancel, style: 'cancel', onPress: () => resolve(false) },
+        { text: t.compose.sendAnyway, onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
 }
 
 /** Schedules the message; false (after alerting) when the account can't schedule. */
@@ -691,8 +709,13 @@ function useSendActions({ sendFromAccount, to, scheduledDate, attachments, build
       console.error(logLabel, error);
       // The composer stays open, so nothing written is lost. A sending limit or
       // refused recipient gets its own explanation instead of the generic one.
+      // Anything else shows the server's own reason when it gave one, else the
+      // translated fallback.
       const described = describeSendError(error);
-      Alert.alert(described?.title ?? 'Error', described?.message ?? failureMessage);
+      Alert.alert(
+        described?.title ?? t.compose.sendFailedTitle,
+        described?.message ?? serverErrorMessage(error) ?? failureMessage,
+      );
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -715,11 +738,18 @@ function useSendActions({ sendFromAccount, to, scheduledDate, attachments, build
     }
     const { account } = check;
     const payloadInput = buildPayloadInput();
+    if (hasNoBodyContent(payloadInput, attachments.length)) {
+      // Hold the double-send guard while the confirmation is up.
+      sendingRef.current = true;
+      const confirmed = await confirmSendWithoutBody();
+      sendingRef.current = false;
+      if (!confirmed) return;
+    }
     await runSend(
       () => (scheduledDate
         ? scheduleMessage(account, payloadInput, scheduledDate, PERSONAL_SCHEDULE_SEND_MSG)
         : sendMessageNow(account, payloadInput, attachments, outbox)),
-      scheduledDate ? 'Failed to schedule email' : 'Failed to send email',
+      scheduledDate ? t.compose.scheduleFailed : t.compose.sendFailed,
       'Send error:',
     );
   }, [sendFromAccount, to, scheduledDate, attachments, buildPayloadInput, runSend, outbox, onMissingRecipient]);
@@ -737,9 +767,16 @@ function useSendActions({ sendFromAccount, to, scheduledDate, attachments, build
       return;
     }
     const { account } = check;
+    const payloadInput = buildPayloadInput();
+    if (hasNoBodyContent(payloadInput, attachments.length)) {
+      sendingRef.current = true;
+      const confirmed = await confirmSendWithoutBody();
+      sendingRef.current = false;
+      if (!confirmed) return;
+    }
     await runSend(
-      () => scheduleMessage(account, buildPayloadInput(), date, PERSONAL_SCHEDULE_LATER_MSG),
-      'Failed to schedule email',
+      () => scheduleMessage(account, payloadInput, date, PERSONAL_SCHEDULE_LATER_MSG),
+      t.compose.scheduleFailed,
       'Schedule error:',
     );
   }, [sendFromAccount, to, buildPayloadInput, attachments, runSend, onMissingRecipient]);
@@ -1517,12 +1554,17 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
         onFromPress={handleFromPress}
       />
 
-      {/* Single ScrollView — all fields + inline suggestions */}
-      <ScrollView
+      {/* Single scroll view — all fields + inline suggestions. Keyboard-aware:
+          with Android 15 edge-to-edge the window is not resized for the
+          keyboard, so it pads its content by the keyboard height (the body
+          editor and subject stay scrollable above it) and scrolls a focused
+          field clear of the sticky toolbar. */}
+      <KeyboardAwareScrollView
         style={styles.form}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        bottomOffset={COMPOSE_KEYBOARD_BOTTOM_OFFSET}
       >
         {/* To / Cc / Bcc, each followed by the inline suggestions when active */}
         {RECIPIENT_FIELDS.map(({ field, label }) => (
@@ -1569,7 +1611,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride, regist
             colors={colors}
           />
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Toolbar — sticks above keyboard via KeyboardStickyView */}
       <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>

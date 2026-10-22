@@ -7,7 +7,7 @@ import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-rou
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -15,6 +15,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 
 import { hideAppSplash } from '@/utils/splash';
+import { ClerkBootGate } from '@/components/ClerkBootGate';
 
 import { tokenCache } from '@clerk/expo/token-cache';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -208,6 +209,11 @@ function AuthenticatedApp() {
 }
 
 function RootLayout() {
+  // Bumped by the boot screen's "Try again": remounts ClerkProvider, which
+  // starts a fresh Clerk load on the same instance.
+  const [clerkAttempt, setClerkAttempt] = useState(0);
+  const retryClerk = useCallback(() => setClerkAttempt((n) => n + 1), []);
+
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
@@ -220,10 +226,14 @@ function RootLayout() {
           {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
               client sync races browser SSO on Android and signs users out again. */}
           <ClerkProvider
+            key={clerkAttempt}
             publishableKey={CLERK_PUBLISHABLE_KEY || ''}
             tokenCache={tokenCache}
             __experimental_disableNativeClientSync
           >
+            {/* Spinner while Clerk loads; error + retry when it never does (a failed
+                headless load is otherwise silent and leaves a blank screen). */}
+            <ClerkBootGate publishableKey={CLERK_PUBLISHABLE_KEY} onRetry={retryClerk} />
             <ClerkLoaded>
               <AuthenticatedApp />
             </ClerkLoaded>

@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useRouter, Stack } from 'expo-router';
 import { ArrowLeft, KeyRound } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWeldmeetApi } from '@/services/app-api';
+import { KEYBOARD_BOTTOM_OFFSET } from '@/lib/keyboard';
 
 export default function JoinIndexScreen() {
   const router = useRouter();
@@ -42,7 +44,12 @@ export default function JoinIndexScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <View style={styles.body}>
+      {/* Keyboard-aware: Android 15 edge-to-edge does not resize the window for the keyboard. */}
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={KEYBOARD_BOTTOM_OFFSET}
+      >
         <View style={[styles.icon, { backgroundColor: '#7C3AED22' }]}>
           <KeyRound size={32} color="#7C3AED" />
         </View>
@@ -69,7 +76,7 @@ export default function JoinIndexScreen() {
         >
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.joinText}>Join</Text>}
         </Pressable>
-      </View>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
@@ -79,7 +86,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingBottom: 8 },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '600', textAlign: 'center' },
-  body: { flex: 1, padding: 24, alignItems: 'center', gap: 16 },
+  body: { flexGrow: 1, padding: 24, alignItems: 'center', gap: 16 },
   icon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginTop: 32 },
   title: { fontSize: 24, fontWeight: '700' },
   subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 16 },

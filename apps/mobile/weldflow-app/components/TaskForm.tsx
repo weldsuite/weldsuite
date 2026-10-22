@@ -40,6 +40,7 @@ import { labelsForIds, resolveLabelIds } from '@/lib/task-labels';
 import { TaskStatusBadge } from './status-badge';
 import { PriorityIndicator } from './PriorityIndicator';
 import { BRAND } from '@/lib/brand';
+import { useKeyboardHeight } from '@/lib/keyboard';
 
 export interface TaskFormValues {
   title: string;
@@ -216,14 +217,19 @@ interface SheetModalProps {
 }
 
 function SheetModal({ visible, onClose, colors, bottomInset, maxHeight, animationType = 'fade', children }: Readonly<SheetModalProps>) {
+  // The sheet lives in a native Modal window that is not resized for the
+  // keyboard (Android 15 edge-to-edge), so lift it above the keyboard by hand;
+  // the keyboard already covers the home indicator, so drop the bottom inset.
+  const keyboardHeight = useKeyboardHeight();
   return (
     <Modal visible={visible} transparent animationType={animationType} onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable
           style={[
             styles.modalSheet,
-            { backgroundColor: colors.cardBackground, paddingBottom: bottomInset + 16 },
+            { backgroundColor: colors.cardBackground, paddingBottom: (keyboardHeight > 0 ? 0 : bottomInset) + 16 },
             maxHeight ? { maxHeight } : undefined,
+            keyboardHeight > 0 ? { marginBottom: keyboardHeight } : undefined,
           ]}
           onPress={(e) => e.stopPropagation()}
         >

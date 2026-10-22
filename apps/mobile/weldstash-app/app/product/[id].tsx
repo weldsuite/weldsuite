@@ -27,6 +27,7 @@ import {
   useWeldstashWarehouses,
 } from '@/hooks/use-weldstash-queries';
 import { useStockAdjuster } from '@/hooks/use-stock-adjuster';
+import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 
 export default function ProductDetailScreen() {
@@ -36,6 +37,7 @@ export default function ProductDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { error: showError } = useToast();
+  const { t, format } = useI18n();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const productQuery = useWeldstashProduct(id);
@@ -48,7 +50,7 @@ export default function ProductDetailScreen() {
 
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [amount, setAmount] = useState('1');
-  const [reason, setReason] = useState('Adjusted from WeldStash');
+  const [reason, setReason] = useState(t.product.defaultReason);
   const [newWarehouseName, setNewWarehouseName] = useState('');
   const [creatingWarehouse, setCreatingWarehouse] = useState(false);
 
@@ -70,17 +72,17 @@ export default function ProductDetailScreen() {
   const applyAmount = () => {
     const parsed = Number.parseInt(amount, 10);
     if (!Number.isFinite(parsed) || parsed === 0) {
-      showError('Enter a non-zero quantity');
+      showError(t.product.enterNonZero);
       return;
     }
     if (!applyDelta(parsed)) {
-      showError('Not enough stock to decrease');
+      showError(t.product.notEnoughStock);
     }
   };
 
   const createWarehouse = async () => {
     if (!newWarehouseName.trim()) {
-      showError('Warehouse name is required');
+      showError(t.product.warehouseNameRequired);
       return;
     }
     setCreatingWarehouse(true);
@@ -94,7 +96,7 @@ export default function ProductDetailScreen() {
       setWarehouseId(created.data.id);
       await queryClient.invalidateQueries({ queryKey: weldstashKeys.warehouses() });
     } catch (err) {
-      showError((err as Error).message || 'Failed to create warehouse');
+      showError((err as Error).message || t.product.createWarehouseFailed);
     } finally {
       setCreatingWarehouse(false);
     }
@@ -120,7 +122,10 @@ export default function ProductDetailScreen() {
   if (!product) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-        <EmptyState title="Product not found" action={<Button title="Back" onPress={() => router.back()} />} />
+        <EmptyState
+          title={t.product.notFound}
+          action={<Button title={t.common.back} onPress={() => router.back()} />}
+        />
       </View>
     );
   }
@@ -128,7 +133,7 @@ export default function ProductDetailScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
+        <Pressable onPress={() => router.back()} hitSlop={8} accessibilityRole="button" accessibilityLabel={t.common.back}>
           <ChevronLeft size={28} color={colors.text} />
         </Pressable>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
@@ -138,28 +143,28 @@ export default function ProductDetailScreen() {
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Meta label="SKU" value={product.sku || '—'} colors={colors} />
-          <Meta label="Barcode" value={product.barcode || '—'} colors={colors} />
-          <Meta label="Total on hand" value={String(product.inventoryQuantity ?? 0)} colors={colors} last />
+          <Meta label={t.product.sku} value={product.sku || t.common.dash} colors={colors} />
+          <Meta label={t.product.barcode} value={product.barcode || t.common.dash} colors={colors} />
+          <Meta label={t.product.totalOnHand} value={String(product.inventoryQuantity ?? 0)} colors={colors} last />
         </View>
 
         {warehouses.length === 0 ? (
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 12 }]}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Warehouse</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.product.warehouse}</Text>
             <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
-              Create a warehouse to hold this product’s stock.
+              {t.product.createWarehouseHint}
             </Text>
             <Input
-              label="Warehouse name"
+              label={t.product.warehouseNameLabel}
               value={newWarehouseName}
               onChangeText={setNewWarehouseName}
-              placeholder="Main warehouse"
+              placeholder={t.product.warehouseNamePlaceholder}
             />
-            <Button title="Create warehouse" loading={creatingWarehouse} onPress={() => void createWarehouse()} />
+            <Button title={t.product.createWarehouse} loading={creatingWarehouse} onPress={() => void createWarehouse()} />
           </View>
         ) : (
           <>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Warehouse</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.product.warehouse}</Text>
             <View style={styles.chipRow}>
               {warehouses.map((warehouse) => {
                 const selected = warehouse.id === warehouseId;
@@ -184,7 +189,9 @@ export default function ProductDetailScreen() {
 
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.onHandLabel, { color: colors.mutedForeground }]}>
-                On hand{selectedWarehouse ? ` · ${selectedWarehouse.name}` : ''}
+                {selectedWarehouse
+                  ? format(t.product.onHandIn, { warehouse: selectedWarehouse.name })
+                  : t.product.onHand}
               </Text>
               <View style={styles.onHandRow}>
                 <Text style={[styles.onHandValue, { color: colors.text }]}>{onHand}</Text>
@@ -192,7 +199,7 @@ export default function ProductDetailScreen() {
               </View>
               {selectedStockCount > 1 ? (
                 <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
-                  Across {selectedStockCount} locations / lots
+                  {format(t.product.acrossLocations, { count: selectedStockCount })}
                 </Text>
               ) : null}
 
@@ -200,7 +207,7 @@ export default function ProductDetailScreen() {
                 <Pressable
                   onPress={() => applyDelta(-1)}
                   accessibilityRole="button"
-                  accessibilityLabel="Decrease stock by 1"
+                  accessibilityLabel={t.product.decreaseStock}
                   style={[styles.stepperBtn, { borderColor: colors.border }]}
                 >
                   <Minus size={22} color={colors.text} />
@@ -208,7 +215,7 @@ export default function ProductDetailScreen() {
                 <Pressable
                   onPress={() => applyDelta(1)}
                   accessibilityRole="button"
-                  accessibilityLabel="Increase stock by 1"
+                  accessibilityLabel={t.product.increaseStock}
                   style={[styles.stepperBtn, { borderColor: colors.border }]}
                 >
                   <Plus size={22} color={colors.text} />
@@ -217,15 +224,15 @@ export default function ProductDetailScreen() {
             </View>
 
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, gap: 12 }]}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Adjust by amount</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.product.adjustByAmount}</Text>
               <Input
-                label="Quantity (use a negative number to decrease)"
+                label={t.product.quantityLabel}
                 value={amount}
                 onChangeText={setAmount}
                 keyboardType="numbers-and-punctuation"
               />
-              <Input label="Reason" value={reason} onChangeText={setReason} />
-              <Button title="Apply adjustment" onPress={applyAmount} />
+              <Input label={t.product.reasonLabel} value={reason} onChangeText={setReason} />
+              <Button title={t.product.applyAdjustment} onPress={applyAmount} />
             </View>
           </>
         )}

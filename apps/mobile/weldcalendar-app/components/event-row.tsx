@@ -13,11 +13,12 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { MapPin, Users, Video } from 'lucide-react-native';
+import { MapPin, SquareCheck, Users, Video } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 import { eventColor } from '@/lib/brand';
 import { formatTime, isOngoing, isPastEvent } from '@/lib/date';
+import { isTaskEvent } from '@/lib/event-source';
 import { useI18n } from '@/lib/i18n';
 import type { CalendarEvent } from '@/types/weldcalendar';
 
@@ -92,6 +93,12 @@ function EventMeta({
       {live ? (
         <View style={[styles.nowPill, { backgroundColor: accent }]}>
           <Text style={styles.nowText}>{t.agenda.now}</Text>
+        </View>
+      ) : null}
+      {isTaskEvent(event) ? (
+        <View style={styles.attendees}>
+          <SquareCheck size={13} color={colors.mutedForeground} />
+          <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{t.event.task}</Text>
         </View>
       ) : null}
       {event.isVirtual || event.meetingUrl ? (

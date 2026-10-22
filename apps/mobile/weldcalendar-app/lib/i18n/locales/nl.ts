@@ -157,6 +157,8 @@ export const nl: Translations = {
       other: '{count} deelnemers',
     },
     duration: 'Duur',
+    task: 'Taak',
+    taskClosed: 'Afgesloten',
     autoScheduled: 'Automatisch ingepland',
     autoScheduledHint: 'Door WeldSuite geplaatst vanuit een gekoppelde taak of activiteit.',
     readOnly: 'Alleen lezen',

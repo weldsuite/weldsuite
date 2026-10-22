@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Sparkles, Bot } from 'lucide-react-native';
+import { Sparkles, Bot, Coins } from 'lucide-react-native';
+import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
-import { Screen, ScreenHeader } from '@/components/screen';
+import { Screen, ScreenHeader, SectionLabel } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/data-states';
 import { IconTile } from '@/components/detail';
 import { useI18n } from '@/lib/i18n';
 import { ACCENTS, BRAND } from '@/lib/brand';
+import { TOP_UP_URL, useCreditsBalance } from '@/lib/credits';
 import appApi from '@/services/app-api';
 import type { WorkspaceAgent } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
 export default function NewChatScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const { t } = useI18n();
+  const { outOfCredits } = useCreditsBalance();
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +40,8 @@ export default function NewChatScreen() {
   }, [load]);
 
   const start = async (agentId?: string) => {
+    // Every reply costs credits: don't create an empty conversation that can't be used.
+    if (outOfCredits) return;
     const res = await appApi.weldagent.createConversation({
       name: t.chat.newTitle,
       agentId,
@@ -47,25 +54,47 @@ export default function NewChatScreen() {
     if (loading) return <ListSkeleton count={4} />;
     return (
       <ScrollView contentContainerStyle={styles.content}>
-        <RecordRow
-          title={t.chat.personal}
-          subtitle={t.chat.personalSub}
-          leading={<IconTile icon={Sparkles} color={BRAND} />}
-          onPress={() => void start()}
-        />
-        {agents.length === 0 ? (
-          <EmptyState title={t.agents.emptyTitle} subtitle={t.agents.emptySub} />
-        ) : (
-          agents.map((agent) => (
-            <RecordRow
-              key={agent.id}
-              title={agent.name}
-              subtitle={agent.description ?? t.chat.pickAgent}
-              leading={<IconTile icon={Bot} color={ACCENTS.agents} />}
-              onPress={() => void start(agent.id)}
-            />
-          ))
-        )}
+        {outOfCredits ? (
+          <View style={[styles.creditsNotice, { backgroundColor: colors.secondary }]}>
+            <IconTile icon={Coins} color={ACCENTS.credits} />
+            <View style={styles.creditsBody}>
+              <Text style={[styles.creditsText, { color: colors.text }]}>{t.chat.needsCredits}</Text>
+              <Button
+                title={t.credits.topUpWeb}
+                variant="outline"
+                size="sm"
+                onPress={() => void Linking.openURL(TOP_UP_URL)}
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {/* Dimmed and inert when there are no credits to spend. */}
+        <View style={outOfCredits ? styles.disabled : undefined} pointerEvents={outOfCredits ? 'none' : 'auto'}>
+          <RecordRow
+            title={t.chat.personal}
+            subtitle={t.chat.personalSub}
+            leading={<IconTile icon={Sparkles} color={BRAND} />}
+            onPress={() => void start()}
+          />
+
+          <SectionLabel>{t.chat.yourAgents}</SectionLabel>
+          {agents.length === 0 ? (
+            <View style={styles.empty}>
+              <EmptyState title={t.agents.emptyTitle} subtitle={t.agents.emptySub} />
+            </View>
+          ) : (
+            agents.map((agent) => (
+              <RecordRow
+                key={agent.id}
+                title={agent.name}
+                subtitle={agent.description ?? t.chat.pickAgent}
+                leading={<IconTile icon={Bot} color={ACCENTS.agents} />}
+                onPress={() => void start(agent.id)}
+              />
+            ))
+          )}
+        </View>
       </ScrollView>
     );
   };
@@ -79,4 +108,17 @@ export default function NewChatScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 32 },
+  empty: { paddingVertical: 24 },
+  disabled: { opacity: 0.5 },
+  creditsNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 14,
+    borderRadius: 16,
+  },
+  creditsBody: { flex: 1, gap: 10, alignItems: 'flex-start' },
+  creditsText: { fontSize: 14, lineHeight: 20 },
 });

@@ -1,249 +1,107 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  StyleSheet,
-  ScrollView,
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
-  Modal,
-  StatusBar,
-  RefreshControl,
   ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  Check,
-  Calendar,
-  Plus,
-  X,
-} from 'lucide-react-native';
+import { Calendar, Check, Plus } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { api } from '@/services/api';
-
-interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  completed: boolean;
-  status: 'todo' | 'in-progress' | 'blocked' | 'done';
-  assignee?: {
-    id: string;
-    name: string;
-    avatarUrl?: string;
-  };
-  linkedCompany?: {
-    id: string;
-    name: string;
-    color?: string;
-  };
-  dueDate?: string;
-  createdAt: string;
-}
+import { TabHeader } from '@/components/headers';
+import { TASK_STATUS_COLORS, TaskSheet, type TaskSheetMode } from '@/components/task-sheet';
+import { usePagedList } from '@/hooks/use-paged-list';
+import { api, type CrmTask } from '@/services/api';
+import { interpolate, useI18n } from '@/lib/i18n';
+import { TASK_STATUSES, initialsOf, type TaskStatus } from '@/lib/crm';
+import { formatDueLabel, isOverdue, parseDate } from '@/lib/dates';
+import { TASK_SECTION_ORDER, groupTasks, matchesTaskFilters } from '@/lib/task-groups';
 
 type ThemeColors = ReturnType<typeof useTheme>['colors'];
 
-const parseDate = (dateString?: string): Date | null => {
-  if (!dateString) return null;
-  return new Date(dateString);
-};
-
-// Helper functions for date grouping
-const isToday = (date: Date) => {
-  const today = new Date();
-  return date.toDateString() === today.toDateString();
-};
-
-const isTomorrow = (date: Date) => {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return date.toDateString() === tomorrow.toDateString();
-};
-
-const isPast = (date: Date) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return date < today;
-};
-
-const isThisWeek = (date: Date) => {
-  const today = new Date();
-  const weekFromNow = new Date();
-  weekFromNow.setDate(today.getDate() + 7);
-  return date > today && date <= weekFromNow;
-};
-
-const formatDate = (date: Date) => {
-  if (isToday(date)) return 'Today';
-  if (isTomorrow(date)) return 'Tomorrow';
-
-  const month = date.toLocaleString('default', { month: 'short' });
-  const day = date.getDate();
-  return `${month} ${day}`;
-};
-
-const dateFromToday = (offsetDays: number): Date => {
-  const date = new Date();
-  date.setDate(date.getDate() + offsetDays);
-  return date;
-};
-
-const DUE_DATE_OPTIONS: { label: string; offsetDays: number; isActive: (date: Date) => boolean }[] = [
-  { label: 'Today', offsetDays: 0, isActive: isToday },
-  { label: 'Tomorrow', offsetDays: 1, isActive: isTomorrow },
-  {
-    label: 'This Week',
-    offsetDays: 7,
-    isActive: date => isThisWeek(date) && !isToday(date) && !isTomorrow(date),
-  },
-];
-
-const getInitials = (name: string) => {
-  return name
-    .split(' ')
-    .map(n => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-};
-
-const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
-  'todo': { label: 'To Do', color: '#6B7280', bgColor: '#F3F4F6' },
-  'in-progress': { label: 'In Progress', color: '#3B82F6', bgColor: '#DBEAFE' },
-  'blocked': { label: 'Blocked', color: '#EF4444', bgColor: '#FEE2E2' },
-  'done': { label: 'Done', color: '#10B981', bgColor: '#D1FAE5' },
-};
-
-const getStatusConfig = (status?: string) => (status ? STATUS_CONFIG[status] ?? null : null);
-
-const matchesTaskFilters = (task: Task, searchTerm: string, selectedStatus: string | null) => {
-  const matchesSearch =
-    task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    task.linkedCompany?.name.toLowerCase().includes(searchTerm.toLowerCase());
-
-  const matchesStatus = selectedStatus === null || task.status === selectedStatus;
-
-  return matchesSearch && matchesStatus;
-};
-
-const groupTasksByDate = (filteredTasks: Task[]) => {
-  const openWithDate = (predicate: (date: Date) => boolean) => (t: Task) => {
-    const date = parseDate(t.dueDate);
-    return !t.completed && !!date && predicate(date);
-  };
-
-  return {
-    overdueTasks: filteredTasks.filter(openWithDate(date => isPast(date) && !isToday(date))),
-    todayTasks: filteredTasks.filter(openWithDate(isToday)),
-    tomorrowTasks: filteredTasks.filter(openWithDate(isTomorrow)),
-    thisWeekTasks: filteredTasks.filter(
-      openWithDate(date => isThisWeek(date) && !isToday(date) && !isTomorrow(date))
-    ),
-    laterTasks: filteredTasks.filter(
-      openWithDate(date => !isThisWeek(date) && !isPast(date) && !isToday(date) && !isTomorrow(date))
-    ),
-    noDateTasks: filteredTasks.filter(t => !t.completed && !t.dueDate),
-    completedTasks: filteredTasks.filter(t => t.completed),
-  };
-};
+const PAGE_SIZE = 100;
+/** Load the next page when the list is this close to its end. */
+const LOAD_MORE_DISTANCE = 400;
 
 interface TaskItemProps {
-  task: Task;
+  task: CrmTask;
   colors: ThemeColors;
-  onPress: (task: Task) => void;
-  onToggle: (taskId: string) => void;
+  onPress: (task: CrmTask) => void;
+  onToggle: (task: CrmTask) => void;
 }
 
-const TaskItem = ({ task, colors, onPress, onToggle }: TaskItemProps) => {
+function TaskItem({ task, colors, onPress, onToggle }: Readonly<TaskItemProps>) {
+  const { t, intlLocale } = useI18n();
   const dueDate = parseDate(task.dueDate);
-  const isOverdue = dueDate && isPast(dueDate) && !isToday(dueDate);
-  const statusConfig = getStatusConfig(task.status);
+  const overdue = !!dueDate && !task.completed && isOverdue(dueDate);
+  const statusColors = TASK_STATUS_COLORS[task.status];
 
   return (
     <TouchableOpacity
-      style={[styles.taskItem, { backgroundColor: colors.background }]}
+      style={styles.taskItem}
       activeOpacity={0.7}
       onPress={() => onPress(task)}
+      accessibilityRole="button"
+      accessibilityLabel={task.title}
     >
       <View style={styles.taskRow}>
         <TouchableOpacity
-          onPress={(e) => {
-            e.stopPropagation();
-            onToggle(task.id);
-          }}
+          onPress={() => onToggle(task)}
+          hitSlop={8}
           style={[
             styles.checkbox,
             {
-              borderColor: task.completed ? '#8B5CF6' : '#D1D5DB',
+              borderColor: task.completed ? '#8B5CF6' : colors.divider,
               backgroundColor: task.completed ? '#8B5CF6' : 'transparent',
-            }
+            },
           ]}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: task.completed }}
+          accessibilityLabel={task.completed ? t.tasks.markNotDone : t.tasks.markDone}
         >
-          {task.completed && (
-            <Check size={16} color="#FFFFFF" strokeWidth={2.5} />
-          )}
+          {task.completed && <Check size={16} color="#FFFFFF" strokeWidth={2.5} />}
         </TouchableOpacity>
 
         <View style={styles.taskContent}>
           <Text
-            style={[
-              styles.taskTitle,
-              { color: colors.text },
-              task.completed && styles.taskTitleCompleted
-            ]}
+            style={[styles.taskTitle, { color: colors.text }, task.completed && styles.taskTitleCompleted]}
             numberOfLines={1}
           >
             {task.title}
           </Text>
 
           <View style={styles.taskMeta}>
-            {statusConfig && (
-              <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-                <Text style={[styles.statusText, { color: statusConfig.color }]}>
-                  {statusConfig.label}
-                </Text>
-              </View>
-            )}
+            <View style={[styles.statusBadge, { backgroundColor: statusColors.bgColor }]}>
+              <Text style={[styles.statusText, { color: statusColors.color }]}>{t.tasks.status[task.status]}</Text>
+            </View>
 
-            {task.linkedCompany && (
+            {!!task.linkedCompany && (
               <View style={styles.companyBadge}>
-                <View
-                  style={[
-                    styles.companyDot,
-                    { backgroundColor: task.linkedCompany.color || '#6B7280' }
-                  ]}
-                />
-                <Text style={[styles.companyText, { color: colors.muted }]}>
-                  {task.linkedCompany.name}
-                </Text>
+                <View style={[styles.companyDot, { backgroundColor: task.linkedCompany.color || '#6B7280' }]} />
+                <Text style={[styles.companyText, { color: colors.muted }]}>{task.linkedCompany.name}</Text>
               </View>
             )}
 
-            {dueDate && (
+            {!!dueDate && (
               <View style={styles.dueDateBadge}>
-                <Calendar
-                  size={11}
-                  color={isOverdue ? '#EF4444' : colors.muted}
-                  strokeWidth={2}
-                />
-                <Text
-                  style={[
-                    styles.dueDateText,
-                    { color: isOverdue ? '#EF4444' : colors.muted }
-                  ]}
-                >
-                  {formatDate(dueDate)}
+                <Calendar size={11} color={overdue ? '#EF4444' : colors.muted} strokeWidth={2} />
+                <Text style={[styles.dueDateText, { color: overdue ? '#EF4444' : colors.muted }]}>
+                  {formatDueLabel(dueDate, t, intlLocale)}
                 </Text>
               </View>
             )}
 
-            {task.assignee && (
-              <View style={[styles.avatar, { backgroundColor: '#F3F4F6' }]}>
-                <Text style={styles.avatarText}>
-                  {getInitials(task.assignee.name)}
-                </Text>
+            {!!task.assignee && (
+              <View style={[styles.avatar, { backgroundColor: colors.secondary }]}>
+                <Text style={styles.avatarText}>{initialsOf(task.assignee.name)}</Text>
               </View>
             )}
           </View>
@@ -251,623 +109,213 @@ const TaskItem = ({ task, colors, onPress, onToggle }: TaskItemProps) => {
       </View>
     </TouchableOpacity>
   );
-};
-
-interface TaskSectionProps {
-  title: string;
-  tasks: Task[];
-  colors: ThemeColors;
-  onPressTask: (task: Task) => void;
-  onToggleTask: (taskId: string) => void;
 }
-
-const TaskSection = ({ title, tasks, colors, onPressTask, onToggleTask }: TaskSectionProps) => {
-  if (tasks.length === 0) return null;
-
-  return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.muted }]}>
-          {title}
-        </Text>
-        <View style={[styles.countBadge, { backgroundColor: '#F3F4F6' }]}>
-          <Text style={[styles.countText, { color: '#6B7280' }]}>
-            {tasks.length}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.taskList}>
-        {tasks.map(task => (
-          <TaskItem key={task.id} task={task} colors={colors} onPress={onPressTask} onToggle={onToggleTask} />
-        ))}
-      </View>
-    </View>
-  );
-};
-
-const TaskDetailsContent = ({ task, colors }: { task: Task; colors: ThemeColors }) => {
-  const statusConfig = getStatusConfig(task.status);
-  const dueDate = parseDate(task.dueDate);
-
-  return (
-    <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-      {/* Task Title */}
-      <View style={styles.modalSection}>
-        <Text style={[styles.modalLabel, { color: colors.muted }]}>Title</Text>
-        <Text style={[styles.modalTaskTitle, { color: colors.text }]}>
-          {task.title}
-        </Text>
-      </View>
-
-      {/* Description */}
-      {task.description && (
-        <View style={styles.modalSection}>
-          <Text style={[styles.modalLabel, { color: colors.muted }]}>Description</Text>
-          <Text style={[styles.modalText, { color: colors.text }]}>
-            {task.description}
-          </Text>
-        </View>
-      )}
-
-      {/* Status */}
-      {task.status && (
-        <View style={styles.modalSection}>
-          <Text style={[styles.modalLabel, { color: colors.muted }]}>Status</Text>
-          <View style={styles.modalRow}>
-            {statusConfig ? (
-              <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-                <Text style={[styles.statusText, { color: statusConfig.color }]}>
-                  {statusConfig.label}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      )}
-
-      {/* Company */}
-      {task.linkedCompany && (
-        <View style={styles.modalSection}>
-          <Text style={[styles.modalLabel, { color: colors.muted }]}>Company</Text>
-          <View style={styles.modalRow}>
-            <View
-              style={[
-                styles.companyDot,
-                { backgroundColor: task.linkedCompany.color || '#6B7280' }
-              ]}
-            />
-            <Text style={[styles.modalText, { color: colors.text }]}>
-              {task.linkedCompany.name}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Due Date */}
-      {task.dueDate && (
-        <View style={styles.modalSection}>
-          <Text style={[styles.modalLabel, { color: colors.muted }]}>Due Date</Text>
-          <View style={styles.modalRow}>
-            <Calendar size={16} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.modalText, { color: colors.text }]}>
-              {dueDate ? formatDate(dueDate) : task.dueDate}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Assignee */}
-      {task.assignee && (
-        <View style={styles.modalSection}>
-          <Text style={[styles.modalLabel, { color: colors.muted }]}>Assignee</Text>
-          <View style={styles.modalRow}>
-            <View style={[styles.avatar, { backgroundColor: '#F3F4F6' }]}>
-              <Text style={styles.avatarText}>
-                {getInitials(task.assignee.name)}
-              </Text>
-            </View>
-            <Text style={[styles.modalText, { color: colors.text }]}>
-              {task.assignee.name}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Created At */}
-      <View style={styles.modalSection}>
-        <Text style={[styles.modalLabel, { color: colors.muted }]}>Created</Text>
-        <Text style={[styles.modalText, { color: colors.text }]}>
-          {new Date(task.createdAt).toLocaleDateString('en-US', {
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric',
-          })}
-        </Text>
-      </View>
-    </ScrollView>
-  );
-};
-
-interface StatusFilterProps {
-  tasks: Task[];
-  selectedStatus: string | null;
-  colors: ThemeColors;
-  onSelect: (status: string | null) => void;
-}
-
-const StatusFilter = ({ tasks, selectedStatus, colors, onSelect }: StatusFilterProps) => {
-  const statusOptions = [
-    { key: null, label: 'All Tasks', count: tasks.length },
-    { key: 'todo', label: 'To Do', count: tasks.filter(t => t.status === 'todo').length },
-    { key: 'in-progress', label: 'In Progress', count: tasks.filter(t => t.status === 'in-progress').length },
-    { key: 'blocked', label: 'Blocked', count: tasks.filter(t => t.status === 'blocked').length },
-    { key: 'done', label: 'Done', count: tasks.filter(t => t.status === 'done').length },
-  ];
-
-  return (
-    <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
-        {statusOptions.map((item) => {
-          const isSelected = selectedStatus === item.key;
-          return (
-            <TouchableOpacity
-              key={item.key || 'all'}
-              style={[
-                styles.filterButton,
-                {
-                  backgroundColor: isSelected ? colors.text : colors.background,
-                  borderColor: isSelected ? colors.text : colors.buttonBorder,
-                }
-              ]}
-              onPress={() => onSelect(item.key)}
-            >
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  { color: isSelected ? colors.background : colors.text }
-                ]}
-              >
-                {item.label}
-              </Text>
-              <Text
-                style={[
-                  styles.filterButtonCount,
-                  { color: isSelected ? colors.background : colors.muted }
-                ]}
-              >
-                ({item.count})
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-};
 
 export default function TasksScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const toast = useToast();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const params = useLocalSearchParams<{ new?: string }>();
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
-  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDescription, setNewTaskDescription] = useState('');
-  const [newTaskStatus, setNewTaskStatus] = useState<'todo' | 'in-progress' | 'blocked' | 'done'>('todo');
-  const [newTaskDueDate, setNewTaskDueDate] = useState<Date | undefined>(undefined);
+  const [selectedStatus, setSelectedStatus] = useState<TaskStatus | null>(null);
+  const [sheet, setSheet] = useState<{ visible: boolean; mode: TaskSheetMode; task: CrmTask | null }>({
+    visible: false,
+    mode: 'view',
+    task: null,
+  });
+
+  const fetchTasks = useCallback(
+    (page: { cursor: string | null; search: string }) => api.getCrmTasks({ ...page, limit: PAGE_SIZE }),
+    [],
+  );
+  const list = usePagedList<CrmTask>(fetchTasks, { search: searchTerm });
 
   useEffect(() => {
-    void loadTasks();
-  }, [selectedStatus]);
+    if (list.error) toast.error(t.tasks.loadFailed);
+  }, [list.error, t, toast]);
 
-  const loadTasks = async () => {
-    try {
-      setLoading(true);
-      const response = await api.getCrmTasks({
-        status: selectedStatus || undefined,
-        search: searchTerm || undefined,
-      });
+  // Home's "New Task" lands here with ?new=1.
+  useEffect(() => {
+    if (params.new !== '1') return;
+    router.setParams({ new: undefined });
+    setSheet({ visible: true, mode: 'create', task: null });
+  }, [params.new]);
 
-      if (response.success && response.data) {
-        setTasks((response.data.items ?? []) as Task[]);
-      }
-    } catch (error) {
-      console.error('Error loading tasks:', error);
-      toast.error('Failed to load tasks');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  const tasks = list.items;
+
+  const filteredTasks = tasks.filter((task) => matchesTaskFilters(task, searchTerm, selectedStatus));
+  const groups = groupTasks(filteredTasks);
+
+  const toggleTask = async (task: CrmTask) => {
+    const next = !task.completed;
+    // Optimistic update, reverted if the API refuses.
+    list.updateItem({ ...task, completed: next, status: next ? 'done' : 'todo' });
+    const res = await api.updateCrmTask(task.id, { completed: next });
+    if (res.success && res.data) {
+      list.updateItem(res.data);
+    } else {
+      list.updateItem(task);
+      toast.error(t.tasks.updateFailed);
     }
   };
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    void loadTasks();
-  };
+  const openTask = (task: CrmTask) => setSheet({ visible: true, mode: 'view', task });
+  const closeSheet = () => setSheet((prev) => ({ ...prev, visible: false }));
 
-  const handleSearch = () => {
-    void loadTasks();
-  };
-
-  // Filter tasks
-  const filteredTasks = tasks.filter(task => matchesTaskFilters(task, searchTerm, selectedStatus));
-
-  // Group tasks by date
-  const { overdueTasks, todayTasks, tomorrowTasks, thisWeekTasks, laterTasks, noDateTasks, completedTasks } =
-    groupTasksByDate(filteredTasks);
-
-  const toggleTask = async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    // Optimistic update
-    setTasks(tasks.map(t =>
-      t.id === taskId ? { ...t, completed: !t.completed } : t
-    ));
-
-    try {
-      await api.updateCrmTask(taskId, { completed: !task.completed });
-    } catch {
-      // Revert on error
-      setTasks(tasks.map(t =>
-        t.id === taskId ? { ...t, completed: task.completed } : t
-      ));
-      toast.error('Failed to update task');
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+    if (contentOffset.y + layoutMeasurement.height >= contentSize.height - LOAD_MORE_DISTANCE) {
+      void list.loadMore();
     }
   };
 
-  const handleTaskClick = (task: Task) => {
-    setSelectedTask(task);
-    setIsModalVisible(true);
-  };
-
-  const handleCreateTask = async () => {
-    if (!newTaskTitle.trim()) return;
-
-    try {
-      const response = await api.createCrmTask({
-        title: newTaskTitle,
-        description: newTaskDescription || undefined,
-        status: newTaskStatus,
-        dueDate: newTaskDueDate?.toISOString(),
-      });
-
-      if (response.success && response.data) {
-        setTasks([response.data as Task, ...tasks]);
-        toast.success('Task created successfully');
-      }
-    } catch (error) {
-      console.error('Error creating task:', error);
-      toast.error('Failed to create task');
-    }
-
-    setNewTaskTitle('');
-    setNewTaskDescription('');
-    setNewTaskStatus('todo');
-    setNewTaskDueDate(undefined);
-    setIsCreateModalVisible(false);
-  };
-
-  const taskSections: { title: string; tasks: Task[] }[] = [
-    { title: 'Overdue', tasks: overdueTasks },
-    { title: 'Today', tasks: todayTasks },
-    { title: 'Tomorrow', tasks: tomorrowTasks },
-    { title: 'This week', tasks: thisWeekTasks },
-    { title: 'Later', tasks: laterTasks },
-    { title: 'No date', tasks: noDateTasks },
-    { title: 'Completed', tasks: completedTasks },
+  const statusOptions: { key: TaskStatus | null; label: string; count: number }[] = [
+    { key: null, label: t.tasks.filterAll, count: tasks.length },
+    ...TASK_STATUSES.map((status) => ({
+      key: status,
+      label: t.tasks.status[status],
+      count: tasks.filter((task) => task.status === status).length,
+    })),
   ];
-
-  // Stats
-
-  if (loading && !refreshing) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.text} />
-        <Text style={[styles.loadingText, { color: colors.muted }]}>Loading tasks...</Text>
-      </View>
-    );
-  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Tasks ({filteredTasks.length})</Text>
-        <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: colors.background, borderColor: colors.buttonBorder }]}
-          onPress={() => setIsCreateModalVisible(true)}
-        >
-          <Plus size={16} color={colors.text} strokeWidth={2} />
-          <Text style={[styles.addButtonText, { color: colors.text }]}>Add</Text>
-        </TouchableOpacity>
-      </View>
+      <TabHeader
+        title={interpolate(t.tasks.titleWithCount, { count: filteredTasks.length })}
+        right={
+          <TouchableOpacity
+            style={[styles.addButton, { borderColor: colors.buttonBorder }]}
+            onPress={() => setSheet({ visible: true, mode: 'create', task: null })}
+            accessibilityRole="button"
+            accessibilityLabel={t.tasks.add}
+          >
+            <Plus size={16} color={colors.text} strokeWidth={2} />
+            <Text style={[styles.addButtonText, { color: colors.text }]}>{t.tasks.add}</Text>
+          </TouchableOpacity>
+        }
+      />
 
-      {/* Search Bar */}
-      <View style={[styles.searchBarContainer, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
-        <View style={[styles.searchBar, { backgroundColor: '#F3F4F6' }]}>
+      <View style={styles.searchBarContainer}>
+        <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
           <Ionicons name="search" size={16} color={colors.muted} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
-            placeholder="Search tasks, companies..."
+            placeholder={t.tasks.search}
             placeholderTextColor={colors.muted}
             value={searchTerm}
             onChangeText={setSearchTerm}
-            onSubmitEditing={handleSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
             returnKeyType="search"
           />
         </View>
       </View>
 
-      <StatusFilter
-        tasks={tasks}
-        selectedStatus={selectedStatus}
-        colors={colors}
-        onSelect={setSelectedStatus}
+      <View style={styles.filterContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
+          {statusOptions.map((item) => {
+            const selected = selectedStatus === item.key;
+            return (
+              <TouchableOpacity
+                key={item.key ?? 'all'}
+                style={[
+                  styles.filterButton,
+                  {
+                    backgroundColor: selected ? colors.text : colors.background,
+                    borderColor: selected ? colors.text : colors.buttonBorder,
+                  },
+                ]}
+                onPress={() => setSelectedStatus(item.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+              >
+                <Text style={[styles.filterButtonText, { color: selected ? colors.background : colors.text }]}>
+                  {item.label}
+                </Text>
+                <Text style={[styles.filterButtonCount, { color: selected ? colors.background : colors.muted }]}>
+                  ({item.count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {list.loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.text} />
+          <Text style={[styles.loadingText, { color: colors.muted }]}>{t.tasks.loading}</Text>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          onScroll={handleScroll}
+          scrollEventThrottle={200}
+          refreshControl={<RefreshControl refreshing={list.refreshing} onRefresh={() => void list.refresh()} />}
+        >
+          {TASK_SECTION_ORDER.map((key) =>
+            groups[key].length === 0 ? null : (
+              <View key={key} style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={[styles.sectionTitle, { color: colors.muted }]}>{t.tasks.sections[key]}</Text>
+                  <View style={[styles.countBadge, { backgroundColor: colors.secondary }]}>
+                    <Text style={[styles.countText, { color: colors.mutedForeground }]}>{groups[key].length}</Text>
+                  </View>
+                </View>
+                {groups[key].map((task) => (
+                  <TaskItem key={task.id} task={task} colors={colors} onPress={openTask} onToggle={(item) => void toggleTask(item)} />
+                ))}
+              </View>
+            ),
+          )}
+
+          {list.loadingMore && <ActivityIndicator style={styles.footerSpinner} color={colors.text} />}
+
+          {filteredTasks.length === 0 && (
+            <View style={styles.emptyState}>
+              <View style={[styles.emptyCheckbox, { borderColor: colors.divider }]}>
+                <Check size={32} color={colors.muted} strokeWidth={1.5} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                {list.error ? t.tasks.loadFailed : t.tasks.emptyTitle}
+              </Text>
+              <Text style={[styles.emptyText, { color: colors.muted }]}>
+                {list.error ? t.common.pullToRetry : t.tasks.emptyText}
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      <TaskSheet
+        visible={sheet.visible}
+        initialMode={sheet.mode}
+        task={sheet.task}
+        onClose={closeSheet}
+        onCreated={(task) => {
+          list.addItem(task);
+          closeSheet();
+        }}
+        onUpdated={(task) => {
+          list.updateItem(task);
+          setSheet((prev) => (prev.task?.id === task.id ? { ...prev, task } : prev));
+        }}
+        onDeleted={(id) => {
+          list.removeItem(id);
+          closeSheet();
+        }}
       />
-
-      {/* Task List */}
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-      >
-        {taskSections.map(section => (
-          <TaskSection
-            key={section.title}
-            title={section.title}
-            tasks={section.tasks}
-            colors={colors}
-            onPressTask={handleTaskClick}
-            onToggleTask={toggleTask}
-          />
-        ))}
-
-        {filteredTasks.length === 0 && (
-          <View style={styles.emptyState}>
-            <View style={[styles.emptyCheckbox, { borderColor: colors.divider }]}>
-              <Check size={32} color={colors.muted} strokeWidth={1.5} />
-            </View>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              No tasks found
-            </Text>
-            <Text style={[styles.emptyText, { color: colors.muted }]}>
-              Create a new task or adjust your filters
-            </Text>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Task Details Modal */}
-      <Modal
-        visible={isModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setIsModalVisible(false)}
-      >
-        <StatusBar barStyle="light-content" />
-        <SafeAreaView style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-          {/* Modal Header */}
-          <View style={[styles.modalHeader, { borderBottomColor: colors.divider }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Task Details</Text>
-            <TouchableOpacity
-              onPress={() => setIsModalVisible(false)}
-              style={styles.closeButton}
-            >
-              <X size={20} color={colors.text} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Modal Content */}
-          {selectedTask && <TaskDetailsContent task={selectedTask} colors={colors} />}
-        </SafeAreaView>
-      </Modal>
-
-      {/* Create Task Modal */}
-      <Modal
-        visible={isCreateModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setIsCreateModalVisible(false)}
-      >
-        <StatusBar barStyle="light-content" />
-        <SafeAreaView style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-          {/* Modal Header */}
-          <View style={[styles.modalHeader, { borderBottomColor: colors.divider }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>New Task</Text>
-            <TouchableOpacity
-              onPress={() => setIsCreateModalVisible(false)}
-              style={styles.closeButton}
-            >
-              <X size={20} color={colors.text} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Modal Content */}
-          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-            {/* Task Title */}
-            <View style={styles.modalSection}>
-              <Text style={[styles.modalLabel, { color: '#374151' }]}>Title</Text>
-              <TextInput
-                style={[styles.modalInput, { color: colors.text }]}
-                placeholder="Enter task title"
-                placeholderTextColor={colors.muted}
-                value={newTaskTitle}
-                onChangeText={setNewTaskTitle}
-              />
-            </View>
-
-            {/* Description */}
-            <View style={styles.modalSection}>
-              <Text style={[styles.modalLabel, { color: '#374151' }]}>Description (Optional)</Text>
-              <TextInput
-                style={[styles.modalTextArea, { color: colors.text }]}
-                placeholder="Enter task description"
-                placeholderTextColor={colors.muted}
-                value={newTaskDescription}
-                onChangeText={setNewTaskDescription}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            </View>
-
-            {/* Status */}
-            <View style={styles.modalSection}>
-              <Text style={[styles.modalLabel, { color: '#374151' }]}>Status</Text>
-              <View style={styles.statusOptions}>
-                {(['todo', 'in-progress', 'blocked', 'done'] as const).map((status) => {
-                  const statusConfig = getStatusConfig(status);
-                  const isSelected = newTaskStatus === status;
-                  return (
-                    <TouchableOpacity
-                      key={status}
-                      style={[
-                        styles.statusOption,
-                        {
-                          backgroundColor: isSelected ? statusConfig?.bgColor : colors.background,
-                          borderColor: isSelected ? statusConfig?.color : '#E5E7EB',
-                        }
-                      ]}
-                      onPress={() => setNewTaskStatus(status)}
-                    >
-                      <Text
-                        style={[
-                          styles.statusOptionText,
-                          { color: isSelected ? statusConfig?.color : colors.text }
-                        ]}
-                      >
-                        {statusConfig?.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Due Date */}
-            <View style={styles.modalSection}>
-              <Text style={[styles.modalLabel, { color: '#374151' }]}>Due Date (Optional)</Text>
-              <View style={styles.dateOptions}>
-                {DUE_DATE_OPTIONS.map(option => {
-                  const isActive = !!newTaskDueDate && option.isActive(newTaskDueDate);
-                  return (
-                    <TouchableOpacity
-                      key={option.label}
-                      style={[
-                        styles.dateOption,
-                        {
-                          backgroundColor: isActive ? '#DBEAFE' : colors.background,
-                          borderColor: isActive ? '#3B82F6' : '#E5E7EB',
-                        }
-                      ]}
-                      onPress={() => setNewTaskDueDate(dateFromToday(option.offsetDays))}
-                    >
-                      <Text style={[styles.dateOptionText, { color: isActive ? '#3B82F6' : colors.text }]}>
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              {newTaskDueDate && (
-                <TouchableOpacity
-                  style={styles.clearDateButton}
-                  onPress={() => setNewTaskDueDate(undefined)}
-                >
-                  <Text style={[styles.clearDateText, { color: colors.muted }]}>Clear date</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </ScrollView>
-
-          {/* Create Button */}
-          <View style={[styles.createButtonContainer, { backgroundColor: colors.background }]}>
-            <TouchableOpacity
-              style={[styles.createButton, { backgroundColor: '#000000' }]}
-              onPress={handleCreateTask}
-            >
-              <Text style={styles.createButtonText}>Create Task</Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 12,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    letterSpacing: -0.3,
-  },
-  searchBarContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 8,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '400',
-  },
-  filterContainer: {
-    paddingTop: 4,
-    paddingBottom: 12,
-  },
-  filterList: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 16,
-  },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 4,
-  },
-  filterButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  filterButtonCount: {
-    fontSize: 13,
-    fontWeight: '400',
-  },
+  container: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 16, fontSize: 12 },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -877,272 +325,41 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  addButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 20,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  countBadge: {
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 5,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  countText: {
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  taskList: {
-    gap: 2,
-  },
-  taskItem: {
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 0,
-  },
-  taskRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    borderWidth: 1.25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: -1,
-  },
-  taskContent: {
-    flex: 1,
-    gap: 6,
-  },
-  taskTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  taskTitleCompleted: {
-    textDecorationLine: 'line-through',
-    opacity: 0.5,
-  },
-  taskMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  companyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  companyDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 2,
-  },
-  companyText: {
-    fontSize: 11,
-  },
-  statusBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  dueDateBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  dueDateText: {
-    fontSize: 11,
-  },
-  avatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    fontSize: 8,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 40,
-  },
-  emptyCheckbox: {
-    width: 64,
-    height: 64,
-    borderRadius: 8,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  modalContainer: {
-    flex: 1,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingTop: 16,
-    borderBottomWidth: 1,
-  },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    marginLeft: 16,
-  },
-  closeButton: {
-    padding: 4,
-    marginRight: 16,
-  },
-  modalContent: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  modalSection: {
-    marginBottom: 24,
-  },
-  modalLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    marginBottom: 6,
-  },
-  modalTaskTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    lineHeight: 24,
-  },
-  modalText: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  modalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  modalInput: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
-  modalTextArea: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  createButtonContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  createButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  createButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  statusOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  statusOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  statusOptionText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  dateOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  dateOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  dateOptionText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  clearDateButton: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-  },
-  clearDateText: {
-    fontSize: 13,
-    textDecorationLine: 'underline',
-  },
+  addButtonText: { fontSize: 13, fontWeight: '500' },
+  searchBarContainer: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, gap: 8 },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '400', padding: 0 },
+  filterContainer: { paddingTop: 4, paddingBottom: 12 },
+  filterList: { flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
+  filterButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, gap: 4 },
+  filterButtonText: { fontSize: 13, fontWeight: '500' },
+  filterButtonCount: { fontSize: 13, fontWeight: '400' },
+  scrollView: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20, flexGrow: 1 },
+  footerSpinner: { paddingVertical: 16 },
+  section: { marginBottom: 24 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  sectionTitle: { fontSize: 13, fontWeight: '600' },
+  countBadge: { minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 5, justifyContent: 'center', alignItems: 'center' },
+  countText: { fontSize: 9, fontWeight: '600' },
+  taskItem: { borderRadius: 8, paddingVertical: 10 },
+  taskRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.25, justifyContent: 'center', alignItems: 'center', marginTop: -1 },
+  taskContent: { flex: 1, gap: 6 },
+  taskTitle: { fontSize: 14, fontWeight: '500' },
+  taskTitleCompleted: { textDecorationLine: 'line-through', opacity: 0.5 },
+  taskMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  companyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  companyDot: { width: 8, height: 8, borderRadius: 2 },
+  companyText: { fontSize: 11 },
+  statusBadge: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
+  statusText: { fontSize: 10, fontWeight: '600' },
+  dueDateBadge: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  dueDateText: { fontSize: 11 },
+  avatar: { width: 20, height: 20, borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
+  avatarText: { fontSize: 8, fontWeight: '600', color: '#6B7280' },
+  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80, paddingHorizontal: 40 },
+  emptyCheckbox: { width: 64, height: 64, borderRadius: 8, borderWidth: 2, justifyContent: 'center', alignItems: 'center' },
+  emptyTitle: { fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 8 },
+  emptyText: { fontSize: 13, textAlign: 'center' },
 });

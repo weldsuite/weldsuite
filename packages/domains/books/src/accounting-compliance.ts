@@ -13,7 +13,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { Entity } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { getAdapter, hasAdapter } from './jurisdictions/registry';
-import type { InvoiceRequirements } from './jurisdictions/types';
+import type { InvoiceField, InvoiceRequirements } from './jurisdictions/types';
 import {
   NL_NOTICE_ICL,
   NL_NOTICE_KOR,
@@ -116,6 +116,33 @@ export interface ComplianceCheckResult {
   errors: string[];
   warnings: string[];
   buyerVatNumber: string | null;
+  /**
+   * Codes (`InvoiceField`: vatNumber, registrationNumber, iban, bic, address) of the legally required
+   * entity fields still empty, so a client can point at them and translate the names itself.
+   */
+  missingEntityFields: string[];
+}
+
+/** The invoice fields stored on the entity (the US EIN is checked by the US adapter, not here). */
+const CHECKED_INVOICE_FIELDS: readonly InvoiceField[] = ['vatNumber', 'registrationNumber', 'iban', 'bic', 'address'];
+
+/**
+ * Codes of the legally required invoice fields the entity has not filled in
+ * (see `InvoiceField`). The supplier's address is on every invoice in every
+ * jurisdiction, whatever the adapter lists.
+ */
+export function missingEntityInvoiceFieldCodes(entity: Entity, requirements: InvoiceRequirements): InvoiceField[] {
+  const present: Partial<Record<InvoiceField, boolean>> = {
+    vatNumber: !!entity.taxIdentifiers?.vatNumber,
+    registrationNumber: !!entity.taxIdentifiers?.registrationNumber,
+    iban: !!entity.bankDetails?.iban,
+    bic: !!entity.bankDetails?.bic,
+    address: entityHasInvoiceAddress(entity),
+  };
+  const required = requirements.requiredFields.includes('address')
+    ? requirements.requiredFields
+    : [...requirements.requiredFields, 'address' as const];
+  return required.filter((field) => CHECKED_INVOICE_FIELDS.includes(field) && !present[field]);
 }
 
 /**
@@ -124,25 +151,14 @@ export interface ComplianceCheckResult {
  * ("BTW-nummer" / "VAT number", "GSTIN", ...), not a fixed Dutch wording.
  */
 function missingEntityInvoiceFields(entity: Entity, requirements: InvoiceRequirements): string[] {
-  const present: Record<string, boolean> = {
-    vatNumber: !!entity.taxIdentifiers?.vatNumber,
-    registrationNumber: !!entity.taxIdentifiers?.registrationNumber,
-    iban: !!entity.bankDetails?.iban,
-    bic: !!entity.bankDetails?.bic,
-    address: entityHasInvoiceAddress(entity),
-  };
-  const labels: Record<string, string> = {
+  const labels: Partial<Record<InvoiceField, string>> = {
     vatNumber: requirements.labels.vatNumberLabel,
     registrationNumber: requirements.labels.registrationLabel,
     iban: 'IBAN',
     bic: 'BIC',
     address: 'business address (street and city)',
   };
-  // The supplier's address is on every invoice in every jurisdiction, whatever the adapter lists.
-  const required = requirements.requiredFields.includes('address')
-    ? requirements.requiredFields
-    : [...requirements.requiredFields, 'address' as const];
-  return required.filter((field) => field in labels && !present[field]).map((field) => labels[field]);
+  return missingEntityInvoiceFieldCodes(entity, requirements).map((field) => labels[field] ?? field);
 }
 
 /** An address an invoice can print: a street line and a city at least (the country follows the jurisdiction). */
@@ -225,15 +241,17 @@ export async function validateInvoiceForFinalize(
   const errors: string[] = [];
   const warnings: string[] = [];
   let buyerVatNumber: string | null = null;
+  let missingEntityFields: string[] = [];
 
   if (hasAdapter(entity.jurisdictionCode)) {
     const requirements = getAdapter(entity.jurisdictionCode).getInvoiceRequirements(
       entity.locale ?? undefined,
     );
     const missing = missingEntityInvoiceFields(entity, requirements);
+    missingEntityFields = missingEntityInvoiceFieldCodes(entity, requirements);
     if (missing.length > 0) {
       errors.push(
-        `Entity is missing legally required invoice fields: ${missing.join(', ')}. Add them under WeldBooks > Entities > (this entity) > Edit before finalizing.`,
+        `Entity is missing legally required invoice fields: ${missing.join(', ')}. Add them under Settings > Entities > (this entity) > Edit before finalizing.`,
       );
     }
   }
@@ -259,5 +277,5 @@ export async function validateInvoiceForFinalize(
     warnings.push(...check.warnings);
   }
 
-  return { ok: errors.length === 0, errors, warnings, buyerVatNumber };
+  return { ok: errors.length === 0, errors, warnings, buyerVatNumber, missingEntityFields };
 }

@@ -13,6 +13,7 @@ import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { PostCard } from '@/components/PostCard';
+import { useI18n, type Translations } from '@/lib/i18n';
 
 type Segment = 'scheduled' | 'drafts' | 'sent';
 
@@ -24,11 +25,8 @@ const SEGMENT_STATUSES: Record<Segment, SocialPostStatus[]> = {
 };
 
 /** Empty-state headline for each segment. */
-const EMPTY_TITLES: Record<Segment, string> = {
-  scheduled: 'Nothing scheduled',
-  drafts: 'No drafts',
-  sent: 'Nothing sent yet',
-};
+const emptyTitle = (t: Translations, segment: Segment): string =>
+  ({ scheduled: t.queue.emptyScheduled, drafts: t.queue.emptyDrafts, sent: t.queue.emptySent })[segment];
 
 interface QueueData {
   posts: SocialPost[];
@@ -37,6 +35,7 @@ interface QueueData {
 
 export default function QueueScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [segment, setSegment] = useState<Segment>('scheduled');
@@ -78,11 +77,12 @@ export default function QueueScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Queue</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t.queue.title}</Text>
         <TouchableOpacity
           onPress={() => router.push('/compose')}
           style={[styles.newButton, { backgroundColor: colors.primary }]}
-          accessibilityLabel="New post"
+          accessibilityRole="button"
+          accessibilityLabel={t.common.newPost}
         >
           <Pencil size={18} color={colors.primaryForeground} />
         </TouchableOpacity>
@@ -93,22 +93,22 @@ export default function QueueScreen() {
           value={segment}
           onValueChange={(v) => setSegment(v as Segment)}
           options={[
-            { label: 'Scheduled', value: 'scheduled' },
-            { label: 'Drafts', value: 'drafts' },
-            { label: 'Sent', value: 'sent' },
+            { label: t.queue.scheduled, value: 'scheduled' },
+            { label: t.queue.drafts, value: 'drafts' },
+            { label: t.queue.sent, value: 'sent' },
           ]}
         />
       </View>
 
       {error && (
         <View style={styles.bannerWrap}>
-          <Banner variant="error" title="Couldn't load posts">{error}</Banner>
+          <Banner variant="error" title={t.queue.loadError}>{error}</Banner>
         </View>
       )}
 
       {loading && !data ? (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       ) : (
         <FlatList
@@ -122,8 +122,8 @@ export default function QueueScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={<Inbox size={40} color={colors.mutedForeground} />}
-              title={EMPTY_TITLES[segment]}
-              description="Create a post with the pencil button above."
+              title={emptyTitle(t, segment)}
+              description={t.queue.emptyDescription}
             />
           }
         />

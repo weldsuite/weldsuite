@@ -1,33 +1,88 @@
-import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useObserve } from 'expo-observe';
-import { TrendingUp, TrendingDown, Users, UserPlus, DollarSign, Activity, Target } from 'lucide-react-native';
+import {
+  TrendingUp,
+  TrendingDown,
+  Users,
+  Building2,
+  UserPlus,
+  DollarSign,
+  Activity,
+  Target,
+  CheckSquare,
+  Trophy,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { api, type CrmDashboardStats, type CrmActivity } from '@/services/api';
 import { hideAppSplash } from '@/utils/splash';
+import { interpolate, plural, useI18n } from '@/lib/i18n';
+import { formatMoney } from '@/lib/money';
+import { formatTrend } from '@/lib/trend';
+
+interface StatCard {
+  key: string;
+  title: string;
+  value: string;
+  /** Percent change; the trend row is only drawn when there is a real figure. */
+  change?: number;
+  note?: string;
+  icon: LucideIcon;
+  color: string;
+}
+
+interface QuickAction {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  color: string;
+  onPress: () => void;
+}
 
 export default function CrmDashboard() {
   const { markInteractive } = useObserve();
   const { colors } = useTheme();
+  const { t, intlLocale } = useI18n();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<CrmDashboardStats | null>(null);
   const [recentActivities, setRecentActivities] = useState<CrmActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const loadedOnce = useRef(false);
+
+  const loadDashboardData = useCallback(
+    async (silent = false) => {
+      const [statsResponse, activitiesResponse] = await Promise.all([
+        api.getCrmDashboardStats(),
+        api.getCrmRecentActivities(5),
+      ]);
+
+      if (statsResponse.success && statsResponse.data) setStats(statsResponse.data);
+      if (activitiesResponse.success && activitiesResponse.data) setRecentActivities(activitiesResponse.data);
+      if (!silent && !statsResponse.success) toast.error(t.home.loadFailed);
+
+      loadedOnce.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    },
+    [t, toast],
+  );
 
   useEffect(() => {
     void loadDashboardData();
-  }, []);
+  }, [loadDashboardData]);
+
+  // Coming back from a create screen: refresh the figures quietly.
+  useFocusEffect(
+    useCallback(() => {
+      if (loadedOnce.current) void loadDashboardData(true);
+    }, [loadDashboardData]),
+  );
 
   useEffect(() => {
     if (!loading) {
@@ -36,77 +91,125 @@ export default function CrmDashboard() {
     }
   }, [loading, markInteractive]);
 
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      const [statsResponse, activitiesResponse] = await Promise.all([
-        api.getCrmDashboardStats(),
-        api.getCrmRecentActivities(5),
-      ]);
-
-      if (statsResponse.success && statsResponse.data) {
-        setStats(statsResponse.data);
-      }
-
-      if (activitiesResponse.success && activitiesResponse.data) {
-        setRecentActivities(activitiesResponse.data);
-      }
-    } catch (error) {
-      console.error('Error loading CRM dashboard:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
   const handleRefresh = () => {
     setRefreshing(true);
     void loadDashboardData();
   };
 
-  const formatCurrency = (value: number): string => {
-    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-    return `$${value.toFixed(0)}`;
-  };
+  const formatNumber = (value: number): string => value.toLocaleString(intlLocale);
 
-  const formatNumber = (value: number): string => value.toLocaleString();
+  const revenueNote = stats
+    ? [
+        stats.revenueExcluded > 0 ? plural(stats.revenueExcluded, t.home.revenueExcluded) : null,
+        stats.revenuePartial ? interpolate(t.home.revenuePartial, { count: formatNumber(stats.revenueDealsRead) }) : null,
+      ]
+        .filter(Boolean)
+        .join('. ')
+    : '';
 
-  const statCards = stats ? [
+  const statCards: StatCard[] = stats
+    ? [
+        {
+          key: 'people',
+          title: t.home.kpi.people,
+          value: formatNumber(stats.totalPeople),
+          change: stats.peopleChange,
+          icon: Users,
+          color: '#3B82F6',
+        },
+        {
+          key: 'companies',
+          title: t.home.kpi.companies,
+          value: formatNumber(stats.totalCompanies),
+          change: stats.companiesChange,
+          icon: Building2,
+          color: '#6366F1',
+        },
+        {
+          key: 'leads',
+          title: t.home.kpi.newLeads,
+          value: formatNumber(stats.newLeads),
+          change: stats.leadsChange,
+          icon: UserPlus,
+          color: '#10B981',
+        },
+        {
+          key: 'conversion',
+          title: t.home.kpi.conversionRate,
+          value: `${stats.conversionRate}%`,
+          change: stats.conversionRateChange,
+          icon: Target,
+          color: '#8B5CF6',
+        },
+        {
+          key: 'won',
+          title: t.home.kpi.wonDeals,
+          value: formatNumber(stats.wonDeals),
+          icon: Trophy,
+          color: '#EC4899',
+        },
+        {
+          key: 'revenue',
+          title: t.home.kpi.revenue,
+          value: formatMoney(stats.revenue, stats.currency, intlLocale, { compact: true }),
+          change: stats.revenueChange,
+          note: revenueNote || undefined,
+          icon: DollarSign,
+          color: '#F59E0B',
+        },
+      ]
+    : [];
+
+  const quickActions: QuickAction[] = [
     {
-      title: 'Total Customers',
-      value: formatNumber(stats.totalCustomers),
-      change: `${stats.customersChange >= 0 ? '+' : ''}${stats.customersChange}%`,
-      isPositive: stats.customersChange >= 0,
+      key: 'person',
+      label: t.home.actions.addPerson,
       icon: Users,
       color: '#3B82F6',
+      onPress: () => router.push('/person/new'),
     },
     {
-      title: 'New Leads',
-      value: formatNumber(stats.newLeads),
-      change: `${stats.leadsChange >= 0 ? '+' : ''}${stats.leadsChange}%`,
-      isPositive: stats.leadsChange >= 0,
+      key: 'company',
+      label: t.home.actions.addCompany,
+      icon: Building2,
+      color: '#6366F1',
+      onPress: () => router.push('/company/new'),
+    },
+    {
+      key: 'lead',
+      label: t.home.actions.addLead,
       icon: UserPlus,
       color: '#10B981',
+      onPress: () => router.push('/lead/new'),
     },
     {
-      title: 'Revenue',
-      value: formatCurrency(stats.revenue),
-      change: `${stats.revenueChange >= 0 ? '+' : ''}${stats.revenueChange}%`,
-      isPositive: stats.revenueChange >= 0,
-      icon: DollarSign,
+      key: 'activity',
+      label: t.home.actions.logActivity,
+      icon: Activity,
       color: '#F59E0B',
+      onPress: () => router.push('/activity/new'),
     },
     {
-      title: 'Conversion Rate',
-      value: `${stats.conversionRate}%`,
-      change: `${stats.conversionRateChange >= 0 ? '+' : ''}${stats.conversionRateChange}%`,
-      isPositive: stats.conversionRateChange >= 0,
+      key: 'deal',
+      label: t.home.actions.createDeal,
       icon: Target,
       color: '#8B5CF6',
+      onPress: () => router.navigate({ pathname: '/deals', params: { new: '1' } }),
     },
-  ] : [];
+    {
+      key: 'task',
+      label: t.home.actions.newTask,
+      icon: CheckSquare,
+      color: '#EF4444',
+      onPress: () => router.navigate({ pathname: '/tasks', params: { new: '1' } }),
+    },
+  ];
+
+  const formatActivityTime = (iso: string) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return t.common.dash;
+    return date.toLocaleString(intlLocale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
 
   return (
     <ScrollView
@@ -116,27 +219,31 @@ export default function CrmDashboard() {
       contentContainerStyle={{ paddingTop: insets.top + 8 }}
     >
       <View style={styles.content}>
-        <Text style={[styles.pageTitle, { color: colors.text }]}>CRM</Text>
+        <Text style={[styles.pageTitle, { color: colors.text }]} accessibilityRole="header">
+          {t.home.title}
+        </Text>
 
         {/* Stats Grid */}
         <View style={styles.statsGrid}>
           {statCards.map((stat) => {
             const Icon = stat.icon;
-            const TrendIcon = stat.isPositive ? TrendingUp : TrendingDown;
-            const trendColor = stat.isPositive ? '#10B981' : '#EF4444';
+            const trend = stat.change === undefined ? null : formatTrend(stat.change);
+            const TrendIcon = trend?.isPositive ? TrendingUp : TrendingDown;
+            const trendColor = trend?.isPositive ? '#10B981' : '#EF4444';
             return (
-              <View key={stat.title} style={[styles.statCard, { backgroundColor: colors.background }]}>
+              <View key={stat.key} style={styles.statCard}>
                 <View style={[styles.iconContainer, { backgroundColor: stat.color + '20' }]}>
                   <Icon size={24} color={stat.color} strokeWidth={2} />
                 </View>
-                <View style={styles.statContent}>
-                  <Text style={[styles.statValue, { color: colors.text }]}>{stat.value}</Text>
-                  <Text style={[styles.statTitle, { color: colors.muted }]}>{stat.title}</Text>
+                <Text style={[styles.statValue, { color: colors.text }]}>{stat.value}</Text>
+                <Text style={[styles.statTitle, { color: colors.muted }]}>{stat.title}</Text>
+                {trend ? (
                   <View style={styles.changeContainer}>
                     <TrendIcon size={14} color={trendColor} strokeWidth={2} />
-                    <Text style={[styles.changeText, { color: trendColor }]}>{stat.change}</Text>
+                    <Text style={[styles.changeText, { color: trendColor }]}>{trend.label}</Text>
                   </View>
-                </View>
+                ) : null}
+                {stat.note ? <Text style={[styles.statNote, { color: colors.muted }]}>{stat.note}</Text> : null}
               </View>
             );
           })}
@@ -146,43 +253,44 @@ export default function CrmDashboard() {
         <View style={[styles.section, { backgroundColor: colors.background, borderColor: colors.divider }]}>
           <View style={styles.sectionHeader}>
             <Activity size={20} color={colors.text} strokeWidth={2} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Activities</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.recentActivities}</Text>
           </View>
           <View style={styles.activitiesList}>
             {recentActivities.map((activity) => (
               <View key={activity.id} style={[styles.activityItem, { borderBottomColor: colors.divider }]}>
                 <Text style={[styles.activityText, { color: colors.text }]}>{activity.text}</Text>
-                <Text style={[styles.activityTime, { color: colors.muted }]}>{activity.time}</Text>
+                <Text style={[styles.activityTime, { color: colors.muted }]}>{formatActivityTime(activity.time)}</Text>
               </View>
             ))}
             {recentActivities.length === 0 && (
-              <Text style={[styles.activityTime, { color: colors.muted }]}>No recent activity.</Text>
+              <Text style={[styles.activityTime, { color: colors.muted }]}>{t.home.noActivity}</Text>
             )}
           </View>
         </View>
 
         {/* Quick Actions */}
         <View style={[styles.section, { backgroundColor: colors.background, borderColor: colors.divider }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Quick Actions</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.quickActions}</Text>
           <View style={styles.actionsGrid}>
-            <TouchableOpacity style={[styles.actionButton, { borderColor: colors.divider }]}>
-              <UserPlus size={20} color="#3B82F6" strokeWidth={2} />
-              <Text style={[styles.actionText, { color: colors.text }]}>Add Lead</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, { borderColor: colors.divider }]}>
-              <Users size={20} color="#10B981" strokeWidth={2} />
-              <Text style={[styles.actionText, { color: colors.text }]}>Add Customer</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, { borderColor: colors.divider }]}>
-              <Activity size={20} color="#F59E0B" strokeWidth={2} />
-              <Text style={[styles.actionText, { color: colors.text }]}>Log Activity</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, { borderColor: colors.divider }]}>
-              <Target size={20} color="#8B5CF6" strokeWidth={2} />
-              <Text style={[styles.actionText, { color: colors.text }]}>Create Deal</Text>
-            </TouchableOpacity>
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <View key={action.key} style={styles.actionCell}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, { borderColor: colors.divider }]}
+                    onPress={action.onPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={action.label}
+                  >
+                    <Icon size={20} color={action.color} strokeWidth={2} />
+                    <Text style={[styles.actionText, { color: colors.text }]}>{action.label}</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
           </View>
         </View>
+        <View style={{ height: 24 }} />
       </View>
     </ScrollView>
   );
@@ -193,13 +301,13 @@ const styles = StyleSheet.create({
   content: { padding: 16 },
   pageTitle: { fontSize: 34, fontWeight: '700', marginBottom: 16 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 },
-  statCard: { width: '50%', padding: 8 },
+  statCard: { width: '50%', padding: 8, marginBottom: 8 },
   iconContainer: { width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  statContent: { marginBottom: 8 },
   statValue: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  statTitle: { fontSize: 13, marginBottom: 8 },
-  changeContainer: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statTitle: { fontSize: 13 },
+  changeContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
   changeText: { fontSize: 13, fontWeight: '600' },
+  statNote: { fontSize: 11, marginTop: 6 },
   section: { marginTop: 24, borderRadius: 12, padding: 16, borderWidth: 1 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '600' },
@@ -208,6 +316,7 @@ const styles = StyleSheet.create({
   activityText: { fontSize: 14, marginBottom: 4 },
   activityTime: { fontSize: 13 },
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, marginHorizontal: -6 },
-  actionButton: { width: '50%', padding: 6, borderWidth: 1, borderRadius: 8, alignItems: 'center', paddingVertical: 16, marginBottom: 12 },
-  actionText: { fontSize: 15, fontWeight: '500', marginTop: 8 },
+  actionCell: { width: '50%', padding: 6 },
+  actionButton: { borderWidth: 1, borderRadius: 8, alignItems: 'center', paddingVertical: 16, paddingHorizontal: 8 },
+  actionText: { fontSize: 14, fontWeight: '500', marginTop: 8, textAlign: 'center' },
 });

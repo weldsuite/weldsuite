@@ -145,6 +145,18 @@ function composeBody(input: ComposePayloadInput): { useHtml: boolean; fullBody: 
   return { useHtml, fullBody };
 }
 
+/**
+ * True when the message would go out with nothing to read: no body text, no
+ * quoted reply/forward and no attachment. A subject-only mail is valid, so the
+ * composer asks for confirmation instead of refusing.
+ */
+export function hasNoBodyContent(
+  input: Pick<ComposePayloadInput, 'body' | 'quotedSuffix'>,
+  attachmentCount: number,
+): boolean {
+  return attachmentCount === 0 && !input.body.trim() && !input.quotedSuffix.trim();
+}
+
 function threadingFields(input: ComposePayloadInput): { inReplyTo?: string; references?: string[] } {
   if (!input.inReplyTo) return {};
   return {

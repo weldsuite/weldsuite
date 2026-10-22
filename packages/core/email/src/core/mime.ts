@@ -61,6 +61,10 @@ export function buildRfc5322(options: SendOptions): BuiltEmail {
 
   if (options.text) msg.addMessage({ contentType: 'text/plain', data: options.text });
   if (options.html) msg.addMessage({ contentType: 'text/html', data: options.html });
+  // A mail with only a subject (and maybe attachments) is valid, but mimetext
+  // refuses to render a message with no body part at all (MIMETEXT_MISSING_BODY),
+  // which surfaced as a 500 for every empty-body send. Emit an empty text part.
+  if (!options.text && !options.html) msg.addMessage({ contentType: 'text/plain', data: '' });
 
   for (const att of options.attachments ?? []) {
     addAttachment(msg, att);

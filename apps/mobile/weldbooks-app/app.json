@@ -86,6 +86,22 @@
           "icon": "./assets/images/notification-icon.png",
           "color": "#10B981"
         }
+      ],
+      [
+        "@react-native-community/datetimepicker",
+        {
+          "android": {
+            "datePicker": {
+              "colorAccent": { "light": "#10B981", "dark": "#10B981" },
+              "colorControlActivated": { "light": "#10B981", "dark": "#10B981" },
+              "colorControlHighlight": { "light": "#10B981", "dark": "#10B981" },
+              "windowBackground": { "light": "#FFFFFF", "dark": "#1C1C1E" },
+              "textColorPrimary": { "light": "#000000", "dark": "#FFFFFF" },
+              "textColorSecondary": { "light": "#6B7280", "dark": "#A1A1AA" },
+              "textColorPrimaryInverse": { "light": "#FFFFFF", "dark": "#FFFFFF" }
+            }
+          }
+        }
       ]
     ],
     "experiments": {

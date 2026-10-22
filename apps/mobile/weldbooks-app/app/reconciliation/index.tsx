@@ -7,9 +7,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, RefreshControl, StyleSheet, Pressable } from 'react-native';
+import { View, Text, FlatList, ScrollView, RefreshControl, StyleSheet, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { GitMerge, ArrowDownLeft, ArrowUpRight, Check } from 'lucide-react-native';
+import { GitMerge, ArrowDownLeft, ArrowUpRight, Check, Landmark } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -45,16 +45,20 @@ export default function ReconciliationScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
   const [matchingId, setMatchingId] = useState<string | null>(null);
+  // Without a bank account there is nothing to reconcile: "Everything reconciled" with 0 / 0 / 0.00 would be a lie.
+  const [hasBankAccount, setHasBankAccount] = useState(true);
 
   const load = useCallback(async () => {
     try {
       setError(false);
-      const [statsResult, rows] = await Promise.all([
+      const [statsResult, rows, accounts] = await Promise.all([
         api.getReconciliationStats(),
         api.getUnmatchedTransactions({ limit: 20 }),
+        api.getBankAccounts(),
       ]);
       setStats(statsResult);
       setTransactions(rows);
+      setHasBankAccount(accounts.length > 0);
     } catch (err) {
       console.error('Failed to load reconciliation:', err);
       setError(true);
@@ -109,6 +113,32 @@ export default function ReconciliationScreen() {
     return (
       <Screen header={header}>
         <ErrorState message={t.reconciliation.loadError} onRetry={load} />
+      </Screen>
+    );
+  }
+
+  if (!hasBankAccount) {
+    return (
+      <Screen header={header}>
+        <ScrollView
+          contentContainerStyle={styles.noBank}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                load();
+              }}
+              tintColor={ACCENTS.reconciliation}
+            />
+          }
+        >
+          <EmptyState
+            icon={<Landmark size={32} color={colors.mutedForeground} />}
+            title={t.bank.emptyTitle}
+            description={t.bank.emptyDescription}
+          />
+        </ScrollView>
       </Screen>
     );
   }
@@ -260,6 +290,7 @@ export default function ReconciliationScreen() {
 
 const styles = StyleSheet.create({
   list: { padding: 12, gap: 8 },
+  noBank: { flexGrow: 1, justifyContent: 'center' },
   stats: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   statCard: { flex: 1, padding: 12, alignItems: 'center' },
   statValue: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },

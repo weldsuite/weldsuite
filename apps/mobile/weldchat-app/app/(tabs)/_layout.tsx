@@ -13,6 +13,7 @@ import {
 import { useIsTablet } from '@/hooks/useIsTablet';
 import { useActivityUnreadCount } from '@/hooks/useActivityUnreadCount';
 import { IPadLayout } from '@/components/IPadLayout';
+import { useI18n } from '@/lib/i18n';
 
 type TabBarRenderer = NonNullable<ComponentProps<typeof Tabs>['tabBar']>;
 
@@ -38,6 +39,7 @@ export default function TabLayout() {
   const tabBarInset = floatingTabBarBottomInset(insets.bottom);
   const isTablet = useIsTablet();
   const activityUnread = useActivityUnreadCount();
+  const { t } = useI18n();
 
   if (isTablet) {
     return <IPadLayout />;
@@ -58,21 +60,21 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t.tabs.home,
           tabBarIcon: HomeTabIcon,
         }}
       />
       <Tabs.Screen
         name="dms"
         options={{
-          title: 'DMs',
+          title: t.tabs.directMessages,
           tabBarIcon: DmsTabIcon,
         }}
       />
       <Tabs.Screen
         name="activity"
         options={{
-          title: 'Mentions',
+          title: t.tabs.activity,
           tabBarIcon: MentionsTabIcon,
           tabBarBadge: activityUnread > 0 ? activityUnread : undefined,
         }}
@@ -80,7 +82,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="calls"
         options={{
-          title: 'Calls',
+          title: t.tabs.calls,
           tabBarIcon: CallsTabIcon,
         }}
       />

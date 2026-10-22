@@ -24,6 +24,7 @@ import { useHardwareBarcodeScan } from '@/hooks/useHardwareBarcodeScan';
 import { normalizeBarcode, pickExactProduct } from '@/utils/barcode';
 import { weldstashKeys } from '@/lib/query-client';
 import { prefetchWeldstashProduct, useWeldstashProducts } from '@/hooks/use-weldstash-queries';
+import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 
 export default function ProductsScreen() {
@@ -33,6 +34,7 @@ export default function ProductsScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { info, error: showError } = useToast();
+  const { t } = useI18n();
 
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -76,13 +78,13 @@ export default function ProductsScreen() {
           router.push(`/product/${exact.id}`);
         } else {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          info('No exact match — showing search results');
+          info(t.products.noExactMatch);
         }
       } catch (err) {
-        showError((err as Error).message || 'Scan lookup failed');
+        showError((err as Error).message || t.products.scanLookupFailed);
       }
     },
-    [queryClient, router, info, showError],
+    [queryClient, router, info, showError, t],
   );
 
   const hardwareScanner = useHardwareBarcodeScan((code) => {
@@ -99,11 +101,11 @@ export default function ProductsScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.titleRow}>
-          <Text style={[styles.title, { color: colors.text }]}>Products</Text>
+          <Text style={[styles.title, { color: colors.text }]}>{t.products.title}</Text>
           <Pressable
             onPress={() => router.push('/product/new')}
             accessibilityRole="button"
-            accessibilityLabel="New product"
+            accessibilityLabel={t.products.newProduct}
             hitSlop={8}
             style={[styles.iconButton, { backgroundColor: colors.inputBackground }]}
           >
@@ -114,7 +116,7 @@ export default function ProductsScreen() {
           value={search}
           onChangeText={handleSearchChange}
           onSubmitEditing={onSubmitSearch}
-          placeholder="Search or scan barcode"
+          placeholder={t.products.searchPlaceholder}
           autoCorrect={false}
           autoCapitalize="none"
           onClear={() => {
@@ -126,8 +128,8 @@ export default function ProductsScreen() {
           <ScanBarcode size={14} color={colors.mutedForeground} />
           <Text style={[styles.scanHintText, { color: colors.mutedForeground }]}>
             {hardwareScanner
-              ? 'Zebra scanner ready — scan a barcode to open the product'
-              : 'Scan into the search field, then press Enter'}
+              ? t.products.scanHintHardware
+              : t.products.scanHintKeyboard}
           </Text>
         </View>
       </View>
@@ -152,15 +154,15 @@ export default function ProductsScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={<Package size={36} color={colors.mutedForeground} />}
-              title={query ? 'No matching products' : 'No products yet'}
+              title={query ? t.products.emptySearchTitle : t.products.emptyTitle}
               description={
                 query
-                  ? 'Create a product with this barcode, or try a different search.'
-                  : 'Add a product, then scan its barcode to adjust stock.'
+                  ? t.products.emptySearchDescription
+                  : t.products.emptyDescription
               }
               action={
                 <Button
-                  title={query ? 'Create product' : 'New product'}
+                  title={query ? t.products.createProduct : t.products.newProduct}
                   onPress={() =>
                     router.push(query ? `/product/new?barcode=${encodeURIComponent(query)}` : '/product/new')
                   }
@@ -185,7 +187,7 @@ export default function ProductsScreen() {
                   {item.name}
                 </Text>
                 <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]} numberOfLines={1}>
-                  {[item.sku, item.barcode].filter(Boolean).join(' · ') || 'No SKU or barcode'}
+                  {[item.sku, item.barcode].filter(Boolean).join(' · ') || t.products.noSkuOrBarcode}
                 </Text>
               </View>
               <Text style={[styles.qty, { color: colors.text }]}>{item.inventoryQuantity ?? 0}</Text>

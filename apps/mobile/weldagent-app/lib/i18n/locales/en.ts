@@ -156,6 +156,9 @@ export const en = {
     pickAgent: 'Who should reply?',
     personal: 'WeldAgent',
     personalSub: 'Your personal workspace assistant',
+    yourAgents: 'Your agents',
+    needsCredits: 'Chats need credits, and your workspace has none left. Top up to start a chat.',
+    composerNoCredits: 'Out of credits',
     composerPlaceholder: 'Ask anything…',
     empty: 'Send a message to start',
     creditsEmpty: 'Your workspace is out of AI credits. Top up on the web to keep chatting.',
@@ -194,7 +197,8 @@ export const en = {
     low: 'Credits are running low.',
     topUpWeb: 'Top up on the web',
     topUpHint: 'Buy credits at app.weldsuite.org — in-app purchase is not available yet.',
-    daysRemaining: '{count} days left in this period',
+    resets: 'Resets in',
+    daysRemaining: { one: '{count} day', other: '{count} days' },
   },
 
   settings: {
@@ -219,4 +223,7 @@ export const en = {
   },
 } as const;
 
-export type Translations = typeof en;
+/** `en` keeps its literal types; the catalogs share this widened shape so `nl` can hold other strings. */
+type Widen<T> = T extends string ? string : { -readonly [K in keyof T]: Widen<T[K]> };
+
+export type Translations = Widen<typeof en>;

@@ -9,6 +9,17 @@
 
 import type { Calendar, CalendarEvent } from '@/types/weldcalendar';
 
+/**
+ * Where a calendar lives: "Personal", or the workspace it belongs to. Null for
+ * a calendar with neither (a shared one whose workspace name is unknown).
+ * Several calendars share the name "My Calendar", so this is what tells them
+ * apart.
+ */
+export function calendarGroupLabel(calendar: Calendar, personalLabel: string): string | null {
+  if (calendar.tenantKind === 'personal') return personalLabel;
+  return calendar.workspaceName || null;
+}
+
 export function calendarPickerLabel(calendar: Calendar, personalLabel: string): string {
   if (calendar.tenantKind === 'personal') {
     return `${personalLabel} · ${calendar.name}`;

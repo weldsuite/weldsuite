@@ -16,10 +16,14 @@ import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { useSocialRealtime } from '@/hooks/useSocialRealtime';
-import { CAMPAIGN_STATUS_META, formatDateTime } from '@/lib/social';
+import { useI18n } from '@/lib/i18n';
+import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
+import { CAMPAIGN_STATUS_VARIANT, formatDateTime, statusBadge } from '@/lib/social';
 
 export default function CampaignsScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
+  const sheetProps = useKeyboardSheet();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const toast = useToast();
@@ -49,13 +53,13 @@ export default function CampaignsScreen() {
         name: name.trim(),
         description: description.trim() || undefined,
       });
-      toast.success('Campaign created');
+      toast.success(t.campaigns.created);
       setName('');
       setDescription('');
       setCreateOpen(false);
       await reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create campaign');
+      toast.error(err instanceof Error ? err.message : t.campaigns.createFailed);
     } finally {
       setCreating(false);
     }
@@ -64,24 +68,24 @@ export default function CampaignsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.divider }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Back">
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t.common.back}>
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Campaigns</Text>
-        <TouchableOpacity onPress={() => setCreateOpen(true)} style={styles.headerButton} accessibilityLabel="New campaign">
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t.campaigns.title}</Text>
+        <TouchableOpacity onPress={() => setCreateOpen(true)} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t.campaigns.newCampaign}>
           <Plus size={22} color={colors.text} />
         </TouchableOpacity>
       </View>
 
       {error && (
         <View style={styles.bannerWrap}>
-          <Banner variant="error" title="Couldn't load campaigns">{error}</Banner>
+          <Banner variant="error" title={t.campaigns.loadError}>{error}</Banner>
         </View>
       )}
 
       {loading && !campaigns ? (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       ) : (
         <FlatList
@@ -90,7 +94,7 @@ export default function CampaignsScreen() {
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 10 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.muted} />}
           renderItem={({ item }) => {
-            const statusMeta = CAMPAIGN_STATUS_META[item.status] ?? { label: item.status, variant: 'outline' as const };
+            const statusMeta = statusBadge(CAMPAIGN_STATUS_VARIANT, t.campaignStatus, item.status);
             return (
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.cardTop}>
@@ -100,7 +104,7 @@ export default function CampaignsScreen() {
                       {item.name}
                     </Text>
                   </View>
-                  <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+                  <Badge variant={statusMeta.variant} label={statusMeta.label} />
                 </View>
                 {!!item.description && (
                   <Text style={[styles.description, { color: colors.mutedForeground }]} numberOfLines={2}>
@@ -118,20 +122,35 @@ export default function CampaignsScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={<Megaphone size={40} color={colors.mutedForeground} />}
-              title="No campaigns"
-              description="Group related posts into a campaign to track them together."
-              action={<Button title="New campaign" size="sm" onPress={() => setCreateOpen(true)} />}
+              title={t.campaigns.emptyTitle}
+              description={t.campaigns.emptyDescription}
+              action={<Button title={t.campaigns.newCampaign} size="sm" onPress={() => setCreateOpen(true)} />}
             />
           }
         />
       )}
 
-      <Sheet visible={createOpen} onClose={() => setCreateOpen(false)} title="New campaign">
+      <Sheet
+        {...sheetProps}
+        visible={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title={t.campaigns.newCampaign}
+      >
         <View style={{ gap: 12 }}>
-          <Input label="Name" placeholder="Summer launch" value={name} onChangeText={setName} />
-          <Textarea label="Description" placeholder="Optional" value={description} onChangeText={setDescription} />
+          <Input
+            label={t.campaigns.name}
+            placeholder={t.campaigns.namePlaceholder}
+            value={name}
+            onChangeText={setName}
+          />
+          <Textarea
+            label={t.campaigns.description}
+            placeholder={t.common.optional}
+            value={description}
+            onChangeText={setDescription}
+          />
           <Button
-            title="Create campaign"
+            title={t.campaigns.create}
             onPress={handleCreate}
             disabled={!name.trim() || creating}
             loading={creating}

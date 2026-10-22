@@ -16,12 +16,16 @@ import type { SocialPlatform } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { useSocialRealtime } from '@/hooks/useSocialRealtime';
-import { ACCOUNT_STATUS_META, PLATFORM_META, formatCompact } from '@/lib/social';
+import { useI18n } from '@/lib/i18n';
+import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
+import { ACCOUNT_STATUS_VARIANT, PLATFORM_META, formatCompact, statusBadge } from '@/lib/social';
 
 const CONNECTABLE_PLATFORMS: SocialPlatform[] = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok'];
 
 export default function AccountsScreen() {
   const { colors } = useTheme();
+  const { t, format, plural } = useI18n();
+  const sheetProps = useKeyboardSheet();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const toast = useToast();
@@ -50,7 +54,7 @@ export default function AccountsScreen() {
       setConnectOpen(false);
       if (res.data.url) await Linking.openURL(res.data.url);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to start connection');
+      toast.error(err instanceof Error ? err.message : t.accounts.connectFailed);
     } finally {
       setBusy(null);
     }
@@ -60,10 +64,12 @@ export default function AccountsScreen() {
     setBusy('sync');
     try {
       const res = await appApi.social.accounts.sync();
-      toast.success(res.data.synced > 0 ? `Imported ${res.data.synced} account(s)` : 'Accounts up to date');
+      toast.success(
+        res.data.synced > 0 ? plural(res.data.synced, t.accounts.imported) : t.accounts.upToDate,
+      );
       await reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to sync accounts');
+      toast.error(err instanceof Error ? err.message : t.accounts.syncFailed);
     } finally {
       setBusy(null);
     }
@@ -72,24 +78,24 @@ export default function AccountsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.divider }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Back">
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t.common.back}>
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Accounts</Text>
-        <TouchableOpacity onPress={handleSync} style={styles.headerButton} accessibilityLabel="Sync accounts">
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t.accounts.title}</Text>
+        <TouchableOpacity onPress={handleSync} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t.accounts.sync}>
           {busy === 'sync' ? <Spinner size={18} /> : <RefreshCw size={20} color={colors.text} />}
         </TouchableOpacity>
       </View>
 
       {error && (
         <View style={styles.bannerWrap}>
-          <Banner variant="error" title="Couldn't load accounts">{error}</Banner>
+          <Banner variant="error" title={t.accounts.loadError}>{error}</Banner>
         </View>
       )}
 
       {loading && !accounts ? (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       ) : (
         <FlatList
@@ -99,7 +105,7 @@ export default function AccountsScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.muted} />}
           renderItem={({ item }) => {
             const platformMeta = PLATFORM_META[item.platform];
-            const statusMeta = ACCOUNT_STATUS_META[item.status] ?? { label: item.status, variant: 'outline' as const };
+            const statusMeta = statusBadge(ACCOUNT_STATUS_VARIANT, t.accountStatus, item.status);
             return (
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Avatar
@@ -116,20 +122,22 @@ export default function AccountsScreen() {
                     <Text style={[styles.accountMeta, { color: colors.mutedForeground }]} numberOfLines={1}>
                       {platformMeta?.label ?? item.platform}
                       {item.username ? ` · @${item.username}` : ''}
-                      {item.followerCount != null ? ` · ${formatCompact(item.followerCount)} followers` : ''}
+                      {item.followerCount != null
+                        ? ` · ${format(t.accounts.followers, { count: formatCompact(item.followerCount) })}`
+                        : ''}
                     </Text>
                   </View>
                 </View>
-                <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+                <Badge variant={statusMeta.variant} label={statusMeta.label} />
               </View>
             );
           }}
           ListEmptyComponent={
             <EmptyState
               icon={<AtSign size={40} color={colors.mutedForeground} />}
-              title="No accounts connected"
-              description="Connect a social account to start publishing."
-              action={<Button title="Connect account" size="sm" onPress={() => setConnectOpen(true)} />}
+              title={t.accounts.emptyTitle}
+              description={t.accounts.emptyDescription}
+              action={<Button title={t.accounts.connect} size="sm" onPress={() => setConnectOpen(true)} />}
             />
           }
         />
@@ -139,12 +147,18 @@ export default function AccountsScreen() {
         style={[styles.fab, { backgroundColor: colors.primary, bottom: insets.bottom + 24 }]}
         onPress={() => setConnectOpen(true)}
         activeOpacity={0.85}
-        accessibilityLabel="Connect account"
+        accessibilityRole="button"
+        accessibilityLabel={t.accounts.connect}
       >
         <Plus size={24} color={colors.primaryForeground} />
       </TouchableOpacity>
 
-      <Sheet visible={connectOpen} onClose={() => setConnectOpen(false)} title="Connect an account">
+      <Sheet
+        {...sheetProps}
+        visible={connectOpen}
+        onClose={() => setConnectOpen(false)}
+        title={t.accounts.connectSheetTitle}
+      >
         <View style={{ gap: 10 }}>
           {CONNECTABLE_PLATFORMS.map((platform) => (
             <Button
@@ -158,7 +172,7 @@ export default function AccountsScreen() {
             />
           ))}
           <Text style={[styles.connectHint, { color: colors.mutedForeground }]}>
-            You&apos;ll authorise in the browser. Afterwards, tap the sync icon to import the connected account.
+            {t.accounts.connectHint}
           </Text>
         </View>
       </Sheet>

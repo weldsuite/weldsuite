@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
@@ -34,6 +34,7 @@ import api from '@/services/api';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import { AddressFields, type AddressErrors } from '@/components/address-fields';
+import { FormScrollView } from '@/components/form-scroll';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n } from '@/lib/i18n';
 import { describeApiError } from '@/lib/sales-tax';
@@ -120,11 +121,7 @@ export default function NewContactScreen() {
 
   return (
     <Screen header={<ScreenHeader title={t.contactNew.title} showBack />}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}
-      >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <FormScrollView contentContainerStyle={styles.content}>
           <SectionCard title={t.contactNew.contact}>
             <SegmentedControl
               options={KINDS}
@@ -236,14 +233,12 @@ export default function NewContactScreen() {
             fullWidth
             style={styles.submit}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   content: { paddingBottom: 40, paddingTop: 4 },
   kindHelp: { fontSize: 12, lineHeight: 17, marginTop: 6, marginBottom: 10 },
   submit: { marginHorizontal: 12, marginTop: 20 },

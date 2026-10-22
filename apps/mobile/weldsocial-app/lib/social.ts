@@ -1,21 +1,22 @@
 /**
- * Shared WeldSocial display metadata — status/platform labels, badge variants,
- * and lightweight date formatting used across the app's screens.
+ * Shared WeldSocial display metadata — platform labels, status badge variants
+ * and lightweight date formatting used across the app's screens. Status labels
+ * are translated and live in the i18n catalog (`lib/i18n`).
  */
 
 import type { SocialPlatform, SocialPostStatus } from '@weldsuite/app-api-client/domains/social';
 
-type BadgeVariant = 'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'outline';
+export type BadgeVariant = 'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'outline';
 
-export const POST_STATUS_META: Record<SocialPostStatus, { label: string; variant: BadgeVariant }> = {
-  draft: { label: 'Draft', variant: 'secondary' },
-  pending_approval: { label: 'Pending approval', variant: 'warning' },
-  approved: { label: 'Approved', variant: 'default' },
-  scheduled: { label: 'Scheduled', variant: 'default' },
-  publishing: { label: 'Publishing', variant: 'warning' },
-  published: { label: 'Published', variant: 'success' },
-  failed: { label: 'Failed', variant: 'destructive' },
-  cancelled: { label: 'Cancelled', variant: 'outline' },
+export const POST_STATUS_VARIANT: Record<SocialPostStatus, BadgeVariant> = {
+  draft: 'secondary',
+  pending_approval: 'warning',
+  approved: 'default',
+  scheduled: 'default',
+  publishing: 'warning',
+  published: 'success',
+  failed: 'destructive',
+  cancelled: 'outline',
 };
 
 export const PLATFORM_META: Record<SocialPlatform, { label: string; color: string }> = {
@@ -26,30 +27,45 @@ export const PLATFORM_META: Record<SocialPlatform, { label: string; color: strin
   tiktok: { label: 'TikTok', color: '#69C9D0' },
 };
 
-export const APPROVAL_STATUS_META: Record<string, { label: string; variant: BadgeVariant }> = {
-  pending: { label: 'Pending', variant: 'warning' },
-  approved: { label: 'Approved', variant: 'success' },
-  rejected: { label: 'Rejected', variant: 'destructive' },
-  revision_requested: { label: 'Revision requested', variant: 'secondary' },
-  withdrawn: { label: 'Withdrawn', variant: 'outline' },
-  expired: { label: 'Expired', variant: 'outline' },
+export const APPROVAL_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'destructive',
+  revision_requested: 'secondary',
+  withdrawn: 'outline',
+  expired: 'outline',
 };
 
-export const CAMPAIGN_STATUS_META: Record<string, { label: string; variant: BadgeVariant }> = {
-  draft: { label: 'Draft', variant: 'secondary' },
-  active: { label: 'Active', variant: 'success' },
-  paused: { label: 'Paused', variant: 'warning' },
-  completed: { label: 'Completed', variant: 'default' },
-  archived: { label: 'Archived', variant: 'outline' },
+export const CAMPAIGN_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  draft: 'secondary',
+  active: 'success',
+  paused: 'warning',
+  completed: 'default',
+  archived: 'outline',
 };
 
-export const ACCOUNT_STATUS_META: Record<string, { label: string; variant: BadgeVariant }> = {
-  active: { label: 'Active', variant: 'success' },
-  inactive: { label: 'Inactive', variant: 'outline' },
-  expired: { label: 'Expired', variant: 'destructive' },
-  error: { label: 'Error', variant: 'destructive' },
-  pending_reauth: { label: 'Reconnect', variant: 'warning' },
+export const ACCOUNT_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  active: 'success',
+  inactive: 'outline',
+  expired: 'destructive',
+  error: 'destructive',
+  pending_reauth: 'warning',
 };
+
+/**
+ * Badge label + variant for a status. Labels come from the i18n catalog;
+ * an unknown status (newer server) falls back to its readable raw value.
+ */
+export function statusBadge(
+  variants: Record<string, BadgeVariant>,
+  labels: Record<string, string>,
+  status: string,
+): { label: string; variant: BadgeVariant } {
+  return {
+    label: labels[status] ?? status.replaceAll('_', ' '),
+    variant: variants[status] ?? 'outline',
+  };
+}
 
 /** "Mon 6 Jul, 14:30" style short date-time in the device locale. */
 export function formatDateTime(value: string | null | undefined): string {

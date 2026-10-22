@@ -13,9 +13,12 @@ import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import type { SocialAccount, SocialMedia, SocialPost } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
+import { useI18n } from '@/lib/i18n';
+import { useKeyboardSheet } from '@/hooks/use-keyboard-sheet';
 import { PLATFORM_META, formatDateTime } from '@/lib/social';
 
 interface ComposeData {
@@ -32,10 +35,11 @@ interface AccountPickerProps {
 
 function AccountPicker({ accounts, selectedIds, onToggle }: Readonly<AccountPickerProps>) {
   const { colors } = useTheme();
+  const { t } = useI18n();
   if (!accounts.length) {
     return (
-      <Banner variant="info" title="No connected accounts">
-        Connect social accounts from the Accounts screen first.
+      <Banner variant="info" title={t.compose.noAccountsTitle}>
+        {t.compose.noAccountsBody}
       </Banner>
     );
   }
@@ -65,10 +69,11 @@ interface MediaPickerProps {
 
 function MediaPicker({ media, selectedIds, onToggle }: Readonly<MediaPickerProps>) {
   const { colors } = useTheme();
+  const { t } = useI18n();
   if (!media.length) {
     return (
       <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-        No media in the library yet — add an image by URL.
+        {t.compose.noMedia}
       </Text>
     );
   }
@@ -114,6 +119,8 @@ function MediaPicker({ media, selectedIds, onToggle }: Readonly<MediaPickerProps
  */
 export default function ComposeScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
+  const sheetProps = useKeyboardSheet();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const toast = useToast();
@@ -199,10 +206,10 @@ export default function ComposeScreen() {
     setSaving('draft');
     try {
       await persist();
-      toast.success('Draft saved');
+      toast.success(t.compose.draftSaved);
       router.back();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save draft');
+      toast.error(err instanceof Error ? err.message : t.compose.draftFailed);
     } finally {
       setSaving(null);
     }
@@ -218,10 +225,10 @@ export default function ComposeScreen() {
         scheduledAt.toISOString(),
         Intl.DateTimeFormat().resolvedOptions().timeZone,
       );
-      toast.success('Post scheduled');
+      toast.success(t.compose.scheduled);
       router.back();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to schedule post');
+      toast.error(err instanceof Error ? err.message : t.compose.scheduleFailed);
     } finally {
       setSaving(null);
     }
@@ -232,10 +239,10 @@ export default function ComposeScreen() {
     try {
       const postId = await persist();
       await appApi.social.posts.publish(postId);
-      toast.success('Post published');
+      toast.success(t.compose.published);
       router.back();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to publish post');
+      toast.error(err instanceof Error ? err.message : t.compose.publishFailed);
     } finally {
       setSaving(null);
     }
@@ -257,7 +264,7 @@ export default function ComposeScreen() {
       setMediaSheetOpen(false);
       reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add media');
+      toast.error(err instanceof Error ? err.message : t.compose.mediaFailed);
     } finally {
       setAddingMedia(false);
     }
@@ -294,57 +301,66 @@ export default function ComposeScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 16 : insets.top + 8, borderBottomColor: colors.divider }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Close">
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t.common.close}>
           <X size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>
-          {editingId ? 'Edit post' : 'New post'}
+          {editingId ? t.compose.editPost : t.compose.newPost}
         </Text>
         <View style={styles.headerButton} />
       </View>
 
       {loading && !data ? (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 16 }}>
-            {error && <Banner variant="error" title="Couldn't load composer data">{error}</Banner>}
+          <KeyboardAwareScrollView
+            contentContainerStyle={{ padding: 16, paddingBottom: 24, gap: 16 }}
+            keyboardShouldPersistTaps="handled"
+            bottomOffset={24}
+          >
+            {error && <Banner variant="error" title={t.compose.loadError}>{error}</Banner>}
 
-            <Input label="Title (internal)" placeholder="Optional" value={title} onChangeText={setTitle} />
+            <Input
+              label={t.compose.titleLabel}
+              placeholder={t.common.optional}
+              value={title}
+              onChangeText={setTitle}
+            />
             <Textarea
-              label="Content"
-              placeholder="What do you want to share?"
+              label={t.compose.contentLabel}
+              placeholder={t.compose.contentPlaceholder}
               value={content}
               onChangeText={setContent}
             />
 
             <View>
-              <Text style={[styles.label, { color: colors.text }]}>Accounts</Text>
+              <Text style={[styles.label, { color: colors.text }]}>{t.compose.accounts}</Text>
               <AccountPicker accounts={accounts} selectedIds={selectedAccountIds} onToggle={toggleAccount} />
             </View>
 
             <View>
               <View style={styles.mediaHeader}>
-                <Text style={[styles.label, { color: colors.text }]}>Media</Text>
+                <Text style={[styles.label, { color: colors.text }]}>{t.compose.media}</Text>
                 <TouchableOpacity onPress={() => setMediaSheetOpen(true)} style={styles.addMedia}>
                   <Plus size={16} color={colors.info} />
-                  <Text style={[styles.addMediaText, { color: colors.info }]}>Add by URL</Text>
+                  <Text style={[styles.addMediaText, { color: colors.info }]}>{t.compose.addByUrl}</Text>
                 </TouchableOpacity>
               </View>
               <MediaPicker media={media} selectedIds={selectedMediaIds} onToggle={toggleMedia} />
             </View>
 
             <View>
-              <Text style={[styles.label, { color: colors.text }]}>Schedule</Text>
+              <Text style={[styles.label, { color: colors.text }]}>{t.compose.schedule}</Text>
               <View style={styles.scheduleRow}>
                 <Chip
-                  label={scheduledAt ? formatDateTime(scheduledAt.toISOString()) : 'Pick date & time'}
+                  label={scheduledAt ? formatDateTime(scheduledAt.toISOString()) : t.compose.pickDateTime}
                   selected={!!scheduledAt}
                   onPress={() => setPickerStage((stage) => (stage ? null : 'date'))}
                 />
-                {scheduledAt && <Chip label="Clear" onPress={() => setScheduledAt(null)} />}
+                {scheduledAt && <Chip label={t.compose.clear} onPress={() => setScheduledAt(null)} />}
               </View>
               {pickerStage && (
                 <DateTimePicker
@@ -355,11 +371,11 @@ export default function ComposeScreen() {
                 />
               )}
             </View>
-          </ScrollView>
+          </KeyboardAwareScrollView>
 
           <View style={[styles.footer, { borderTopColor: colors.divider, paddingBottom: insets.bottom + 12 }]}>
             <Button
-              title="Save draft"
+              title={t.compose.saveDraft}
               variant="secondary"
               onPress={handleSaveDraft}
               disabled={!canSave || saving !== null}
@@ -367,14 +383,14 @@ export default function ComposeScreen() {
             />
             {scheduledAt ? (
               <Button
-                title="Schedule"
+                title={t.compose.scheduleAction}
                 onPress={handleSchedule}
                 disabled={!canSend || saving !== null}
                 loading={saving === 'schedule'}
               />
             ) : (
               <Button
-                title="Publish now"
+                title={t.compose.publishNow}
                 onPress={handlePublishNow}
                 disabled={!canSend || saving !== null}
                 loading={saving === 'publish'}
@@ -384,19 +400,29 @@ export default function ComposeScreen() {
         </>
       )}
 
-      <Sheet visible={mediaSheetOpen} onClose={() => setMediaSheetOpen(false)} title="Add media by URL">
+      <Sheet
+        {...sheetProps}
+        visible={mediaSheetOpen}
+        onClose={() => setMediaSheetOpen(false)}
+        title={t.compose.mediaSheetTitle}
+      >
         <View style={{ gap: 12 }}>
           <Input
-            label="Image URL"
+            label={t.compose.imageUrl}
             placeholder="https://…"
             value={mediaUrl}
             onChangeText={setMediaUrl}
             autoCapitalize="none"
             keyboardType="url"
           />
-          <Input label="File name" placeholder="Optional" value={mediaFileName} onChangeText={setMediaFileName} />
+          <Input
+            label={t.compose.fileName}
+            placeholder={t.common.optional}
+            value={mediaFileName}
+            onChangeText={setMediaFileName}
+          />
           <Button
-            title="Add to library"
+            title={t.compose.addToLibrary}
             onPress={handleAddMediaByUrl}
             disabled={!mediaUrl.trim() || addingMedia}
             loading={addingMedia}

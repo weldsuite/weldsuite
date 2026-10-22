@@ -12,6 +12,7 @@ import {
   quotedSuffixToHtml,
   withPendingInput,
   draftBodyFields,
+  hasNoBodyContent,
 } from '../compose-helpers';
 import { NetworkError } from '@weldsuite/api-client/client';
 
@@ -284,5 +285,18 @@ describe('draftBodyFields', () => {
     expect(draftBodyFields('<p>x</p>', true)).toEqual({ htmlBody: '<p>x</p>' });
     expect(draftBodyFields('x', false)).toEqual({ body: 'x' });
     expect(draftBodyFields('', true)).toEqual({});
+  });
+});
+
+describe('hasNoBodyContent', () => {
+  it('is true for a subject-only mail', () => {
+    expect(hasNoBodyContent({ body: '', quotedSuffix: '' }, 0)).toBe(true);
+    expect(hasNoBodyContent({ body: '  \n ', quotedSuffix: '' }, 0)).toBe(true);
+  });
+
+  it('is false when there is text, a quoted reply or an attachment', () => {
+    expect(hasNoBodyContent({ body: 'Hi', quotedSuffix: '' }, 0)).toBe(false);
+    expect(hasNoBodyContent({ body: '', quotedSuffix: '\n\n--- Original message ---' }, 0)).toBe(false);
+    expect(hasNoBodyContent({ body: '', quotedSuffix: '' }, 1)).toBe(false);
   });
 });

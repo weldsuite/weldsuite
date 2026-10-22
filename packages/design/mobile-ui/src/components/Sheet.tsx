@@ -174,8 +174,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Size to the content and shrink to fit maxHeight. `flex: 1` collapses the
+  // ScrollView to 0px on Android, because the sheet itself has no fixed height.
   scrollView: {
-    flex: 1,
+    flexGrow: 0,
+    flexShrink: 1,
   },
   scrollContent: {
     padding: Spacing.lg,

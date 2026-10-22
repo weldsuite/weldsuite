@@ -17,6 +17,7 @@ import type { ThemeColors } from '@/lib/theme-colors';
 
 import { useCall } from '@/contexts/CallContext';
 import { appApi } from '@/services/app-api';
+import { useI18n } from '@/lib/i18n';
 
 interface ActiveCall {
   channelId: string;
@@ -27,9 +28,10 @@ interface ActiveCall {
 }
 
 export default function CallsScreen() {
+  const { t } = useI18n();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const styles = makeStyles(colors);
+  const styles = makeStyles(colors, insets.top);
   const { joinCall } = useCall();
 
   const [calls, setCalls] = useState<ActiveCall[]>([]);
@@ -103,7 +105,7 @@ export default function CallsScreen() {
           {joiningId === item.callId ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Text style={styles.joinBtnText}>Join</Text>
+            <Text style={styles.joinBtnText}>{t.calls.join}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -111,9 +113,11 @@ export default function CallsScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>Calls</Text>
+        <View style={styles.headerTitleWrap} pointerEvents="none">
+          <Text style={styles.headerTitle}>{t.tabs.calls}</Text>
+        </View>
       </View>
 
       {loading && calls.length === 0 ? (
@@ -134,10 +138,8 @@ export default function CallsScreen() {
               <View style={styles.emptyIcon}>
                 <PhoneCall size={30} color={colors.muted} strokeWidth={1.8} />
               </View>
-              <Text style={styles.emptyTitle}>No active calls</Text>
-              <Text style={styles.emptyText}>
-                Voice and video calls happening in your conversations will appear here.
-              </Text>
+              <Text style={styles.emptyTitle}>{t.calls.emptyTitle}</Text>
+              <Text style={styles.emptyText}>{t.calls.emptyHint}</Text>
             </View>
           }
         />
@@ -146,17 +148,30 @@ export default function CallsScreen() {
   );
 }
 
-function makeStyles(c: ThemeColors) {
+function makeStyles(c: ThemeColors, topInset: number) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.background },
+    // Same header as Home / Direct messages / Activity: centred 19pt title.
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
+      minHeight: topInset + 6 + 40 + 8,
+      paddingTop: topInset + 6,
       paddingHorizontal: 16,
-      paddingVertical: 12,
+      paddingBottom: 8,
+      backgroundColor: c.background,
     },
-    headerTitle: { fontSize: 26, fontWeight: '700', color: c.text },
+    headerTitleWrap: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: topInset + 6,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    headerTitle: { fontSize: 19, fontWeight: '700', color: c.text },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     row: {
       flexDirection: 'row',

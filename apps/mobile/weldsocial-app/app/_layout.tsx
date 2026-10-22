@@ -24,6 +24,7 @@ import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAp
 import { appApi, appApiClient, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
+import { I18nProvider, useI18n } from '@/lib/i18n';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -40,6 +41,7 @@ if (!CLERK_PUBLISHABLE_KEY) {
 
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
+  const { t } = useI18n();
   const router = useRouter();
   const segments = useSegments();
   const { setActive, userMemberships, isLoaded: isOrgListLoaded } = useOrganizationList({
@@ -98,7 +100,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
         <ActivityIndicator size="large" color="#8B5CF6" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Loading...</Text>
+        <Text style={{ marginTop: 16, color: '#666' }}>{t.common.loading}</Text>
       </View>
     );
   }
@@ -216,6 +218,7 @@ function RootLayout() {
   }, []);
 
   return (
+    <I18nProvider>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <KeyboardProvider>
         <ErrorBoundary>
@@ -233,6 +236,7 @@ function RootLayout() {
         </ErrorBoundary>
       </KeyboardProvider>
     </GestureHandlerRootView>
+    </I18nProvider>
   );
 }
 

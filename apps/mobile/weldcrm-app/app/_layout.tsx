@@ -22,8 +22,10 @@ import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContex
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
+import { setActiveWorkspaceId } from '@/services/api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
+import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -40,6 +42,7 @@ if (!CLERK_PUBLISHABLE_KEY) {
 
 function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
+  const { t } = useI18n();
   const router = useRouter();
   const segments = useSegments();
   const { setActive, userMemberships, isLoaded: isOrgListLoaded } = useOrganizationList({
@@ -64,6 +67,8 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   } else {
     setAppApiTokenGetter(null);
   }
+  // Same for the active workspace: per-workspace caches in the data layer key on it.
+  setActiveWorkspaceId(user ? (organizationId ?? null) : null);
 
   // Route guard
   useEffect(() => {
@@ -96,7 +101,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
         <ActivityIndicator size="large" color="#7C3AED" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Loading...</Text>
+        <Text style={{ marginTop: 16, color: '#666' }}>{t.auth.loading}</Text>
       </View>
     );
   }
@@ -172,7 +177,12 @@ function AppStack() {
                     <Stack.Screen name="sso-callback" />
                     <Stack.Screen name="no-workspace" options={{ animation: 'fade', animationDuration: 200, gestureEnabled: false }} />
                     <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                    <Stack.Screen name="customer/[id]" />
+                    <Stack.Screen name="person/new" />
+                    <Stack.Screen name="person/[id]" />
+                    <Stack.Screen name="company/new" />
+                    <Stack.Screen name="company/[id]" />
+                    <Stack.Screen name="lead/new" />
+                    <Stack.Screen name="activity/new" />
                   </Stack>
                 </RealtimeProvider>
               </AuthGuard>
@@ -197,29 +207,42 @@ function AuthenticatedApp() {
 }
 
 function RootLayout() {
+  const { ready, language } = usePersistedLanguage();
+
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
 
+  // The language is read from storage before first paint so a Dutch phone never flashes English.
+  if (!ready) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color="#7C3AED" />
+      </View>
+    );
+  }
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardProvider>
-        <ErrorBoundary>
-          {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-              client sync races browser SSO on Android and signs users out again. */}
-          <ClerkProvider
-            publishableKey={CLERK_PUBLISHABLE_KEY || ''}
-            tokenCache={tokenCache}
-            __experimental_disableNativeClientSync
-          >
-            <ClerkLoaded>
-              <AuthenticatedApp />
-            </ClerkLoaded>
-          </ClerkProvider>
-        </ErrorBoundary>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+    <I18nProvider initialLanguage={language}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardProvider>
+          <ErrorBoundary>
+            {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
+                client sync races browser SSO on Android and signs users out again. */}
+            <ClerkProvider
+              publishableKey={CLERK_PUBLISHABLE_KEY || ''}
+              tokenCache={tokenCache}
+              __experimental_disableNativeClientSync
+            >
+              <ClerkLoaded>
+                <AuthenticatedApp />
+              </ClerkLoaded>
+            </ClerkProvider>
+          </ErrorBoundary>
+        </KeyboardProvider>
+      </GestureHandlerRootView>
+    </I18nProvider>
   );
 }
 
