@@ -35,6 +35,9 @@ export interface Env extends KitEnv {
   /** Worker name the customer's zone catch-all rule routes inbound mail to.
    *  Defaults to `weldsuite-mail-inbound` when unset. */
   MAIL_INBOUND_WORKER_NAME?: string;
+  /** Apex the shared `{slug}.{apex}` workspace domains are built on:
+   *  `weldmail.com` in production, `weldmail.org` on test. */
+  WELDMAIL_DOMAIN?: string;
   /** CF Workflow that sleeps until `scheduledFor` then dispatches a
    *  scheduled email via the Cloudflare send binding. Hosted in this worker
    *  (class re-exported from src/index.ts, @weldsuite/mail-domain) under the
