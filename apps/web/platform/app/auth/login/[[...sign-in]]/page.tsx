@@ -12,12 +12,13 @@ import {
   InputOTPSlot,
 } from '@weldsuite/ui/components/input-otp';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
-import { Loader2, Mail, Lock, KeyRound, ChevronLeft, Eye, EyeOff, Fingerprint } from 'lucide-react';
+import { Loader2, Mail, Lock, KeyRound, ChevronLeft, Eye, EyeOff, Fingerprint, Building2 } from 'lucide-react';
+import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
 import { getSafeCallbackUrl, getClerkErrorMessage } from '../../utils';
 import { isPasskeySupported, isPasskeyAutofillSupported, isPasskeyDismissed } from '@/lib/passkeys';
 import { getTranslations } from '@/lib/i18n';
 
-type LoginStep = 'credentials' | 'two-factor' | 'email-verify' | 'first-factor-verify';
+type LoginStep = 'credentials' | 'two-factor' | 'email-verify' | 'first-factor-verify' | 'sso';
 
 // Auth pages are always light, so pin the OTP slots to the white theme instead of the app theme tokens.
 const OTP_SLOT_CLASS =
@@ -159,6 +160,89 @@ function TwoFactorStep({
   );
 }
 
+interface SsoStepProps {
+  email: string;
+  /** The email came with an invitation and cannot be changed. */
+  emailLocked: boolean;
+  error: string | null;
+  isLoading: boolean;
+  isLoaded: boolean;
+  onEmailChange: (email: string) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onBack: () => void;
+}
+
+/** Single sign-on: the work email decides which company identity provider Clerk sends the person to. */
+function SsoStep({
+  email,
+  emailLocked,
+  error,
+  isLoading,
+  isLoaded,
+  onEmailChange,
+  onSubmit,
+  onBack,
+}: Readonly<SsoStepProps>) {
+  const t = getTranslations('common');
+  return (
+    <div className="min-h-screen bg-white flex relative">
+      <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
+        <div className="w-full max-w-[420px] mx-auto">
+          <div className="mb-5">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onBack}
+              className="text-gray-500 hover:text-black hover:underline underline-offset-4 inline-flex items-center gap-1 h-auto p-0 has-[>svg]:px-0 hover:bg-transparent dark:hover:bg-transparent transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4 -ml-[4px]" />
+              {t.auth.login.sso.backToLogin}
+            </Button>
+          </div>
+
+          <div className="mb-[32px]">
+            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">{t.auth.login.sso.title}</h1>
+            <p className="text-gray-600">{t.auth.login.sso.subtitle}</p>
+          </div>
+
+          <LoginErrorBanner error={error} />
+
+          <form onSubmit={onSubmit} className="space-y-[25px]">
+            <div>
+              <Label htmlFor="sso-email" className="mb-2 block text-gray-900">{t.auth.login.sso.emailLabel}</Label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[17px] w-[17px] text-gray-400 pointer-events-none" />
+                <Input
+                  id="sso-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder={t.auth.login.sso.emailPlaceholder}
+                  value={email}
+                  onChange={(e) => onEmailChange(e.target.value)}
+                  required
+                  disabled={isLoading || emailLocked}
+                  readOnly={emailLocked}
+                  autoFocus={!emailLocked}
+                  className={`pl-10 !h-[40px] !border-gray-300 text-gray-900 !text-[14px] selection:bg-blue-200 selection:text-gray-900 !ring-0 !ring-offset-0 focus:!ring-0 focus:!ring-offset-0 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus:!border-gray-400 ${emailLocked ? '!bg-gray-50 cursor-not-allowed' : '!bg-white'}`}
+                />
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              disabled={isLoading || !isLoaded || !email.trim()}
+              className="w-full h-[42px] shadow-none rounded-[calc(var(--radius)+1px)] bg-black hover:bg-black/90 text-white text-[14px]"
+              size="lg"
+            >
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t.auth.login.sso.continue}
+            </Button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type SignInResource = NonNullable<ReturnType<typeof useSignIn>['signIn']>;
 
 /**
@@ -243,7 +327,11 @@ export default function LoginPage() {
     userMemberships: true,
   });
 
-  const [step, setStep] = useState<LoginStep>('credentials');
+  // The system browser the desktop app opened for "Sign in with SSO" goes
+  // straight to the SSO step (like `provider=google` auto-starts Google).
+  const [step, setStep] = useState<LoginStep>(() =>
+    isDesktopHandoff && searchParams.get('provider') === 'sso' && !isDesktop() ? 'sso' : 'credentials',
+  );
   const [email, setEmail] = useState(prefillEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -253,10 +341,20 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
+  const [isSsoLoading, setIsSsoLoading] = useState(false);
   // Inside the Electron shell the passkey button hands off to the system
   // browser (like Google), so it is shown there even without WebAuthn.
   const [showPasskeyButton] = useState(() => isDesktop() || isPasskeySupported());
-  const [error, setError] = useState<string | null>(null);
+  // The SSO callback sends a failed identity-provider round trip back here.
+  const [error, setError] = useState<string | null>(() =>
+    searchParams.get('error') === 'sso_failed' ? t.auth.login.signInFailed : null,
+  );
+
+  // Where Clerk returns after an identity provider (Google or SSO), carrying
+  // the desktop handoff along.
+  const providerRedirectUrl = isDesktopHandoff
+    ? `/auth/sso-callback?desktop=1&return_to=${encodeURIComponent(desktopReturnTo)}`
+    : '/auth/sso-callback';
 
   // Redirect if already signed in
   useEffect(() => {
@@ -308,9 +406,7 @@ export default function LoginPage() {
     try {
       await signIn.authenticateWithRedirect({
         strategy: 'oauth_google',
-        redirectUrl: isDesktopHandoff
-          ? `/auth/sso-callback?desktop=1&return_to=${encodeURIComponent(desktopReturnTo)}`
-          : '/auth/sso-callback',
+        redirectUrl: providerRedirectUrl,
         redirectUrlComplete: postSignInUrl,
         // Force Google's account chooser every time. Without this Google
         // silently reuses the single active session, so users with multiple
@@ -338,6 +434,63 @@ export default function LoginPage() {
     void handleGoogleSignIn();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, signIn, isDesktopHandoff]);
+
+  // "Sign in with SSO": ask for the work email in the browser. Inside the
+  // Electron shell hand off to the system browser instead (company identity
+  // providers do not work in an embedded webview), which opens the SSO step
+  // itself (`provider=sso`); the handoff page deep-links a Clerk sign-in
+  // ticket back to the desktop app, as for Google. The email is typed in the
+  // browser, never carried in the URL.
+  const handleSsoClick = async () => {
+    setError(null);
+
+    if (isDesktop()) {
+      setIsSsoLoading(true);
+      try {
+        const returnTo = 'weldsuite://auth';
+        await getDesktop()?.signInExternally({
+          path: `/auth/login?desktop=1&provider=sso&return_to=${encodeURIComponent(returnTo)}`,
+          returnTo,
+        });
+      } catch {
+        setError(t.auth.login.couldNotOpenBrowser);
+        setIsSsoLoading(false);
+      }
+      // Intentionally leave the loading state on — the user's focus is now in
+      // their browser; the desktop window will receive `weldsuite://auth`.
+      return;
+    }
+
+    setStep('sso');
+  };
+
+  const handleSsoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const identifier = email.trim();
+    if (!isLoaded || !signIn || !identifier) {
+      return;
+    }
+
+    setError(null);
+    setIsSsoLoading(true);
+
+    try {
+      // Clerk looks up the enterprise connection of the email's domain and
+      // redirects to its identity provider; the callback page finishes sign-in.
+      await signIn.authenticateWithRedirect({
+        strategy: 'enterprise_sso',
+        identifier,
+        redirectUrl: providerRedirectUrl,
+        redirectUrlComplete: postSignInUrl,
+      });
+    } catch (err) {
+      // Clerk refuses an email whose domain has no (active) connection. Its own
+      // wording is English, so the person gets a translated message instead.
+      setError(isClerkAPIResponseError(err) ? t.auth.login.sso.notAvailable : t.auth.login.sso.failed);
+      setIsSsoLoading(false);
+    }
+  };
 
   // Shared by the passkey button and the autofill (conditional UI) flow.
   // A passkey normally satisfies MFA on its own, but fall through to the
@@ -623,6 +776,26 @@ export default function LoginPage() {
     }
   };
 
+  // Single sign-on step
+  if (step === 'sso') {
+    return (
+      <SsoStep
+        email={email}
+        emailLocked={!!prefillEmail}
+        error={error}
+        isLoading={isSsoLoading}
+        isLoaded={isLoaded}
+        onEmailChange={setEmail}
+        onSubmit={handleSsoSubmit}
+        onBack={() => {
+          setStep('credentials');
+          setIsSsoLoading(false);
+          setError(null);
+        }}
+      />
+    );
+  }
+
   // Two-factor authentication step
   if (step === 'two-factor') {
     return (
@@ -876,6 +1049,25 @@ export default function LoginPage() {
               )}
             </Button>
           )}
+
+          {/* Single sign-on */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSsoClick}
+            disabled={isSsoLoading || !isLoaded}
+            className="w-full h-[42px] mt-3 shadow-none rounded-[calc(var(--radius)+1px)] !border-gray-300 !bg-white !text-gray-700 hover:!bg-gray-50 hover:!text-gray-700 text-[14px]"
+            size="lg"
+          >
+            {isSsoLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <>
+                <Building2 className="h-5 w-5 mr-2" />
+                {t.auth.login.signInWithSso}
+              </>
+            )}
+          </Button>
 
           {/* Divider */}
           <div className="relative my-6">

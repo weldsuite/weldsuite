@@ -48,6 +48,7 @@ const routes: SmokeRoute[] = [
   { path: '/settings/roles' },
   { path: '/settings/security' },
   { path: '/settings/shortcuts' },
+  { path: '/settings/sso' },
   { path: '/settings/team' },
 ];
 

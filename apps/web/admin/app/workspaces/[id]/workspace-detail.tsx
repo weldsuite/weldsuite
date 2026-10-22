@@ -22,6 +22,7 @@ import type {
   PaymentRow,
   PlanOption,
   SnapshotState,
+  SsoViewState,
   WorkspaceBilling,
 } from '@/lib/billing-types';
 import { adminCopy } from '@/lib/i18n';
@@ -37,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { StatusBadge, formatDate } from '../workspace-presentation';
 import { SubscriptionCard } from './billing/subscription-card';
 import { CreditsCard } from './billing/credits-card';
+import { SsoCard } from './billing/sso-card';
 import { HistoryCard } from './billing/history-card';
 
 /** `org:admin` → `Admin`. Unknown Clerk roles fall through unchanged. */
@@ -69,6 +71,7 @@ export function WorkspaceDetail({
   payments,
   activity,
   snapshotState,
+  ssoState,
   appAccess,
   appUsage,
   outbound,
@@ -86,6 +89,8 @@ export function WorkspaceDetail({
   payments: PaymentRow[];
   activity: AuditEventRow[];
   snapshotState: SnapshotState;
+  /** Single sign-on: entitlement, price, add-on and connection, from the billing worker. */
+  ssoState: SsoViewState;
   /** The apps that are on request only, with this workspace's access to each. */
   appAccess: WorkspaceAppAccessEntry[];
   /** WeldReach usage by app code, for the apps that have any. */
@@ -159,6 +164,7 @@ export function WorkspaceDetail({
 
           <TabsContent value="billing" className="space-y-4">
             <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
+            <SsoCard workspaceId={workspace.id} state={ssoState} canWrite={canWrite} />
             <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
             <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
           </TabsContent>

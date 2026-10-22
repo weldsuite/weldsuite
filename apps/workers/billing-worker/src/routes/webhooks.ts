@@ -35,6 +35,7 @@ import { isPartnerStatementInvoice } from '@weldsuite/core-domain/partners';
 import { handlePartnerInvoicePaid, handlePartnerInvoiceVoided } from '../services/partner-billing';
 import { handleReachInvoiceEvent, handleReachSubscriptionEvent } from '../services/reach-billing-webhooks';
 import { isBankConnectionInvoice, isBankConnectionSubscription } from '../services/bank-connection-billing';
+import { handleSsoSubscriptionEvent, isSsoInvoice } from '../services/sso-billing';
 import {
   RealtimeRegistrar,
   RealtimeRegistrarError,
@@ -597,6 +598,9 @@ async function handleSubscriptionUpdated(
   // WeldBooks extra bank connections: no plan or seat state, nothing stored
   if (isBankConnectionSubscription(subscription)) return;
 
+  // SSO add-on: its status is mirrored onto workspace_sso and decides the Clerk connection
+  if (await handleSsoSubscriptionEvent(env, masterDb, subscription)) return;
+
   // Phone and agents subscriptions have no plan/seat state to sync
   if (await isNonPlanSubscription(masterDb, subscription)) return;
 
@@ -821,6 +825,9 @@ async function handleSubscriptionDeleted(
 
   // WeldBooks extra bank connections: nothing stored, so nothing to clear
   if (isBankConnectionSubscription(subscription)) return;
+
+  // SSO add-on: workspace_sso.subscription_status -> canceled; the connection follows entitlement
+  if (await handleSsoSubscriptionEvent(env, masterDb, subscription)) return;
 
   // Check if this is a phone subscription
   const [phoneWorkspace] = await masterDb
@@ -1053,6 +1060,9 @@ async function handleInvoicePaid(
   // WeldBooks extra bank connections: no plan credits
   if (isBankConnectionInvoice(invoice)) return;
 
+  // SSO add-on: no plan credits (its status follows customer.subscription.updated)
+  if (isSsoInvoice(invoice)) return;
+
   // Check if this invoice belongs to a phone subscription — skip credit sync
   const [phoneWorkspace] = await masterDb
     .select({ id: workspaces.id })
@@ -1277,6 +1287,12 @@ async function handleInvoicePaymentFailed(
 
   // WeldBooks extra bank connections: Stripe's own retries handle it; the invoice is recorded
   if (isBankConnectionInvoice(invoice)) {
+    await handleInvoiceUpsert(masterDb, invoice);
+    return;
+  }
+
+  // SSO add-on: the same; SSO keeps working while past_due (customer.subscription.updated)
+  if (isSsoInvoice(invoice)) {
     await handleInvoiceUpsert(masterDb, invoice);
     return;
   }

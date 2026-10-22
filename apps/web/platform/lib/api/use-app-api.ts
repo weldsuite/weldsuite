@@ -66,6 +66,7 @@ import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/we
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
 import { createReachApi } from '@weldsuite/app-api-client/domains/reach';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
+import { createSsoApi } from '@weldsuite/app-api-client/domains/sso';
 import { createWeldHrPayrollApi } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createMeetingSessionsApi } from '@weldsuite/app-api-client/domains/meeting-sessions';
 import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
@@ -199,6 +200,9 @@ export function useAppApi() {
       // WeldReach (reach-api) and the on-request access flow (app-api).
       reach: createReachApi(lazyClient),
       appAccess: createAppAccessApi(lazyClient),
+      // Enterprise single sign-on: domain proof, SAML connection, on/off and
+      // the add-on subscription (its billing paths are forwarded to billing-worker).
+      sso: createSsoApi(lazyClient),
       weldhr: createWeldHrApi(lazyClient),
       weldhrPayroll: createWeldHrPayrollApi(lazyClient),
 

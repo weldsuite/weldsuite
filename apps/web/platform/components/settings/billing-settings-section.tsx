@@ -114,7 +114,7 @@ const getEmailPrice = (_planName: string, creditCount: number, currency: string)
 // Feature comparison table data (matching weldsuite.org/pricing). Labels live in
 // the settings locale under `billingComparison`; a string value that is one of
 // COMPARISON_VALUE_TOKENS is resolved there too, any other string (`3–25`, `25MB`) is shown as is.
-const COMPARISON_VALUE_TOKENS = ['unlimited', 'custom', 'days7', 'days30', 'days90'] as const;
+const COMPARISON_VALUE_TOKENS = ['unlimited', 'custom', 'days7', 'days30', 'days90', 'addOn'] as const;
 type ComparisonValueToken = (typeof COMPARISON_VALUE_TOKENS)[number];
 const isComparisonValueToken = (val: string): val is ComparisonValueToken =>
   (COMPARISON_VALUE_TOKENS as readonly string[]).includes(val);
@@ -145,7 +145,8 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
       { key: 'prioritySupport', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
       { key: 'dedicatedSupport', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { key: 'apiAccess', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      { key: 'ssoSaml', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
+      // Included in Enterprise; Business and Scale can buy it as a monthly add-on (Settings > Single sign-on).
+      { key: 'ssoSaml', indent: true, values: { free: false, business: 'addOn', scale: 'addOn', enterprise: true } },
       { key: 'customIntegrations', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { key: 'rolesAndPermissions', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { key: 'activityLog', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },

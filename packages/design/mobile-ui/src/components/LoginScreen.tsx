@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useClerk, useAuth, useSSO, useOrganizationList } from '@clerk/expo';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import { Eye, EyeOff, Fingerprint } from 'lucide-react-native';
+import { Building2, Eye, EyeOff, Fingerprint } from 'lucide-react-native';
 import { LOGIN_COPY, type LoginLanguage, type LoginScreenCopy } from '../constants/login-copy';
 import { authErrorMessage, isValidEmail, passwordErrorMessage } from '../lib/auth-errors';
 
@@ -336,6 +336,77 @@ function AppleSignInButton({
   );
 }
 
+// Enterprise SSO button — Clerk finds the company's identity provider from the
+// email's domain (a workspace's SAML connection) and opens it in the browser.
+function EnterpriseSsoButton({
+  email,
+  onOrgSelect,
+  disabled,
+  isLoading,
+  setIsLoading,
+  setFormError,
+  labels,
+  colors,
+}: Readonly<{
+  email: string;
+  onOrgSelect: () => Promise<void>;
+  disabled: boolean;
+  isLoading: boolean;
+  setIsLoading: (v: boolean) => void;
+  setFormError: (v: string | null) => void;
+  labels: Pick<LoginScreenCopy, 'continueSso' | 'ssoNeedsEmail' | 'ssoFailed'>;
+  colors: ThemeColors;
+}>) {
+  const { startSSOFlow } = useSSO();
+
+  const onPress = useCallback(async () => {
+    if (isLoading) return;
+    if (!isValidEmail(email)) {
+      setFormError(labels.ssoNeedsEmail);
+      return;
+    }
+    setIsLoading(true);
+    setFormError(null);
+    try {
+      const result = await startSSOFlow({
+        strategy: 'enterprise_sso',
+        identifier: email.trim(),
+        redirectUrl: ssoRedirectUrl(),
+      });
+      if (!(await activateSsoSession(result, onOrgSelect))) {
+        setFormError(labels.ssoFailed);
+      }
+    } catch (e: unknown) {
+      const code = (e as { code?: unknown } | null)?.code;
+      if (code === 'SIGN_IN_CANCELLED' || code === '-5' || code === 'ERR_REQUEST_CANCELED') return;
+      // One message whatever Clerk said, so the screen does not tell which addresses have accounts.
+      setFormError(labels.ssoFailed);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [startSSOFlow, email, isLoading, onOrgSelect, setIsLoading, setFormError, labels]);
+
+  return (
+    <TouchableOpacity
+      style={[styles.oauthButton, { backgroundColor: colors.secondary }, isLoading && styles.buttonDisabled]}
+      onPress={onPress}
+      activeOpacity={0.8}
+      disabled={disabled || isLoading}
+      accessibilityRole="button"
+      testID="login-sso"
+    >
+      {isLoading ? (
+        <ActivityIndicator color={colors.text} />
+      ) : (
+        <View style={styles.oauthButtonContent}>
+          <Building2 size={20} color={colors.text} />
+          <Text style={[styles.oauthButtonText, { color: colors.text }]}>{labels.continueSso}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
 export type { LoginScreenCopy } from '../constants/login-copy';
 
 export interface LoginScreenProps {
@@ -366,6 +437,11 @@ export interface LoginScreenProps {
    * the Clerk instance has passkeys off.
    */
   showPasskeyLogin?: boolean;
+  /**
+   * Show "Sign in with SSO" for workspaces that sign in through their own
+   * identity provider (default: true). Uses the email typed in the form.
+   */
+  showSsoLogin?: boolean;
   /** Brand accent for CTA, focus rings, and links (default: '#3B82F6') */
   accentColor?: string;
 }
@@ -481,6 +557,7 @@ export function LoginScreen({
   showGoogleLogin = true,
   showAppleLogin = true,
   showPasskeyLogin = false,
+  showSsoLogin = true,
   accentColor = '#3B82F6',
 }: Readonly<LoginScreenProps>) {
   useWarmUpBrowser();
@@ -500,6 +577,8 @@ export function LoginScreen({
   const isAppleDevice = Platform.OS === 'ios';
   const isNativePlatform = Platform.OS === 'ios' || Platform.OS === 'android';
   const showPasskey = showPasskeyLogin && isNativePlatform && instanceAllowsPasskeys(clerk);
+  // SSO needs the email from the form to find the company's identity provider.
+  const showSso = showSsoLogin && showEmailLogin && isNativePlatform;
 
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
@@ -510,6 +589,7 @@ export function LoginScreen({
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isAppleLoading, setIsAppleLoading] = useState(false);
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
+  const [isSsoLoading, setIsSsoLoading] = useState(false);
 
   // Reset-password fields
   const [resetCode, setResetCode] = useState('');
@@ -826,7 +906,7 @@ export function LoginScreen({
   }
 
   const anyLoading =
-    isValidating || isGoogleLoading || isAppleLoading || isPasskeyLoading || isSendingReset || isResetting;
+    isValidating || isGoogleLoading || isAppleLoading || isPasskeyLoading || isSsoLoading || isSendingReset || isResetting;
   const iconW = logoSize?.width ?? 40;
   const iconH = logoSize?.height ?? 40;
 
@@ -1107,7 +1187,7 @@ export function LoginScreen({
               )}
 
               {showEmailLogin &&
-                ((showGoogleLogin && isNativePlatform) || (showAppleLogin && isAppleDevice) || showPasskey) && (
+                ((showGoogleLogin && isNativePlatform) || (showAppleLogin && isAppleDevice) || showPasskey || showSso) && (
                 <View style={styles.dividerContainer}>
                   <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
                   <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>{labels.or}</Text>
@@ -1166,6 +1246,21 @@ export function LoginScreen({
                     </View>
                   )}
                 </TouchableOpacity>
+              )}
+
+              {showSso && (
+                <OAuthErrorBoundary>
+                  <EnterpriseSsoButton
+                    email={email}
+                    onOrgSelect={autoSelectOrg}
+                    disabled={anyLoading}
+                    isLoading={isSsoLoading}
+                    setIsLoading={setIsSsoLoading}
+                    setFormError={setFormError}
+                    labels={labels}
+                    colors={colors}
+                  />
+                </OAuthErrorBoundary>
               )}
             </View>
             )}

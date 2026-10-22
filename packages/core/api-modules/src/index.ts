@@ -122,6 +122,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/roles',
     '/api/search',
     '/api/settings/profile',
+    '/api/sso',
     '/api/storage',
     '/api/support',
     '/api/team-members',

@@ -1313,6 +1313,17 @@ export {
   type WorkspaceAppAccess,
   type NewWorkspaceAppAccess,
 } from './app-access';
+// Enterprise SSO: the workspace's verified domain, Clerk SAML connection and
+// the SSO add-on subscription.
+export {
+  workspaceSso,
+  SSO_PROVIDERS,
+  SSO_SUBSCRIPTION_STATUSES,
+  type SsoProvider,
+  type SsoSubscriptionStatus,
+  type WorkspaceSso,
+  type NewWorkspaceSso,
+} from './workspace-sso';
 // WeldReach: Mailpool ids and inbound tokens -> workspace.
 export {
   reachRoutes,

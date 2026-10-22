@@ -3,10 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { getAdminIdentity, guardWrite } from '@/lib/auth';
 import { callBillingWorker } from '@/lib/billing-worker';
+import type { SsoPriceCurrency } from '@weldsuite/app-api-client/schemas/sso';
 import type {
   CollectionMethod,
   InvoicePreview,
   ProrationBehavior,
+  SsoAdminResult,
   SubscriptionCycle,
   WithWarnings,
 } from '@/lib/billing-types';
@@ -161,4 +163,36 @@ export async function voidInvoice(
     input,
     requestId,
   );
+}
+
+// ============================================================================
+// Single sign-on add-on
+// ============================================================================
+
+/**
+ * Set the workspace's SSO price: `priceCents` null = the list price, 0 = free
+ * (ends a running add-on at once, SSO stays on), above 0 = a custom monthly
+ * price in `currency`. `switchOn` starts the add-on on the card on file when
+ * none is running.
+ */
+export async function grantSso(
+  workspaceId: string,
+  input: { priceCents: number | null; currency: SsoPriceCurrency | null; switchOn: boolean; reason: string },
+  requestId: string,
+) {
+  return workspaceWrite<SsoAdminResult>(workspaceId, '/sso/grant', input, requestId);
+}
+
+/** Clear the SSO price and end the add-on, at period end or at once. */
+export async function revokeSso(
+  workspaceId: string,
+  input: { mode: 'period_end' | 'immediately'; reason: string },
+  requestId: string,
+) {
+  return workspaceWrite<SsoAdminResult>(workspaceId, '/sso/revoke', input, requestId);
+}
+
+/** Support's off switch for a connection whose identity provider locks people out; the configuration stays. */
+export async function disableSsoConnection(workspaceId: string, input: { reason: string }, requestId: string) {
+  return workspaceWrite<{ wasEnabled: boolean }>(workspaceId, '/sso/connection/disable', input, requestId);
 }

@@ -22,9 +22,11 @@ import { appSubscriptionsRoutes } from './routes/app-subscriptions';
 import { appDeveloperAccountsRoutes } from './routes/app-developer-accounts';
 import { reachBillingRoutes } from './routes/reach-billing';
 import { bankConnectionBillingRoutes } from './routes/bank-connection-billing';
+import { ssoBillingRoutes } from './routes/sso-billing';
 import { adminRoutes } from './routes/admin';
 import { runCompSweep } from './services/comp-sweep';
 import { runPartnerSweeps } from './services/partner-sweep';
+import { runSsoSweep } from './services/sso-billing';
 import { sql } from 'drizzle-orm';
 import { getMasterDb } from './lib/db';
 
@@ -46,7 +48,10 @@ export interface Env {
   /** WeldBooks extra bank connection price. When unset the price is created lazily and
    *  found again through its lookup key (services/bank-connection-billing.ts). */
   STRIPE_PRICE_BANK_CONNECTION?: string;
-  // Clerk (for JWT verification on API routes)
+  /** SSO add-on list price (€100 / $100 a month). When unset the price is created lazily
+   *  and found again through its lookup key (services/sso-billing.ts). */
+  STRIPE_PRICE_SSO?: string;
+  // Clerk (JWT verification on API routes; seat caps and SSO connections through the Backend API)
   CLERK_SECRET_KEY: string;
   CLERK_JWT_KEY: string;
   // Clerk M2M authentication (machine-to-machine tokens)
@@ -176,6 +181,9 @@ app.route('/api/billing/reach', reachBillingRoutes);
 // WeldBooks extra bank connections (Clerk JWT auth; books-api forwards the user's JWT)
 app.route('/api/billing/bank-connections', bankConnectionBillingRoutes);
 
+// SSO add-on (Clerk JWT auth; app-api forwards the user's JWT after checking billing:manage)
+app.route('/api/billing/sso', ssoBillingRoutes);
+
 // Agent-package billing (Clerk JWT + admin-only)
 app.route('/api/billing/agents', agentBillingRoutes);
 
@@ -226,9 +234,15 @@ export default {
   // monthly credits of comped workspaces, then the reseller-licensing sweeps
   // (seat snapshots, licensed-credit reset, dunning daily at 02:xx UTC; the
   // statement run on the 1st at 03:xx UTC), which gate themselves by UTC hour.
+  // The SSO sweep keeps Clerk connections in step with entitlement.
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
       runCompSweep(env).catch((err) => console.error('[Comp Sweep] Run failed:', err)),
+    );
+    ctx.waitUntil(
+      runSsoSweep(env, getMasterDb(env))
+        .then((result) => console.log('[SSO Sweep] Done', result))
+        .catch((err) => console.error('[SSO Sweep] Run failed:', err)),
     );
     ctx.waitUntil(
       runPartnerSweeps(env, new Date(event.scheduledTime)).catch((err) =>

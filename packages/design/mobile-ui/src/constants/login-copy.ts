@@ -17,6 +17,10 @@ export interface LoginScreenCopy {
   continueGoogle: string;
   continueApple: string;
   continuePasskey: string;
+  /** Enterprise SSO through the company's identity provider, for the email typed above. */
+  continueSso: string;
+  ssoNeedsEmail: string;
+  ssoFailed: string;
   twoStepTitle: string;
   totpHint: string;
   phoneHint: string;
@@ -77,6 +81,9 @@ const en: LoginScreenCopy = {
   continueGoogle: 'Continue with Google',
   continueApple: 'Continue with Apple',
   continuePasskey: 'Sign in with a passkey',
+  continueSso: 'Sign in with SSO',
+  ssoNeedsEmail: 'Enter your work email above to sign in with SSO.',
+  ssoFailed: "Couldn't sign in with SSO. Check that your company uses single sign-on for this email address, or sign in another way.",
   twoStepTitle: 'Two-step verification',
   totpHint: 'Enter the 6-digit code from your authenticator app.',
   phoneHint: 'Enter the code we sent to {phone}.',
@@ -133,6 +140,9 @@ const nl: LoginScreenCopy = {
   continueGoogle: 'Doorgaan met Google',
   continueApple: 'Doorgaan met Apple',
   continuePasskey: 'Inloggen met een passkey',
+  continueSso: 'Inloggen met SSO',
+  ssoNeedsEmail: 'Vul hierboven je werk-e-mailadres in om met SSO in te loggen.',
+  ssoFailed: 'Inloggen met SSO is niet gelukt. Controleer of je bedrijf single sign-on gebruikt voor dit e-mailadres, of log op een andere manier in.',
   twoStepTitle: 'Tweestapsverificatie',
   totpHint: 'Voer de 6-cijferige code uit je authenticator-app in.',
   phoneHint: 'Voer de code in die we naar {phone} hebben gestuurd.',
