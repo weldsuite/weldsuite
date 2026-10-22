@@ -76,6 +76,8 @@ export interface CallSession {
   peerName?: string;
   /** Callee avatar URL shown on the outgoing-call screen. */
   peerAvatar?: string | null;
+  /** Joined by answering a ring: the caller is already in the room, so no ringback. */
+  answered?: boolean;
 }
 
 /** Optional callee identity supplied when placing a direct (1:1) call. */
@@ -152,6 +154,29 @@ type IncomingCallData = {
   callerAvatar?: string;
 };
 
+/** Ring-screen name when the ring did not say who is calling. */
+const UNKNOWN_CALLER = 'Incoming call';
+
+type JoinedParticipant = { userId: string; userName?: string; userAvatar?: string; leftAt?: string };
+
+/**
+ * Who you are talking to on an answered ring. The join response lists the
+ * caller (they are already in the room), which also covers rings that arrived
+ * without a name or avatar (server recovery, a bare push).
+ */
+function peerOfAnsweredCall(
+  ic: IncomingCall,
+  participants: JoinedParticipant[] | undefined,
+  selfId: string | null | undefined,
+): { name?: string; avatar?: string } {
+  const caller = participants?.find((p) => p.userId !== selfId && !p.leftAt);
+  const ringName = ic.callerName === UNKNOWN_CALLER ? undefined : ic.callerName;
+  return {
+    name: caller?.userName || ringName,
+    avatar: caller?.userAvatar || ic.callerAvatar,
+  };
+}
+
 export function CallProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { userId } = useAuth();
 
@@ -217,7 +242,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
       callId: payload.callId,
       channelId: payload.channelId,
       callType: payload.callType ?? 'voice',
-      callerName: payload.callerName || 'Incoming call',
+      callerName: payload.callerName || UNKNOWN_CALLER,
       callerAvatar: payload.callerAvatar,
     });
     setStatus('ringing-incoming');
@@ -275,7 +300,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
         callId: candidate.callId,
         channelId: candidate.channelId,
         callType: candidate.callType ?? 'voice',
-        callerName: candidate.initiatorName || 'Incoming call',
+        callerName: candidate.initiatorName || UNKNOWN_CALLER,
       });
     } catch {
       // best-effort recovery
@@ -389,7 +414,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
         callId: d.callId,
         channelId: d.channelId,
         callType: (d.callType as CallType) ?? 'voice',
-        callerName: d.callerName ?? 'Incoming call',
+        callerName: d.callerName || UNKNOWN_CALLER,
         callerAvatar: d.callerAvatar,
       });
     } else if (event.event === 'call_started') {
@@ -511,11 +536,17 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
     if (Platform.OS === 'android') endNativeCall(ic.callId);
     try {
       const joinRes = await appApi.chatCalls.join(ic.callId);
+      const peer = peerOfAnsweredCall(ic, joinRes.data.participants, userId);
       setSession({
         callId: ic.callId,
         channelId: ic.channelId,
         callType: ic.callType,
         authToken: joinRes.data.authToken,
+        // Only DMs ring, so an answered ring is always 1:1.
+        isDirect: true,
+        answered: true,
+        peerName: peer.name,
+        peerAvatar: peer.avatar,
       });
       setMinimized(false);
     } catch (err) {
@@ -526,7 +557,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
     } finally {
       joinInFlightRef.current = false;
     }
-  }, []);
+  }, [userId]);
 
   const acceptIncomingCall = useCallback(async () => {
     if (incomingCall) await acceptCall(incomingCall);

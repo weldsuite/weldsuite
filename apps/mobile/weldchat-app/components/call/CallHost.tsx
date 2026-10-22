@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, PermissionsAndroid, Platform } from 'react-native';
 import { useSafeAreaInsets, SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Phone, Mic, MicOff } from 'lucide-react-native';
@@ -19,13 +19,32 @@ import {
   RealtimeKitProvider,
   useRealtimeKitClient,
 } from '@cloudflare/realtimekit-react-native';
-import { useCall, type CallSession } from '@/contexts/CallContext';
+import { useCall, type CallSession, type CallType } from '@/contexts/CallContext';
 import { useLoopingSound } from '@/hooks/useLoopingSound';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
 import { InCallRoom } from './InCallRoom';
 
 const RINGBACK = require('@/assets/sounds/ringback.wav');
+
+/** How long a 1:1 call waits for the other person to come back before hanging up. */
+const PEER_GONE_GRACE_MS = 10_000;
+
+/**
+ * Android grants the mic (and camera) at runtime. Ask before joining instead
+ * of leaving it to the WebRTC layer: answering a ring is often the first time
+ * the app touches the mic. Already granted → resolves without a prompt.
+ */
+async function ensureCallPermissions(callType: CallType): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  const wanted = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
+  if (callType === 'video') wanted.push(PermissionsAndroid.PERMISSIONS.CAMERA);
+  try {
+    await PermissionsAndroid.requestMultiple(wanted);
+  } catch {
+    // Join anyway: RealtimeKit then shows the mic as off.
+  }
+}
 
 /**
  * Explicitly stop the local camera/mic MediaStreamTracks held by the RTK
@@ -58,7 +77,7 @@ function stopLocalMediaTracks(meeting: ReturnType<typeof useRealtimeKitClient>[0
 }
 
 function getConnectingLabel(session: CallSession): string {
-  if (!session.isDirect) return 'Connecting…';
+  if (!session.isDirect || session.answered) return 'Connecting…';
   const peerSuffix = session.peerName ? ` ${session.peerName}` : '';
   return `Calling${peerSuffix}…`;
 }
@@ -69,9 +88,15 @@ function formatDuration(totalSeconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function getBarStatus(reconnecting: boolean, connected: boolean, duration: number): string {
+function getCallStatus(
+  session: CallSession,
+  reconnecting: boolean,
+  connected: boolean,
+  duration: number,
+): string {
   if (reconnecting) return 'Reconnecting…';
-  return connected ? formatDuration(duration) : 'Ringing';
+  if (connected) return formatDuration(duration);
+  return session.answered ? 'Connecting…' : 'Ringing';
 }
 
 /** Height of the minimized call bar's body (below the status-bar inset). */
@@ -139,6 +164,8 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
   const [duration, setDuration] = useState(0);
   const startedAtRef = useRef(0);
   const [reconnecting, setReconnecting] = useState(false);
+  const reconnectingRef = useRef(false);
+  reconnectingRef.current = reconnecting;
 
   const [audioEnabled, setAudioEnabled] = useState(true);
   useEffect(() => {
@@ -179,6 +206,8 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
     let cancelled = false;
     void (async () => {
       try {
+        await ensureCallPermissions(session.callType);
+        if (cancelled) return;
         await initMeeting({
           authToken: session.authToken,
           defaults: { audio: true, video: session.callType === 'video' },
@@ -219,42 +248,70 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
     };
   }, [meeting, markConnected, handleLeave]);
 
-  // Latch "answered" once a remote participant stays present (for ringback + bar status).
+  // Latch "answered" once a remote participant stays present (for ringback, the
+  // timer and the bar status). Peer events come from `participants.joined`, not
+  // `participants`. Whoever was already in the room (the caller, when we
+  // answered) is only listed once `roomJoined` fires, so re-check then too.
   useEffect(() => {
     if (!meeting) return;
-    const parts = meeting.participants as unknown as {
-      joined?: { toArray?: () => unknown[] };
+    const joined = meeting.participants.joined as unknown as {
+      toArray?: () => unknown[];
       on?: (e: string, cb: () => void) => void;
       off?: (e: string, cb: () => void) => void;
     };
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const count = () => parts.joined?.toArray?.().length ?? 0;
+    let connectTimer: ReturnType<typeof setTimeout> | null = null;
+    let peerGoneTimer: ReturnType<typeof setTimeout> | null = null;
+    const count = () => joined.toArray?.().length ?? 0;
     const evaluate = () => {
-      if (connectedRef.current) return;
-      if (count() > 0) {
-        timer ??= setTimeout(() => {
-          timer = null;
-          if (count() > 0) {
-            startedAtRef.current = Date.now();
-            setConnected(true);
-          }
-        }, 600);
-      } else if (timer) {
-        clearTimeout(timer);
-        timer = null;
+      const present = count() > 0;
+      if (!connectedRef.current) {
+        if (present) {
+          connectTimer ??= setTimeout(() => {
+            connectTimer = null;
+            if (count() > 0) {
+              startedAtRef.current = Date.now();
+              setConnected(true);
+            }
+          }, 600);
+        } else if (connectTimer) {
+          clearTimeout(connectTimer);
+          connectTimer = null;
+        }
+        return;
+      }
+      // 1:1 call and the other person is gone: their leave does not end the
+      // call server side while we are still in the room, so hang up here. The
+      // grace period rides out their reconnect after a network drop.
+      if (!session.isDirect) return;
+      if (present) {
+        if (peerGoneTimer) clearTimeout(peerGoneTimer);
+        peerGoneTimer = null;
+      } else {
+        peerGoneTimer ??= setTimeout(() => {
+          peerGoneTimer = null;
+          if (count() === 0 && !reconnectingRef.current) void handleLeave();
+        }, PEER_GONE_GRACE_MS);
       }
     };
+    // A reconnect rebuilds the list: cleared, then everyone re-added right after.
+    const onCleared = () => queueMicrotask(evaluate);
     evaluate();
-    parts.on?.('participantJoined', evaluate);
-    parts.on?.('participantLeft', evaluate);
+    meeting.self.on('roomJoined', evaluate);
+    joined.on?.('participantJoined', evaluate);
+    joined.on?.('participantLeft', evaluate);
+    joined.on?.('participantsCleared', onCleared);
     return () => {
-      if (timer) clearTimeout(timer);
-      parts.off?.('participantJoined', evaluate);
-      parts.off?.('participantLeft', evaluate);
+      if (connectTimer) clearTimeout(connectTimer);
+      if (peerGoneTimer) clearTimeout(peerGoneTimer);
+      meeting.self.off('roomJoined', evaluate);
+      joined.off?.('participantJoined', evaluate);
+      joined.off?.('participantLeft', evaluate);
+      joined.off?.('participantsCleared', onCleared);
     };
-  }, [meeting]);
+  }, [meeting, session.isDirect, handleLeave]);
 
-  useLoopingSound(!!session.isDirect && !connected, RINGBACK);
+  // Ringback only for the caller; an answered ring already has the caller there.
+  useLoopingSound(!!session.isDirect && !session.answered && !connected, RINGBACK, { duringCall: true });
 
   useEffect(() => {
     if (!connected) return;
@@ -279,6 +336,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
   }, []);
 
   const { colors } = useTheme();
+  const callStatus = getCallStatus(session, reconnecting, connected, duration);
 
   return (
     <>
@@ -293,8 +351,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
               peerName={session.peerName}
               peerAvatar={session.peerAvatar ?? undefined}
               callType={session.callType}
-              duration={duration}
-              reconnecting={reconnecting}
+              status={callStatus}
               onMinimize={minimizeCall}
               onLeave={handleLeave}
             />
@@ -312,7 +369,7 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
       {minimized && (
         <MinimizedCallBar
           peerName={session.peerName}
-          status={getBarStatus(reconnecting, connected, duration)}
+          status={callStatus}
           isMuted={!audioEnabled}
           onToggleMute={toggleMute}
           onExpand={expandCall}
