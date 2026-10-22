@@ -1,106 +1,57 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  RefreshControl,
   ActivityIndicator,
-  View,
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
-  ScrollView,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Building, Mail, Phone, Plus, Star, User } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { User, Mail, Phone, Building, Star } from 'lucide-react-native';
-import { api } from '@/services/api';
+import { TabHeader } from '@/components/headers';
+import { usePagedList } from '@/hooks/use-paged-list';
+import { api, type CrmLead } from '@/services/api';
+import { interpolate, labelFor, useI18n } from '@/lib/i18n';
 
-interface Lead {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  company?: string;
-  status: string;
-  source?: string;
-  score?: number;
-  createdAt: string;
-}
-
-const LEAD_STATUS_CONFIG: Record<string, { label: string; color: string; backgroundColor: string }> = {
-  new: {
-    label: 'New',
-    color: '#1D4ED8',
-    backgroundColor: '#DBEAFE',
-  },
-  contacted: {
-    label: 'Contacted',
-    color: '#7C3AED',
-    backgroundColor: '#EDE9FE',
-  },
-  qualified: {
-    label: 'Qualified',
-    color: '#059669',
-    backgroundColor: '#D1FAE5',
-  },
-  converted: {
-    label: 'Converted',
-    color: '#14532D',
-    backgroundColor: '#DCFCE7',
-  },
-  lost: {
-    label: 'Lost',
-    color: '#991B1B',
-    backgroundColor: '#FEE2E2',
-  },
+const LEAD_STATUS_COLORS: Record<string, { color: string; backgroundColor: string }> = {
+  new: { color: '#1D4ED8', backgroundColor: '#DBEAFE' },
+  contacted: { color: '#7C3AED', backgroundColor: '#EDE9FE' },
+  qualified: { color: '#059669', backgroundColor: '#D1FAE5' },
+  converted: { color: '#14532D', backgroundColor: '#DCFCE7' },
+  lost: { color: '#991B1B', backgroundColor: '#FEE2E2' },
 };
+
+const FALLBACK_STATUS_COLORS = { color: '#374151', backgroundColor: '#F3F4F6' };
+
+const STATUS_FILTERS = ['new', 'contacted', 'qualified', 'converted', 'lost'] as const;
 
 export default function LeadsScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const toast = useToast();
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [total, setTotal] = useState(0);
+
+  const fetchLeads = useCallback(
+    (params: { cursor: string | null; search: string }) =>
+      api.getCrmLeads({ ...params, status: selectedStatus ?? undefined }),
+    [selectedStatus],
+  );
+
+  const leads = usePagedList<CrmLead>(fetchLeads, { search: searchQuery, resetKey: selectedStatus ?? '' });
 
   useEffect(() => {
-    void loadLeads();
-  }, [selectedStatus]);
+    if (leads.error) toast.error(t.leads.loadFailed);
+  }, [leads.error, t, toast]);
 
-  const loadLeads = async () => {
-    try {
-      setLoading(true);
-      const response = await api.getCrmLeads({
-        search: searchQuery || undefined,
-        filters: selectedStatus ? { status: selectedStatus } : undefined,
-      });
-
-      if (response.success && response.data) {
-        setLeads(response.data.items ?? []);
-        setTotal(response.data.meta?.total ?? 0);
-      }
-    } catch (error) {
-      console.error('Error loading leads:', error);
-      toast.error('Failed to load leads');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const handleSearch = () => {
-    void loadLeads();
-  };
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    void loadLeads();
-  };
-
-  const getScoreColor = (score?: number): string => {
+  const scoreColor = (score?: number): string => {
     if (!score) return colors.muted;
     if (score >= 80) return '#10B981';
     if (score >= 60) return '#F59E0B';
@@ -108,79 +59,20 @@ export default function LeadsScreen() {
     return colors.muted;
   };
 
-  const _formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const getStatusConfig = (status: string) => {
-    return LEAD_STATUS_CONFIG[status] || {
-      label: status.charAt(0).toUpperCase() + status.slice(1),
-      color: '#374151',
-      backgroundColor: '#F3F4F6',
-    };
-  };
-
-  const renderStatusFilter = () => {
-    const statusOptions = [
-      { key: null, label: 'All Leads' },
-      { key: 'new', label: 'New' },
-      { key: 'contacted', label: 'Contacted' },
-      { key: 'qualified', label: 'Qualified' },
-      { key: 'converted', label: 'Converted' },
-      { key: 'lost', label: 'Lost' },
-    ];
-
+  const renderLead = ({ item }: { item: CrmLead }) => {
+    const statusColors = LEAD_STATUS_COLORS[item.status] ?? FALLBACK_STATUS_COLORS;
     return (
-      <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
-          {statusOptions.map((item) => (
-            <TouchableOpacity
-              key={item.key || 'all'}
-              style={[
-                styles.filterButton,
-                {
-                  backgroundColor: selectedStatus === item.key ? colors.text : colors.background,
-                  borderColor: selectedStatus === item.key ? colors.text : colors.buttonBorder,
-                }
-              ]}
-              onPress={() => setSelectedStatus(item.key)}
-            >
-              <Text
-                style={[
-                  styles.filterButtonText,
-                  { color: selectedStatus === item.key ? colors.background : colors.text }
-                ]}
-              >
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    );
-  };
-
-  const renderLead = ({ item }: { item: Lead }) => {
-    const statusConfig = getStatusConfig(item.status);
-
-    return (
-      <TouchableOpacity
-        style={[styles.leadItem, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}
-        activeOpacity={0.7}
-      >
+      <View style={[styles.leadItem, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
         <View style={styles.leadContent}>
           <View style={styles.leadLeft}>
             <View style={styles.leadHeader}>
-              <Text style={[styles.leadName, { color: colors.text }]}>{item.name || 'Unknown'}</Text>
+              <Text style={[styles.leadName, { color: colors.text }]} numberOfLines={1}>
+                {item.name || t.leads.unnamed}
+              </Text>
               {item.score !== undefined && (
                 <View style={styles.scoreContainer}>
-                  <Star size={12} color={getScoreColor(item.score)} fill={getScoreColor(item.score)} strokeWidth={2} />
-                  <Text style={[styles.scoreText, { color: getScoreColor(item.score) }]}>{item.score}</Text>
+                  <Star size={12} color={scoreColor(item.score)} fill={scoreColor(item.score)} strokeWidth={2} />
+                  <Text style={[styles.scoreText, { color: scoreColor(item.score) }]}>{item.score}</Text>
                 </View>
               )}
             </View>
@@ -194,7 +86,7 @@ export default function LeadsScreen() {
                   </Text>
                 </View>
               )}
-              {item.company && (
+              {!!item.company && (
                 <View style={styles.detailRow}>
                   <Building size={12} color={colors.muted} strokeWidth={2} />
                   <Text style={[styles.detailText, { color: colors.muted }]} numberOfLines={1}>
@@ -204,259 +96,163 @@ export default function LeadsScreen() {
               )}
             </View>
 
-            {item.source && (
+            {!!item.source && (
               <Text style={[styles.sourceText, { color: colors.muted }]}>
-                Source: {item.source}
+                {interpolate(t.leads.source, { source: item.source })}
               </Text>
             )}
           </View>
 
           <View style={styles.leadRight}>
-            <View style={[styles.statusBadge, { backgroundColor: statusConfig.backgroundColor }]}>
-              <Text style={[styles.statusText, { color: statusConfig.color }]}>{statusConfig.label}</Text>
+            <View style={[styles.statusBadge, { backgroundColor: statusColors.backgroundColor }]}>
+              <Text style={[styles.statusText, { color: statusColors.color }]}>
+                {labelFor(t.leads.status, item.status)}
+              </Text>
             </View>
-            {item.phone && (
-              <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#10B981' + '20' }]}>
+            {!!item.phone && (
+              <View style={[styles.phoneIcon, { backgroundColor: '#10B98120' }]}>
                 <Phone size={16} color="#10B981" strokeWidth={2} />
-              </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>
-      </TouchableOpacity>
+      </View>
     );
   };
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyContainer}>
-      <View style={[styles.emptyIconContainer, { backgroundColor: '#F3F4F6' }]}>
-        <User size={32} color="#9CA3AF" strokeWidth={1.5} />
-      </View>
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>No Leads</Text>
-      <Text style={[styles.emptyText, { color: colors.muted }]}>
-        {searchQuery || selectedStatus
-          ? 'No leads match your filters'
-          : 'Your leads will appear here'
-        }
-      </Text>
-    </View>
-  );
-
-  if (loading && !refreshing) {
+  const renderEmpty = () => {
+    if (leads.loading) return null;
+    const message = leads.error
+      ? t.common.pullToRetry
+      : searchQuery || selectedStatus
+        ? t.leads.emptyFiltered
+        : t.leads.emptyNone;
     return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.text} />
-        <Text style={[styles.loadingText, { color: colors.muted }]}>Loading leads...</Text>
+      <View style={styles.emptyContainer}>
+        <View style={[styles.emptyIconContainer, { backgroundColor: colors.secondary }]}>
+          <User size={32} color={colors.muted} strokeWidth={1.5} />
+        </View>
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>
+          {leads.error ? t.leads.loadFailed : t.leads.emptyTitle}
+        </Text>
+        <Text style={[styles.emptyText, { color: colors.muted }]}>{message}</Text>
       </View>
     );
-  }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.background }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Leads ({total})</Text>
-      </View>
+      <TabHeader
+        title={interpolate(t.leads.titleWithCount, { count: leads.totalCount })}
+        right={
+          <TouchableOpacity
+            style={[styles.addButton, { borderColor: colors.buttonBorder }]}
+            onPress={() => router.push('/lead/new')}
+            accessibilityRole="button"
+            accessibilityLabel={t.leads.add}
+          >
+            <Plus size={18} color={colors.text} strokeWidth={2} />
+          </TouchableOpacity>
+        }
+      />
 
-      {/* Search Bar */}
-      <View style={[styles.searchContainer, { backgroundColor: colors.background }]}>
-        <View style={[styles.searchBar, { backgroundColor: '#F3F4F6' }]}>
+      <View style={styles.searchContainer}>
+        <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
           <Ionicons name="search" size={16} color={colors.muted} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
-            placeholder="Search leads..."
+            placeholder={t.leads.search}
             placeholderTextColor={colors.muted}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            onSubmitEditing={handleSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
             returnKeyType="search"
           />
         </View>
       </View>
 
-      {renderStatusFilter()}
+      <View style={[styles.filterContainer, { borderBottomColor: colors.divider }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
+          {[null, ...STATUS_FILTERS].map((key) => {
+            const active = selectedStatus === key;
+            return (
+              <TouchableOpacity
+                key={key ?? 'all'}
+                style={[
+                  styles.filterButton,
+                  {
+                    backgroundColor: active ? colors.text : colors.background,
+                    borderColor: active ? colors.text : colors.buttonBorder,
+                  },
+                ]}
+                onPress={() => setSelectedStatus(key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.filterButtonText, { color: active ? colors.background : colors.text }]}>
+                  {key ? t.leads.status[key] : t.leads.filterAll}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
-      <FlatList
-        data={leads}
-        renderItem={renderLead}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={leads.length === 0 ? styles.emptyListContainer : styles.listContainer}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-        ListEmptyComponent={renderEmptyState}
-        showsVerticalScrollIndicator={false}
-      />
+      {leads.loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.text} />
+          <Text style={[styles.loadingText, { color: colors.muted }]}>{t.leads.loading}</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={leads.items}
+          renderItem={renderLead}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={leads.items.length === 0 ? styles.emptyListContainer : undefined}
+          refreshControl={<RefreshControl refreshing={leads.refreshing} onRefresh={() => void leads.refresh()} />}
+          onEndReached={() => void leads.loadMore()}
+          onEndReachedThreshold={0.4}
+          ListEmptyComponent={renderEmpty}
+          ListFooterComponent={leads.loadingMore ? <ActivityIndicator style={styles.footerSpinner} color={colors.text} /> : null}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 12,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    letterSpacing: -0.3,
-  },
-  searchContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 4,
-    paddingBottom: 16,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '400',
-  },
-  filterContainer: {
-    paddingTop: 4,
-    paddingBottom: 12,
-    borderBottomWidth: 0.5,
-  },
-  filterList: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 24,
-  },
-  filterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 4,
-  },
-  filterButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  listContainer: {
-    paddingHorizontal: 0,
-  },
-  emptyListContainer: {
-    flex: 1,
-  },
-  leadItem: {
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderBottomWidth: 0.5,
-  },
-  leadContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  leadLeft: {
-    flex: 1,
-    marginRight: 12,
-  },
-  leadHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  leadName: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  scoreContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  scoreText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  leadDetails: {
-    gap: 2,
-    marginBottom: 4,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  detailText: {
-    fontSize: 12,
-    flex: 1,
-  },
-  sourceText: {
-    fontSize: 11,
-    fontStyle: 'italic',
-  },
-  leadRight: {
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  statusText: {
-    fontSize: 10,
-    fontWeight: '500',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  actionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  emptyIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    textAlign: 'center',
-    maxWidth: 250,
-  },
+  container: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 16, fontSize: 12 },
+  addButton: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  searchContainer: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, gap: 8 },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '400', padding: 0 },
+  filterContainer: { paddingBottom: 12, borderBottomWidth: 0.5 },
+  filterList: { flexDirection: 'row', gap: 8, paddingHorizontal: 16 },
+  filterButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  filterButtonText: { fontSize: 13, fontWeight: '500' },
+  emptyListContainer: { flex: 1 },
+  footerSpinner: { paddingVertical: 16 },
+  leadItem: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 0.5 },
+  leadContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  leadLeft: { flex: 1, marginRight: 12 },
+  leadHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  leadName: { fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  scoreContainer: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  scoreText: { fontSize: 12, fontWeight: '600' },
+  leadDetails: { gap: 2, marginBottom: 4 },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  detailText: { fontSize: 12, flex: 1 },
+  sourceText: { fontSize: 11, fontStyle: 'italic' },
+  leadRight: { alignItems: 'flex-end', gap: 8 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  statusText: { fontSize: 10, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.3 },
+  phoneIcon: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  emptyIconContainer: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  emptyTitle: { fontSize: 20, fontWeight: '600', marginBottom: 8 },
+  emptyText: { fontSize: 14, textAlign: 'center', maxWidth: 250 },
 });

@@ -10,12 +10,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 
+import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 
 const WELDSUITE_URL = 'https://weldsuite.com';
 
 export default function NoWorkspaceScreen() {
   const { markInteractive } = useObserve();
+  const { t } = useI18n();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -65,16 +67,16 @@ export default function NoWorkspaceScreen() {
         </View>
 
         <Text style={[styles.title, { color: colors.text }]}>
-          Create your workspace
+          {t.noWorkspace.title}
         </Text>
 
         <Text style={[styles.description, { color: colors.muted }]}>
-          To get started with WeldCRM, create your workspace on our website. Once your workspace is ready, come back here to sign in.
+          {t.noWorkspace.description}
         </Text>
 
         <TouchableOpacity style={styles.primaryButton} onPress={handleOpenWebsite}>
           <Globe size={18} color="#fff" />
-          <Text style={styles.primaryButtonText}>Go to weldsuite.com</Text>
+          <Text style={styles.primaryButtonText}>{t.noWorkspace.openWebsite}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -88,14 +90,14 @@ export default function NoWorkspaceScreen() {
             <RefreshCw size={18} color="#7C3AED" />
           )}
           <Text style={[styles.secondaryButtonText, { color: '#7C3AED' }]}>
-            {checking ? 'Checking...' : "I've created my workspace"}
+            {checking ? t.noWorkspace.checking : t.noWorkspace.created}
           </Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
         <LogOut size={16} color={colors.muted} />
-        <Text style={[styles.signOutText, { color: colors.muted }]}>Sign out</Text>
+        <Text style={[styles.signOutText, { color: colors.muted }]}>{t.noWorkspace.signOut}</Text>
       </TouchableOpacity>
     </View>
   );

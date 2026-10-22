@@ -22,9 +22,10 @@ load it before running.
 
 ## Test data
 
-No data is needed up front. `02-create-task` creates one task per run
-("E2E CRM task <timestamp>", due today). The app can't delete tasks, so these
-accumulate in the test workspace.
+No data is needed up front. `02-create-task` creates a task ("E2E CRM task <timestamp>"),
+renames it and deletes it again. `03-create-person` does the same for a person and a company
+("E2E Person <timestamp>", "E2E Company <timestamp>"). Both clean up after themselves unless a
+step fails halfway.
 
 ## Run
 

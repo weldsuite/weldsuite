@@ -3,12 +3,14 @@ name: Home and tabs load
 tags: [smoke]
 ---
 - runFlow: ../subflows/login.yaml
-- assertVisible: "Total Customers"
 - assertVisible: "Recent Activities"
-- tapOn: "Customers"
-- assertVisible: "Search customers..."
-- tapOn: "Pipeline"
-- assertVisible: "Add deal"
+- assertVisible: "Quick Actions"
+- tapOn: "Contacts"
+- assertVisible: "Search people..."
+- tapOn: "Companies"
+- assertVisible: "Search companies..."
+- tapOn: "Deals"
+- assertVisible: ".*Add deal.*|No pipeline yet.*"
 - tapOn: "Leads"
 - assertVisible: "Search leads..."
 - tapOn: "Tasks"
