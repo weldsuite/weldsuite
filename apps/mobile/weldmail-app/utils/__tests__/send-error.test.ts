@@ -1,5 +1,5 @@
 import { ApiError } from '@weldsuite/api-client/client';
-import { describeRetryAfter, describeSendError, readApiError } from '../send-error';
+import { describeRetryAfter, describeSendError, readApiError, serverErrorMessage } from '../send-error';
 
 const NOW = new Date('2026-10-13T12:00:00.000Z');
 
@@ -136,5 +136,18 @@ describe('describeSendError', () => {
   it('is null for failures it has no words for, so the composer keeps its generic alert', () => {
     expect(describeSendError(apiError('SOMETHING_NEW'), NOW)).toBeNull();
     expect(describeSendError(new Error('Network request failed'), NOW)).toBeNull();
+  });
+});
+
+describe('serverErrorMessage', () => {
+  it('returns the server message of a 4xx refusal', () => {
+    expect(serverErrorMessage(apiError('VALIDATION_ERROR', undefined, 400))).toBe('VALIDATION_ERROR message');
+  });
+
+  it('is null for a 5xx, a failure without a message and anything that is not an API error', () => {
+    expect(serverErrorMessage(apiError('INTERNAL_ERROR', undefined, 500))).toBeNull();
+    expect(serverErrorMessage(new ApiError('Request failed', 400, { error: 'plain string' }))).toBeNull();
+    expect(serverErrorMessage(new ApiError('Request failed', 400, { error: { message: '  ' } }))).toBeNull();
+    expect(serverErrorMessage(new Error('boom'))).toBeNull();
   });
 });

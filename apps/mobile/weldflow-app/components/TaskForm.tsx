@@ -40,6 +40,7 @@ import { labelsForIds, resolveLabelIds } from '@/lib/task-labels';
 import { TaskStatusBadge } from './status-badge';
 import { PriorityIndicator } from './PriorityIndicator';
 import { BRAND } from '@/lib/brand';
+import { useKeyboardHeight } from '@/lib/keyboard';
 
 export interface TaskFormValues {
   title: string;
@@ -216,14 +217,19 @@ interface SheetModalProps {
 }
 
 function SheetModal({ visible, onClose, colors, bottomInset, maxHeight, animationType = 'fade', children }: Readonly<SheetModalProps>) {
+  // The sheet lives in a native Modal window that is not resized for the
+  // keyboard (Android 15 edge-to-edge), so lift it above the keyboard by hand;
+  // the keyboard already covers the home indicator, so drop the bottom inset.
+  const keyboardHeight = useKeyboardHeight();
   return (
     <Modal visible={visible} transparent animationType={animationType} onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable
           style={[
             styles.modalSheet,
-            { backgroundColor: colors.cardBackground, paddingBottom: bottomInset + 16 },
+            { backgroundColor: colors.cardBackground, paddingBottom: (keyboardHeight > 0 ? 0 : bottomInset) + 16 },
             maxHeight ? { maxHeight } : undefined,
+            keyboardHeight > 0 ? { marginBottom: keyboardHeight } : undefined,
           ]}
           onPress={(e) => e.stopPropagation()}
         >
@@ -610,12 +616,16 @@ function DatePickerModal({ picker, startDate, dueDate, colors, bottomInset, onCh
     if (Platform.OS === 'android') onClose();
   };
 
+  // The dialog's header and selected day take the coral from the
+  // datetimepicker config plugin in app.json (native); the buttons are set here.
   if (Platform.OS !== 'ios') {
     return (
       <DateTimePicker
         value={value}
         mode="date"
         display="default"
+        positiveButton={{ textColor: ACCENT }}
+        negativeButton={{ textColor: ACCENT }}
         onValueChange={handleValueChange}
         onDismiss={handleDismiss}
       />
@@ -655,6 +665,7 @@ function TitleField({ value, error, autoFocus, colors, onChange }: Readonly<{ va
             borderColor: error ? '#DC2626' : colors.divider,
           },
         ]}
+        testID="task-form-title"
         placeholder="Task title"
         placeholderTextColor={colors.muted}
         value={value}
@@ -670,6 +681,7 @@ function TitleField({ value, error, autoFocus, colors, onChange }: Readonly<{ va
 function SubmitButton({ isSubmitting, label, onPress }: Readonly<{ isSubmitting: boolean; label: string; onPress: () => void }>) {
   return (
     <TouchableOpacity
+      testID="task-form-submit"
       style={[styles.submitBtn, isSubmitting && { opacity: 0.7 }]}
       onPress={onPress}
       disabled={isSubmitting}
@@ -823,6 +835,7 @@ export function TaskForm({
             styles.multiline,
             { color: colors.text, backgroundColor: colors.cardBackground, borderColor: colors.divider },
           ]}
+          testID="task-form-description"
           placeholder="Add more detail (optional)"
           placeholderTextColor={colors.muted}
           value={description}

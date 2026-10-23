@@ -39,6 +39,17 @@ export function readApiError(err: unknown): { code: string; message: string; det
   };
 }
 
+/**
+ * The server's own explanation of a refusal, for failures {@link describeSendError}
+ * has no copy for. Only 4xx responses qualify: they say what the person can fix.
+ * A 5xx message is an internal one, so the caller shows its translated fallback.
+ */
+export function serverErrorMessage(err: unknown): string | null {
+  if (!isApiError(err) || err.status >= 500) return null;
+  const message = asRecord(asRecord(err.body).error).message;
+  return typeof message === 'string' && message.trim() ? message.trim() : null;
+}
+
 /** "in 25 minutes", "in 3 hours", "tomorrow", "in 3 days"; null when `retryAfter` is not a date. */
 export function describeRetryAfter(retryAfter: unknown, now: Date): string | null {
   if (typeof retryAfter !== 'string') return null;

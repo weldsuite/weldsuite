@@ -9,9 +9,9 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
   Alert,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -180,7 +180,7 @@ export default function ClaimAddressScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" bottomOffset={96}>
         <View style={styles.content}>
           <Text style={[styles.heroTitle, { color: colors.text }]}>Pick your @weldmail.com</Text>
           <Text style={[styles.heroSubtitle, { color: colors.muted }]}>
@@ -277,7 +277,7 @@ export default function ClaimAddressScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

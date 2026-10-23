@@ -21,6 +21,7 @@ import type { Database, MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import * as cfEmail from '@weldsuite/worker-email';
+import { isSharedWeldMailDomain } from '@weldsuite/app-api-client/schemas/outbound-mail';
 
 const { mailDomains, mailAccounts } = schema;
 
@@ -44,8 +45,7 @@ export class MailDomainError extends Error {
 
 /** Shared WeldMail domains cannot use app-level catch-all. */
 export function isCustomMailDomain(domainName: string): boolean {
-  const d = domainName.toLowerCase();
-  return d !== 'weldmail.com' && !d.endsWith('.weldmail.com');
+  return !isSharedWeldMailDomain(domainName);
 }
 
 /** Master registry key for an enabled catch-all on `domain`. */

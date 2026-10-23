@@ -150,10 +150,32 @@ export function resolveOutboundLimits(
   return { ...OUTBOUND_DEFAULT_LIMITS[trustLevel], ...extra };
 }
 
-/** True for `weldmail.com` and every `*.weldmail.com` workspace subdomain. */
+/**
+ * Apex zones that host shared WeldMail addresses: production's, and the test
+ * environment's own zone (so test mail has its own Email Routing catch-all,
+ * docs/plans/weldmail-test-mail-zone.md). Which one new domains are built on
+ * is the worker's `WELDMAIL_DOMAIN` var; recognising a shared domain is not
+ * environment-dependent.
+ */
+export const SHARED_WELDMAIL_APEXES = ['weldmail.com', 'weldmail.org'] as const;
+
+/** The apex a worker builds `{slug}.{apex}` on when `WELDMAIL_DOMAIN` is unset. */
+export const DEFAULT_WELDMAIL_APEX = 'weldmail.com';
+
+/** True for a shared WeldMail apex and every workspace subdomain of one. */
 export function isSharedWeldMailDomain(domain: string): boolean {
   const d = domain.toLowerCase();
-  return d === 'weldmail.com' || d.endsWith('.weldmail.com');
+  return SHARED_WELDMAIL_APEXES.some((apex) => d === apex || d.endsWith(`.${apex}`));
+}
+
+/** True for a bare shared apex (`weldmail.com`), not a workspace subdomain. */
+export function isSharedWeldMailApex(domain: string): boolean {
+  return (SHARED_WELDMAIL_APEXES as readonly string[]).includes(domain.toLowerCase());
+}
+
+/** A workspace's shared mail domain: `{slug}.{apex}`. */
+export function weldMailDomainFor(slug: string, apex: string | undefined): string {
+  return `${slug}.${apex || DEFAULT_WELDMAIL_APEX}`;
 }
 
 // ---------------------------------------------------------------------------

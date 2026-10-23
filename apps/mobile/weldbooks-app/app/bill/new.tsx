@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
@@ -18,7 +18,7 @@ import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
-import api from '@/services/api';
+import api, { receiptFileName } from '@/services/api';
 import { today, addDays } from '@/lib/date';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
@@ -36,6 +36,9 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import { AddressFields, type AddressErrors } from '@/components/address-fields';
 import { LineItemsEditor } from '@/components/line-items';
+import { DateField } from '@/components/date-field';
+import { FormScrollView } from '@/components/form-scroll';
+import { ReceiptPreview } from '@/components/receipt-preview';
 import type { BillPrefill } from '@/types/accounting';
 
 function dueFromIssue(issueDate: string): string {
@@ -57,21 +60,26 @@ function itemsFromPrefill(prefill: BillPrefill, defaultTaxRate: string): LineIte
 }
 
 export default function NewBillScreen() {
-  const { documentId } = useLocalSearchParams<{ documentId?: string }>();
+  const { documentId, receiptUri, receiptType } = useLocalSearchParams<{
+    documentId?: string;
+    receiptUri?: string;
+    receiptType?: string;
+  }>();
   const router = useRouter();
   const toast = useToast();
   const { colors } = useTheme();
   const { t, format } = useI18n();
   const { isUs, code, labels, terms } = useJurisdiction();
-  const { parseDateInput, formatDateInput, datePlaceholder, currency } = useLocaleFormatters();
+  const { currency } = useLocaleFormatters();
 
   const mode = lineItemTaxMode(isUs, 'bill');
   const defaultTaxRate = defaultTaxRateFor(code);
 
   const [contactName, setContactName] = useState('');
   const [billNumber, setBillNumber] = useState('');
-  const [issueDate, setIssueDate] = useState(() => formatDateInput(today()));
-  const [dueDate, setDueDate] = useState(() => formatDateInput(addDays(30)));
+  // Calendar days as `YYYY-MM-DD`; the date fields show them in the company's locale.
+  const [issueDate, setIssueDate] = useState(() => today());
+  const [dueDate, setDueDate] = useState(() => addDays(30));
   const [items, setItems] = useState<LineItemDraft[]>(() => [
     createEmptyLineItem({ taxRate: defaultTaxRate }),
   ]);
@@ -80,13 +88,19 @@ export default function NewBillScreen() {
   const [notes, setNotes] = useState('');
   const [reference, setReference] = useState('');
   const [saving, setSaving] = useState(false);
+  // From the scan: the supplier OCR matched (by VAT number, KvK or IBAN, so it beats a lookup
+  // by name while the name is still the scanned one) and the receipt's currency.
+  const [scanned, setScanned] = useState<{
+    contactName: string | null;
+    contactId: string | null;
+    currency: string | null;
+  } | null>(null);
   const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
     documentId ? 'loading' : 'idle',
   );
   const [errors, setErrors] = useState<{
     contactName?: string;
     items?: string;
-    issueDate?: string;
     dueDate?: string;
   }>({});
 
@@ -103,12 +117,17 @@ export default function NewBillScreen() {
         if (prefill.contactName) setContactName(prefill.contactName);
         if (prefill.externalReference) setReference(prefill.externalReference);
         if (prefill.issueDate) {
-          setIssueDate(formatDateInput(prefill.issueDate));
-          setDueDate(formatDateInput(prefill.dueDate || dueFromIssue(prefill.issueDate)));
+          setIssueDate(prefill.issueDate);
+          setDueDate(prefill.dueDate || dueFromIssue(prefill.issueDate));
         } else if (prefill.dueDate) {
-          setDueDate(formatDateInput(prefill.dueDate));
+          setDueDate(prefill.dueDate);
         }
         if (prefill.items.length > 0) setItems(itemsFromPrefill(prefill, defaultTaxRate));
+        setScanned({
+          contactName: prefill.contactName,
+          contactId: prefill.matchedContactId,
+          currency: prefill.currency,
+        });
         setOcrState('ready');
       } catch {
         if (!cancelled) setOcrState('failed');
@@ -117,39 +136,45 @@ export default function NewBillScreen() {
     return () => {
       cancelled = true;
     };
-  }, [documentId, defaultTaxRate, formatDateInput]);
+  }, [documentId, defaultTaxRate]);
 
   const handleSave = useCallback(async () => {
     const name = contactName.trim();
     const usable = validLineItems(items);
-    const issueIso = parseDateInput(issueDate);
-    const dueIso = parseDateInput(dueDate);
-
     const nextErrors: typeof errors = {};
     if (!name) nextErrors.contactName = format(t.billNew.nameError, terms);
     if (usable.length === 0) nextErrors.items = t.billNew.itemsError;
-    if (!issueIso) nextErrors.issueDate = format(t.billNew.dateError, { example: datePlaceholder });
-    if (!dueIso) nextErrors.dueDate = format(t.billNew.dateError, { example: datePlaceholder });
+    if (dueDate < issueDate) nextErrors.dueDate = t.billNew.dueBeforeIssue;
     setErrors(nextErrors);
 
     // Use tax is rated for where the goods were delivered; blank means the company address.
     const deliveryProblems = accruesUseTax ? usAddressProblems(deliveredTo) : {};
     setDeliveredToErrors(deliveryProblems);
-    if (Object.keys(nextErrors).length > 0 || Object.keys(deliveryProblems).length > 0 || !issueIso || !dueIso) {
+    if (Object.keys(nextErrors).length > 0 || Object.keys(deliveryProblems).length > 0) {
       return;
     }
 
     setSaving(true);
     try {
+      const sameSupplier = scanned?.contactId && name === scanned.contactName?.trim();
+      // A photo scanned offline (or whose upload failed) is stored now, so the bill links it.
+      let sourceDocumentId = documentId;
+      if (!sourceDocumentId && receiptUri) {
+        const mimeType = receiptType || 'image/jpeg';
+        const fileName = receiptFileName(mimeType);
+        sourceDocumentId = (await api.uploadReceipt({ localUri: receiptUri, mimeType, fileName })) ?? undefined;
+      }
       const bill = await api.createBill({
+        ...(sameSupplier ? { contactId: scanned.contactId! } : {}),
         contactName: name,
+        ...(scanned?.currency ? { currency: scanned.currency } : {}),
         billNumber: billNumber.trim() || undefined,
-        issueDate: issueIso,
-        dueDate: dueIso,
+        issueDate,
+        dueDate,
         notes: notes.trim() || undefined,
         reference: reference.trim() || undefined,
         externalReference: reference.trim() || undefined,
-        documentId,
+        documentId: sourceDocumentId,
         ...(accruesUseTax ? { deliveryAddress: toApiAddress(deliveredTo) } : {}),
         items: toLineItemInputs(items, mode),
       });
@@ -170,11 +195,12 @@ export default function NewBillScreen() {
     notes,
     reference,
     documentId,
+    receiptUri,
+    receiptType,
+    scanned,
     deliveredTo,
     accruesUseTax,
     mode,
-    datePlaceholder,
-    parseDateInput,
     router,
     toast,
     t,
@@ -184,11 +210,7 @@ export default function NewBillScreen() {
 
   return (
     <Screen header={<ScreenHeader title={t.billNew.title} showBack />}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flex}
-      >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <FormScrollView contentContainerStyle={styles.content}>
           {ocrState === 'loading' ? (
             <Banner variant="info" style={styles.banner}>
               {t.billNew.ocrLoading}
@@ -204,6 +226,8 @@ export default function NewBillScreen() {
               {t.billNew.ocrFailed}
             </Banner>
           ) : null}
+
+          <ReceiptPreview uri={receiptUri} />
 
           <SectionCard title={labels.supplier}>
             <Input
@@ -229,29 +253,22 @@ export default function NewBillScreen() {
           </SectionCard>
 
           <SectionCard title={t.billNew.dates}>
-            <Input
+            <DateField
               label={t.billNew.issueDate}
               value={issueDate}
-              onChangeText={(text) => {
-                setIssueDate(text);
-                if (errors.issueDate) setErrors((e) => ({ ...e, issueDate: undefined }));
-              }}
-              placeholder={isUs ? datePlaceholder : t.billNew.datePlaceholder}
-              error={errors.issueDate}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Input
-              label={t.billNew.dueDate}
-              value={dueDate}
-              onChangeText={(text) => {
-                setDueDate(text);
+              onChange={(iso) => {
+                setIssueDate(iso);
                 if (errors.dueDate) setErrors((e) => ({ ...e, dueDate: undefined }));
               }}
-              placeholder={isUs ? datePlaceholder : t.billNew.datePlaceholder}
+            />
+            <DateField
+              label={t.billNew.dueDate}
+              value={dueDate}
+              onChange={(iso) => {
+                setDueDate(iso);
+                if (errors.dueDate) setErrors((e) => ({ ...e, dueDate: undefined }));
+              }}
               error={errors.dueDate}
-              autoCapitalize="none"
-              autoCorrect={false}
             />
           </SectionCard>
 
@@ -307,14 +324,12 @@ export default function NewBillScreen() {
             fullWidth
             style={styles.submit}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   content: { paddingBottom: 40, paddingTop: 4 },
   banner: { marginHorizontal: 12, marginBottom: 8 },
   hint: { fontSize: 13, lineHeight: 19, marginBottom: 8 },

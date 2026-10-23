@@ -1,0 +1,22 @@
+# Signs in with the e2e test user, starting from a fresh install.
+# Credentials come from MAESTRO_TEST_EMAIL / MAESTRO_TEST_PASSWORD
+# (see .maestro/README.md), never from this file.
+appId: com.weldsuite.weldagent
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: login-email
+    timeout: 30000
+- tapOn:
+    id: login-email
+- inputText: ${MAESTRO_TEST_EMAIL}
+- tapOn:
+    id: login-password
+- inputText: ${MAESTRO_TEST_PASSWORD}
+- tapOn:
+    id: login-submit
+- extendedWaitUntil:
+    visible: "Recent runs"
+    timeout: 45000

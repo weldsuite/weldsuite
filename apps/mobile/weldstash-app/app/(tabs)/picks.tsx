@@ -18,6 +18,7 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { appApi } from '@/services/app-api';
 import { weldstashKeys } from '@/lib/query-client';
 import { useWeldstashPickLists } from '@/hooks/use-weldstash-queries';
+import { pickStatusLabel, useI18n } from '@/lib/i18n';
 
 export default function PicksScreen() {
   const { colors } = useTheme();
@@ -25,6 +26,7 @@ export default function PicksScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user } = useClerkAuth();
+  const { t, format } = useI18n();
 
   const picksQuery = useWeldstashPickLists(user?.id);
   const lists = picksQuery.data?.data ?? [];
@@ -34,7 +36,7 @@ export default function PicksScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Picks</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t.picks.title}</Text>
       </View>
       {loading ? (
         <ActivityIndicator style={{ marginTop: 48 }} color={colors.text} />
@@ -54,8 +56,8 @@ export default function PicksScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={<ClipboardList size={40} color={colors.muted} />}
-              title={error ? 'Could not load picks' : 'No assigned picks'}
-              description={error ?? 'When a supervisor assigns you a pick list, it will show up here.'}
+              title={error ? t.picks.loadFailedTitle : t.picks.emptyTitle}
+              description={error ?? t.picks.emptyDescription}
             />
           }
           renderItem={({ item }) => (
@@ -72,7 +74,11 @@ export default function PicksScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.rowTitle, { color: colors.text }]}>{item.pickListNumber}</Text>
                 <Text style={[styles.rowMeta, { color: colors.muted }]}>
-                  {item.status.replace('_', ' ')} · {item.pickedItems ?? 0}/{item.totalItems ?? 0} lines
+                  {format(t.picks.progress, {
+                    status: pickStatusLabel(t, item.status),
+                    picked: item.pickedItems ?? 0,
+                    total: item.totalItems ?? 0,
+                  })}
                 </Text>
               </View>
             </Pressable>
@@ -91,5 +97,5 @@ const styles = StyleSheet.create({
   emptyContainer: { flexGrow: 1, paddingHorizontal: 16 },
   row: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, padding: 16 },
   rowTitle: { fontSize: 17, fontWeight: '600' },
-  rowMeta: { fontSize: 14, marginTop: 4, textTransform: 'capitalize' },
+  rowMeta: { fontSize: 14, marginTop: 4 },
 });

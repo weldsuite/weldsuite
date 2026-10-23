@@ -23,8 +23,8 @@ import { APIError } from 'cloudflare/core/error';
 import { BaseZones } from 'cloudflare/resources/zones/zones';
 import { Records } from 'cloudflare/resources/dns/records';
 import type { RecordCreateParams, RecordResponse } from 'cloudflare/resources/dns/records';
-import type { ClientOptions } from 'cloudflare/client';
 import { asText } from '@weldsuite/text';
+import { getZonesTransport, setZonesTransport, type ZonesFetch } from './transport';
 
 export class CloudflareZoneError extends Error {
   constructor(
@@ -56,28 +56,29 @@ export class CloudflareZoneError extends Error {
 const PENDING_ZONE_STATUS = 'pending';
 
 /** The SDK's `fetch` signature, exported so tests can type their stub. */
-export type ZonesFetch = NonNullable<ClientOptions['fetch']>;
+export type { ZonesFetch };
 
 /**
  * Tests set this to intercept the SDK's transport. The SDK holds its own
  * `fetch` reference, so patching `globalThis.fetch` does not reach it and a
- * test that tries would hit api.cloudflare.com for real. Never set in
- * production — every exported function takes only an `apiToken`, so there is
- * no per-call seam to thread through.
+ * test that tries would hit api.cloudflare.com for real. Production never sets
+ * a transport — every exported function takes only an `apiToken`, so there is
+ * no per-call seam to thread through. The test environment's DNS sandbox sets
+ * one through `configureZonesSandbox` (`@weldsuite/cloudflare-zones/sandbox`).
+ *
+ * @internal Test-only. Pass `undefined` to restore the real transport.
  */
-let testFetch: ZonesFetch | undefined;
-
-/** @internal Test-only. Pass `undefined` to restore the real transport. */
 export function __setZonesFetchForTests(fetch: ZonesFetch | undefined): void {
-  testFetch = fetch;
+  setZonesTransport(fetch);
 }
 
 function client(apiToken: string) {
+  const fetch = getZonesTransport();
   return createClient({
     apiToken,
     maxRetries: 2,
     timeout: 15_000,
-    ...(testFetch ? { fetch: testFetch } : {}),
+    ...(fetch ? { fetch } : {}),
     resources: [BaseZones, Records],
   });
 }

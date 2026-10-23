@@ -1,0 +1,52 @@
+appId: com.weldsuite.weldbooks
+name: Create a draft invoice and delete it
+tags: [smoke, writes]
+---
+# Creates one draft invoice (and, the first time, the "E2E Customer" contact)
+# and deletes the draft again at the end.
+- runFlow: ../subflows/login.yaml
+- tapOn: "Invoices"
+- tapOn: "New invoice"
+- extendedWaitUntil:
+    visible: "Acme B.V."
+    timeout: 10000
+
+# Items are required
+- scrollUntilVisible:
+    element: "Create draft"
+- tapOn: "Create draft"
+- assertVisible: "Add at least one item with a description and price"
+
+# Fill in and create
+- scrollUntilVisible:
+    element: "Acme B.V."
+    direction: UP
+- tapOn: "Acme B.V."
+- inputText: "E2E Customer"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Description"
+- tapOn: "Description"
+- inputText: "Consulting"
+- hideKeyboard
+- tapOn: "0.00"
+- inputText: "100"
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Create draft"
+- tapOn: "Create draft"
+- extendedWaitUntil:
+    visible: "€121.00"
+    timeout: 15000
+- assertVisible: "Draft"
+
+# Clean up
+- tapOn: "More actions"
+- tapOn: "Delete draft"
+- extendedWaitUntil:
+    visible: "Delete this draft?"
+    timeout: 10000
+- tapOn: "^Delete$"
+- extendedWaitUntil:
+    notVisible: "Delete this draft?"
+    timeout: 15000

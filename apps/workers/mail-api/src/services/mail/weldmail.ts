@@ -19,6 +19,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
+import { weldMailDomainFor as sharedWeldMailDomainFor } from '@weldsuite/app-api-client/schemas/outbound-mail';
 
 const DEFAULT_MAX_WELDMAIL_ADDRESSES = 2;
 const DEFAULT_WELDMAIL_ENABLED = true;
@@ -55,8 +56,9 @@ interface WeldMailLimits {
   maxAddresses: number | null;
 }
 
-export function weldMailDomainFor(slug: string): string {
-  return `${slug}.weldmail.com`;
+/** `{slug}.{WELDMAIL_DOMAIN}`: weldmail.com in production, the test zone on test. */
+export function weldMailDomainFor(env: Pick<Env, 'WELDMAIL_DOMAIN'>, slug: string): string {
+  return sharedWeldMailDomainFor(slug, env.WELDMAIL_DOMAIN);
 }
 
 async function getWorkspace(env: Env, orgId: string) {
@@ -104,7 +106,7 @@ async function getLimits(env: Env, orgId: string): Promise<WeldMailLimits> {
 export async function getWeldMailDomain(env: Env, orgId: string): Promise<string> {
   const workspace = await getWorkspace(env, orgId);
   if (!workspace) throw new WeldMailError('WORKSPACE_NOT_FOUND', 'Workspace not found');
-  return weldMailDomainFor(workspace.slug);
+  return weldMailDomainFor(env, workspace.slug);
 }
 
 export async function checkAddressAvailability(
@@ -117,7 +119,7 @@ export async function checkAddressAvailability(
   }
   const workspace = await getWorkspace(env, orgId);
   if (!workspace) throw new WeldMailError('WORKSPACE_NOT_FOUND', 'Workspace not found');
-  const domain = weldMailDomainFor(workspace.slug);
+  const domain = weldMailDomainFor(env, workspace.slug);
   const email = `${address}@${domain}`;
 
   const masterDb = getMasterDb(env);
@@ -149,7 +151,7 @@ export async function reserveAddress(
   const workspace = await getWorkspace(env, orgId);
   if (!workspace) throw new WeldMailError('WORKSPACE_NOT_FOUND', 'Workspace not found');
 
-  const domain = weldMailDomainFor(workspace.slug);
+  const domain = weldMailDomainFor(env, workspace.slug);
   const email = `${data.address}@${domain}`;
 
   const limits = await getLimits(env, orgId);
@@ -217,7 +219,7 @@ export async function reserveAddress(
 export async function listAddresses(env: Env, db: Database, orgId: string) {
   const workspace = await getWorkspace(env, orgId);
   if (!workspace) throw new WeldMailError('WORKSPACE_NOT_FOUND', 'Workspace not found');
-  const domain = weldMailDomainFor(workspace.slug);
+  const domain = weldMailDomainFor(env, workspace.slug);
   const limits = await getLimits(env, orgId);
 
   const accounts = await db
@@ -255,7 +257,7 @@ export async function releaseAddress(
 ) {
   const workspace = await getWorkspace(env, orgId);
   if (!workspace) throw new WeldMailError('WORKSPACE_NOT_FOUND', 'Workspace not found');
-  const domain = weldMailDomainFor(workspace.slug);
+  const domain = weldMailDomainFor(env, workspace.slug);
 
   const [account] = await db
     .select()

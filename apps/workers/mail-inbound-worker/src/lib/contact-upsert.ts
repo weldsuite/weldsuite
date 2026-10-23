@@ -1,47 +1,28 @@
 /**
- * Mail-contact upsert wrapper for the inbound worker.
+ * Mail-contact upsert for the inbound worker.
  *
- * Wraps the shared `upsertMailContactsBatch` helper from `@weldsuite/db` and
- * additionally generates a default avatar (initials SVG) for any newly created
- * contact, mirroring what helpdesk's POST /contacts route does in api-worker.
+ * Thin wrapper over `upsertMailContacts` from `@weldsuite/mail-domain/contacts`
+ * (the same helper mail-api's send path uses): upserts every address on the
+ * message into `people` and gives each newly created person an initials-SVG
+ * avatar.
  *
  * Failures are swallowed and logged — contact creation must never break the
  * inbound email pipeline.
  */
 
-import { eq } from 'drizzle-orm';
-import {
-  upsertMailContactsBatch,
-  collectMailMessageAddresses,
-  generateInitialsAvatarSvg,
-  buildContactAvatarPath,
-  type MailContactAddress,
-} from '@weldsuite/db/lib/mail-contacts';
-import { getTenantDbForWorkspaceById, tenantSchema } from '../db';
+import { upsertMailContacts } from '@weldsuite/mail-domain/contacts';
+import type { MailContactAddress } from '@weldsuite/db/lib/mail-contacts';
+import { getTenantDbForWorkspaceById } from '../db';
 import type { Env } from '../index';
-
-/** Cryptographically secure random base36 string of the given length. */
-function randomSuffix(length: number): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
-}
-
-function generateContactId(prefix: string): string {
-  const timestamp = Date.now().toString(36);
-  const random = randomSuffix(8);
-  return `${prefix}_${timestamp}${random}`;
-}
 
 /**
  * Upsert all addresses on a mail message (from + replyTo + to + cc + bcc) for
- * the given workspace. Generates a default initials-SVG avatar for any
- * newly-created contact and writes the public URL to `contacts.avatar_url`.
+ * the given workspace.
  *
  * `workspaceId` is the master-DB workspace id (used to route to the tenant DB).
  * `clerkOrgId` is the Clerk organization id used as the path component for R2
- * avatar storage — kept consistent with the api-worker mail send path and the
- * helpdesk POST /contacts route, both of which key avatars under
- * `workspaces/{clerkOrgId}/avatars/contacts/`. If null, contacts are still
+ * avatar storage, the same key mail-api's send path uses
+ * (`workspaces/{clerkOrgId}/avatars/people/`). If null, contacts are still
  * upserted but avatar generation is skipped.
  */
 export async function upsertContactsFromMailMessage(
@@ -57,58 +38,9 @@ export async function upsertContactsFromMailMessage(
   },
 ): Promise<void> {
   try {
-    const addresses = collectMailMessageAddresses(message);
-    if (addresses.length === 0) return;
-
     const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
-    const results = await upsertMailContactsBatch(tenantDb, addresses, generateContactId);
-
-    const created = results.filter((r) => r.created);
-    if (created.length === 0 || !env.STORAGE) return;
-
-    const r2PublicUrl = env.R2_PUBLIC_URL;
-    if (!r2PublicUrl) {
-      console.warn('[mail-contacts] R2_PUBLIC_URL not set, skipping avatar generation');
-      return;
-    }
-    if (!clerkOrgId) {
-      console.warn(`[mail-contacts] Workspace ${workspaceId} has no clerkOrgId — skipping avatar generation`);
-      return;
-    }
-
-    // Build a name → email map so we can hash on the same input the UI uses.
-    const nameByEmail = new Map<string, string>();
-    for (const addr of addresses) {
-      const normalized = addr.email.toLowerCase().trim();
-      const name = addr.name?.trim() || normalized.split('@')[0] || normalized;
-      if (!nameByEmail.has(normalized)) nameByEmail.set(normalized, name);
-    }
-
-    // One independent avatar per new contact; each handles its own failure.
-    await Promise.all(
-      created.map(async (row) => {
-        try {
-          const seedName = nameByEmail.get(row.email) || row.email;
-          const svg = generateInitialsAvatarSvg(seedName);
-          const { r2Key, publicPath } = buildContactAvatarPath(clerkOrgId, row.contactId);
-
-          await env.STORAGE.put(r2Key, svg, {
-            httpMetadata: { contentType: 'image/svg+xml' },
-          });
-
-          const avatarUrl = `${r2PublicUrl}/${publicPath}`;
-          await tenantDb
-            .update(tenantSchema.contacts)
-            .set({ avatarUrl })
-            .where(eq(tenantSchema.contacts.id, row.contactId));
-        } catch (err) {
-          console.error(
-            `[mail-contacts] Failed to generate avatar for ${row.email} (${row.contactId}):`,
-            err,
-          );
-        }
-      }),
-    );
+    // Without a Clerk org there is no avatar path: pass no storage so only the people rows are written.
+    await upsertMailContacts(clerkOrgId ? env : {}, tenantDb, clerkOrgId ?? workspaceId, message);
   } catch (err) {
     console.error(`[mail-contacts] upsertContactsFromMailMessage failed for workspace ${workspaceId}:`, err);
   }

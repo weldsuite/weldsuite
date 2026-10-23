@@ -65,6 +65,7 @@ import {
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 import { cn } from '@/lib/utils';
+import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { useI18n } from '@/lib/i18n/provider';
 import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
@@ -740,6 +741,7 @@ export function ComposeSurface({
               data-placeholder={t.mail.floatingCompose.writePlaceholder}
               className={cn(
                 "w-full min-h-[150px] px-4 text-sm outline-none bg-transparent text-foreground [&:empty:before]:content-[attr(data-placeholder)] [&:empty:before]:text-muted-foreground [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1",
+                MAIL_EDITOR_PARAGRAPH_CLASSES,
                 isAiGenerating && "opacity-0"
               )}
               onSelect={checkFormatting}

@@ -15,6 +15,7 @@ import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { useSocialRealtime } from '@/hooks/useSocialRealtime';
 import { PostCard } from '@/components/PostCard';
+import { useI18n } from '@/lib/i18n';
 import { formatCompact } from '@/lib/social';
 import { hideAppSplash } from '@/utils/splash';
 
@@ -26,6 +27,7 @@ interface DashboardData {
 
 export default function HomeScreen() {
   const { colors } = useTheme();
+  const { t, format } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { markInteractive } = useObserve();
@@ -71,10 +73,10 @@ export default function HomeScreen() {
 
   const statTiles = data?.stats
     ? [
-        { label: 'Scheduled', value: data.stats.scheduledPosts },
-        { label: 'Published this week', value: data.stats.publishedThisWeek },
-        { label: 'Pending approval', value: data.stats.pendingApproval },
-        { label: 'Connected accounts', value: data.stats.connectedAccounts },
+        { label: t.home.scheduled, value: data.stats.scheduledPosts },
+        { label: t.home.publishedThisWeek, value: data.stats.publishedThisWeek },
+        { label: t.home.pendingApproval, value: data.stats.pendingApproval },
+        { label: t.home.connectedAccounts, value: data.stats.connectedAccounts },
       ]
     : [];
 
@@ -86,22 +88,22 @@ export default function HomeScreen() {
       >
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <Text style={[styles.greeting, { color: colors.muted }]}>
-            {currentWorkspace?.name || 'Workspace'}
+            {currentWorkspace?.name || t.common.workspace}
           </Text>
           <Text style={[styles.title, { color: colors.text }]}>
-            Hey, {user?.firstName || 'there'}
+            {user?.firstName ? format(t.home.greeting, { name: user.firstName }) : t.home.greetingNoName}
           </Text>
         </View>
 
         {error && (
           <View style={styles.section}>
-            <Banner variant="error" title="Couldn't load dashboard">{error}</Banner>
+            <Banner variant="error" title={t.home.loadError}>{error}</Banner>
           </View>
         )}
 
         {loading && !data ? (
           <View style={styles.loading}>
-            <Spinner label="Loading…" />
+            <Spinner label={t.common.loading} />
           </View>
         ) : (
           <>
@@ -121,7 +123,7 @@ export default function HomeScreen() {
 
             <View style={styles.section}>
               <TouchableOpacity style={styles.sectionHeader} onPress={() => router.push('/(tabs)/queue')}>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Up next</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{t.home.upNext}</Text>
                 <ChevronRight size={18} color={colors.muted} />
               </TouchableOpacity>
               {data?.upcoming.length ? (
@@ -137,8 +139,8 @@ export default function HomeScreen() {
                 </View>
               ) : (
                 <EmptyState
-                  title="Nothing scheduled"
-                  description="Posts you schedule will show up here."
+                  title={t.home.emptyTitle}
+                  description={t.home.emptyDescription}
                 />
               )}
             </View>
@@ -150,7 +152,8 @@ export default function HomeScreen() {
         style={[styles.fab, { backgroundColor: colors.primary, bottom: insets.bottom + 24 }]}
         onPress={() => router.push('/compose')}
         activeOpacity={0.85}
-        accessibilityLabel="New post"
+        accessibilityRole="button"
+        accessibilityLabel={t.common.newPost}
       >
         <Pencil size={22} color={colors.primaryForeground} />
       </TouchableOpacity>

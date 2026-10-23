@@ -11,7 +11,8 @@
     "type-check": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:e2e": "maestro test .maestro"
   },
   "dependencies": {
     "@clerk/expo": "^4.7.1",

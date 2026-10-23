@@ -12,6 +12,7 @@
  */
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
+import { configureZonesSandbox } from '@weldsuite/cloudflare-zones/sandbox';
 import { articleFoldersRoutes } from './routes/article-folders';
 import { articlesRoutes } from './routes/articles';
 import { cannedResponsesRoutes } from './routes/canned-responses';
@@ -97,5 +98,10 @@ app.route('/api/ticket-types', ticketTypesRoutes);
 app.route('/api/tickets', ticketsRoutes);
 
 export default {
-  fetch: app.fetch,
+  // On test (WELDHOST_DNS_MODE=sandbox) help center records go to the WeldHost
+  // DNS sandbox, not Cloudflare. A no-op everywhere else.
+  fetch: (request: Request, env: Env, ctx?: ExecutionContext) => {
+    configureZonesSandbox(env);
+    return app.fetch(request, env, ctx);
+  },
 };

@@ -20,9 +20,11 @@ import {
   privacyProtectForDomain,
   tldSupportsPrivacyProtect,
   isPrivacyProtectUnsupportedError,
+  OTE_SEARCH_DEFAULT_TLDS,
+  OTE_SEARCH_MAX_NAMES,
   type RegistrarFetch,
 } from '@weldsuite/realtime-registrar';
-import { applyMarkup, roleContactsFromEnv } from './domains';
+import { applyMarkup, oteSearchTlds, roleContactsFromEnv } from './domains';
 
 type FetchCall = { url: string; init: RequestInit | undefined };
 
@@ -311,6 +313,65 @@ describe('RealtimeRegistrar.checkDomains', () => {
         reason: 'check_failed',
       }),
     ]);
+  });
+});
+
+describe('RealtimeRegistrar on OTE', () => {
+  function oteClient(available: (name: string) => boolean) {
+    const calls: FetchCall[] = [];
+    const fetchStub: RegistrarFetch = async (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      calls.push({ url, init: init as RequestInit | undefined });
+      const name = decodeURIComponent(url.split('/domains/')[1]?.split('/check')[0] ?? '');
+      return new Response(JSON.stringify({ available: available(name), premium: false }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const rtr = new RealtimeRegistrar({
+      apiKey: 'key_test',
+      customer: 'weldsuite',
+      ote: true,
+      adacApiKey: 'adac_test_key',
+      fetch: fetchStub,
+    });
+    return { rtr, calls };
+  }
+
+  it('checks availability against the OTE registrar, never ADAC', async () => {
+    const { rtr, calls } = oteClient(() => true);
+    const results = await rtr.checkDomains(['acme.com']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('https://api.yoursrs-ote.com/v2/domains/acme.com/check?renewPrice=true');
+    expect(results[0]).toMatchObject({ name: 'acme.com', available: true });
+  });
+
+  it('searches the given TLDs with REST checks, typed FQDN first', async () => {
+    const { rtr, calls } = oteClient((name) => name !== 'acme.net');
+    const results = await rtr.searchDomains('acme.io', ['com', '.net', 'io'], 20);
+    expect(calls.every((c) => c.url.startsWith('https://api.yoursrs-ote.com/v2/'))).toBe(true);
+    expect(results.map((r) => r.name)).toEqual(['acme.io', 'acme.com', 'acme.net']);
+    expect(results.find((r) => r.name === 'acme.net')).toMatchObject({ available: false });
+  });
+
+  it('falls back to the default TLDs and caps the number of checks', async () => {
+    const { rtr: defaults } = oteClient(() => true);
+    const defaultResults = await defaults.searchDomains('acme');
+    expect(defaultResults.map((r) => r.name)).toEqual(
+      OTE_SEARCH_DEFAULT_TLDS.map((t) => `acme.${t}`),
+    );
+
+    const many = Array.from({ length: 30 }, (_, i) => `t${i}`);
+    const { rtr, calls } = oteClient(() => true);
+    await rtr.searchDomains('acme', many, 50);
+    expect(calls).toHaveLength(OTE_SEARCH_MAX_NAMES);
+  });
+});
+
+describe('oteSearchTlds', () => {
+  it('puts the default TLDs first, then the other priced TLDs A–Z', () => {
+    const priced = new Map([['shop', 1], ['io', 1], ['app', 1], ['com', 1]]);
+    expect(oteSearchTlds(priced)).toEqual(['com', 'io', 'app', 'shop']);
   });
 });
 

@@ -1,0 +1,18 @@
+appId: com.weldsuite.weldsocial
+name: Home and tabs load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible: "Connected accounts"
+- tapOn: "Queue"
+- assertVisible: "Drafts"
+- tapOn: "Calendar"
+- assertVisible: "Mon"
+- tapOn: "Approvals"
+- waitForAnimationToEnd
+- tapOn: "More"
+- assertVisible: "Analytics"
+- tapOn: "Analytics"
+- assertVisible: "Impressions"
+- back
+- tapOn: "Home"

@@ -19,6 +19,7 @@ import { triggerPoolRefill } from './workflows/refill-pool';
 import { sweepScheduledDeletions } from './services/deletion-sweep';
 import { runDatabaseMoveSweep } from './services/database-move-sweep';
 import { sweepUnfinishedTeardowns } from './services/teardown-sweep';
+import { repairWorkspaceMailDomains } from './services/mail-repair-sweep';
 import { onboardPartnerWorkspace } from './services/partner-onboarding';
 import type { PartnerOnboardResult } from '@weldsuite/core-domain/partners';
 
@@ -71,8 +72,13 @@ export interface Env {
   // Cloudflare API token + account id for Email Routing provisioning.
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
-  // Worker name to deliver inbound mail to via Email Routing rules.
+  // Worker name to deliver inbound mail to via Email Routing rules — this
+  // environment's mail-inbound worker. Set explicitly per environment.
   MAIL_INBOUND_WORKER_NAME?: string;
+  // Apex zone the shared {slug}.{apex} workspace mail domains live on:
+  // weldmail.com in production, weldmail.org on test (each zone has one
+  // catch-all, so the environments cannot share one).
+  WELDMAIL_DOMAIN?: string;
   // --- Workspace invitation email (@weldsuite/emails, 'workspace.invitation') ---
   // Cloudflare `[[send_email]]` binding — the workspace invitation email,
   // sent when Clerk's organizationInvitation.created webhook fires.
@@ -154,10 +160,15 @@ app.onError((err, c) => {
 // deletion sweep instead.
 const DELETION_SWEEP_CRON = '0 3 * * *';
 
+// Hourly: repair WeldMail domains that provisioning left unrouted (see
+// services/mail-repair-sweep.ts). Kept off the 5-minute tick, which must not
+// open a database while the pool is settled.
+const MAIL_REPAIR_CRON = '17 * * * *';
+
 export default {
   fetch: app.fetch,
 
-  // Cron: two triggers configured in wrangler.toml [triggers] crons.
+  // Cron: three triggers configured in wrangler.toml [triggers] crons.
   //  - "*/5 * * * *" — keep the warm database pool topped up so workspace
   //    creation is instant (see workflows/refill-pool.ts). The 5-minute tick is
   //    for reacting quickly to a claim, NOT for polling Postgres: a settled pool
@@ -168,11 +179,15 @@ export default {
   //    services/teardown-sweep.ts), and drop the old databases of completed
   //    moves whose retention is over (see services/database-move-sweep.ts).
   //    The last two never throw.
+  //  - "17 * * * *"  — re-provision recent workspaces whose WeldMail domain
+  //    Cloudflare never routed (services/mail-repair-sweep.ts). Never throws.
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     if (event.cron === DELETION_SWEEP_CRON) {
       ctx.waitUntil(sweepScheduledDeletions(env));
       ctx.waitUntil(sweepUnfinishedTeardowns(env));
       ctx.waitUntil(runDatabaseMoveSweep(env));
+    } else if (event.cron === MAIL_REPAIR_CRON) {
+      ctx.waitUntil(repairWorkspaceMailDomains(env));
     } else {
       ctx.waitUntil(triggerPoolRefill(env));
     }

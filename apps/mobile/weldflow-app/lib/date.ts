@@ -9,6 +9,10 @@ const DASH = '—';
 
 function parse(value: string | null | undefined): Date | null {
   if (!value) return null;
+  // A bare "YYYY-MM-DD" is a calendar day; `new Date()` would read it as UTC
+  // midnight, which is the previous day west of Greenwich.
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (day) return new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 }
@@ -27,12 +31,20 @@ export function formatShortDate(value: string | null | undefined, locale = 'en-G
   return date.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
 }
 
+/**
+ * A due date is a calendar day: the task is overdue once that day has passed,
+ * not from midnight at its start. Same day-based rule as the server's
+ * `dueDateBucket: 'overdue'`, so a row and the Overdue count agree.
+ */
 export function isTaskOverdue(
   dueDate: string | null | undefined,
   status: string | null | undefined,
+  now: Date = new Date(),
 ): boolean {
   if (!dueDate || status === 'done' || status === 'cancelled') return false;
   const date = parse(dueDate);
   if (!date) return false;
-  return date.getTime() < Date.now();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return dueDay.getTime() < startOfToday.getTime();
 }

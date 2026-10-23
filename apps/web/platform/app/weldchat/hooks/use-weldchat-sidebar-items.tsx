@@ -88,6 +88,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useChatSections } from './use-chat-sections';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
+import { useWeldchatSidebarOrder } from '@/hooks/queries/use-ui-preference';
 import {
   applyTopN,
   DEFAULT_GROUP_FILTER,
@@ -478,8 +479,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const [pendingSectionDelete, setPendingSectionDelete] = React.useState<{ id: string; name: string } | null>(null);
   /** Per-group session-level collapse override: undefined = use settings.collapsedByDefault, true/false = user toggled. */
   const [collapseToggles, setCollapseToggles] = React.useState<Map<string, boolean>>(new Map());
-  /** Per-group manual reordering: maps groupKey -> array of channel ids in user's chosen order. */
-  const [manualOrder, setManualOrder] = React.useState<Map<string, string[]>>(new Map());
+  /** Per-group manual reordering (groupKey -> channel ids in the user's chosen order), saved in user preferences. */
+  const { order: manualOrder, setGroupOrder } = useWeldchatSidebarOrder();
 
   const { data: userPrefs } = useUserPreferences();
   const groupFilters: WeldchatGroupFilters =
@@ -734,7 +735,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       .filter((i): i is MenuItemProps => Boolean(i));
 
     // Apply manual drag-and-drop order if the user has reordered this group.
-    const manual = manualOrder.get(key);
+    const manual = manualOrder[key];
     if (manual && manual.length > 0) {
       const present = new Map(ordered.map((i) => [i.id as string, i]));
       const head: MenuItemProps[] = [];
@@ -790,11 +791,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   function makeReorderHandler(groupKey: string) {
     return (newItems: MenuItemProps[]) => {
       const ids = newItems.map((i) => i.id ?? '').filter((s) => s.length > 0);
-      setManualOrder((prev) => {
-        const next = new Map(prev);
-        next.set(groupKey, ids);
-        return next;
-      });
+      setGroupOrder(groupKey, ids);
     };
   }
 

@@ -1,0 +1,141 @@
+import type { Translations } from './en';
+
+export const nl: Translations = {
+  appName: 'WeldChat',
+  languageNames: {
+    en: 'English',
+    nl: 'Nederlands',
+  },
+
+  common: {
+    cancel: 'Annuleren',
+    save: 'Opslaan',
+    delete: 'Verwijderen',
+    retry: 'Opnieuw proberen',
+    search: 'Zoeken',
+  },
+
+  login: {
+    subtitle: 'Teamcommunicatie voor je werkruimte',
+  },
+
+  tabs: {
+    home: 'Home',
+    directMessages: 'Directe berichten',
+    activity: 'Activiteit',
+    calls: 'Gesprekken',
+  },
+
+  home: {
+    saved: 'Bewaard',
+    drafts: 'Concepten',
+    channelsGroup: 'Kanalen',
+    addChannel: 'Kanaal toevoegen',
+    createChannel: 'Kanaal maken',
+    channelCount: {
+      one: '{count} kanaal',
+      other: '{count} kanalen',
+    },
+    emptyTitle: 'Nog geen kanalen',
+    emptyHint: 'Maak een kanaal voor je team of start een direct bericht.',
+    emptyCreateChannel: 'Kanaal maken',
+    emptyStartDm: 'Direct bericht starten',
+  },
+
+  dms: {
+    filterAll: 'Alle',
+    filterUnread: 'Ongelezen',
+    filterFavourites: 'Favorieten',
+    filterMuted: 'Gedempt',
+    archive: 'Archiveren',
+    mute: 'Dempen',
+    unmute: 'Dempen opheffen',
+    pin: 'Vastzetten',
+    unpin: 'Losmaken',
+    emptyTitle: 'Nog geen berichten',
+    emptyHint: 'Start een gesprek met iemand',
+    noMessagesPreview: 'Nog geen berichten',
+    newDm: 'Nieuw direct bericht',
+  },
+
+  activity: {
+    emptyTitle: 'Nog geen activiteit',
+    emptyHint: 'Vermeldingen, antwoorden in threads en DMs verschijnen hier.',
+    markAllRead: 'Alles als gelezen markeren',
+  },
+
+  calls: {
+    join: 'Deelnemen',
+    emptyTitle: 'Geen actieve gesprekken',
+    emptyHint: 'Audio- en videogesprekken in je gesprekken verschijnen hier.',
+  },
+
+  channel: {
+    loadingTitle: 'Laden…',
+    channelDetails: 'Kanaaldetails',
+    startVideoCall: 'Videogesprek starten',
+    startVoiceCall: 'Audiogesprek starten',
+    activeNow: 'Nu actief',
+    offline: 'Offline',
+    welcome: 'Welkom in #{name}',
+    dmConversation: 'Gesprek met {name}',
+    startOfConversation: 'Dit is het begin van het gesprek.',
+    archivedNotice: 'Dit gesprek is gearchiveerd',
+    unarchive: 'Dearchiveren',
+    scrollToLatest: 'Naar de nieuwste berichten',
+    deleteMessageTitle: 'Bericht verwijderen',
+    deleteMessageBody: 'Weet je zeker dat je dit bericht wilt verwijderen? Dit kan niet ongedaan worden gemaakt.',
+  },
+
+  composer: {
+    messageDm: 'Bericht...',
+    messageChannel: 'Bericht in #{name}',
+    send: 'Versturen',
+    recordVoice: 'Spraakbericht opnemen',
+    attach: 'Bijlage toevoegen',
+  },
+
+  messageActions: {
+    reply: 'Beantwoorden',
+    replyInThread: 'Antwoorden in thread',
+    copyText: 'Tekst kopiëren',
+    pin: 'Bericht vastzetten',
+    unpin: 'Losmaken',
+    save: 'Bericht bewaren',
+    edit: 'Bericht bewerken',
+    delete: 'Verwijderen',
+    moreReactions: 'Meer reacties',
+  },
+
+  channelInfo: {
+    title: 'Kanaaldetails',
+    loadFailed: 'Dit kanaal kon niet worden geladen.',
+    publicChannel: 'Openbaar kanaal',
+    privateChannel: 'Privékanaal',
+    description: 'Beschrijving',
+    noDescription: 'Nog geen beschrijving',
+    members: 'Leden',
+    memberCount: {
+      one: '{count} lid',
+      other: '{count} leden',
+    },
+    actions: 'Acties',
+    rename: 'Kanaal hernoemen',
+    renameLabel: 'Kanaalnaam',
+    renamePlaceholder: 'kanaalnaam',
+    renamed: 'Kanaal hernoemd',
+    renameFailed: 'Het kanaal kon niet worden hernoemd.',
+    renameTaken: 'Er bestaat al een kanaal met die naam.',
+    leave: 'Kanaal verlaten',
+    leaveTitle: '#{name} verlaten?',
+    leaveBody: 'Je ontvangt geen berichten meer uit dit kanaal.',
+    left: 'Je hebt #{name} verlaten',
+    leaveFailed: 'Het kanaal kon niet worden verlaten.',
+    ownerCannotLeave: 'Eigenaren kunnen een kanaal niet verlaten. Draag eerst het eigenaarschap over.',
+    delete: 'Kanaal verwijderen',
+    deleteTitle: '#{name} verwijderen?',
+    deleteBody: 'Hiermee verwijder je het kanaal voor iedereen. Dit kan niet ongedaan worden gemaakt.',
+    deleted: 'Kanaal verwijderd',
+    deleteFailed: 'Het kanaal kon niet worden verwijderd.',
+  },
+};

@@ -599,6 +599,9 @@ export const host = {
       updated: 'Bijgewerkt',
       zone: 'Zone',
       provider: 'Aanbieder',
+      sandboxDns: 'Gesimuleerde DNS',
+      sandboxDnsHint:
+        'Testomgeving: deze DNS-zone is gesimuleerd. Records worden opgeslagen, maar niets is publiek bereikbaar en e-mail voor dit domein wordt niet afgeleverd.',
       autoRenew: 'Automatisch verlengen',
       ssl: 'SSL',
       emailForwarding: 'E-mail doorsturen',

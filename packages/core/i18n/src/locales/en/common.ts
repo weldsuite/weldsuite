@@ -768,6 +768,18 @@ export const common = {
         needAccount: 'Need an account?',
         signUp: 'Sign up',
         signInWithInvitationHint: 'Sign in with this email to accept your invitation',
+        signInWithSso: 'Sign in with SSO',
+        sso: {
+          title: 'Sign in with SSO',
+          subtitle: "Enter your work email and we'll take you to your company's identity provider.",
+          emailLabel: 'Work email',
+          emailPlaceholder: 'you@company.com',
+          continue: 'Continue with SSO',
+          notAvailable:
+            "We couldn't start single sign-on for this email address. Check the address, or ask your administrator whether single sign-on is set up for your company.",
+          failed: 'Single sign-on failed. Please try again, or sign in another way.',
+          backToLogin: 'Back to login',
+        },
         twoFactor: {
           title: 'Two-factor authentication',
           subtitleAuthenticator: 'Enter the verification code from your authenticator app.',

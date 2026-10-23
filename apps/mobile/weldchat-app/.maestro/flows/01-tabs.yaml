@@ -1,0 +1,15 @@
+appId: com.weldsuite.weldchat
+name: Home and tabs load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible: "Saved"
+- assertVisible: "Drafts"
+- tapOn: "Direct messages"
+- assertVisible: "Direct messages"
+- tapOn: "Activity"
+- assertVisible: "Activity"
+- tapOn: "Calls"
+- assertVisible: "No active calls"
+- tapOn: "Home"
+- assertVisible: "Saved"

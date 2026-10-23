@@ -128,3 +128,35 @@ describe('wrangler.toml top-level (local dev) config', () => {
     expect(offenders, 'deployed environments bind the deployed name, not the `-dev` one').toEqual([]);
   });
 });
+
+/**
+ * The WeldHost DNS sandbox (`@weldsuite/cloudflare-zones/sandbox`) stands in
+ * for Cloudflare on test. In production it would silently keep customer DNS
+ * out of Cloudflare, so production may carry neither its switch nor its D1.
+ */
+describe('WeldHost DNS sandbox', () => {
+  const configs = wranglerConfigs();
+
+  it('is never configured for production', () => {
+    const offenders = configs.flatMap((c) =>
+      c.blocks
+        .filter((b) => b.section === 'env.production' || b.section.startsWith('env.production.'))
+        .flatMap((b) => {
+          const found: string[] = [];
+          if (b.values.has('WELDHOST_DNS_MODE')) found.push('WELDHOST_DNS_MODE');
+          if (b.values.get('binding') === 'DNS_SANDBOX') found.push('DNS_SANDBOX binding');
+          return found.map((what) => `${c.file} [${b.section}] ${what}`);
+        }),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('is turned on for test wherever its D1 is bound', () => {
+    for (const c of configs) {
+      const testBlocks = c.blocks.filter((b) => b.section === 'env.test' || b.section.startsWith('env.test.'));
+      const bound = testBlocks.some((b) => b.values.get('binding') === 'DNS_SANDBOX');
+      const mode = testBlocks.find((b) => b.values.has('WELDHOST_DNS_MODE'))?.values.get('WELDHOST_DNS_MODE');
+      expect(mode, `${c.file}: WELDHOST_DNS_MODE without DNS_SANDBOX`).toBe(bound ? 'sandbox' : undefined);
+    }
+  });
+});

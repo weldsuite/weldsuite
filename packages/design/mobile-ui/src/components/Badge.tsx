@@ -64,10 +64,14 @@ export function Badge({
         style,
       ]}
     >
-      {children ?? (
+      {/* Plain text children go in a Text like `label`; inside a bare View
+          they don't render at all on native. */}
+      {children == null || typeof children === 'string' || typeof children === 'number' ? (
         <Text style={[styles.label, { color: fg[variant], fontSize }]}>
-          {label}
+          {children ?? label}
         </Text>
+      ) : (
+        children
       )}
     </View>
   );

@@ -26,6 +26,7 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
+import { accountLines } from '@/lib/account';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { IconTile } from '@/components/detail';
@@ -42,6 +43,10 @@ export default function MoreScreen() {
   const toast = useToast();
   const { t } = useI18n();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const account = accountLines(
+    { fullName: user?.fullName, email: user?.email, workspaceName: organization?.name },
+    t.common.dash,
+  );
 
   const open = useCallback(
     (route: string) => {
@@ -70,10 +75,10 @@ export default function MoreScreen() {
             <IconTile icon={Building2} color={ACCENTS.settings} />
             <View style={styles.rowText}>
               <Text style={[styles.rowTitle, { color: colors.text }]}>
-                {user?.fullName || user?.email || t.common.dash}
+                {account.title}
               </Text>
               <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
-                {[user?.email, organization?.name].filter(Boolean).join(' · ')}
+                {account.subtitle}
               </Text>
             </View>
           </View>

@@ -135,30 +135,28 @@ export default function MoreScreen() {
               {t.more.administration}
             </Text>
             <Card style={[styles.card, { borderRadius: 20 }]}>
+              {/* Always opens the sheet: with one company it is where another one is added. */}
               <Pressable
-                onPress={canSwitch ? openSwitcher : undefined}
-                disabled={!canSwitch}
+                onPress={openSwitcher}
                 accessibilityRole="button"
                 accessibilityLabel={
                   canSwitch
                     ? format(t.screen.switchAdministration, { name: activeEntity.name })
-                    : activeEntity.name
+                    : format(t.more.addAdministration, { name: activeEntity.name })
                 }
-                style={({ pressed }) => [
-                  styles.row,
-                  canSwitch && pressed && { backgroundColor: colors.pressed },
-                ]}
+                testID="administration-row"
+                style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.pressed }]}
               >
                 <IconTile icon={Building2} color={ACCENTS.settings} />
                 <View style={styles.rowText}>
                   <Text style={[styles.rowTitle, { color: colors.text }]}>{activeEntity.name}</Text>
                   <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
-                    {canSwitch
-                      ? `${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency} · ${t.more.tapToSwitch}`
-                      : `${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency}`}
+                    {`${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency} · ${
+                      canSwitch ? t.more.tapToSwitch : t.more.tapToAdd
+                    }`}
                   </Text>
                 </View>
-                {canSwitch ? <ChevronRight size={18} color={colors.mutedForeground} /> : null}
+                <ChevronRight size={18} color={colors.mutedForeground} />
               </Pressable>
             </Card>
           </View>

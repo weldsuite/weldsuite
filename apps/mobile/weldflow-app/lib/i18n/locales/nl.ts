@@ -27,6 +27,10 @@ export const nl: Translations = {
     goBack: 'Terug',
   },
 
+  login: {
+    subtitle: 'Projecten en taken onderweg',
+  },
+
   status: {
     backlog: 'Backlog',
     todo: 'Te doen',
@@ -82,6 +86,10 @@ export const nl: Translations = {
       one: '{count} taak',
       other: '{count} taken',
     },
+    assignedCount: {
+      one: '{count} toegewezen',
+      other: '{count} toegewezen',
+    },
   },
 
   projects: {
@@ -95,6 +103,9 @@ export const nl: Translations = {
     loadError: 'Projecten konden niet worden geladen.',
     emptyTitle: 'Nog geen projecten',
     emptyDescription: 'Projecten waar je lid van bent verschijnen hier.',
+    noSearchResults: 'Geen projecten gevonden voor "{query}"',
+    noFilterResults: 'Geen projecten met deze status',
+    noResultsDescription: 'Probeer een andere zoekterm of filter.',
     notFound: 'Project niet gevonden',
     total: 'Totaal',
     open: 'Open',
@@ -116,6 +127,9 @@ export const nl: Translations = {
     loadError: 'Taken konden niet worden geladen.',
     emptyTitle: 'Geen taken toegewezen',
     emptyDescription: 'Taken die aan jou zijn toegewezen verschijnen hier.',
+    noSearchResults: 'Geen taken gevonden voor "{query}"',
+    noFilterResults: 'Geen taken met deze status',
+    noResultsDescription: 'Probeer een andere zoekterm of filter.',
     newTask: 'Nieuwe taak',
     pickProject: 'Kies een project',
     noProjects: 'Nog geen actieve projecten. Maak er eerst een aan op het web.',
@@ -150,7 +164,7 @@ export const nl: Translations = {
     settingsSub: 'Weergave, meldingen en account',
     privacy: 'Privacy & account',
     privacySub: 'Gegevens en account verwijderen',
-    darkMode: 'Donkere modus',
+    theme: 'Thema',
     notifications: 'Pushmeldingen',
     notificationsOn: 'Ingeschakeld',
     notificationsOff: 'Inschakelen',
@@ -164,11 +178,15 @@ export const nl: Translations = {
     email: 'E-mail',
     workspace: 'Werkruimte',
     appearance: 'Weergave',
-    darkMode: 'Donkere modus',
+    theme: 'Thema',
+    themeSystem: 'Systeem',
+    themeLight: 'Licht',
+    themeDark: 'Donker',
     language: 'Taal',
     languageHint: 'Taal volgt je WeldSuite-profiel wanneer beschikbaar.',
     notifications: 'Meldingen',
     pushNotifications: 'Pushmeldingen',
+    notificationsBlocked: 'Meldingen staan uit voor WeldFlow. Zet ze aan in de instellingen van je telefoon.',
     privacy: 'Privacy',
     privacyAccount: 'Privacy & account',
     app: 'App',

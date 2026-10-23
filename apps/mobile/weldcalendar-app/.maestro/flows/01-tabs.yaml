@@ -1,0 +1,14 @@
+appId: com.weldsuite.weldcalendar
+name: Agenda and tabs load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible: "Today"
+- tapOn: "Month"
+- assertVisible: "Today"
+- tapOn: "Calendars"
+- assertVisible: "Hidden calendars stay out of the agenda and the month grid."
+- tapOn: "More"
+- assertVisible: "Sign out"
+- tapOn: "Agenda"
+- assertVisible: "Next 7 days"

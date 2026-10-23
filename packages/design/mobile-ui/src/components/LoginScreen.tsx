@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
+import React, { useState, useCallback, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,18 +10,20 @@ import {
   ScrollView,
   Image,
   Text,
+  BackHandler,
   type TextInputProps,
  ImageSourcePropType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useClerk, useAuth, useSSO, useOrganizationList } from '@clerk/expo';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import { Eye, EyeOff, Fingerprint } from 'lucide-react-native';
+import { Building2, Eye, EyeOff, Fingerprint } from 'lucide-react-native';
+import { LOGIN_COPY, type LoginLanguage, type LoginScreenCopy } from '../constants/login-copy';
+import { authErrorMessage, isValidEmail, passwordErrorMessage } from '../lib/auth-errors';
 
 WebBrowser.maybeCompleteAuthSession();
 import { Colors, Radii, Spacing } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-import { useToast } from '../contexts/ToastContext';
 
 type ThemeColors = typeof Colors.light;
 
@@ -208,7 +210,6 @@ function GoogleSignInButton({
   colors: ThemeColors;
 }>) {
   const { startSSOFlow } = useSSO();
-  const toast = useToast();
 
   const onPress = useCallback(async () => {
     if (isLoading) return;
@@ -231,14 +232,12 @@ function GoogleSignInButton({
         setFormError(noAccount);
       } else {
         console.error('Google sign in error:', JSON.stringify(e, null, 2));
-        const errorMessage = e.errors?.[0]?.message || e.message || googleFailed;
-        setFormError(errorMessage);
-        toast.error(googleFailed);
+        setFormError(googleFailed);
       }
     } finally {
       setIsLoading(false);
     }
-  }, [startSSOFlow, isLoading, toast, onOrgSelect, setIsLoading, setFormError, noAccount, googleFailed]);
+  }, [startSSOFlow, isLoading, onOrgSelect, setIsLoading, setFormError, noAccount, googleFailed]);
 
   return (
     <TouchableOpacity
@@ -287,7 +286,6 @@ function AppleSignInButton({
   colors: ThemeColors;
 }>) {
   const { startSSOFlow } = useSSO();
-  const toast = useToast();
 
   const onPress = useCallback(async () => {
     if (isLoading) return;
@@ -310,14 +308,12 @@ function AppleSignInButton({
         setFormError(noAccount);
       } else {
         console.error('Apple sign in error:', JSON.stringify(e, null, 2));
-        const errorMessage = e.errors?.[0]?.message || e.message || appleFailed;
-        setFormError(errorMessage);
-        toast.error(appleFailed);
+        setFormError(appleFailed);
       }
     } finally {
       setIsLoading(false);
     }
-  }, [startSSOFlow, isLoading, toast, onOrgSelect, setIsLoading, setFormError, noAccount, appleFailed]);
+  }, [startSSOFlow, isLoading, onOrgSelect, setIsLoading, setFormError, noAccount, appleFailed]);
 
   return (
     <TouchableOpacity
@@ -340,108 +336,78 @@ function AppleSignInButton({
   );
 }
 
-export interface LoginScreenCopy {
-  signInTitle: string;
-  subtitle: string;
-  emailPlaceholder: string;
-  passwordPlaceholder: string;
-  forgotPassword: string;
-  signIn: string;
-  or: string;
-  hidePassword: string;
-  showPassword: string;
-  continueGoogle: string;
-  continueApple: string;
-  continuePasskey: string;
-  twoStepTitle: string;
-  totpHint: string;
-  phoneHint: string;
-  phoneFallback: string;
-  backupHint: string;
-  backupCodePlaceholder: string;
-  verificationCodePlaceholder: string;
-  verify: string;
-  useAuthenticator: string;
-  sendSms: string;
-  useBackup: string;
-  backToSignIn: string;
-  enterEmail: string;
-  enterPassword: string;
-  noAccount: string;
-  googleFailed: string;
-  appleFailed: string;
-  passkeyFailed: string;
-  loginFailed: string;
-  invalidCredentials: string;
-  enterCode: string;
-  invalidCode: string;
-  sendCodeFailed: string;
-  // Forgot / reset password
-  forgotTitle: string;
-  forgotSubtitle: string;
-  sendResetCode: string;
-  resetTitle: string;
-  resetSubtitle: string;
-  resetCodePlaceholder: string;
-  newPasswordPlaceholder: string;
-  confirmPasswordPlaceholder: string;
-  resetPassword: string;
-  passwordsDoNotMatch: string;
-  passwordRequirements: string;
-  passwordResetFailed: string;
-  invalidResetCode: string;
+// Enterprise SSO button — Clerk finds the company's identity provider from the
+// email's domain (a workspace's SAML connection) and opens it in the browser.
+function EnterpriseSsoButton({
+  email,
+  onOrgSelect,
+  disabled,
+  isLoading,
+  setIsLoading,
+  setFormError,
+  labels,
+  colors,
+}: Readonly<{
+  email: string;
+  onOrgSelect: () => Promise<void>;
+  disabled: boolean;
+  isLoading: boolean;
+  setIsLoading: (v: boolean) => void;
+  setFormError: (v: string | null) => void;
+  labels: Pick<LoginScreenCopy, 'continueSso' | 'ssoNeedsEmail' | 'ssoFailed'>;
+  colors: ThemeColors;
+}>) {
+  const { startSSOFlow } = useSSO();
+
+  const onPress = useCallback(async () => {
+    if (isLoading) return;
+    if (!isValidEmail(email)) {
+      setFormError(labels.ssoNeedsEmail);
+      return;
+    }
+    setIsLoading(true);
+    setFormError(null);
+    try {
+      const result = await startSSOFlow({
+        strategy: 'enterprise_sso',
+        identifier: email.trim(),
+        redirectUrl: ssoRedirectUrl(),
+      });
+      if (!(await activateSsoSession(result, onOrgSelect))) {
+        setFormError(labels.ssoFailed);
+      }
+    } catch (e: unknown) {
+      const code = (e as { code?: unknown } | null)?.code;
+      if (code === 'SIGN_IN_CANCELLED' || code === '-5' || code === 'ERR_REQUEST_CANCELED') return;
+      // One message whatever Clerk said, so the screen does not tell which addresses have accounts.
+      setFormError(labels.ssoFailed);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [startSSOFlow, email, isLoading, onOrgSelect, setIsLoading, setFormError, labels]);
+
+  return (
+    <TouchableOpacity
+      style={[styles.oauthButton, { backgroundColor: colors.secondary }, isLoading && styles.buttonDisabled]}
+      onPress={onPress}
+      activeOpacity={0.8}
+      disabled={disabled || isLoading}
+      accessibilityRole="button"
+      testID="login-sso"
+    >
+      {isLoading ? (
+        <ActivityIndicator color={colors.text} />
+      ) : (
+        <View style={styles.oauthButtonContent}>
+          <Building2 size={20} color={colors.text} />
+          <Text style={[styles.oauthButtonText, { color: colors.text }]}>{labels.continueSso}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
 }
 
-const DEFAULT_COPY: LoginScreenCopy = {
-  signInTitle: 'Sign in to your account',
-  subtitle: 'Enter your credentials to access your workspace',
-  emailPlaceholder: 'Email address',
-  passwordPlaceholder: 'Password',
-  forgotPassword: 'Forgot password?',
-  signIn: 'Sign In',
-  or: 'or',
-  hidePassword: 'Hide password',
-  showPassword: 'Show password',
-  continueGoogle: 'Continue with Google',
-  continueApple: 'Continue with Apple',
-  continuePasskey: 'Sign in with a passkey',
-  twoStepTitle: 'Two-step verification',
-  totpHint: 'Enter the 6-digit code from your authenticator app.',
-  phoneHint: 'Enter the code we sent to {phone}.',
-  phoneFallback: 'your phone',
-  backupHint: 'Enter one of your backup codes.',
-  backupCodePlaceholder: 'Backup code',
-  verificationCodePlaceholder: 'Verification code',
-  verify: 'Verify',
-  useAuthenticator: 'Use authenticator app',
-  sendSms: 'Send code via SMS',
-  useBackup: 'Use a backup code',
-  backToSignIn: 'Back to sign in',
-  enterEmail: 'Please enter your email',
-  enterPassword: 'Please enter your password',
-  noAccount: 'No account found. Please create an account at app.weldsuite.org first.',
-  googleFailed: 'Google sign in failed',
-  appleFailed: 'Apple sign in failed',
-  passkeyFailed: "Couldn't sign in with a passkey. Check that one is saved for your account, or sign in another way.",
-  loginFailed: 'Login failed',
-  invalidCredentials: 'Invalid email or password',
-  enterCode: 'Please enter the verification code',
-  invalidCode: 'Invalid verification code',
-  sendCodeFailed: 'Failed to send verification code',
-  forgotTitle: 'Forgot your password?',
-  forgotSubtitle: "Enter your email and we'll send you a code to reset your password.",
-  sendResetCode: 'Send Reset Code',
-  resetTitle: 'Reset your password',
-  resetSubtitle: 'Enter the code from your email and create a new password.',
-  resetCodePlaceholder: 'Reset code',
-  newPasswordPlaceholder: 'New password',
-  confirmPasswordPlaceholder: 'Confirm new password',
-  resetPassword: 'Reset Password',
-  passwordsDoNotMatch: 'Passwords do not match',
-  passwordRequirements: 'Use at least 8 characters with upper, lower, and a number',
-  passwordResetFailed: 'Password reset failed. Please try again.',
-  invalidResetCode: 'Invalid code or password reset failed',
-};
+export type { LoginScreenCopy } from '../constants/login-copy';
 
 export interface LoginScreenProps {
   /** Custom logo element (e.g. an SVG wordmark). Takes precedence over `logo`. */
@@ -454,7 +420,9 @@ export interface LoginScreenProps {
   appName: string;
   /** Subtitle text below the title */
   subtitle?: string;
-  /** Optional translated copy. Defaults to English. */
+  /** Built-in copy to start from (default: 'en'). */
+  language?: LoginLanguage;
+  /** Overrides for single strings of the `language` copy. */
   copy?: Partial<LoginScreenCopy>;
   /** Show email/password login form (default: true) */
   showEmailLogin?: boolean;
@@ -469,6 +437,11 @@ export interface LoginScreenProps {
    * the Clerk instance has passkeys off.
    */
   showPasskeyLogin?: boolean;
+  /**
+   * Show "Sign in with SSO" for workspaces that sign in through their own
+   * identity provider (default: true). Uses the email typed in the form.
+   */
+  showSsoLogin?: boolean;
   /** Brand accent for CTA, focus rings, and links (default: '#3B82F6') */
   accentColor?: string;
 }
@@ -536,7 +509,7 @@ function LoginLogo({ logoElement, logo, appName, iconW, iconH, accentColor, colo
 function FormErrorBox({ message, colors }: Readonly<{ message: string | null; colors: ThemeColors }>) {
   if (!message) return null;
   return (
-    <View style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
+    <View testID="login-error" style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
       <Text style={[styles.formErrorText, { color: colors.destructive }]}>{message}</Text>
     </View>
   );
@@ -547,11 +520,13 @@ interface SubmitButtonProps {
   loading: boolean;
   onPress: () => void;
   label: string;
+  testID?: string;
 }
 
-function SubmitButton({ accentColor, loading, onPress, label }: Readonly<SubmitButtonProps>) {
+function SubmitButton({ accentColor, loading, onPress, label, testID }: Readonly<SubmitButtonProps>) {
   return (
     <TouchableOpacity
+      testID={testID}
       style={[styles.signInButton, { backgroundColor: accentColor }, loading && styles.buttonDisabled]}
       onPress={onPress}
       activeOpacity={0.8}
@@ -576,11 +551,13 @@ export function LoginScreen({
   logoSize,
   appName,
   subtitle,
+  language = 'en',
   copy,
   showEmailLogin = true,
   showGoogleLogin = true,
   showAppleLogin = true,
   showPasskeyLogin = false,
+  showSsoLogin = true,
   accentColor = '#3B82F6',
 }: Readonly<LoginScreenProps>) {
   useWarmUpBrowser();
@@ -590,16 +567,18 @@ export function LoginScreen({
   const { userMemberships, setActive: setOrgActive, isLoaded: isOrgListLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
   });
-  const toast = useToast();
+  const baseCopy = LOGIN_COPY[language];
   const labels: LoginScreenCopy = {
-    ...DEFAULT_COPY,
+    ...baseCopy,
     ...copy,
-    subtitle: copy?.subtitle ?? subtitle ?? DEFAULT_COPY.subtitle,
+    subtitle: copy?.subtitle ?? subtitle ?? baseCopy.subtitle,
   };
 
   const isAppleDevice = Platform.OS === 'ios';
   const isNativePlatform = Platform.OS === 'ios' || Platform.OS === 'android';
   const showPasskey = showPasskeyLogin && isNativePlatform && instanceAllowsPasskeys(clerk);
+  // SSO needs the email from the form to find the company's identity provider.
+  const showSso = showSsoLogin && showEmailLogin && isNativePlatform;
 
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
@@ -610,6 +589,7 @@ export function LoginScreen({
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isAppleLoading, setIsAppleLoading] = useState(false);
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
+  const [isSsoLoading, setIsSsoLoading] = useState(false);
 
   // Reset-password fields
   const [resetCode, setResetCode] = useState('');
@@ -651,7 +631,7 @@ export function LoginScreen({
         });
       } catch (err: any) {
         console.error('prepareSecondFactor failed:', err);
-        setFormError(err?.errors?.[0]?.message || labels.sendCodeFailed);
+        setFormError(authErrorMessage(err, labels.sendCodeFailed, labels));
         return;
       }
     }
@@ -691,6 +671,10 @@ export function LoginScreen({
       setFormError(labels.enterEmail);
       return;
     }
+    if (!isValidEmail(email)) {
+      setFormError(labels.invalidEmail);
+      return;
+    }
     if (!password) {
       setFormError(labels.enterPassword);
       return;
@@ -715,9 +699,7 @@ export function LoginScreen({
       }
     } catch (e: any) {
       console.error('Sign in error:', e);
-      const errorMessage = e.errors?.[0]?.message || e.message || labels.invalidCredentials;
-      setFormError(errorMessage);
-      toast.error(labels.loginFailed);
+      setFormError(authErrorMessage(e, labels.invalidCredentials, labels));
     } finally {
       setIsValidating(false);
     }
@@ -752,6 +734,10 @@ export function LoginScreen({
   const onSendResetCode = async () => {
     if (!email.trim()) {
       setFormError(labels.enterEmail);
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setFormError(labels.invalidEmail);
       return;
     }
 
@@ -809,8 +795,9 @@ export function LoginScreen({
       }
     } catch (e: any) {
       console.error('Password reset error:', e);
-      const errorMessage = e.errors?.[0]?.message || e.message || labels.invalidResetCode;
-      setFormError(errorMessage);
+      setFormError(
+        passwordErrorMessage(e, labels) ?? authErrorMessage(e, labels.invalidResetCode, labels),
+      );
     } finally {
       setIsResetting(false);
     }
@@ -841,8 +828,7 @@ export function LoginScreen({
       }
     } catch (e: any) {
       console.error('MFA verification error:', e);
-      const errorMessage = e.errors?.[0]?.message || e.message || labels.invalidCode;
-      setFormError(errorMessage);
+      setFormError(authErrorMessage(e, labels.invalidCode, labels));
     } finally {
       setIsVerifyingMfa(false);
     }
@@ -862,7 +848,7 @@ export function LoginScreen({
         } as any);
       } catch (err: any) {
         console.error('prepareSecondFactor failed:', err);
-        setFormError(err?.errors?.[0]?.message || labels.sendCodeFailed);
+        setFormError(authErrorMessage(err, labels.sendCodeFailed, labels));
         setIsVerifyingMfa(false);
         return;
       }
@@ -886,6 +872,28 @@ export function LoginScreen({
     }
   };
 
+  // Forgot / reset / two-step are steps of this screen, not routes, so Android's
+  // Back would leave the app. Step back to sign-in instead, the same as the
+  // on-screen "Back to sign in" link.
+  const onHardwareBack = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    onHardwareBack.current = () => {
+      if (mfa) {
+        cancelMfa();
+        return true;
+      }
+      if (mode !== 'signin') {
+        backToSignIn();
+        return true;
+      }
+      return false;
+    };
+  });
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => onHardwareBack.current());
+    return () => subscription.remove();
+  }, []);
+
   if (isSignedIn) {
     return (
       <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
@@ -898,7 +906,7 @@ export function LoginScreen({
   }
 
   const anyLoading =
-    isValidating || isGoogleLoading || isAppleLoading || isPasskeyLoading || isSendingReset || isResetting;
+    isValidating || isGoogleLoading || isAppleLoading || isPasskeyLoading || isSsoLoading || isSendingReset || isResetting;
   const iconW = logoSize?.width ?? 40;
   const iconH = logoSize?.height ?? 40;
 
@@ -1126,6 +1134,7 @@ export function LoginScreen({
                         setEmail(text);
                         if (formError) setFormError(null);
                       }}
+                      testID="login-email"
                       placeholder={labels.emailPlaceholder}
                       keyboardType="email-address"
                       autoCapitalize="none"
@@ -1144,6 +1153,7 @@ export function LoginScreen({
                         setPassword(text);
                         if (formError) setFormError(null);
                       }}
+                      testID="login-password"
                       placeholder={labels.passwordPlaceholder}
                       secureTextEntry={!showPassword}
                       autoCapitalize="none"
@@ -1173,11 +1183,11 @@ export function LoginScreen({
               <FormErrorBox message={formError} colors={colors} />
 
               {showEmailLogin && (
-                <SubmitButton accentColor={accentColor} loading={isValidating} onPress={onSignIn} label={labels.signIn} />
+                <SubmitButton accentColor={accentColor} loading={isValidating} onPress={onSignIn} label={labels.signIn} testID="login-submit" />
               )}
 
               {showEmailLogin &&
-                ((showGoogleLogin && isNativePlatform) || (showAppleLogin && isAppleDevice) || showPasskey) && (
+                ((showGoogleLogin && isNativePlatform) || (showAppleLogin && isAppleDevice) || showPasskey || showSso) && (
                 <View style={styles.dividerContainer}>
                   <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
                   <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>{labels.or}</Text>
@@ -1236,6 +1246,21 @@ export function LoginScreen({
                     </View>
                   )}
                 </TouchableOpacity>
+              )}
+
+              {showSso && (
+                <OAuthErrorBoundary>
+                  <EnterpriseSsoButton
+                    email={email}
+                    onOrgSelect={autoSelectOrg}
+                    disabled={anyLoading}
+                    isLoading={isSsoLoading}
+                    setIsLoading={setIsSsoLoading}
+                    setFormError={setFormError}
+                    labels={labels}
+                    colors={colors}
+                  />
+                </OAuthErrorBoundary>
               )}
             </View>
             )}

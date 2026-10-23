@@ -338,6 +338,11 @@ describe('finalize needs the entity address and a buyer name', () => {
     expect(finalized.status).toBe(400);
     expect(finalized.error?.message).toMatch(/business address/);
     expect(finalized.error?.message).toMatch(/Entities/);
+    // Clients that translate the message get the missing fields as codes next to it.
+    expect(JSON.parse(finalized.text).error.details).toEqual({
+      code: 'ENTITY_INVOICE_FIELDS_MISSING',
+      missingFields: ['address'],
+    });
 
     // Filling it in lets the invoice through.
     const patched = await call('/api/accounting-entities', accountingEntitiesRoutes, `/api/accounting-entities/${id}`, {

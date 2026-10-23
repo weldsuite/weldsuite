@@ -1,0 +1,78 @@
+appId: com.weldsuite.weldbooks
+name: Add a second company and switch between companies
+tags: [smoke, writes]
+---
+# Needs "E2E Company BV" (see the README). The first run creates "E2E Second BV"
+# through More › Administration › Add company; later runs switch to it. The
+# second company has no expenses, so switching must empty the lists, and
+# switching back must bring them back.
+- runFlow: ../subflows/login.yaml
+- extendedWaitUntil:
+    visible: "E2E Company BV"
+    timeout: 15000
+
+# With one company the row still opens the sheet: that is where another is added.
+- tapOn: "More"
+- tapOn:
+    id: administration-row
+- extendedWaitUntil:
+    visible: "Administrations"
+    timeout: 10000
+# Switch to it when it exists (checked first: once switched, its name is on the
+# More screen too); otherwise add it, which switches to it as well.
+- runFlow:
+    when:
+      visible: "E2E Second BV"
+    commands:
+      - tapOn: "E2E Second BV"
+- runFlow:
+    when:
+      notVisible: "E2E Second BV"
+    commands:
+      - tapOn:
+          id: administration-add
+      - extendedWaitUntil:
+          visible: "Add a company"
+          timeout: 10000
+      # It starts on the current company's country.
+      - assertVisible: "Netherlands.*"
+      - tapOn: "Acme B.V."
+      - inputText: "E2E Second BV"
+      - scrollUntilVisible:
+          element:
+            id: create-company-submit
+      - tapOn:
+          id: create-company-submit
+
+# The app now works in the other company.
+- extendedWaitUntil:
+    visible: "E2E Second BV"
+    timeout: 30000
+- tapOn: "Home"
+- extendedWaitUntil:
+    visible: "Outstanding"
+    timeout: 30000
+- assertVisible: "E2E Second BV"
+- tapOn: "Expenses"
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 10000
+- extendedWaitUntil:
+    notVisible: "E2E Supplier.*"
+    timeout: 10000
+
+# Back to the first company: its expenses are there again. Home's title is the switcher now.
+- tapOn: "Home"
+- tapOn: "E2E Second BV"
+- extendedWaitUntil:
+    visible: "Administrations"
+    timeout: 10000
+- tapOn: "E2E Company BV"
+- extendedWaitUntil:
+    visible: "Outstanding"
+    timeout: 30000
+- assertVisible: "E2E Company BV"
+- tapOn: "Expenses"
+- extendedWaitUntil:
+    visible: "E2E Supplier.*"
+    timeout: 15000

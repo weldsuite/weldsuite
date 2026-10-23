@@ -8,6 +8,7 @@
  */
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
+import { configureZonesSandbox } from '@weldsuite/cloudflare-zones/sandbox';
 import { dnsRecordsRoutes } from './routes/dns-records';
 import { dnsZonesRoutes } from './routes/dns-zones';
 import { domainTransfersRoutes } from './routes/domain-transfers';
@@ -39,8 +40,14 @@ app.route('/api/domains', domainsRoutes);
 app.route('/api/email-forwards', emailForwardsRoutes);
 
 export default {
-  fetch: app.fetch,
+  // On test (WELDHOST_DNS_MODE=sandbox) customer zones live in the DNS
+  // sandbox D1, not Cloudflare. A no-op everywhere else.
+  fetch: (request: Request, env: Env, ctx?: ExecutionContext) => {
+    configureZonesSandbox(env);
+    return app.fetch(request, env, ctx);
+  },
   scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+    configureZonesSandbox(env);
     // Daily at 04:00 UTC: invoice+renew WeldHost domains that are inside the
     // auto-renew window.
     if (event.cron === '0 4 * * *') {

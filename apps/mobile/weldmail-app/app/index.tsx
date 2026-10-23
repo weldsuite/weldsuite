@@ -155,6 +155,7 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
       enableTrackpadTwoFingerGesture
     >
       <TouchableOpacity
+        testID="inbox-email-row"
         onPress={() => onPress(item)}
         activeOpacity={0.7}
         delayPressIn={50}
@@ -294,7 +295,7 @@ export default function MailScreen() {
   const { launchReady } = useNotifications();
   const cache = useMailCache();
   const outbox = useMailOutbox();
-  const { organizationId } = useClerkAuth();
+  const { organizationId, user } = useClerkAuth();
 
   // The mailbox + label the user is currently viewing, as one stable key.
   // Each key is an isolated list: switching account or opening the unified
@@ -997,6 +998,9 @@ export default function MailScreen() {
     </View>
   );
 
+  // The unified inbox has no single account, so show who is signed in.
+  const avatarName = selectedAccount?.displayName || user?.fullName || user?.email || '';
+
   const header = (
     <ScreenHeader
       title={currentLabelName}
@@ -1016,9 +1020,9 @@ export default function MailScreen() {
           />
           <IconButton
             icon={
-              <View style={[styles.headerAvatar, { backgroundColor: selectedAccount ? getAvatarColor(selectedAccount.displayName) : colors.muted }]}>
+              <View style={[styles.headerAvatar, { backgroundColor: avatarName ? getAvatarColor(avatarName) : colors.muted }]}>
                 <Text style={styles.headerAvatarText}>
-                  {selectedAccount?.displayName?.charAt(0).toUpperCase() || 'U'}
+                  {avatarName.charAt(0).toUpperCase() || '?'}
                 </Text>
               </View>
             }
@@ -1040,6 +1044,7 @@ export default function MailScreen() {
     <Screen header={header} edges={isTablet ? [] : ['top']} style={styles.container}>
       <Animated.View style={[styles.listRegion, { opacity: listOpacity }]}>
         <SectionList
+          testID="inbox-list"
           sections={emailSections}
           renderItem={renderEmail}
           renderSectionHeader={renderSectionHeader}

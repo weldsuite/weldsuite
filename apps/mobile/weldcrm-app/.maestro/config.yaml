@@ -1,0 +1,6 @@
+# Maestro workspace config: `maestro test .maestro` runs every flow in flows/.
+# Subflows (login etc.) live in subflows/ and are not run on their own.
+flows:
+  - flows/*
+executionOrder:
+  continueOnFailure: true

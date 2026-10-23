@@ -1,0 +1,13 @@
+appId: com.weldsuite.weldflow
+name: Switch between the tabs
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn: "Projects"
+- assertVisible: "Search projects"
+- tapOn: "My tasks"
+- assertVisible: "Search tasks"
+- tapOn: "More"
+- assertVisible: "Sign out"
+- tapOn: "Home"
+- assertVisible: "Recent projects"

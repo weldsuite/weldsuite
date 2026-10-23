@@ -178,6 +178,21 @@ export class CloudflareApiClient {
     );
   }
 
+  /**
+   * Unlock the MX records Email Routing locked for `name` (a FQDN inside the
+   * zone; omit for the apex), so they can be edited or deleted as ordinary
+   * DNS records. There is no API that removes a single routing subdomain:
+   * `emailRouting.dns.delete` disables routing for the WHOLE zone, so a
+   * subdomain is retired by unlocking its records and deleting them.
+   */
+  async unlockRoutingDns(zoneId: string, name?: string): Promise<CfRoutingSettings> {
+    return call(() =>
+      this.client.emailRouting.dns
+        .edit({ zone_id: zoneId, ...(name ? { name } : {}) })
+        .then(toRoutingSettings),
+    );
+  }
+
   // ---- zone-scoped: routing rules ------------------------------------------
 
   /**

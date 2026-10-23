@@ -2,7 +2,7 @@
  * WeldBooks dashboard.
  *
  * List-first home that matches the floating pill nav: a large title, a
- * compact KPI strip, icon shortcuts, then recent invoices as full-bleed rows.
+ * 2x2 grid of KPI tiles, icon shortcuts, then recent invoices as full-bleed rows.
  */
 
 import { useCallback, useEffect, useState } from 'react';

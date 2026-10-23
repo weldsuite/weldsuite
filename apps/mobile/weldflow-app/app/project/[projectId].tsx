@@ -14,7 +14,7 @@ import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 
-import { ACCENTS, BRAND } from '@/lib/brand';
+import { ACCENTS, BRAND, projectColor } from '@/lib/brand';
 import { formatShortDate, isTaskOverdue } from '@/lib/date';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
@@ -81,7 +81,7 @@ export default function ProjectDetailScreen() {
   }
 
   const progressNum = Number(project.progress ?? 0);
-  const color = project.color || BRAND;
+  const color = projectColor(project.color);
 
   const header = (
     <ScreenHeader
@@ -142,6 +142,7 @@ export default function ProjectDetailScreen() {
             const overdue = isTaskOverdue(item.dueDate, item.status);
             return (
               <RecordRow
+                testID="project-task-row"
                 leading={<IconTile icon={CheckSquare} color={ACCENTS.tasks} />}
                 title={item.title}
                 subtitle={joinSubtitle(

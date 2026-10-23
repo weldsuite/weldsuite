@@ -100,7 +100,7 @@ function idempotencyKey(ctx: AdminContext, action: string): string {
   return `admin:${action}:${ctx.requestId}`;
 }
 
-async function loadWorkspace(masterDb: MasterDb, workspaceId: string): Promise<WorkspaceRow> {
+export async function loadWorkspace(masterDb: MasterDb, workspaceId: string): Promise<WorkspaceRow> {
   const [workspace] = await masterDb.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   if (!workspace) throw new AdminBillingError('NOT_FOUND', 'Workspace not found');
   if (workspace.deletedAt) throw new AdminBillingError('CONFLICT', 'This workspace has been deleted');

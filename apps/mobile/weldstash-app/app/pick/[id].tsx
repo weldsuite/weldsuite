@@ -23,6 +23,7 @@ import { useHardwareBarcodeScan } from '@/hooks/useHardwareBarcodeScan';
 import { normalizeBarcode } from '@/utils/barcode';
 import { weldstashKeys } from '@/lib/query-client';
 import { useWeldstashPickList } from '@/hooks/use-weldstash-queries';
+import { pickStatusLabel, useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 
 const TERMINAL = new Set(['picked', 'partial', 'short', 'skipped']);
@@ -75,16 +76,17 @@ function SendcloudForm({
   onWeightKgChange,
 }: Readonly<SendcloudFormProps>) {
   const { colors } = useTheme();
+  const { t } = useI18n();
   if (!connected) {
     return (
       <Text style={{ color: colors.muted, marginBottom: 8 }}>
-        Connect Sendcloud in Settings → Integrations before shipping.
+        {t.pick.sendcloudNotConnected}
       </Text>
     );
   }
   return (
     <View style={{ gap: 8, marginBottom: 12 }}>
-      <Text style={{ color: colors.muted }}>Sender id</Text>
+      <Text style={{ color: colors.muted }}>{t.pick.senderId}</Text>
       <TextInput
         value={senderId}
         onChangeText={onSenderIdChange}
@@ -98,7 +100,7 @@ function SendcloudForm({
           </Text>
         </Pressable>
       ))}
-      <Text style={{ color: colors.muted }}>Parcel type</Text>
+      <Text style={{ color: colors.muted }}>{t.pick.parcelType}</Text>
       {methods.map((method) => (
         <Pressable key={method.code} onPress={() => onMethodCodeChange(method.code)}>
           <Text style={{ color: methodCode === method.code ? colors.text : colors.muted }}>
@@ -106,7 +108,7 @@ function SendcloudForm({
           </Text>
         </Pressable>
       ))}
-      <Text style={{ color: colors.muted }}>Weight (kg)</Text>
+      <Text style={{ color: colors.muted }}>{t.pick.weightKg}</Text>
       <TextInput
         value={weightKg}
         onChangeText={onWeightKgChange}
@@ -165,19 +167,31 @@ interface CurrentLineCardProps {
 
 function CurrentLineCard({ line, scanPhase, scannedLocation, qty, onQtyChange, busy, onMarkShort }: Readonly<CurrentLineCardProps>) {
   const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const phaseLabel = {
+    location: t.pick.phaseLocation,
+    product: t.pick.phaseProduct,
+    done: t.pick.phaseDone,
+  }[scanPhase];
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.divider }]}>
       <Text style={[styles.kicker, { color: colors.muted }]}>
-        Line {(line.pickSequence ?? 0)} · scan {scanPhase}
+        {format(t.pick.lineHeading, { line: line.pickSequence ?? 0, phase: phaseLabel })}
       </Text>
       <Text style={[styles.itemName, { color: colors.text }]}>{line.name}</Text>
       <Text style={[styles.meta, { color: colors.muted }]}>
-        SKU {line.sku || '—'} · Location {line.locationCode || 'unlocated'} · Qty {line.quantityRequired}
+        {format(t.pick.lineMeta, {
+          sku: line.sku || t.common.dash,
+          location: line.locationCode || t.pick.unlocated,
+          quantity: line.quantityRequired,
+        })}
       </Text>
       {scannedLocation ? (
-        <Text style={[styles.meta, { color: colors.text }]}>Location scanned: {scannedLocation}</Text>
+        <Text style={[styles.meta, { color: colors.text }]}>
+          {format(t.pick.locationScanned, { location: scannedLocation })}
+        </Text>
       ) : null}
-      <Text style={[styles.kicker, { color: colors.muted, marginTop: 16 }]}>Quantity</Text>
+      <Text style={[styles.kicker, { color: colors.muted, marginTop: 16 }]}>{t.pick.quantity}</Text>
       <TextInput
         value={qty}
         onChangeText={onQtyChange}
@@ -185,7 +199,7 @@ function CurrentLineCard({ line, scanPhase, scannedLocation, qty, onQtyChange, b
         style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
       />
       <View style={{ marginTop: 12, gap: 8 }}>
-        <Button title="Mark short" variant="secondary" disabled={busy} onPress={onMarkShort} />
+        <Button title={t.pick.markShort} variant="secondary" disabled={busy} onPress={onMarkShort} />
       </View>
     </View>
   );
@@ -198,6 +212,7 @@ export default function PickDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { error: showError, success } = useToast();
+  const { t, format } = useI18n();
   const queryClient = useQueryClient();
 
   const pickQuery = useWeldstashPickList(id);
@@ -263,12 +278,12 @@ export default function PickDetailScreen() {
         await refresh();
       } catch (err) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        showError((err as Error).message || 'Pick failed');
+        showError((err as Error).message || t.pick.failed);
       } finally {
         setBusy(false);
       }
     },
-    [id, refresh, qty, showError],
+    [id, refresh, qty, showError, t],
   );
 
   useHardwareBarcodeScan((code) => {
@@ -307,7 +322,7 @@ export default function PickDetailScreen() {
   if (!list) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-        <Text style={{ color: colors.text }}>Could not load pick list</Text>
+        <Text style={{ color: colors.text }}>{t.pick.loadFailed}</Text>
       </View>
     );
   }
@@ -319,17 +334,21 @@ export default function PickDetailScreen() {
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => router.back()}>
-          <Text style={{ color: colors.text, fontSize: 16 }}>Back</Text>
+          <Text style={{ color: colors.text, fontSize: 16 }}>{t.common.back}</Text>
         </Pressable>
         <Text style={[styles.title, { color: colors.text }]}>{list.pickListNumber}</Text>
         <Text style={[styles.meta, { color: colors.muted }]}>
-          {status.replace('_', ' ')} · {list.pickedItems ?? 0}/{list.totalItems ?? 0} lines
+          {format(t.picks.progress, {
+            status: pickStatusLabel(t, status),
+            picked: list.pickedItems ?? 0,
+            total: list.totalItems ?? 0,
+          })}
         </Text>
       </View>
 
       {status === 'assigned' || status === 'pending' ? (
         <View style={styles.pad}>
-          <Button title="Start pick" onPress={() => runAction(() => appApi.pickLists.start(id!), 'Pick started')} loading={busy} />
+          <Button title={t.pick.start} onPress={() => runAction(() => appApi.pickLists.start(id!), t.pick.started)} loading={busy} />
         </View>
       ) : null}
 
@@ -347,13 +366,13 @@ export default function PickDetailScreen() {
 
       {allPicked && status === 'in_progress' ? (
         <View style={styles.pad}>
-          <Button title="Complete pick" onPress={() => runAction(() => appApi.pickLists.complete(id!), 'Pick completed')} loading={busy} />
+          <Button title={t.pick.complete} onPress={() => runAction(() => appApi.pickLists.complete(id!), t.pick.completed)} loading={busy} />
         </View>
       ) : null}
 
       {status === 'completed' ? (
         <View style={styles.pad}>
-          <Button title="Pack" onPress={() => runAction(() => appApi.pickLists.pack(id!), 'Packed')} loading={busy} />
+          <Button title={t.pick.pack} onPress={() => runAction(() => appApi.pickLists.pack(id!), t.pick.packed)} loading={busy} />
         </View>
       ) : null}
 
@@ -371,7 +390,7 @@ export default function PickDetailScreen() {
             onWeightKgChange={setWeightKg}
           />
           <Button
-            title="Send parcel"
+            title={t.pick.sendParcel}
             disabled={!sendcloudConnected || !senderId || !methodCode || busy}
             onPress={() =>
               runAction(async () => {
@@ -382,7 +401,7 @@ export default function PickDetailScreen() {
                 });
                 const trackingUrl = result.data?.trackingUrl;
                 if (trackingUrl) void Linking.openURL(trackingUrl);
-              }, 'Parcel sent')
+              }, t.pick.parcelSent)
             }
             loading={busy}
           />
@@ -390,12 +409,17 @@ export default function PickDetailScreen() {
       ) : null}
 
       <View style={styles.pad}>
-        <Text style={[styles.kicker, { color: colors.muted }]}>Lines</Text>
+        <Text style={[styles.kicker, { color: colors.muted }]}>{t.pick.lines}</Text>
         {items.map((item) => (
           <View key={item.id} style={[styles.line, { borderColor: colors.divider }]}>
             <Text style={{ color: colors.text, fontWeight: '600' }}>{item.name}</Text>
             <Text style={{ color: colors.muted }}>
-              {item.status} · {item.quantityPicked ?? 0}/{item.quantityRequired} · {item.locationCode || 'unlocated'}
+              {format(t.pick.lineProgress, {
+                status: pickStatusLabel(t, item.status ?? 'pending'),
+                picked: item.quantityPicked ?? 0,
+                required: item.quantityRequired,
+                location: item.locationCode || t.pick.unlocated,
+              })}
             </Text>
           </View>
         ))}
@@ -409,7 +433,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { paddingHorizontal: 16, paddingBottom: 12, gap: 6 },
   title: { fontSize: 28, fontWeight: '700' },
-  meta: { fontSize: 14, textTransform: 'capitalize' },
+  meta: { fontSize: 14 },
   pad: { paddingHorizontal: 16, marginBottom: 16 },
   card: { marginHorizontal: 16, marginBottom: 16, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, padding: 16 },
   kicker: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },

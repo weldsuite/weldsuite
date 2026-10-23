@@ -1,0 +1,14 @@
+appId: com.weldsuite.weldflow
+name: Settings and privacy screens open
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn: "More"
+- tapOn: "Settings"
+- assertVisible: "Appearance"
+- assertVisible: "Workspace"
+- back
+- tapOn: "Privacy & account"
+- assertVisible: "Delete account"
+- back
+- assertVisible: "Sign out"

@@ -7,13 +7,13 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useOrganization } from '@clerk/expo';
-import { Moon, Sun, LogOut, ChevronRight } from 'lucide-react-native';
+import { LogOut, ChevronRight } from 'lucide-react-native';
 
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { Switch } from '@weldsuite/mobile-ui/components/Switch';
+import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 
 import { Screen, ScreenHeader } from '@/components/screen';
@@ -22,7 +22,7 @@ import { useNotifications } from '@/contexts/NotificationContext';
 import { useI18n } from '@/lib/i18n';
 
 export default function SettingsScreen() {
-  const { colors, theme, toggleTheme } = useTheme();
+  const { colors, preference, setPreference } = useTheme();
   const { user, signOut } = useClerkAuth();
   const { organization } = useOrganization();
   const { isPermissionGranted, requestPermissions, openNotificationSettings, unregisterDevice } =
@@ -34,12 +34,15 @@ export default function SettingsScreen() {
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
-  const handleNotifications = () => {
+  const handleNotifications = async () => {
     if (isPermissionGranted) {
-      openNotificationSettings();
-    } else {
-      void requestPermissions();
+      void openNotificationSettings();
+      return;
     }
+    if (await requestPermissions()) return;
+    // Denied (or no token): the OS won't ask again, so point to its settings.
+    toast.warning(t.settings.notificationsBlocked, 5000);
+    void openNotificationSettings();
   };
 
   return (
@@ -48,7 +51,7 @@ export default function SettingsScreen() {
         <SectionCard title={t.settings.account}>
           <DetailRow
             label={t.settings.name}
-            value={user?.fullName || user?.email || t.common.dash}
+            value={user?.fullName || t.common.dash}
           />
           <DetailRow label={t.settings.email} value={user?.email || t.common.dash} />
         </SectionCard>
@@ -61,19 +64,17 @@ export default function SettingsScreen() {
         </SectionCard>
 
         <SectionCard title={t.settings.appearance}>
-          <View style={styles.switchRow}>
-            <View style={styles.switchLabel}>
-              {theme === 'dark' ? (
-                <Moon size={18} color={colors.mutedForeground} />
-              ) : (
-                <Sun size={18} color={colors.mutedForeground} />
-              )}
-              <Text style={[styles.switchText, { color: colors.text }]}>
-                {t.settings.darkMode}
-              </Text>
-            </View>
-            <Switch value={theme === 'dark'} onValueChange={() => void toggleTheme()} />
-          </View>
+          <Text style={[styles.switchText, { color: colors.text }]}>{t.settings.theme}</Text>
+          <SegmentedControl
+            options={[
+              { value: 'system', label: t.settings.themeSystem },
+              { value: 'light', label: t.settings.themeLight },
+              { value: 'dark', label: t.settings.themeDark },
+            ]}
+            value={preference}
+            onValueChange={(value) => void setPreference(value as ThemePreference)}
+            style={styles.themePicker}
+          />
           <DetailRow label={t.settings.language} value={t.languageNames[language]} />
           <Text style={[styles.hint, { color: colors.mutedForeground }]}>
             {t.settings.languageHint}
@@ -82,7 +83,7 @@ export default function SettingsScreen() {
 
         <SectionCard title={t.settings.notifications}>
           <Pressable
-            onPress={handleNotifications}
+            onPress={() => void handleNotifications()}
             accessibilityRole="button"
             style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.7 }]}
           >
@@ -149,14 +150,8 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 32 },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  switchLabel: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   switchText: { fontSize: 15, fontWeight: '500' },
+  themePicker: { marginTop: 8, marginBottom: 8 },
   hint: { fontSize: 12, marginTop: 4, lineHeight: 16 },
   linkRow: {
     flexDirection: 'row',

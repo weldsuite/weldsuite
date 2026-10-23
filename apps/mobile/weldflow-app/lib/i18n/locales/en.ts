@@ -25,6 +25,10 @@ export const en = {
     goBack: 'Go back',
   },
 
+  login: {
+    subtitle: 'Projects & tasks on the go',
+  },
+
   status: {
     backlog: 'Backlog',
     todo: 'To do',
@@ -80,6 +84,10 @@ export const en = {
       one: '{count} task',
       other: '{count} tasks',
     },
+    assignedCount: {
+      one: '{count} assigned',
+      other: '{count} assigned',
+    },
   },
 
   projects: {
@@ -93,6 +101,9 @@ export const en = {
     loadError: "Couldn't load projects.",
     emptyTitle: 'No projects yet',
     emptyDescription: 'Projects you belong to will appear here.',
+    noSearchResults: 'No projects match "{query}"',
+    noFilterResults: 'No projects with this status',
+    noResultsDescription: 'Try a different search or filter.',
     notFound: 'Project not found',
     total: 'Total',
     open: 'Open',
@@ -114,6 +125,9 @@ export const en = {
     loadError: "Couldn't load your tasks.",
     emptyTitle: 'No tasks assigned',
     emptyDescription: 'Tasks assigned to you will show up here.',
+    noSearchResults: 'No tasks match "{query}"',
+    noFilterResults: 'No tasks with this status',
+    noResultsDescription: 'Try a different search or filter.',
     newTask: 'New task',
     pickProject: 'Pick a project',
     noProjects: 'No active projects yet. Create one on the web first.',
@@ -148,7 +162,7 @@ export const en = {
     settingsSub: 'Appearance, notifications and account',
     privacy: 'Privacy & account',
     privacySub: 'Data and account deletion',
-    darkMode: 'Dark mode',
+    theme: 'Theme',
     notifications: 'Push notifications',
     notificationsOn: 'Enabled',
     notificationsOff: 'Enable',
@@ -162,11 +176,15 @@ export const en = {
     email: 'Email',
     workspace: 'Workspace',
     appearance: 'Appearance',
-    darkMode: 'Dark mode',
+    theme: 'Theme',
+    themeSystem: 'System',
+    themeLight: 'Light',
+    themeDark: 'Dark',
     language: 'Language',
     languageHint: 'Language follows your WeldSuite profile when available.',
     notifications: 'Notifications',
     pushNotifications: 'Push notifications',
+    notificationsBlocked: "Notifications are off for WeldFlow. Turn them on in your phone's settings.",
     privacy: 'Privacy',
     privacyAccount: 'Privacy & account',
     app: 'App',

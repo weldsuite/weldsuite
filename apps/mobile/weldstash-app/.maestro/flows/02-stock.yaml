@@ -1,0 +1,57 @@
+appId: com.weldsuite.weldstash
+name: Find a product by barcode and adjust stock
+tags: [smoke, writes]
+---
+# Uses product "E2E Widget" (barcode 8712345678906) in "E2E Warehouse",
+# created on the first run. Each run adds 1 and removes 1, so stock stays put.
+- runFlow: ../subflows/login.yaml
+- tapOn: "Search or scan barcode"
+- inputText: "8712345678906"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 5000
+
+- runFlow:
+    when:
+      notVisible: "Total on hand"
+    commands:
+      - back
+      - tapOn: "Products"
+      - tapOn:
+          point: "92%,7%"
+      - extendedWaitUntil:
+          visible: "Create product"
+          timeout: 10000
+      - tapOn: "Widget"
+      - inputText: "E2E Widget"
+      - tapOn: "WID-001"
+      - inputText: "E2E-001"
+      - tapOn: "Scan or type barcode"
+      - inputText: "8712345678906"
+      - hideKeyboard
+      - tapOn: "Create product"
+      - extendedWaitUntil:
+          visible: "Total on hand"
+          timeout: 15000
+
+- runFlow:
+    when:
+      visible: "Create warehouse"
+    commands:
+      - tapOn: "Main warehouse"
+      - inputText: "E2E Warehouse"
+      - hideKeyboard
+      - tapOn: "Create warehouse"
+      - extendedWaitUntil:
+          visible: "Apply adjustment"
+          timeout: 15000
+
+- assertVisible: "E2E Widget"
+# + and − (no accessibility labels yet)
+- tapOn:
+    point: "72%,51%"
+- waitForAnimationToEnd
+- tapOn:
+    point: "28%,51%"
+- waitForAnimationToEnd
+- assertVisible: "Apply adjustment"

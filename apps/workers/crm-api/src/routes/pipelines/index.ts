@@ -145,7 +145,14 @@ app.delete('/:id', requirePermission('pipelines:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Pipeline', id);
-    await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
+    const now = new Date();
+    // The stages go with the pipeline: left behind they still show up in
+    // `GET /pipeline-stages`, which clients read without a pipeline filter.
+    await db
+      .update(schema.crmPipelineStages)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(eq(schema.crmPipelineStages.pipeline, id), isNull(schema.crmPipelineStages.deletedAt)));
+    await db.update(t).set({ deletedAt: now, updatedAt: now }).where(eq(t.id, id));
     publishEntityEvent({
       c,
       entityType: 'pipeline',

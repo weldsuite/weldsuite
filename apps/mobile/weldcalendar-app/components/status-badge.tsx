@@ -10,8 +10,10 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Badge } from '@weldsuite/mobile-ui/components/Badge';
 import type { BadgeProps } from '@weldsuite/mobile-ui/components/Badge';
 
-import { EVENT_TYPE_COLORS, tint } from '@/lib/brand';
+import { EVENT_TYPE_COLORS, TASK_EVENT_COLOR, tint } from '@/lib/brand';
+import { isTaskEvent, visibleEventStatus } from '@/lib/event-source';
 import { eventTypeLabel, priorityLabel, statusLabel, useI18n } from '@/lib/i18n';
+import type { CalendarEvent } from '@/types/weldcalendar';
 
 type Variant = NonNullable<BadgeProps['variant']>;
 
@@ -80,6 +82,40 @@ export function EventTypeChip({ type }: Readonly<{ type: string }>) {
       <Text style={[styles.chipText, { color }]}>{eventTypeLabel(t, type)}</Text>
     </View>
   );
+}
+
+/** Chip for an event placed from a task, shown instead of the "Reminder" type. */
+export function TaskChip() {
+  const { t } = useI18n();
+  return (
+    <View style={[styles.chip, { backgroundColor: tint(TASK_EVENT_COLOR, 0.14) }]}>
+      <View style={[styles.dot, { backgroundColor: TASK_EVENT_COLOR }]} />
+      <Text style={[styles.chipText, { color: TASK_EVENT_COLOR }]}>{t.event.task}</Text>
+    </View>
+  );
+}
+
+/** Closed task (done or cancelled): the linked event is cancelled with it. */
+export function TaskClosedBadge({ size = 'sm' }: Readonly<{ size?: BadgeProps['size'] }>) {
+  const { t } = useI18n();
+  return <Badge variant="outline" size={size} label={t.event.taskClosed} />;
+}
+
+/**
+ * The status pill of an event: the usual one, except that a task block says
+ * nothing while confirmed (it always is) and "Closed" once its task is done.
+ */
+export function EventStatePill({
+  event,
+  size = 'sm',
+}: Readonly<{
+  event: Pick<CalendarEvent, 'sourceType' | 'status'>;
+  size?: BadgeProps['size'];
+}>) {
+  const status = visibleEventStatus(event);
+  if (!status) return null;
+  if (isTaskEvent(event) && status === 'cancelled') return <TaskClosedBadge size={size} />;
+  return <EventStatusBadge status={status} size={size} />;
 }
 
 const styles = StyleSheet.create({

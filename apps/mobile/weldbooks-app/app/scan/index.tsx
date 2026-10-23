@@ -7,7 +7,7 @@
  * enters the figures by hand.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,7 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
-import api from '@/services/api';
+import api, { receiptFileName, type LocalReceipt } from '@/services/api';
 import { BRAND } from '@/lib/brand';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
@@ -49,15 +49,30 @@ export default function ScanScreen() {
   const requestIdRef = useRef(0);
   const [permission, requestPermission] = useCameraPermissions();
   const { isOnline, addToQueue } = useOfflineQueue();
+  // A photo taken offline that no quick expense took along yet. Leaving the screen
+  // any other way (Close, back) queues it as a document, so the receipt is kept.
+  const unsavedRef = useRef<LocalReceipt | null>(null);
+  const addToQueueRef = useRef(addToQueue);
+  addToQueueRef.current = addToQueue;
+  useEffect(
+    () => () => {
+      const receipt = unsavedRef.current;
+      if (receipt) void addToQueueRef.current({ type: 'document', data: { type: 'receipt', ...receipt } });
+    },
+    [],
+  );
   const { t, format } = useI18n();
   const { formatCurrency, currency: entityCurrency } = useLocaleFormatters();
 
   const [phase, setPhase] = useState<Phase>('camera');
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
+  const [capturedType, setCapturedType] = useState('image/jpeg');
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<BillPrefill | null>(null);
   const [scanStatus, setScanStatus] = useState<ScanStatus>('uploading');
+  // Why the scan failed, in the banner: a toast is cut off and sits over the buttons.
+  const [failure, setFailure] = useState<string | null>(null);
 
   const busy = scanStatus === 'uploading' || scanStatus === 'reading';
 
@@ -79,27 +94,23 @@ export default function ScanScreen() {
    * response cannot overwrite the current review.
    */
   const upload = useCallback(
-    async (uri: string) => {
+    async (uri: string, mimeType: string) => {
       const requestId = ++requestIdRef.current;
       const stillCurrent = () => requestId === requestIdRef.current;
-      const fileName = `receipt-${Date.now()}.jpg`;
+      // A gallery pick can be a PNG or HEIC; its name and type say so, or the stored file lies.
+      const fileName = receiptFileName(mimeType);
 
       if (!isOnline) {
-        // The photo is uploaded when the queue syncs: a document needs a stored file.
-        await addToQueue({
-          type: 'document',
-          data: { fileName, type: 'receipt', localUri: uri, mimeType: 'image/jpeg' },
-        });
-        if (!stillCurrent()) return;
+        // A quick expense takes the photo along and stores it with the expense, so the two stay linked.
+        unsavedRef.current = { localUri: uri, fileName, mimeType };
         setScanStatus('offline');
-        toast.info(t.scan.offlineQueued);
         return;
       }
 
       setScanStatus('uploading');
       let uploadedId: string | null = null;
       try {
-        const doc = await api.uploadScannedDocument(uri, fileName);
+        const doc = await api.uploadScannedDocument(uri, fileName, mimeType);
         uploadedId = doc.id;
         if (!stillCurrent()) return;
         setDocumentId(doc.id);
@@ -114,24 +125,24 @@ export default function ScanScreen() {
         console.error('Failed to scan receipt:', err);
         if (!stillCurrent()) return;
         setScanStatus('failed');
-        if (!uploadedId) {
-          toast.error(t.scan.uploadFailed);
-        } else {
-          toast.error(ocrErrorMessage(err, t.scan));
-        }
+        setFailure(uploadedId ? ocrErrorMessage(err, t.scan) : t.scan.uploadFailed);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       }
     },
-    [isOnline, addToQueue, toast, t],
+    [isOnline, t],
   );
 
   const processImage = useCallback(
-    (uri: string) => {
+    (uri: string, mimeType = 'image/jpeg') => {
+      unsavedRef.current = null;
       setCapturedUri(uri);
+      setCapturedType(mimeType);
       setDocumentId(null);
       setPrefill(null);
+      setFailure(null);
       setScanStatus('uploading');
       setPhase('review');
-      void upload(uri);
+      void upload(uri, mimeType);
     },
     [upload],
   );
@@ -152,13 +163,16 @@ export default function ScanScreen() {
       mediaTypes: ['images'],
       quality: 0.45,
     });
-    if (!result.canceled && result.assets[0]) processImage(result.assets[0].uri);
+    const asset = result.canceled ? undefined : result.assets[0];
+    if (asset) processImage(asset.uri, asset.mimeType ?? 'image/jpeg');
   }, [processImage]);
 
   const handleClose = useCallback(() => router.back(), [router]);
 
   const handleRetake = useCallback(() => {
     requestIdRef.current += 1;
+    // Retaking discards the photo on purpose.
+    unsavedRef.current = null;
     setCapturedUri(null);
     setDocumentId(null);
     setPrefill(null);
@@ -167,11 +181,20 @@ export default function ScanScreen() {
 
   const goTo = useCallback(
     (path: '/bill/new' | '/expense/quick') => {
-      if (busy) return;
+      // A bill is only made online; offline the photo goes with a quick expense.
+      if (busy || (path === '/bill/new' && scanStatus === 'offline')) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      router.replace({ pathname: path, params: documentId ? { documentId } : {} } as never);
+      unsavedRef.current = null;
+      const params: Record<string, string> = {};
+      if (documentId) params.documentId = documentId;
+      // The form shows the photo while the figures are checked or typed from it.
+      if (capturedUri) {
+        params.receiptUri = capturedUri;
+        params.receiptType = capturedType;
+      }
+      router.replace({ pathname: path, params } as never);
     },
-    [router, documentId, busy],
+    [router, documentId, capturedUri, capturedType, busy, scanStatus],
   );
 
   if (!permission) {
@@ -292,6 +315,7 @@ export default function ScanScreen() {
           status={scanStatus}
           scan={t.scan}
           readySummary={prefill ? summarisePrefill(prefill) : t.scan.attached}
+          failure={failure}
         />
 
         <Button
@@ -306,7 +330,7 @@ export default function ScanScreen() {
           variant="outline"
           leftIcon={<FileText size={18} color={colors.text} />}
           onPress={() => goTo('/bill/new')}
-          disabled={busy}
+          disabled={busy || scanStatus === 'offline'}
           fullWidth
         />
       </View>
@@ -320,16 +344,18 @@ function ScanStatusBanner({
   status,
   scan,
   readySummary,
+  failure,
 }: Readonly<{
   status: ScanStatus;
   scan: Translations['scan'];
   readySummary: string;
+  failure: string | null;
 }>) {
   const banners: Record<ScanStatus, { variant: BannerVariant; text: string }> = {
     uploading: { variant: 'info', text: scan.uploading },
     reading: { variant: 'info', text: scan.reading },
     ready: { variant: 'success', text: readySummary },
-    failed: { variant: 'warning', text: scan.ocrFailed },
+    failed: { variant: 'warning', text: failure ?? scan.ocrFailed },
     offline: { variant: 'info', text: scan.offlineBanner },
   };
   const { variant, text } = banners[status];

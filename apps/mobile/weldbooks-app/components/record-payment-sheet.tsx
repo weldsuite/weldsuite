@@ -12,12 +12,14 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Input } from '@weldsuite/mobile-ui/components/Input';
 import { Select } from '@weldsuite/mobile-ui/components/Select';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { DateField } from '@/components/date-field';
+import { SheetForm } from '@/components/sheet-form';
 import { today } from '@/lib/date';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
@@ -65,13 +67,7 @@ export function RecordPaymentSheet({
   const { colors } = useTheme();
   const { t, format } = useI18n();
   const { isUs } = useJurisdiction();
-  const {
-    formatCurrency: money,
-    parseAmount,
-    parseDateInput,
-    formatDateInput,
-    datePlaceholder,
-  } = useLocaleFormatters();
+  const { formatCurrency: money, parseAmount } = useLocaleFormatters();
 
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState('');
@@ -79,7 +75,6 @@ export function RecordPaymentSheet({
   const [checkNumber, setCheckNumber] = useState('');
   const [depositTo, setDepositTo] = useState<DepositTarget>('undeposited_funds');
   const [error, setError] = useState<string | undefined>();
-  const [dateError, setDateError] = useState<string | undefined>();
 
   const methodLabels: Record<PaymentMethodValue, string> = {
     check: t.payments.check,
@@ -100,14 +95,13 @@ export function RecordPaymentSheet({
   useEffect(() => {
     if (visible) {
       setAmount(balanceDue > 0 ? balanceDue.toFixed(2) : '');
-      setDate(formatDateInput(today()));
+      setDate(today());
       setMethod(defaultPaymentMethod(isUs));
       setCheckNumber('');
       setDepositTo('undeposited_funds');
       setError(undefined);
-      setDateError(undefined);
     }
-  }, [visible, balanceDue, isUs, formatDateInput]);
+  }, [visible, balanceDue, isUs]);
 
   const handleSubmit = async () => {
     const value = parseAmount(amount);
@@ -119,16 +113,10 @@ export function RecordPaymentSheet({
       setError(format(t.payments.exceedBalance, { amount: money(balanceDue, currency) }));
       return;
     }
-    const isoDate = parseDateInput(date);
-    if (!isoDate) {
-      setDateError(format(t.payments.dateError, { example: datePlaceholder }));
-      return;
-    }
     setError(undefined);
-    setDateError(undefined);
     await onSubmit({
       amount: value,
-      date: isoDate,
+      date,
       paymentMethod: method,
       ...paymentExtras({ isUs, direction, method, checkNumber, depositTo }),
     });
@@ -139,11 +127,7 @@ export function RecordPaymentSheet({
 
   return (
     <Sheet visible={visible} onClose={onClose} title={t.payments.title} heightRatio={0.85}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.body}
-      >
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+      <SheetForm>
           <View style={[styles.balance, { backgroundColor: colors.secondary }]}>
             <Text style={[styles.balanceLabel, { color: colors.mutedForeground }]}>
               {t.payments.openBalance}
@@ -170,18 +154,7 @@ export function RecordPaymentSheet({
             }
           />
 
-          <Input
-            label={t.payments.paymentDate}
-            value={date}
-            onChangeText={(text) => {
-              setDate(text);
-              if (dateError) setDateError(undefined);
-            }}
-            placeholder={isUs ? datePlaceholder : t.payments.datePlaceholder}
-            error={dateError}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          <DateField label={t.payments.paymentDate} value={date} onChange={setDate} />
 
           <Select label={t.payments.method} value={method} onValueChange={setMethod} options={methods} />
 
@@ -220,15 +193,12 @@ export function RecordPaymentSheet({
             fullWidth
             style={styles.submit}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </SheetForm>
     </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1 },
-  content: { padding: 16, gap: 16, paddingBottom: 40 },
   balance: { borderRadius: 12, padding: 14 },
   balanceLabel: { fontSize: 12, fontWeight: '500' },
   balanceValue: { fontSize: 24, fontWeight: '700', marginTop: 2, letterSpacing: -0.5 },

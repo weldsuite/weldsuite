@@ -1,4 +1,5 @@
-import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
@@ -6,6 +7,7 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { TaskForm, toCreateTaskInput, type TaskFormValues } from '@/components/TaskForm';
 import { useCreateTask } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
+import { KEYBOARD_BOTTOM_OFFSET } from '@/lib/keyboard';
 
 export default function NewTaskScreen() {
   const router = useRouter();
@@ -25,14 +27,18 @@ export default function NewTaskScreen() {
 
   return (
     <Screen header={<ScreenHeader title={t.task.newTitle} showBack />}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={KEYBOARD_BOTTOM_OFFSET}
+      >
         <TaskForm
           mode="create"
           projectId={projectId}
           onSubmit={handleSubmit}
           isSubmitting={createTask.isPending}
         />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </Screen>
   );
 }

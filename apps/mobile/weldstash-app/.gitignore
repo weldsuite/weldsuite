@@ -12,3 +12,6 @@ dist
 test-results
 coverage
 
+
+# Maestro run output
+.maestro/output/

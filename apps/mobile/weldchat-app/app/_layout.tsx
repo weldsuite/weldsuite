@@ -25,6 +25,7 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 
 import { BRAND } from '@/lib/brand';
+import { I18nProvider, usePersistedLanguage } from '@/lib/i18n';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { CallProvider } from '@/contexts/CallContext';
 import { IncomingCallModal } from '@/components/call/IncomingCallModal';
@@ -262,6 +263,7 @@ function AppStack() {
                           name="dm/[channelId]"
                           options={{ gestureEnabled: true, fullScreenGestureEnabled: false }}
                         />
+                        <Stack.Screen name="channel-info/[channelId]" />
                         <Stack.Screen
                           name="thread/[messageId]"
                           options={{ headerShown: true, title: 'Thread' }}
@@ -312,31 +314,45 @@ function AuthenticatedApp() {
 }
 
 function RootLayout() {
+  const { ready, language } = usePersistedLanguage();
+
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
 
+  // The stored language is a quick local read; hold the first paint for it so a
+  // Dutch user never sees the English UI flash by.
+  if (!ready) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color={BRAND} />
+      </View>
+    );
+  }
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <KeyboardProvider>
-          <ErrorBoundary>
-            {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
-                client sync races browser SSO on Android and signs users out again. */}
-            <ClerkProvider
-              publishableKey={CLERK_KEY || ''}
-              tokenCache={tokenCache}
-              __experimental_disableNativeClientSync
-            >
-              <ClerkLoaded>
-                <AuthenticatedApp />
-              </ClerkLoaded>
-            </ClerkProvider>
-          </ErrorBoundary>
-        </KeyboardProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <I18nProvider initialLanguage={language}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <KeyboardProvider>
+            <ErrorBoundary>
+              {/* We only use Clerk's JS auth flows (no native AuthView/UserButton). Native
+                  client sync races browser SSO on Android and signs users out again. */}
+              <ClerkProvider
+                publishableKey={CLERK_KEY || ''}
+                tokenCache={tokenCache}
+                __experimental_disableNativeClientSync
+              >
+                <ClerkLoaded>
+                  <AuthenticatedApp />
+                </ClerkLoaded>
+              </ClerkProvider>
+            </ErrorBoundary>
+          </KeyboardProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </I18nProvider>
   );
 }
 

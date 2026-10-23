@@ -6,7 +6,7 @@ import { Plus, Box, Puzzle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { useI18n } from '@/lib/i18n/provider';
 import type { InstalledApp } from '@/lib/api/apps';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useSidebarAppOrder } from '@/hooks/queries/use-ui-preference';
 import { useAppPrefetch } from '@/hooks/use-app-prefetch';
 import { preloadWeldApp } from '@/app/weldapps/host/frame-store';
 import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
@@ -164,16 +164,18 @@ function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverE
 
 interface AppSidebarClientProps {
   installedApps: InstalledApp[];
-  initialAppOrder?: string[];
 }
 
-export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readonly<AppSidebarClientProps>) {
+export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientProps>) {
   const pathname = usePathname();
   const router = useRouter();
   // Plain <a> tags (dnd-kit needs the node) are outside the router's rewrite.
   const workspaceHref = useWorkspaceHref();
   const { t } = useI18n();
-  const { getClient } = useAppApiClient();
+  // The user's saved rail order (per workspace). Usually cached already; when
+  // it arrives after the first render, the effect below applies it once.
+  const { order: savedAppOrder, setOrder: saveAppOrder } = useSidebarAppOrder();
+  const savedOrderAppliedRef = useRef(savedAppOrder !== null);
   const { prefetch: prefetchApp, cancel: cancelPrefetch } = useAppPrefetch();
   // App Store is an install/uninstall surface — only owners/admins can manage
   // apps, so hide the rail button entirely for everyone else.
@@ -183,10 +185,10 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
   // Track if component is mounted (client-side only)
   const [mounted, setMounted] = useState(false);
 
-  // Every app code shown this session, uninstalled ones included, so a
-  // reinstalled app returns to its old slot rather than the bottom.
+  // Every app code the user has had in the rail, uninstalled ones included, so
+  // a reinstalled app returns to its old slot rather than the bottom.
   const [initialKnownOrder] = useState(() =>
-    rememberAppCodes(initialAppOrder, installedApps.map((a) => a.appCode))
+    rememberAppCodes(savedAppOrder ?? [], installedApps.map((a) => a.appCode))
   );
   const knownOrderRef = useRef<string[]>(initialKnownOrder);
 
@@ -200,12 +202,18 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
     setMounted(true);
   }, []);
 
-  // Update when installedApps changes (e.g., new app installed)
+  // Update when installedApps changes (e.g., new app installed), and once when
+  // the saved order loads after the first render.
   useEffect(() => {
-    const known = rememberAppCodes(knownOrderRef.current, installedApps.map((a) => a.appCode));
+    let base = knownOrderRef.current;
+    if (savedAppOrder && !savedOrderAppliedRef.current) {
+      savedOrderAppliedRef.current = true;
+      base = savedAppOrder;
+    }
+    const known = rememberAppCodes(base, installedApps.map((a) => a.appCode));
     knownOrderRef.current = known;
     setOrderedApps(sortByAppOrder(installedApps, known));
-  }, [installedApps]);
+  }, [installedApps, savedAppOrder]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -231,16 +239,8 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
 
     setOrderedApps(newOrder);
     knownOrderRef.current = applyVisibleOrder(knownOrderRef.current, newOrder.map((a) => a.appCode));
-
-    // Persist to backend (fire and forget) — app-api PUT /api/user-preferences
-    // (was api-worker PUT /settings/preferences).
-    getClient().then((client) =>
-      client.put('/user-preferences', {
-        uiPreferences: { sidebarAppOrder: newOrder.map(a => a.appCode) },
-      })
-    ).catch(() => {
-      // Silently fail - order is already updated in UI
-    });
+    // The full known order, so uninstalled apps keep their slot across reloads.
+    saveAppOrder(knownOrderRef.current);
   };
 
   const handleAppClick = (path: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {

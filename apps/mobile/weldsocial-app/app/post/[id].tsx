@@ -15,7 +15,8 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import type { SocialAccount, SocialPost } from '@weldsuite/app-api-client/domains/social';
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
-import { PLATFORM_META, POST_STATUS_META, formatDateTime } from '@/lib/social';
+import { useI18n } from '@/lib/i18n';
+import { PLATFORM_META, POST_STATUS_VARIANT, formatDateTime, statusBadge } from '@/lib/social';
 import { hideAppSplash } from '@/utils/splash';
 
 interface PostDetailData {
@@ -37,8 +38,9 @@ function targetLabel(account: SocialAccount | undefined, accountId: string): str
 
 function TargetsList({ post, accountsById }: Readonly<TargetsListProps>) {
   const { colors } = useTheme();
+  const { t } = useI18n();
   if (!(post.targetAccountIds ?? []).length) {
-    return <Text style={{ color: colors.mutedForeground }}>No target accounts selected.</Text>;
+    return <Text style={{ color: colors.mutedForeground }}>{t.post.noTargets}</Text>;
   }
   return (
     <View style={{ gap: 8 }}>
@@ -55,7 +57,8 @@ function TargetsList({ post, accountsById }: Readonly<TargetsListProps>) {
             {platformResult?.publishedUrl && (
               <TouchableOpacity
                 onPress={() => Linking.openURL(platformResult.publishedUrl!)}
-                accessibilityLabel="Open published post"
+                accessibilityRole="button"
+                accessibilityLabel={t.post.openPublished}
               >
                 <ExternalLink size={16} color={colors.info} />
               </TouchableOpacity>
@@ -69,6 +72,7 @@ function TargetsList({ post, accountsById }: Readonly<TargetsListProps>) {
 
 export default function PostDetailScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { markInteractive } = useObserve();
@@ -109,7 +113,7 @@ export default function PostDetailScreen() {
       toast.success(successMessage);
       await reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Action failed');
+      toast.error(err instanceof Error ? err.message : t.post.actionFailed);
     } finally {
       setBusy(null);
     }
@@ -119,25 +123,27 @@ export default function PostDetailScreen() {
     runAction('delete', async () => {
       await appApi.social.posts.remove(postId);
       router.back();
-    }, 'Post deleted');
+    }, t.post.deleted);
 
-  const status = post ? POST_STATUS_META[post.status] ?? { label: post.status, variant: 'outline' as const } : null;
+  const status = post ? statusBadge(POST_STATUS_VARIANT, t.postStatus, post.status) : null;
   const isEditable = post ? ['draft', 'pending_approval', 'approved', 'failed', 'cancelled'].includes(post.status) : false;
   const canPublish = post ? ['draft', 'approved', 'failed', 'cancelled'].includes(post.status) : false;
   const canCancel = post ? post.status === 'scheduled' : false;
+  // Publishing needs somewhere to publish to: the composer enforces the same.
+  const hasTargets = (post?.targetAccountIds ?? []).length > 0;
 
   const renderBody = () => {
     if (loading && !post) {
       return (
         <View style={styles.loading}>
-          <Spinner label="Loading…" />
+          <Spinner label={t.common.loading} />
         </View>
       );
     }
     if (error && !post) {
       return (
         <View style={styles.bannerWrap}>
-          <Banner variant="error" title="Couldn't load post">{error}</Banner>
+          <Banner variant="error" title={t.post.loadError}>{error}</Banner>
         </View>
       );
     }
@@ -145,7 +151,7 @@ export default function PostDetailScreen() {
     return (
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 16 }}>
         <View style={styles.statusRow}>
-          {status && <Badge variant={status.variant}>{status.label}</Badge>}
+          {status && <Badge variant={status.variant} label={status.label} />}
           {!!post.scheduledAt && post.status === 'scheduled' && (
             <Text style={[styles.when, { color: colors.mutedForeground }]}>
               {formatDateTime(post.scheduledAt)}
@@ -159,34 +165,37 @@ export default function PostDetailScreen() {
         </View>
 
         {!!post.title && <Text style={[styles.title, { color: colors.text }]}>{post.title}</Text>}
-        <Text style={[styles.content, { color: colors.text }]}>{post.content || 'No content'}</Text>
+        <Text style={[styles.content, { color: colors.text }]}>{post.content || t.post.noContent}</Text>
 
         <Divider />
 
         <View>
-          <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>TARGETS</Text>
+          <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>{t.post.targets}</Text>
           <TargetsList post={post} accountsById={accountsById} />
         </View>
 
         {post.status === 'failed' && (
-          <Banner variant="error" title="Last publish failed">
-            Check the post&apos;s targets and try publishing again.
+          <Banner variant="error" title={t.post.publishFailedTitle}>
+            {t.post.publishFailedBody}
           </Banner>
         )}
 
         <View style={{ gap: 10 }}>
+          {canPublish && !hasTargets && (
+            <Text style={[styles.hint, { color: colors.mutedForeground }]}>{t.post.noTargetsHint}</Text>
+          )}
           {canPublish && (
             <Button
-              title="Publish now"
-              onPress={() => runAction('publish', () => appApi.social.posts.publish(postId), 'Post published')}
+              title={t.post.publishNow}
+              onPress={() => runAction('publish', () => appApi.social.posts.publish(postId), t.post.published)}
               loading={busy === 'publish'}
-              disabled={busy !== null}
+              disabled={busy !== null || !hasTargets}
               fullWidth
             />
           )}
           {isEditable && (
             <Button
-              title="Edit post"
+              title={t.post.editPost}
               variant="secondary"
               onPress={() => router.push(`/compose?id=${postId}`)}
               disabled={busy !== null}
@@ -195,7 +204,7 @@ export default function PostDetailScreen() {
           )}
           {canCancel && (
             <Button
-              title="Cancel scheduled post"
+              title={t.post.cancelScheduled}
               variant="outline"
               onPress={() => setConfirm('cancel')}
               disabled={busy !== null}
@@ -205,7 +214,7 @@ export default function PostDetailScreen() {
           )}
           {post.status !== 'published' && (
             <Button
-              title="Delete post"
+              title={t.post.deletePost}
               variant="destructive"
               onPress={() => setConfirm('delete')}
               disabled={busy !== null}
@@ -221,15 +230,16 @@ export default function PostDetailScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.divider }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityLabel="Back">
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel={t.common.back}>
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Post</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{t.post.title}</Text>
         {isEditable ? (
           <TouchableOpacity
             onPress={() => router.push(`/compose?id=${postId}`)}
             style={styles.headerButton}
-            accessibilityLabel="Edit"
+            accessibilityRole="button"
+            accessibilityLabel={t.common.edit}
           >
             <Pencil size={20} color={colors.text} />
           </TouchableOpacity>
@@ -242,21 +252,23 @@ export default function PostDetailScreen() {
 
       <ConfirmModal
         visible={confirm === 'cancel'}
-        title="Cancel scheduled post?"
-        message="The post will no longer be published and any charged credits are refunded."
-        confirmText="Cancel post"
+        title={t.post.cancelConfirmTitle}
+        message={t.post.cancelConfirmMessage}
+        confirmText={t.post.cancelConfirmAction}
+        cancelText={t.post.keepPost}
         variant="destructive"
         onConfirm={() => {
           setConfirm(null);
-          void runAction('cancel', () => appApi.social.posts.cancel(postId), 'Post cancelled');
+          void runAction('cancel', () => appApi.social.posts.cancel(postId), t.post.cancelled);
         }}
         onCancel={() => setConfirm(null)}
       />
       <ConfirmModal
         visible={confirm === 'delete'}
-        title="Delete post?"
-        message="This removes the post from WeldSocial. This can't be undone."
-        confirmText="Delete"
+        title={t.post.deleteConfirmTitle}
+        message={t.post.deleteConfirmMessage}
+        confirmText={t.post.deleteConfirmAction}
+        cancelText={t.post.cancel}
         variant="destructive"
         onConfirm={() => {
           setConfirm(null);
@@ -284,9 +296,16 @@ const styles = StyleSheet.create({
   bannerWrap: { padding: 16 },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   when: { fontSize: 14 },
+  hint: { fontSize: 13, textAlign: 'center' },
   title: { fontSize: 22, fontWeight: '700' },
   content: { fontSize: 16, lineHeight: 24 },
-  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.6, marginBottom: 10 },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
   targetRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   platformDot: { width: 10, height: 10, borderRadius: 5 },
   targetName: { flex: 1, fontSize: 15 },

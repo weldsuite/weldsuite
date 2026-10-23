@@ -81,6 +81,8 @@ export interface PostalAddress {
   line2?: string;
   city?: string;
   state?: string;
+  /** Stored for some jurisdictions (IN, BR, US); the app shows it but does not edit it. */
+  county?: string;
   postalCode?: string;
   country?: string;
 }
@@ -349,6 +351,15 @@ export interface AccountingEntity {
   dba?: string;
   /** US: the EIN, when one is stored (a Social Security number is never shown). */
   ein?: string;
+  /** `taxIdentifiers.vatNumber`: the BTW number, GSTIN, CNPJ or (US) EIN, as stored. */
+  vatNumber?: string;
+  /** `taxIdentifiers.registrationNumber`: the KvK number (NL), PAN (IN), state ID (US), IE (BR). */
+  registrationNumber?: string;
+  /** `bankDetails.iban` and `bankDetails.bic`: printed on the invoices for payment. */
+  iban?: string;
+  bic?: string;
+  /** Month (1-12) the fiscal year starts in. */
+  fiscalYearStart?: number;
   isDefault?: boolean;
   isActive?: boolean;
 }
@@ -412,6 +423,8 @@ export interface Jurisdiction {
   defaultCurrency: string;
   features: JurisdictionFeatures;
   terminology: JurisdictionTerminology;
+  /** The company fields an invoice can't be finalised without (`vatNumber`, `registrationNumber`, `iban`, `address`, ...); absent on an older API. */
+  invoiceRequiredFields?: string[];
   /** US only. */
   entityTypes?: UsEntityTypeOption[];
 }

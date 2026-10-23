@@ -13,6 +13,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { workspaceAppUrl } from '@weldsuite/worker-kit/app-url';
 import type { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 import {
+  OTE_SEARCH_DEFAULT_TLDS,
   RealtimeRegistrar,
   resolvePlatformRegistrarContacts,
   privacyProtectForDomain,
@@ -107,6 +108,15 @@ async function loadPricingMap(
 
 function tldOf(name: string): string {
   return name.split('.').slice(1).join('.').replace(/^\./, '').toLowerCase();
+}
+
+/** Priced TLDs for an OTE search: the registrar's defaults first, then the rest A–Z. */
+export function oteSearchTlds(pricingMap: Map<string, unknown>): string[] {
+  const priced = [...pricingMap.keys()];
+  const defaults: readonly string[] = OTE_SEARCH_DEFAULT_TLDS;
+  const first = defaults.filter((t) => pricingMap.has(t));
+  const rest = priced.filter((t) => !defaults.includes(t)).sort();
+  return [...first, ...rest];
 }
 
 /**
@@ -207,6 +217,13 @@ export async function searchDomains(
   params: { query: string; limit?: number },
 ): Promise<TransformedDomainResult[]> {
   const limit = Math.min(params.limit ?? 20, 50);
+  if (rtr.isOte) {
+    // No ADAC on OTE: the registrar checks one name per call, so check only
+    // TLDs we can sell, common ones first.
+    const pricingMap = await loadPricingMap(masterDb);
+    const results = await rtr.searchDomains(params.query, oteSearchTlds(pricingMap), limit);
+    return results.map((r) => transformResult(r, pricingMap));
+  }
   const [results, pricingMap] = await Promise.all([
     // ADAC expands the exact SLD across its TLD set in one POST; don't pre-fan-out.
     rtr.searchDomains(params.query, [], 50),

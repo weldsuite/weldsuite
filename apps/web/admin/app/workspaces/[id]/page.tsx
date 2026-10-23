@@ -9,7 +9,7 @@ import {
   listWorkspaceInvoices,
   listWorkspacePayments,
 } from '@/lib/billing-data';
-import { loadStripeSnapshot } from '@/lib/billing-worker';
+import { loadSsoView, loadStripeSnapshot } from '@/lib/billing-worker';
 import { WELDREACH_APP_CODE, type ReachUsage } from '@/lib/app-access';
 import { getReachUsage, listWorkspaceAppAccess } from '@/lib/app-access-data';
 import { getOutboundSummary } from '@/lib/outbound-mail-data';
@@ -28,7 +28,7 @@ export default async function WorkspaceDetailPage(props: Readonly<{
   const workspace = await getWorkspaceById(id);
   if (!workspace) notFound();
 
-  const [members, billing, plans, credits, invoices, payments, activity, snapshotState, appAccess, outbound, database] = await Promise.all([
+  const [members, billing, plans, credits, invoices, payments, activity, snapshotState, ssoState, appAccess, outbound, database] = await Promise.all([
     listWorkspaceMembers(workspace.id),
     getWorkspaceBilling(workspace.id),
     listPlanOptions(),
@@ -37,6 +37,7 @@ export default async function WorkspaceDetailPage(props: Readonly<{
     listWorkspacePayments(workspace.id),
     listAuditEvents({ workspaceId: workspace.id, limit: 100 }),
     loadStripeSnapshot(identity, workspace.id),
+    loadSsoView(identity, workspace.id),
     listWorkspaceAppAccess(workspace.id),
     getOutboundSummary(workspace.id),
     getWorkspaceDatabase(workspace.id),
@@ -66,6 +67,7 @@ export default async function WorkspaceDetailPage(props: Readonly<{
       payments={payments}
       activity={activity}
       snapshotState={snapshotState}
+      ssoState={ssoState}
       appAccess={appAccess}
       appUsage={appUsage}
       outbound={outbound}

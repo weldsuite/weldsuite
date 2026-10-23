@@ -55,6 +55,16 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+# Help center records on WeldHost domains go to the DNS sandbox D1, never to
+# Cloudflare (@weldsuite/cloudflare-zones/sandbox).
+WELDHOST_DNS_MODE = "sandbox"
+
+# WeldHost DNS sandbox (local dev + test only; never in production). Shared
+# with host-api and billing-worker.
+[[d1_databases]]
+binding = "DNS_SANDBOX"
+database_name = "weldhost-dns-sandbox-test"
+database_id = "93f483fb-0cf3-44ce-ae66-b6661aea5375"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -117,6 +127,12 @@ routes = [
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
+WELDHOST_DNS_MODE = "sandbox"
+
+[[env.test.d1_databases]]
+binding = "DNS_SANDBOX"
+database_name = "weldhost-dns-sandbox-test"
+database_id = "93f483fb-0cf3-44ce-ae66-b6661aea5375"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"

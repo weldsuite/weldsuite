@@ -1,0 +1,46 @@
+appId: com.weldsuite.weldchat
+name: Post and delete a channel message
+tags: [smoke, writes]
+---
+# Uses one channel, #e2e-maestro, created on the first run and kept (delete it
+# from its channel details screen to start clean). Each run posts a uniquely
+# stamped message and deletes it.
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.msg = 'E2E message ' + Date.now()}
+
+- runFlow:
+    when:
+      notVisible: "e2e-maestro"
+    commands:
+      - tapOn: "Create channel"
+      - extendedWaitUntil:
+          visible: "New Channel"
+          timeout: 10000
+      - inputText: "e2e-maestro"
+      - tapOn: "Create"
+      - extendedWaitUntil:
+          visible: "Message #e2e-maestro"
+          timeout: 15000
+      - back
+
+- tapOn: "e2e-maestro"
+- extendedWaitUntil:
+    visible: "Message #e2e-maestro"
+    timeout: 15000
+- tapOn: "Message #e2e-maestro"
+- inputText: ${output.msg}
+- tapOn: "Send"
+- extendedWaitUntil:
+    visible: ${output.msg}
+    timeout: 15000
+
+# Clean up. The keyboard is still open after sending: long-pressing closes it
+# so the action sheet shows in full.
+- longPressOn: ${output.msg}
+- tapOn: "Delete"
+- tapOn:
+    text: "^Delete$"
+    optional: true
+- extendedWaitUntil:
+    notVisible: ${output.msg}
+    timeout: 15000

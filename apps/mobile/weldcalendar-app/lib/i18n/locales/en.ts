@@ -156,6 +156,8 @@ export const en = {
       other: '{count} attendees',
     },
     duration: 'Duration',
+    task: 'Task',
+    taskClosed: 'Closed',
     autoScheduled: 'Scheduled automatically',
     autoScheduledHint: 'Placed by WeldSuite from a linked task or activity.',
     readOnly: 'View only',

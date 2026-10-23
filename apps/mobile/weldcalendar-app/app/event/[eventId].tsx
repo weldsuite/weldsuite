@@ -22,6 +22,7 @@ import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 
 import { BRAND, eventColor } from '@/lib/brand';
 import { canEditEvent } from '@/lib/calendar-access';
+import { isTaskEvent } from '@/lib/event-source';
 import {
   formatDuration,
   formatEventTimeRange,
@@ -31,7 +32,12 @@ import {
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow } from '@/components/detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
-import { EventPriorityBadge, EventStatusBadge, EventTypeChip } from '@/components/status-badge';
+import {
+  EventPriorityBadge,
+  EventStatePill,
+  EventTypeChip,
+  TaskChip,
+} from '@/components/status-badge';
 import { useCalendars, useDeleteEvent, useEvent } from '@/hooks/use-weldcalendar';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
@@ -87,6 +93,7 @@ export default function EventDetailScreen() {
   const accent = eventColor(event.color, event.type);
   const attendees = event.attendees ?? [];
   const duration = event.allDay ? '' : formatDuration(event.startTime, event.endTime);
+  const taskEvent = isTaskEvent(event);
 
   const handleDelete = async () => {
     setConfirmDelete(false);
@@ -126,8 +133,8 @@ export default function EventDetailScreen() {
     >
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.badgeRow}>
-          <EventTypeChip type={event.type} />
-          <EventStatusBadge status={event.status} />
+          {taskEvent ? <TaskChip /> : <EventTypeChip type={event.type} />}
+          <EventStatePill event={event} />
           <EventPriorityBadge priority={event.priority} />
         </View>
 

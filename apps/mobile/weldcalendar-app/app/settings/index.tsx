@@ -62,7 +62,7 @@ export default function SettingsScreen() {
         <SectionCard title={t.settings.account}>
           <DetailRow
             label={t.settings.name}
-            value={user?.fullName || user?.email || t.common.dash}
+            value={user?.fullName || t.common.dash}
           />
           <DetailRow label={t.settings.email} value={user?.email || t.common.dash} />
         </SectionCard>

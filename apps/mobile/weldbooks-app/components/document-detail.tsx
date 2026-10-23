@@ -18,6 +18,7 @@ import { toNumber } from '@/lib/currency';
 import { daysUntil } from '@/lib/date';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { missingFieldsFromError, type InvoiceField } from '@/lib/company';
 import { describeApiError } from '@/lib/sales-tax';
 import { hasTreatmentRows, treatmentTotals } from '@/lib/tax-treatment';
 import { SectionCard, TotalsBlock } from '@/components/detail';
@@ -230,7 +231,9 @@ export function DocumentTotalsCard({
   const currency = documentCurrency(doc, entityCurrency);
   const balanceDue = toNumber(doc.balanceDue);
   const amountPaid = toNumber(doc.amountPaid);
-  const partiallyPaid = balanceDue > 0 && amountPaid > 0;
+  // Once anything is paid the bottom line is what is still open (€0.00 when settled):
+  // "Total" under "Paid" read as if the whole amount were still due.
+  const hasPayments = amountPaid > 0;
 
   let taxRows = [{ label: taxLabel, value: formatCurrency(doc.taxTotal, currency) }];
   if (hasTreatmentRows(taxBreakdown)) {
@@ -250,13 +253,16 @@ export function DocumentTotalsCard({
           { label: labels.subtotal, value: formatCurrency(doc.subtotal, currency) },
           ...taxRows,
           ...extraRows,
-          ...(amountPaid > 0
-            ? [{ label: labels.paid, value: `−${formatCurrency(amountPaid, currency)}` }]
+          ...(hasPayments
+            ? [
+                { label: labels.total, value: formatCurrency(doc.total, currency) },
+                { label: labels.paid, value: `−${formatCurrency(amountPaid, currency)}` },
+              ]
             : []),
         ]}
         total={{
-          label: partiallyPaid ? labels.balanceDue : labels.total,
-          value: formatCurrency(partiallyPaid ? balanceDue : doc.total, currency),
+          label: hasPayments ? labels.balanceDue : labels.total,
+          value: formatCurrency(hasPayments ? Math.max(balanceDue, 0) : doc.total, currency),
         }}
       />
     </SectionCard>
@@ -274,6 +280,8 @@ export function useDocumentMutations(load: () => Promise<void>) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The company fields books-api says are missing, when that is why the action was refused.
+  const [errorFields, setErrorFields] = useState<InvoiceField[]>([]);
 
   /**
    * Runs `action`, then reloads. A failure is a toast and also stays in
@@ -284,6 +292,7 @@ export function useDocumentMutations(load: () => Promise<void>) {
     async (action: () => Promise<unknown>, successMessage: string): Promise<boolean> => {
       setBusy(true);
       setError(null);
+      setErrorFields([]);
       try {
         await action();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -293,6 +302,7 @@ export function useDocumentMutations(load: () => Promise<void>) {
       } catch (err) {
         const message = describeApiError(err, t, t.common.actionFailed);
         setError(message);
+        setErrorFields(missingFieldsFromError(err));
         toast.error(message);
         return false;
       } finally {
@@ -318,7 +328,17 @@ export function useDocumentMutations(load: () => Promise<void>) {
     [toast, router, t],
   );
 
-  return { busy, run, remove, error, clearError: () => setError(null) };
+  return {
+    busy,
+    run,
+    remove,
+    error,
+    errorFields,
+    clearError: () => {
+      setError(null);
+      setErrorFields([]);
+    },
+  };
 }
 
 const styles = StyleSheet.create({

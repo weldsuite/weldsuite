@@ -1,0 +1,13 @@
+appId: com.weldsuite.weldbooks
+name: Switch between the tabs
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn: "Invoices"
+- assertVisible: "Search invoices"
+- tapOn: "Expenses"
+- assertVisible: "Search bills and expenses"
+- tapOn: "More"
+- assertVisible: "Bank accounts"
+- tapOn: "Home"
+- assertVisible: "Outstanding"

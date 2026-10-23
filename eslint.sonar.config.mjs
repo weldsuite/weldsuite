@@ -196,7 +196,11 @@ export default [
   { files: SOURCES, ignores: TESTS, rules: mainRules },
   { files: TESTS, rules: testRules },
   // Locale files: S2068 keys on property names containing "password", which
-  // there are UI labels (passwordLabel: 'Wachtwoord'), never credentials.
-  { files: ['**/locales/**'], rules: { 'sonarjs/no-hardcoded-passwords': 'off' } },
+  // there are UI labels (passwordLabel: 'Wachtwoord'), never credentials. The
+  // shared mobile login copy is the same kind of catalog.
+  {
+    files: ['**/locales/**', 'packages/design/mobile-ui/src/constants/login-copy.ts'],
+    rules: { 'sonarjs/no-hardcoded-passwords': 'off' },
+  },
   ...REVIEWED.map(({ rule, files }) => ({ files: files.map(literal), rules: { [rule]: 'off' } })),
 ];

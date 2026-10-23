@@ -1,0 +1,29 @@
+appId: com.weldsuite.weldcrm
+name: Home and tabs load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible: "Today"
+- assertVisible: "Recent activity"
+- tapOn: "Companies"
+- assertVisible: "Search companies..."
+- assertVisible: "Leads"
+- tapOn: "People"
+- assertVisible: "Search people..."
+- tapOn: "Tasks"
+- assertVisible: "Search tasks, companies..."
+- assertVisible: "My tasks"
+- tapOn: "More"
+- assertVisible: "Sign Out"
+- tapOn: "Deals"
+- assertVisible: ".*Add deal.*|No pipeline yet.*"
+- back
+- tapOn: "Notes"
+- assertVisible: "Search notes..."
+- back
+- tapOn: "Lists"
+- assertVisible: "Search lists..."
+- back
+- tapOn: "Sequences"
+- assertVisible: "Search sequences..."
+- back

@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -107,6 +108,7 @@ function renderAvatarContent(
 }
 
 export default function ActivityTab() {
+  const { t } = useI18n();
   const [notifications, setNotifications] = useState<ActivityNotification[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
@@ -250,7 +252,7 @@ export default function ActivityTab() {
       {/* Header */}
       <View style={styles.headerRow}>
         <View style={styles.headerTitleWrap} pointerEvents="none">
-          <Text style={styles.headerTitle}>Inbox</Text>
+          <Text style={styles.headerTitle}>{t.tabs.activity}</Text>
         </View>
 
         <View style={styles.headerRightGroup}>
@@ -259,6 +261,8 @@ export default function ActivityTab() {
             activeOpacity={0.7}
             onPress={handleMarkAllRead}
             disabled={!hasUnread}
+            accessibilityRole="button"
+            accessibilityLabel={t.activity.markAllRead}
           >
             <MailCheck size={20} color={hasUnread ? colors.text : colors.muted} />
           </TouchableOpacity>
@@ -280,8 +284,8 @@ export default function ActivityTab() {
         ListEmptyComponent={
           !refreshing ? (
             <View style={styles.emptyContent}>
-              <Text style={styles.emptyTitle}>No notifications yet</Text>
-              <Text style={styles.emptyText}>Mentions and replies will appear here</Text>
+              <Text style={styles.emptyTitle}>{t.activity.emptyTitle}</Text>
+              <Text style={styles.emptyText}>{t.activity.emptyHint}</Text>
             </View>
           ) : null
         }

@@ -16,7 +16,6 @@ import {
   StyleSheet,
   Modal,
   Pressable,
-  Switch,
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
@@ -24,6 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useObserve } from 'expo-observe';
 import * as Haptics from 'expo-haptics';
+import { KeyboardAvoidingView, KeyboardProvider } from 'react-native-keyboard-controller';
 import { CalendarDays, Plus } from 'lucide-react-native';
 
 import { useOrganization } from '@clerk/expo';
@@ -39,6 +39,7 @@ import { BRAND, CALENDAR_COLORS } from '@/lib/brand';
 import { useCalendarVisibility } from '@/lib/calendar-visibility';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { ColorSwatch } from '@/components/detail';
+import { ThemedSwitch } from '@/components/themed-switch';
 import { ErrorState, ListSkeleton } from '@/components/data-states';
 import {
   useCalendars,
@@ -200,10 +201,9 @@ export default function CalendarsScreen() {
                 : permissionLabel(t, calendar.permission)}
             </Text>
           </View>
-          <Switch
+          <ThemedSwitch
             value={!hidden}
             onValueChange={() => toggle(calendar.id)}
-            trackColor={{ true: BRAND, false: colors.border }}
             accessibilityLabel={calendar.name}
           />
         </View>
@@ -281,117 +281,125 @@ export default function CalendarsScreen() {
         visible={creating}
         transparent
         animationType="slide"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => setCreating(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setCreating(false)}>
-          <Pressable
-            style={[
-              styles.sheet,
-              { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 },
-            ]}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <Text style={[styles.sheetTitle, { color: colors.text }]}>
-              {t.calendars.createTitle}
-            </Text>
-
-            <Text style={[styles.label, { color: colors.muted }]}>{t.calendars.nameLabel}</Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  color: colors.text,
-                  backgroundColor: colors.background,
-                  borderColor: nameError ? colors.destructive : colors.divider,
-                },
-              ]}
-              placeholder={t.calendars.namePlaceholder}
-              placeholderTextColor={colors.muted}
-              value={name}
-              onChangeText={(value) => {
-                setName(value);
-                if (nameError) setNameError(null);
-              }}
-              autoFocus
-            />
-            {nameError ? (
-              <Text style={[styles.errorText, { color: colors.destructive }]}>{nameError}</Text>
-            ) : null}
-
-            <Text style={[styles.label, { color: colors.muted }]}>
-              {t.calendars.descriptionLabel}
-            </Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  color: colors.text,
-                  backgroundColor: colors.background,
-                  borderColor: colors.divider,
-                },
-              ]}
-              placeholder={t.calendars.descriptionPlaceholder}
-              placeholderTextColor={colors.muted}
-              value={description}
-              onChangeText={setDescription}
-            />
-
-            <Text style={[styles.label, { color: colors.muted }]}>{t.calendars.colorLabel}</Text>
-            <View style={styles.colorRow}>
-              {CALENDAR_COLORS.map((option) => (
-                <TouchableOpacity
-                  key={option}
-                  onPress={() => setColor(option)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: option === color }}
+        {/* A Modal is its own window on Android: it needs its own provider for the keyboard events. */}
+        <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+          <KeyboardAvoidingView behavior="padding" style={styles.flex}>
+            <Pressable style={styles.backdrop} onPress={() => setCreating(false)}>
+              <Pressable
+                style={[
+                  styles.sheet,
+                  { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 },
+                ]}
+                onPress={(event) => event.stopPropagation()}
+              >
+                <Text style={[styles.sheetTitle, { color: colors.text }]}>
+                  {t.calendars.createTitle}
+                </Text>
+    
+                <Text style={[styles.label, { color: colors.muted }]}>{t.calendars.nameLabel}</Text>
+                <TextInput
                   style={[
-                    styles.colorSwatch,
+                    styles.input,
                     {
-                      backgroundColor: option,
-                      borderColor: option === color ? colors.text : 'transparent',
+                      color: colors.text,
+                      backgroundColor: colors.background,
+                      borderColor: nameError ? colors.destructive : colors.divider,
                     },
                   ]}
+                  placeholder={t.calendars.namePlaceholder}
+                  placeholderTextColor={colors.muted}
+                  value={name}
+                  onChangeText={(value) => {
+                    setName(value);
+                    if (nameError) setNameError(null);
+                  }}
+                  autoFocus
                 />
-              ))}
-            </View>
-
-            <View style={styles.sheetActions}>
-              <TouchableOpacity
-                onPress={() => {
-                  setCreating(false);
-                  resetForm();
-                }}
-                style={[styles.secondaryBtn, { borderColor: colors.divider }]}
-                accessibilityRole="button"
-              >
-                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
-                  {t.common.cancel}
+                {nameError ? (
+                  <Text style={[styles.errorText, { color: colors.destructive }]}>{nameError}</Text>
+                ) : null}
+    
+                <Text style={[styles.label, { color: colors.muted }]}>
+                  {t.calendars.descriptionLabel}
                 </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleCreate}
-                disabled={createCalendar.isPending || !name.trim()}
-                style={[
-                  styles.primaryBtn,
-                  (createCalendar.isPending || !name.trim()) && styles.disabled,
-                ]}
-                accessibilityRole="button"
-              >
-                {createCalendar.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.primaryBtnText}>{t.common.create}</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      color: colors.text,
+                      backgroundColor: colors.background,
+                      borderColor: colors.divider,
+                    },
+                  ]}
+                  placeholder={t.calendars.descriptionPlaceholder}
+                  placeholderTextColor={colors.muted}
+                  value={description}
+                  onChangeText={setDescription}
+                />
+    
+                <Text style={[styles.label, { color: colors.muted }]}>{t.calendars.colorLabel}</Text>
+                <View style={styles.colorRow}>
+                  {CALENDAR_COLORS.map((option) => (
+                    <TouchableOpacity
+                      key={option}
+                      onPress={() => setColor(option)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: option === color }}
+                      style={[
+                        styles.colorSwatch,
+                        {
+                          backgroundColor: option,
+                          borderColor: option === color ? colors.text : 'transparent',
+                        },
+                      ]}
+                    />
+                  ))}
+                </View>
+    
+                <View style={styles.sheetActions}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setCreating(false);
+                      resetForm();
+                    }}
+                    style={[styles.secondaryBtn, { borderColor: colors.divider }]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
+                      {t.common.cancel}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleCreate}
+                    disabled={createCalendar.isPending || !name.trim()}
+                    style={[
+                      styles.primaryBtn,
+                      (createCalendar.isPending || !name.trim()) && styles.disabled,
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    {createCalendar.isPending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>{t.common.create}</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </KeyboardProvider>
       </Modal>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   content: { paddingTop: 8, paddingBottom: 24 },
   sectionTitle: {
     fontSize: 13,

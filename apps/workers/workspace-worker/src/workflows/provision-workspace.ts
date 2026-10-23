@@ -19,10 +19,7 @@ import { workspaceInstalledApps } from '@weldsuite/db/schema/workspace-installed
 import { taskDigestSettings } from '@weldsuite/db/schema/task-digest-settings';
 import { workspaceSettings } from '@weldsuite/db/schema/workspace-settings';
 import { helpdeskWorkflows } from '@weldsuite/db/schema/helpdesk-workflows';
-import { workspaces, plans, workspaceCredits, creditTransactions, digestSchedules, mailAccountRegistry } from '@weldsuite/db/schema/master';
-import { mailDomains } from '@weldsuite/db/schema/mail-domains';
-import { mailAccounts } from '@weldsuite/db/schema/mail-accounts';
-import { mailLabels } from '@weldsuite/db/schema/mail-labels';
+import { workspaces, plans, workspaceCredits, creditTransactions, digestSchedules } from '@weldsuite/db/schema/master';
 import { encryptWorkspaceDatabaseUrl, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import type { Env } from '../index';
 import { getMasterDb } from '../db';
@@ -30,7 +27,7 @@ import { generateId } from '../lib/id';
 import { getPartnerProvisionContext, initialiseLicensedCredits } from '@weldsuite/core-domain/partners';
 import { setupWorkspaceBilling, resolveOwnerEmail } from '../services/provisioning';
 import { ensurePartnerOwnerInvited } from '../services/partner-onboarding';
-import { provisionMailDomain } from '../services/mail-provisioning';
+import { ensureWorkspaceMail } from '../services/workspace-mail';
 import { applyTenantMigrations } from '../lib/tenant-migrations';
 import { neonTenantSql } from '../lib/database-move/neon-sql';
 import { getDefaultHelpdeskWorkflows, DEFAULT_WORKFLOW_TEMPLATE_IDS } from './default-helpdesk-workflows';
@@ -355,121 +352,18 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
         return { skipped: true, reason: 'Cloudflare API token not configured or slug missing' };
       }
 
-      const db = createTenantDb(databaseUrl);
-      const masterDb = getMasterDb(this.env);
-      const domain = `${slug}.weldmail.com`;
-      const emailAddress = `team@${domain}`;
-      const now = new Date();
-
-      // 1. Insert mail_domains record (idempotent)
-      const [existingDomain] = await db
-        .select({ id: mailDomains.id })
-        .from(mailDomains)
-        .where(eq(mailDomains.domainName, domain))
-        .limit(1);
-
-      let domainId: string;
-      if (existingDomain) {
-        domainId = existingDomain.id;
-        console.log(`[Provision] Mail domain ${domain} already exists: ${domainId}`);
-      } else {
-        domainId = generateId('mdom');
-        await db.insert(mailDomains).values({
-          id: domainId,
-          domainName: domain,
-          isActive: true,
-          isPrimary: true,
-          mailProvider: 'cloudflare',
-          sendProvider: 'cloudflare',
-          receiveProvider: 'cloudflare',
-          dnsStatus: 'verified', // *.weldmail.com DNS is pre-configured
-          maxEmailAccounts: 10,
-          currentEmailAccounts: 0,
-        });
-        console.log(`[Provision] Created mail domain ${domain}: ${domainId}`);
-      }
-
-      // 2. Check if account already exists
-      const [existingAccount] = await db
-        .select({ id: mailAccounts.id })
-        .from(mailAccounts)
-        .where(eq(mailAccounts.email, emailAddress))
-        .limit(1);
-
-      if (existingAccount) {
-        console.log(`[Provision] Mail account ${emailAddress} already exists: ${existingAccount.id}`);
-        return { skipped: true, reason: 'Account already exists', accountId: existingAccount.id, domainId };
-      }
-
-      // 3. Ensure Cloudflare Email Routing is provisioned for
-      // {slug}.weldmail.com — a subdomain of the shared weldmail.com zone
-      // (idempotent — may already exist from onboard.ts).
-      await provisionMailDomain(this.env, masterDb, workspaceId, slug);
-
-      // 4. Insert mail_accounts record. Cloudflare Email Routing has no
-      // per-mailbox principal — routing happens at the zone level via the
-      // catch-all rule, so there is no account to create with the provider.
-      const accountId = generateId('mail');
-      await db.insert(mailAccounts).values({
-        id: accountId,
-        name: 'Team',
-        email: emailAddress,
-        displayName: workspaceName || slug,
-        provider: 'cloudflare',
-        authType: 'password',
-        syncEnabled: true,
-        status: 'active',
-        isDefault: true,
-        isShared: true,
-        createdAt: now,
-        updatedAt: now,
+      // Domain row (pending until Cloudflare accepts), Cloudflare routing +
+      // sending, then the team@ mailbox. Idempotent, so a retry finishes a
+      // half-done run; a domain still pending afterwards is repaired by the
+      // cron (services/mail-repair-sweep.ts).
+      const result = await ensureWorkspaceMail(this.env, {
+        tenantDb: createTenantDb(databaseUrl),
+        masterDb: getMasterDb(this.env),
+        workspaceId,
+        slug,
+        displayName: workspaceName,
       });
-
-      // 5. Create system labels
-      const systemLabels = [
-        { name: 'Inbox', slug: 'INBOX' },
-        { name: 'Sent', slug: 'SENT' },
-        { name: 'Drafts', slug: 'DRAFTS' },
-        { name: 'Trash', slug: 'TRASH' },
-        { name: 'Spam', slug: 'SPAM' },
-        { name: 'Starred', slug: 'STARRED' },
-        { name: 'Important', slug: 'IMPORTANT' },
-        { name: 'Archive', slug: 'ARCHIVE' },
-        { name: 'Snoozed', slug: 'SNOOZED' },
-        { name: 'Scheduled', slug: 'SCHEDULED' },
-      ];
-      await db.insert(mailLabels).values(
-        systemLabels.map((label) => ({
-          id: generateId('label'),
-          accountId,
-          name: label.name,
-          slug: label.slug,
-          isSystem: true,
-          messageCount: 0,
-          createdAt: now,
-          updatedAt: now,
-        }))
-      );
-
-      // 6. Register in master DB for inbound routing
-      await masterDb
-        .insert(mailAccountRegistry)
-        .values({
-          id: generateId('reg'),
-          email: emailAddress,
-          workspaceId,
-          accountId,
-          isActive: true,
-        })
-        .onConflictDoNothing();
-
-      // 7. Update domain account count
-      await db.update(mailDomains)
-        .set({ currentEmailAccounts: 1, updatedAt: now })
-        .where(eq(mailDomains.id, domainId));
-
-      console.log(`[Provision] Created mail account ${emailAddress} (${accountId}) for workspace ${workspaceId}`);
-      return { created: true, email: emailAddress, accountId, domainId };
+      return { created: result.accountCreated, email: result.email, accountId: result.accountId, domainId: result.domainId };
     }).catch((mailErr) => {
       console.error(`[Provision] Mail provisioning failed (non-blocking) for workspace ${workspaceId}:`, mailErr);
     });

@@ -10,13 +10,12 @@ import { KpiCard, KpiGrid, KpiSkeletonGrid } from '@/components/kpi';
 import { ErrorState } from '@/components/data-states';
 import { useI18n } from '@/lib/i18n';
 import { ACCENTS } from '@/lib/brand';
+import { TOP_UP_URL } from '@/lib/credits';
 import appApi, { type CreditsBalance } from '@/services/app-api';
-
-const TOP_UP_URL = 'https://app.weldsuite.org';
 
 export default function CreditsScreen() {
   const { colors } = useTheme();
-  const { t, format } = useI18n();
+  const { t, format, plural } = useI18n();
   const [credits, setCredits] = useState<CreditsBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +59,12 @@ export default function CreditsScreen() {
               <KpiCard
                 label={t.credits.allocation}
                 value={String(Math.round(credits.monthlyAllocation))}
-                sub={format(t.credits.used, { percent: Math.round(credits.usagePercentage) })}
+                sub={
+                  // "0% used" says nothing when there is no balance and no allocation.
+                  credits.monthlyAllocation > 0 || credits.currentBalance > 0
+                    ? format(t.credits.used, { percent: Math.round(credits.usagePercentage) })
+                    : undefined
+                }
               />
             </KpiGrid>
           )}
@@ -84,8 +88,8 @@ export default function CreditsScreen() {
                   value={String(Math.round(credits.monthlyAllocation))}
                 />
                 <DetailRow
-                  label={t.home.credits}
-                  value={format(t.credits.daysRemaining, { count: credits.daysRemaining })}
+                  label={t.credits.resets}
+                  value={plural(credits.daysRemaining, t.credits.daysRemaining)}
                 />
               </>
             ) : null}
