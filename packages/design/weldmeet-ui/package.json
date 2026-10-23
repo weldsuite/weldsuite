@@ -17,7 +17,7 @@
     "./lib/*": "./src/lib/*.ts"
   },
   "dependencies": {
-    "@cloudflare/realtimekit": "^2.0.2",
+    "@cloudflare/realtimekit": "^2.0.4",
     "@cloudflare/realtimekit-virtual-background": "^0.0.2",
     "@weldsuite/text": "workspace:*",
     "@weldsuite/ui": "workspace:*",
