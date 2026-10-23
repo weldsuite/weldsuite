@@ -460,6 +460,57 @@ export function useMarkThreadAsSpam() {
   });
 }
 
+/** A rule is the block rule for `email` when it sends exactly that From address to Spam. */
+function isBlockRuleFor(
+  rule: { conditions: { field: string; operator: string; value: string | string[] }[]; actions: { type: string }[] },
+  email: string,
+): boolean {
+  return (
+    rule.actions.some((a) => a.type === 'mark_as_spam') &&
+    rule.conditions.some(
+      (c) => c.field === 'from' && c.operator === 'equals' && typeof c.value === 'string' && c.value.toLowerCase() === email,
+    )
+  );
+}
+
+/**
+ * Block a sender: a mail rule sends every future message from the address to
+ * Spam (the inbound worker marks it as spam, so no push goes out), and the
+ * open thread moves to Spam now. Blocking an already-blocked address adds no
+ * second rule.
+ */
+export function useBlockSender() {
+  const { mailRules, mailLabels } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { accountId: string; email: string; threadId?: string }) => {
+      const email = vars.email.trim().toLowerCase();
+      const existing = await mailRules.list({ accountId: vars.accountId });
+      if (!existing.data.some((rule) => rule.isActive && isBlockRuleFor(rule, email))) {
+        await mailRules.create({
+          accountId: vars.accountId,
+          name: `Block ${email}`,
+          conditions: [{ field: 'from', operator: 'equals', value: email }],
+          actions: [{ type: 'mark_as_spam' }],
+          stopProcessing: true,
+          scope: 'incoming',
+        });
+      }
+      if (vars.threadId) {
+        await mailLabels.applyToThread({
+          accountId: vars.accountId,
+          threadId: vars.threadId,
+          labelName: 'SPAM',
+          action: 'add',
+        });
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+    },
+  });
+}
+
 export function useUpdateThreadLabels() {
   return useApplyLabelToThread();
 }

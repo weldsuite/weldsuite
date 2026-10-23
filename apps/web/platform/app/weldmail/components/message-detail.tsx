@@ -15,6 +15,7 @@ import {
   Tag,
   Loader2,
   AlertTriangle,
+  Ban,
   Paperclip,
   Eye,
   Copy,
@@ -80,6 +81,7 @@ import {
   useArchiveThread,
   useTrashThread,
   useMarkThreadAsSpam,
+  useBlockSender,
   useDeleteMailDraft,
   useGenerateAutoDraft,
   useGenerateAIReply,
@@ -1375,6 +1377,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const pinThreadMutation = usePinThread();
   const trashThreadMutation = useTrashThread();
   const markThreadAsSpamMutation = useMarkThreadAsSpam();
+  const blockSenderMutation = useBlockSender();
   const deleteDraftMutation = useDeleteMailDraft();
   const generateAutoDraftMutation = useGenerateAutoDraft();
   const generateAIReplyMutation = useGenerateAIReply();
@@ -1924,6 +1927,25 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         toast.error(t.mail.messageDetail.failedToUpdateSpamStatus);
       }
     }
+  };
+
+  // The opened message's sender: the one the user is looking at when they block.
+  const senderEmail = (message.fromEmail || addressToEmail(message.from)).trim().toLowerCase();
+
+  const handleBlockSender = () => {
+    if (!senderEmail) return;
+    blockSenderMutation.mutate({ accountId, email: senderEmail, threadId: threadId ?? undefined }, {
+      onSuccess: async () => {
+        // The hook moves a thread to Spam; a lone message is moved here.
+        if (!threadId) await mailApi.messages.addLabel(accountId, message.id, 'SPAM');
+        toast.success(t.mail.messageDetail.senderBlocked.replace('{email}', senderEmail));
+        window.dispatchEvent(new Event('mail:refresh'));
+        handleBackToList();
+      },
+      onError: () => {
+        toast.error(t.mail.messageDetail.failedToBlockSender);
+      },
+    });
   };
 
   const handleMarkAsRead = async (isRead: boolean) => {
@@ -2663,6 +2685,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       <><AlertTriangle className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsSpamAction}</>
                     )}
                   </DropdownMenuItem>
+                  {senderEmail && (
+                    <DropdownMenuItem onClick={handleBlockSender} disabled={blockSenderMutation.isPending}>
+                      <Ban className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.blockSender}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={handleDelete} className="text-red-600 focus:bg-red-50 focus:text-red-600">
                     <Trash2 className="mr-0.5 h-4 w-4 text-red-600 dark:text-red-400" /> {isInTrashFolder ? t.mail.messageDetail.deletePermanently : t.mail.messageDetail.moveToTrash}
                   </DropdownMenuItem>
