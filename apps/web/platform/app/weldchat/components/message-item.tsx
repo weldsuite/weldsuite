@@ -240,6 +240,41 @@ function callRowIcon(state: CallRowState, isVideo: boolean, isMine: boolean): Lu
   return Phone;
 }
 
+type CallHistoryStrings = ReturnType<typeof useI18n>['t']['weldchat']['callHistory'];
+type FormatFn = ReturnType<typeof useI18n>['format'];
+
+function callRowTitle(
+  tc: CallHistoryStrings,
+  format: FormatFn,
+  call: CallSummary,
+  state: CallRowState,
+  isMine: boolean,
+): string {
+  const isVideo = call.callType === 'video';
+  const name = call.initiatorName ?? '';
+  if (state === 'missed') {
+    if (call.endOnly) return tc.missedCall;
+    return format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name });
+  }
+  if (call.endOnly) return tc.callEnded;
+  if (isMine) return isVideo ? tc.youStartedVideo : tc.youStartedVoice;
+  return format(isVideo ? tc.startedVideo : tc.startedVoice, { name });
+}
+
+function callRowStatus(tc: CallHistoryStrings, call: CallSummary, state: CallRowState): string | null {
+  if (state === 'answered') return call.duration ? formatCallDuration(call.duration) : tc.ended;
+  if (state === 'noAnswer') return tc.noAnswer;
+  if (state === 'declined') return tc.declined;
+  return null;
+}
+
+function callRowTooltip(tc: CallHistoryStrings, format: FormatFn, call: CallSummary): string {
+  const lines: string[] = [];
+  if (call.startedAt && !call.endOnly) lines.push(format(tc.startedAt, { time: formatFullTime(call.startedAt) }));
+  if (call.endedAt) lines.push(format(tc.endedAt, { time: formatFullTime(call.endedAt) }));
+  return lines.join('\n');
+}
+
 /** One call in the conversation: who started it, how it went, how long it took, and when. */
 function CallNoticeRow({
   message,
@@ -249,33 +284,13 @@ function CallNoticeRow({
   const { t, format } = useI18n();
   const { userId } = useAuth();
   const tc = t.weldchat.callHistory;
-  const isVideo = call.callType === 'video';
   const isMine = !!userId && call.initiatorId === userId;
-  const name = call.initiatorName ?? '';
   const state = callRowState(call, isLive, isMine);
   const style = CALL_ROW_STYLE[state];
-  const Icon = callRowIcon(state, isVideo, isMine);
-
-  let title: string;
-  if (state === 'missed') {
-    title = call.endOnly ? tc.missedCall : format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name });
-  } else if (call.endOnly) {
-    title = tc.callEnded;
-  } else if (isMine) {
-    title = isVideo ? tc.youStartedVideo : tc.youStartedVoice;
-  } else {
-    title = format(isVideo ? tc.startedVideo : tc.startedVoice, { name });
-  }
-
-  let status: string | null = null;
-  if (state === 'answered') status = call.duration ? formatCallDuration(call.duration) : tc.ended;
-  else if (state === 'noAnswer') status = tc.noAnswer;
-  else if (state === 'declined') status = tc.declined;
-
-  const tooltip = [
-    call.startedAt && !call.endOnly ? format(tc.startedAt, { time: formatFullTime(call.startedAt) }) : null,
-    call.endedAt ? format(tc.endedAt, { time: formatFullTime(call.endedAt) }) : null,
-  ].filter(Boolean).join('\n');
+  const Icon = callRowIcon(state, call.callType === 'video', isMine);
+  const title = callRowTitle(tc, format, call, state, isMine);
+  const status = callRowStatus(tc, call, state);
+  const tooltip = callRowTooltip(tc, format, call);
 
   return (
     <div data-message-id={message.id} data-testid="chat-call-notice" data-call-state={state} className="flex justify-center py-1.5 px-2 md:px-4">
