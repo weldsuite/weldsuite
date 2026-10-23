@@ -47,11 +47,28 @@ export type Op =
   | { type: 'merge'; sheetId: string; ranges: Range[] }
   | { type: 'unmerge'; sheetId: string; ranges: Range[] }
   | { type: 'setFreeze'; sheetId: string; rows: number; cols: number }
+  /** Replaces the whole list of defined names. */
   | { type: 'setNames'; names: DefinedName[] }
+  /**
+   * Adds or replaces (`set`) and removes individual names, matched by name
+   * (case-insensitive) and scope; names it does not mention are left alone.
+   */
+  | { type: 'patchNames'; set?: DefinedName[]; remove?: NameKey[] }
   /** Applied in order, atomically. */
   | { type: 'batch'; ops: Op[] };
 
 export type OpType = Op['type'];
+
+/** Identifies a defined name: its text and the sheet it is scoped to (none = workbook). */
+export interface NameKey {
+  name: string;
+  sheetId?: string;
+}
+
+/** The key two names collide on: same scope, same name ignoring case (names cannot contain '!'). */
+export function nameKey(n: NameKey): string {
+  return `${n.sheetId ?? ''}!${n.name.toLowerCase()}`;
+}
 
 export const NOOP: Op = { type: 'batch', ops: [] };
 
@@ -88,6 +105,8 @@ function isEmpty(op: Op): boolean {
       return op.entries.length === 0;
     case 'hideDims':
       return op.indices.length === 0;
+    case 'patchNames':
+      return !op.set?.length && !op.remove?.length;
     default:
       return false;
   }
