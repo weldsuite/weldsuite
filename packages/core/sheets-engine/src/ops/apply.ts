@@ -9,8 +9,8 @@ import { moveIndexMapper, type Axis } from '../formula/references';
 import type { AxisDims } from '../model/axis';
 import type { Cell } from '../model/cell-store';
 import type { StylePatch } from '../model/styles';
-import { sheetFromJSON, sheetToJSON, type Sheet, type SheetProps } from '../model/workbook';
-import { normalize, type AxisEntry, type CellPatch, type Op } from './types';
+import { sheetFromJSON, sheetToJSON, type DefinedName, type Sheet, type SheetProps } from '../model/workbook';
+import { nameKey, normalize, type AxisEntry, type CellPatch, type NameKey, type Op } from './types';
 
 /** Applies `op`, recalculates, and returns its inverse. */
 export function applyOp(engine: Engine, op: Op): Op {
@@ -77,7 +77,7 @@ function applyInner(engine: Engine, op: Op): Op {
         ops: [
           { type: 'addSheet', sheetId: op.sheetId, name: snapshot.name, index, snapshot },
           ...restoreFormulas(rewritten, null, 'row', (i) => i),
-          { type: 'setNames', names },
+          namesBack(names, engine.workbook.names),
         ],
       };
     }
@@ -128,6 +128,9 @@ function applyInner(engine: Engine, op: Op): Op {
       engine.setNames(op.names);
       return { type: 'setNames', names: prev };
     }
+
+    case 'patchNames':
+      return patchNames(engine, op);
   }
 }
 
@@ -195,15 +198,60 @@ function moveDims(engine: Engine, op: OpOf<'moveDims'>): Op {
 }
 
 /**
- * Runs a structural change and, when it rewrote defined names, adds a setNames
- * to its inverse that puts them back exactly (re-inserting rows cannot restore
- * a reference that became #REF!).
+ * Runs a structural change and adds to its inverse a patch that puts back the
+ * defined names it rewrote (re-inserting rows cannot restore a reference that
+ * became #REF!). Only those names: one defined in the meantime survives undo.
  */
 function restoringNames(engine: Engine, run: () => Op): Op {
   const before = engine.workbook.names.map((n) => ({ ...n }));
   const inverse = run();
-  const changed = before.some((n, i) => engine.workbook.names[i]?.formula !== n.formula);
-  return changed ? { type: 'batch', ops: [inverse, { type: 'setNames', names: before }] } : inverse;
+  return { type: 'batch', ops: [inverse, namesBack(before, engine.workbook.names)] };
+}
+
+/** A patch from `after` back to `before`, touching only the names that differ. */
+function namesBack(before: DefinedName[], after: DefinedName[]): Op {
+  const now = new Map(after.map((n) => [nameKey(n), n]));
+  const then = new Set(before.map(nameKey));
+  const set = before.filter((n) => now.get(nameKey(n))?.formula !== n.formula).map((n) => ({ ...n }));
+  const remove = after.filter((n) => !then.has(nameKey(n))).map(({ name, sheetId }) => keyOf({ name, sheetId }));
+  return { type: 'patchNames', set, remove };
+}
+
+/** Upserts and removes names by key; the inverse puts each touched key back as it was. */
+function patchNames(engine: Engine, op: OpOf<'patchNames'>): Op {
+  const names = engine.workbook.names.map((n) => ({ ...n }));
+  const previous = new Map<string, DefinedName | null>();
+  const touch = (key: NameKey) => {
+    const k = nameKey(key);
+    if (previous.has(k)) return;
+    const existing = names.find((n) => nameKey(n) === k);
+    previous.set(k, existing ? { ...existing } : null);
+  };
+  for (const key of op.remove ?? []) {
+    touch(key);
+    const k = nameKey(key);
+    const i = names.findIndex((n) => nameKey(n) === k);
+    if (i >= 0) names.splice(i, 1);
+  }
+  for (const name of op.set ?? []) {
+    touch(name);
+    const k = nameKey(name);
+    const i = names.findIndex((n) => nameKey(n) === k);
+    if (i >= 0) names[i] = { ...name };
+    else names.push({ ...name });
+  }
+  engine.setNames(names);
+  const set: DefinedName[] = [];
+  const remove: NameKey[] = [];
+  for (const [k, prev] of previous) {
+    if (prev) set.push(prev);
+    else remove.push(keyOf([...(op.set ?? []), ...(op.remove ?? [])].find((n) => nameKey(n) === k)!));
+  }
+  return { type: 'patchNames', set, remove };
+}
+
+function keyOf(n: NameKey): NameKey {
+  return n.sheetId === undefined ? { name: n.name } : { name: n.name, sheetId: n.sheetId };
 }
 
 function resizeDims(engine: Engine, op: OpOf<'resizeDims'>): Op {

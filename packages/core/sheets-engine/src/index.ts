@@ -36,8 +36,8 @@ export * from './format/date';
 
 export { applyOp } from './ops/apply';
 export { transform, transformList } from './ops/transform';
-export { NOOP, isNoop, normalize } from './ops/types';
-export type { AxisEntry, CellPatch, Op, OpType } from './ops/types';
+export { NOOP, isNoop, nameKey, normalize } from './ops/types';
+export type { AxisEntry, CellPatch, NameKey, Op, OpType } from './ops/types';
 
 export { EN_LOCALE, NL_LOCALE, formatCategory, formatValue, isDateFormat } from './format/number-format';
 export type { FormatCategory, FormatLocale, FormattedValue } from './format/number-format';

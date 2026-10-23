@@ -19,8 +19,8 @@
  * conflicting part or re-asserts the winner's value, so that the opposite
  * direction (used for the undo stack) converges as well wherever it can.
  *
- * Where it cannot without seeing state (two concurrent row moves overlapping
- * a merge, sheet reordering, a range format racing a whole-row/column style
+ * Where it cannot without seeing state (concurrent row/column inserts,
+ * deletes and moves at the edge of a merge, sheet reordering, a range format racing a whole-row/column style
  * change it inherits from), clients still agree because they rebase as
  * above; the collaboration layer also compares state checksums and resyncs
  * from a snapshot if replicas ever disagree.
@@ -36,7 +36,8 @@ import {
   removeSheetFromFormula,
   renameSheetInFormula,
 } from '../formula/references';
-import { NOOP, normalize, type CellPatch, type Op } from './types';
+import type { DefinedName } from '../model/workbook';
+import { nameKey, NOOP, normalize, type CellPatch, type NameKey, type Op } from './types';
 
 export function transform(op: Op, against: Op, opWins: boolean): Op {
   if (against.type === 'batch') {
@@ -104,7 +105,10 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
     case 'unmerge':
       return overUnmerge(a, b, aWins);
     case 'setNames':
-      return a.type === 'setNames' && !aWins ? NOOP : a;
+      // b replaced the whole list after a: a name list or patch that lost changes nothing.
+      return (a.type === 'setNames' || a.type === 'patchNames') && !aWins ? NOOP : a;
+    case 'patchNames':
+      return overPatchNames(a, b, aWins);
   }
 }
 
@@ -114,7 +118,7 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
 
 type Structural = OpOf<'insertDims' | 'deleteDims' | 'moveDims'>;
 /** Ops that belong to one sheet. */
-type SheetOp = Exclude<Simple, { type: 'setCells' | 'setNames' }>;
+type SheetOp = Exclude<Simple, { type: 'setCells' | 'setNames' | 'patchNames' }>;
 /** Ops on one axis of one sheet. */
 type AxisOp = OpOf<'resizeDims' | 'hideDims' | 'insertDims' | 'deleteDims' | 'moveDims'>;
 
@@ -122,15 +126,10 @@ function overStructural(a: Simple, b: Structural, aWins: boolean): Op {
   switch (a.type) {
     case 'setCells':
       return cellsAfter(a, b);
-    case 'setNames': {
+    case 'setNames':
+    case 'patchNames': {
       const formula = formulaAdjuster(b);
-      return {
-        ...a,
-        names: a.names.map((n) => ({
-          ...n,
-          formula: formula(n.formula, n.sheetId ?? ''),
-        })),
-      };
+      return mapNames(a, (n) => ({ ...n, formula: formula(n.formula, n.sheetId ?? '') }));
     }
     default:
       // Everything else changes only when it is about b's own sheet.
@@ -484,13 +483,38 @@ function mapFormulas(a: Simple, fn: (f: string) => string): Simple {
         ),
       };
     case 'setNames':
-      return {
-        ...a,
-        names: a.names.map((n) => ({ ...n, formula: fn(n.formula) })),
-      };
+    case 'patchNames':
+      return mapNames(a, (n) => ({ ...n, formula: fn(n.formula) }));
     default:
       return a;
   }
+}
+
+/** The names a setNames or patchNames writes, mapped (and filtered with `keep`). */
+function mapNames(
+  a: NamesOp,
+  fn: (n: DefinedName) => DefinedName,
+  keep: (n: NameKey) => boolean = () => true,
+): NamesOp {
+  if (a.type === 'setNames') return { ...a, names: a.names.filter(keep).map(fn) };
+  const out: OpOf<'patchNames'> = { type: 'patchNames' };
+  if (a.set) out.set = a.set.filter(keep).map(fn);
+  if (a.remove) out.remove = a.remove.filter(keep);
+  return out;
+}
+
+type NamesOp = OpOf<'setNames' | 'patchNames'>;
+
+/**
+ * Two name patches: the later one decides each name both touch, so a losing
+ * patch drops those names. A losing full list is followed by the patch again.
+ */
+function overPatchNames(a: Simple, b: OpOf<'patchNames'>, aWins: boolean): Op {
+  if (aWins) return a;
+  if (a.type === 'setNames') return { type: 'batch', ops: [a, b] };
+  if (a.type !== 'patchNames') return a;
+  const taken = new Set([...(b.set ?? []), ...(b.remove ?? [])].map(nameKey));
+  return mapNames(a, (n) => n, (n) => !taken.has(nameKey(n)));
 }
 
 function overRename(a: Simple, b: OpOf<'renameSheet'>, aWins: boolean): Op {
@@ -505,7 +529,10 @@ function overRename(a: Simple, b: OpOf<'renameSheet'>, aWins: boolean): Op {
 function overDeleteSheet(a: Simple, b: OpOf<'deleteSheet'>): Op {
   if ('sheetId' in a && a.sheetId === b.sheetId) return NOOP;
   // Names scoped to the deleted sheet go with it, as the engine drops them.
-  const kept = a.type === 'setNames' ? { ...a, names: a.names.filter((n) => n.sheetId !== b.sheetId) } : a;
+  const kept =
+    a.type === 'setNames' || a.type === 'patchNames'
+      ? mapNames(a, (n) => n, (n) => n.sheetId !== b.sheetId)
+      : a;
   return mapFormulas(kept, (f) => removeSheetFromFormula(f, b.sheetName));
 }
 

@@ -56,6 +56,38 @@ describe('undo of structural changes', () => {
     expect(engine.workbook.names[0]!.formula).toBe('Sheet1!$A$5');
   });
 
+  it('restores only the names a row delete rewrote, keeping names defined since', () => {
+    const engine = engineFrom(snapshotWith({ type: 'setNames', names: [{ name: 'x', formula: 'Sheet1!$A$10' }] }));
+    const inverse = applyOp(engine, { type: 'deleteDims', sheetId: 's1', sheetName: 'Sheet1', axis: 'row', at: 9, count: 1 });
+    applyOp(engine, { type: 'patchNames', set: [{ name: 'total', formula: 'SUM(Sheet1!$B:$B)' }] });
+    applyOp(engine, inverse);
+    expect(engine.workbook.names).toEqual([
+      { name: 'x', formula: 'Sheet1!$A$10' },
+      { name: 'total', formula: 'SUM(Sheet1!$B:$B)' },
+    ]);
+  });
+
+  it('keeps names defined after a sheet was deleted when that delete is undone', () => {
+    const engine = engineFrom(snapshotWith({ type: 'setNames', names: [{ name: 'loc', formula: 'Data!A1', sheetId: 's2' }] }));
+    const inverse = applyOp(engine, { type: 'deleteSheet', sheetId: 's2', sheetName: 'Data' });
+    applyOp(engine, { type: 'patchNames', set: [{ name: 'later', formula: '1' }] });
+    applyOp(engine, inverse);
+    expect(engine.workbook.names.map((n) => n.name).sort()).toEqual(['later', 'loc']);
+  });
+
+  it('undoes a name patch exactly', () => {
+    const engine = engineFrom(snapshotWith({ type: 'setNames', names: [{ name: 'a', formula: '1' }, { name: 'b', formula: '2' }] }));
+    const before = state(engine);
+    const inverse = applyOp(engine, {
+      type: 'patchNames',
+      set: [{ name: 'A', formula: '10' }, { name: 'c', formula: '3' }],
+      remove: [{ name: 'b' }],
+    });
+    expect(engine.workbook.names).toEqual([{ name: 'A', formula: '10' }, { name: 'c', formula: '3' }]);
+    applyOp(engine, inverse);
+    expect(state(engine)).toEqual(before);
+  });
+
   it('merges again on undo when a move had split a merge', () => {
     const engine = engineFrom(snapshotWith({ type: 'merge', sheetId: 's1', ranges: [{ r1: 2, c1: 1, r2: 4, c2: 2 }] }));
     const before = state(engine);
@@ -151,7 +183,7 @@ describe('convergence fuzz over merges, styles and names', () => {
     const style = () => (rand(2) ? '{"bold":true}' : null);
     const randomOp = (): Op => {
       const axis = rand(2) ? 'row' : 'col';
-      switch (rand(10)) {
+      switch (rand(12)) {
         case 0:
           return { type: 'insertDims', sheetId: 's1', sheetName: 'Sheet1', axis, at: rand(7), count: 1 + rand(2) };
         case 1:
@@ -168,6 +200,14 @@ describe('convergence fuzz over merges, styles and names', () => {
           return { type: 'setStyles', sheetId: 's1', cells: [[rand(6), rand(4), style()]], rows: [[rand(6), style()]], cols: [[rand(4), style()]] };
         case 7:
           return { type: 'setNames', names: [{ name: 'n', formula: `Sheet1!A${1 + rand(6)}` }, { name: 'm', formula: `A${1 + rand(6)}`, sheetId: 's1' }] };
+        case 10:
+          return {
+            type: 'patchNames',
+            set: [{ name: rand(2) ? 'n' : 'p', formula: `Sheet1!A${1 + rand(6)}` }],
+            remove: rand(2) ? [{ name: 'm', sheetId: 's1' }] : [],
+          };
+        case 11:
+          return { type: 'deleteSheet', sheetId: 's2', sheetName: 'Data' };
         case 8:
           return { type: 'setCells', sheetId: 's1', cells: [[rand(6), rand(4), { f: `A${1 + rand(6)}+1` }]] };
         default:
@@ -189,12 +229,14 @@ describe('convergence fuzz over merges, styles and names', () => {
         delete sheet.cols.styles;
       }
     };
+    const structural = (op: Op) => op.type === 'insertDims' || op.type === 'deleteDims' || op.type === 'moveDims';
     for (let i = 0; i < 400; i++) {
       const a = randomOp();
       const b = randomOp();
       const { server, client } = converge(snap, a, b);
-      if (a.type === 'moveDims' || b.type === 'moveDims') {
-        // A move racing a delete across a merged range is resolved by checksum resync, not OT.
+      if (a.type === 'moveDims' || b.type === 'moveDims' || (structural(a) && structural(b))) {
+        // Two row/column changes racing at the edge of a merge cannot be decided
+        // without the merge (clients rebase instead; see transform.ts).
         for (const s of [...server.sheets, ...client.sheets]) delete s.merges;
       }
       if (inheritRace(a, b) || inheritRace(b, a)) {
