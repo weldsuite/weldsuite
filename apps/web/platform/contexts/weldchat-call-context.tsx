@@ -1015,8 +1015,32 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
    * stays up with "reconnecting" meanwhile. Only when every attempt failed, or
    * the call ended in between, is the call over for this user.
    */
+  /** The attempts of rejoinCall: whether the user got back in, stopped wanting the call, or not. */
+  const attemptRejoin = useCallback(async (cId: string): Promise<'rejoined' | 'stopped' | 'call-over' | 'failed'> => {
+    let token = rtkTokenRef.current;
+    for (const delay of REJOIN_DELAYS_MS) {
+      await wait(delay);
+      await waitUntilOnline(REJOIN_OFFLINE_WAIT_MS);
+      if (callIdRef.current !== cId) return 'stopped';
+      try {
+        if (!token) {
+          const client = await getClient();
+          token = (await client.post<JoinChatCallResponse>(`/chat-calls/${cId}/join`, {})).data.authToken;
+        }
+        await initMeeting(token, callTypeRef.current, !isMutedRef.current, !isVideoOffRef.current, { rejoin: true });
+        return 'rejoined';
+      } catch (err) {
+        if (err instanceof LeftWhileConnectingError) return 'stopped';
+        // The call is no longer joinable: it ended while we were away.
+        if (isApiError(err) && (err.status === 400 || err.status === 404)) return 'call-over';
+        // The next attempt asks for a fresh participant.
+        token = null;
+      }
+    }
+    return 'failed';
+  }, [getClient, initMeeting]);
+
   const rejoinCall = useCallback(async (cId: string, failed: RealtimeKitClient) => {
-    const stillThisCall = () => callIdRef.current === cId;
     console.warn(`[WeldChat:Call] RealtimeKit gave up reconnecting (tab ${document.visibilityState}), rejoining`);
     stopLocalMediaTracks(failed);
     // The failed client's handlers ignore what leaving makes it emit (abandoned).
@@ -1026,40 +1050,16 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setIsScreenSharing(false);
     showReconnecting();
 
-    let token = rtkTokenRef.current;
-    let callOver = false;
-    for (const delay of REJOIN_DELAYS_MS) {
-      await wait(delay);
-      await waitUntilOnline(REJOIN_OFFLINE_WAIT_MS);
-      if (!stillThisCall()) return;
-      try {
-        if (!token) {
-          const client = await getClient();
-          token = (await client.post<JoinChatCallResponse>(`/chat-calls/${cId}/join`, {})).data.authToken;
-        }
-        await initMeeting(token, callTypeRef.current, !isMutedRef.current, !isVideoOffRef.current, { rejoin: true });
-        return;
-      } catch (err) {
-        if (err instanceof LeftWhileConnectingError) return;
-        // The call is no longer joinable: it ended while we were away.
-        if (isApiError(err) && (err.status === 400 || err.status === 404)) {
-          callOver = true;
-          break;
-        }
-        // The next attempt asks for a fresh participant.
-        token = null;
-      }
-    }
-
-    if (!stillThisCall()) return;
+    const outcome = await attemptRejoin(cId);
+    if (outcome === 'rejoined' || outcome === 'stopped' || callIdRef.current !== cId) return;
     callIdRef.current = null;
-    if (!callOver) {
+    if (outcome === 'failed') {
       // Notify the backend so the call auto-ends once the room is empty.
       fireLeaveRequest(cId);
       toast.error(getTranslations('weldchat').calling.connectionLost);
     }
     showCallEnded('ended');
-  }, [getClient, initMeeting, fireLeaveRequest, showCallEnded, showReconnecting]);
+  }, [attemptRejoin, fireLeaveRequest, showCallEnded, showReconnecting]);
   rejoinCallRef.current = rejoinCall;
 
   // ── Actions ──────────────────────────────────────────────────────────────
