@@ -607,7 +607,8 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
     const where = and(...conditions);
     const [rows, countRes] = await Promise.all([
       db.select().from(invoices).where(where)
-        .orderBy(desc(invoices.issueDate))
+        // Newest first within a day too; a unique tiebreaker also keeps offset pages stable.
+        .orderBy(desc(invoices.issueDate), desc(invoices.createdAt), desc(invoices.id))
         .limit(pageSize).offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(invoices).where(where),
     ]);

@@ -8,7 +8,7 @@ tags: [smoke]
 - assertVisible: "Search contacts"
 - back
 - tapOn: "Profit & loss"
-- assertVisible: "Net profit"
+- assertVisible: "Net profit|Net loss"
 - back
 - tapOn: "Balance sheet"
 - waitForAnimationToEnd
@@ -20,7 +20,10 @@ tags: [smoke]
 - assertVisible: "All years"
 - back
 - tapOn: "Reconciliation"
-- assertVisible: "Unmatched"
+# Without a bank account the screen says so instead of showing the unmatched list.
+- extendedWaitUntil:
+    visible: "Unmatched|No bank accounts"
+    timeout: 10000
 - back
 - scrollUntilVisible:
     element: "Settings"

@@ -2,25 +2,58 @@ appId: com.weldsuite.weldbooks
 name: Add a quick expense
 tags: [smoke, writes]
 ---
-# Saves one €25 expense per run.
+# Books one €30.25 expense per run (the total paid, VAT included), paid by card.
 - runFlow: ../subflows/login.yaml
+# A supplier name of its own, so the run finds its expense among earlier ones.
+- evalScript: ${output.vendor = "E2E Supplier " + Date.now()}
 - tapOn: "Expense"
 - extendedWaitUntil:
     visible: "Quick expense"
     timeout: 10000
 # The amount field has focus on open; the keyboard has to go before the form
 # can scroll (see the Mobile apps bug about edge-to-edge forms).
-- inputText: "25"
+- inputText: "30.25"
 - hideKeyboard
+# The VAT inside the total is worked out from it: €30.25 at 21% holds €5.25.
+- assertVisible: "incl. €5.25 VAT \\(21%\\)"
+# The category picks the expense account from the company's (Dutch) chart.
+- tapOn: "Food"
+- scrollUntilVisible:
+    element: "4520 Representatiekosten"
 - scrollUntilVisible:
     element: "e.g. Shell, Amazon"
 - tapOn: "e.g. Shell, Amazon"
-- inputText: "E2E Supplier"
+- inputText: ${output.vendor}
 - hideKeyboard
 - scrollUntilVisible:
     element: "Save expense"
 - tapOn: "Save expense"
-# Saving returns to Home (the "Expense saved" toast is too brief to assert on).
+# Saving returns to Home.
 - extendedWaitUntil:
     visible: "Outstanding"
+    timeout: 20000
+# The "Expense booked" toast sits over the tab bar until it fades.
+- extendedWaitUntil:
+    notVisible: "Expense booked"
+    timeout: 10000
+# The expense is booked and paid, not left as a draft.
+- tapOn: "Expenses"
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 10000
+- tapOn: "Search bills and expenses"
+- inputText: ${output.vendor}
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      text: ${output.vendor}
+      index: 1
+    timeout: 10000
+# Index 0 is the search field itself.
+- tapOn:
+    text: ${output.vendor}
+    index: 1
+- extendedWaitUntil:
+    visible: "Paid"
     timeout: 15000
+- assertVisible: "€30.25"

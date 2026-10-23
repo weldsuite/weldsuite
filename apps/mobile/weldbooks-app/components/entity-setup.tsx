@@ -68,7 +68,7 @@ import {
   usEntityTypes,
   validClassification,
 } from '@/lib/us';
-import type { PostalAddress } from '@/types/accounting';
+import type { AccountingEntity, PostalAddress } from '@/types/accounting';
 
 /** Building with a door — the same motif as the platform's empty-state illustration. */
 function EntityIllustration({ stroke, fill, accent }: Readonly<{ stroke: string; fill: string; accent: string }>) {
@@ -143,10 +143,16 @@ export function CreateEntitySheet({
   visible,
   onClose,
   onCreated,
+  additional = false,
+  initialJurisdiction,
 }: Readonly<{
   visible: boolean;
   onClose: () => void;
-  onCreated: () => void | Promise<void>;
+  onCreated: (entity: AccountingEntity) => void | Promise<void>;
+  /** A second (or later) company: it does not take over as the workspace default. */
+  additional?: boolean;
+  /** The country to start on; the device's region when not given. */
+  initialJurisdiction?: string;
 }>) {
   const { colors } = useTheme();
   const toast = useToast();
@@ -155,7 +161,7 @@ export function CreateEntitySheet({
   const { data: loaded } = useJurisdictions();
   const jurisdictions = loaded && loaded.length > 0 ? loaded : BUILT_IN_JURISDICTIONS;
 
-  const initialCode = defaultJurisdictionCode();
+  const initialCode = initialJurisdiction ?? defaultJurisdictionCode();
   const initial = findJurisdiction(initialCode, loaded);
 
   const [company, setCompany] = useState<CompanyDraft>(() => emptyCompanyDraft());
@@ -222,11 +228,11 @@ export function CreateEntitySheet({
 
     setSubmitting(true);
     try {
-      await api.createEntity({
+      const created = await api.createEntity({
         name: company.name.trim(),
         jurisdictionCode,
         baseCurrency,
-        isDefault: true,
+        isDefault: !additional,
         ...jurisdictionPayload({
           code: jurisdictionCode.toUpperCase(),
           isUs,
@@ -241,7 +247,7 @@ export function CreateEntitySheet({
         }),
       });
       toast.success(t.entitySetup.created);
-      await onCreated();
+      await onCreated(created);
       onClose();
     } catch (err) {
       toast.error(describeApiError(err, t, t.entitySetup.createFailed));
@@ -263,13 +269,14 @@ export function CreateEntitySheet({
     toast,
     onCreated,
     onClose,
+    additional,
     t,
   ]);
 
   // The company's own fields (IBAN, KvK, address) only matter for invoices; a sheet that grows
   // with its content never needs a fixed height, only a ceiling.
   return (
-    <Sheet visible={visible} onClose={onClose} title={t.entitySetup.sheetTitle} heightRatio={0.94}>
+    <Sheet visible={visible} onClose={onClose} title={additional ? t.entitySetup.addSheetTitle : t.entitySetup.sheetTitle} heightRatio={0.94}>
       <SheetForm>
         <Text style={[styles.sheetHint, { color: colors.mutedForeground }]}>{t.entitySetup.hint}</Text>
 

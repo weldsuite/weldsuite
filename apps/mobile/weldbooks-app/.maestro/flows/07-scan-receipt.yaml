@@ -1,0 +1,97 @@
+appId: com.weldsuite.weldbooks
+name: Scan a receipt into a booked expense
+tags: [smoke, writes]
+---
+# Picks a receipt photo from the gallery, books it as a quick expense and checks
+# the receipt is shown on the form and on the resulting bill. Books one €32.48
+# expense per run. Works with and without OCR: on a workspace without AI credits
+# the scan fails to read, says why, and the figures are typed by hand.
+- runFlow: ../subflows/login.yaml
+- addMedia:
+    - "../assets/receipt-albert-heijn.png"
+- evalScript: ${output.vendor = "Albert Heijn E2E " + Date.now()}
+
+- tapOn: "Scan"
+- extendedWaitUntil:
+    visible: "Scan receipt"
+    timeout: 10000
+- tapOn: "Pick from gallery"
+# Android's photo picker: the newest photo is the first tile.
+- extendedWaitUntil:
+    visible: "Photos"
+    timeout: 10000
+- runFlow: ../subflows/pick-first-photo.yaml
+
+# Review: the photo, then the upload and OCR outcome in the banner.
+- extendedWaitUntil:
+    visible: "Retake"
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "Uploading.*|Reading.*"
+    timeout: 90000
+- assertVisible: "Found.*|Receipt attached.*|Could not read.*|Not enough AI credits.*|The photo is too large.*"
+- tapOn:
+    text: "Quick expense"
+    index: 0
+
+# The form shows the receipt the figures come from.
+- extendedWaitUntil:
+    visible:
+      id: receipt-preview
+    timeout: 15000
+- extendedWaitUntil:
+    notVisible: "Filling in fields from the scan.*"
+    timeout: 30000
+- tapOn:
+    id: expense-amount
+- eraseText: 12
+- inputText: "32.48"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: expense-vendor
+- tapOn:
+    id: expense-vendor
+- eraseText: 40
+- inputText: ${output.vendor}
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Save expense"
+- tapOn: "Save expense"
+- extendedWaitUntil:
+    visible: "Outstanding"
+    timeout: 20000
+# The "Expense booked" toast sits over the tab bar until it fades.
+- extendedWaitUntil:
+    notVisible: "Expense booked"
+    timeout: 10000
+
+# The bill is paid and still carries the receipt.
+- tapOn: "Expenses"
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 10000
+- tapOn: "Search bills and expenses"
+- inputText: ${output.vendor}
+- hideKeyboard
+# Index 0 is the search field itself.
+- extendedWaitUntil:
+    visible:
+      text: ${output.vendor}
+      index: 1
+    timeout: 10000
+- tapOn:
+    text: ${output.vendor}
+    index: 1
+- extendedWaitUntil:
+    visible: "Paid"
+    timeout: 15000
+- assertVisible: "€32.48"
+- extendedWaitUntil:
+    visible:
+      id: receipt-preview
+    timeout: 20000
+- tapOn:
+    id: receipt-preview
+- assertVisible: "Close"
+- tapOn: "Close"

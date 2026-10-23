@@ -18,7 +18,7 @@ import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
-import api from '@/services/api';
+import api, { receiptFileName } from '@/services/api';
 import { today, addDays } from '@/lib/date';
 import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
@@ -38,6 +38,7 @@ import { AddressFields, type AddressErrors } from '@/components/address-fields';
 import { LineItemsEditor } from '@/components/line-items';
 import { DateField } from '@/components/date-field';
 import { FormScrollView } from '@/components/form-scroll';
+import { ReceiptPreview } from '@/components/receipt-preview';
 import type { BillPrefill } from '@/types/accounting';
 
 function dueFromIssue(issueDate: string): string {
@@ -59,7 +60,11 @@ function itemsFromPrefill(prefill: BillPrefill, defaultTaxRate: string): LineIte
 }
 
 export default function NewBillScreen() {
-  const { documentId } = useLocalSearchParams<{ documentId?: string }>();
+  const { documentId, receiptUri, receiptType } = useLocalSearchParams<{
+    documentId?: string;
+    receiptUri?: string;
+    receiptType?: string;
+  }>();
   const router = useRouter();
   const toast = useToast();
   const { colors } = useTheme();
@@ -83,6 +88,13 @@ export default function NewBillScreen() {
   const [notes, setNotes] = useState('');
   const [reference, setReference] = useState('');
   const [saving, setSaving] = useState(false);
+  // From the scan: the supplier OCR matched (by VAT number, KvK or IBAN, so it beats a lookup
+  // by name while the name is still the scanned one) and the receipt's currency.
+  const [scanned, setScanned] = useState<{
+    contactName: string | null;
+    contactId: string | null;
+    currency: string | null;
+  } | null>(null);
   const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
     documentId ? 'loading' : 'idle',
   );
@@ -111,6 +123,11 @@ export default function NewBillScreen() {
           setDueDate(prefill.dueDate);
         }
         if (prefill.items.length > 0) setItems(itemsFromPrefill(prefill, defaultTaxRate));
+        setScanned({
+          contactName: prefill.contactName,
+          contactId: prefill.matchedContactId,
+          currency: prefill.currency,
+        });
         setOcrState('ready');
       } catch {
         if (!cancelled) setOcrState('failed');
@@ -139,15 +156,25 @@ export default function NewBillScreen() {
 
     setSaving(true);
     try {
+      const sameSupplier = scanned?.contactId && name === scanned.contactName?.trim();
+      // A photo scanned offline (or whose upload failed) is stored now, so the bill links it.
+      let sourceDocumentId = documentId;
+      if (!sourceDocumentId && receiptUri) {
+        const mimeType = receiptType || 'image/jpeg';
+        const fileName = receiptFileName(mimeType);
+        sourceDocumentId = (await api.uploadReceipt({ localUri: receiptUri, mimeType, fileName })) ?? undefined;
+      }
       const bill = await api.createBill({
+        ...(sameSupplier ? { contactId: scanned.contactId! } : {}),
         contactName: name,
+        ...(scanned?.currency ? { currency: scanned.currency } : {}),
         billNumber: billNumber.trim() || undefined,
         issueDate,
         dueDate,
         notes: notes.trim() || undefined,
         reference: reference.trim() || undefined,
         externalReference: reference.trim() || undefined,
-        documentId,
+        documentId: sourceDocumentId,
         ...(accruesUseTax ? { deliveryAddress: toApiAddress(deliveredTo) } : {}),
         items: toLineItemInputs(items, mode),
       });
@@ -168,6 +195,9 @@ export default function NewBillScreen() {
     notes,
     reference,
     documentId,
+    receiptUri,
+    receiptType,
+    scanned,
     deliveredTo,
     accruesUseTax,
     mode,
@@ -196,6 +226,8 @@ export default function NewBillScreen() {
               {t.billNew.ocrFailed}
             </Banner>
           ) : null}
+
+          <ReceiptPreview uri={receiptUri} />
 
           <SectionCard title={labels.supplier}>
             <Input

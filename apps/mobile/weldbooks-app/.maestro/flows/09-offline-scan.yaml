@@ -1,0 +1,77 @@
+appId: com.weldsuite.weldbooks
+name: Scan a receipt offline; it syncs with its expense
+tags: [writes]
+# Runs even when a step fails, so a broken run never leaves the device offline.
+onFlowComplete:
+  - setAirplaneMode: disabled
+---
+# Books one €12.10 expense per run. Airplane mode on: the scan can't upload, the
+# expense is queued with the photo, and once back online the queue stores the
+# photo and the bill shows it. Leaves airplane mode off.
+- runFlow: ../subflows/login.yaml
+- addMedia:
+    - "../assets/receipt-albert-heijn.png"
+- evalScript: ${output.vendor = "Offline E2E " + Date.now()}
+- setAirplaneMode: enabled
+
+- tapOn: "Scan"
+- extendedWaitUntil:
+    visible: "Scan receipt"
+    timeout: 10000
+- tapOn: "Pick from gallery"
+- runFlow: ../subflows/pick-first-photo.yaml
+- extendedWaitUntil:
+    visible: "You're offline.*"
+    timeout: 15000
+- tapOn:
+    text: "Quick expense"
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: receipt-preview
+    timeout: 15000
+- tapOn:
+    id: expense-amount
+- inputText: "12.10"
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: expense-vendor
+- tapOn:
+    id: expense-vendor
+- inputText: ${output.vendor}
+- hideKeyboard
+- scrollUntilVisible:
+    element: "Queue expense"
+- tapOn: "Queue expense"
+- extendedWaitUntil:
+    visible: "Outstanding"
+    timeout: 20000
+
+# Back online: the queue syncs the photo and the expense together.
+- setAirplaneMode: disabled
+- extendedWaitUntil:
+    notVisible: ".*waiting to sync.*|.*queued.*"
+    timeout: 90000
+- tapOn: "Expenses"
+- extendedWaitUntil:
+    visible: "Search bills and expenses"
+    timeout: 15000
+- tapOn: "Search bills and expenses"
+- inputText: ${output.vendor}
+- hideKeyboard
+- extendedWaitUntil:
+    visible:
+      text: ${output.vendor}
+      index: 1
+    timeout: 30000
+- tapOn:
+    text: ${output.vendor}
+    index: 1
+- extendedWaitUntil:
+    visible: "Paid"
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: receipt-preview
+    timeout: 20000

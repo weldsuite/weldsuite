@@ -102,7 +102,7 @@ describe('placeholders', () => {
     ];
     for (const text of terminologyStrings) {
       for (const name of placeholders(text)) {
-        expect(provided.has(name) || ['rate', 'total'].includes(name)).toBe(true);
+        expect(provided.has(name) || ['rate', 'total', 'amount'].includes(name)).toBe(true);
       }
     }
   });
