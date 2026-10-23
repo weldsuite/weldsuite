@@ -1061,9 +1061,10 @@ async function finishWorkspaceDelivery(
   account: RecipientAccount,
   email: ParsedEmail,
   attachments: ParsedAttachment[] | undefined,
-  result: StoreEmailResult,
+  stored: StoreEmailResult,
   preview: string,
 ): Promise<number> {
+  let result = stored;
   const workspaceId = account.workspaceId;
   const clerkOrgId = account.clerkOrgId;
   if (!workspaceId || !clerkOrgId) {
@@ -1073,9 +1074,12 @@ async function finishWorkspaceDelivery(
 
   await storeWorkspaceAttachments(env, workspaceId, email, attachments, result);
 
-  // Run Jev multi-label auto-labeling + mail rules (non-blocking)
+  // Run Jev multi-label auto-labeling + mail rules (non-blocking). A rule
+  // that sends the message to Spam (e.g. a blocked sender) makes it spam for
+  // the notifications below too, so no bell row or push goes out.
   try {
-    await classifyAndRunRules(env, account, workspaceId, result.messageId, email);
+    const markedSpam = await classifyAndRunRules(env, account, workspaceId, result.messageId, email);
+    if (markedSpam) result = { ...result, isSpam: true, isPromotion: false };
   } catch (classifyErr) {
     console.error(`[Store] AI classify/rules failed for ${result.messageId}:`, classifyErr);
   }
@@ -1527,31 +1531,38 @@ function inboundRuleMatches(
     : conditions.some((c) => evalRuleCondition(message, c));
 }
 
-/** Execute a rule's actions, returning how many were applied. */
+/** Execute a rule's actions: how many were applied, and whether one sent the message to Spam. */
 async function executeRuleActions(
   tenantDb: TenantDbHandle,
   messageId: string,
   actions: RuleAction[],
-): Promise<number> {
+): Promise<{ actionsApplied: number; markedSpam: boolean }> {
   let actionsApplied = 0;
+  let markedSpam = false;
   for (const action of actions) {
     try {
       const applied = await executeRuleAction(tenantDb, messageId, action);
-      if (applied) actionsApplied++;
+      if (!applied) continue;
+      actionsApplied++;
+      if (action.type === 'mark_as_spam') markedSpam = true;
     } catch (actionErr) {
       console.error(`[Rules] Action ${action.type} failed:`, actionErr);
     }
   }
-  return actionsApplied;
+  return { actionsApplied, markedSpam };
 }
 
-/** Phase 2: run the account's active mail rules against the stored message. */
+/**
+ * Phase 2: run the account's active mail rules against the stored message.
+ * Returns true when a `mark_as_spam` action moved it to Spam.
+ */
 async function runMailRules(
   tenantDb: TenantDbHandle,
   accountId: string,
   messageId: string,
-): Promise<void> {
+): Promise<boolean> {
   const { mailMessages, mailRules } = tenantSchema;
+  let markedSpam = false;
 
   try {
     // Re-read message with latest labels
@@ -1561,7 +1572,7 @@ async function runMailRules(
       .where(eq(mailMessages.id, messageId))
       .limit(1);
 
-    if (!updatedMessage) return;
+    if (!updatedMessage) return false;
 
     const rules = await tenantDb
       .select()
@@ -1578,12 +1589,14 @@ async function runMailRules(
     for (const rule of rules) {
       if (!inboundRuleMatches(rule, updatedMessage)) continue;
 
-      const actionsApplied = await executeRuleActions(
+      const outcome = await executeRuleActions(
         tenantDb,
         messageId,
         (rule.actions || []) as RuleAction[],
       );
+      const { actionsApplied } = outcome;
       if (actionsApplied === 0) continue;
+      if (outcome.markedSpam) markedSpam = true;
 
       await tenantDb
         .update(mailRules)
@@ -1601,6 +1614,7 @@ async function runMailRules(
   } catch (ruleErr) {
     console.error(`[Rules] Rule execution failed for ${messageId}:`, ruleErr);
   }
+  return markedSpam;
 }
 
 /**
@@ -1610,6 +1624,8 @@ async function runMailRules(
  * is evaluated as a noul question via TypeSafe Jev (`typesafe/jev`) through
  * the Cloudflare AI Gateway. Ops infra cost is recorded; customer credits
  * are not charged for this path.
+ *
+ * Returns true when a rule moved the message to Spam.
  */
 async function classifyAndRunRules(
   env: Env,
@@ -1617,16 +1633,16 @@ async function classifyAndRunRules(
   workspaceId: string,
   messageId: string,
   email: ParsedEmail,
-): Promise<void> {
+): Promise<boolean> {
   const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
 
   // ---- Phase 1: Jev multi-label classification ----
   const candidates = await loadAiLabelCandidates(tenantDb, account.accountId, messageId);
-  if (!candidates) return;
+  if (!candidates) return false;
   await applyJevAutoLabels(env, tenantDb, workspaceId, messageId, email, candidates);
 
   // ---- Phase 2: Mail Rules ----
-  await runMailRules(tenantDb, account.accountId, messageId);
+  return runMailRules(tenantDb, account.accountId, messageId);
 }
 
 /** Evaluate a single rule condition against a message */
@@ -1731,6 +1747,22 @@ const LABEL_RULE_ACTIONS = new Map<
   ['archive', { needsLabel: false, apply: (cur) => [...new Set([...cur.filter((l) => l !== 'INBOX'), 'ARCHIVE'])] }],
 ]);
 
+/** Folder labels a message leaves when a rule sends it to Spam. */
+const SPAM_DISPLACED_LABELS = new Set(['INBOX', 'ARCHIVE', 'PROMOTIONS']);
+
+/** `mark_as_spam`: move to the Spam folder and set `isSpam`, as storing a scored spam message does. */
+async function markMessageAsSpam(tenantDb: TenantDbHandle, messageId: string): Promise<boolean> {
+  const { mailMessages } = tenantSchema;
+  const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
+  if (!msg) return false;
+  const labels = ((msg.labels as string[]) || []).filter((l) => !SPAM_DISPLACED_LABELS.has(l));
+  await tenantDb
+    .update(mailMessages)
+    .set({ labels: [...new Set([...labels, 'SPAM'])], isSpam: true, updatedAt: new Date() })
+    .where(eq(mailMessages.id, messageId));
+  return true;
+}
+
 /** Read a message's labels, apply a label rule, and persist the result. */
 async function applyLabelRule(
   tenantDb: TenantDbHandle,
@@ -1755,6 +1787,8 @@ async function executeRuleAction(
   action: { type: string; labelId?: string; value?: string },
 ): Promise<boolean> {
   const { mailMessages } = tenantSchema;
+
+  if (action.type === 'mark_as_spam') return markMessageAsSpam(tenantDb, messageId);
 
   const simple = SIMPLE_RULE_ACTIONS.get(action.type);
   if (simple) {

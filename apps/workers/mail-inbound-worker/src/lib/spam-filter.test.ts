@@ -134,4 +134,48 @@ describe('scoreInboundSpam', () => {
     expect(result.score).toBe(2);
     expect(result.reasons).not.toContain('capped_existing_ham_thread');
   });
+
+  it('flags a brand display name on a free mailbox as spam on its own', () => {
+    const result = scoreInboundSpam(
+      baseEmail({
+        from: { email: 'donotreplyus@inbox.lv', name: 'American Express | Non-Compliance Issues' },
+        to: [{ email: 'sales@weldsuite.org' }],
+        subject: 'Account Limited: Update Information to Continue Access',
+      }),
+    );
+    expect(result.reasons).toContain('from_brand_free_mail');
+    expect(result.isSpam).toBe(true);
+  });
+
+  it('matches brands as whole words, ignoring punctuation and case', () => {
+    expect(
+      scoreInboundSpam(baseEmail({ from: { email: 'x@gmail.com', name: 'PAYPAL-Security' } })).reasons,
+    ).toContain('from_brand_free_mail');
+    expect(
+      scoreInboundSpam(baseEmail({ from: { email: 'x@gmail.com', name: 'Amazonia Tours' } })).reasons,
+    ).not.toContain('from_brand_free_mail');
+  });
+
+  it('does not flag a brand name sent from its own domain', () => {
+    const result = scoreInboundSpam(
+      baseEmail({ from: { email: 'service@paypal.com', name: 'PayPal' } }),
+    );
+    expect(result.reasons).not.toContain('from_brand_free_mail');
+    expect(result.score).toBe(0);
+  });
+
+  it('does not flag a plain person on a free mailbox', () => {
+    const result = scoreInboundSpam(
+      baseEmail({ from: { email: 'jan.devries@gmail.com', name: 'Jan de Vries' } }),
+    );
+    expect(result.score).toBe(0);
+  });
+
+  it('caps a brand-on-free-mail reply in an existing ham thread', () => {
+    const result = scoreInboundSpam(
+      baseEmail({ from: { email: 'x@gmail.com', name: 'Jan (Amazon seller)' } }),
+      { isExistingHamThread: true },
+    );
+    expect(result.isSpam).toBe(false);
+  });
 });

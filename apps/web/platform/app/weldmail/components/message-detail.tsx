@@ -17,6 +17,7 @@ import {
   Tag,
   Loader2,
   AlertTriangle,
+  Ban,
   Paperclip,
   Eye,
   Copy,
@@ -82,6 +83,7 @@ import {
   useArchiveThread,
   useTrashThread,
   useMarkThreadAsSpam,
+  useBlockSender,
   useDeleteMailDraft,
   useGenerateAutoDraft,
   useGenerateAIReply,
@@ -1378,6 +1380,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const pinThreadMutation = usePinThread();
   const trashThreadMutation = useTrashThread();
   const markThreadAsSpamMutation = useMarkThreadAsSpam();
+  const blockSenderMutation = useBlockSender();
   const deleteDraftMutation = useDeleteMailDraft();
   const generateAutoDraftMutation = useGenerateAutoDraft();
   const generateAIReplyMutation = useGenerateAIReply();
@@ -1927,6 +1930,39 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         toast.error(t.mail.messageDetail.failedToUpdateSpamStatus);
       }
     }
+  };
+
+  // The opened message's sender: the one the user is looking at when they block.
+  const senderEmail = (message.fromEmail || addressToEmail(message.from)).trim().toLowerCase();
+
+  /** Move a message that has no thread to Spam. False when the move failed. */
+  const moveLoneMessageToSpam = async (): Promise<boolean> => {
+    try {
+      const result = await mailApi.messages.addLabel(accountId, message.id, 'SPAM');
+      return result.success;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleBlockSender = () => {
+    if (!senderEmail) return;
+    blockSenderMutation.mutate({ accountId, email: senderEmail, threadId: threadId ?? undefined }, {
+      onSuccess: async () => {
+        // The hook moves a thread to Spam; a lone message is moved here. The
+        // rule exists by now, so a failed move gets its own message.
+        if (!threadId && !(await moveLoneMessageToSpam())) {
+          toast.error(t.mail.messageDetail.senderBlockedMoveFailed.replace('{email}', senderEmail));
+          return;
+        }
+        toast.success(t.mail.messageDetail.senderBlocked.replace('{email}', senderEmail));
+        window.dispatchEvent(new Event('mail:refresh'));
+        handleBackToList();
+      },
+      onError: () => {
+        toast.error(t.mail.messageDetail.failedToBlockSender);
+      },
+    });
   };
 
   const handleMarkAsRead = async (isRead: boolean) => {
@@ -2669,6 +2705,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       <><AlertTriangle className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsSpamAction}</>
                     )}
                   </DropdownMenuItem>
+                  {senderEmail && (
+                    <DropdownMenuItem onClick={handleBlockSender} disabled={blockSenderMutation.isPending}>
+                      <Ban className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.blockSender}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={handleDelete} className="text-red-600 focus:bg-red-50 focus:text-red-600">
                     <Trash2 className="mr-0.5 h-4 w-4 text-red-600 dark:text-red-400" /> {isInTrashFolder ? t.mail.messageDetail.deletePermanently : t.mail.messageDetail.moveToTrash}
                   </DropdownMenuItem>
