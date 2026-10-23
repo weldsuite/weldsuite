@@ -3194,8 +3194,8 @@ importers:
   apps/web/meeting-portal:
     dependencies:
       '@cloudflare/realtimekit':
-        specifier: ^2.0.2
-        version: 2.0.2
+        specifier: ^2.0.4
+        version: 2.0.4
       '@cloudflare/realtimekit-virtual-background':
         specifier: ^0.0.2
         version: 0.0.2
@@ -3534,14 +3534,14 @@ importers:
         specifier: ^4.101.9
         version: 4.101.9(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@cloudflare/realtimekit':
-        specifier: ^2.0.2
-        version: 2.0.2
+        specifier: ^2.0.4
+        version: 2.0.4
       '@cloudflare/realtimekit-react':
-        specifier: ^2.0.2
-        version: 2.0.2(react@19.2.3)
+        specifier: ^2.0.4
+        version: 2.0.4(react@19.2.3)
       '@cloudflare/realtimekit-react-ui':
-        specifier: ^2.0.2
-        version: 2.0.2
+        specifier: ^2.0.3
+        version: 2.0.3
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -7756,8 +7756,8 @@ importers:
   packages/design/weldmeet-ui:
     dependencies:
       '@cloudflare/realtimekit':
-        specifier: ^2.0.2
-        version: 2.0.2
+        specifier: ^2.0.4
+        version: 2.0.4
       '@cloudflare/realtimekit-virtual-background':
         specifier: ^0.0.2
         version: 0.0.2
@@ -9769,16 +9769,16 @@ packages:
       react: 19.2.3
       react-native: '>=0.84.0'
 
-  '@cloudflare/realtimekit-react-ui@2.0.2':
-    resolution: {integrity: sha512-RuT8a1OKbIvmOi5esUwRqfqhyHu+fil0Adog3X0r5GUCjw0V0uu3M2mV93H2wN0r8HA35YlscIsJ8CK7rTE9Kw==}
+  '@cloudflare/realtimekit-react-ui@2.0.3':
+    resolution: {integrity: sha512-8sUc3zGShSuiG4IHEQb+Ob+hicProTEq/fgRwgvGumhbnFXD0CAHODii1Qlmtt9hl3H/d50eB0c/AW5OTVG5uQ==}
 
-  '@cloudflare/realtimekit-react@2.0.2':
-    resolution: {integrity: sha512-OYPr8Nnc/cB6UTGDradg2a/yohZO5pSvW/rHlyuSBf2as8OzCXR3OpioEVheLrFVIUVduJDJpyfzA+OiFTUgIg==}
+  '@cloudflare/realtimekit-react@2.0.4':
+    resolution: {integrity: sha512-+iurNv2nVNvUkXUF5w9wpOpx9edfFZ3YR5KNVIKB8EiwkhOUVtUfEr9ieJimbnJZqX+HAsZNhKHM2aXS8UYL0Q==}
     peerDependencies:
-      react: 19.2.3
+      react: '>=16.8.6'
 
-  '@cloudflare/realtimekit-ui@2.0.2':
-    resolution: {integrity: sha512-C/YgKh07FBbeMMa/uhRrMGNmJw1g2kzPEYMsfgnq52yd1wWWeecQZFMJ9o+xRtpnhJmnRgPOUc8vOCMf+C/ohQ==}
+  '@cloudflare/realtimekit-ui@2.0.3':
+    resolution: {integrity: sha512-kGdNvh+0lZdKXrHI6rHUo1UwXdcUWNYu0CkeyFs+lLdC8+09NZI0XJEBivKvMu1Zq1RT5I1VY8ZijBM9hiJcJg==}
 
   '@cloudflare/realtimekit-virtual-background@0.0.2':
     resolution: {integrity: sha512-4rP9zswpnDwizlfZdf/Ym4AzZiKCQedK4/BqkWhxqk05SKCYNp9nIW+OEot/2dVJgA5/O9mR3X5hoZ5/EGURhw==}
@@ -9789,8 +9789,8 @@ packages:
   '@cloudflare/realtimekit@2.0.0':
     resolution: {integrity: sha512-z066fbMEqCsfaz5xDUsLphZt5uxydA1tv0BDZFAZxSWg90NGlmUJKZ0/byNQMkHQp0gpTWCYY/Ph5TODzYlZkw==}
 
-  '@cloudflare/realtimekit@2.0.2':
-    resolution: {integrity: sha512-tetGFcwlq9QAf4sSyLOJriChgZKoImKphC/JiOCJ9U/B+h2onJ8lYJzdwQTVAb9YnAImtiN3I/eYs2IxHer3fQ==}
+  '@cloudflare/realtimekit@2.0.4':
+    resolution: {integrity: sha512-7oCbdj+tLTMgq4TDoIux900eELcYJtiDq6fJIY9K3Ej50rPm9rjL7lkFkv8xX9zLdJI4TsJ1vqyENKq7fqTUoA==}
 
   '@cloudflare/sandbox@0.6.11':
     resolution: {integrity: sha512-4hM+jfH5CWJTFBFjnW5bYx8fjVi878VY/cpfdpq4WAj43qq0WMrZW9hEeHYthUHsNZx6tCy6bpaJoLBw2Fyfyw==}
@@ -27014,16 +27014,16 @@ snapshots:
       react-native-url-polyfill: 1.3.0(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))
       text-encoding-polyfill: 0.6.7
 
-  '@cloudflare/realtimekit-react-ui@2.0.2':
+  '@cloudflare/realtimekit-react-ui@2.0.3':
     dependencies:
-      '@cloudflare/realtimekit-ui': 2.0.2
+      '@cloudflare/realtimekit-ui': 2.0.3
 
-  '@cloudflare/realtimekit-react@2.0.2(react@19.2.3)':
+  '@cloudflare/realtimekit-react@2.0.4(react@19.2.3)':
     dependencies:
-      '@cloudflare/realtimekit': 2.0.2
+      '@cloudflare/realtimekit': 2.0.4
       react: 19.2.3
 
-  '@cloudflare/realtimekit-ui@2.0.2':
+  '@cloudflare/realtimekit-ui@2.0.3':
     dependencies:
       '@floating-ui/dom': 1.7.6
       hark: 1.2.3
@@ -27049,7 +27049,7 @@ snapshots:
       uuid: 11.1.1
       worker-timers: 7.0.60
 
-  '@cloudflare/realtimekit@2.0.2':
+  '@cloudflare/realtimekit@2.0.4':
     dependencies:
       '@protobuf-ts/runtime': 2.11.1
       bowser: 2.13.1
