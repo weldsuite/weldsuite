@@ -53,28 +53,33 @@ class SheetRangeIndex {
     if (!entry) {
       entry = { ...r, key, dependents: new Set(), buckets: [] };
       this.entries.set(key, entry);
-      const br1 = r.r1 >> BUCKET_ROW_BITS;
-      const br2 = r.r2 >> BUCKET_ROW_BITS;
-      const bc1 = r.c1 >> BUCKET_COL_BITS;
-      const bc2 = r.c2 >> BUCKET_COL_BITS;
-      if ((br2 - br1 + 1) * (bc2 - bc1 + 1) > MAX_BUCKETS_PER_RANGE) {
-        this.large.add(entry);
-      } else {
-        for (let br = br1; br <= br2; br++) {
-          for (let bc = bc1; bc <= bc2; bc++) {
-            const bk = br * BUCKET_COLS + bc;
-            let set = this.buckets.get(bk);
-            if (!set) {
-              set = new Set();
-              this.buckets.set(bk, set);
-            }
-            set.add(entry);
-            entry.buckets.push(bk);
-          }
-        }
-      }
+      this.file(entry);
     }
     entry.dependents.add(dependent);
+  }
+
+  /** Files a new entry under every bucket it overlaps, or as large when that is too many. */
+  private file(entry: RangeEntry): void {
+    const br1 = entry.r1 >> BUCKET_ROW_BITS;
+    const br2 = entry.r2 >> BUCKET_ROW_BITS;
+    const bc1 = entry.c1 >> BUCKET_COL_BITS;
+    const bc2 = entry.c2 >> BUCKET_COL_BITS;
+    if ((br2 - br1 + 1) * (bc2 - bc1 + 1) > MAX_BUCKETS_PER_RANGE) {
+      this.large.add(entry);
+      return;
+    }
+    for (let br = br1; br <= br2; br++) {
+      for (let bc = bc1; bc <= bc2; bc++) {
+        const bk = br * BUCKET_COLS + bc;
+        let set = this.buckets.get(bk);
+        if (!set) {
+          set = new Set();
+          this.buckets.set(bk, set);
+        }
+        set.add(entry);
+        entry.buckets.push(bk);
+      }
+    }
   }
 
   remove(r: Range, dependent: number): void {
@@ -187,15 +192,20 @@ export class DependencyGraph {
         for (let col = r.c1; col <= r.c2; col++) this.points.get(globalKey(sheet, row, col))?.forEach(out);
       }
     } else {
-      const lo = globalKey(sheet, 0, 0);
-      const hi = lo + SHEET_STRIDE;
-      for (const [pk, set] of this.points) {
-        if (pk < lo || pk >= hi) continue;
-        const { row, col } = splitKey(pk);
-        if (row >= r.r1 && row <= r.r2 && col >= r.c1 && col <= r.c2) set.forEach(out);
-      }
+      this.scanPoints(sheet, r, out);
     }
     this.ranges.get(sheet)?.queryRange(r, out);
+  }
+
+  /** Point dependents inside a big range: one pass over the points rather than one lookup per cell. */
+  private scanPoints(sheet: number, r: Range, out: (key: number) => void): void {
+    const lo = globalKey(sheet, 0, 0);
+    const hi = lo + SHEET_STRIDE;
+    for (const [pk, set] of this.points) {
+      if (pk < lo || pk >= hi) continue;
+      const { row, col } = splitKey(pk);
+      if (row >= r.r1 && row <= r.r2 && col >= r.c1 && col <= r.c2) set.forEach(out);
+    }
   }
 
   clear(): void {

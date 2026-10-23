@@ -22,6 +22,7 @@ import {
   adjustForDelete,
   adjustForInsert,
   adjustForMove,
+  indexAfterDelete,
   moveIndexMapper,
   removeSheetFromFormula,
   renameSheetInFormula,
@@ -65,6 +66,20 @@ interface SpillRecord {
 const CIRCULAR: CellError = err('#REF!', 'Circular dependency');
 const MAX_PULL_DEPTH = 256;
 const MAX_SPILL_PASSES = 8;
+
+/**
+ * The Web Crypto global, present in browsers, Workers and Node 20+. Declared
+ * here because the package compiles without the DOM lib.
+ */
+declare const crypto: { getRandomValues(array: Uint32Array): Uint32Array };
+
+const randomWords = new Uint32Array(2);
+
+/** A uniform number in [0, 1) with 53 random bits, as Math.random gives, from the platform's CSPRNG. */
+function secureRandom(): number {
+  crypto.getRandomValues(randomWords);
+  return (randomWords[0]! * 2 ** 21 + (randomWords[1]! >>> 11)) / 2 ** 53;
+}
 
 export class Engine implements EvalHost {
   readonly workbook: Workbook;
@@ -179,14 +194,7 @@ export class Engine implements EvalHost {
     if (!spills) return;
     for (const rec of [...spills]) {
       const a = rec.area;
-      if (a.r1 > range.r2 || a.r2 < range.r1 || a.c1 > range.c2 || a.c2 < range.c1) continue;
-      for (let r = Math.max(a.r1, range.r1); r <= Math.min(a.r2, range.r2); r++) {
-        for (let c = Math.max(a.c1, range.c1); c <= Math.min(a.c2, range.c2); c++) {
-          if (r === a.r1 && c === a.c1) continue; // the anchor is a stored cell
-          const v = rec.data[r - a.r1]?.[c - a.c1] ?? null;
-          if (v !== null) fn(r, c, v);
-        }
-      }
+      if (a.r1 <= range.r2 && a.r2 >= range.r1 && a.c1 <= range.c2 && a.c2 >= range.c1) forEachSpilled(rec, range, fn);
     }
   }
 
@@ -225,7 +233,7 @@ export class Engine implements EvalHost {
   }
 
   random(): number {
-    return this.options.random?.() ?? Math.random();
+    return this.options.random?.() ?? secureRandom();
   }
 
   timezoneOffset(): number {
@@ -369,10 +377,7 @@ export class Engine implements EvalHost {
             state.set(d, 1);
             stack.push({ key: d, next: this.dependentsOfFormula(d), i: 0 });
           } else if (s === 1) {
-            for (let j = stack.length - 1; j >= 0; j--) {
-              cyclic.add(stack[j]!.key);
-              if (stack[j]!.key === d) break;
-            }
+            markCycle(stack, d, cyclic);
           }
         } else {
           stack.pop();
@@ -710,7 +715,8 @@ export class Engine implements EvalHost {
     sheet.cells.remap((r, c) => {
       const nr = axis === 'row' ? shift(r) : r;
       const nc = axis === 'col' ? shift(c) : c;
-      return (axis === 'row' ? nr : nc) < max ? [nr, nc] : null;
+      const moved = axis === 'row' ? nr : nc;
+      return moved < max ? [nr, nc] : null;
     });
     (axis === 'row' ? sheet.rows : sheet.cols).insert(at, count);
     sheet.merges = sheet.merges.map((m) => mapRangeInsert(m, axis, at, count));
@@ -729,10 +735,9 @@ export class Engine implements EvalHost {
 
   deleteDims(sheetId: string, axis: Axis, at: number, count: number): RewrittenFormula[] {
     const sheet = this.workbook.requireSheet(sheetId);
-    const end = at + count;
     const change = { sheet: sheet.name, axis, at, count };
     const rewritten = this.rewriteAllFormulas((f, host) => adjustForDelete(f, host.name, change));
-    const shift = (i: number) => (i < at ? i : i >= end ? i - count : -1);
+    const shift = (i: number) => indexAfterDelete(i, at, count, -1);
     sheet.cells.remap((r, c) => {
       const i = shift(axis === 'row' ? r : c);
       if (i < 0) return null;
@@ -842,6 +847,26 @@ export class Engine implements EvalHost {
   }
 }
 
+/** `key` is already on the DFS stack: it and everything above it form a cycle. */
+function markCycle(stack: { key: number }[], key: number, cyclic: Set<number>): void {
+  for (let j = stack.length - 1; j >= 0; j--) {
+    cyclic.add(stack[j]!.key);
+    if (stack[j]!.key === key) break;
+  }
+}
+
+/** The non-blank values a spill shows inside `range`, its anchor (a stored cell) excluded. */
+function forEachSpilled(rec: SpillRecord, range: Range, fn: (row: number, col: number, value: Scalar) => void): void {
+  const a = rec.area;
+  for (let r = Math.max(a.r1, range.r1); r <= Math.min(a.r2, range.r2); r++) {
+    for (let c = Math.max(a.c1, range.c1); c <= Math.min(a.c2, range.c2); c++) {
+      if (r === a.r1 && c === a.c1) continue;
+      const v = rec.data[r - a.r1]?.[c - a.c1] ?? null;
+      if (v !== null) fn(r, c, v);
+    }
+  }
+}
+
 function union(a: Range | null, b: Range): Range {
   if (!a) return { ...b };
   return {
@@ -899,10 +924,9 @@ export function mapRangeInsert(r: Range, axis: Axis, at: number, count: number):
 }
 
 export function mapRangeDelete(r: Range, axis: Axis, at: number, count: number): Range | null {
-  const end = at + count;
   const [lo, hi] = axis === 'row' ? [r.r1, r.r2] : [r.c1, r.c2];
-  const nlo = lo < at ? lo : lo >= end ? lo - count : at;
-  const nhi = hi < at ? hi : hi >= end ? hi - count : at - 1;
+  const nlo = indexAfterDelete(lo, at, count, at);
+  const nhi = indexAfterDelete(hi, at, count, at - 1);
   if (nlo > nhi) return null;
   return axis === 'row' ? { ...r, r1: nlo, r2: nhi } : { ...r, c1: nlo, c2: nhi };
 }

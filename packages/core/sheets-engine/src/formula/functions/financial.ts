@@ -141,22 +141,29 @@ const REQ = NaN;
 function cashFlows(args: EvalValue[], ctx: EvalContext): number[] | CellError {
   const out: number[] = [];
   for (const a of args) {
-    if (isRange(a) || isMatrix(a)) {
-      const data = values2d(a, ctx);
-      if (isError(data)) return data;
-      for (const row of data) {
-        for (const v of row) {
-          if (isError(v)) return v;
-          if (typeof v === 'number') out.push(v);
-        }
-      }
-    } else {
-      const n = toNumber(a);
-      if (isError(n)) return n;
-      out.push(n);
-    }
+    const error = addCashFlows(a, ctx, out);
+    if (error) return error;
   }
   return out;
+}
+
+/** Appends the cash flows of one argument to `out`; returns the first error met instead. */
+function addCashFlows(a: EvalValue, ctx: EvalContext, out: number[]): CellError | null {
+  if (!isRange(a) && !isMatrix(a)) {
+    const n = toNumber(a);
+    if (isError(n)) return n;
+    out.push(n);
+    return null;
+  }
+  const data = values2d(a, ctx);
+  if (isError(data)) return data;
+  for (const row of data) {
+    for (const v of row) {
+      if (isError(v)) return v;
+      if (typeof v === 'number') out.push(v);
+    }
+  }
+  return null;
 }
 
 /** XNPV/XIRR value or date lists: every entry must be a number. */

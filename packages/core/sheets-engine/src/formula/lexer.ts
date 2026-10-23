@@ -62,255 +62,243 @@ const ROW_PART = /^(\$?)(\d{1,7})/;
 const NUMBER = /^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/;
 const IDENT = /^[A-Za-z_\\À-￿][A-Za-z0-9_.À-￿]*/;
 
+/** What may not follow a cell address, which would then be part of a name, a function call or a sheet prefix. */
+const REF_RUNS_ON = /[A-Za-z0-9_(.!]/;
+
+type LexedRef = { ref: RefToken; end: number };
+
 export function tokenize(src: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
-  const n = src.length;
-
-  while (i < n) {
-    const ch = src[i]!;
-    const rest = src.slice(i);
-
-    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
-      let j = i + 1;
-      while (j < n && /\s/.test(src[j]!)) j++;
-      tokens.push({ type: 'ws', start: i, end: j });
-      i = j;
-      continue;
-    }
-
-    if (ch === '"') {
-      let j = i + 1;
-      let value = '';
-      for (;;) {
-        if (j >= n) throw new FormulaSyntaxError('Unterminated string', i);
-        if (src[j] === '"') {
-          if (src[j + 1] === '"') {
-            value += '"';
-            j += 2;
-            continue;
-          }
-          j++;
-          break;
-        }
-        value += src[j];
-        j++;
-      }
-      tokens.push({ type: 'string', value, start: i, end: j });
-      i = j;
-      continue;
-    }
-
-    // Quoted sheet name: 'My sheet'!A1
-    if (ch === "'") {
-      let j = i + 1;
-      let name = '';
-      for (;;) {
-        if (j >= n) throw new FormulaSyntaxError('Unterminated sheet name', i);
-        if (src[j] === "'") {
-          if (src[j + 1] === "'") {
-            name += "'";
-            j += 2;
-            continue;
-          }
-          j++;
-          break;
-        }
-        name += src[j];
-        j++;
-      }
-      if (src[j] !== '!') throw new FormulaSyntaxError("Expected '!' after sheet name", j);
-      const ref = lexRefBody(src, j + 1, name);
-      if (!ref) throw new FormulaSyntaxError('Expected a reference after sheet name', j + 1);
-      tokens.push({ type: 'ref', ref: ref.ref, start: i, end: ref.end });
-      i = ref.end;
-      continue;
-    }
-
-    if (ch === '#') {
-      const m = /^#(NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|SPILL!|CALC!)/i.exec(rest);
-      if (!m) throw new FormulaSyntaxError('Unknown error literal', i);
-      const code = m[0].toUpperCase();
-      if (!isErrorCode(code)) throw new FormulaSyntaxError('Unknown error literal', i);
-      tokens.push({ type: 'error', value: code, start: i, end: i + m[0].length });
-      i += m[0].length;
-      continue;
-    }
-
-    if (ch === '(' || ch === ')') {
-      tokens.push({ type: 'paren', value: ch, start: i, end: i + 1 });
-      i++;
-      continue;
-    }
-    if (ch === '{' || ch === '}') {
-      tokens.push({ type: 'brace', value: ch, start: i, end: i + 1 });
-      i++;
-      continue;
-    }
-    if (ch === ',') {
-      tokens.push({ type: 'comma', start: i, end: i + 1 });
-      i++;
-      continue;
-    }
-    if (ch === ';') {
-      tokens.push({ type: 'semicolon', start: i, end: i + 1 });
-      i++;
-      continue;
-    }
-
-    // Row range "3:7" / "$3:$7" must be tried before plain numbers.
-    if (ch === '$' || (ch >= '0' && ch <= '9')) {
-      const rows = lexRowRange(src, i, null);
-      if (rows) {
-        tokens.push({ type: 'ref', ref: rows.ref, start: i, end: rows.end });
-        i = rows.end;
-        continue;
-      }
-    }
-
-    if ((ch >= '0' && ch <= '9') || (ch === '.' && /\d/.test(src[i + 1] ?? ''))) {
-      const m = NUMBER.exec(rest)!;
-      tokens.push({ type: 'number', value: Number(m[0]), start: i, end: i + m[0].length });
-      i += m[0].length;
-      continue;
-    }
-
-    if (ch === '$' || /[A-Za-z_\\À-￿]/.test(ch)) {
-      // Sheet-prefixed reference: Sheet1!A1
-      const sheetM = SHEET_IDENT.exec(rest);
-      if (sheetM && src[i + sheetM[0].length] === '!') {
-        const ref = lexRefBody(src, i + sheetM[0].length + 1, sheetM[0]);
-        if (!ref) throw new FormulaSyntaxError('Expected a reference after sheet name', i);
-        tokens.push({ type: 'ref', ref: ref.ref, start: i, end: ref.end });
-        i = ref.end;
-        continue;
-      }
-
-      const ref = lexRefBody(src, i, null);
-      if (ref) {
-        tokens.push({ type: 'ref', ref: ref.ref, start: i, end: ref.end });
-        i = ref.end;
-        continue;
-      }
-
-      const id = IDENT.exec(rest);
-      if (id) {
-        const end = i + id[0].length;
-        let j = end;
-        while (j < n && src[j] === ' ') j++;
-        if (src[j] === '(') {
-          tokens.push({ type: 'func', value: id[0].toUpperCase(), start: i, end });
-        } else {
-          tokens.push({ type: 'name', value: id[0], start: i, end });
-        }
-        i = end;
-        continue;
-      }
-    }
-
-    const op = OPERATORS.find((o) => src.startsWith(o, i));
-    if (op) {
-      tokens.push({ type: 'op', value: op, start: i, end: i + op.length });
-      i += op.length;
-      continue;
-    }
-
-    throw new FormulaSyntaxError(`Unexpected character '${ch}'`, i);
-  }
-
+  while (i < src.length) i = lexToken(src, i, tokens);
   return tokens;
 }
 
-/** Lexes "A1", "$A$1:B2", "A:C" or "3:7" starting at `i`. */
-function lexRefBody(
-  src: string,
-  i: number,
-  sheet: string | null,
-): { ref: RefToken; end: number } | null {
+/** Lexes the token at `i` into `tokens`; returns where the next one starts. */
+function lexToken(src: string, i: number, tokens: Token[]): number {
+  const ch = src[i]!;
+  if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') return lexWhitespace(src, i, tokens);
+  if (ch === '"') {
+    const { text, end } = readQuoted(src, i, 'Unterminated string');
+    tokens.push({ type: 'string', value: text, start: i, end });
+    return end;
+  }
+  // Quoted sheet name: 'My sheet'!A1
+  if (ch === "'") return lexQuotedSheetRef(src, i, tokens);
+  if (ch === '#') return lexErrorLiteral(src, i, tokens);
+  const punct = punctuation(ch, i);
+  if (punct) {
+    tokens.push(punct);
+    return i + 1;
+  }
+  return lexOperand(src, i, tokens);
+}
+
+function lexWhitespace(src: string, i: number, tokens: Token[]): number {
+  let j = i + 1;
+  while (j < src.length && /\s/.test(src[j]!)) j++;
+  tokens.push({ type: 'ws', start: i, end: j });
+  return j;
+}
+
+/**
+ * Reads the literal whose opening quote is at `i`; a doubled quote inside it
+ * stands for one. Returns the text and the index after the closing quote.
+ */
+function readQuoted(src: string, i: number, unterminated: string): { text: string; end: number } {
+  const quote = src[i]!;
+  let j = i + 1;
+  let text = '';
+  for (;;) {
+    if (j >= src.length) throw new FormulaSyntaxError(unterminated, i);
+    if (src[j] !== quote) {
+      text += src[j];
+      j++;
+    } else if (src[j + 1] === quote) {
+      text += quote;
+      j += 2;
+    } else {
+      return { text, end: j + 1 };
+    }
+  }
+}
+
+function lexQuotedSheetRef(src: string, i: number, tokens: Token[]): number {
+  const { text: name, end: j } = readQuoted(src, i, 'Unterminated sheet name');
+  if (src[j] !== '!') throw new FormulaSyntaxError("Expected '!' after sheet name", j);
+  const ref = lexRefBody(src, j + 1, name);
+  if (!ref) throw new FormulaSyntaxError('Expected a reference after sheet name', j + 1);
+  return pushRef(tokens, ref, i);
+}
+
+function lexErrorLiteral(src: string, i: number, tokens: Token[]): number {
+  const m = /^#(NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|SPILL!|CALC!)/i.exec(src.slice(i));
+  if (!m) throw new FormulaSyntaxError('Unknown error literal', i);
+  const code = m[0].toUpperCase();
+  if (!isErrorCode(code)) throw new FormulaSyntaxError('Unknown error literal', i);
+  tokens.push({ type: 'error', value: code, start: i, end: i + m[0].length });
+  return i + m[0].length;
+}
+
+/** Parentheses, braces and separators: single-character tokens. */
+function punctuation(ch: string, i: number): Token | null {
+  if (ch === '(' || ch === ')') return { type: 'paren', value: ch, start: i, end: i + 1 };
+  if (ch === '{' || ch === '}') return { type: 'brace', value: ch, start: i, end: i + 1 };
+  if (ch === ',') return { type: 'comma', start: i, end: i + 1 };
+  if (ch === ';') return { type: 'semicolon', start: i, end: i + 1 };
+  return null;
+}
+
+/** Numbers, references, names, function names and operators. */
+function lexOperand(src: string, i: number, tokens: Token[]): number {
+  const ch = src[i]!;
+  const digit = ch >= '0' && ch <= '9';
+  // Row range "3:7" / "$3:$7" must be tried before plain numbers.
+  const rows = ch === '$' || digit ? lexRowRange(src, i, null) : null;
+  if (rows) return pushRef(tokens, rows, i);
+
+  if (digit || (ch === '.' && /\d/.test(src[i + 1] ?? ''))) {
+    const m = NUMBER.exec(src.slice(i))!;
+    tokens.push({ type: 'number', value: Number(m[0]), start: i, end: i + m[0].length });
+    return i + m[0].length;
+  }
+
+  // IDENT on a single character tests whether a name can start with it.
+  if (ch === '$' || IDENT.test(ch)) {
+    const end = lexWord(src, i, tokens);
+    if (end !== null) return end;
+  }
+
+  const op = OPERATORS.find((o) => src.startsWith(o, i));
+  if (!op) throw new FormulaSyntaxError(`Unexpected character '${ch}'`, i);
+  tokens.push({ type: 'op', value: op, start: i, end: i + op.length });
+  return i + op.length;
+}
+
+/** A reference (with or without a sheet prefix), name or function name at `i`; null if none starts there. */
+function lexWord(src: string, i: number, tokens: Token[]): number | null {
   const rest = src.slice(i);
-
-  const cell = CELL_PART.exec(rest);
-  if (cell) {
-    const end1 = i + cell[0].length;
-    // "LOG10(" is a function, "A1B" is a name: a cell ref may not run on.
-    if (!/[A-Za-z0-9_(.]/.test(src[end1] ?? '') && src[end1] !== '!') {
-      const c1 = lettersToCol(cell[2]!);
-      const r1 = Number(cell[4]) - 1;
-      if (c1 >= 0 && r1 >= 0 && r1 < MAX_ROWS) {
-        const a = { r: r1, c: c1, absR: cell[3] === '$', absC: cell[1] === '$' };
-        if (src[end1] === ':') {
-          const cell2 = CELL_PART.exec(src.slice(end1 + 1));
-          if (cell2) {
-            const end2 = end1 + 1 + cell2[0].length;
-            const c2 = lettersToCol(cell2[2]!);
-            const r2 = Number(cell2[4]) - 1;
-            if (!/[A-Za-z0-9_(.!]/.test(src[end2] ?? '') && c2 >= 0 && r2 >= 0 && r2 < MAX_ROWS) {
-              return {
-                ref: orderRef({
-                  sheet,
-                  kind: 'range',
-                  r1: a.r,
-                  c1: a.c,
-                  r2,
-                  c2,
-                  absR1: a.absR,
-                  absC1: a.absC,
-                  absR2: cell2[3] === '$',
-                  absC2: cell2[1] === '$',
-                }),
-                end: end2,
-              };
-            }
-          }
-        }
-        return {
-          ref: {
-            sheet,
-            kind: 'cell',
-            r1: a.r,
-            c1: a.c,
-            r2: a.r,
-            c2: a.c,
-            absR1: a.absR,
-            absC1: a.absC,
-            absR2: a.absR,
-            absC2: a.absC,
-          },
-          end: end1,
-        };
-      }
-    }
+  // Sheet-prefixed reference: Sheet1!A1
+  const sheetM = SHEET_IDENT.exec(rest);
+  if (sheetM && src[i + sheetM[0].length] === '!') {
+    const ref = lexRefBody(src, i + sheetM[0].length + 1, sheetM[0]);
+    if (!ref) throw new FormulaSyntaxError('Expected a reference after sheet name', i);
+    return pushRef(tokens, ref, i);
   }
 
-  // Column range "A:C"
+  const ref = lexRefBody(src, i, null);
+  if (ref) return pushRef(tokens, ref, i);
+
+  const id = IDENT.exec(rest);
+  if (!id) return null;
+  const end = i + id[0].length;
+  let j = end;
+  while (j < src.length && src[j] === ' ') j++;
+  if (src[j] === '(') {
+    tokens.push({ type: 'func', value: id[0].toUpperCase(), start: i, end });
+  } else {
+    tokens.push({ type: 'name', value: id[0], start: i, end });
+  }
+  return end;
+}
+
+function pushRef(tokens: Token[], lexed: LexedRef, start: number): number {
+  tokens.push({ type: 'ref', ref: lexed.ref, start, end: lexed.end });
+  return lexed.end;
+}
+
+/** Lexes "A1", "$A$1:B2", "A:C" or "3:7" starting at `i`. */
+function lexRefBody(src: string, i: number, sheet: string | null): LexedRef | null {
+  const rest = src.slice(i);
+  return lexCellRef(src, i, rest, sheet) ?? lexColRange(src, i, rest, sheet) ?? lexRowRange(src, i, sheet);
+}
+
+interface CellPart {
+  r: number;
+  c: number;
+  absR: boolean;
+  absC: boolean;
+  end: number;
+}
+
+/**
+ * A cell address that `m` matched at `i`, if it is a valid cell and does not
+ * run on: "LOG10(" is a function, "A1B" is a name.
+ */
+function cellPart(src: string, i: number, m: RegExpExecArray | null): CellPart | null {
+  if (!m) return null;
+  const end = i + m[0].length;
+  if (REF_RUNS_ON.test(src[end] ?? '')) return null;
+  const c = lettersToCol(m[2]!);
+  const r = Number(m[4]) - 1;
+  if (c < 0 || r < 0 || r >= MAX_ROWS) return null;
+  return { r, c, absR: m[3] === '$', absC: m[1] === '$', end };
+}
+
+/** "A1" or "A1:B2" at `i`; `rest` is `src` from `i` on. */
+function lexCellRef(src: string, i: number, rest: string, sheet: string | null): LexedRef | null {
+  const a = cellPart(src, i, CELL_PART.exec(rest));
+  if (!a) return null;
+  const b = src[a.end] === ':' ? cellPart(src, a.end + 1, CELL_PART.exec(src.slice(a.end + 1))) : null;
+  if (b) {
+    return {
+      ref: orderRef({
+        sheet,
+        kind: 'range',
+        r1: a.r,
+        c1: a.c,
+        r2: b.r,
+        c2: b.c,
+        absR1: a.absR,
+        absC1: a.absC,
+        absR2: b.absR,
+        absC2: b.absC,
+      }),
+      end: b.end,
+    };
+  }
+  return {
+    ref: {
+      sheet,
+      kind: 'cell',
+      r1: a.r,
+      c1: a.c,
+      r2: a.r,
+      c2: a.c,
+      absR1: a.absR,
+      absC1: a.absC,
+      absR2: a.absR,
+      absC2: a.absC,
+    },
+    end: a.end,
+  };
+}
+
+/** Column range "A:C" at `i`; `rest` is `src` from `i` on. */
+function lexColRange(src: string, i: number, rest: string, sheet: string | null): LexedRef | null {
   const col1 = /^(\$?)([A-Za-z]{1,3})(?=:)/.exec(rest);
-  if (col1) {
-    const after = i + col1[0].length + 1;
-    const col2 = COL_PART.exec(src.slice(after));
-    if (col2) {
-      const c1 = lettersToCol(col1[2]!);
-      const c2 = lettersToCol(col2[2]!);
-      if (c1 >= 0 && c2 >= 0) {
-        return {
-          ref: orderRef({
-            sheet,
-            kind: 'cols',
-            r1: 0,
-            c1,
-            r2: MAX_ROWS - 1,
-            c2,
-            absR1: true,
-            absC1: col1[1] === '$',
-            absR2: true,
-            absC2: col2[1] === '$',
-          }),
-          end: after + col2[0].length,
-        };
-      }
-    }
-  }
-
-  return lexRowRange(src, i, sheet);
+  if (!col1) return null;
+  const after = i + col1[0].length + 1;
+  const col2 = COL_PART.exec(src.slice(after));
+  if (!col2) return null;
+  const c1 = lettersToCol(col1[2]!);
+  const c2 = lettersToCol(col2[2]!);
+  if (c1 < 0 || c2 < 0) return null;
+  return {
+    ref: orderRef({
+      sheet,
+      kind: 'cols',
+      r1: 0,
+      c1,
+      r2: MAX_ROWS - 1,
+      c2,
+      absR1: true,
+      absC1: col1[1] === '$',
+      absR2: true,
+      absC2: col2[1] === '$',
+    }),
+    end: after + col2[0].length,
+  };
 }
 
 function lexRowRange(

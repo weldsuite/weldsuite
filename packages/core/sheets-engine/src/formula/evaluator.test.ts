@@ -33,7 +33,7 @@ describe('evaluator', () => {
     expect(run('A1+A2')).toBe(5);
     expect(run('A1+A3')).toBe(3);
     expect(run('B1')).toBe(20);
-    expect(run('A9')).toBe(null);
+    expect(run('A9')).toBeNull();
     expect(run('1/0')).toMatchObject({ code: '#DIV/0!' });
     expect(run('"x"+1')).toMatchObject({ code: '#VALUE!' });
     expect(run('NOPE(1)')).toMatchObject({ code: '#NAME?' });

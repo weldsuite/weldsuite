@@ -87,7 +87,8 @@ function canonical(v: unknown): string {
     const entries = Object.entries(v as Record<string, unknown>)
       .filter(([, x]) => x !== undefined)
       .sort(([a], [b]) => (a < b ? -1 : 1));
-    return `{${entries.map(([k, x]) => `${JSON.stringify(k)}:${canonical(x)}`).join(',')}}`;
+    const members = entries.map(([k, x]) => `${JSON.stringify(k)}:${canonical(x)}`);
+    return `{${members.join(',')}}`;
   }
   return JSON.stringify(v);
 }

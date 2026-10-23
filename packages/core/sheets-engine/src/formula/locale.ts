@@ -43,33 +43,38 @@ export function delocalizeFormula(text: string, locale: FormulaLocale): string {
 function mapOutsideLiterals(src: string, fn: (ch: string, inArray: boolean) => string): string {
   let out = '';
   let depth = 0;
-  for (let i = 0; i < src.length; i++) {
+  let i = 0;
+  while (i < src.length) {
     const ch = src[i]!;
     if (ch === '"' || ch === "'") {
-      let j = i + 1;
-      while (j < src.length) {
-        if (src[j] === ch) {
-          if (src[j + 1] === ch) {
-            j += 2;
-            continue;
-          }
-          break;
-        }
-        j++;
-      }
-      out += src.slice(i, j + 1);
-      i = j;
+      const end = closingQuote(src, i) + 1;
+      out += src.slice(i, end);
+      i = end;
       continue;
     }
     if (ch === '{') depth++;
     else if (ch === '}') depth = Math.max(0, depth - 1);
-    if (ch === '.' && !(/\d/.test(src[i - 1] ?? '') && /\d/.test(src[i + 1] ?? '') && !inIdentifier(src, i))) {
-      out += ch;
-      continue;
-    }
-    out += fn(ch, depth > 0);
+    out += ch === '.' && !isDecimalPoint(src, i) ? ch : fn(ch, depth > 0);
+    i++;
   }
   return out;
+}
+
+/** Index of the quote that closes the literal opened at `i` (a doubled quote is an escape); src.length if none. */
+function closingQuote(src: string, i: number): number {
+  const quote = src[i];
+  let j = i + 1;
+  while (j < src.length) {
+    if (src[j] !== quote) j++;
+    else if (src[j + 1] === quote) j += 2;
+    else return j;
+  }
+  return j;
+}
+
+/** A '.' between digits that are not the end of a name or reference. */
+function isDecimalPoint(src: string, i: number): boolean {
+  return /\d/.test(src[i - 1] ?? '') && /\d/.test(src[i + 1] ?? '') && !inIdentifier(src, i);
 }
 
 /** True when the digits before `i` belong to a name or reference (A1.5 is not a number). */

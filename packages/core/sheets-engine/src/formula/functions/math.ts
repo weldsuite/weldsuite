@@ -46,9 +46,16 @@ function roundTo(x: number, digits: number, mode: RoundMode): number {
   const ax = Math.abs(x);
   const scaled = clean(d >= 0 ? ax * scale : ax / scale);
   if (scaled >= 2 ** 53) return x;
-  const r = mode === 'half' ? Math.floor(scaled + 0.5) : mode === 'up' ? Math.ceil(scaled) : Math.floor(scaled);
+  const r = roundMagnitude(scaled, mode);
   const out = d >= 0 ? r / scale : r * scale;
   return x < 0 ? -out : out;
+}
+
+/** Rounds a non-negative scaled value to a whole number in the given mode. */
+function roundMagnitude(scaled: number, mode: RoundMode): number {
+  if (mode === 'half') return Math.floor(scaled + 0.5);
+  if (mode === 'up') return Math.ceil(scaled);
+  return Math.floor(scaled);
 }
 
 /** n rounded to a multiple of `sig`, `step` deciding the direction of n / sig. */
@@ -98,13 +105,40 @@ function numberMatrix(v: EvalValue, ctx: EvalContext): number[][] | CellError {
   return out;
 }
 
+/** Partial pivoting: the row at or below `col` with the largest magnitude in column `col`. */
+function pivotRow(m: number[][], col: number): number {
+  let pivot = col;
+  for (let r = col + 1; r < m.length; r++) if (Math.abs(m[r]![col]!) > Math.abs(m[pivot]![col]!)) pivot = r;
+  return pivot;
+}
+
+/** Gaussian elimination step: zeroes column `col` below the pivot row `col` (pivot value `p`). */
+function eliminateBelow(m: number[][], col: number, p: number): void {
+  const n = m.length;
+  for (let r = col + 1; r < n; r++) {
+    const f = m[r]![col]! / p;
+    if (f === 0) continue;
+    for (let c = col; c < n; c++) m[r]![c] = m[r]![c]! - f * m[col]![c]!;
+  }
+}
+
+/** Gauss-Jordan step: zeroes column `col` in every row but the (normalised) pivot row `col`. */
+function eliminateOthers(m: number[][], col: number): void {
+  const row = m[col]!;
+  for (let r = 0; r < m.length; r++) {
+    if (r === col) continue;
+    const f = m[r]![col]!;
+    if (f === 0) continue;
+    for (let c = 0; c < row.length; c++) m[r]![c] = m[r]![c]! - f * row[c]!;
+  }
+}
+
 function determinant(a: number[][]): number {
   const n = a.length;
   const m = a.map((row) => row.slice());
   let det = 1;
   for (let col = 0; col < n; col++) {
-    let pivot = col;
-    for (let r = col + 1; r < n; r++) if (Math.abs(m[r]![col]!) > Math.abs(m[pivot]![col]!)) pivot = r;
+    const pivot = pivotRow(m, col);
     if (m[pivot]![col] === 0) return 0;
     if (pivot !== col) {
       [m[pivot], m[col]] = [m[col]!, m[pivot]!];
@@ -112,11 +146,7 @@ function determinant(a: number[][]): number {
     }
     const p = m[col]![col]!;
     det *= p;
-    for (let r = col + 1; r < n; r++) {
-      const f = m[r]![col]! / p;
-      if (f === 0) continue;
-      for (let c = col; c < n; c++) m[r]![c] = m[r]![c]! - f * m[col]![c]!;
-    }
+    eliminateBelow(m, col, p);
   }
   return det;
 }
@@ -127,25 +157,34 @@ function inverse(a: number[][]): number[][] | null {
   let scale = 0;
   for (const row of a) for (const x of row) scale = Math.max(scale, Math.abs(x));
   for (let col = 0; col < n; col++) {
-    let pivot = col;
-    for (let r = col + 1; r < n; r++) if (Math.abs(m[r]![col]!) > Math.abs(m[pivot]![col]!)) pivot = r;
+    const pivot = pivotRow(m, col);
     const p = m[pivot]![col]!;
     if (Math.abs(p) <= 1e-15 * scale) return null;
     [m[pivot], m[col]] = [m[col]!, m[pivot]!];
     const row = m[col]!;
     for (let c = 0; c < 2 * n; c++) row[c] = row[c]! / p;
-    for (let r = 0; r < n; r++) {
-      if (r === col) continue;
-      const f = m[r]![col]!;
-      if (f === 0) continue;
-      for (let c = 0; c < 2 * n; c++) m[r]![c] = m[r]![c]! - f * row[c]!;
-    }
+    eliminateOthers(m, col);
   }
   return m.map((row) => row.slice(n));
 }
 
 const ROMAN_CHARS = ['M', 'D', 'C', 'L', 'X', 'V', 'I'];
 const ROMAN_VALUES = [1000, 500, 100, 50, 10, 5, 1];
+
+/**
+ * The numeral subtracted in a 4/9 pair: starting at ladder index `idx`, it
+ * steps down up to `form` times while the pair (ROMAN_VALUES[idx2] minus the
+ * smaller numeral) still fits in `n`.
+ */
+function romanSubtrahend(n: number, idx: number, idx2: number, form: number): number {
+  const last = ROMAN_VALUES.length - 1;
+  let lo = idx;
+  for (let steps = 0; steps < form && lo < last; steps++) {
+    if (ROMAN_VALUES[idx2]! - ROMAN_VALUES[lo + 1]! > n) break;
+    lo++;
+  }
+  return lo;
+}
 
 /**
  * Excel's ROMAN, forms 0 (classic) to 4 (most concise). Each subtractive
@@ -161,12 +200,7 @@ function toRoman(value: number, form: number): string {
     const digit = Math.floor(n / ROMAN_VALUES[idx]!);
     if (digit % 5 === 4) {
       const idx2 = digit === 4 ? idx - 1 : idx - 2;
-      let steps = 0;
-      while (steps < form && idx < last) {
-        steps++;
-        if (ROMAN_VALUES[idx2]! - ROMAN_VALUES[idx + 1]! <= n) idx++;
-        else steps = form;
-      }
+      idx = romanSubtrahend(n, idx, idx2, form);
       out += ROMAN_CHARS[idx]! + ROMAN_CHARS[idx2]!;
       n = n + ROMAN_VALUES[idx]! - ROMAN_VALUES[idx2]!;
     } else {
@@ -178,7 +212,14 @@ function toRoman(value: number, form: number): string {
   return out;
 }
 
-const ROMAN_DIGIT: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+/** ROMAN's form argument: omitted or TRUE is 0 (classic), FALSE is 4 (most concise), else a number. */
+function romanForm(f: EvalValue | undefined, ctx: EvalContext): number | CellError {
+  if (f === undefined || f === null) return 0;
+  if (typeof f === 'boolean') return f ? 0 : 4;
+  return int(f, ctx);
+}
+
+const ROMAN_DIGIT: Record<string, number> ={ I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
 
 function fromRoman(s: string): number | null {
   let total = 0;
@@ -738,8 +779,7 @@ export const mathFunctions: FunctionSpec[] = [
     impl(args, ctx) {
       const n = num(args[0]!, ctx);
       if (isError(n)) return n;
-      const f = args[1];
-      const form = f === undefined || f === null ? 0 : typeof f === 'boolean' ? (f ? 0 : 4) : int(f, ctx);
+      const form = romanForm(args[1], ctx);
       if (isError(form)) return form;
       const v = Math.trunc(n);
       if (v < 0 || v > 3999 || form < 0 || form > 4) return ERR.value;

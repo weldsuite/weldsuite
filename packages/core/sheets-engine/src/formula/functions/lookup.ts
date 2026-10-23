@@ -230,20 +230,29 @@ function classicLookupValue(v: EvalValue, ctx: EvalContext): Scalar {
 function xfind(vec: Vec, x: Scalar, mode: number, search: number): number | CellError {
   if (![0, -1, 1, 2].includes(mode) || ![1, -1, 2, -2].includes(search)) return ERR.value;
   const xv: Scalar = x === null ? 0 : x;
-  const kind = kindOf(xv);
-  if (search === 2 || search === -2) {
-    if (mode === 2) return ERR.value;
-    const desc = search === -2;
-    const i = binarySearch(vec, xv, desc);
-    if (i >= 0 && compareScalars(vec.get(i), xv) === 0) return i;
-    if (mode === 0) return -1;
-    // Ascending: i holds the next smaller value; descending: the next larger.
-    if ((mode === -1) !== desc) return i;
-    return nextOfKind(vec, i, kind);
-  }
+  if (search === 2 || search === -2) return mode === 2 ? ERR.value : xfindBinary(vec, xv, mode, search === -2);
   const reverse = search === -1;
   const match = exactMatcher(x, mode === 2, true);
   if (mode === 0 || mode === 2) return linearFind(vec, match, reverse);
+  return nearestFind(vec, xv, match, mode, reverse);
+}
+
+/** XLOOKUP/XMATCH binary search (search_mode ±2) for match_mode 0, -1 or 1. */
+function xfindBinary(vec: Vec, xv: Scalar, mode: number, desc: boolean): number {
+  const i = binarySearch(vec, xv, desc);
+  if (i >= 0 && compareScalars(vec.get(i), xv) === 0) return i;
+  if (mode === 0) return -1;
+  // Ascending: i holds the next smaller value; descending: the next larger.
+  if ((mode === -1) !== desc) return i;
+  return nextOfKind(vec, i, kindOf(xv));
+}
+
+/**
+ * Linear search for an exact match or else the nearest value of the same type
+ * below x (mode -1) or above it (mode 1); of equal values the one met first wins.
+ */
+function nearestFind(vec: Vec, xv: Scalar, match: (v: Scalar) => boolean, mode: number, reverse: boolean): number {
+  const kind = kindOf(xv);
   let best = -1;
   let bestValue: Scalar = null;
   const n = vec.length;
@@ -252,13 +261,10 @@ function xfind(vec: Vec, x: Scalar, mode: number, search: number): number | Cell
     const v = vec.get(i);
     if (match(v)) return i;
     if (kindOf(v) !== kind) continue;
-    const c = compareScalars(v, xv);
-    if (mode === -1 ? c < 0 : c > 0) {
-      const better = best < 0 || (mode === -1 ? compareScalars(v, bestValue) > 0 : compareScalars(v, bestValue) < 0);
-      if (better) {
-        best = i;
-        bestValue = v;
-      }
+    // On the wanted side of x, and closer to it than the best so far.
+    if (Math.sign(compareScalars(v, xv)) === mode && (best < 0 || Math.sign(compareScalars(v, bestValue)) === -mode)) {
+      best = i;
+      bestValue = v;
     }
   }
   return best;
@@ -292,18 +298,25 @@ function lookup(args: EvalValue[], ctx: EvalContext): EvalValue {
   if (isError(x)) return x;
   const look = gridOf(args[1]!, ctx);
   if (isError(look)) return look;
-  if (args.length < 3) {
-    // Array form: search the first row of a wide array, else the first column; return from the last.
-    const wide = look.cols > look.rows;
-    const i = binarySearch(wide ? rowVec(look, 0) : colVec(look, 0), x, false);
-    if (i < 0) return ERR.na;
-    return wide ? look.get(look.rows - 1, i) : look.get(i, look.cols - 1);
-  }
+  if (args.length < 3) return lookupArray(look, x);
   const res = gridOf(args[2]!, ctx);
   if (isError(res)) return res;
   const lookWide = look.rows === 1 && look.cols > 1;
   const i = binarySearch(lookWide ? rowVec(look, 0) : colVec(look, 0), x, false);
   if (i < 0) return ERR.na;
+  return lookupResult(res, i, lookWide, ctx);
+}
+
+/** LOOKUP's array form: search the first row of a wide array, else the first column; return from the last. */
+function lookupArray(look: Grid, x: Scalar): Scalar {
+  const wide = look.cols > look.rows;
+  const i = binarySearch(wide ? rowVec(look, 0) : colVec(look, 0), x, false);
+  if (i < 0) return ERR.na;
+  return wide ? look.get(look.rows - 1, i) : look.get(i, look.cols - 1);
+}
+
+/** Entry `i` of LOOKUP's result_vector. */
+function lookupResult(res: Grid, i: number, lookWide: boolean, ctx: EvalContext): Scalar {
   if (res.ref) {
     // A result range follows its own orientation and, like Excel, extends past its end.
     const across = res.rows === 1 && (res.cols > 1 || lookWide);
@@ -361,15 +374,20 @@ function xlookup(args: EvalValue[], ctx: EvalContext): EvalValue {
   if (isError(ret)) return ret;
   const m = modes(args, 4, ctx);
   if (isError(m)) return m;
-  if (look.rows > 1 && look.cols > 1) return ERR.value;
-  let vertical: boolean;
-  if (look.cols === 1 && ret.rows === look.rows) vertical = true;
-  else if (look.rows === 1 && ret.cols === look.cols) vertical = false;
-  else return ERR.value;
+  const vertical = xlookupVertical(look, ret);
+  if (vertical === null) return ERR.value;
   const i = xfind(vertical ? colVec(look, 0) : rowVec(look, 0), x, m.mode, m.search);
   if (isError(i)) return i;
   if (i < 0) return omitted(args[3]) ? ERR.na : args[3];
   return vertical ? pick(ret, i, 0, i, ret.cols - 1) : pick(ret, 0, i, ret.rows - 1, i);
+}
+
+/** Whether XLOOKUP searches down a column (true) or along a row (false); null when the shapes don't fit. */
+function xlookupVertical(look: Grid, ret: Grid): boolean | null {
+  if (look.rows > 1 && look.cols > 1) return null;
+  if (look.cols === 1 && ret.rows === look.rows) return true;
+  if (look.rows === 1 && ret.cols === look.cols) return false;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,30 +398,13 @@ function xlookup(args: EvalValue[], ctx: EvalContext): EvalValue {
 function index(args: EvalValue[], ctx: EvalContext): EvalValue {
   const source = args[0]!;
   if (isError(source)) return source;
-  if (!omitted(args[3])) {
-    const area = int(args[3], ctx);
-    if (isError(area)) return area;
-    // One reference has one area; multi-area references are not supported by the parser.
-    if (area !== 1) return ERR.ref;
-  }
+  const areaError = indexArea(args[3], ctx);
+  if (areaError) return areaError;
   const g = gridOf(source, ctx);
   if (isError(g)) return g;
-  let row = omitted(args[1]) ? 0 : int(args[1], ctx);
-  if (isError(row)) return row;
-  let col: number;
-  if (args.length < 3) {
-    // INDEX(A1:E1, 3) counts along a single row; a 2-D array returns the whole row.
-    if (g.rows === 1 && g.cols > 1) {
-      col = row;
-      row = 1;
-    } else {
-      col = g.cols === 1 ? 1 : 0;
-    }
-  } else {
-    const c = omitted(args[2]) ? 0 : int(args[2], ctx);
-    if (isError(c)) return c;
-    col = c;
-  }
+  const at = indexRowCol(args, g, ctx);
+  if (isError(at)) return at;
+  const { row, col } = at;
   if (row < 0 || col < 0) return ERR.value;
   if (row > g.rows || col > g.cols) return ERR.ref;
   const r1 = row === 0 ? 0 : row - 1;
@@ -413,24 +414,60 @@ function index(args: EvalValue[], ctx: EvalContext): EvalValue {
   return pick(g, r1, c1, r2, c2);
 }
 
+/** INDEX's area_num: one reference has one area (the parser has no multi-area references). */
+function indexArea(v: EvalValue | undefined, ctx: EvalContext): CellError | null {
+  if (omitted(v)) return null;
+  const area = int(v, ctx);
+  if (isError(area)) return area;
+  return area === 1 ? null : ERR.ref;
+}
+
+/** INDEX's row and column numbers, 0 meaning the whole column or row. */
+function indexRowCol(args: EvalValue[], g: Grid, ctx: EvalContext): { row: number; col: number } | CellError {
+  const row = omitted(args[1]) ? 0 : int(args[1], ctx);
+  if (isError(row)) return row;
+  if (args.length >= 3) {
+    const col = omitted(args[2]) ? 0 : int(args[2], ctx);
+    return isError(col) ? col : { row, col };
+  }
+  // INDEX(A1:E1, 3) counts along a single row; a 2-D array returns the whole row.
+  if (g.rows === 1 && g.cols > 1) return { row: 1, col: row };
+  return { row, col: g.cols === 1 ? 1 : 0 };
+}
+
 /** CHOOSE: lazy, so only the chosen value is evaluated; an array index chooses per element. */
 function choose(args: Thunk[], ctx: EvalContext): EvalValue {
   const iv = args[0]!();
   if (isError(iv)) return iv;
-  const multi = (isRange(iv) && (iv.r1 !== iv.r2 || iv.c1 !== iv.c2)) || (isMatrix(iv) && (iv.rows > 1 || iv.cols > 1));
-  if (!multi) {
-    const n = num(iv, ctx);
-    if (isError(n)) return n;
-    const k = Math.trunc(n);
-    if (k < 1 || k >= args.length) return ERR.value;
-    return args[k]!();
+  if (isMultiCell(iv)) {
+    const im = toMatrix(iv, ctx);
+    return isError(im) ? im : chooseEach(args, im, ctx);
   }
-  const im = toMatrix(iv, ctx);
-  if (isError(im)) return im;
-  // Each choice is evaluated once; the result broadcasts the index against the chosen values,
-  // so CHOOSE({1,2},B1:B9,A1:A9) builds a two-column table.
+  const n = num(iv, ctx);
+  if (isError(n)) return n;
+  const k = Math.trunc(n);
+  if (k < 1 || k >= args.length) return ERR.value;
+  return args[k]!();
+}
+
+/** A range or array of more than one cell. */
+function isMultiCell(v: EvalValue): boolean {
+  if (isRange(v)) return v.r1 !== v.r2 || v.c1 !== v.c2;
+  return isMatrix(v) && (v.rows > 1 || v.cols > 1);
+}
+
+/** A CHOOSE index as a choice number 1 … count - 1, else #VALUE!. */
+function choiceNumber(v: Scalar, count: number): number | CellError {
+  const n = toNumber(v);
+  if (isError(n)) return n;
+  const k = Math.trunc(n);
+  return k < 1 || k >= count ? ERR.value : k;
+}
+
+/** Choice k as an array, evaluated on first use only. */
+function choiceValues(args: Thunk[], ctx: EvalContext): (k: number) => Matrix | CellError {
   const chosen = new Map<number, Matrix | CellError>();
-  const valueFor = (k: number): Matrix | CellError => {
+  return (k) => {
     let m = chosen.get(k);
     if (!m) {
       const v = args[k]!();
@@ -439,12 +476,15 @@ function choose(args: Thunk[], ctx: EvalContext): EvalValue {
     }
     return m;
   };
-  const indexAt = (r: number, c: number): number | CellError => {
-    const n = toNumber(broadcastAt(im, r, c));
-    if (isError(n)) return n;
-    const k = Math.trunc(n);
-    return k < 1 || k >= args.length ? ERR.value : k;
-  };
+}
+
+/**
+ * CHOOSE with an array index. Each choice is evaluated once; the result broadcasts the index against the
+ * chosen values, so CHOOSE({1,2},B1:B9,A1:A9) builds a two-column table.
+ */
+function chooseEach(args: Thunk[], im: Matrix, ctx: EvalContext): EvalValue {
+  const valueFor = choiceValues(args, ctx);
+  const indexAt = (r: number, c: number) => choiceNumber(broadcastAt(im, r, c), args.length);
   let rows = im.rows;
   let cols = im.cols;
   for (let r = 0; r < im.rows; r++) {
@@ -457,18 +497,16 @@ function choose(args: Thunk[], ctx: EvalContext): EvalValue {
       cols = Math.max(cols, m.cols);
     }
   }
+  const cellAt = (r: number, c: number): Scalar => {
+    const k = indexAt(r, c);
+    if (isError(k)) return k;
+    const m = valueFor(k);
+    return isError(m) ? m : broadcastAt(m, r, c);
+  };
   const data: Scalar[][] = [];
   for (let r = 0; r < rows; r++) {
     const row: Scalar[] = [];
-    for (let c = 0; c < cols; c++) {
-      const k = indexAt(r, c);
-      if (isError(k)) {
-        row.push(k);
-        continue;
-      }
-      const m = valueFor(k);
-      row.push(isError(m) ? m : broadcastAt(m, r, c));
-    }
+    for (let c = 0; c < cols; c++) row.push(cellAt(r, c));
     data.push(row);
   }
   return matrix(data);
@@ -538,7 +576,7 @@ interface R1C1Part {
   c: number;
 }
 
-const R1C1_CELL = /^R(?:\[(-?\d+)\]|(\d+))?C(?:\[(-?\d+)\]|(\d+))?$/i;
+/** R1C1 row (R, R2, R[-1]) and column (C, C3, C[1]) parts; a cell is a row part followed by a column part. */
 const R1C1_ROW = /^R(?:\[(-?\d+)\]|(\d+))?$/i;
 const R1C1_COL = /^C(?:\[(-?\d+)\]|(\d+))?$/i;
 
@@ -548,10 +586,22 @@ function r1c1Index(rel: string | undefined, abs: string | undefined, here: numbe
   return here;
 }
 
+/** Row and column parts of R1C1 cell text; a row part never holds a C, so the first C starts the column. */
+function r1c1Cell(p: string): { row: RegExpExecArray; col: RegExpExecArray } | null {
+  const at = p.search(/c/i);
+  if (at < 0) return null;
+  const row = R1C1_ROW.exec(p.slice(0, at));
+  const col = row && R1C1_COL.exec(p.slice(at));
+  return row && col ? { row, col } : null;
+}
+
 function r1c1Part(p: string, ctx: EvalContext): R1C1Part | null {
-  let m = R1C1_CELL.exec(p);
-  if (m) return { kind: 'cell', r: r1c1Index(m[1], m[2], ctx.row), c: r1c1Index(m[3], m[4], ctx.col) };
-  m = R1C1_ROW.exec(p);
+  const cell = r1c1Cell(p);
+  if (cell) {
+    const { row, col } = cell;
+    return { kind: 'cell', r: r1c1Index(row[1], row[2], ctx.row), c: r1c1Index(col[1], col[2], ctx.col) };
+  }
+  let m = R1C1_ROW.exec(p);
   if (m) return { kind: 'row', r: r1c1Index(m[1], m[2], ctx.row), c: 0 };
   m = R1C1_COL.exec(p);
   if (m) return { kind: 'col', r: 0, c: r1c1Index(m[1], m[2], ctx.col) };
@@ -560,27 +610,28 @@ function r1c1Part(p: string, ctx: EvalContext): R1C1Part | null {
 
 /** Splits an optional `Sheet!` / `'My sheet'!` prefix off reference text. */
 function splitSheet(s: string): { sheet: string | null; body: string } | null {
-  if (s.startsWith("'")) {
-    let name = '';
-    let i = 1;
-    for (;;) {
-      if (i >= s.length) return null;
-      if (s[i] === "'") {
-        if (s[i + 1] === "'") {
-          name += "'";
-          i += 2;
-          continue;
-        }
-        break;
-      }
+  if (s.startsWith("'")) return splitQuotedSheet(s);
+  const bang = s.lastIndexOf('!');
+  return bang < 0 ? { sheet: null, body: s } : { sheet: s.slice(0, bang), body: s.slice(bang + 1) };
+}
+
+/** A quoted sheet prefix (`''` is a quote in the name); null when unterminated or not followed by `!`. */
+function splitQuotedSheet(s: string): { sheet: string; body: string } | null {
+  let name = '';
+  let i = 1;
+  for (;;) {
+    if (i >= s.length) return null;
+    if (s[i] === "'") {
+      if (s[i + 1] !== "'") break;
+      name += "'";
+      i += 2;
+    } else {
       name += s[i];
       i++;
     }
-    if (s[i + 1] !== '!') return null;
-    return { sheet: name, body: s.slice(i + 2) };
   }
-  const bang = s.lastIndexOf('!');
-  return bang < 0 ? { sheet: null, body: s } : { sheet: s.slice(0, bang), body: s.slice(bang + 1) };
+  if (s[i + 1] !== '!') return null;
+  return { sheet: name, body: s.slice(i + 2) };
 }
 
 function indirectR1C1(s: string, ctx: EvalContext): EvalValue {
@@ -638,15 +689,28 @@ function address(args: EvalValue[], ctx: EvalContext): EvalValue {
   const a1 = omitted(args[3]) ? true : bool(args[3], ctx);
   if (isError(a1)) return a1;
   if (row < 1 || col < 1 || row > MAX_ROWS || col > MAX_COLS || abs < 1 || abs > 4) return ERR.value;
+  // abs_num: 1 $A$1, 2 A$1, 3 $A1, 4 A1.
   const absRow = abs === 1 || abs === 2;
   const absCol = abs === 1 || abs === 3;
-  const body = a1
-    ? `${absCol ? '$' : ''}${colToLetters(col - 1)}${absRow ? '$' : ''}${row}`
-    : `R${absRow ? row : `[${row}]`}C${absCol ? col : `[${col}]`}`;
+  const body = a1 ? a1Address(row, col, absRow, absCol) : r1c1Address(row, col, absRow, absCol);
   if (omitted(args[4])) return body;
   const sheet = text(args[4], ctx);
   if (isError(sheet)) return sheet;
   return sheet === '' ? `!${body}` : `${quoteSheetName(sheet)}!${body}`;
+}
+
+/** A1 text of a cell, `$` marking the absolute parts. */
+function a1Address(row: number, col: number, absRow: boolean, absCol: boolean): string {
+  const colText = (absCol ? '$' : '') + colToLetters(col - 1);
+  const rowText = (absRow ? '$' : '') + row;
+  return colText + rowText;
+}
+
+/** R1C1 text of a cell: absolute parts as R2C3, relative ones in brackets as R[2]C[3]. */
+function r1c1Address(row: number, col: number, absRow: boolean, absCol: boolean): string {
+  const rowText = absRow ? String(row) : `[${row}]`;
+  const colText = absCol ? String(col) : `[${col}]`;
+  return `R${rowText}C${colText}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -671,22 +735,28 @@ function includeFlag(v: Scalar): boolean | CellError {
   return v === true;
 }
 
-function filter(args: EvalValue[], ctx: EvalContext): EvalValue {
-  const m = toMatrix(args[0]!, ctx);
-  if (isError(m)) return m;
-  const inc = toMatrix(args[1]!, ctx);
-  if (isError(inc)) return inc;
+/** The `n` flags of a FILTER include column (`byRow`) or row. */
+function includeFlags(inc: Matrix, byRow: boolean, n: number): boolean[] | CellError {
   const flags: boolean[] = [];
-  let byRow: boolean;
-  if (inc.cols === 1 && inc.rows === m.rows) byRow = true;
-  else if (inc.rows === 1 && inc.cols === m.cols) byRow = false;
-  else return ERR.value;
-  const n = byRow ? m.rows : m.cols;
   for (let i = 0; i < n; i++) {
     const f = includeFlag(byRow ? inc.data[i]![0]! : inc.data[0]![i]!);
     if (isError(f)) return f;
     flags.push(f);
   }
+  return flags;
+}
+
+function filter(args: EvalValue[], ctx: EvalContext): EvalValue {
+  const m = toMatrix(args[0]!, ctx);
+  if (isError(m)) return m;
+  const inc = toMatrix(args[1]!, ctx);
+  if (isError(inc)) return inc;
+  let byRow: boolean;
+  if (inc.cols === 1 && inc.rows === m.rows) byRow = true;
+  else if (inc.rows === 1 && inc.cols === m.cols) byRow = false;
+  else return ERR.value;
+  const flags = includeFlags(inc, byRow, byRow ? m.rows : m.cols);
+  if (isError(flags)) return flags;
   let data: Scalar[][];
   if (byRow) data = m.data.filter((_, i) => flags[i]);
   else data = m.data.map((row) => row.filter((_, i) => flags[i]));
@@ -706,7 +776,8 @@ function sortRank(v: Scalar): number {
 
 function sortCompare(a: Scalar, b: Scalar, order: number): number {
   // Blanks go last whichever way the sort runs.
-  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  if (a === null) return b === null ? 0 : 1;
+  if (b === null) return -1;
   const ra = sortRank(a);
   const rb = sortRank(b);
   if (ra !== rb) return (ra - rb) * order;
@@ -765,15 +836,12 @@ function sortBy(args: EvalValue[], ctx: EvalContext): EvalValue {
   for (let i = 1; i < args.length; i += 2) {
     const by = toMatrix(args[i]!, ctx);
     if (isError(by)) return by;
-    let col: boolean;
-    if (by.cols === 1 && by.rows === m.rows) col = false;
-    else if (by.rows === 1 && by.cols === m.cols) col = true;
-    else return ERR.value;
-    if (byCol !== null && byCol !== col) return ERR.value;
+    const col = sortByAcross(by, m);
+    // Every key must run the same way: all down columns or all along rows.
+    if (col === null || (byCol !== null && byCol !== col)) return ERR.value;
     byCol = col;
-    const o = omitted(args[i + 1]) ? 1 : int(args[i + 1]!, ctx);
+    const o = sortOrder(args[i + 1], ctx);
     if (isError(o)) return o;
-    if (o !== 1 && o !== -1) return ERR.value;
     keys.push(by);
     orders.push(o);
   }
@@ -783,6 +851,21 @@ function sortBy(args: EvalValue[], ctx: EvalContext): EvalValue {
     return cols ? by.data[0]![line]! : by.data[line]![0]!;
   };
   return sortLines(m, cols, keys.length, keyOf, orders);
+}
+
+/** A SORTBY key's direction: false for a column as tall as `m`, true for a row as wide; else null. */
+function sortByAcross(by: Matrix, m: Matrix): boolean | null {
+  if (by.cols === 1 && by.rows === m.rows) return false;
+  if (by.rows === 1 && by.cols === m.cols) return true;
+  return null;
+}
+
+/** A SORTBY sort_order: 1 ascending (the default) or -1 descending. */
+function sortOrder(v: EvalValue | undefined, ctx: EvalContext): number | CellError {
+  if (omitted(v)) return 1;
+  const o = int(v, ctx);
+  if (isError(o)) return o;
+  return o === 1 || o === -1 ? o : ERR.value;
 }
 
 /** Identity of a value for UNIQUE: type-tagged, text case-insensitive like Excel. */
@@ -910,18 +993,22 @@ function toVector(args: EvalValue[], ctx: EvalContext, asRow: boolean): EvalValu
   const skipBlanks = ignore === 1 || ignore === 3;
   const skipErrors = ignore === 2 || ignore === 3;
   const out: Scalar[] = [];
-  const visit = (v: Scalar) => {
+  forEachCell(m, byCol, (v) => {
     if (skipBlanks && v === null) return;
     if (skipErrors && isError(v)) return;
     out.push(v);
-  };
-  if (byCol) {
-    for (let c = 0; c < m.cols; c++) for (let r = 0; r < m.rows; r++) visit(m.data[r]![c]!);
-  } else {
-    for (const row of m.data) for (const v of row) visit(v);
-  }
+  });
   if (out.length === 0) return ERR.calc;
   return matrix(asRow ? [out] : out.map((v) => [v]));
+}
+
+/** Visits every value of `m`, row by row or (`byCol`) column by column. */
+function forEachCell(m: Matrix, byCol: boolean, visit: (v: Scalar) => void): void {
+  if (!byCol) {
+    for (const row of m.data) for (const v of row) visit(v);
+    return;
+  }
+  for (let c = 0; c < m.cols; c++) for (let r = 0; r < m.rows; r++) visit(m.data[r]![c]!);
 }
 
 function wrap(args: EvalValue[], ctx: EvalContext, byRows: boolean): EvalValue {
@@ -999,7 +1086,10 @@ export const lookupFunctions: FunctionSpec[] = [
     name: 'AREAS',
     minArgs: 1,
     maxArgs: 1,
-    impl: ([v]) => (isError(v!) ? v! : isRange(v!) ? 1 : ERR.value),
+    impl: ([v]) => {
+      if (isError(v!)) return v!;
+      return isRange(v!) ? 1 : ERR.value;
+    },
   },
   {
     name: 'TRANSPOSE',

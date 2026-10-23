@@ -24,6 +24,7 @@ import {
   adjustForDelete,
   adjustForInsert,
   adjustForMove,
+  indexAfterDelete,
   moveIndexMapper,
   removeSheetFromFormula,
   renameSheetInFormula,
@@ -61,6 +62,7 @@ export function transformList(ops: Op[], against: Op, opsWin: boolean): { ops: O
 }
 
 type Simple = Exclude<Op, { type: 'batch' }>;
+type OpOf<T extends Op['type']> = Extract<Op, { type: T }>;
 
 function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
   switch (b.type) {
@@ -77,55 +79,23 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
     case 'moveSheet':
       return a.type === 'moveSheet' && a.sheetId === b.sheetId && !aWins ? NOOP : a;
     case 'setCells':
-      if (a.type === 'setCells' && a.sheetId === b.sheetId && !aWins) {
-        const taken = new Set(b.cells.map(([r, c]) => r * MAX_COLS + c));
-        return {
-          ...a,
-          cells: a.cells.filter(([r, c]) => !taken.has(r * MAX_COLS + c)),
-        };
-      }
-      return a;
+      return overSetCells(a, b, aWins);
     case 'formatRanges':
       return overFormat(a, b, aWins);
     case 'setStyles':
       return overSetStyles(a, b, aWins);
     case 'resizeDims':
-      if (a.type === 'resizeDims' && a.sheetId === b.sheetId && a.axis === b.axis && !aWins) {
-        const taken = new Set(b.entries.map(([i]) => i));
-        return { ...a, entries: a.entries.filter(([i]) => !taken.has(i)) };
-      }
-      return a;
+      return overResize(a, b, aWins);
     case 'hideDims':
-      if (a.type === 'hideDims' && a.sheetId === b.sheetId && a.axis === b.axis && !aWins && a.hidden !== b.hidden) {
-        const taken = new Set(b.indices);
-        return { ...a, indices: a.indices.filter((i) => !taken.has(i)) };
-      }
-      return a;
+      return overHide(a, b, aWins);
     case 'setFreeze':
       return a.type === 'setFreeze' && a.sheetId === b.sheetId && !aWins ? NOOP : a;
     case 'setSheetProps':
-      if (a.type === 'setSheetProps' && a.sheetId === b.sheetId && !aWins) {
-        const props = { ...a.props };
-        for (const k of Object.keys(b.props)) delete (props as Record<string, unknown>)[k];
-        return { ...a, props };
-      }
-      return a;
+      return overSheetProps(a, b, aWins);
     case 'setGridSize':
-      if (a.type === 'setGridSize' && a.sheetId === b.sheetId && !aWins) {
-        const out = { ...a };
-        if (b.rowCount !== undefined) delete out.rowCount;
-        if (b.colCount !== undefined) delete out.colCount;
-        return out;
-      }
-      return a;
+      return overGridSize(a, b, aWins);
     case 'merge':
-      if (a.type === 'merge' && a.sheetId === b.sheetId && !aWins) {
-        return {
-          ...a,
-          ranges: a.ranges.filter((r) => !b.ranges.some((m) => rangesIntersect(m, r))),
-        };
-      }
-      return a;
+      return overMerge(a, b, aWins);
     case 'unmerge':
       return a;
     case 'setNames':
@@ -137,62 +107,86 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
 // Past row/column insert, delete and move
 // ---------------------------------------------------------------------------
 
-type Structural = Extract<Op, { type: 'insertDims' | 'deleteDims' | 'moveDims' }>;
+type Structural = OpOf<'insertDims' | 'deleteDims' | 'moveDims'>;
+/** Ops that belong to one sheet. */
+type SheetOp = Exclude<Simple, { type: 'setCells' | 'setNames' }>;
+/** Ops on one axis of one sheet. */
+type AxisOp = OpOf<'resizeDims' | 'hideDims' | 'insertDims' | 'deleteDims' | 'moveDims'>;
 
 function overStructural(a: Simple, b: Structural, aWins: boolean): Op {
-  const same = 'sheetId' in a && a.sheetId === b.sheetId;
-  const axis = b.axis;
-  const index = indexMapper(b);
-  const formula = (f: string, hostSheetId: string) => {
+  switch (a.type) {
+    case 'setCells':
+      return cellsAfter(a, b);
+    case 'setNames': {
+      const formula = formulaAdjuster(b);
+      return {
+        ...a,
+        names: a.names.map((n) => ({
+          ...n,
+          formula: formula(n.formula, n.sheetId ?? ''),
+        })),
+      };
+    }
+    default:
+      // Everything else changes only when it is about b's own sheet.
+      return a.sheetId === b.sheetId ? sameSheetAfter(a, b, aWins) : a;
+  }
+}
+
+/** Rewrites a formula that lives on sheet `hostSheetId` for b's change. */
+function formulaAdjuster(b: Structural): (f: string, hostSheetId: string) => string {
+  return (f, hostSheetId) => {
+    // On another sheet, a host name no sheet can have: only explicit references to b's sheet move.
     const host = hostSheetId === b.sheetId ? b.sheetName : `\u0000${hostSheetId}`;
     switch (b.type) {
       case 'insertDims':
         return adjustForInsert(f, host, {
           sheet: b.sheetName,
-          axis,
+          axis: b.axis,
           at: b.at,
           count: b.count,
         });
       case 'deleteDims':
         return adjustForDelete(f, host, {
           sheet: b.sheetName,
-          axis,
+          axis: b.axis,
           at: b.at,
           count: b.count,
         });
       case 'moveDims':
         return adjustForMove(f, host, {
           sheet: b.sheetName,
-          axis,
+          axis: b.axis,
           from: b.from,
           count: b.count,
           to: b.to,
         });
     }
   };
+}
 
+/** Cells on b's sheet move (or go, when deleted); formulas on every sheet are adjusted. */
+function cellsAfter(a: OpOf<'setCells'>, b: Structural): Op {
+  const formula = formulaAdjuster(b);
+  const index = a.sheetId === b.sheetId ? indexMapper(b) : (i: number) => i;
+  const rowAxis = b.axis === 'row';
+  const cells: CellPatch[] = [];
+  for (const [row, col, content] of a.cells) {
+    const i = index(rowAxis ? row : col);
+    if (i < 0) continue;
+    const next = content?.f !== undefined ? { ...content, f: formula(content.f, a.sheetId) } : content;
+    cells.push(rowAxis ? [i, col, next] : [row, i, next]);
+  }
+  return { ...a, cells };
+}
+
+/** An op about b's own sheet, past b. */
+function sameSheetAfter(a: SheetOp, b: Structural, aWins: boolean): Op {
   switch (a.type) {
-    case 'setCells': {
-      const cells: CellPatch[] = [];
-      for (const [row, col, content] of a.cells) {
-        let r = row;
-        let c = col;
-        if (same) {
-          const i = index(axis === 'row' ? row : col);
-          if (i < 0) continue;
-          if (axis === 'row') r = i;
-          else c = i;
-        }
-        cells.push([r, c, content?.f !== undefined ? { ...content, f: formula(content.f, a.sheetId) } : content]);
-      }
-      return { ...a, cells };
-    }
     case 'formatRanges':
     case 'unmerge':
-      if (!same) return a;
       return { ...a, ranges: a.ranges.flatMap((r) => mapRange(r, b)) };
     case 'merge':
-      if (!same) return a;
       // A merge split by a move is dropped, as the engine drops existing ones.
       return {
         ...a,
@@ -201,66 +195,20 @@ function overStructural(a: Simple, b: Structural, aWins: boolean): Op {
           return out.length === 1 ? out : [];
         }),
       };
-    case 'setStyles': {
-      if (!same) return a;
-      const cells = a.cells.flatMap(([row, col, key]): [number, number, string | null][] => {
-        const i = index(axis === 'row' ? row : col);
-        if (i < 0) return [];
-        return [axis === 'row' ? [i, col, key] : [row, i, key]];
-      });
-      const out = { ...a, cells };
-      const entries = axis === 'row' ? a.rows : a.cols;
-      if (entries) {
-        const mapped = entries.flatMap(([i, v]): [number, string | null][] => (index(i) < 0 ? [] : [[index(i), v]]));
-        if (axis === 'row') out.rows = mapped;
-        else out.cols = mapped;
-      }
-      return out;
-    }
+    case 'setStyles':
+      return stylesAfter(a, b);
     case 'resizeDims':
-      if (!same || a.axis !== axis) return a;
-      return {
-        ...a,
-        entries: a.entries.flatMap(([i, v]): [number, number | null][] => (index(i) < 0 ? [] : [[index(i), v]])),
-      };
     case 'hideDims':
-      if (!same || a.axis !== axis) return a;
-      return { ...a, indices: a.indices.map(index).filter((i) => i >= 0) };
     case 'insertDims':
-      if (!same || a.axis !== axis) return a;
-      // Rows inserted strictly inside a band someone deleted go with it (deletesAfter mirrors this).
-      if (b.type === 'deleteDims' && a.at > b.at && a.at < b.at + b.count) return NOOP;
-      return { ...a, at: boundary(a.at, b, aWins) };
     case 'deleteDims':
-      if (!same || a.axis !== axis) return a;
-      return deletesAfter(a, b);
     case 'moveDims':
-      if (!same || a.axis !== axis) return a;
-      return moveAfter(a, b, aWins);
+      return a.axis === b.axis ? sameAxisAfter(a, b, aWins) : a;
     case 'setFreeze': {
-      if (!same) return a;
-      const key = axis === 'row' ? 'rows' : 'cols';
+      const key = b.axis === 'row' ? 'rows' : 'cols';
       return { ...a, [key]: freezeAfter(a[key], b) };
     }
-    case 'setGridSize': {
-      if (!same || b.type === 'moveDims') return a;
-      const key = axis === 'row' ? 'rowCount' : 'colCount';
-      const n = a[key];
-      if (n === undefined) return a;
-      const delta = b.type === 'insertDims' ? b.count : -b.count;
-      return {
-        ...a,
-        [key]: Math.max(1, Math.min(axis === 'row' ? MAX_ROWS : MAX_COLS, n + delta)),
-      };
-    }
-    case 'setNames':
-      return {
-        ...a,
-        names: a.names.map((n) => ({
-          ...n,
-          formula: formula(n.formula, n.sheetId ?? ''),
-        })),
-      };
+    case 'setGridSize':
+      return gridSizeAfter(a, b);
     case 'addSheet':
     case 'deleteSheet':
     case 'renameSheet':
@@ -270,15 +218,68 @@ function overStructural(a: Simple, b: Structural, aWins: boolean): Op {
   }
 }
 
+/** An op on the same sheet and axis as b, past b. */
+function sameAxisAfter(a: AxisOp, b: Structural, aWins: boolean): Op {
+  switch (a.type) {
+    case 'resizeDims': {
+      const index = indexMapper(b);
+      return {
+        ...a,
+        entries: a.entries.flatMap(([i, v]): [number, number | null][] => (index(i) < 0 ? [] : [[index(i), v]])),
+      };
+    }
+    case 'hideDims':
+      return { ...a, indices: a.indices.map(indexMapper(b)).filter((i) => i >= 0) };
+    case 'insertDims':
+      // Rows inserted strictly inside a band someone deleted go with it (deletesAfter mirrors this).
+      if (b.type === 'deleteDims' && a.at > b.at && a.at < b.at + b.count) return NOOP;
+      return { ...a, at: boundary(a.at, b, aWins) };
+    case 'deleteDims':
+      return deletesAfter(a, b);
+    case 'moveDims':
+      return moveAfter(a, b, aWins);
+  }
+}
+
+function stylesAfter(a: OpOf<'setStyles'>, b: Structural): Op {
+  const index = indexMapper(b);
+  const rowAxis = b.axis === 'row';
+  const cells = a.cells.flatMap(([row, col, key]): [number, number, string | null][] => {
+    const i = index(rowAxis ? row : col);
+    if (i < 0) return [];
+    return [rowAxis ? [i, col, key] : [row, i, key]];
+  });
+  const out = { ...a, cells };
+  const entries = rowAxis ? a.rows : a.cols;
+  if (entries) {
+    const mapped = entries.flatMap(([i, v]): [number, string | null][] => (index(i) < 0 ? [] : [[index(i), v]]));
+    if (rowAxis) out.rows = mapped;
+    else out.cols = mapped;
+  }
+  return out;
+}
+
+/** An explicit grid size on b's axis grows or shrinks with an insert or delete. */
+function gridSizeAfter(a: OpOf<'setGridSize'>, b: Structural): Op {
+  if (b.type === 'moveDims') return a;
+  const key = b.axis === 'row' ? 'rowCount' : 'colCount';
+  const n = a[key];
+  if (n === undefined) return a;
+  const delta = b.type === 'insertDims' ? b.count : -b.count;
+  const max = b.axis === 'row' ? MAX_ROWS : MAX_COLS;
+  return {
+    ...a,
+    [key]: Math.max(1, Math.min(max, n + delta)),
+  };
+}
+
 /** Where an index ends up after `b`; -1 if `b` deleted it. */
 function indexMapper(b: Structural): (i: number) => number {
   switch (b.type) {
     case 'insertDims':
       return (i) => (i >= b.at ? i + b.count : i);
-    case 'deleteDims': {
-      const end = b.at + b.count;
-      return (i) => (i < b.at ? i : i >= end ? i - b.count : -1);
-    }
+    case 'deleteDims':
+      return (i) => indexAfterDelete(i, b.at, b.count, -1);
     case 'moveDims':
       return moveIndexMapper(b.from, b.count, b.to);
   }
@@ -289,44 +290,41 @@ function boundary(at: number, b: Structural, aWins: boolean): number {
   switch (b.type) {
     case 'insertDims':
       return at > b.at || (at === b.at && !aWins) ? at + b.count : at;
-    case 'deleteDims': {
-      const end = b.at + b.count;
-      return at <= b.at ? at : at >= end ? at - b.count : b.at;
-    }
-    case 'moveDims': {
-      // `at` is the gap in front of row `at`.
-      const map = moveIndexMapper(b.from, b.count, b.to);
-      const noop = b.to >= b.from && b.to <= b.from + b.count;
-      // b's block landed in this same gap: the op the server applied later goes first, as with two inserts.
-      if (!noop && at === b.to) return aWins ? map(b.from) : map(at);
-      // The gap in front of b's block stays where the block left from.
-      if (!noop && at === b.from) return at === 0 ? 0 : map(at - 1) + 1;
-      return map(at);
-    }
+    case 'deleteDims':
+      // A gap inside the deleted band closes up to where the band started.
+      return at <= b.at ? at : indexAfterDelete(at, b.at, b.count, b.at);
+    case 'moveDims':
+      return boundaryAfterMove(at, b, aWins);
   }
+}
+
+/** `at` is the gap in front of row `at`. */
+function boundaryAfterMove(at: number, b: OpOf<'moveDims'>, aWins: boolean): number {
+  const map = moveIndexMapper(b.from, b.count, b.to);
+  const noop = b.to >= b.from && b.to <= b.from + b.count;
+  // b's block landed in this same gap: the op the server applied later goes first, as with two inserts.
+  if (!noop && at === b.to) return aWins ? map(b.from) : map(at);
+  // The gap in front of b's block stays where the block left from.
+  if (!noop && at === b.from) return at === 0 ? 0 : map(at - 1) + 1;
+  return map(at);
 }
 
 /** Where a range's cells end up after `b`: zero, one or (after a move splits it) several ranges. */
 function mapRange(r: Range, b: Structural): Range[] {
-  const axis = b.axis;
-  const [lo, hi, max] = axis === 'row' ? (['r1', 'r2', MAX_ROWS] as const) : (['c1', 'c2', MAX_COLS] as const);
+  const [lo, hi, max] = b.axis === 'row' ? (['r1', 'r2', MAX_ROWS] as const) : (['c1', 'c2', MAX_COLS] as const);
   const full = r[lo] === 0 && r[hi] === max - 1;
   if (full) return [r];
-  let nlo: number;
-  let nhi: number;
   switch (b.type) {
-    case 'insertDims':
-      nlo = r[lo] >= b.at ? r[lo] + b.count : r[lo];
-      nhi = r[hi] >= b.at ? r[hi] + b.count : r[hi];
+    case 'insertDims': {
+      const shift = (i: number) => (i >= b.at ? i + b.count : i);
+      const nlo = shift(r[lo]);
       if (nlo >= max) return [];
-      nhi = Math.min(nhi, max - 1);
-      break;
+      return [{ ...r, [lo]: nlo, [hi]: Math.min(shift(r[hi]), max - 1) }];
+    }
     case 'deleteDims': {
-      const end = b.at + b.count;
-      nlo = r[lo] < b.at ? r[lo] : r[lo] >= end ? r[lo] - b.count : b.at;
-      nhi = r[hi] < b.at ? r[hi] : r[hi] >= end ? r[hi] - b.count : b.at - 1;
-      if (nlo > nhi) return [];
-      break;
+      const nlo = indexAfterDelete(r[lo], b.at, b.count, b.at);
+      const nhi = indexAfterDelete(r[hi], b.at, b.count, b.at - 1);
+      return nlo > nhi ? [] : [{ ...r, [lo]: nlo, [hi]: nhi }];
     }
     case 'moveDims': {
       const map = moveIndexMapper(b.from, b.count, b.to);
@@ -339,10 +337,9 @@ function mapRange(r: Range, b: Structural): Range[] {
       }));
     }
   }
-  return [{ ...r, [lo]: nlo, [hi]: nhi }];
 }
 
-function deletesAfter(a: Extract<Op, { type: 'deleteDims' }>, b: Structural): Op {
+function deletesAfter(a: OpOf<'deleteDims'>, b: Structural): Op {
   const end = a.at + a.count;
   if (b.type === 'insertDims') {
     if (b.at <= a.at) return { ...a, at: a.at + b.count };
@@ -379,7 +376,7 @@ function runs(indices: number[]): [number, number][] {
   return out;
 }
 
-function moveAfter(a: Extract<Op, { type: 'moveDims' }>, b: Structural, aWins: boolean): Op {
+function moveAfter(a: OpOf<'moveDims'>, b: Structural, aWins: boolean): Op {
   const end = a.from + a.count;
   switch (b.type) {
     case 'insertDims': {
@@ -403,33 +400,48 @@ function moveAfter(a: Extract<Op, { type: 'moveDims' }>, b: Structural, aWins: b
         to: boundary(a.to, b, aWins),
       };
     }
-    case 'moveDims': {
-      // Rows both moved stay where the winner put them; the loser moves only the rest.
-      const map = moveIndexMapper(b.from, b.count, b.to);
-      const bEnd = b.from + b.count;
-      // Our rows in their original order, at their positions after b, grouped into runs.
-      const groups: [number, number][] = [];
-      for (let i = a.from; i < end; i++) {
-        if (!aWins && i >= b.from && i < bEnd) continue;
-        const p = map(i);
-        const last = groups[groups.length - 1];
-        if (last && last[0] + last[1] === p) last[1]++;
-        else groups.push([p, 1]);
-      }
-      if (groups.length === 0) return NOOP;
-      // b may have split our block: move run after run into the target gap, in order.
-      let gap = boundary(a.to, b, aWins);
-      const ops: Op[] = [];
-      for (let k = 0; k < groups.length; k++) {
-        const [s, n] = groups[k]!;
-        ops.push({ ...a, from: s, count: n, to: gap });
-        const m = moveIndexMapper(s, n, gap);
-        for (let j = k + 1; j < groups.length; j++) groups[j]![0] = m(groups[j]![0]);
-        gap = (gap < s ? gap : gap > s + n ? gap - n : s) + n;
-      }
-      return { type: 'batch', ops };
-    }
+    case 'moveDims':
+      return moveAfterMove(a, b, aWins);
   }
+}
+
+/** Rows both moved stay where the winner put them; the loser moves only the rest. */
+function moveAfterMove(a: OpOf<'moveDims'>, b: OpOf<'moveDims'>, aWins: boolean): Op {
+  const groups = runsAfterMove(a, b, aWins);
+  if (groups.length === 0) return NOOP;
+  // b may have split our block: move run after run into the target gap, in order.
+  let gap = boundary(a.to, b, aWins);
+  const ops: Op[] = [];
+  for (let k = 0; k < groups.length; k++) {
+    const [s, n] = groups[k]!;
+    ops.push({ ...a, from: s, count: n, to: gap });
+    const m = moveIndexMapper(s, n, gap);
+    for (let j = k + 1; j < groups.length; j++) groups[j]![0] = m(groups[j]![0]);
+    gap = movedBlockStart(s, n, gap) + n;
+  }
+  return { type: 'batch', ops };
+}
+
+/** a's rows in their original order, at their positions after b, grouped into runs. */
+function runsAfterMove(a: OpOf<'moveDims'>, b: OpOf<'moveDims'>, aWins: boolean): [number, number][] {
+  const map = moveIndexMapper(b.from, b.count, b.to);
+  const end = a.from + a.count;
+  const bEnd = b.from + b.count;
+  const groups: [number, number][] = [];
+  for (let i = a.from; i < end; i++) {
+    if (!aWins && i >= b.from && i < bEnd) continue;
+    const p = map(i);
+    const last = groups[groups.length - 1];
+    if (last && last[0] + last[1] === p) last[1]++;
+    else groups.push([p, 1]);
+  }
+  return groups;
+}
+
+/** Where block [from, from+count) starts once moved to gap `to`; a gap inside it or at its edges leaves it in place. */
+function movedBlockStart(from: number, count: number, to: number): number {
+  if (to < from) return to;
+  return to > from + count ? to - count : from;
 }
 
 function freezeAfter(n: number, b: Structural): number {
@@ -461,7 +473,7 @@ function mapFormulas(a: Simple, fn: (f: string) => string): Simple {
   }
 }
 
-function overRename(a: Simple, b: Extract<Op, { type: 'renameSheet' }>, aWins: boolean): Op {
+function overRename(a: Simple, b: OpOf<'renameSheet'>, aWins: boolean): Op {
   let out: Simple = mapFormulas(a, (f) => renameSheetInFormula(f, b.oldName, b.name));
   if ('sheetName' in out && out.sheetId === b.sheetId) out = { ...out, sheetName: b.name };
   if (out.type === 'renameSheet' && out.sheetId === b.sheetId) {
@@ -470,17 +482,17 @@ function overRename(a: Simple, b: Extract<Op, { type: 'renameSheet' }>, aWins: b
   return resolveNameClash(out, b.sheetId, b.name, aWins);
 }
 
-function overDeleteSheet(a: Simple, b: Extract<Op, { type: 'deleteSheet' }>): Op {
+function overDeleteSheet(a: Simple, b: OpOf<'deleteSheet'>): Op {
   if ('sheetId' in a && a.sheetId === b.sheetId) return NOOP;
   return mapFormulas(a, (f) => removeSheetFromFormula(f, b.sheetName));
 }
 
-function overAddSheet(a: Simple, b: Extract<Op, { type: 'addSheet' }>, aWins: boolean): Op {
+function overAddSheet(a: Simple, b: OpOf<'addSheet'>, aWins: boolean): Op {
   let out: Simple = a;
-  if (out.type === 'addSheet' && (out.index > b.index || (out.index === b.index && !aWins))) {
-    out = { ...out, index: out.index + 1 };
-  } else if (out.type === 'moveSheet' && out.index >= b.index) {
-    out = { ...out, index: out.index + 1 };
+  if (out.type === 'addSheet' || out.type === 'moveSheet') {
+    // Sheets after b's slot shift right. At the slot itself a move always does; an add only when it lost.
+    const shiftsAtSlot = out.type === 'moveSheet' || !aWins;
+    if (out.index > b.index || (out.index === b.index && shiftsAtSlot)) out = { ...out, index: out.index + 1 };
   }
   return resolveNameClash(out, b.sheetId, b.name, aWins);
 }
@@ -511,10 +523,62 @@ function resolveNameClash(a: Simple, otherSheetId: string, otherName: string, aW
 }
 
 // ---------------------------------------------------------------------------
+// Past writes to the same cells, rows, columns or sheet settings: the op the
+// server applied later wins, so a losing `a` drops what `b` also wrote.
+// ---------------------------------------------------------------------------
+
+function overSetCells(a: Simple, b: OpOf<'setCells'>, aWins: boolean): Op {
+  if (aWins || a.type !== 'setCells' || a.sheetId !== b.sheetId) return a;
+  const taken = new Set(b.cells.map(([r, c]) => r * MAX_COLS + c));
+  return {
+    ...a,
+    cells: a.cells.filter(([r, c]) => !taken.has(r * MAX_COLS + c)),
+  };
+}
+
+function overResize(a: Simple, b: OpOf<'resizeDims'>, aWins: boolean): Op {
+  if (aWins || a.type !== 'resizeDims' || a.sheetId !== b.sheetId || a.axis !== b.axis) return a;
+  const taken = new Set(b.entries.map(([i]) => i));
+  return { ...a, entries: a.entries.filter(([i]) => !taken.has(i)) };
+}
+
+/** Only opposite changes conflict: hiding what the other side hid too ends the same. */
+function overHide(a: Simple, b: OpOf<'hideDims'>, aWins: boolean): Op {
+  if (aWins || a.type !== 'hideDims' || a.sheetId !== b.sheetId || a.axis !== b.axis) return a;
+  if (a.hidden === b.hidden) return a;
+  const taken = new Set(b.indices);
+  return { ...a, indices: a.indices.filter((i) => !taken.has(i)) };
+}
+
+function overSheetProps(a: Simple, b: OpOf<'setSheetProps'>, aWins: boolean): Op {
+  if (aWins || a.type !== 'setSheetProps' || a.sheetId !== b.sheetId) return a;
+  const props = { ...a.props };
+  for (const k of Object.keys(b.props)) delete (props as Record<string, unknown>)[k];
+  return { ...a, props };
+}
+
+function overGridSize(a: Simple, b: OpOf<'setGridSize'>, aWins: boolean): Op {
+  if (aWins || a.type !== 'setGridSize' || a.sheetId !== b.sheetId) return a;
+  const out = { ...a };
+  if (b.rowCount !== undefined) delete out.rowCount;
+  if (b.colCount !== undefined) delete out.colCount;
+  return out;
+}
+
+/** A losing merge that overlaps one of b's is dropped. */
+function overMerge(a: Simple, b: OpOf<'merge'>, aWins: boolean): Op {
+  if (aWins || a.type !== 'merge' || a.sheetId !== b.sheetId) return a;
+  return {
+    ...a,
+    ranges: a.ranges.filter((r) => !b.ranges.some((m) => rangesIntersect(m, r))),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Past style changes
 // ---------------------------------------------------------------------------
 
-function overFormat(a: Simple, b: Extract<Op, { type: 'formatRanges' }>, aWins: boolean): Op {
+function overFormat(a: Simple, b: OpOf<'formatRanges'>, aWins: boolean): Op {
   if (aWins || !('sheetId' in a) || a.sheetId !== b.sheetId) return a;
   if (a.type === 'formatRanges') {
     // Re-assert b's values for the properties both set, where both applied.
@@ -550,7 +614,7 @@ function overFormat(a: Simple, b: Extract<Op, { type: 'formatRanges' }>, aWins: 
   return a;
 }
 
-function overSetStyles(a: Simple, b: Extract<Op, { type: 'setStyles' }>, aWins: boolean): Op {
+function overSetStyles(a: Simple, b: OpOf<'setStyles'>, aWins: boolean): Op {
   if (aWins || !('sheetId' in a) || a.sheetId !== b.sheetId) return a;
   if (a.type === 'setStyles') {
     const taken = new Set(b.cells.map(([r, c]) => r * MAX_COLS + c));

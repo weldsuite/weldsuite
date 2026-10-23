@@ -195,39 +195,56 @@ const PALETTE = [
 
 const CURRENCY_CHARS = /[$€£¥₹¤]/;
 
+/** Index of the `close` character that ends the quoted string or tag opened at `open`. */
+function closingIndex(src: string, open: number, close: string, what: string): number {
+  const end = src.indexOf(close, open + 1);
+  if (end < 0) throw new FormatCodeError(`Unterminated ${what}`);
+  return end;
+}
+
+/** Index of the last character of the code unit at `i`: a quoted string, an escape pair or a [tag]. */
+function unitEnd(code: string, i: number): number {
+  const ch = code[i];
+  if (ch === '"') return closingIndex(code, i, '"', 'quote');
+  if (ch === '[') return closingIndex(code, i, ']', 'bracket');
+  if (ch === '\\' || ch === '_' || ch === '*') return i + 1;
+  return i;
+}
+
 /** Splits a code into sections at `;` outside quotes, escapes and brackets. */
 function splitSections(code: string): string[] {
   const out: string[] = [];
   let start = 0;
-  for (let i = 0; i < code.length; i++) {
-    const ch = code[i];
-    if (ch === '"') {
-      const end = code.indexOf('"', i + 1);
-      if (end < 0) throw new FormatCodeError('Unterminated quote');
-      i = end;
-    } else if (ch === '\\' || ch === '_' || ch === '*') {
-      i++;
-    } else if (ch === '[') {
-      const end = code.indexOf(']', i + 1);
-      if (end < 0) throw new FormatCodeError('Unterminated bracket');
-      i = end;
-    } else if (ch === ';') {
+  let i = 0;
+  while (i < code.length) {
+    if (code[i] === ';') {
       out.push(code.slice(start, i));
       start = i + 1;
     }
+    i = unitEnd(code, i) + 1;
   }
   out.push(code.slice(start));
   if (out.length > 4) throw new FormatCodeError('Too many sections');
   return out;
 }
 
-const COND_RE = /^(<=|>=|<>|<|>|=)\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/;
+const COND_OP_RE = /^(?:<=|>=|<>|<|>|=)/;
+/** A plain decimal number: 5, -1.5, .5, 5., 1e3. */
+const COND_VALUE_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
-function tokenize(src: string): Section {
-  const tokens: Token[] = [];
-  const sec: Section = {
+/** A [<=100]-style condition, or null when the tag is something else. */
+function readCondition(inner: string): Condition | null {
+  const trimmed = inner.trim();
+  const op = COND_OP_RE.exec(trimmed)?.[0];
+  if (op === undefined) return null;
+  const value = trimmed.slice(op.length).trimStart();
+  return COND_VALUE_RE.test(value) ? { op: op as Op, value: Number(value) } : null;
+}
+
+function newSection(): Section {
+  return {
     kind: 'number',
-    tokens,
+    tokens: [],
     currency: false,
     mode: 'decimal',
     parts: [],
@@ -241,130 +258,144 @@ function tokenize(src: string): Section {
     hasTime: false,
     hasElapsed: false,
   };
-  const lit = (s: string) => {
-    if (s === '') return;
-    const last = tokens[tokens.length - 1];
-    if (last?.t === 'lit') last.s += s;
-    else tokens.push({ t: 'lit', s });
-  };
+}
 
+/** Appends literal text, merging it into a literal token right before it. */
+function pushLit(tokens: Token[], s: string): void {
+  if (s === '') return;
+  const last = tokens[tokens.length - 1];
+  if (last?.t === 'lit') last.s += s;
+  else tokens.push({ t: 'lit', s });
+}
+
+function tokenize(src: string): Section {
+  const sec = newSection();
   let i = 0;
-  while (i < src.length) {
-    const ch = src[i]!;
-    switch (ch) {
-      case '"': {
-        const end = src.indexOf('"', i + 1);
-        if (end < 0) throw new FormatCodeError('Unterminated quote');
-        const s = src.slice(i + 1, end);
-        if (CURRENCY_CHARS.test(s)) sec.currency = true;
-        lit(s);
-        i = end + 1;
-        continue;
-      }
-      case '\\':
-        lit(src[i + 1] ?? '');
-        i += 2;
-        continue;
-      case '_':
-        // Space the width of the next character; a plain space is close enough.
-        lit(' ');
-        i += 2;
-        continue;
-      case '*':
-        // Repeat-fill to the column width: the renderer does not pad, so nothing.
-        tokens.push({ t: 'fill' });
-        i += 2;
-        continue;
-      case '[': {
-        const end = src.indexOf(']', i + 1);
-        if (end < 0) throw new FormatCodeError('Unterminated bracket');
-        readBracket(src.slice(i + 1, end), sec, lit);
-        i = end + 1;
-        continue;
-      }
-      case '0':
-      case '#':
-      case '?':
-        tokens.push({ t: 'digit', c: ch });
-        i++;
-        continue;
-      case '.':
-        tokens.push({ t: 'point' });
-        i++;
-        continue;
-      case ',':
-        tokens.push({ t: 'comma' });
-        i++;
-        continue;
-      case '%':
-        tokens.push({ t: 'percent' });
-        i++;
-        continue;
-      case '@':
-        tokens.push({ t: 'at' });
-        i++;
-        continue;
-      case '/': {
-        const m = /^[1-9]\d*/.exec(src.slice(i + 1));
-        if (m) {
-          tokens.push({ t: 'slash', fixed: m[0] });
-          i += 1 + m[0].length;
-        } else {
-          tokens.push({ t: 'slash' });
-          i++;
-        }
-        continue;
-      }
-      case 'E':
-      case 'e': {
-        const next = src[i + 1];
-        if (next === '+' || next === '-') {
-          tokens.push({ t: 'exp', s: ch, plus: next === '+' });
-          i += 2;
-        } else {
-          lit(ch);
-          i++;
-        }
-        continue;
-      }
-      default: {
-        if (src.slice(i, i + 7).toLowerCase() === 'general') {
-          tokens.push({ t: 'general' });
-          i += 7;
-          continue;
-        }
-        if (src.slice(i, i + 5).toUpperCase() === 'AM/PM') {
-          tokens.push({ t: 'ampm', short: false, lower: false });
-          i += 5;
-          continue;
-        }
-        if (src.slice(i, i + 3).toUpperCase() === 'A/P') {
-          tokens.push({ t: 'ampm', short: true, lower: ch === 'a' });
-          i += 3;
-          continue;
-        }
-        const lower = ch.toLowerCase();
-        if (lower === 'y' || lower === 'm' || lower === 'd' || lower === 'h' || lower === 's') {
-          let n = 1;
-          while (src[i + n]?.toLowerCase() === lower) n++;
-          if (lower === 'y') tokens.push({ t: 'year', n });
-          else if (lower === 'm') tokens.push({ t: 'month', n });
-          else if (lower === 'd') tokens.push({ t: 'day', n });
-          else if (lower === 'h') tokens.push({ t: 'hour', n });
-          else tokens.push({ t: 'second', n });
-          i += n;
-          continue;
-        }
-        if (CURRENCY_CHARS.test(ch)) sec.currency = true;
-        lit(ch);
-        i++;
-      }
-    }
-  }
+  while (i < src.length) i = readToken(src, i, sec);
   return sec;
 }
 
-function readBracket(inner: string, sec: Section, lit: (s: string) => void): void {
+/** Reads the token at `i` into `sec` and returns the index just past it. */
+function readToken(src: string, i: number, sec: Section): number {
+  const ch = src[i]!;
+  const tokens = sec.tokens;
+  switch (ch) {
+    case '"':
+      return readQuoted(src, i, sec);
+    case '\\':
+      pushLit(tokens, src[i + 1] ?? '');
+      return i + 2;
+    case '_':
+      // Space the width of the next character; a plain space is close enough.
+      pushLit(tokens, ' ');
+      return i + 2;
+    case '*':
+      // Repeat-fill to the column width: the renderer does not pad, so nothing.
+      tokens.push({ t: 'fill' });
+      return i + 2;
+    case '[': {
+      const end = closingIndex(src, i, ']', 'bracket');
+      readBracket(src.slice(i + 1, end), sec);
+      return end + 1;
+    }
+    case '0':
+    case '#':
+    case '?':
+      tokens.push({ t: 'digit', c: ch });
+      return i + 1;
+    case '.':
+      tokens.push({ t: 'point' });
+      return i + 1;
+    case ',':
+      tokens.push({ t: 'comma' });
+      return i + 1;
+    case '%':
+      tokens.push({ t: 'percent' });
+      return i + 1;
+    case '@':
+      tokens.push({ t: 'at' });
+      return i + 1;
+    case '/':
+      return readSlash(src, i, tokens);
+    case 'E':
+    case 'e':
+      return readExponent(src, i, tokens);
+    default:
+      return readWord(src, i, sec);
+  }
+}
+
+/** A "quoted literal"; a currency symbol inside makes the section a currency format. */
+function readQuoted(src: string, i: number, sec: Section): number {
+  const end = closingIndex(src, i, '"', 'quote');
+  const s = src.slice(i + 1, end);
+  if (CURRENCY_CHARS.test(s)) sec.currency = true;
+  pushLit(sec.tokens, s);
+  return end + 1;
+}
+
+/** `/`, or `/16` with a literal denominator. */
+function readSlash(src: string, i: number, tokens: Token[]): number {
+  const m = /^[1-9]\d*/.exec(src.slice(i + 1));
+  if (!m) {
+    tokens.push({ t: 'slash' });
+    return i + 1;
+  }
+  tokens.push({ t: 'slash', fixed: m[0] });
+  return i + 1 + m[0].length;
+}
+
+/** E+ / E- (scientific notation); an E without a sign is a literal. */
+function readExponent(src: string, i: number, tokens: Token[]): number {
+  const ch = src[i]!;
+  const next = src[i + 1];
+  if (next !== '+' && next !== '-') {
+    pushLit(tokens, ch);
+    return i + 1;
+  }
+  tokens.push({ t: 'exp', s: ch, plus: next === '+' });
+  return i + 2;
+}
+
+/** The token each date/time letter starts a run of. */
+const DATE_RUNS = new Map<string, 'year' | 'month' | 'day' | 'hour' | 'second'>([
+  ['y', 'year'],
+  ['m', 'month'],
+  ['d', 'day'],
+  ['h', 'hour'],
+  ['s', 'second'],
+]);
+
+/** General, AM/PM, A/P, a run of a date/time letter (yyyy, mm, …), or a literal character. */
+function readWord(src: string, i: number, sec: Section): number {
+  const ch = src[i]!;
+  const tokens = sec.tokens;
+  if (src.slice(i, i + 7).toLowerCase() === 'general') {
+    tokens.push({ t: 'general' });
+    return i + 7;
+  }
+  if (src.slice(i, i + 5).toUpperCase() === 'AM/PM') {
+    tokens.push({ t: 'ampm', short: false, lower: false });
+    return i + 5;
+  }
+  if (src.slice(i, i + 3).toUpperCase() === 'A/P') {
+    tokens.push({ t: 'ampm', short: true, lower: ch === 'a' });
+    return i + 3;
+  }
+  const lower = ch.toLowerCase();
+  const run = DATE_RUNS.get(lower);
+  if (run) {
+    let n = 1;
+    while (src[i + n]?.toLowerCase() === lower) n++;
+    tokens.push({ t: run, n });
+    return i + n;
+  }
+  if (CURRENCY_CHARS.test(ch)) sec.currency = true;
+  pushLit(tokens, ch);
+  return i + 1;
+}
+
+function readBracket(inner: string, sec: Section): void {
   const lower = inner.toLowerCase();
   const named = NAMED_COLORS[lower];
   if (named) {
@@ -377,9 +408,9 @@ function readBracket(inner: string, sec: Section, lit: (s: string) => void): voi
     if (hex) sec.color = `#${hex}`;
     return;
   }
-  const cond = COND_RE.exec(inner.trim());
+  const cond = readCondition(inner);
   if (cond) {
-    sec.cond = { op: cond[1] as Op, value: Number(cond[2]) };
+    sec.cond = cond;
     return;
   }
   if (inner.startsWith('$')) {
@@ -388,7 +419,7 @@ function readBracket(inner: string, sec: Section, lit: (s: string) => void): voi
     const symbol = /^\$([^-]*)/.exec(inner)?.[1] ?? '';
     if (symbol) {
       sec.currency = true;
-      lit(symbol);
+      pushLit(sec.tokens, symbol);
     }
     return;
   }
@@ -413,10 +444,23 @@ function isDatePart(tok: Token | undefined): boolean {
   return tok !== undefined && DATE_PARTS.has(tok.t);
 }
 
+function isHourPart(tok: Token | undefined): boolean {
+  return tok?.t === 'hour' || (tok?.t === 'elapsed' && tok.unit === 'h');
+}
+
+function isSecondPart(tok: Token | undefined): boolean {
+  return tok?.t === 'second' || (tok?.t === 'elapsed' && tok.unit === 's');
+}
+
 function analyseDate(sec: Section): void {
   sec.kind = 'date';
-  const src = sec.tokens;
-  // The m rule: m/mm right after an hour or right before a second is minutes.
+  resolveMinutes(sec.tokens);
+  sec.tokens = dateTokens(sec);
+  for (const tok of sec.tokens) flagDatePart(sec, tok);
+}
+
+/** The m rule: m/mm right after an hour or right before a second is minutes. */
+function resolveMinutes(src: Token[]): void {
   for (let j = 0; j < src.length; j++) {
     const tok = src[j]!;
     if (tok.t !== 'month' || tok.n > 2) continue;
@@ -424,108 +468,149 @@ function analyseDate(sec: Section): void {
     while (prev >= 0 && !isDatePart(src[prev])) prev--;
     let next = j + 1;
     while (next < src.length && !isDatePart(src[next])) next++;
-    const p = src[prev];
-    const n = src[next];
-    const afterHour = p?.t === 'hour' || (p?.t === 'elapsed' && p.unit === 'h');
-    const beforeSecond = n?.t === 'second' || (n?.t === 'elapsed' && n.unit === 's');
-    if (afterHour || beforeSecond) src[j] = { t: 'minute', n: tok.n };
+    if (isHourPart(src[prev]) || isSecondPart(src[next])) src[j] = { t: 'minute', n: tok.n };
   }
-  // Number syntax inside a date section is literal, except `.000` after seconds.
+}
+
+/** Number syntax inside a date section is literal, except `.000` after seconds. */
+function dateTokens(sec: Section): Token[] {
+  const src = sec.tokens;
   const out: Token[] = [];
-  const lit = (s: string) => {
-    const last = out[out.length - 1];
-    if (last?.t === 'lit') last.s += s;
-    else out.push({ t: 'lit', s });
-  };
-  for (let j = 0; j < src.length; j++) {
+  let j = 0;
+  while (j < src.length) {
     const tok = src[j]!;
-    switch (tok.t) {
-      case 'point': {
-        let k = 0;
-        for (let next = src[j + 1]; next?.t === 'digit' && next.c === '0'; next = src[j + 1 + k]) k++;
-        let prev = out.length - 1;
-        while (prev >= 0 && out[prev]!.t === 'lit') prev--;
-        const p = out[prev];
-        if (k > 0 && (p?.t === 'second' || (p?.t === 'elapsed' && p.unit === 's'))) {
-          out.push({ t: 'subsec', n: k });
-          sec.subsec = Math.max(sec.subsec, Math.min(k, 3));
-          j += k;
-        } else lit('.');
-        break;
-      }
-      case 'digit':
-        lit(tok.c);
-        break;
-      case 'comma':
-        lit(',');
-        break;
-      case 'percent':
-        lit('%');
-        break;
-      case 'slash':
-        lit(`/${tok.fixed ?? ''}`);
-        break;
-      case 'exp':
-        lit(`${tok.s}${tok.plus ? '+' : '-'}`);
-        break;
-      case 'general':
-        lit('General');
-        break;
-      case 'at':
-        break;
-      default:
-        out.push(tok);
+    const k = tok.t === 'point' ? subsecondDigits(src, j, out) : 0;
+    if (k > 0) {
+      out.push({ t: 'subsec', n: k });
+      sec.subsec = Math.max(sec.subsec, Math.min(k, 3));
+      j += k;
+    } else {
+      const s = dateLiteral(tok);
+      if (s === null) out.push(tok);
+      else pushLit(out, s);
     }
+    j++;
   }
-  sec.tokens = out;
-  for (const tok of out) {
-    if (tok.t === 'year' || tok.t === 'month' || tok.t === 'day') sec.hasDate = true;
-    else if (tok.t === 'elapsed') sec.hasElapsed = true;
-    else if (tok.t === 'hour' || tok.t === 'minute' || tok.t === 'second' || tok.t === 'subsec') sec.hasTime = true;
-    else if (tok.t === 'ampm') {
+  return out;
+}
+
+/** How many `0` placeholders follow the point at `j` when it continues seconds (ss.000); 0 otherwise. */
+function subsecondDigits(src: Token[], j: number, out: Token[]): number {
+  let k = 0;
+  for (let next = src[j + 1]; next?.t === 'digit' && next.c === '0'; next = src[j + 1 + k]) k++;
+  if (k === 0) return 0;
+  let prev = out.length - 1;
+  while (prev >= 0 && out[prev]!.t === 'lit') prev--;
+  return isSecondPart(out[prev]) ? k : 0;
+}
+
+/** The literal text a number-syntax token stands for in a date section; null for tokens that stay. */
+function dateLiteral(tok: Token): string | null {
+  switch (tok.t) {
+    case 'point':
+      return '.';
+    case 'digit':
+      return tok.c;
+    case 'comma':
+      return ',';
+    case 'percent':
+      return '%';
+    case 'slash':
+      return `/${tok.fixed ?? ''}`;
+    case 'exp':
+      return `${tok.s}${tok.plus ? '+' : '-'}`;
+    case 'general':
+      return 'General';
+    case 'at':
+      return '';
+    default:
+      return null;
+  }
+}
+
+function flagDatePart(sec: Section, tok: Token): void {
+  switch (tok.t) {
+    case 'year':
+    case 'month':
+    case 'day':
+      sec.hasDate = true;
+      break;
+    case 'elapsed':
+      sec.hasElapsed = true;
+      break;
+    case 'ampm':
       sec.hasTime = true;
       sec.hour12 = true;
-    }
+      break;
+    case 'hour':
+    case 'minute':
+    case 'second':
+    case 'subsec':
+      sec.hasTime = true;
+      break;
+    default:
+      break;
   }
+}
+
+function isDigitAt(tokens: Token[], j: number): boolean {
+  return tokens[j]?.t === 'digit';
 }
 
 function analyseNumber(sec: Section): void {
   const tokens = sec.tokens;
-  const parts: (Part | null)[] = tokens.map(() => null);
-  sec.parts = parts;
+  sec.parts = tokens.map(() => null);
   sec.percent = tokens.filter((t) => t.t === 'percent').length;
   if (tokens.some((t) => t.t === 'general')) {
     sec.mode = 'general';
     return;
   }
-  const isDigit = (j: number) => tokens[j]?.t === 'digit';
-
   const expIdx = tokens.findIndex((t) => t.t === 'exp');
   if (expIdx >= 0 && tokens.slice(expIdx + 1).some((t) => t.t === 'digit')) {
-    sec.mode = 'scientific';
-    let seenPoint = false;
-    for (let j = 0; j < tokens.length; j++) {
-      const t = tokens[j]!;
-      if (j < expIdx) {
-        if (t.t === 'point') seenPoint = true;
-        else if (t.t === 'digit') parts[j] = seenPoint ? 'frac' : 'int';
-      } else if (t.t === 'digit') parts[j] = 'exp';
-    }
+    analyseScientific(sec, expIdx);
     return;
   }
-
   const slashIdx = tokens.findIndex((t) => t.t === 'slash');
   const slash = tokens[slashIdx];
-  if (slash?.t === 'slash' && isDigit(slashIdx - 1) && (slash.fixed !== undefined || isDigit(slashIdx + 1))) {
-    sec.mode = 'fraction';
-    let j = slashIdx - 1;
-    while (isDigit(j)) parts[j--] = 'num';
-    for (; j >= 0; j--) if (isDigit(j)) parts[j] = 'int';
-    for (let k = slashIdx + 1; isDigit(k); k++) parts[k] = 'den';
+  if (
+    slash?.t === 'slash' &&
+    isDigitAt(tokens, slashIdx - 1) &&
+    (slash.fixed !== undefined || isDigitAt(tokens, slashIdx + 1))
+  ) {
+    analyseFraction(sec, slashIdx);
     return;
   }
+  analyseDecimal(sec);
+}
 
+/** Mantissa digits are integer or fraction places around the point; digits after the E are the exponent. */
+function analyseScientific(sec: Section, expIdx: number): void {
+  sec.mode = 'scientific';
+  const { tokens, parts } = sec;
+  let seenPoint = false;
+  for (let j = 0; j < expIdx; j++) {
+    const t = tokens[j]!;
+    if (t.t === 'point') seenPoint = true;
+    else if (t.t === 'digit') parts[j] = seenPoint ? 'frac' : 'int';
+  }
+  for (let j = expIdx + 1; j < tokens.length; j++) {
+    if (tokens[j]!.t === 'digit') parts[j] = 'exp';
+  }
+}
+
+/** The digit run before the slash is the numerator, the one after it the denominator; earlier digits the whole part. */
+function analyseFraction(sec: Section, slashIdx: number): void {
+  sec.mode = 'fraction';
+  const { tokens, parts } = sec;
+  let j = slashIdx - 1;
+  while (isDigitAt(tokens, j)) parts[j--] = 'num';
+  for (; j >= 0; j--) if (isDigitAt(tokens, j)) parts[j] = 'int';
+  for (let k = slashIdx + 1; isDigitAt(tokens, k); k++) parts[k] = 'den';
+}
+
+function analyseDecimal(sec: Section): void {
   sec.mode = 'decimal';
+  const { tokens, parts } = sec;
   const pointIdx = tokens.findIndex((t) => t.t === 'point');
   let firstDigit = -1;
   let lastDigit = -1;
@@ -535,10 +620,17 @@ function analyseNumber(sec: Section): void {
     if (firstDigit < 0) firstDigit = j;
     lastDigit = j;
   }
-  // A comma between integer placeholders groups thousands; each comma after
-  // the last placeholder scales the number down by 1,000.
-  for (let j = 0; j < tokens.length; j++) {
-    if (tokens[j]!.t !== 'comma' || firstDigit < 0 || j < firstDigit) continue;
+  if (firstDigit >= 0) analyseCommas(sec, pointIdx, firstDigit, lastDigit);
+}
+
+/**
+ * A comma between integer placeholders groups thousands; each comma after
+ * the last placeholder scales the number down by 1,000.
+ */
+function analyseCommas(sec: Section, pointIdx: number, firstDigit: number, lastDigit: number): void {
+  const tokens = sec.tokens;
+  for (let j = firstDigit; j < tokens.length; j++) {
+    if (tokens[j]!.t !== 'comma') continue;
     if (j > lastDigit) sec.scale++;
     else if (pointIdx < 0 || j < pointIdx) sec.grouping = true;
   }
@@ -681,8 +773,10 @@ export function roundDigits(x: number, decimals: number): { int: string; frac: s
   return { int: ip === '' ? '0' : ip, frac: fp.padEnd(decimals, '0') };
 }
 
+/** What an unused placeholder shows: 0 a zero, ? a space, # nothing. */
 function padChar(c: DigitChar): string {
-  return c === '0' ? '0' : c === '?' ? ' ' : '';
+  if (c === '0') return '0';
+  return c === '?' ? ' ' : '';
 }
 
 function digitChar(tokens: Token[], j: number): DigitChar {
@@ -776,72 +870,131 @@ function generalText(n: number, locale: FormatLocale): string {
   return locale.decimal === '.' ? s : s.replace('.', locale.decimal);
 }
 
+/**
+ * Renders a number section in three steps: the mode fills the digit
+ * placeholders into `out` (one string per token), then `assemble` joins them
+ * with the other tokens.
+ */
 function renderNumber(sec: Section, value: number, locale: FormatLocale): string {
-  const { tokens, idx } = sec;
   const x = (Math.abs(value) * 100 ** sec.percent) / 1000 ** sec.scale;
-  const out: string[] = tokens.map(() => '');
-  let intText = '';
-  let expSign = '';
-  let blank: [number, number] | null = null;
-
-  if (sec.mode === 'general') {
-    intText = generalText(x, locale);
-  } else if (sec.mode === 'decimal') {
-    const r = roundDigits(x, idx.frac.length);
-    intText = r.int === '0' ? '' : r.int;
-    fillRight(intText, idx.int, tokens, out);
-    if (sec.grouping) groupDigits(idx.int, out, locale.group);
-    fillDecimals(r.frac, idx.frac, tokens, out);
-  } else if (sec.mode === 'scientific') {
-    const ic = idx.int.length;
-    const engineering = ic > 1 && idx.int.some((j) => digitChar(tokens, j) === '#');
-    const step = engineering ? ic : 1;
-    let e = 0;
-    let r = roundDigits(0, idx.frac.length);
-    if (x !== 0) {
-      const e10 = Number(x.toExponential().split('e')[1]);
-      e = engineering ? Math.floor(e10 / ic) * ic : e10 - Math.max(ic, 1) + 1;
-      r = roundDigits(x * 10 ** -e, idx.frac.length);
-      if (r.int.length > (engineering ? ic : Math.max(ic, 1))) {
-        e += step;
-        r = roundDigits(x * 10 ** -e, idx.frac.length);
-      }
-    }
-    intText = r.int === '0' ? '' : r.int;
-    fillRight(intText, idx.int, tokens, out);
-    fillDecimals(r.frac, idx.frac, tokens, out);
-    const expTok = tokens.find((t) => t.t === 'exp');
-    expSign = e < 0 ? '-' : expTok?.t === 'exp' && expTok.plus ? '+' : '';
-    fillRight(e === 0 ? '' : String(Math.abs(e)), idx.exp, tokens, out);
-  } else {
-    const slashIdx = tokens.findIndex((t) => t.t === 'slash');
-    const slash = tokens[slashIdx];
-    const fixed = slash?.t === 'slash' && slash.fixed !== undefined ? Number(slash.fixed) : 0;
-    const hasInt = idx.int.length > 0;
-    let whole = hasInt ? Math.floor(x) : 0;
-    const f = x - whole;
-    let n: number;
-    let d: number;
-    if (fixed) {
-      n = Math.round(f * fixed);
-      d = fixed;
-    } else {
-      [n, d] = approxFraction(f, 10 ** Math.min(idx.den.length, 7) - 1);
-    }
-    if (hasInt && n >= d) {
-      whole += Math.floor(n / d);
-      n %= d;
-    }
-    if (hasInt) {
-      fillRight(whole === 0 ? (n === 0 ? '0' : '') : String(whole), idx.int, tokens, out);
-      if (n === 0) blank = [idx.num[0] ?? slashIdx, fixed ? slashIdx : (idx.den[idx.den.length - 1] ?? slashIdx)];
-    }
-    fillRight(String(n), idx.num, tokens, out);
-    if (!fixed) fillLeft(String(d), idx.den, tokens, out);
+  const out: string[] = sec.tokens.map(() => '');
+  switch (sec.mode) {
+    case 'general':
+      return assemble(sec, out, generalText(x, locale), '', null, locale);
+    case 'decimal':
+      return assemble(sec, out, fillDecimal(sec, x, out, locale), '', null, locale);
+    case 'scientific':
+      return renderScientific(sec, x, out, locale);
+    default:
+      return assemble(sec, out, '', '', fillFraction(sec, x, out), locale);
   }
+}
 
+/** Decimal mode: fills integer and fraction placeholders; returns the integer digits ('' for 0). */
+function fillDecimal(sec: Section, x: number, out: string[], locale: FormatLocale): string {
+  const { tokens, idx } = sec;
+  const r = roundDigits(x, idx.frac.length);
+  const intText = r.int === '0' ? '' : r.int;
+  fillRight(intText, idx.int, tokens, out);
+  if (sec.grouping) groupDigits(idx.int, out, locale.group);
+  fillDecimals(r.frac, idx.frac, tokens, out);
+  return intText;
+}
+
+function renderScientific(sec: Section, x: number, out: string[], locale: FormatLocale): string {
+  const { tokens, idx } = sec;
+  const ic = idx.int.length;
+  const decimals = idx.frac.length;
+  // Engineering notation (##0.0E+0): the exponent stays a multiple of the integer width.
+  const engineering = ic > 1 && idx.int.some((j) => digitChar(tokens, j) === '#');
+  const width = engineering ? ic : Math.max(ic, 1);
+  let e = 0;
+  let r = roundDigits(0, decimals);
+  if (x !== 0) {
+    const e10 = Number(x.toExponential().split('e')[1]);
+    e = engineering ? Math.floor(e10 / ic) * ic : e10 - width + 1;
+    r = roundDigits(x * 10 ** -e, decimals);
+    // Rounding carried into an extra integer digit (9.99 → 10.0): move one step.
+    if (r.int.length > width) {
+      e += engineering ? ic : 1;
+      r = roundDigits(x * 10 ** -e, decimals);
+    }
+  }
+  const intText = r.int === '0' ? '' : r.int;
+  fillRight(intText, idx.int, tokens, out);
+  fillDecimals(r.frac, idx.frac, tokens, out);
+  return assemble(sec, out, intText, fillExponent(sec, e, out), null, locale);
+}
+
+/** Fills the exponent placeholders; returns the sign shown after the E. */
+function fillExponent(sec: Section, e: number, out: string[]): string {
+  fillRight(e === 0 ? '' : String(Math.abs(e)), sec.idx.exp, sec.tokens, out);
+  if (e < 0) return '-';
+  const expTok = sec.tokens.find((t) => t.t === 'exp');
+  return expTok?.t === 'exp' && expTok.plus ? '+' : '';
+}
+
+/** The literal denominator of `# ??/16`, 0 for a computed one. */
+function fixedDenominator(slash: Token | undefined): number {
+  return slash?.t === 'slash' && slash.fixed !== undefined ? Number(slash.fixed) : 0;
+}
+
+/** The whole-number part of a fraction: blank for a pure fraction ("1/2"), "0" for zero itself. */
+function wholeText(whole: number, numerator: number): string {
+  if (whole !== 0) return String(whole);
+  return numerator === 0 ? '0' : '';
+}
+
+/**
+ * Fraction mode: fills the whole part, numerator and denominator. Returns
+ * the token span (numerator to denominator) to blank out when the fraction
+ * part is zero, else null.
+ */
+function fillFraction(sec: Section, x: number, out: string[]): [number, number] | null {
+  const { tokens, idx } = sec;
+  const slashIdx = tokens.findIndex((t) => t.t === 'slash');
+  const fixed = fixedDenominator(tokens[slashIdx]);
+  const hasInt = idx.int.length > 0;
+  let whole = hasInt ? Math.floor(x) : 0;
+  const f = x - whole;
+  let n: number;
+  let d: number;
+  if (fixed) {
+    n = Math.round(f * fixed);
+    d = fixed;
+  } else {
+    [n, d] = approxFraction(f, 10 ** Math.min(idx.den.length, 7) - 1);
+  }
+  if (hasInt && n >= d) {
+    whole += Math.floor(n / d);
+    n %= d;
+  }
+  let blank: [number, number] | null = null;
+  if (hasInt) {
+    fillRight(wholeText(whole, n), idx.int, tokens, out);
+    if (n === 0) blank = [idx.num[0] ?? slashIdx, fixed ? slashIdx : (idx.den[idx.den.length - 1] ?? slashIdx)];
+  }
+  fillRight(String(n), idx.num, tokens, out);
+  if (!fixed) fillLeft(String(d), idx.den, tokens, out);
+  return blank;
+}
+
+/**
+ * Joins a number section's tokens: digit placeholders from `out`, the
+ * integer digits before the first point when no placeholder took them,
+ * `expSign` after the E, and spaces over the `blank` span.
+ */
+function assemble(
+  sec: Section,
+  out: string[],
+  intText: string,
+  expSign: string,
+  blank: [number, number] | null,
+  locale: FormatLocale,
+): string {
+  const tokens = sec.tokens;
   let text = '';
-  let intPlaced = idx.int.length > 0;
+  let beforePoint = sec.idx.int.length > 0 ? '' : intText;
   for (let j = 0; j < tokens.length; j++) {
     const t = tokens[j]!;
     let s: string;
@@ -853,8 +1006,8 @@ function renderNumber(sec: Section, value: number, locale: FormatLocale): string
         s = t.s;
         break;
       case 'point':
-        s = (intPlaced ? '' : intText) + locale.decimal;
-        intPlaced = true;
+        s = beforePoint + locale.decimal;
+        beforePoint = '';
         break;
       case 'percent':
         s = '%';
@@ -882,8 +1035,58 @@ function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
 
+/** h / hh, m / mm, s / ss and d / dd: one digit or zero-padded to two. */
+function twoDigit(n: number, v: number): string {
+  return n === 1 ? String(v) : pad2(v);
+}
+
+function yearText(n: number, year: number): string {
+  return n <= 2 ? pad2(year % 100) : String(year).padStart(4, '0');
+}
+
+/** m, mm, mmm (Jan), mmmm (January), mmmmm (J); six or more m's read as mmmm. */
+function monthText(n: number, month: number, locale: FormatLocale): string {
+  switch (n) {
+    case 1:
+      return String(month);
+    case 2:
+      return pad2(month);
+    case 3:
+      return locale.monthShort[month - 1] ?? '';
+    case 5:
+      return (locale.monthNames[month - 1] ?? '').charAt(0);
+    default:
+      return locale.monthNames[month - 1] ?? '';
+  }
+}
+
+/** d, dd: the day of the month; ddd (Mon), dddd (Monday): the weekday of serial day `day`. */
+function dayText(n: number, dayOfMonth: number, day: number, locale: FormatLocale): string {
+  if (n <= 2) return twoDigit(n, dayOfMonth);
+  const w = weekdayFromSerial(day);
+  return (n === 3 ? locale.dayShort[w] : locale.dayNames[w]) ?? '';
+}
+
+function ampmText(t: { short: boolean; lower: boolean }, hour: number, locale: FormatLocale): string {
+  const pm = hour >= 12;
+  if (!t.short) return pm ? locale.ampm[1] : locale.ampm[0];
+  if (pm) return t.lower ? 'p' : 'P';
+  return t.lower ? 'a' : 'A';
+}
+
+/** [h], [mm], [ss]: the whole duration in one unit, zero-padded to the run length. */
+function elapsedText(unit: 'h' | 'm' | 's', n: number, totalSeconds: number): string {
+  let v = totalSeconds;
+  if (unit === 'h') v = Math.floor(totalSeconds / 3600);
+  else if (unit === 'm') v = Math.floor(totalSeconds / 60);
+  return String(v).padStart(n, '0');
+}
+
+/** The date parts shown when a section has no date tokens (its serial's date is never read). */
+const NO_DATE = { year: 1900, month: 1, day: 0 };
+
 function renderDate(sec: Section, serial: number, locale: FormatLocale): string | null {
-  if (!(serial >= 0) || serial >= MAX_DATE_SERIAL) return null;
+  if (Number.isNaN(serial) || serial < 0 || serial >= MAX_DATE_SERIAL) return null;
   // Round to the shown precision first, so 23:59:59.7 reads as the next day.
   const sub = 10 ** sec.subsec;
   const total = Math.round(serial * 86_400 * sub);
@@ -892,9 +1095,10 @@ function renderDate(sec: Section, serial: number, locale: FormatLocale): string 
   const day = Math.floor(totalSeconds / 86_400);
   const secs = totalSeconds - day * 86_400;
   const hour = Math.floor(secs / 3600);
+  const shownHour = sec.hour12 ? hour % 12 || 12 : hour;
   const minute = Math.floor((secs % 3600) / 60);
   const second = secs % 60;
-  const ymd = sec.hasDate ? ymdFromSerial(day) : null;
+  const ymd = sec.hasDate ? ymdFromSerial(day) : NO_DATE;
 
   let text = '';
   for (const t of sec.tokens) {
@@ -902,55 +1106,33 @@ function renderDate(sec: Section, serial: number, locale: FormatLocale): string 
       case 'lit':
         text += t.s;
         break;
-      case 'year': {
-        const y = ymd?.year ?? 1900;
-        text += t.n <= 2 ? pad2(y % 100) : String(y).padStart(4, '0');
+      case 'year':
+        text += yearText(t.n, ymd.year);
         break;
-      }
-      case 'month': {
-        const m = ymd?.month ?? 1;
-        if (t.n === 1) text += String(m);
-        else if (t.n === 2) text += pad2(m);
-        else if (t.n === 3) text += locale.monthShort[m - 1] ?? '';
-        else if (t.n === 5) text += (locale.monthNames[m - 1] ?? '').charAt(0);
-        else text += locale.monthNames[m - 1] ?? '';
+      case 'month':
+        text += monthText(t.n, ymd.month, locale);
         break;
-      }
-      case 'day': {
-        if (t.n <= 2) {
-          const d = ymd?.day ?? 0;
-          text += t.n === 1 ? String(d) : pad2(d);
-        } else {
-          const w = weekdayFromSerial(day);
-          text += (t.n === 3 ? locale.dayShort[w] : locale.dayNames[w]) ?? '';
-        }
+      case 'day':
+        text += dayText(t.n, ymd.day, day, locale);
         break;
-      }
-      case 'hour': {
-        const h = sec.hour12 ? hour % 12 || 12 : hour;
-        text += t.n === 1 ? String(h) : pad2(h);
+      case 'hour':
+        text += twoDigit(t.n, shownHour);
         break;
-      }
       case 'minute':
-        text += t.n === 1 ? String(minute) : pad2(minute);
+        text += twoDigit(t.n, minute);
         break;
       case 'second':
-        text += t.n === 1 ? String(second) : pad2(second);
+        text += twoDigit(t.n, second);
         break;
       case 'subsec':
         text += locale.decimal + String(fraction).padStart(sec.subsec, '0').slice(0, t.n).padEnd(t.n, '0');
         break;
       case 'ampm':
-        if (t.short) {
-          const s = hour < 12 ? 'A' : 'P';
-          text += t.lower ? s.toLowerCase() : s;
-        } else text += hour < 12 ? locale.ampm[0] : locale.ampm[1];
+        text += ampmText(t, hour, locale);
         break;
-      case 'elapsed': {
-        const v = t.unit === 'h' ? Math.floor(totalSeconds / 3600) : t.unit === 'm' ? Math.floor(totalSeconds / 60) : totalSeconds;
-        text += String(v).padStart(t.n, '0');
+      case 'elapsed':
+        text += elapsedText(t.unit, t.n, totalSeconds);
         break;
-      }
       default:
         break;
     }
@@ -982,6 +1164,11 @@ export function formatValue(value: Scalar, code: string | undefined, locale: For
   if (isError(value)) return { text: value.code };
   const c = compiled(code);
   if (typeof value === 'string') return c.text ? result(renderText(c.text, value), c.text) : { text: value };
+  return formatNumber(c, value, locale);
+}
+
+/** formatValue for a number: picks the section and renders it, falling back to General. */
+function formatNumber(c: Compiled, value: number, locale: FormatLocale): FormattedValue {
   if (c.general || !Number.isFinite(value)) return { text: generalText(value, locale) };
   const { sec, signed } = pickSection(c, value);
   if (!sec) return { text: generalText(value, locale) };
@@ -1003,11 +1190,16 @@ export function formatCategory(code: string | undefined): FormatCategory {
   if (c.general) return 'general';
   const sec = c.sections[0];
   if (!sec || sec.kind === 'text') return c.text ? 'text' : 'general';
-  if (sec.kind === 'date') {
-    if (sec.hasElapsed) return 'duration';
-    if (sec.hasDate && sec.hasTime) return 'datetime';
-    return sec.hasDate ? 'date' : 'time';
-  }
+  return sec.kind === 'date' ? dateCategory(sec) : numberCategory(sec);
+}
+
+function dateCategory(sec: Section): FormatCategory {
+  if (sec.hasElapsed) return 'duration';
+  if (sec.hasDate && sec.hasTime) return 'datetime';
+  return sec.hasDate ? 'date' : 'time';
+}
+
+function numberCategory(sec: Section): FormatCategory {
   if (sec.mode === 'scientific') return 'scientific';
   if (sec.mode === 'fraction') return 'fraction';
   if (sec.mode === 'general') return 'general';

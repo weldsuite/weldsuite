@@ -7,8 +7,16 @@
  * small private parser below.
  */
 
-import { daysInMonth, isLeapYear, localSerial, serialFromUtcMs, weekdayFromSerial, ymdFromSerial } from '../../format/date';
-import { ERR, isError, parseNumericText, toNumber, type CellError, type EvalValue } from '../../values';
+import {
+  daysInMonth,
+  isLeapYear,
+  localSerial,
+  serialFromUtcMs,
+  weekdayFromSerial,
+  ymdFromSerial,
+  type YMD,
+} from '../../format/date';
+import { ERR, isError, parseNumericText, toNumber, type CellError, type EvalValue, type Scalar } from '../../values';
 import type { EvalContext, FunctionSpec } from '../types';
 import { bool, finite, int, num, toScalar, values2d } from './helpers';
 
@@ -122,10 +130,60 @@ function parseTimeText(s: string): number | null {
   return (h * 3600 + min * 60 + sec) / 86_400;
 }
 
-const ISO_DATE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]+(.+))?$/i;
-const SLASH_DATE = /^(\d{1,4})\/(\d{1,2})\/(\d{1,4})(?:\s+(.+))?$/;
-const DAY_MONTH_YEAR = /^(\d{1,2})[-\s]([A-Za-z]{3,9}\.?)[-\s,]\s*(\d{2,4})(?:\s+(.+))?$/;
-const MONTH_DAY_YEAR = /^([A-Za-z]{3,9}\.?)[-\s](\d{1,2})(?:,\s*|\s+|-)(\d{2,4})(?:\s+(.+))?$/;
+/**
+ * A date layout: `date` matches the date at the start of the text, `separator`
+ * the characters allowed between it and a time, and `serial` reads the match.
+ */
+interface DateLayout {
+  date: RegExp;
+  separator: RegExp;
+  serial(m: RegExpExecArray): number | null;
+}
+
+const SPACES = /^\s*/;
+
+const DATE_LAYOUTS: readonly DateLayout[] = [
+  // yyyy-mm-dd, the time after spaces or a T
+  {
+    date: /^(\d{4})-(\d{1,2})-(\d{1,2})/,
+    separator: /^[T\s]*/i,
+    serial: (m) => validDate(Number(m[1]), Number(m[2]), Number(m[3])),
+  },
+  // m/d/yyyy or yyyy/m/d
+  {
+    date: /^(\d{1,4})\/(\d{1,2})\/(\d{1,4})/,
+    separator: SPACES,
+    serial: (m) => {
+      const [a, b, c] = [m[1]!, m[2]!, m[3]!];
+      return a.length === 4 ? validDate(Number(a), Number(b), Number(c)) : validDate(fullYear(c), Number(a), Number(b));
+    },
+  },
+  // d-mmm-yyyy, d mmm yyyy
+  {
+    date: /^(\d{1,2})[-\s]([A-Za-z]{3,9}\.?)[-\s,]\s*(\d{2,4})/,
+    separator: SPACES,
+    serial: (m) => validDate(fullYear(m[3]!), monthFromName(m[2]!), Number(m[1])),
+  },
+  // mmm d, yyyy, mmm-d-yyyy
+  {
+    date: /^([A-Za-z]{3,9}\.?)[-\s](\d{1,2})(?:,\s*|\s+|-)(\d{2,4})/,
+    separator: SPACES,
+    serial: (m) => validDate(fullYear(m[3]!), monthFromName(m[1]!), Number(m[2])),
+  },
+];
+
+/**
+ * What follows a date: undefined when nothing does, else the time text after
+ * one or more separator characters (which leave it at least one character), or
+ * null when the text does not have that shape. The time may not span lines.
+ */
+function timeAfterDate(rest: string, separator: RegExp): string | null | undefined {
+  if (rest === '') return undefined;
+  const skip = separator.exec(rest)?.[0].length ?? 0;
+  if (skip === 0) return null;
+  const time = rest.slice(Math.min(skip, rest.length - 1));
+  return /[\n\r\u2028\u2029]/.test(time) ? null : time;
+}
 
 /**
  * Parses date and/or time text to a serial: ISO yyyy-mm-dd, m/d/yyyy,
@@ -137,28 +195,17 @@ function parseDateTimeText(input: string): number | null {
   if (s === '') return null;
   const time = parseTimeText(s);
   if (time !== null) return time;
-
-  let date: number | null = null;
-  let rest: string | undefined;
-  let m: RegExpExecArray | null;
-  if ((m = ISO_DATE.exec(s))) {
-    date = validDate(Number(m[1]), Number(m[2]), Number(m[3]));
-    rest = m[4];
-  } else if ((m = SLASH_DATE.exec(s))) {
-    const [a, b, c] = [m[1]!, m[2]!, m[3]!];
-    date = a.length === 4 ? validDate(Number(a), Number(b), Number(c)) : validDate(fullYear(c), Number(a), Number(b));
-    rest = m[4];
-  } else if ((m = DAY_MONTH_YEAR.exec(s))) {
-    date = validDate(fullYear(m[3]!), monthFromName(m[2]!), Number(m[1]));
-    rest = m[4];
-  } else if ((m = MONTH_DAY_YEAR.exec(s))) {
-    date = validDate(fullYear(m[3]!), monthFromName(m[1]!), Number(m[2]));
-    rest = m[4];
+  for (const layout of DATE_LAYOUTS) {
+    const m = layout.date.exec(s);
+    const rest = m ? timeAfterDate(s.slice(m[0].length), layout.separator) : null;
+    if (!m || rest === null) continue;
+    const date = layout.serial(m);
+    if (date === null) return null;
+    if (rest === undefined) return date;
+    const t = parseTimeText(rest.trim());
+    return t === null ? null : date + t;
   }
-  if (date === null) return null;
-  if (rest === undefined) return date;
-  const t = parseTimeText(rest.trim());
-  return t === null ? null : date + t;
+  return null;
 }
 
 /** A date/time argument: numbers as they are, text parsed as a number or a date. */
@@ -292,33 +339,51 @@ function isLastOfFebruary(y: number, m: number, d: number): boolean {
   return m === 2 && d === (isLeapYear(y) ? 29 : 28);
 }
 
+/** Days from day d1 of a's month to day d2 of b's month on a calendar of 30-day months. */
+function diff360(a: YMD, d1: number, b: YMD, d2: number): number {
+  return (b.year - a.year) * 360 + (b.month - a.month) * 30 + d2 - d1;
+}
+
 /** DAYS360: US (NASD) method by default, European when `european`. */
 function days360(start: number, end: number, european: boolean): number {
   const a = ymdFromSerial(start);
   const b = ymdFromSerial(end);
-  let d1 = a.day;
-  let d2 = b.day;
-  let m2 = b.month;
-  let y2 = b.year;
-  if (european) {
-    if (d1 === 31) d1 = 30;
-    if (d2 === 31) d2 = 30;
-  } else {
-    if (d1 === 31 || isLastOfFebruary(a.year, a.month, d1)) d1 = 30;
-    if (d2 === 31) {
-      if (d1 !== 30) {
-        d2 = 1;
-        m2++;
-        if (m2 > 12) {
-          m2 = 1;
-          y2++;
-        }
-      } else {
-        d2 = 30;
-      }
-    }
+  if (european) return diff360(a, Math.min(a.day, 30), b, Math.min(b.day, 30));
+  const d1 = a.day === 31 || isLastOfFebruary(a.year, a.month, a.day) ? 30 : a.day;
+  if (b.day !== 31) return diff360(a, d1, b, b.day);
+  if (d1 === 30) return diff360(a, d1, b, 30);
+  // Otherwise an end on the 31st moves to the 1st of the next month, 30 days past the 1st of its own.
+  return diff360(a, d1, b, 1) + 30;
+}
+
+/** YEARFRAC basis 0: 30/360 with Excel's US end-of-month rules, which differ from DAYS360's. */
+function yearFrac30(a: YMD, b: YMD): number {
+  const startLastOfFeb = isLastOfFebruary(a.year, a.month, a.day);
+  const bothLastOfFeb = startLastOfFeb && isLastOfFebruary(b.year, b.month, b.day);
+  const d1 = a.day === 31 || startLastOfFeb ? 30 : a.day;
+  const d2 = (b.day === 31 && a.day >= 30) || bothLastOfFeb ? 30 : b.day;
+  return diff360(a, d1, b, d2) / 360;
+}
+
+/** True when b is in a's year, or in the next year on or before a's anniversary. */
+function withinAYear(a: YMD, b: YMD): boolean {
+  if (a.year === b.year) return true;
+  if (a.year + 1 !== b.year) return false;
+  return a.month > b.month || (a.month === b.month && a.day >= b.day);
+}
+
+/** YEARFRAC basis 1: actual/actual, over the average length of the years spanned past one year. */
+function yearFracActual(s: number, e: number, a: YMD, b: YMD): number {
+  if (withinAYear(a, b)) {
+    const leap =
+      (a.year === b.year && isLeapYear(a.year)) ||
+      feb29Between(s, e, a.year, b.year) ||
+      (b.month === 2 && b.day === 29);
+    return (e - s) / (leap ? 366 : 365);
   }
-  return (y2 - a.year) * 360 + (m2 - a.month) * 30 + d2 - d1;
+  const years = b.year - a.year + 1;
+  const average = (firstOfMonth(b.year + 1, 0) - firstOfMonth(a.year, 0)) / years;
+  return (e - s) / average;
 }
 
 /** YEARFRAC, following Excel's per-basis rules (30/360 US, actual/actual, actual/360, actual/365, 30/360 EU). */
@@ -328,46 +393,16 @@ function yearFrac(s0: number, e0: number, basis: number): number | CellError {
   const a = ymdFromSerial(s);
   const b = ymdFromSerial(e);
   switch (basis) {
-    case 0: {
-      let d1 = a.day;
-      let d2 = b.day;
-      if (d1 === 31 && d2 === 31) {
-        d1 = 30;
-        d2 = 30;
-      } else if (d1 === 31) {
-        d1 = 30;
-      } else if (d1 === 30 && d2 === 31) {
-        d2 = 30;
-      } else if (isLastOfFebruary(a.year, a.month, d1) && isLastOfFebruary(b.year, b.month, d2)) {
-        d1 = 30;
-        d2 = 30;
-      } else if (isLastOfFebruary(a.year, a.month, d1)) {
-        d1 = 30;
-      }
-      return ((b.year - a.year) * 360 + (b.month - a.month) * 30 + d2 - d1) / 360;
-    }
-    case 1: {
-      const withinYear =
-        a.year === b.year || (a.year + 1 === b.year && (a.month > b.month || (a.month === b.month && a.day >= b.day)));
-      if (withinYear) {
-        let length = 365;
-        if (a.year === b.year && isLeapYear(a.year)) length = 366;
-        else if (feb29Between(s, e, a.year, b.year) || (b.month === 2 && b.day === 29)) length = 366;
-        return (e - s) / length;
-      }
-      const years = b.year - a.year + 1;
-      const average = (firstOfMonth(b.year + 1, 0) - firstOfMonth(a.year, 0)) / years;
-      return (e - s) / average;
-    }
+    case 0:
+      return yearFrac30(a, b);
+    case 1:
+      return yearFracActual(s, e, a, b);
     case 2:
       return (e - s) / 360;
     case 3:
       return (e - s) / 365;
-    case 4: {
-      const d1 = Math.min(a.day, 30);
-      const d2 = Math.min(b.day, 30);
-      return ((b.year - a.year) * 360 + (b.month - a.month) * 30 + d2 - d1) / 360;
-    }
+    case 4:
+      return diff360(a, Math.min(a.day, 30), b, Math.min(b.day, 30)) / 360;
     default:
       return ERR.num;
   }
@@ -422,15 +457,21 @@ function holidaysArg(v: EvalValue | undefined, ctx: EvalContext): number[] | Cel
   const out = new Set<number>();
   for (const row of data) {
     for (const x of row) {
-      if (x === null) continue;
-      if (typeof x === 'boolean') return ERR.value;
-      const n = serialArg(x, ctx);
-      if (isError(n)) return n;
-      if (n < 0) return ERR.num;
-      out.add(Math.floor(n));
+      const day = holidayDay(x, ctx);
+      if (isError(day)) return day;
+      if (day !== null) out.add(day);
     }
   }
   return [...out].sort((a, b) => a - b);
+}
+
+/** One holiday entry as a whole-day serial; null for a blank, which is skipped. */
+function holidayDay(x: Scalar, ctx: EvalContext): number | null | CellError {
+  if (x === null) return null;
+  if (typeof x === 'boolean') return ERR.value;
+  const n = serialArg(x, ctx);
+  if (isError(n)) return n;
+  return n < 0 ? ERR.num : Math.floor(n);
 }
 
 class WorkCalendar {

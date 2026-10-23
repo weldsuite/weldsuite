@@ -25,7 +25,7 @@ import {
 } from '../values';
 import { getFunction } from './functions/registry';
 import { parseFormula, type AstNode, type BinaryOp } from './parser';
-import type { EvalContext } from './types';
+import type { EagerFunctionSpec, EvalContext } from './types';
 
 /** Largest array the evaluator will materialise from a range (cells). */
 export const MAX_MATRIX_CELLS = 5_000_000;
@@ -150,11 +150,22 @@ function callFunction(name: string, argNodes: AstNode[], ctx: EvalContext): Eval
 
   const scalarPositions =
     spec.scalarArgs === 'all' ? args.map((_, i) => i) : spec.scalarArgs.filter((i) => i < args.length);
-  let rows = 1;
-  let cols = 1;
-  let lifted = false;
+  const arrays = arrayArgs(args, scalarPositions, ctx);
+  if (isError(arrays)) return arrays;
+  if (arrays.size === 0) {
+    for (const i of scalarPositions) args[i] = toScalar(args[i]!, ctx);
+    return spec.impl(args, ctx);
+  }
+  return liftCall(spec, args, scalarPositions, arrays, ctx);
+}
+
+/**
+ * The scalar arguments that are multi-cell ranges or arrays, by position, as
+ * arrays: these make the call lift. An error reading a range is returned.
+ */
+function arrayArgs(args: EvalValue[], positions: number[], ctx: EvalContext): Map<number, Matrix> | CellError {
   const arrays = new Map<number, Matrix>();
-  for (const i of scalarPositions) {
+  for (const i of positions) {
     const a = args[i]!;
     if (isRange(a) && (a.r1 !== a.r2 || a.c1 !== a.c2)) {
       const m = toMatrix(a, ctx);
@@ -162,24 +173,31 @@ function callFunction(name: string, argNodes: AstNode[], ctx: EvalContext): Eval
       arrays.set(i, m);
     } else if (isMatrix(a) && (a.rows !== 1 || a.cols !== 1)) {
       arrays.set(i, a);
-    } else {
-      continue;
     }
-    const m = arrays.get(i)!;
+  }
+  return arrays;
+}
+
+/** Calls `spec` element-wise over the broadcast shape of `arrays`, other scalar arguments as single values. */
+function liftCall(
+  spec: EagerFunctionSpec,
+  args: EvalValue[],
+  positions: number[],
+  arrays: Map<number, Matrix>,
+  ctx: EvalContext,
+): Matrix {
+  let rows = 1;
+  let cols = 1;
+  for (const m of arrays.values()) {
     rows = Math.max(rows, m.rows);
     cols = Math.max(cols, m.cols);
-    lifted = true;
-  }
-  if (!lifted) {
-    for (const i of scalarPositions) args[i] = toScalar(args[i]!, ctx);
-    return spec.impl(args, ctx);
   }
   const data: Scalar[][] = [];
   for (let r = 0; r < rows; r++) {
     const row: Scalar[] = [];
     for (let c = 0; c < cols; c++) {
       const callArgs = args.slice();
-      for (const i of scalarPositions) {
+      for (const i of positions) {
         const m = arrays.get(i);
         callArgs[i] = m ? broadcastAt(m, r, c) : toScalar(args[i]!, ctx);
       }
@@ -238,7 +256,13 @@ export function binaryScalar(op: Exclude<BinaryOp, ':'>, a: Scalar, b: Scalar): 
       return compareScalars(a, b) <= 0;
     case '>=':
       return compareScalars(a, b) >= 0;
+    default:
+      return arithmetic(op, a, b);
   }
+}
+
+/** + - * / ^ after coercing both sides to numbers; a non-finite result is #NUM!. */
+function arithmetic(op: '+' | '-' | '*' | '/' | '^', a: Scalar, b: Scalar): Scalar {
   const x = toNumber(a);
   if (isError(x)) return x;
   const y = toNumber(b);

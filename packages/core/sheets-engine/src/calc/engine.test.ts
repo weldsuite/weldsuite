@@ -95,7 +95,7 @@ describe('Engine spills', () => {
     set('A3', 'y');
     engine.recalc();
     expect(get('A1')).toMatchObject({ code: '#SPILL!' });
-    expect(get('A2')).toBe(null);
+    expect(get('A2')).toBeNull();
   });
 
   it('updates readers when a spill shrinks', () => {
@@ -107,7 +107,7 @@ describe('Engine spills', () => {
     expect(get('B3')).toBe(2);
     set('A1', '=C1:C2*1');
     engine.recalc();
-    expect(get('A3')).toBe(null);
+    expect(get('A3')).toBeNull();
     expect(get('B3')).toBe(0);
   });
 });

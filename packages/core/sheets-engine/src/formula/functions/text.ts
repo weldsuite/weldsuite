@@ -147,22 +147,31 @@ function textBeforeAfter(args: EvalValue[], ctx: EvalContext, after: boolean): E
   const matchEnd = opt(args, 4, false, (v) => bool(v, ctx));
   if (isError(matchEnd)) return matchEnd;
   if (instance === 0 || (mode !== 0 && mode !== 1)) return ERR.value;
-  const notFound = (): EvalValue => (args.length > 5 ? (toScalar(args[5]!, ctx) ?? '') : ERR.na);
-  if (Math.abs(instance) > s.length && !delims.includes('')) return notFound();
-
-  let pick: Match | undefined;
-  if (delims.includes('')) {
-    pick = instance > 0 ? { start: 0, end: 0 } : { start: s.length, end: s.length };
-  } else {
-    const matches = findAll(s, delims, mode === 1);
-    if (matchEnd) {
-      if (instance > 0) matches.push({ start: s.length, end: s.length });
-      else matches.unshift({ start: 0, end: 0 });
-    }
-    pick = instance > 0 ? matches[instance - 1] : matches[matches.length + instance];
-  }
-  if (!pick) return notFound();
+  const pick = delimiterAt(s, delims, instance, mode === 1, matchEnd);
+  if (!pick) return args.length > 5 ? (toScalar(args[5]!, ctx) ?? '') : ERR.na;
   return after ? s.slice(pick.end) : s.slice(0, pick.start);
+}
+
+/**
+ * The delimiter TEXTBEFORE/TEXTAFTER cut at: the instance-th match, counted
+ * from the end when negative. An empty delimiter matches at the start (or the
+ * end); with `matchEnd` the end (or the start) of the text counts as a match.
+ */
+function delimiterAt(
+  s: string,
+  delims: readonly string[],
+  instance: number,
+  ignoreCase: boolean,
+  matchEnd: boolean,
+): Match | undefined {
+  if (delims.includes('')) return instance > 0 ? { start: 0, end: 0 } : { start: s.length, end: s.length };
+  if (Math.abs(instance) > s.length) return undefined;
+  const matches = findAll(s, delims, ignoreCase);
+  if (matchEnd) {
+    if (instance > 0) matches.push({ start: s.length, end: s.length });
+    else matches.unshift({ start: 0, end: 0 });
+  }
+  return instance > 0 ? matches[instance - 1] : matches[matches.length + instance];
 }
 
 function regex(pattern: string, caseArg: number, global: boolean): RegExp | CellError {
@@ -185,7 +194,31 @@ function expandReplacement(rep: string, m: RegExpMatchArray): string {
   });
 }
 
-const NUMERIC = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const NUMERIC = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/** Strips leading and trailing ASCII spaces only, unlike String#trim. */
+function trimSpaces(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === ' ') start++;
+  while (end > start && s[end - 1] === ' ') end--;
+  return s.slice(start, end);
+}
+
+/** Every value of the arguments as text, row-major, leaving out empty text when `ignoreEmpty`. */
+function texts(args: EvalValue[], ctx: EvalContext, ignoreEmpty: boolean): string[] | CellError {
+  const parts: string[] = [];
+  for (const a of args) {
+    const values = flat(a, ctx);
+    if (isError(values)) return values;
+    for (const v of values) {
+      const t = text(v, ctx);
+      if (isError(t)) return t;
+      if (!(ignoreEmpty && t === '')) parts.push(t);
+    }
+  }
+  return parts;
+}
 
 // ---------------------------------------------------------------------------
 // Implementations shared by the byte (…B) variants. Byte counting only
@@ -318,16 +351,8 @@ export const textFunctions: FunctionSpec[] = [
       if (isError(delims)) return delims;
       const ignoreEmpty = bool(args[1]!, ctx);
       if (isError(ignoreEmpty)) return ignoreEmpty;
-      const parts: string[] = [];
-      for (const a of args.slice(2)) {
-        const values = flat(a, ctx);
-        if (isError(values)) return values;
-        for (const v of values) {
-          const t = text(v, ctx);
-          if (isError(t)) return t;
-          if (!(ignoreEmpty && t === '')) parts.push(t);
-        }
-      }
+      const parts = texts(args.slice(2), ctx, ignoreEmpty);
+      if (isError(parts)) return parts;
       let out = parts[0] ?? '';
       for (let i = 1; i < parts.length; i++) {
         out += (delims.length ? delims[(i - 1) % delims.length]! : '') + parts[i]!;
@@ -360,7 +385,8 @@ export const textFunctions: FunctionSpec[] = [
     let prevLetter = false;
     for (const ch of s) {
       const letter = /\p{L}/u.test(ch);
-      out += letter ? (prevLetter ? ch.toLowerCase() : ch.toUpperCase()) : ch;
+      if (!letter) out += ch;
+      else out += prevLetter ? ch.toLowerCase() : ch.toUpperCase();
       prevLetter = letter;
     }
     return out;
@@ -368,7 +394,7 @@ export const textFunctions: FunctionSpec[] = [
   scalarFn('TRIM', 1, 1, (args, ctx) => {
     const s = text(args[0]!, ctx);
     // Only the ASCII space, unlike String#trim.
-    return isError(s) ? s : s.replace(/^ +| +$/g, '').replace(/ {2,}/g, ' ');
+    return isError(s) ? s : trimSpaces(s).replace(/ {2,}/g, ' ');
   }),
   scalarFn('CLEAN', 1, 1, (args, ctx) => {
     const s = text(args[0]!, ctx);
@@ -651,17 +677,8 @@ export const textFunctions: FunctionSpec[] = [
     impl(args, ctx) {
       const d = text(args[0]!, ctx);
       if (isError(d)) return d;
-      const parts: string[] = [];
-      for (const a of args.slice(1)) {
-        const values = flat(a, ctx);
-        if (isError(values)) return values;
-        for (const v of values) {
-          const t = text(v, ctx);
-          if (isError(t)) return t;
-          parts.push(t);
-        }
-      }
-      return capped(parts.join(d));
+      const parts = texts(args.slice(1), ctx, false);
+      return isError(parts) ? parts : capped(parts.join(d));
     },
   },
   scalarFn('HYPERLINK', 1, 2, (args, ctx) => {

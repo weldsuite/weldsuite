@@ -106,7 +106,7 @@ export function sameScalar(a: Scalar, b: Scalar): boolean {
 // Coercion, Excel rules
 // ---------------------------------------------------------------------------
 
-const NUMERIC_TEXT = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const NUMERIC_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /**
  * Parses text the way arithmetic on a string does in Excel ("12" + 1 = 13).
@@ -171,13 +171,21 @@ export function formatGeneralNumber(n: number): string {
   const abs = Math.abs(n);
   if (abs >= 1e11 || abs < 1e-9) {
     const [mant = '0', exp = '0'] = n.toExponential(5).split('e');
-    const m = mant.includes('.') ? mant.replace(/0+$/, '').replace(/\.$/, '') : mant;
+    const m = mant.includes('.') ? trimFraction(mant) : mant;
     const e = Number(exp);
     return `${m}E${e < 0 ? '-' : '+'}${String(Math.abs(e)).padStart(2, '0')}`;
   }
   const s = Number(n.toPrecision(15)).toString();
   if (!s.includes('e')) return s;
-  return n.toFixed(20).replace(/0+$/, '').replace(/\.$/, '');
+  return trimFraction(n.toFixed(20));
+}
+
+/** Drops trailing zeros, then a trailing decimal point: "1.500" → "1.5", "2.000" → "2". */
+function trimFraction(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === '0') end--;
+  if (end > 0 && s[end - 1] === '.') end--;
+  return s.slice(0, end);
 }
 
 /**
@@ -195,7 +203,8 @@ export function compareScalars(a: Scalar, b: Scalar): number {
   if (typeof ra === 'string' && typeof rb === 'string') {
     const la = ra.toLowerCase();
     const lb = rb.toLowerCase();
-    return la < lb ? -1 : la > lb ? 1 : 0;
+    if (la < lb) return -1;
+    return la > lb ? 1 : 0;
   }
   if (typeof ra === 'boolean' && typeof rb === 'boolean') return Number(ra) - Number(rb);
   return 0;

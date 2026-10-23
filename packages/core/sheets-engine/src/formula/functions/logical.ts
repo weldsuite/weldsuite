@@ -114,6 +114,33 @@ function logicals(args: EvalValue[], ctx: EvalContext): boolean[] | CellError {
   return out.length ? out : ERR.value;
 }
 
+/**
+ * IFS from pair `i` on, once its condition is an array: element-wise, so every
+ * remaining condition is evaluated, and a value only when some element picks it.
+ */
+function ifsEach(args: Thunk[], i: number, first: Matrix, ctx: EvalContext): Matrix {
+  const conds: Array<Matrix | Scalar> = [first];
+  for (let j = i + 2; j < args.length; j += 2) conds.push(arrayOrScalar(args[j]!(), ctx));
+  const value = memo((k) => arrayOrScalar(branch(args[i + 2 * k + 1], 0), ctx));
+  let rows = 1;
+  let cols = 1;
+  for (const m of conds) {
+    if (isMatrix(m)) {
+      rows = Math.max(rows, m.rows);
+      cols = Math.max(cols, m.cols);
+    }
+  }
+  return build(rows, cols, (r, c) => {
+    for (let k = 0; k < conds.length; k++) {
+      const m = conds[k]!;
+      const b = truth(isMatrix(m) ? broadcastAt(m, r, c) : m);
+      if (isError(b)) return b;
+      if (b) return at(value(k), r, c);
+    }
+    return ERR.na;
+  });
+}
+
 function logicalFn(name: string, combine: (xs: boolean[]) => boolean): FunctionSpec {
   return {
     name,
@@ -167,33 +194,10 @@ export const logicalFunctions: FunctionSpec[] = [
       if (args.length % 2) return { ...ERR.na, message: 'IFS takes condition, value pairs' };
       for (let i = 0; i < args.length; i += 2) {
         const cond = arrayOrScalar(args[i]!(), ctx);
-        if (!isMatrix(cond)) {
-          const b = truth(cond);
-          if (isError(b)) return b;
-          if (b) return branch(args[i + 1], 0);
-          continue;
-        }
-        // Element-wise from here: every remaining condition is evaluated.
-        const conds: Array<Matrix | Scalar> = [cond];
-        for (let j = i + 2; j < args.length; j += 2) conds.push(arrayOrScalar(args[j]!(), ctx));
-        const value = memo((k) => arrayOrScalar(branch(args[i + 2 * k + 1], 0), ctx));
-        let rows = 1;
-        let cols = 1;
-        for (const m of conds) {
-          if (isMatrix(m)) {
-            rows = Math.max(rows, m.rows);
-            cols = Math.max(cols, m.cols);
-          }
-        }
-        return build(rows, cols, (r, c) => {
-          for (let k = 0; k < conds.length; k++) {
-            const m = conds[k]!;
-            const b = truth(isMatrix(m) ? broadcastAt(m, r, c) : m);
-            if (isError(b)) return b;
-            if (b) return at(value(k), r, c);
-          }
-          return ERR.na;
-        });
+        if (isMatrix(cond)) return ifsEach(args, i, cond, ctx);
+        const b = truth(cond);
+        if (isError(b)) return b;
+        if (b) return branch(args[i + 1], 0);
       }
       return ERR.na;
     },

@@ -15,6 +15,8 @@ import {
   parseNumericText,
   type CellError,
   type EvalValue,
+  type Matrix,
+  type RangeRef,
   type Scalar,
 } from '../../values';
 import { toMatrix, toScalar } from '../evaluator';
@@ -67,24 +69,36 @@ export function visitArgs(
   fn: (value: Scalar, direct: boolean) => boolean | void,
 ): void {
   for (const a of args) {
-    if (isRange(a)) {
-      let stop = false;
-      ctx.host.forEachValue(a.sheetId, a, (_r, _c, value) => {
-        if (stop) return;
-        if (fn(value, false) === false) stop = true;
-      });
-      if (stop) return;
-    } else if (isMatrix(a)) {
-      for (const row of a.data) {
-        for (const value of row) {
-          if (value === null) continue;
-          if (fn(value, false) === false) return;
-        }
-      }
-    } else if (fn(a, true) === false) {
-      return;
+    let keepGoing: boolean;
+    if (isRange(a)) keepGoing = visitRange(a, ctx, fn);
+    else if (isMatrix(a)) keepGoing = visitMatrix(a, fn);
+    else keepGoing = fn(a, true) !== false;
+    if (!keepGoing) return;
+  }
+}
+
+/** visitArgs for one range argument; false when `fn` asked to stop. */
+function visitRange(
+  range: RangeRef,
+  ctx: EvalContext,
+  fn: (value: Scalar, direct: boolean) => boolean | void,
+): boolean {
+  let stop = false;
+  ctx.host.forEachValue(range.sheetId, range, (_r, _c, value) => {
+    if (stop) return;
+    if (fn(value, false) === false) stop = true;
+  });
+  return !stop;
+}
+
+/** visitArgs for one array argument (blanks skipped); false when `fn` asked to stop. */
+function visitMatrix(m: Matrix, fn: (value: Scalar, direct: boolean) => boolean | void): boolean {
+  for (const row of m.data) {
+    for (const value of row) {
+      if (value !== null && fn(value, false) === false) return false;
     }
   }
+  return true;
 }
 
 /**
@@ -186,37 +200,45 @@ export function compileCriteria(criterion: Scalar): (v: Scalar) => boolean {
   }
 
   const n = parseNumericText(operand);
-  if (n !== null) {
-    const target = n;
-    const test = (x: number): boolean => {
-      switch (op) {
-        case '=':
-          return x === target;
-        case '<>':
-          return x !== target;
-        case '<':
-          return x < target;
-        case '>':
-          return x > target;
-        case '<=':
-          return x <= target;
-        default:
-          return x >= target;
-      }
-    };
-    return (v) => {
-      if (typeof v === 'number') return test(v);
-      if (op === '<>') return true;
-      return false;
-    };
-  }
+  if (n !== null) return numberCriterion(op, n);
 
   const upper = operand.toUpperCase();
-  if (upper === 'TRUE' || upper === 'FALSE') {
-    const b = upper === 'TRUE';
-    return (v) => (op === '<>' ? v !== b : op === '=' ? v === b : false);
-  }
+  if (upper === 'TRUE' || upper === 'FALSE') return booleanCriterion(op, upper === 'TRUE');
 
+  return textCriterion(op, operand);
+}
+
+/** A criterion with a numeric operand (">=10"): only numbers match, except that <> accepts anything else. */
+function numberCriterion(op: string, target: number): (v: Scalar) => boolean {
+  const test = (x: number): boolean => {
+    switch (op) {
+      case '=':
+        return x === target;
+      case '<>':
+        return x !== target;
+      case '<':
+        return x < target;
+      case '>':
+        return x > target;
+      case '<=':
+        return x <= target;
+      default:
+        return x >= target;
+    }
+  };
+  const nonNumber = op === '<>';
+  return (v) => (typeof v === 'number' ? test(v) : nonNumber);
+}
+
+/** A criterion with a TRUE/FALSE operand; ordering operators match nothing. */
+function booleanCriterion(op: string, b: boolean): (v: Scalar) => boolean {
+  if (op === '<>') return (v) => v !== b;
+  if (op === '=') return (v) => v === b;
+  return () => false;
+}
+
+/** A criterion with a text operand: = and <> match wildcards, the ordering operators compare text only. */
+function textCriterion(op: string, operand: string): (v: Scalar) => boolean {
   if (op === '=' || op === '<>') {
     const re = wildcardRegExp(operand);
     const eq = (v: Scalar) => typeof v === 'string' && re.test(v);

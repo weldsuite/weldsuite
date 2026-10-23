@@ -17,6 +17,7 @@ import {
   type CellError,
   type EvalValue,
   type Matrix,
+  type RangeRef,
   type Scalar,
 } from '../../values';
 import { clippedExtent } from '../evaluator';
@@ -125,67 +126,85 @@ export interface Aligned {
  * `total` lets callers account for the blanks that were clipped off.
  */
 export function alignArgs(values: EvalValue[], ctx: EvalContext): Aligned | CellError {
-  let rows = -1;
-  let cols = -1;
+  const shape = arrayShape(values);
+  if (isError(shape)) return shape;
+  const ranges = values.filter(isRange);
+  const extent = shape === null ? referencesExtent(ranges, ctx) : arrayExtent(shape, ranges, ctx);
+  if (isError(extent)) return extent;
+  const empty = extent.rows === 0 || extent.cols === 0;
+  const rows = empty ? 0 : extent.rows;
+  const cols = empty ? 0 : extent.cols;
+  const mats: Matrix[] = [];
+  for (const v of values) {
+    const m = alignedMatrix(v, rows, cols, ctx);
+    if (isError(m)) return m;
+    mats.push(m);
+  }
+  return { mats, rows, cols, total: extent.total };
+}
+
+interface Extent {
+  rows: number;
+  cols: number;
+  /** Nominal cell count, as in Aligned. */
+  total: number;
+}
+
+/** The shape every non-reference argument shares, null when all are references. Mismatches are #VALUE!. */
+function arrayShape(values: EvalValue[]): { rows: number; cols: number } | null | CellError {
+  let shape: { rows: number; cols: number } | null = null;
   for (const v of values) {
     if (isError(v)) return v;
     if (isRange(v)) continue;
     const d = dims(v);
-    if (rows === -1) {
-      rows = d.rows;
-      cols = d.cols;
-    } else if (d.rows !== rows || d.cols !== cols) {
-      return ERR.value;
-    }
+    if (shape === null) shape = d;
+    else if (d.rows !== shape.rows || d.cols !== shape.cols) return ERR.value;
   }
-  const ranges = values.filter(isRange);
-  let total: number;
-  if (rows === -1) {
-    // Only references: nominal shapes must agree; read up to the furthest used cell.
-    const d0 = dims(ranges[0]!);
-    rows = 0;
-    cols = 0;
-    for (const r of ranges) {
-      const d = dims(r);
-      if (d.rows !== d0.rows || d.cols !== d0.cols) return ERR.value;
-      const e = usedExtent(r, ctx);
-      rows = Math.max(rows, e.rows);
-      cols = Math.max(cols, e.cols);
-    }
-    total = d0.rows * d0.cols;
-  } else {
-    // An array fixes the shape. A whole-column reference still fits when its
-    // used part does (A:A next to an array computed from A:A).
-    total = rows * cols;
-    for (const r of ranges) {
-      const d = dims(r);
-      if (d.rows === rows && d.cols === cols) continue;
-      const e = usedExtent(r, ctx);
-      if (d.rows < rows || d.cols < cols || e.rows > rows || e.cols > cols) return ERR.value;
-      total = Math.max(total, d.rows * d.cols);
-    }
+  return shape;
+}
+
+/** Only references: nominal shapes must agree; read up to the furthest used cell. */
+function referencesExtent(ranges: RangeRef[], ctx: EvalContext): Extent | CellError {
+  const d0 = dims(ranges[0]!);
+  let rows = 0;
+  let cols = 0;
+  for (const r of ranges) {
+    const d = dims(r);
+    if (d.rows !== d0.rows || d.cols !== d0.cols) return ERR.value;
+    const e = usedExtent(r, ctx);
+    rows = Math.max(rows, e.rows);
+    cols = Math.max(cols, e.cols);
   }
-  if (rows === 0 || cols === 0) {
-    rows = 0;
-    cols = 0;
+  return { rows, cols, total: d0.rows * d0.cols };
+}
+
+/**
+ * An array fixes the shape. A whole-column reference still fits when its
+ * used part does (A:A next to an array computed from A:A).
+ */
+function arrayExtent(
+  shape: { rows: number; cols: number },
+  ranges: RangeRef[],
+  ctx: EvalContext,
+): Extent | CellError {
+  const { rows, cols } = shape;
+  let total = rows * cols;
+  for (const r of ranges) {
+    const d = dims(r);
+    if (d.rows === rows && d.cols === cols) continue;
+    const e = usedExtent(r, ctx);
+    if (d.rows < rows || d.cols < cols || e.rows > rows || e.cols > cols) return ERR.value;
+    total = Math.max(total, d.rows * d.cols);
   }
-  const mats: Matrix[] = [];
-  for (const v of values) {
-    if (isRange(v)) {
-      if (rows === 0) {
-        mats.push(EMPTY_MATRIX);
-        continue;
-      }
-      const m = toMatrix({ ...v, r2: v.r1 + rows - 1, c2: v.c1 + cols - 1 }, ctx, false);
-      if (isError(m)) return m;
-      mats.push(m);
-    } else if (isMatrix(v)) {
-      mats.push(v);
-    } else {
-      mats.push(matrix([[v]]));
-    }
-  }
-  return { mats, rows, cols, total };
+  return { rows, cols, total };
+}
+
+/** One argument of alignArgs as a rows × cols matrix (references read from their top-left cell). */
+function alignedMatrix(v: EvalValue, rows: number, cols: number, ctx: EvalContext): Matrix | CellError {
+  if (isMatrix(v)) return v;
+  if (!isRange(v)) return matrix([[v]]);
+  if (rows === 0) return EMPTY_MATRIX;
+  return toMatrix({ ...v, r2: v.r1 + rows - 1, c2: v.c1 + cols - 1 }, ctx, false);
 }
 
 /** SUMIF/AVERAGEIF's result range: Excel resizes it to the criteria range from its top-left cell. */
@@ -223,28 +242,28 @@ export function scanIfs(target: EvalValue | null, pairs: CriteriaPair[], ctx: Ev
   const aligned = alignArgs(target === null ? ranges : [target, ...ranges], ctx);
   if (isError(aligned)) return aligned;
   const preds = pairs.map((p) => compileCriteria(p[1]));
-  const offset = target === null ? 0 : 1;
   const { mats, rows, cols, total } = aligned;
-  const crit = mats.slice(offset);
   const tgt = target === null ? null : mats[0]!;
+  const crit = tgt === null ? mats : mats.slice(1);
   let count = 0;
   const values: Scalar[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      let ok = true;
-      for (let k = 0; k < preds.length; k++) {
-        if (!preds[k]!(crit[k]!.data[r]![c]!)) {
-          ok = false;
-          break;
-        }
-      }
-      if (!ok) continue;
+      if (!allMatch(preds, crit, r, c)) continue;
       count++;
       if (tgt) values.push(tgt.data[r]![c]!);
     }
   }
   if (total > rows * cols && preds.every((p) => p(null))) count += total - rows * cols;
   return { count, values };
+}
+
+/** True when every criterion accepts the cell (r, c) of its own matrix. */
+function allMatch(preds: ((v: Scalar) => boolean)[], crit: Matrix[], r: number, c: number): boolean {
+  for (let k = 0; k < preds.length; k++) {
+    if (!preds[k]!(crit[k]!.data[r]![c]!)) return false;
+  }
+  return true;
 }
 
 /** SUMIF / AVERAGEIF scan: (range, criterion, [result range]). */
@@ -271,25 +290,9 @@ export function matchedNumbers(values: Scalar[]): number[] | CellError {
  * different sizes are #N/A.
  */
 export function pairedNumbers(a: EvalValue, b: EvalValue, ctx: EvalContext): { xs: number[]; ys: number[] } | CellError {
-  const da = dims(a);
-  const db = dims(b);
-  let fa: Scalar[];
-  let fb: Scalar[];
-  if (da.rows === db.rows && da.cols === db.cols) {
-    const al = alignArgs([a, b], ctx);
-    if (isError(al)) return al;
-    fa = flatten(al.mats[0]!);
-    fb = flatten(al.mats[1]!);
-  } else {
-    if (da.rows * da.cols !== db.rows * db.cols) return ERR.na;
-    const ma = toMatrix(a, ctx);
-    if (isError(ma)) return ma;
-    const mb = toMatrix(b, ctx);
-    if (isError(mb)) return mb;
-    fa = flatten(ma);
-    fb = flatten(mb);
-    if (fa.length !== fb.length) return ERR.na;
-  }
+  const flat = flattenPair(a, b, ctx);
+  if (isError(flat)) return flat;
+  const { fa, fb } = flat;
   const xs: number[] = [];
   const ys: number[] = [];
   for (let i = 0; i < fa.length; i++) {
@@ -305,19 +308,35 @@ export function pairedNumbers(a: EvalValue, b: EvalValue, ctx: EvalContext): { x
   return { xs, ys };
 }
 
+/**
+ * pairedNumbers' two data sets, flattened so they line up cell for cell:
+ * same-shaped ones are aligned, others only need the same cell count.
+ */
+function flattenPair(a: EvalValue, b: EvalValue, ctx: EvalContext): { fa: Scalar[]; fb: Scalar[] } | CellError {
+  const da = dims(a);
+  const db = dims(b);
+  if (da.rows === db.rows && da.cols === db.cols) {
+    const al = alignArgs([a, b], ctx);
+    if (isError(al)) return al;
+    return { fa: flatten(al.mats[0]!), fb: flatten(al.mats[1]!) };
+  }
+  if (da.rows * da.cols !== db.rows * db.cols) return ERR.na;
+  const ma = toMatrix(a, ctx);
+  if (isError(ma)) return ma;
+  const mb = toMatrix(b, ctx);
+  if (isError(mb)) return mb;
+  const fa = flatten(ma);
+  const fb = flatten(mb);
+  return fa.length === fb.length ? { fa, fb } : ERR.na;
+}
+
 /** Like collectNumbers but in row-major cell order (MODE breaks ties by first occurrence). */
 function orderedNumbers(args: EvalValue[], ctx: EvalContext): number[] | CellError {
   const out: number[] = [];
   for (const a of args) {
     if (isRange(a) || isMatrix(a)) {
-      const m = toMatrix(a, ctx);
-      if (isError(m)) return m;
-      for (const row of m.data) {
-        for (const v of row) {
-          if (isError(v)) return v;
-          if (typeof v === 'number') out.push(v);
-        }
-      }
+      const failed = pushGridNumbers(a, ctx, out);
+      if (failed) return failed;
     } else {
       const n = toNumber(a);
       if (isError(n)) return n;
@@ -325,6 +344,19 @@ function orderedNumbers(args: EvalValue[], ctx: EvalContext): number[] | CellErr
     }
   }
   return out;
+}
+
+/** Appends the numbers of a range or array to `out` in row-major order; returns the first error met, if any. */
+function pushGridNumbers(a: RangeRef | Matrix, ctx: EvalContext, out: number[]): CellError | null {
+  const m = toMatrix(a, ctx);
+  if (isError(m)) return m;
+  for (const row of m.data) {
+    for (const v of row) {
+      if (isError(v)) return v;
+      if (typeof v === 'number') out.push(v);
+    }
+  }
+  return null;
 }
 
 /** Every value of a range or array as a number; anything else is #VALUE! (regression inputs). */
@@ -424,13 +456,16 @@ function betaCf(x: number, a: number, b: number): number {
   return h;
 }
 
-/** Regularised incomplete beta function I_x(a, b). */
-export function betaInc(x: number, a: number, b: number): number {
+/**
+ * Regularised incomplete beta function I_x(p, q). Past the mean it uses the
+ * symmetry I_x(p, q) = 1 − I_{1−x}(q, p), where the continued fraction converges.
+ */
+export function betaInc(x: number, p: number, q: number): number {
   if (x <= 0) return 0;
   if (x >= 1) return 1;
-  const front = Math.exp(lnGamma(a + b) - lnGamma(a) - lnGamma(b) + a * Math.log(x) + b * Math.log1p(-x));
-  if (x < (a + 1) / (a + b + 2)) return (front * betaCf(x, a, b)) / a;
-  return 1 - (front * betaCf(1 - x, b, a)) / b;
+  const front = Math.exp(lnGamma(p + q) - lnGamma(p) - lnGamma(q) + p * Math.log(x) + q * Math.log1p(-x));
+  if (x < (p + 1) / (p + q + 2)) return (front * betaCf(x, p, q)) / p;
+  return 1 - (front * betaCf(1 - x, q, p)) / q;
 }
 
 /** Regularised lower incomplete gamma P(a, x). */
@@ -536,7 +571,8 @@ function solveIncreasing(f: (x: number) => number, df: (x: number) => number, lo
     else hi = x;
     const d = df(x);
     let next = x - fx / d;
-    if (!(d > 0) || !(next > lo && next < hi)) next = (lo + hi) / 2;
+    // Written so a NaN slope or step also falls back to bisection.
+    if (!(d > 0 && next > lo && next < hi)) next = (lo + hi) / 2;
     if (next === x || Math.abs(next - x) <= 1e-15 * Math.abs(next)) return next;
     x = next;
   }
@@ -574,7 +610,10 @@ function tUpperInv(q: number, df: number): number {
 
 function chisqPdf(x: number, k: number): number {
   if (x < 0) return 0;
-  if (x === 0) return k === 2 ? 0.5 : k < 2 ? Infinity : 0;
+  if (x === 0) {
+    if (k === 2) return 0.5;
+    return k < 2 ? Infinity : 0;
+  }
   return Math.exp((k / 2 - 1) * Math.log(x) - x / 2 - (k / 2) * Math.LN2 - lnGamma(k / 2));
 }
 
@@ -690,7 +729,9 @@ function percentRank(s: number[], x: number, digits: number, exc: boolean): numb
   let i = 0;
   while (i < n && s[i]! < x) i++;
   const rank = s[i] === x ? i : i - 1 + (x - s[i - 1]!) / (s[i]! - s[i - 1]!);
-  const r = exc ? (rank + 1) / (n + 1) : n === 1 ? 1 : rank / (n - 1);
+  let r: number;
+  if (exc) r = (rank + 1) / (n + 1);
+  else r = n === 1 ? 1 : rank / (n - 1);
   return truncDigits(r, digits);
 }
 
@@ -1122,6 +1163,14 @@ function gammaLnFn(name: string): FunctionSpec {
   return numericFn(name, 1, 1, ([x]) => (x! <= 0 ? ERR.num : lnGamma(x!)));
 }
 
+/** COUNT's rule: numbers anywhere; typed directly, also blanks, booleans and numeric text. */
+function countsAsNumber(v: Scalar, direct: boolean): boolean {
+  if (typeof v === 'number') return true;
+  if (!direct) return false;
+  if (v === null || typeof v === 'boolean') return true;
+  return typeof v === 'string' && !isError(toNumber(v));
+}
+
 function freedom(raw: number): number | CellError {
   const df = Math.trunc(raw);
   return df < 1 || df > 1e10 ? ERR.num : df;
@@ -1138,9 +1187,7 @@ export const statsFunctions: FunctionSpec[] = [
     impl(args, ctx) {
       let n = 0;
       visitArgs(args, ctx, (v, direct) => {
-        if (typeof v === 'number') n++;
-        else if (direct && (v === null || typeof v === 'boolean')) n++;
-        else if (direct && typeof v === 'string' && !isError(toNumber(v))) n++;
+        if (countsAsNumber(v, direct)) n++;
       });
       return n;
     },

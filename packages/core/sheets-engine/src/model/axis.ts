@@ -108,7 +108,10 @@ export class AxisDims {
 
   delete(at: number, count: number): void {
     const end = at + count;
-    const map = (i: number) => (i < at ? i : i >= end ? i - count : -1);
+    const map = (i: number) => {
+      if (i < at) return i;
+      return i >= end ? i - count : -1;
+    };
     shiftMap(this.sizes, map);
     shiftMap(this.styles, map);
     shiftSet(this.hidden, map);
