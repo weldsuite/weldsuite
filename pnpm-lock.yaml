@@ -3647,6 +3647,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/sheets-engine':
+        specifier: workspace:*
+        version: link:../../../packages/core/sheets-engine
       '@weldsuite/text':
         specifier: workspace:*
         version: link:../../../packages/core/text

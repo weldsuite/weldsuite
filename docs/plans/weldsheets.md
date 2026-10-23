@@ -144,7 +144,34 @@ The unused `sheets` table (`packages/core/db/src/schema/sheets.ts`, migration
   calculate 1.0 s, a single edit 5 ms, a row insert 1.0 s (full graph rebuild),
   snapshot 90 ms / 12 MB.
 
+**Phase 2 (editor, local only): done**, in `apps/web/platform/app/weldsheets`.
+
+- Module registered: route `/weldsheets` (+ an unauthenticated `/preview/weldsheets`
+  mirror for support videos and help screenshots), rail and module sidebar,
+  `sheets:*` permissions with role defaults, `sheets` in api-modules (port 8822,
+  `/api/sheets`, worker not built yet), reserved slug, app-store seed entry,
+  en/nl translations.
+- Editor: canvas grid (frozen panes, merges, text overflow and wrapping,
+  borders, fills, number formats), in-cell editor and formula bar kept in sync,
+  formula autocomplete, reference highlighting and point mode (click cells
+  while typing a formula), toolbar (formats, fonts, colours, borders, merge,
+  alignment, wrapping, freeze, Σ), sheet tabs (add, rename, duplicate,
+  delete, colour, reorder), right-click menu (insert/delete/hide rows and
+  columns), clipboard to and from Excel/Google Sheets, undo/redo,
+  status-bar sum/average/count.
+- Every edit goes through `SheetController.apply`, which phase 3 routes to
+  the SheetRoom socket.
+- Storage is temporary: an IndexedDB store per workspace in the browser
+  (`app/weldsheets/store/sheet-store.ts`) behind a `SheetStore` interface that
+  the sheets-api client replaces in phase 3. Nothing leaves the browser yet,
+  and the app only appears where an admin has installed it from the catalog.
+
 Known gaps, to pick up in later phases:
+
+- Autofill (dragging the fill handle) and auto-fit on double-clicking a
+  column border are not built yet; a double-click resets the size.
+- Remote cursors, comments, sharing and version history arrive with the
+  backend (phases 3 and 7).
 
 - Row/column insert, delete and move rebuild the whole dependency graph
   (phase 9: incremental).

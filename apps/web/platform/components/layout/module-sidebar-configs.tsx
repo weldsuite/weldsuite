@@ -214,6 +214,17 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
+  weldsheets: {
+    appName: 'WeldSheets',
+    appIcon: FileSpreadsheet,
+    appLogo: getAppLogoConfig('weldsheets'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [{ title: t.navigation.moduleSidebar.weldsheets.spreadsheets, href: '/weldsheets', icon: FileSpreadsheet, permission: 'sheets:read' }],
+      },
+    ],
+  },
   // WeldReach (cold email outreach, on request only). Section pages are built
   // by the campaign/prospect/inbox pages and the mailbox/settings pages; each is
   // gated on its own object so a VIEWER only sees what they can read.

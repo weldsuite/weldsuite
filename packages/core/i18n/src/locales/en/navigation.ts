@@ -151,6 +151,9 @@ export const navigation = {
         passwordHealth: 'Password health',
         projects: 'Projects',
       },
+      weldsheets: {
+        spreadsheets: 'Spreadsheets',
+      },
       weldhr: {
         me: {
           overview: 'Overview',

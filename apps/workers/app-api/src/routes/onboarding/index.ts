@@ -151,6 +151,14 @@ const FALLBACK_CATALOG = [
     category: 'Infrastructure',
     path: '/host',
   },
+  {
+    code: 'weldsheets',
+    name: 'WeldSheets',
+    description: 'Spreadsheets with Excel-compatible formulas, number formats and multiple sheets',
+    icon: 'FileSpreadsheet',
+    category: 'Productivity',
+    path: '/weldsheets',
+  },
   // Deliberately not in DEFAULT_WORKSPACE_APPS: a secrets manager is opt-in,
   // not something every new workspace should silently have installed.
   {

@@ -151,6 +151,9 @@ export const navigation = {
         passwordHealth: 'Wachtwoordgezondheid',
         projects: 'Projecten',
       },
+      weldsheets: {
+        spreadsheets: 'Spreadsheets',
+      },
       weldhr: {
         me: {
           overview: 'Overzicht',
