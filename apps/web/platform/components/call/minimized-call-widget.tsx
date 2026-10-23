@@ -424,19 +424,23 @@ export interface MinimizedCallWidgetLabels {
 }
 
 /**
- * Pick the most relevant participant — first remote (active speaker proxy)
- * or fall back to self — and derive everything the tile needs to render.
+ * Pick the most relevant participant — a remote presenter (showing their
+ * screen), else the first remote (active speaker proxy), else self — and
+ * derive everything the tile needs to render.
  */
 function deriveFocusedParticipant(
   meeting: RealtimeKitClient | null,
   remoteParticipants: RTKParticipant[],
   t: MinimizedCallWidgetLabels,
 ) {
-  const focused = remoteParticipants[0] ?? meeting?.self ?? null;
-  const focusedIsSelf = !remoteParticipants[0];
+  const presenter = remoteParticipants.find((p) => p.screenShareEnabled && p.screenShareTracks?.video);
+  const focused = presenter ?? remoteParticipants[0] ?? meeting?.self ?? null;
+  const focusedIsSelf = !presenter && !remoteParticipants[0];
   const focusedName = focused?.name || (focusedIsSelf ? t.you : t.participant);
   const focusedHasVideo = !!(focused?.videoEnabled && focused?.videoTrack);
-  const focusedTrack = focusedHasVideo ? focused.videoTrack : null;
+  const screenTrack = presenter?.screenShareTracks?.video ?? null;
+  const focusedIsScreen = !!screenTrack;
+  const focusedTrack = screenTrack ?? (focusedHasVideo ? focused.videoTrack : null);
 
   // Camera-off appearance — the same ParticipantAvatar as the maximized
   // ParticipantTile, on a neutral tile. Seed mirrors the tile's
@@ -446,7 +450,7 @@ function deriveFocusedParticipant(
   );
   const focusedInitials = getInitials(focusedName);
 
-  return { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials };
+  return { focused, focusedIsSelf, focusedIsScreen, focusedName, focusedTrack, focusedTheme, focusedInitials };
 }
 
 type FocusedParticipant = ReturnType<typeof deriveFocusedParticipant>;
@@ -494,12 +498,13 @@ const QUICK_ACTION_CLASS =
 
 /** Video / avatar area — runs edge to edge at the top of the panel. */
 function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, onPopOut, onHide }: Readonly<PipVideoAreaProps>) {
-  const { focused, focusedIsSelf, focusedName, focusedTrack, focusedTheme, focusedInitials } = focus;
+  const { focused, focusedIsSelf, focusedIsScreen, focusedName, focusedTrack, focusedTheme, focusedInitials } = focus;
   const showMutedIcon = focusedIsSelf ? isMuted : !focused?.audioEnabled;
   return (
     <div
       className={cn(
-        'relative w-full cursor-pointer overflow-hidden bg-muted dark:bg-background',
+        'relative w-full cursor-pointer overflow-hidden',
+        focusedIsScreen ? 'bg-black' : 'bg-muted dark:bg-background',
         isInPipWindow ? 'flex-1 min-h-0' : 'h-[180px]',
       )}
     >
@@ -508,10 +513,15 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
           ref={videoRef}
           autoPlay
           playsInline
-          // Fed a video-only stream (the focused participant's camera track);
-          // remote audio plays through RemoteAudioSink instead.
+          // Fed a video-only stream (the focused participant's camera or
+          // shared screen); remote audio plays through RemoteAudioSink instead.
           muted
-          className={cn('absolute inset-0 w-full h-full object-cover', focusedIsSelf && '-scale-x-100')}
+          className={cn(
+            'absolute inset-0 w-full h-full',
+            // A shared screen is shown whole (letterboxed), never cropped or mirrored.
+            focusedIsScreen ? 'object-contain' : 'object-cover',
+            focusedIsSelf && '-scale-x-100',
+          )}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center">
