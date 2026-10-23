@@ -14,6 +14,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { useAppApi } from '@/lib/api/use-app-api';
 import { appSettingsKeys } from '@/hooks/queries/use-app-settings-queries';
 import { patchCachedImportant } from '@/app/weldmail/lib/important-cache';
+import { refreshSidebarBadges } from '@/hooks/use-sidebar-badges';
 import type {
   AssignMailAccountUsersInput,
   CreateMailAccountInput,
@@ -230,6 +231,8 @@ export function useMailThread(_accountId: string, messageId: string, enabled = t
       mailMessages.update(id, { isRead }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
+      // The unread count on the WeldMail rail icon.
+      refreshSidebarBadges(qc);
     },
   });
 }
@@ -333,6 +336,8 @@ export function useBulkMailAction() {
     mutationFn: (data: BulkMailMessageActionInput) => mailMessages.bulk(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
+      // Read, unread, trash and spam all move the rail's unread count.
+      refreshSidebarBadges(qc);
     },
   });
 }
@@ -356,6 +361,7 @@ export function useMarkThreadAsRead() {
     }) => mailThreads.markRead(threadId, accountId, { isRead }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
+      refreshSidebarBadges(qc);
     },
   });
 }

@@ -1,5 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { refreshSidebarBadges } from '@/hooks/use-sidebar-badges';
 import { usePathname, useRouter } from '@/lib/router';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
 import {
@@ -1370,6 +1372,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const archiveThreadMutation = useArchiveThread();
   const toggleStarMutation = useToggleMailStar();
   const toggleImportantMutation = useToggleMailImportant();
+  const queryClient = useQueryClient();
   const snoozeMutation = useSnoozeEmail();
   const unsnoozeMutation = useUnsnoozeEmail();
   const pinThreadMutation = usePinThread();
@@ -1928,7 +1931,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
   const handleMarkAsRead = async (isRead: boolean) => {
     const result = await mailApi.messages.update(accountId, message.id, { isRead });
-    if (result.success) toast.success(isRead ? t.mail.messageDetail.markedAsRead : t.mail.messageDetail.markedAsUnread);
+    if (result.success) {
+      toast.success(isRead ? t.mail.messageDetail.markedAsRead : t.mail.messageDetail.markedAsUnread);
+      refreshSidebarBadges(queryClient);
+    }
   };
 
   const handleToggleImportance = () => {
