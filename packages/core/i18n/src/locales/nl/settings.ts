@@ -2905,6 +2905,7 @@ export const settings = {
           'We hebben het TXT-record nog niet gevonden. Het kan even duren voordat DNS-wijzigingen zichtbaar zijn, probeer het later opnieuw.',
         domainLocked: 'Verwijder de verbinding met de identiteitsprovider voordat u het domein wijzigt.',
         dnsLookupFailed: 'De DNS-opzoeking is mislukt. Probeer het over een minuut opnieuw.',
+        changedMeanwhile: 'Single sign-on is tegelijkertijd ergens anders gewijzigd. Controleer de pagina en probeer het opnieuw.',
         connectionMissing: 'Koppel eerst uw identiteitsprovider.',
         idpIncomplete: 'Voeg de metadata-URL van uw identiteitsprovider toe, of de entiteits-ID, aanmeld-URL en het certificaat.',
         idpRejected: 'De gegevens van uw identiteitsprovider zijn niet geaccepteerd: {message}',

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Star, Trash2 } from 'lucide-react-native';
+import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { FormField, FormScreen } from '@/components/form';
@@ -24,6 +26,9 @@ export default function NoteScreen() {
 
   const [note, setNote] = useState<NoteRecord | null>(null);
   const [loading, setLoading] = useState(!isNew);
+  // A note that failed to load gets a retry screen, not an empty editor whose save would overwrite it.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -45,16 +50,23 @@ export default function NoteScreen() {
         setBody(parts.body);
         setRecord(res.data.record);
       } else {
-        toast.error(t.notes.loadFailed);
+        setLoadFailed(true);
       }
       setLoading(false);
     })();
-  }, [isNew, params.id, t, toast]);
+  }, [isNew, params.id, loadAttempt]);
+
+  const retryLoad = () => {
+    setLoadFailed(false);
+    setLoading(true);
+    setLoadAttempt((attempt) => attempt + 1);
+  };
 
   // A note the web formatted (lists, bold, links) is shown, not edited, so saving can't strip it.
   const readOnly = !!note && !isPlainNoteHtml(note.html);
 
   const handleSave = async () => {
+    if (!isNew && !note) return;
     if (!title.trim() && !body.trim()) {
       setError(t.notes.emptyError);
       return;
@@ -112,6 +124,21 @@ export default function NoteScreen() {
         <StackHeader title={t.notes.title} onBack={() => router.back()} />
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.text} />
+        </View>
+      </View>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <StackHeader title={t.notes.title} onBack={() => router.back()} />
+        <View style={styles.center}>
+          <EmptyState
+            title={t.notes.loadNoteFailed}
+            action={<Button title={t.common.tryAgain} variant="outline" onPress={retryLoad} />}
+          />
         </View>
       </View>
     );

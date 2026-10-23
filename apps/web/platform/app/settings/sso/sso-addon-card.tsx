@@ -78,7 +78,8 @@ export function SsoAddonCard() {
   }
 
   const cancelDate = billing?.subscription ? formatSsoDate(billing.subscription.currentPeriodEnd, language) : '';
-  const chargePrice = billing ? monthlyPrice(billing, format, copy.pricePerMonth, language) : '';
+  // The bare amount: the dialog's sentence says "per month" itself.
+  const chargePrice = billing ? formatBillingAmount(billing.price.unitAmountCents, billing.price.currency, language) : '';
 
   return (
     <section aria-labelledby="sso-addon-heading">

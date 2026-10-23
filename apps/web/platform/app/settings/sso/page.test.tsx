@@ -193,7 +193,7 @@ describe('SsoAddonCard', () => {
 
     await user.click(screen.getByRole('button', { name: ts.addon.add }));
     const dialog = await screen.findByRole('dialog', { name: ts.addon.confirmAdd.title });
-    expect(within(dialog).getByText(/charged €100\.00 per month/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/charged €100\.00 per month, starting today/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: ts.addon.confirmAdd.confirm }));
 
     await waitFor(() => expect(api.sso.subscribe).toHaveBeenCalledTimes(1));

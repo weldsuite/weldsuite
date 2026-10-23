@@ -33,6 +33,8 @@ export function ssoErrorMessage(err: unknown, copy: SsoErrorCopy): string {
       return copy.domainLocked;
     case SSO_ERRORS.DNS_LOOKUP_FAILED:
       return copy.dnsLookupFailed;
+    case SSO_ERRORS.CHANGED_MEANWHILE:
+      return copy.changedMeanwhile;
     case SSO_ERRORS.CONNECTION_MISSING:
       return copy.connectionMissing;
     case SSO_ERRORS.IDP_INCOMPLETE:

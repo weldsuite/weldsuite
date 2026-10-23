@@ -2910,6 +2910,7 @@ export const settings = {
           'We could not find the TXT record yet. DNS changes can take a while to show up, so try again later.',
         domainLocked: 'Remove the identity provider connection before you change the domain.',
         dnsLookupFailed: 'The DNS lookup failed. Try again in a minute.',
+        changedMeanwhile: 'Single sign-on was changed somewhere else at the same time. Check the page and try again.',
         connectionMissing: 'Connect your identity provider first.',
         idpIncomplete: 'Add your identity provider’s metadata URL, or its entity ID, sign-on URL and certificate.',
         idpRejected: 'Your identity provider details were not accepted: {message}',

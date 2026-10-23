@@ -94,16 +94,19 @@ describe('receipt prefill', () => {
     expect(lines[3]).toMatchObject({ description: 'Rounding', unitPrice: 0.01 });
   });
 
-  it('does not paper over a gap that is a misread, not rounding', () => {
+  it('books the confirmed total at one rate when the lines miss it by more than rounding', () => {
+    // A discount line OCR left out: the lines add up to 24.51, the receipt says 25.
     const lines = quickExpenseLines({
-      total: 50,
+      total: 25,
       taxRate: 9,
       description: 'Food',
       roundingDescription: 'Rounding',
       receiptLines: mixed.items,
     });
 
-    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatchObject({ description: 'Food', quantity: 1, taxRate: 9 });
+    const booked25 = lines.reduce((sum, line) => sum + booked(Number(line.unitPrice), Number(line.taxRate)), 0);
+    expect(Math.round(booked25 * 100)).toBe(2500);
   });
 });
 
