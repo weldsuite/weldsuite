@@ -14,7 +14,7 @@
  * evaluates to #SPILL! and re-spills once the way is clear.
  */
 
-import { MAX_COLS, MAX_ROWS, type Range } from '../address';
+import { MAX_COLS, MAX_ROWS, rangesIntersect as rangesOverlap, type Range } from '../address';
 import { evaluate, resolveResult } from '../formula/evaluator';
 import { getFunction } from '../formula/functions';
 import { FormulaSyntaxError, parseFormula, type AstNode } from '../formula/parser';
@@ -33,6 +33,7 @@ import type { Cell } from '../model/cell-store';
 import { Sheet, Workbook, type WorkbookSnapshot } from '../model/workbook';
 import { err, isMatrix, sameScalar, type CellError, type Scalar } from '../values';
 import { DependencyGraph, globalKey, splitKey, type Precedent } from './graph';
+import { SccWalker } from './scc';
 
 export interface EngineOptions {
   /** Clock for NOW()/TODAY(), epoch ms. */
@@ -64,8 +65,12 @@ interface SpillRecord {
 }
 
 const CIRCULAR: CellError = err('#REF!', 'Circular dependency');
+/** Host name for workbook-wide defined names: matches no sheet, so their unprefixed references never move. */
+const NO_SHEET = '\u0000';
+const TOO_DEEP: CellError = err('#CALC!', 'Too many levels of formulas depending on each other');
 const MAX_PULL_DEPTH = 256;
-const MAX_SPILL_PASSES = 8;
+/** Recalculation passes: extra ones re-run readers of changed spills and of chains cut off at MAX_PULL_DEPTH. */
+const MAX_PASSES = 16;
 
 /**
  * The Web Crypto global, present in browsers, Workers and Node 20+. Declared
@@ -100,6 +105,8 @@ export class Engine implements EvalHost {
   private readonly dirty = new Set<number>();
   private readonly computing = new Set<number>();
   private pullDepth = 0;
+  /** Formulas that read a value a depth-limited pull left stale; re-run next pass. */
+  private readonly truncated = new Set<number>();
   private passNow = 0;
 
   constructor(
@@ -158,14 +165,14 @@ export class Engine implements EvalHost {
     if (sheetNum === undefined) return null;
     const sheet = this.workbook.getSheet(sheetId);
     const cell = sheet?.cells.get(row, col);
-    if (cell) {
-      if (cell.f !== undefined) {
-        const key = globalKey(sheetNum, row, col);
-        if (this.computing.has(key)) return CIRCULAR;
-        if (this.dirty.has(key)) this.pull(key);
-      }
+    if (cell?.f !== undefined) {
+      const key = globalKey(sheetNum, row, col);
+      if (this.computing.has(key)) return CIRCULAR;
+      if (this.dirty.has(key)) this.pull(key);
       return cell.v;
     }
+    // A cell holding only a style is blank: a spilled value can show through it.
+    if (cell && cell.v !== null) return cell.v;
     const rec = this.spillAt(sheetNum, row, col);
     if (!rec) return null;
     if (this.dirty.has(rec.anchor)) {
@@ -320,7 +327,7 @@ export class Engine implements EvalHost {
     this.passNow = this.options.now?.() ?? Date.now();
     let evaluated = 0;
     try {
-      for (let pass = 0; pass < MAX_SPILL_PASSES; pass++) {
+      for (let pass = 0; pass < MAX_PASSES; pass++) {
         const roots = this.pendingCells;
         const formulas = [...this.pendingFormulas];
         if (pass === 0) formulas.push(...this.graph.volatile);
@@ -339,6 +346,7 @@ export class Engine implements EvalHost {
           }
           evaluated++;
         }
+        this.retryTruncated(pass === MAX_PASSES - 1);
       }
     } finally {
       this.dirty.clear();
@@ -355,61 +363,62 @@ export class Engine implements EvalHost {
 
   /**
    * Formulas affected by changes at `roots` (positions) and the formulas in
-   * `formulas`, in evaluation order: reverse post-order of an iterative DFS
-   * over the dependents graph.
+   * `formulas`, in evaluation order, with the members of every cycle.
+   *
+   * Strongly connected components of the dependents graph (Tarjan, iterative
+   * so a million-long chain cannot overflow the stack). A component with more
+   * than one formula, or a formula reading itself, is a cycle; every member is
+   * cyclic whatever order the cells were entered in. Tarjan finishes a
+   * component after everything that reads it, so the reversed finish order is
+   * the evaluation order.
    */
   private topoOrder(roots: number[], formulas: number[]): { order: number[]; cyclic: Set<number> } {
-    const state = new Map<number, 1 | 2>(); // 1 = on stack, 2 = done
-    const post: number[] = [];
-    const cyclic = new Set<number>();
-    const stack: { key: number; next: number[]; i: number }[] = [];
-
-    const visit = (start: number) => {
-      if (state.has(start)) return;
-      state.set(start, 1);
-      stack.push({ key: start, next: this.dependentsOfFormula(start), i: 0 });
-      while (stack.length) {
-        const top = stack[stack.length - 1]!;
-        if (top.i < top.next.length) {
-          const d = top.next[top.i++]!;
-          const s = state.get(d);
-          if (s === undefined) {
-            state.set(d, 1);
-            stack.push({ key: d, next: this.dependentsOfFormula(d), i: 0 });
-          } else if (s === 1) {
-            markCycle(stack, d, cyclic);
-          }
-        } else {
-          stack.pop();
-          state.set(top.key, 2);
-          post.push(top.key);
-        }
-      }
-    };
-
-    for (const key of formulas) if (this.graph.hasFormula(key)) visit(key);
+    const scc = new SccWalker((key) => this.dependentsOfFormula(key));
+    // Starting points are visited last-first so that formulas without edges
+    // between them (INDIRECT chains) come out in the order they were written.
+    const starts = formulas.filter((key) => this.graph.hasFormula(key));
     for (const pos of roots) {
       const { sheet, row, col } = splitKey(pos);
-      this.graph.dependentsOf(sheet, row, col, visit);
+      this.graph.dependentsOf(sheet, row, col, (d) => starts.push(d));
     }
-    post.reverse();
-    return { order: post, cyclic };
+    for (let i = starts.length - 1; i >= 0; i--) scc.visit(starts[i]!);
+    return scc.result();
   }
 
-  /** Formulas that read the cell a formula sits in, or any cell it spills into. */
+  /**
+   * Formulas that read the cell a formula sits in, or any cell it spills into.
+   * A blocked spill writes nothing, so its area's readers are not dependents
+   * (it is woken through `touch` and `markChanged` when the area changes).
+   */
   private dependentsOfFormula(key: number): number[] {
     const out: number[] = [];
     const { sheet, row, col } = splitKey(key);
     this.graph.dependentsOf(sheet, row, col, (d) => out.push(d));
     const rec = this.spills.get(key);
     if (rec) this.graph.dependentsOfRange(sheet, rec.area, (d) => out.push(d));
-    const b = this.blocked.get(key);
-    if (b) this.graph.dependentsOfRange(sheet, b.area, (d) => out.push(d));
     return out;
   }
 
+  /**
+   * A pull that hit the depth limit left stale values in the formulas that were
+   * evaluating (dynamic chains such as INDIRECT have no static edges to order
+   * them). They run again next pass, now that more of the chain is computed;
+   * on the last pass they get an error rather than a silently wrong number.
+   */
+  private retryTruncated(lastPass: boolean): void {
+    if (this.truncated.size === 0) return;
+    for (const key of this.truncated) {
+      if (lastPass) this.storeValue(key, TOO_DEEP);
+      else this.pendingFormulas.add(key);
+    }
+    this.truncated.clear();
+  }
+
   private pull(key: number): void {
-    if (this.pullDepth >= MAX_PULL_DEPTH) return;
+    if (this.pullDepth >= MAX_PULL_DEPTH) {
+      for (const k of this.computing) this.truncated.add(k);
+      return;
+    }
     this.pullDepth++;
     try {
       this.evaluateCell(key);
@@ -542,11 +551,14 @@ export class Engine implements EvalHost {
     this.spillsBySheet.get(rec.sheet)?.delete(rec);
   }
 
-  /** Spilled cells changed: their readers need another pass. */
+  /** Spilled cells changed: their readers, and spills they may have blocked, need another pass. */
   private markChanged(sheetNum: number, area: Range): void {
     this.graph.dependentsOfRange(sheetNum, area, (d) => {
       if (!this.dirty.has(d)) this.pendingFormulas.add(d);
     });
+    for (const [anchor, b] of this.blocked) {
+      if (b.sheet === sheetNum && !this.dirty.has(anchor) && rangesOverlap(b.area, area)) this.pendingFormulas.add(anchor);
+    }
   }
 
   private spillAt(sheetNum: number | undefined, row: number, col: number): SpillRecord | undefined {
@@ -686,12 +698,19 @@ export class Engine implements EvalHost {
   // their new positions) so the op layer can build an exact inverse.
   // -------------------------------------------------------------------------
 
-  private rewriteAllFormulas(rewrite: (formula: string, hostSheet: Sheet) => string): RewrittenFormula[] {
+  /**
+   * Applies `rewrite` to every formula and defined name. `hostName` is the
+   * sheet an unprefixed reference belongs to: the cell's sheet, a scoped name's
+   * sheet, or for a workbook-wide name a name no sheet has (its unprefixed
+   * references are read on whichever sheet uses the name, so no change moves
+   * them; `transform` treats them the same way).
+   */
+  private rewriteAllFormulas(rewrite: (formula: string, hostName: string) => string): RewrittenFormula[] {
     const rewritten: RewrittenFormula[] = [];
     for (const sheet of this.workbook.sheets) {
       sheet.cells.forEach((row, col, cell) => {
         if (cell.f === undefined) return;
-        const next = rewrite(cell.f, sheet);
+        const next = rewrite(cell.f, sheet.name);
         if (next !== cell.f) {
           rewritten.push({ sheetId: sheet.id, row, col, before: cell.f });
           cell.f = next;
@@ -699,8 +718,8 @@ export class Engine implements EvalHost {
       });
     }
     for (const name of this.workbook.names) {
-      const host = (name.sheetId ? this.workbook.getSheet(name.sheetId) : undefined) ?? this.workbook.sheets[0];
-      if (host) name.formula = rewrite(name.formula, host);
+      const scope = name.sheetId ? this.workbook.getSheet(name.sheetId) : undefined;
+      name.formula = rewrite(name.formula, scope?.name ?? NO_SHEET);
     }
     return rewritten;
   }
@@ -709,7 +728,7 @@ export class Engine implements EvalHost {
     const sheet = this.workbook.requireSheet(sheetId);
     const change = { sheet: sheet.name, axis, at, count };
     // Rewrite first, at the old positions, then move the cells.
-    const rewritten = this.rewriteAllFormulas((f, host) => adjustForInsert(f, host.name, change));
+    const rewritten = this.rewriteAllFormulas((f, host) => adjustForInsert(f, host, change));
     const shift = (i: number) => (i >= at ? i + count : i);
     const max = axis === 'row' ? MAX_ROWS : MAX_COLS;
     sheet.cells.remap((r, c) => {
@@ -736,7 +755,7 @@ export class Engine implements EvalHost {
   deleteDims(sheetId: string, axis: Axis, at: number, count: number): RewrittenFormula[] {
     const sheet = this.workbook.requireSheet(sheetId);
     const change = { sheet: sheet.name, axis, at, count };
-    const rewritten = this.rewriteAllFormulas((f, host) => adjustForDelete(f, host.name, change));
+    const rewritten = this.rewriteAllFormulas((f, host) => adjustForDelete(f, host, change));
     const shift = (i: number) => indexAfterDelete(i, at, count, -1);
     sheet.cells.remap((r, c) => {
       const i = shift(axis === 'row' ? r : c);
@@ -774,7 +793,7 @@ export class Engine implements EvalHost {
   moveDims(sheetId: string, axis: Axis, from: number, count: number, to: number): RewrittenFormula[] {
     const sheet = this.workbook.requireSheet(sheetId);
     const move = { sheet: sheet.name, axis, from, count, to };
-    const rewritten = this.rewriteAllFormulas((f, host) => adjustForMove(f, host.name, move));
+    const rewritten = this.rewriteAllFormulas((f, host) => adjustForMove(f, host, move));
     const map = moveIndexMapper(from, count, to);
     sheet.cells.remap((r, c) => (axis === 'row' ? [map(r), c] : [r, map(c)]));
     (axis === 'row' ? sheet.rows : sheet.cols).remap(map);
@@ -848,13 +867,6 @@ export class Engine implements EvalHost {
 }
 
 /** `key` is already on the DFS stack: it and everything above it form a cycle. */
-function markCycle(stack: { key: number }[], key: number, cyclic: Set<number>): void {
-  for (let j = stack.length - 1; j >= 0; j--) {
-    cyclic.add(stack[j]!.key);
-    if (stack[j]!.key === key) break;
-  }
-}
-
 /** The non-blank values a spill shows inside `range`, its anchor (a stored cell) excluded. */
 function forEachSpilled(rec: SpillRecord, range: Range, fn: (row: number, col: number, value: Scalar) => void): void {
   const a = rec.area;

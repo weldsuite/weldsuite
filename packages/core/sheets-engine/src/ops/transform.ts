@@ -6,20 +6,27 @@
  * server-sequenced, so only this one function is needed (no TP2):
  *
  * - server, for an incoming client op:     transform(clientOp, committed, true)
- * - client, for an incoming server op:     transform(serverOp, ownPending, false)
- * - client, for its own pending op:        transform(ownPending, serverOp, true)
+ * - client, for an incoming server op: undo its own pending ops (their
+ *   inverses), apply the server op, then re-apply its pending ops as
+ *   transform(ownPending, serverOp, true), exactly what the server will
+ *   compute when they arrive. Both sides then run the same ops in the same
+ *   order, so they agree even where the two transform directions do not
+ *   commute.
  *
  * `opWins` says which op the server applied later. On conflicting writes to
  * the same thing (one cell, one sheet's freeze, two sheets given the same
  * name) the later one wins, and the losing side's transform either drops the
- * conflicting part or re-asserts the winner's value so both sides converge.
+ * conflicting part or re-asserts the winner's value, so that the opposite
+ * direction (used for the undo stack) converges as well wherever it can.
  *
- * A few rare combinations (two concurrent row moves overlapping, sheet
- * reordering) are approximate; the collaboration layer compares state
- * checksums and resyncs from a snapshot if replicas ever disagree.
+ * Where it cannot without seeing state (two concurrent row moves overlapping
+ * a merge, sheet reordering, a range format racing a whole-row/column style
+ * change it inherits from), clients still agree because they rebase as
+ * above; the collaboration layer also compares state checksums and resyncs
+ * from a snapshot if replicas ever disagree.
  */
 
-import { MAX_COLS, MAX_ROWS, rangeIntersection, rangesIntersect, type Range } from '../address';
+import { MAX_COLS, MAX_ROWS, type Range } from '../address';
 import {
   adjustForDelete,
   adjustForInsert,
@@ -29,7 +36,6 @@ import {
   removeSheetFromFormula,
   renameSheetInFormula,
 } from '../formula/references';
-import { applyStylePatch, styleKey, type CellStyle, type StylePatch } from '../model/styles';
 import { NOOP, normalize, type CellPatch, type Op } from './types';
 
 export function transform(op: Op, against: Op, opWins: boolean): Op {
@@ -81,9 +87,8 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
     case 'setCells':
       return overSetCells(a, b, aWins);
     case 'formatRanges':
-      return overFormat(a, b, aWins);
     case 'setStyles':
-      return overSetStyles(a, b, aWins);
+      return overStyle(a, b, aWins);
     case 'resizeDims':
       return overResize(a, b, aWins);
     case 'hideDims':
@@ -97,7 +102,7 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
     case 'merge':
       return overMerge(a, b, aWins);
     case 'unmerge':
-      return a;
+      return overUnmerge(a, b, aWins);
     case 'setNames':
       return a.type === 'setNames' && !aWins ? NOOP : a;
   }
@@ -184,6 +189,8 @@ function cellsAfter(a: OpOf<'setCells'>, b: Structural): Op {
 function sameSheetAfter(a: SheetOp, b: Structural, aWins: boolean): Op {
   switch (a.type) {
     case 'formatRanges':
+      // New rows/columns start unstyled on the engine: formatting goes around them.
+      return { ...a, ranges: a.ranges.flatMap((r) => mapRange(r, b, true)) };
     case 'unmerge':
       return { ...a, ranges: a.ranges.flatMap((r) => mapRange(r, b)) };
     case 'merge':
@@ -310,17 +317,30 @@ function boundaryAfterMove(at: number, b: OpOf<'moveDims'>, aWins: boolean): num
 }
 
 /** Where a range's cells end up after `b`: zero, one or (after a move splits it) several ranges. */
-function mapRange(r: Range, b: Structural): Range[] {
+/**
+ * Where a range's cells end up after `b`. An insert inside the range widens it,
+ * unless `splitAroundInsert`, which leaves the new rows/columns out.
+ */
+function rangeAfterInsert(r: Range, b: OpOf<'insertDims'>, split: boolean): Range[] {
+  const [lo, hi, max] = b.axis === 'row' ? (['r1', 'r2', MAX_ROWS] as const) : (['c1', 'c2', MAX_COLS] as const);
+  const shift = (i: number) => (i >= b.at ? i + b.count : i);
+  if (split && r[lo] < b.at && r[hi] >= b.at) {
+    const after = Math.min(r[hi] + b.count, max - 1);
+    const head = { ...r, [hi]: b.at - 1 };
+    return b.at + b.count <= after ? [head, { ...r, [lo]: b.at + b.count, [hi]: after }] : [head];
+  }
+  const nlo = shift(r[lo]);
+  if (nlo >= max) return [];
+  return [{ ...r, [lo]: nlo, [hi]: Math.min(shift(r[hi]), max - 1) }];
+}
+
+function mapRange(r: Range, b: Structural, splitAroundInsert = false): Range[] {
   const [lo, hi, max] = b.axis === 'row' ? (['r1', 'r2', MAX_ROWS] as const) : (['c1', 'c2', MAX_COLS] as const);
   const full = r[lo] === 0 && r[hi] === max - 1;
   if (full) return [r];
   switch (b.type) {
-    case 'insertDims': {
-      const shift = (i: number) => (i >= b.at ? i + b.count : i);
-      const nlo = shift(r[lo]);
-      if (nlo >= max) return [];
-      return [{ ...r, [lo]: nlo, [hi]: Math.min(shift(r[hi]), max - 1) }];
-    }
+    case 'insertDims':
+      return rangeAfterInsert(r, b, splitAroundInsert);
     case 'deleteDims': {
       const nlo = indexAfterDelete(r[lo], b.at, b.count, b.at);
       const nhi = indexAfterDelete(r[hi], b.at, b.count, b.at - 1);
@@ -484,7 +504,9 @@ function overRename(a: Simple, b: OpOf<'renameSheet'>, aWins: boolean): Op {
 
 function overDeleteSheet(a: Simple, b: OpOf<'deleteSheet'>): Op {
   if ('sheetId' in a && a.sheetId === b.sheetId) return NOOP;
-  return mapFormulas(a, (f) => removeSheetFromFormula(f, b.sheetName));
+  // Names scoped to the deleted sheet go with it, as the engine drops them.
+  const kept = a.type === 'setNames' ? { ...a, names: a.names.filter((n) => n.sheetId !== b.sheetId) } : a;
+  return mapFormulas(kept, (f) => removeSheetFromFormula(f, b.sheetName));
 }
 
 function overAddSheet(a: Simple, b: OpOf<'addSheet'>, aWins: boolean): Op {
@@ -566,75 +588,39 @@ function overGridSize(a: Simple, b: OpOf<'setGridSize'>, aWins: boolean): Op {
 }
 
 /** A losing merge that overlaps one of b's is dropped. */
+/**
+ * Merges and unmerges on one sheet. A merge replaces the merges it overlaps,
+ * an unmerge removes every merge it overlaps, and both are idempotent, so a
+ * losing op is followed by the winner again: both replicas end with "loser,
+ * then winner", the server order.
+ */
 function overMerge(a: Simple, b: OpOf<'merge'>, aWins: boolean): Op {
-  if (aWins || a.type !== 'merge' || a.sheetId !== b.sheetId) return a;
-  return {
-    ...a,
-    ranges: a.ranges.filter((r) => !b.ranges.some((m) => rangesIntersect(m, r))),
-  };
+  return reassert(a, b, aWins);
+}
+
+function overUnmerge(a: Simple, b: OpOf<'unmerge'>, aWins: boolean): Op {
+  return reassert(a, b, aWins);
+}
+
+function reassert(a: Simple, b: OpOf<'merge' | 'unmerge'>, aWins: boolean): Op {
+  if (aWins || (a.type !== 'merge' && a.type !== 'unmerge') || a.sheetId !== b.sheetId) return a;
+  return { type: 'batch', ops: [a, b] };
 }
 
 // ---------------------------------------------------------------------------
 // Past style changes
 // ---------------------------------------------------------------------------
 
-function overFormat(a: Simple, b: OpOf<'formatRanges'>, aWins: boolean): Op {
-  if (aWins || !('sheetId' in a) || a.sheetId !== b.sheetId) return a;
-  if (a.type === 'formatRanges') {
-    // Re-assert b's values for the properties both set, where both applied.
-    const shared: StylePatch = {};
-    for (const k of Object.keys(a.patch) as (keyof StylePatch)[]) {
-      if (k in b.patch) (shared as Record<string, unknown>)[k] = b.patch[k];
-    }
-    if (Object.keys(shared).length === 0) return a;
-    const overlap = a.ranges.flatMap((r) => b.ranges.flatMap((s) => rangeIntersection(r, s) ?? []));
-    if (overlap.length === 0) return a;
-    return {
-      type: 'batch',
-      ops: [
-        a,
-        {
-          type: 'formatRanges',
-          sheetId: a.sheetId,
-          ranges: overlap,
-          patch: shared,
-        },
-      ],
-    };
-  }
-  if (a.type === 'setStyles') {
-    // b's patch lands on top of our explicit styles on the server; do the same here.
-    const cells = a.cells.map(([r, c, key]): [number, number, string | null] => {
-      if (!b.ranges.some((s) => r >= s.r1 && r <= s.r2 && c >= s.c1 && c <= s.c2)) return [r, c, key];
-      const base = key === null ? undefined : (JSON.parse(key) as CellStyle);
-      return [r, c, styleKey(applyStylePatch(base, b.patch)) ?? null];
-    });
-    return { ...a, cells };
-  }
-  return a;
-}
-
-function overSetStyles(a: Simple, b: OpOf<'setStyles'>, aWins: boolean): Op {
-  if (aWins || !('sheetId' in a) || a.sheetId !== b.sheetId) return a;
-  if (a.type === 'setStyles') {
-    const taken = new Set(b.cells.map(([r, c]) => r * MAX_COLS + c));
-    const rowsTaken = new Set((b.rows ?? []).map(([i]) => i));
-    const colsTaken = new Set((b.cols ?? []).map(([i]) => i));
-    const out = {
-      ...a,
-      cells: a.cells.filter(([r, c]) => !taken.has(r * MAX_COLS + c)),
-    };
-    if (a.rows) out.rows = a.rows.filter(([i]) => !rowsTaken.has(i));
-    if (a.cols) out.cols = a.cols.filter(([i]) => !colsTaken.has(i));
-    return out;
-  }
-  if (a.type === 'formatRanges') {
-    const reassert = b.cells.filter(([r, c]) => a.ranges.some((s) => r >= s.r1 && r <= s.r2 && c >= s.c1 && c <= s.c2));
-    if (reassert.length === 0) return a;
-    return {
-      type: 'batch',
-      ops: [a, { type: 'setStyles', sheetId: a.sheetId, cells: reassert }],
-    };
-  }
-  return a;
+/**
+ * Two style ops on one sheet (formatRanges, setStyles; cells, rows and
+ * columns). The op the server applied later decides every property both
+ * touch, and its result depends on the styles it was applied over (a patch
+ * lands on whatever row/column style a cell inherits). So a losing op is
+ * followed by the winner again: applying a style op a second time changes
+ * nothing, and both replicas end with "loser, then winner" without the
+ * transform having to know any cell's current style.
+ */
+function overStyle(a: Simple, b: OpOf<'formatRanges' | 'setStyles'>, aWins: boolean): Op {
+  if (aWins || (a.type !== 'formatRanges' && a.type !== 'setStyles') || a.sheetId !== b.sheetId) return a;
+  return { type: 'batch', ops: [a, b] };
 }

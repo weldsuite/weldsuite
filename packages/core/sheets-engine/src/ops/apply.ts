@@ -4,7 +4,7 @@
  */
 
 import { MAX_COLS, MAX_ROWS, rangesIntersect, type Range } from '../address';
-import { Engine, mapRangeDelete, mapRangeInsert, type CellContent, type RewrittenFormula } from '../calc/engine';
+import { Engine, mapRangeDelete, mapRangeInsert, mapRun, type CellContent, type RewrittenFormula } from '../calc/engine';
 import { moveIndexMapper, type Axis } from '../formula/references';
 import type { AxisDims } from '../model/axis';
 import type { Cell } from '../model/cell-store';
@@ -43,13 +43,13 @@ function applyInner(engine: Engine, op: Op): Op {
       return setStyles(engine, op);
 
     case 'insertDims':
-      return insertDims(engine, op);
+      return restoringNames(engine, () => insertDims(engine, op));
 
     case 'deleteDims':
-      return deleteDims(engine, op.sheetId, op.axis, op.at, op.count);
+      return restoringNames(engine, () => deleteDims(engine, op.sheetId, op.axis, op.at, op.count));
 
     case 'moveDims':
-      return moveDims(engine, op);
+      return restoringNames(engine, () => moveDims(engine, op));
 
     case 'resizeDims':
       return resizeDims(engine, op);
@@ -171,6 +171,15 @@ function insertDims(engine: Engine, op: OpOf<'insertDims'>): Op {
 }
 
 function moveDims(engine: Engine, op: OpOf<'moveDims'>): Op {
+  // Dropping a block back onto itself changes nothing, and has nothing to undo.
+  if (op.to >= op.from && op.to <= op.from + op.count) return { type: 'batch', ops: [] };
+  const sheet = engine.workbook.requireSheet(op.sheetId);
+  // The engine unmerges merges a move splits; undo merges them again.
+  const forward = moveIndexMapper(op.from, op.count, op.to);
+  const split = sheet.merges.filter((m) => {
+    const [lo, hi] = op.axis === 'row' ? [m.r1, m.r2] : [m.c1, m.c2];
+    return mapRun(lo, hi, forward) === null;
+  });
   const rewritten = engine.moveDims(op.sheetId, op.axis, op.from, op.count, op.to);
   const p = op.to < op.from ? op.to : op.to - op.count;
   const backTo = p < op.from ? op.from + op.count : op.from;
@@ -180,8 +189,21 @@ function moveDims(engine: Engine, op: OpOf<'moveDims'>): Op {
     ops: [
       { type: 'moveDims', sheetId: op.sheetId, sheetName: currentName(engine, op.sheetId), axis: op.axis, from: p, count: op.count, to: backTo },
       ...restoreFormulas(rewritten, op.sheetId, op.axis, back),
+      { type: 'merge', sheetId: op.sheetId, ranges: split.map((m) => ({ ...m })) },
     ],
   };
+}
+
+/**
+ * Runs a structural change and, when it rewrote defined names, adds a setNames
+ * to its inverse that puts them back exactly (re-inserting rows cannot restore
+ * a reference that became #REF!).
+ */
+function restoringNames(engine: Engine, run: () => Op): Op {
+  const before = engine.workbook.names.map((n) => ({ ...n }));
+  const inverse = run();
+  const changed = before.some((n, i) => engine.workbook.names[i]?.formula !== n.formula);
+  return changed ? { type: 'batch', ops: [inverse, { type: 'setNames', names: before }] } : inverse;
 }
 
 function resizeDims(engine: Engine, op: OpOf<'resizeDims'>): Op {

@@ -610,7 +610,10 @@ export const mathFunctions: FunctionSpec[] = [
     const [n, k] = v as [number, number];
     if (n < k) return ERR.num;
     let r = 1;
-    for (let i = n - k + 1; i <= n; i++) r *= i;
+    for (let i = n - k + 1; i <= n; i++) {
+      r *= i;
+      if (!Number.isFinite(r)) return ERR.num;
+    }
     return r;
   }),
   numericFn('PERMUTATIONA', 2, 2, (x) => {
