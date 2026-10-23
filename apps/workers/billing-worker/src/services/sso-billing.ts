@@ -936,11 +936,17 @@ export async function ssoAdminView(env: BillingEnv, db: SsoBillingDb, workspace:
 const SWEEP_BATCH = 200;
 const SWEEP_ACTOR = 'sso-sweep';
 
-/** A deleted workspace: remove its connection and end its add-on. Returns the number of changes. */
+/**
+ * A deleted workspace: remove its connection, end its add-on and give up its
+ * domain, so the company can verify it again from a new workspace. Returns the
+ * number of changes.
+ */
 async function sweepDeletedWorkspace(env: Env, db: SsoBillingDb, clerk: SsoClerkClient | null, row: WorkspaceSso): Promise<number> {
   let changed = 0;
+  let connectionGone = !row.clerkConnectionId;
   if (row.clerkConnectionId && clerk) {
     await deleteSsoConnection(db, clerk, row, SWEEP_ACTOR);
+    connectionGone = true;
     changed++;
   }
   if (row.stripeSubscriptionId && env.STRIPE_SECRET_KEY && row.subscriptionStatus !== 'canceled') {
@@ -952,28 +958,64 @@ async function sweepDeletedWorkspace(env: Env, db: SsoBillingDb, clerk: SsoClerk
     await updateSsoRow(db, row.id, { subscriptionStatus: 'canceled', subscriptionStatusAt: new Date() });
     changed++;
   }
+  // Not while a Clerk connection may still send the domain's users to the IdP.
+  if (row.domain && connectionGone) {
+    await updateSsoRow(db, row.id, {
+      domain: null,
+      domainVerificationToken: null,
+      domainVerifiedAt: null,
+      connectionUpdatedBy: SWEEP_ACTOR,
+      connectionUpdatedAt: new Date(),
+    });
+    changed++;
+  }
   return changed;
 }
 
+/**
+ * The plan now includes SSO (an upgrade to Enterprise): stop charging the
+ * add-on. It runs out at period end, like a cancel from Settings, and the
+ * plan carries SSO from then on. Returns the number of changes.
+ */
+async function endAddonIncludedInPlan(env: Env, db: MasterDb, ctx: SsoContext): Promise<number> {
+  const row = ctx.row;
+  if (!ctx.planIncludesSso || !env.STRIPE_SECRET_KEY) return 0;
+  if (!row?.stripeSubscriptionId || !isLiveRowStatus(row.subscriptionStatus) || row.subscriptionCancelAtPeriodEnd) return 0;
+
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, ctx.workspace.id)).limit(1);
+  if (!workspace) return 0;
+  await withSsoBillingLock(db, workspace.id, (tx) => setSsoCancelAtPeriodEnd(env, tx, workspace, true, { canSpend: true }));
+  console.log(`[SSO Sweep] Workspace ${workspace.id}: add-on ends at period end, the plan includes SSO`);
+  return 1;
+}
+
 /** One row of the sweep. Returns the number of changes. */
-async function sweepRow(env: Env, db: SsoBillingDb, clerk: SsoClerkClient | null, row: WorkspaceSso): Promise<number> {
+async function sweepRow(env: Env, db: MasterDb, clerk: SsoClerkClient | null, row: WorkspaceSso): Promise<number> {
   const ctx = await loadSsoContext(db, { workspaceId: row.workspaceId });
   if (!ctx || ctx.workspace.deletedAt) return sweepDeletedWorkspace(env, db, clerk, row);
-  if (!clerk || !row.clerkConnectionId) return 0;
 
-  const { outcome } = await reconcileSsoConnection(db, clerk, ctx, SWEEP_ACTOR);
-  if (outcome === 'unchanged' || outcome === 'no_connection') return 0;
-  console.log(`[SSO Sweep] Workspace ${row.workspaceId}: ${outcome}`);
-  return 1;
+  // Clerk first: a Stripe failure below must not hold back who can sign in.
+  let changed = 0;
+  if (clerk && row.clerkConnectionId) {
+    const { outcome } = await reconcileSsoConnection(db, clerk, ctx, SWEEP_ACTOR);
+    if (outcome !== 'unchanged' && outcome !== 'no_connection') {
+      console.log(`[SSO Sweep] Workspace ${row.workspaceId}: ${outcome}`);
+      changed++;
+    }
+  }
+  return changed + (await endAddonIncludedInPlan(env, db, ctx));
 }
 
 /**
  * Keep every Clerk connection's `active` equal to `enabled && entitled`
  * (plan changes, comps ending, a deletion being scheduled or cancelled all
- * change entitlement without an SSO event), delete the connections of deleted
- * workspaces and end their add-on, which the deletion sweep leaves running.
+ * change entitlement without an SSO event), end the add-on of a workspace
+ * whose plan now includes SSO, and clean up after deleted workspaces: delete
+ * their connections, end their add-on (the deletion sweep leaves it running)
+ * and release their domain.
  */
-export async function runSsoSweep(env: Env, db: SsoBillingDb): Promise<{ checked: number; changed: number; failed: number }> {
+export async function runSsoSweep(env: Env, db: MasterDb): Promise<{ checked: number; changed: number; failed: number }> {
+  const deletedWorkspaces = db.select({ id: workspaces.id }).from(workspaces).where(isNotNull(workspaces.deletedAt));
   const rows = await db
     .select()
     .from(workspaceSso)
@@ -984,6 +1026,7 @@ export async function runSsoSweep(env: Env, db: SsoBillingDb): Promise<{ checked
           isNotNull(workspaceSso.stripeSubscriptionId),
           inArray(workspaceSso.subscriptionStatus, ['active', 'past_due', 'unpaid']),
         ),
+        and(isNotNull(workspaceSso.domain), inArray(workspaceSso.workspaceId, deletedWorkspaces)),
       ),
     )
     .orderBy(workspaceSso.updatedAt)

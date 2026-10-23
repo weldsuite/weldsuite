@@ -158,7 +158,9 @@ export function recordInput(
     phone: text('phone'),
     mobile: text('mobile'),
     status: form.status || undefined,
-    lifecycleStage: form.lifecycleStage,
+    // Only a changed stage: the API validates it against the current list, and
+    // a legacy value still stored on the row would fail every other save.
+    lifecycleStage: form.lifecycleStage === (record.lifecycleStage ?? null) ? undefined : form.lifecycleStage,
     ownerId: form.ownerId ?? undefined,
     accountManagerId: form.accountManagerId,
     tags: form.tags,

@@ -22,6 +22,7 @@ describe('ssoErrorMessage', () => {
       [409, SSO_ERRORS.DOMAIN_MISSING, copy.domainMissing],
       [409, SSO_ERRORS.DOMAIN_LOCKED, copy.domainLocked],
       [502, SSO_ERRORS.DNS_LOOKUP_FAILED, copy.dnsLookupFailed],
+      [409, SSO_ERRORS.CHANGED_MEANWHILE, copy.changedMeanwhile],
       [409, SSO_ERRORS.CONNECTION_MISSING, copy.connectionMissing],
       [409, SSO_ERRORS.IDP_INCOMPLETE, copy.idpIncomplete],
       [503, SSO_ERRORS.PROVIDER_UNAVAILABLE, copy.providerUnavailable],

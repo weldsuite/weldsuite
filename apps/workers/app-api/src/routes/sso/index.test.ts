@@ -33,6 +33,8 @@ const state = vi.hoisted(() => ({
   txt: [] as string[],
   connections: new Map<string, FakeConnection>(),
   seq: 0,
+  /** Runs inside Clerk's create call, to change things while it is in flight. */
+  beforeCreate: null as null | (() => Promise<void>),
 }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
@@ -50,6 +52,7 @@ vi.mock('@clerk/backend', () => {
     createClerkClient: () => ({
       samlConnections: {
         createSamlConnection: async (params: Record<string, unknown>) => {
+          await state.beforeCreate?.();
           state.seq += 1;
           const id = `samlc_${state.seq}`;
           const connection = {
@@ -91,10 +94,12 @@ vi.mock('@clerk/backend', () => {
 
 import { ssoRoutes } from './index';
 import { callBillingWorker } from '@weldsuite/worker-kit/billing-worker';
+import { lookupTxt } from '@weldsuite/worker-kit/dns-lookup';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 
 const { plans, workspaces, workspaceSso } = masterSchema;
 const mockedBilling = vi.mocked(callBillingWorker);
+const mockedLookupTxt = vi.mocked(lookupTxt);
 const mockedPublish = vi.mocked(publishEntityEvent);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
@@ -120,6 +125,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.txt = [];
   state.connections.clear();
+  state.beforeCreate = null;
 });
 
 interface Ws {
@@ -226,6 +232,22 @@ describe('domain', () => {
     expect(status).toBe(409);
     expect(json.error?.code).toBe('SSO_DOMAIN_IN_USE');
   });
+
+  it('does not verify a domain that was swapped during the DNS lookup', async () => {
+    const ws = await seedWorkspace();
+    const call = api(ws);
+    const claimed = await call('PUT', '/domain', { domain: 'mine.example' });
+    mockedLookupTxt.mockImplementationOnce(async () => {
+      await call('PUT', '/domain', { domain: 'victim.example' });
+      return [claimed.json.data.domain.dnsRecord.value];
+    });
+
+    const { status, json } = await call('POST', '/domain/verify');
+
+    expect(status).toBe(409);
+    expect(json.error?.code).toBe('SSO_CHANGED_MEANWHILE');
+    expect(await rowOf(ws)).toMatchObject({ domain: 'victim.example', domainVerifiedAt: null });
+  });
 });
 
 describe('connection', () => {
@@ -248,6 +270,23 @@ describe('connection', () => {
 
     expect(status).toBe(409);
     expect(json.error?.code).toBe('SSO_DOMAIN_NOT_VERIFIED');
+  });
+
+  it('drops a connection whose domain was swapped while Clerk created it', async () => {
+    const ws = await seedWorkspace();
+    await verifiedDomain(ws, 'first.example');
+    const call = api(ws);
+    state.beforeCreate = async () => {
+      state.beforeCreate = null;
+      await call('PUT', '/domain', { domain: 'second.example' });
+    };
+
+    const { status, json } = await call('PUT', '/connection', { provider: 'saml_okta' });
+
+    expect(status).toBe(409);
+    expect(json.error?.code).toBe('SSO_CHANGED_MEANWHILE');
+    expect(state.connections.size).toBe(0);
+    expect(await rowOf(ws)).toMatchObject({ domain: 'second.example', domainVerifiedAt: null, clerkConnectionId: null });
   });
 
   it('creates the Clerk connection on the workspace organization, off until switched on', async () => {

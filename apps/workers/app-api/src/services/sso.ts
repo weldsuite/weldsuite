@@ -14,7 +14,7 @@
  * their users through an IdP it controls.
  */
 
-import { and, eq, isNotNull, ne } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, ne, type SQL } from 'drizzle-orm';
 import { masterSchema } from '@weldsuite/worker-kit/db';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import type { WorkspaceSso } from '@weldsuite/db/schema/master';
@@ -72,6 +72,34 @@ export async function loadContext(db: SsoDb, clerkOrgId: string): Promise<SsoCon
 function verificationToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function changedMeanwhile(): SsoError {
+  return new SsoError(409, SSO_ERRORS.CHANGED_MEANWHILE, 'Single sign-on was changed by another request. Reload and try again.');
+}
+
+/**
+ * `updateSsoRow` that lands only while the row still holds what the caller
+ * checked before a slow step (the DNS lookup, a Clerk call); `null` when
+ * another request changed it in between. Without this, verifying `a.com`
+ * while the domain is swapped to `b.com` would stamp `b.com` as verified.
+ */
+async function updateCheckedSsoRow(
+  db: SsoDb,
+  rowId: string,
+  checked: SQL[],
+  patch: Partial<Omit<WorkspaceSso, 'id' | 'workspaceId' | 'createdAt'>>,
+): Promise<WorkspaceSso | null> {
+  const [row] = await db
+    .update(workspaceSso)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(and(eq(workspaceSso.id, rowId), ...checked))
+    .returning();
+  return row ?? null;
+}
+
+function sameConnection(connectionId: string | null): SQL {
+  return connectionId ? eq(workspaceSso.clerkConnectionId, connectionId) : isNull(workspaceSso.clerkConnectionId);
 }
 
 function clerkFailure(err: unknown): SsoError {
@@ -173,13 +201,14 @@ export async function setSsoDomain(db: SsoDb, ctx: SsoContext, input: string, ac
   }
   await assertDomainFree(db, domain, ctx.workspace.id);
 
-  await updateSsoRow(db, row.id, {
+  const saved = await updateCheckedSsoRow(db, row.id, [sameConnection(null)], {
     domain,
     domainVerificationToken: verificationToken(),
     domainVerifiedAt: null,
     connectionUpdatedBy: actor,
     connectionUpdatedAt: new Date(),
   });
+  if (!saved) throw changedMeanwhile();
 }
 
 async function assertDomainFree(db: SsoDb, domain: string, workspaceId: string): Promise<void> {
@@ -199,13 +228,14 @@ export async function removeSsoDomain(db: SsoDb, ctx: SsoContext, actor: string)
   if (row.clerkConnectionId) {
     throw new SsoError(409, SSO_ERRORS.DOMAIN_LOCKED, 'Remove the identity provider connection before removing the domain.');
   }
-  await updateSsoRow(db, row.id, {
+  const saved = await updateCheckedSsoRow(db, row.id, [sameConnection(null)], {
     domain: null,
     domainVerificationToken: null,
     domainVerifiedAt: null,
     connectionUpdatedBy: actor,
     connectionUpdatedAt: new Date(),
   });
+  if (!saved) throw changedMeanwhile();
 }
 
 /** Look for the TXT record; on a match the domain is the workspace's. */
@@ -237,8 +267,16 @@ export async function verifySsoDomain(
   }
 
   await assertDomainFree(db, row.domain, ctx.workspace.id);
+  let verified: WorkspaceSso | null;
   try {
-    await updateSsoRow(db, row.id, { domainVerifiedAt: new Date(), connectionUpdatedBy: actor, connectionUpdatedAt: new Date() });
+    // Only the claim whose record was looked up: the token is new on every
+    // claim, so a domain changed during the lookup no longer matches.
+    verified = await updateCheckedSsoRow(
+      db,
+      row.id,
+      [eq(workspaceSso.domain, row.domain), eq(workspaceSso.domainVerificationToken, row.domainVerificationToken)],
+      { domainVerifiedAt: new Date(), connectionUpdatedBy: actor, connectionUpdatedAt: new Date() },
+    );
   } catch (err) {
     // Another workspace verified the same domain a moment earlier.
     if (isUniqueViolation(err)) {
@@ -246,6 +284,7 @@ export async function verifySsoDomain(
     }
     throw err;
   }
+  if (!verified) throw changedMeanwhile();
 }
 
 // ============================================================================
@@ -294,26 +333,40 @@ export async function saveSsoConnection(
   }
 
   if (row.clerkConnectionId) {
+    const connectionId = row.clerkConnectionId;
+    let gone = false;
     try {
-      await clerk.samlConnections.updateSamlConnection(row.clerkConnectionId, {
+      await clerk.samlConnections.updateSamlConnection(connectionId, {
         provider: input.provider,
         ...idpParams(input, false),
       });
-      await updateSsoRow(db, row.id, { provider: input.provider, connectionUpdatedBy: actor, connectionUpdatedAt: new Date() });
-      return;
     } catch (err) {
       if (clerkErrorStatus(err) !== 404) throw clerkFailure(err);
-      // Deleted in Clerk's dashboard: start a new one below.
-      row = await updateSsoRow(db, row.id, { ...CLEARED_CONNECTION });
+      gone = true;
     }
+    if (!gone) {
+      const saved = await updateCheckedSsoRow(db, row.id, [sameConnection(connectionId)], {
+        provider: input.provider,
+        connectionUpdatedBy: actor,
+        connectionUpdatedAt: new Date(),
+      });
+      if (!saved) throw changedMeanwhile();
+      return;
+    }
+    // Deleted in Clerk's dashboard: start a new one below.
+    const cleared = await updateCheckedSsoRow(db, row.id, [sameConnection(connectionId)], { ...CLEARED_CONNECTION });
+    if (!cleared) throw changedMeanwhile();
+    row = cleared;
   }
 
+  const domain = row.domain;
+  if (!domain) throw new SsoError(409, SSO_ERRORS.DOMAIN_NOT_VERIFIED, 'Verify your domain first.');
   let created: ClerkSamlConnection;
   try {
     created = await clerk.samlConnections.createSamlConnection({
       name: `${ctx.workspace.name} SSO`.slice(0, 100),
       provider: input.provider,
-      domain: row.domain!,
+      domain,
       organizationId: row.clerkOrgId,
       ...idpParams(input, true),
     });
@@ -321,17 +374,32 @@ export async function saveSsoConnection(
     throw clerkFailure(err);
   }
 
-  await updateSsoRow(db, row.id, {
-    clerkConnectionId: created.id,
-    provider: input.provider,
-    enabled: false,
-    clerkActive: created.active,
-    acsUrl: created.acsUrl,
-    spEntityId: created.spEntityId,
-    spMetadataUrl: created.spMetadataUrl,
-    connectionUpdatedBy: actor,
-    connectionUpdatedAt: new Date(),
-  });
+  // Keep the connection only if the row still holds the verified domain it
+  // was created for, and no other request created one meanwhile.
+  const saved = await updateCheckedSsoRow(
+    db,
+    row.id,
+    [eq(workspaceSso.domain, domain), isNotNull(workspaceSso.domainVerifiedAt), sameConnection(null)],
+    {
+      clerkConnectionId: created.id,
+      provider: input.provider,
+      enabled: false,
+      clerkActive: created.active,
+      acsUrl: created.acsUrl,
+      spEntityId: created.spEntityId,
+      spMetadataUrl: created.spMetadataUrl,
+      connectionUpdatedBy: actor,
+      connectionUpdatedAt: new Date(),
+    },
+  );
+  if (!saved) {
+    try {
+      await clerk.samlConnections.deleteSamlConnection(created.id);
+    } catch (err) {
+      console.error(`[SSO] Removing unused connection ${created.id} failed:`, err);
+    }
+    throw changedMeanwhile();
+  }
 
   // Clerk may create it active; nothing is switched on until the admin says so.
   if (created.active) {
@@ -362,9 +430,13 @@ export async function setSsoEnabled(
     throw new SsoError(409, SSO_ERRORS.CONNECTION_MISSING, 'Connect your identity provider first.');
   }
 
+  const checked = [sameConnection(row.clerkConnectionId)];
   if (enabled) {
     requireEntitled(ctx);
-    if (!row.domainVerifiedAt) throw new SsoError(409, SSO_ERRORS.DOMAIN_NOT_VERIFIED, 'Verify your domain first.');
+    if (!row.domain || !row.domainVerifiedAt) {
+      throw new SsoError(409, SSO_ERRORS.DOMAIN_NOT_VERIFIED, 'Verify your domain first.');
+    }
+    checked.push(eq(workspaceSso.domain, row.domain), isNotNull(workspaceSso.domainVerifiedAt));
     let live: ClerkSamlConnection;
     try {
       live = await clerk.samlConnections.getSamlConnection(row.clerkConnectionId);
@@ -380,7 +452,8 @@ export async function setSsoEnabled(
     }
   }
 
-  const saved = await updateSsoRow(db, row.id, { enabled, connectionUpdatedBy: actor, connectionUpdatedAt: new Date() });
+  const saved = await updateCheckedSsoRow(db, row.id, checked, { enabled, connectionUpdatedBy: actor, connectionUpdatedAt: new Date() });
+  if (!saved) throw changedMeanwhile();
   try {
     await reconcileSsoConnection(db, clerk, { ...ctx, row: saved }, actor);
   } catch (err) {
