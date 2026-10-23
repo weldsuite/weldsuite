@@ -130,8 +130,8 @@ export function parseCallNotice(message: Pick<CallNoticeMessage, 'type' | 'conte
 export interface CallHistory {
   /** Started-notice id (or a lone ended-notice id) → the call it renders. */
   calls: Map<string, CallSummary>;
-  /** Ended notices folded into their call's row: not rendered on their own. */
-  folded: Set<string>;
+  /** Ended-notice id → the started notice it folded into: not rendered on its own. */
+  folded: Map<string, string>;
 }
 
 /**
@@ -143,7 +143,7 @@ export interface CallHistory {
  * loaded or never existed renders on its own.
  */
 export function buildCallHistory(messages: readonly CallNoticeMessage[]): CallHistory {
-  const history: CallHistory = { calls: new Map(), folded: new Set() };
+  const history: CallHistory = { calls: new Map(), folded: new Map() };
   const open: OpenCalls = { byCallId: new Map(), byAuthor: new Map() };
 
   for (const message of messages) {
@@ -198,7 +198,7 @@ function addEnded(history: CallHistory, open: OpenCalls, message: CallNoticeMess
   }
 
   history.calls.set(startId, { ...startSummary, callType: notice.callType ?? startSummary.callType, ...ended });
-  history.folded.add(message.id);
+  history.folded.set(message.id, startId);
   if (notice.callId) open.byCallId.delete(notice.callId);
   open.byAuthor.set(author, authorOpen.filter((id) => id !== startId));
 }

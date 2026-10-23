@@ -229,10 +229,22 @@ export function MessageList({
   // One row per call: the "ended" notice folds into its "started" notice. Paired
   // over the unfiltered list so a search can't split a call apart.
   const callHistory = useMemo(() => buildCallHistory(allMessages), [allMessages]);
-  const messages = useMemo(
-    () => filteredMessages.filter((m) => !callHistory.folded.has(m.id)),
-    [filteredMessages, callHistory],
-  );
+  const messages = useMemo(() => {
+    const shown = new Set(filteredMessages.map((m) => m.id));
+    const byId = new Map(allMessages.map((m) => [m.id, m]));
+    const rows: ListMessage[] = [];
+    for (const m of filteredMessages) {
+      const startId = callHistory.folded.get(m.id);
+      const start = startId ? byId.get(startId) : undefined;
+      if (!startId) rows.push(m);
+      // The filters matched a call's end but not its start: show the call's row here.
+      else if (start && !shown.has(startId)) {
+        shown.add(startId);
+        rows.push(start);
+      }
+    }
+    return rows;
+  }, [allMessages, filteredMessages, callHistory]);
 
   // The last call that hasn't ended: only that one shows as live
   const lastCallStartedId = useMemo(() => {

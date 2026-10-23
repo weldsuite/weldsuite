@@ -47,7 +47,7 @@ describe('buildCallHistory', () => {
       sys('s2', 'u2', 'Daniel started a voice call', '2026-10-23T09:01:00Z'),
       sys('e2', 'u2', 'Call ended — 47m 13s', '2026-10-23T09:48:13Z'),
     ]);
-    expect([...folded]).toEqual(['e1', 'e2']);
+    expect(Object.fromEntries(folded)).toEqual({ e1: 's1', e2: 's2' });
     expect(calls.get('s1')).toMatchObject({ outcome: 'missed', initiatorId: 'u1', endedAt: '2026-10-23T09:00:25Z' });
     expect(calls.get('s2')).toMatchObject({ outcome: 'answered', duration: 2833, initiatorName: 'Daniel' });
   });
