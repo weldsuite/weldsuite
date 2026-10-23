@@ -37,6 +37,7 @@ import {
   broadcastChatCallToMembers,
 } from '@weldsuite/chat-domain/realtime/weldchat-call-publisher';
 import {
+  callNoticeMetadata,
   endChatCall,
   endChatCallIfEmpty,
   scheduleRingTimeout,
@@ -493,6 +494,7 @@ async function startNewCall(p: StartNewCallParams) {
       authorAvatar: initiatorPicture ?? null,
       content: `${initiatorName} started a ${callLabel}`,
       type: 'system',
+      metadata: callNoticeMetadata({ callId: call.callId, callType: p.callType, event: 'started' }),
       createdAt: now,
       updatedAt: now,
     }),
@@ -646,6 +648,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
       authorAvatar: author?.picture ?? null,
       content: `${initiatorName} started a ${callLabel}`,
       type: 'system',
+      metadata: callNoticeMetadata({ callId, callType: data.callType, event: 'started' }),
       createdAt: now,
       updatedAt: now,
     });

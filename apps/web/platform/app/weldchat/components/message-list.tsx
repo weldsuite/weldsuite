@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
 import { isSystemNotice } from '../lib/system-notice';
+import { buildCallHistory } from '../lib/call-history';
 import { flashMessageWhenMounted } from '../lib/jump-to-message';
 import { firstUnreadMessageId, type UnreadMarker } from '../lib/unread-divider';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
@@ -187,7 +188,7 @@ export function MessageList({
   const threadParent = parentId ? (threadParentData?.data as MessageItemMessage | undefined) : undefined;
 
   // Apply client-side filters
-  const messages = useMemo(() => {
+  const filteredMessages = useMemo(() => {
     let filtered = allMessages;
 
     // Type filter
@@ -225,19 +226,23 @@ export function MessageList({
     return filtered;
   }, [allMessages, filters]);
 
-  // Find the last "started a call" system message — only that one should show as live
+  // One row per call: the "ended" notice folds into its "started" notice. Paired
+  // over the unfiltered list so a search can't split a call apart.
+  const callHistory = useMemo(() => buildCallHistory(allMessages), [allMessages]);
+  const messages = useMemo(
+    () => filteredMessages.filter((m) => !callHistory.folded.has(m.id)),
+    [filteredMessages, callHistory],
+  );
+
+  // The last call that hasn't ended: only that one shows as live
   const lastCallStartedId = useMemo(() => {
     if (!hasActiveCall) return null;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      const text = (m.content || '').toLowerCase();
-      if (isSystemNotice(m) &&
-          (text.includes('started a voice call') || text.includes('started a video call') || text.includes('started a call'))) {
-        return m.id;
-      }
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const call = callHistory.calls.get(allMessages[i].id);
+      if (call && !call.outcome && !call.endOnly) return allMessages[i].id;
     }
     return null;
-  }, [messages, hasActiveCall]);
+  }, [allMessages, callHistory, hasActiveCall]);
 
   // The first message that was unread when the channel opened gets the "New messages" line.
   const firstUnreadId = useMemo(
@@ -497,6 +502,7 @@ export function MessageList({
                 readBy={readByMap.get(message.id)}
                 isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}
+                call={callHistory.calls.get(message.id)}
               />
             </div>
           );

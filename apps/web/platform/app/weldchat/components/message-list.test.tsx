@@ -334,3 +334,17 @@ describe('MessageList deep link lifecycle', () => {
     expect(scroller.scrollTop).toBe(1000); // pinned to the bottom again
   });
 });
+
+describe('MessageList call history', () => {
+  it("folds a call's ended notice into its started notice", () => {
+    mocks.messages = [
+      msg({ id: 'start', type: 'system', content: 'Gert started a voice call', createdAt: at(0) }),
+      msg({ id: 'end', type: 'system', content: 'Call ended — 4m 12s', createdAt: at(4) }),
+      msg({ id: 'after', createdAt: at(5) }),
+    ];
+    render(<MessageList channelId="ch_1" />);
+    expect(item('start')).not.toBeNull();
+    expect(item('end')).toBeNull();
+    expect(item('after')).not.toBeNull();
+  });
+});

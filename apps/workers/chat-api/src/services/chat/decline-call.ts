@@ -9,6 +9,7 @@ import { sendMissedCallNotification } from '@weldsuite/notifications';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
+  callNoticeMetadata,
   cancelCallRings,
   dmCallRecipients,
   teardownRtkMeeting,
@@ -65,9 +66,11 @@ export async function declineRingingCall(
     authorName: call.initiatorName,
     content: 'Missed call',
     type: 'system',
+    metadata: callNoticeMetadata({ callId, callType: call.callType, event: 'ended', outcome: 'declined', duration: 0 }),
     createdAt: now,
     updatedAt: now,
   });
+  await db.update(chatCalls).set({ endMessageId: msgId }).where(eq(chatCalls.id, callId));
 
   try {
     await publishChatCallEnded(env, call.channelId, { callId, duration: 0, endedBy: declinerId });
