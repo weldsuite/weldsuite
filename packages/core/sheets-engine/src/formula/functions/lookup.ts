@@ -1018,9 +1018,11 @@ function wrap(args: EvalValue[], ctx: EvalContext, byRows: boolean): EvalValue {
   const count = int(args[1]!, ctx);
   if (isError(count)) return count;
   if (count < 1) return ERR.num;
-  const pad: Scalar = args[2] === undefined ? ERR.na : toScalar(args[2], ctx);
   const flat = m.data.flat();
   const lines = Math.ceil(flat.length / count);
+  // count is the length of each line (columns for WRAPROWS, rows for WRAPCOLS).
+  if (count > (byRows ? MAX_COLS : MAX_ROWS) || lines * count > MAX_MATRIX_CELLS) return ERR.num;
+  const pad: Scalar = args[2] === undefined ? ERR.na : toScalar(args[2], ctx);
   const data: Scalar[][] = [];
   for (let i = 0; i < lines; i++) {
     const line: Scalar[] = [];

@@ -19,6 +19,8 @@ import {
   type RangeRef,
   type Scalar,
 } from '../../values';
+import { isDateFormat } from '../../format/number-format';
+import { parseInput } from '../../format/input';
 import { toMatrix, toScalar } from '../evaluator';
 import type { EvalContext } from '../types';
 
@@ -199,7 +201,7 @@ export function compileCriteria(criterion: Scalar): (v: Scalar) => boolean {
     if (op === '<>') return (v) => v !== null && v !== '';
   }
 
-  const n = parseNumericText(operand);
+  const n = parseNumericText(operand) ?? dateOperand(operand);
   if (n !== null) return numberCriterion(op, n);
 
   const upper = operand.toUpperCase();
@@ -208,7 +210,19 @@ export function compileCriteria(criterion: Scalar): (v: Scalar) => boolean {
   return textCriterion(op, operand);
 }
 
-/** A criterion with a numeric operand (">=10"): only numbers match, except that <> accepts anything else. */
+/** A date or time typed as a criterion (">1/1/2025", "<=2025-01-31") as its serial, else null. */
+function dateOperand(operand: string): number | null {
+  const parsed = parseInput(operand);
+  return parsed.kind === 'value' && typeof parsed.value === 'number' && parsed.numFmt && isDateFormat(parsed.numFmt)
+    ? parsed.value
+    : null;
+}
+
+/**
+ * A criterion with a numeric operand (">=10"): numbers compare; for = and <>
+ * text that reads as the same number counts as equal ("5" matches 5), as in
+ * Excel; the ordering operators ignore text.
+ */
 function numberCriterion(op: string, target: number): (v: Scalar) => boolean {
   const test = (x: number): boolean => {
     switch (op) {
@@ -226,8 +240,12 @@ function numberCriterion(op: string, target: number): (v: Scalar) => boolean {
         return x >= target;
     }
   };
-  const nonNumber = op === '<>';
-  return (v) => (typeof v === 'number' ? test(v) : nonNumber);
+  return (v) => {
+    if (typeof v === 'number') return test(v);
+    const asNumber = typeof v === 'string' && (op === '=' || op === '<>') ? parseNumericText(v) : null;
+    if (asNumber !== null) return test(asNumber);
+    return op === '<>';
+  };
 }
 
 /** A criterion with a TRUE/FALSE operand; ordering operators match nothing. */

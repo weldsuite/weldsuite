@@ -64,8 +64,12 @@ Object (SQLite storage, WebSocket hibernation) per open sheet:
 2. The room transforms them against every op committed since `baseRevision`,
    applies them to its in-memory workbook, appends them to the op log with the
    next revision, acks the sender and broadcasts to the others.
-3. Clients keep the usual *pending / buffered* states and transform incoming
-   ops against their own unacknowledged ones.
+3. Clients rebase rather than transform both ways: on an incoming op they undo
+   their unacknowledged ops (the inverses `applyOp` returned), apply the
+   incoming op, and re-apply their own as `transform(own, incoming, true)`,
+   exactly what the room will compute. Every replica runs the same ops in the
+   same order, so they agree even where the two transform directions do not
+   commute (a range format racing the row/column style it inherits from).
 
 Only inputs travel; each client recalculates locally (the engine is
 deterministic apart from volatile functions). Presence (cursor, selection,

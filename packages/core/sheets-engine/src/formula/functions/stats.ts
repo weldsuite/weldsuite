@@ -633,7 +633,11 @@ function chisqInv(p: number, k: number): number {
 export function combin(n: number, k: number): number {
   const kk = Math.min(k, n - k);
   let r = 1;
-  for (let i = 1; i <= kk; i++) r = (r * (n - kk + i)) / i;
+  for (let i = 1; i <= kk; i++) {
+    r = (r * (n - kk + i)) / i;
+    // Past this the product only grows: stop instead of looping up to k times.
+    if (!Number.isFinite(r)) return Infinity;
+  }
   return r < 2 ** 53 ? Math.round(r) : r;
 }
 

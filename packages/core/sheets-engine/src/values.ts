@@ -144,7 +144,7 @@ export function toText(v: Scalar): string | CellError {
   if (v === null) return '';
   if (typeof v === 'string') return v;
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
-  if (typeof v === 'number') return formatGeneralNumber(v);
+  if (typeof v === 'number') return numberToText(v);
   return v;
 }
 
@@ -178,6 +178,29 @@ export function formatGeneralNumber(n: number): string {
   const s = Number(n.toPrecision(15)).toString();
   if (!s.includes('e')) return s;
   return trimFraction(n.toFixed(20));
+}
+
+/**
+ * Number → text as formulas see it (=A1&"", LEN, TEXTJOIN, text comparison):
+ * up to 15 significant digits, E notation from 1E+15 up and below 1E-9, as in
+ * Excel. Unlike the General display format this never drops to 6 digits, so
+ * IDs and phone numbers survive concatenation.
+ */
+export function numberToText(n: number): string {
+  if (!Number.isFinite(n)) return ERR.num.code;
+  if (n === 0) return '0';
+  const abs = Math.abs(n);
+  if (abs >= 1e15 || abs < 1e-9) {
+    const [mant = '0', exp = '0'] = n.toExponential(14).split('e');
+    const m = mant.includes('.') ? trimFraction(mant) : mant;
+    const e = Number(exp);
+    return `${m}E${e < 0 ? '-' : '+'}${Math.abs(e)}`;
+  }
+  const rounded = Number(n.toPrecision(15));
+  const s = rounded.toString();
+  if (!s.includes('e')) return s;
+  // Between 1E-9 and 1E-7 toString switches to exponent form: write the decimals out.
+  return trimFraction(rounded.toFixed(Math.min(100, 15 - Math.floor(Math.log10(abs)))));
 }
 
 /** Drops trailing zeros, then a trailing decimal point: "1.500" → "1.5", "2.000" → "2". */
