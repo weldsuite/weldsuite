@@ -1136,12 +1136,14 @@ export function MinimizedCallWidget({
   // hint) AND the DOM property imperatively to be sure Chrome sees it.
   const setHiddenPipRef = useCallback((el: HTMLVideoElement | null) => {
     pipVideoRef.current = el;
-    if (el && autoPictureInPicture) {
+    if (el) {
       try {
-        // The DOM property is the source of truth Chrome reads.
-        (el as HTMLVideoElement & { autoPictureInPicture?: boolean }).autoPictureInPicture = true;
+        // The DOM property is the source of truth Chrome reads. Cleared again
+        // when auto-PiP is switched off (e.g. during a WeldChat call).
+        (el as HTMLVideoElement & { autoPictureInPicture?: boolean }).autoPictureInPicture = autoPictureInPicture;
         // Belt-and-suspenders: also set the HTML attribute explicitly.
-        el.setAttribute('autopictureinpicture', '');
+        if (autoPictureInPicture) el.setAttribute('autopictureinpicture', '');
+        else el.removeAttribute('autopictureinpicture');
       } catch { /* property unsupported in this browser — silently degrade */ }
     }
   }, [autoPictureInPicture]);
