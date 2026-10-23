@@ -14,6 +14,7 @@ export const navigation = {
     social: 'Social',
     appStore: 'App Store',
     aiAgents: 'Agentes IA',
+    unreadBadge: '{count} sin leer',
     dashboard: 'Panel',
     bookkeeping: 'Contabilidad',
     sales: 'Ventas',
