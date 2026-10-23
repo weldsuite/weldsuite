@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   openThread: vi.fn(),
   toastInfo: vi.fn(),
   target: { data: undefined as unknown, isError: false },
+  search: '',
 }));
 
 vi.mock('@/hooks/queries/use-weldchat-queries', () => ({
@@ -54,7 +55,7 @@ vi.mock('@/lib/i18n', () => ({
 vi.mock('sonner', () => ({ toast: { info: mocks.toastInfo } }));
 vi.mock('./chat-context', () => ({
   useChatContext: () => ({
-    filters: { type: 'all', search: '', from: [], date: undefined },
+    filters: { type: 'all', search: mocks.search, from: [], date: undefined },
     openThread: mocks.openThread,
   }),
 }));
@@ -101,6 +102,7 @@ beforeEach(() => {
   mocks.openThread.mockReset();
   mocks.toastInfo.mockReset();
   mocks.target = { data: undefined, isError: false };
+  mocks.search = '';
   (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
 });
 
@@ -332,5 +334,30 @@ describe('MessageList deep link lifecycle', () => {
     rerender(<MessageList channelId="ch_2" />);
 
     expect(scroller.scrollTop).toBe(1000); // pinned to the bottom again
+  });
+});
+
+describe('MessageList call history', () => {
+  it("folds a call's ended notice into its started notice", () => {
+    mocks.messages = [
+      msg({ id: 'start', type: 'system', content: 'Gert started a voice call', createdAt: at(0) }),
+      msg({ id: 'end', type: 'system', content: 'Call ended — 4m 12s', createdAt: at(4) }),
+      msg({ id: 'after', createdAt: at(5) }),
+    ];
+    render(<MessageList channelId="ch_1" />);
+    expect(item('start')).not.toBeNull();
+    expect(item('end')).toBeNull();
+    expect(item('after')).not.toBeNull();
+  });
+
+  it('shows the call row when a search matches only its ended notice', () => {
+    mocks.search = 'missed';
+    mocks.messages = [
+      msg({ id: 'start', type: 'system', content: 'Gert started a voice call', createdAt: at(0) }),
+      msg({ id: 'end', type: 'system', content: 'Missed call', createdAt: at(1) }),
+    ];
+    render(<MessageList channelId="ch_1" />);
+    expect(item('start')).not.toBeNull();
+    expect(item('end')).toBeNull();
   });
 });
