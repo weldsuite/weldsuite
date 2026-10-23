@@ -1932,12 +1932,26 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // The opened message's sender: the one the user is looking at when they block.
   const senderEmail = (message.fromEmail || addressToEmail(message.from)).trim().toLowerCase();
 
+  /** Move a message that has no thread to Spam. False when the move failed. */
+  const moveLoneMessageToSpam = async (): Promise<boolean> => {
+    try {
+      const result = await mailApi.messages.addLabel(accountId, message.id, 'SPAM');
+      return result.success;
+    } catch {
+      return false;
+    }
+  };
+
   const handleBlockSender = () => {
     if (!senderEmail) return;
     blockSenderMutation.mutate({ accountId, email: senderEmail, threadId: threadId ?? undefined }, {
       onSuccess: async () => {
-        // The hook moves a thread to Spam; a lone message is moved here.
-        if (!threadId) await mailApi.messages.addLabel(accountId, message.id, 'SPAM');
+        // The hook moves a thread to Spam; a lone message is moved here. The
+        // rule exists by now, so a failed move gets its own message.
+        if (!threadId && !(await moveLoneMessageToSpam())) {
+          toast.error(t.mail.messageDetail.senderBlockedMoveFailed.replace('{email}', senderEmail));
+          return;
+        }
         toast.success(t.mail.messageDetail.senderBlocked.replace('{email}', senderEmail));
         window.dispatchEvent(new Event('mail:refresh'));
         handleBackToList();

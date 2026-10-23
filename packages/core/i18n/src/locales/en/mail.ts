@@ -653,6 +653,7 @@ export const mail = {
       blockSender: 'Block sender',
       senderBlocked: 'Blocked {email}. Their mail now goes to Spam.',
       failedToBlockSender: 'Failed to block sender',
+      senderBlockedMoveFailed: 'Blocked {email}, but this message could not be moved to Spam',
       deletePermanently: 'Delete permanently',
       moveToTrash: 'Move to trash',
       loadingAttachments: 'Loading attachments...',

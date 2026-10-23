@@ -622,6 +622,7 @@ export const mail = {
       blockSender: 'Bloquear remitente',
       senderBlocked: '{email} bloqueado. Su correo ahora va a Spam.',
       failedToBlockSender: 'No se pudo bloquear al remitente',
+      senderBlockedMoveFailed: '{email} bloqueado, pero este mensaje no se pudo mover a Spam',
       deletePermanently: 'Eliminar definitivamente',
       moveToTrash: 'Mover a la papelera',
       loadingAttachments: 'Cargando adjuntos...',
