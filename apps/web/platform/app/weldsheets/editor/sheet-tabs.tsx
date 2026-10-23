@@ -35,29 +35,33 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
   };
 
   const deletingSheet = deleting ? controller.engine.workbook.getSheet(deleting) : undefined;
+  // Without edit rights tabs only switch sheets.
+  const editable = !controller.readOnly;
 
   return (
     <div className="flex h-9 shrink-0 items-stretch border-t bg-muted/40 text-sm">
-      <button
-        type="button"
-        className="flex w-9 shrink-0 items-center justify-center hover:bg-accent"
-        onClick={() => controller.addSheet()}
-        aria-label={tt.addSheet}
-        title={tt.addSheet}
-      >
-        <Plus className="size-4" />
-      </button>
+      {editable && (
+        <button
+          type="button"
+          className="flex w-9 shrink-0 items-center justify-center hover:bg-accent"
+          onClick={() => controller.addSheet()}
+          aria-label={tt.addSheet}
+          title={tt.addSheet}
+        >
+          <Plus className="size-4" />
+        </button>
+      )}
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto" role="tablist">
         {sheets.map((sheet, index) => {
           const active = sheet.id === controller.activeSheetId;
           return (
             <ContextMenu key={sheet.id}>
-              <ContextMenuTrigger asChild>
+              <ContextMenuTrigger asChild disabled={!editable}>
                 <div
                   role="tab"
                   aria-selected={active}
                   tabIndex={0}
-                  draggable={renaming !== sheet.id}
+                  draggable={editable && renaming !== sheet.id}
                   onDragStart={() => setDragging(sheet.id)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => {
@@ -65,7 +69,7 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
                     setDragging(null);
                   }}
                   onClick={() => controller.setActiveSheet(sheet.id)}
-                  onDoubleClick={() => setRenaming(sheet.id)}
+                  onDoubleClick={() => editable && setRenaming(sheet.id)}
                   className={`relative flex max-w-48 shrink-0 cursor-pointer items-center border-r px-4 ${
                     active ? 'bg-background font-medium text-primary' : 'text-muted-foreground hover:bg-accent'
                   }`}
@@ -111,7 +115,11 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
                         />
                       ))}
                     </div>
-                    <button type="button" className="mt-2 w-full rounded px-2 py-1 text-left text-sm hover:bg-accent" onClick={() => controller.setTabColor(sheet.id, null)}>
+                    <button
+                      type="button"
+                      className="mt-2 w-full rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                      onClick={() => controller.setTabColor(sheet.id, null)}
+                    >
                       {t.weldsheets.toolbar.resetColor}
                     </button>
                   </ContextMenuSubContent>
@@ -155,5 +163,11 @@ function SelectionStats({ controller }: { controller: SheetController }) {
     stats.numbers > 0
       ? [`${te.sum}: ${fmt(stats.sum)}`, `${te.average}: ${fmt(stats.sum / stats.numbers)}`, `${te.count}: ${stats.count}`]
       : [`${te.count}: ${stats.count}`];
-  return <div className="flex shrink-0 items-center gap-4 px-4 text-xs text-muted-foreground">{parts.map((p) => <span key={p}>{p}</span>)}</div>;
+  return (
+    <div className="flex shrink-0 items-center gap-4 px-4 text-xs text-muted-foreground">
+      {parts.map((p) => (
+        <span key={p}>{p}</span>
+      ))}
+    </div>
+  );
 }

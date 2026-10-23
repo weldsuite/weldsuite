@@ -422,7 +422,8 @@ export function SheetGrid({ controller, barInputRef }: Props) {
 
   const onCopy = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut = false) => {
     if (controller.editing) return;
-    const payload = copySelection(controller, cut);
+    // A read-only sheet cannot give its cells away: cutting copies.
+    const payload = copySelection(controller, cut && !controller.readOnly);
     e.clipboardData.setData('text/plain', payload.text);
     e.clipboardData.setData('text/html', payload.html);
     e.preventDefault();

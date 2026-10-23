@@ -1,14 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useCan } from '@weldsuite/permissions/react';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { FileSpreadsheet, MoreHorizontal, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
@@ -22,6 +18,9 @@ export default function WeldSheetsHome() {
   const { data: sheets, isLoading } = useSheetList();
   const { create, rename, remove } = useSheetMutations();
   const [deleting, setDeleting] = useState<SheetMeta | null>(null);
+  const canCreate = useCan('sheets:create');
+  const canUpdate = useCan('sheets:update');
+  const canDelete = useCan('sheets:delete');
 
   const createSheet = async () => {
     const meta = await create.mutateAsync(th.untitled);
@@ -47,27 +46,31 @@ export default function WeldSheetsHome() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6">
-      <section>
-        <button
-          type="button"
-          onClick={() => void createSheet()}
-          disabled={create.isPending}
-          className="group flex w-40 flex-col items-stretch gap-2 text-left"
-        >
-          <span className="flex h-28 items-center justify-center rounded-lg border bg-card transition group-hover:border-primary">
-            <Plus className="size-8 text-primary" />
-          </span>
-          <span className="text-sm font-medium">{th.blank}</span>
-        </button>
-      </section>
+      {canCreate && (
+        <section>
+          <button
+            type="button"
+            onClick={() => void createSheet()}
+            disabled={create.isPending}
+            className="group flex w-40 flex-col items-stretch gap-2 text-left"
+          >
+            <span className="flex h-28 items-center justify-center rounded-lg border bg-card transition group-hover:border-primary">
+              <Plus className="size-8 text-primary" />
+            </span>
+            <span className="text-sm font-medium">{th.blank}</span>
+          </button>
+        </section>
+      )}
 
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-muted-foreground">{th.recent}</h2>
-          <Button size="sm" onClick={() => void createSheet()} disabled={create.isPending}>
-            <Plus />
-            {th.newSheet}
-          </Button>
+          {canCreate && (
+            <Button size="sm" onClick={() => void createSheet()} disabled={create.isPending}>
+              <Plus />
+              {th.newSheet}
+            </Button>
+          )}
         </div>
         <p className="text-xs text-muted-foreground">{th.localNotice}</p>
 
@@ -94,10 +97,12 @@ export default function WeldSheetsHome() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => open(sheet.id)}>{th.open}</DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => promptRename(sheet)}>{th.rename}</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive" onSelect={() => setDeleting(sheet)}>
-                      {th.delete}
-                    </DropdownMenuItem>
+                    {canUpdate && <DropdownMenuItem onSelect={() => promptRename(sheet)}>{th.rename}</DropdownMenuItem>}
+                    {canDelete && (
+                      <DropdownMenuItem className="text-destructive" onSelect={() => setDeleting(sheet)}>
+                        {th.delete}
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </li>

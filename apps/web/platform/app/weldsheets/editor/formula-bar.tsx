@@ -58,6 +58,7 @@ export function FormulaBar({ controller, inputRef }: Props) {
         onKeyDown={onKeyDown}
         spellCheck={false}
         aria-label={t.weldsheets.editor.formulaBar}
+        readOnly={controller.readOnly}
         className="min-w-0 flex-1 resize-none bg-transparent px-2 py-[6px] font-mono text-[13px] leading-5 outline-none"
       />
     </div>

@@ -54,75 +54,87 @@ export function GridContextMenu({ controller, children }: { controller: SheetCon
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-64">
-        <ContextMenuItem onSelect={() => void copy(true)}>
-          {tm.cut}
-          <ContextMenuShortcut>{MOD}X</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void copy(false)}>
-          {tm.copy}
-          <ContextMenuShortcut>{MOD}C</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void paste()}>
-          {tm.paste}
-          <ContextMenuShortcut>{MOD}V</ContextMenuShortcut>
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        {!wholeCols && (
-          <>
-            <ContextMenuItem onSelect={() => controller.insertDims('row', 'before')}>
-              {insertLabel(tm.insertRowAbove, tm.insertRowsAbove, rows)}
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => controller.insertDims('row', 'after')}>
-              {insertLabel(tm.insertRowBelow, tm.insertRowsBelow, rows)}
-            </ContextMenuItem>
-          </>
-        )}
-        {!wholeRows && (
-          <>
-            <ContextMenuItem onSelect={() => controller.insertDims('col', 'before')}>
-              {insertLabel(tm.insertColumnLeft, tm.insertColumnsLeft, cols)}
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={() => controller.insertDims('col', 'after')}>
-              {insertLabel(tm.insertColumnRight, tm.insertColumnsRight, cols)}
-            </ContextMenuItem>
-          </>
-        )}
-        <ContextMenuSeparator />
-        {!wholeCols && (
-          <ContextMenuItem onSelect={() => controller.deleteDims('row')}>
-            {rows > 1 ? format(tm.deleteRowsCount, { from: range.r1 + 1, to: range.r2 + 1 }) : tm.deleteRows}
+      {controller.readOnly ? (
+        <ContextMenuContent className="w-64">
+          <ContextMenuItem onSelect={() => void copy(false)}>
+            {tm.copy}
+            <ContextMenuShortcut>{MOD}C</ContextMenuShortcut>
           </ContextMenuItem>
-        )}
-        {!wholeRows && (
-          <ContextMenuItem onSelect={() => controller.deleteDims('col')}>
-            {cols > 1 ? format(tm.deleteColumnsCount, { from: colToLetters(range.c1), to: colToLetters(range.c2) }) : tm.deleteColumns}
+        </ContextMenuContent>
+      ) : (
+        <ContextMenuContent className="w-64">
+          <ContextMenuItem onSelect={() => void copy(true)}>
+            {tm.cut}
+            <ContextMenuShortcut>{MOD}X</ContextMenuShortcut>
           </ContextMenuItem>
-        )}
-        {wholeRows && (
-          <>
-            <ContextMenuItem onSelect={() => controller.setHidden('row', true)}>{tm.hideRows}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => unhideAround(controller, 'row')}>{tm.unhideRows}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => controller.resize('row', controller.selectedIndices('row'), null)}>{tm.resizeRows}</ContextMenuItem>
-          </>
-        )}
-        {wholeCols && (
-          <>
-            <ContextMenuItem onSelect={() => controller.setHidden('col', true)}>{tm.hideColumns}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => unhideAround(controller, 'col')}>{tm.unhideColumns}</ContextMenuItem>
-            <ContextMenuItem onSelect={() => controller.resize('col', controller.selectedIndices('col'), null)}>{tm.resizeColumns}</ContextMenuItem>
-          </>
-        )}
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => controller.clearContents()}>
-          {tm.clearContents}
-          <ContextMenuShortcut>Del</ContextMenuShortcut>
-        </ContextMenuItem>
-      </ContextMenuContent>
+          <ContextMenuItem onSelect={() => void copy(false)}>
+            {tm.copy}
+            <ContextMenuShortcut>{MOD}C</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => void paste()}>
+            {tm.paste}
+            <ContextMenuShortcut>{MOD}V</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {!wholeCols && (
+            <>
+              <ContextMenuItem onSelect={() => controller.insertDims('row', 'before')}>
+                {insertLabel(tm.insertRowAbove, tm.insertRowsAbove, rows)}
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => controller.insertDims('row', 'after')}>
+                {insertLabel(tm.insertRowBelow, tm.insertRowsBelow, rows)}
+              </ContextMenuItem>
+            </>
+          )}
+          {!wholeRows && (
+            <>
+              <ContextMenuItem onSelect={() => controller.insertDims('col', 'before')}>
+                {insertLabel(tm.insertColumnLeft, tm.insertColumnsLeft, cols)}
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => controller.insertDims('col', 'after')}>
+                {insertLabel(tm.insertColumnRight, tm.insertColumnsRight, cols)}
+              </ContextMenuItem>
+            </>
+          )}
+          <ContextMenuSeparator />
+          {!wholeCols && (
+            <ContextMenuItem onSelect={() => controller.deleteDims('row')}>
+              {rows > 1 ? format(tm.deleteRowsCount, { from: range.r1 + 1, to: range.r2 + 1 }) : tm.deleteRows}
+            </ContextMenuItem>
+          )}
+          {!wholeRows && (
+            <ContextMenuItem onSelect={() => controller.deleteDims('col')}>
+              {cols > 1 ? format(tm.deleteColumnsCount, { from: colToLetters(range.c1), to: colToLetters(range.c2) }) : tm.deleteColumns}
+            </ContextMenuItem>
+          )}
+          {wholeRows && (
+            <>
+              <ContextMenuItem onSelect={() => controller.setHidden('row', true)}>{tm.hideRows}</ContextMenuItem>
+              <ContextMenuItem onSelect={() => unhideAround(controller, 'row')}>{tm.unhideRows}</ContextMenuItem>
+              <ContextMenuItem onSelect={() => controller.resize('row', controller.selectedIndices('row'), null)}>
+                {tm.resizeRows}
+              </ContextMenuItem>
+            </>
+          )}
+          {wholeCols && (
+            <>
+              <ContextMenuItem onSelect={() => controller.setHidden('col', true)}>{tm.hideColumns}</ContextMenuItem>
+              <ContextMenuItem onSelect={() => unhideAround(controller, 'col')}>{tm.unhideColumns}</ContextMenuItem>
+              <ContextMenuItem onSelect={() => controller.resize('col', controller.selectedIndices('col'), null)}>
+                {tm.resizeColumns}
+              </ContextMenuItem>
+            </>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => controller.clearContents()}>
+            {tm.clearContents}
+            <ContextMenuShortcut>Del</ContextMenuShortcut>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      )}
     </ContextMenu>
   );
 }
-
 
 /** Unhides hidden rows/columns inside the selection, plus the ones right next to it. */
 function unhideAround(controller: SheetController, axis: 'row' | 'col'): void {

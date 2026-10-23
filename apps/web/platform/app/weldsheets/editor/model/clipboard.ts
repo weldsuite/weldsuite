@@ -6,6 +6,7 @@ import {
   type CellPatch,
   type Op,
   type Range,
+  type Workbook,
 } from '@weldsuite/sheets-engine';
 import { clampToGrid, primaryRange } from './selection';
 import type { SheetController } from './sheet-controller';
@@ -13,6 +14,8 @@ import type { SheetController } from './sheet-controller';
 /** What a copy remembers so a paste inside WeldSheets keeps formulas and formatting. */
 interface InternalClip {
   text: string;
+  /** The spreadsheet copied from: a cut only moves cells within it. */
+  workbook: Workbook;
   sheetId: string;
   range: Range;
   cells: { content: CellContent | null; style: string | null }[][];
@@ -52,7 +55,7 @@ export function copySelection(ctl: SheetController, cut = false): ClipboardPaylo
     cells.push(clipRow);
   }
   const text = lines.join('\n');
-  lastCopy = { text, sheetId: sheet.id, range, cells, cut };
+  lastCopy = { text, workbook: ctl.engine.workbook, sheetId: sheet.id, range, cells, cut };
   return { text, html: `<table>${htmlRows.join('')}</table>` };
 }
 
@@ -76,7 +79,7 @@ export function pasteInto(ctl: SheetController, text: string, html: string | nul
   const origin = ctl.selection.active;
   const top = Math.min(target.r1, origin.row);
   const left = Math.min(target.c1, origin.col);
-  const internal = lastCopy && normalizeNewlines(lastCopy.text) === normalizeNewlines(text) ? lastCopy : null;
+  const internal = matchingClip(ctl, text);
   const grid = (html ? parseHtmlTable(html) : null) ?? parseTsv(text);
   const op = internal ? internalPaste(ctl, internal, top, left, target) : externalPaste(ctl, grid, top, left);
   if (!op) return;
@@ -89,6 +92,17 @@ export function pasteInto(ctl: SheetController, text: string, html: string | nul
     anchor: { row: top, col: left },
   });
   if (internal?.cut) lastCopy = null;
+}
+
+/**
+ * The remembered copy, when the pasted text is what it put on the clipboard. A
+ * cut whose source is no longer here (another spreadsheet, or a deleted tab)
+ * pastes as a copy: there is nothing left to clear.
+ */
+function matchingClip(ctl: SheetController, text: string): InternalClip | null {
+  if (!lastCopy || normalizeNewlines(lastCopy.text) !== normalizeNewlines(text)) return null;
+  const sourceHere = lastCopy.workbook === ctl.engine.workbook && !!ctl.engine.workbook.getSheet(lastCopy.sheetId);
+  return lastCopy.cut && !sourceHere ? { ...lastCopy, cut: false } : lastCopy;
 }
 
 function normalizeNewlines(s: string): string {

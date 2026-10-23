@@ -73,6 +73,8 @@ export class SheetController {
   activeSheetId: string;
   selection: Selection = cellSelection(0, 0);
   editing: EditState | null = null;
+  /** Without edit rights (sheets:update) a sheet can be read, selected and copied, not changed. */
+  readOnly = false;
   /** Bumped on every change; the React snapshot. */
   version = 0;
 
@@ -129,8 +131,16 @@ export class SheetController {
   // Applying ops
   // -------------------------------------------------------------------------
 
-  /** Applies a local op and records it for undo. */
+  setReadOnly(readOnly: boolean): void {
+    if (this.readOnly === readOnly) return;
+    this.readOnly = readOnly;
+    if (readOnly) this.editing = null;
+    this.emit();
+  }
+
+  /** Applies a local op and records it for undo. Read-only sheets ignore it. */
   apply(op: Op): void {
+    if (this.readOnly) return;
     const normalized = normalize(op);
     const before = this.selection;
     const sheetId = this.activeSheetId;
@@ -144,6 +154,7 @@ export class SheetController {
   }
 
   undo(): void {
+    if (this.readOnly) return;
     const entry = this.undoStack.pop();
     if (!entry) return;
     const redoInverse = applyOp(this.engine, entry.inverse);
@@ -153,6 +164,7 @@ export class SheetController {
   }
 
   redo(): void {
+    if (this.readOnly) return;
     const entry = this.redoStack.pop();
     if (!entry) return;
     const inverse = applyOp(this.engine, entry.inverse);
@@ -304,6 +316,7 @@ export class SheetController {
   }
 
   beginEdit(opts: { text?: string; origin?: 'cell' | 'bar' } = {}): void {
+    if (this.readOnly) return;
     const { row, col } = this.selection.active;
     const replace = opts.text !== undefined;
     this.editing = {

@@ -67,6 +67,22 @@ describe('SheetController input', () => {
     expect(value(ctl, 0, 0)).toBe('hello');
   });
 
+  it('ignores edits, undo and editing in read-only mode', () => {
+    const { ctl, onOp } = make();
+    ctl.setInput(0, 0, '1');
+    ctl.setReadOnly(true);
+    ctl.setInput(0, 0, '2');
+    ctl.clearContents();
+    ctl.undo();
+    ctl.beginEdit({ text: 'x' });
+    expect(ctl.editing).toBeNull();
+    expect(value(ctl, 0, 0)).toBe(1);
+    expect(onOp).toHaveBeenCalledTimes(1);
+    ctl.setReadOnly(false);
+    ctl.setInput(0, 0, '3');
+    expect(value(ctl, 0, 0)).toBe(3);
+  });
+
   it('does not write when an edit is committed unchanged', () => {
     const { ctl, onOp } = make();
     ctl.beginEdit();
@@ -266,6 +282,29 @@ describe('clipboard', () => {
     pasteInto(ctl, 'Name\tAmount\nAcme\t1,250.50\n', null);
     expect(value(ctl, 0, 1)).toBe('Amount');
     expect(value(ctl, 1, 1)).toBe(1250.5);
+  });
+
+  it('pastes a cut from another spreadsheet as a copy instead of failing', () => {
+    const source = make().ctl;
+    source.setInput(0, 0, 'from A');
+    const payload = copySelection(source, true);
+    const target = make().ctl;
+    target.select(cellSelection(2, 2));
+    pasteInto(target, payload.text, payload.html);
+    expect(value(target, 2, 2)).toBe('from A');
+    expect(value(source, 0, 0)).toBe('from A');
+  });
+
+  it('pastes a cut as a copy when its source sheet was deleted', () => {
+    const { ctl } = make();
+    ctl.addSheet();
+    ctl.setInput(0, 0, 'x');
+    const payload = copySelection(ctl, true);
+    const doomed = ctl.activeSheetId;
+    ctl.setActiveSheet(ctl.engine.workbook.sheets[0]!.id);
+    ctl.deleteSheet(doomed);
+    pasteInto(ctl, payload.text, null);
+    expect(value(ctl, 0, 0)).toBe('x');
   });
 
   it('moves content on cut and paste', () => {

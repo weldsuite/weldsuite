@@ -29,6 +29,9 @@ export const weldsheets = {
   editor: {
     saving: 'Opslaan…',
     saved: 'Opgeslagen',
+    notSaved: 'Niet opgeslagen',
+    saveFailed: 'Je wijzigingen konden niet in deze browser worden opgeslagen. Ze blijven bewaard zolang deze pagina open is.',
+    viewOnly: 'Alleen bekijken',
     nameBox: 'Celverwijzing',
     formulaBar: 'Formule',
     renameSheet: 'Naam blad wijzigen',

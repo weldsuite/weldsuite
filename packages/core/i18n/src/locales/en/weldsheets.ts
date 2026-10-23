@@ -29,6 +29,9 @@ export const weldsheets = {
   editor: {
     saving: 'Saving…',
     saved: 'Saved',
+    notSaved: 'Not saved',
+    saveFailed: "Your changes couldn't be saved in this browser. They are kept while this page stays open.",
+    viewOnly: 'View only',
     nameBox: 'Cell reference',
     formulaBar: 'Formula',
     renameSheet: 'Rename sheet',
