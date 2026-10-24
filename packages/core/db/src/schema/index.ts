@@ -404,5 +404,8 @@ export * from './weldhr-payroll';
 // WeldReach (cold email outreach on Mailpool)
 export * from './reach';
 
+// WeldSign (electronic signatures)
+export * from './weldsign';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

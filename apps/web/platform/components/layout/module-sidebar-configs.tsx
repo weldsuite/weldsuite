@@ -91,6 +91,7 @@ import {
   SquareChartGantt,
   HandCoins,
   WalletCards,
+  Signature,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -222,6 +223,17 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: t.navigation.moduleSidebar.groups.general,
         items: [{ title: t.navigation.moduleSidebar.weldsheets.spreadsheets, href: '/weldsheets', icon: FileSpreadsheet, permission: 'sheets:read' }],
+      },
+    ],
+  },
+  weldsign: {
+    appName: 'WeldSign',
+    appIcon: Signature,
+    appLogo: getAppLogoConfig('weldsign'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [{ title: t.navigation.moduleSidebar.weldsign.envelopes, href: '/weldsign', icon: Signature, permission: 'sign_envelopes:read' }],
       },
     ],
   },

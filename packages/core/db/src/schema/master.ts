@@ -1334,6 +1334,8 @@ export {
   type ReachRoute,
   type NewReachRoute,
 } from './reach-routes';
+// WeldSign: signing-link tokens -> workspace, envelope and recipient.
+export { signLinkRegistry, type SignLink, type NewSignLink } from './weldsign-links';
 // WeldReach warmup network: the cross-workspace mailbox pool and its messages.
 export {
   reachWarmupMailboxes,
