@@ -26,6 +26,7 @@ import {
   Sheet,
   Workbook,
   decodeClient,
+  refusedBatchId,
   encode,
   toFrames,
   type CommittedOp,
@@ -165,13 +166,31 @@ export class SheetRoom extends DurableObject<Env> {
       return;
     }
     const text = this.assembler(state.peer.clientId).accept(message);
-    const msg = text === null ? null : decodeClient(text);
-    if (!msg) return;
+    if (text === null) return;
+    const msg = decodeClient(text);
+    if (!msg) {
+      // Malformed: never applied. A submit still gets its answer, or the sender would wait for ever.
+      const batchId = refusedBatchId(text);
+      if (batchId) this.dispatch(room, room.refuse(state.peer.clientId, batchId));
+      return;
+    }
 
     const before = room.revision;
-    const out = room.receive(state.peer.clientId, msg);
+    let out: Outgoing[];
+    try {
+      out = room.receive(state.peer.clientId, msg);
+    } catch (err) {
+      console.error('[sheets-api/room] handling a message failed:', err);
+      this.reload();
+      return;
+    }
     if (msg.type === 'hello' && !state.ready) ws.serializeAttachment({ ...state, ready: true } satisfies SocketState);
     this.dispatch(room, out);
+    if (room.needsReload) {
+      console.error('[sheets-api/room] an op failed to apply; rebuilding the room from its checkpoint');
+      this.reload();
+      return;
+    }
     if (room.revision > before) this.edited(room, state.peer.userId);
   }
 
@@ -203,6 +222,25 @@ export class SheetRoom extends DurableObject<Env> {
   }
 
   // ---- Loading ----
+
+  /**
+   * Drops the in-memory room, whose workbook may be half-changed, and closes
+   * every socket. Clients reconnect and catch up from a room rebuilt from the
+   * checkpoint and the log, which only hold committed ops.
+   */
+  private reload(): void {
+    this.room = null;
+    this.loading = null;
+    this.sockets.clear();
+    this.assemblers.clear();
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.close(1012, 'Reloading the sheet');
+      } catch {
+        // Already closing.
+      }
+    }
+  }
 
   private load(): Promise<RoomCore> {
     this.loading ??= this.restore().catch((err: unknown) => {

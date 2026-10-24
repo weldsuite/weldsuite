@@ -27,7 +27,8 @@ export interface CollabClientOptions {
   send: (msg: ClientMessage) => void;
   engine?: EngineOptions;
   /**
-   * The workbook was (re)loaded from a snapshot: first load, or a resync.
+   * The workbook was (re)loaded from a snapshot (first load, a resync) or
+   * rolled back to the room's state (a rejected batch; same engine).
    * `lostEdits` is true when unacked local edits were dropped.
    */
   onReset?: (engine: Engine, info: { canEdit: boolean; lostEdits: boolean }) => void;
@@ -98,7 +99,7 @@ export class CollabClient {
         this.reset(msg.snapshot, msg.revision, true);
         return;
       case 'reject':
-        // A resync with the room's state follows; our unacked edits go with it.
+        this.rollBack(msg.batchId);
         return;
       case 'peerJoined':
         this.peers.set(msg.peer.clientId, msg.peer);
@@ -145,6 +146,22 @@ export class CollabClient {
     this.inflight = null;
     this.buffer = [];
     this.options.onReset?.(this.engine, { canEdit: this.canEdit, lostEdits });
+  }
+
+  /**
+   * The room refused our batch. Every unconfirmed edit goes (later ones were
+   * made on top of it), which leaves exactly the room's state at our revision.
+   * A resync usually follows; when the room is being rebuilt instead, the
+   * reconnect catches up from here.
+   */
+  private rollBack(batchId: string): void {
+    const engine = this.engine;
+    if (!engine || this.inflight?.batchId !== batchId) return;
+    const pending = [...this.inflight.ops, ...this.buffer];
+    for (let i = pending.length - 1; i >= 0; i--) applyOp(engine, pending[i]!.inverse);
+    this.inflight = null;
+    this.buffer = [];
+    this.options.onReset?.(engine, { canEdit: this.canEdit, lostEdits: true });
   }
 
   private ack(batchId: string, revision: number): void {

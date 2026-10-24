@@ -15,6 +15,7 @@ import type { WorkbookSnapshot } from '../model/workbook';
 import { applyOp } from '../ops/apply';
 import { transform } from '../ops/transform';
 import { normalize, type Op } from '../ops/types';
+import { isWellFormedOp } from '../ops/shape';
 import { validateOp } from '../ops/validate';
 import type { ClientMessage, CommittedOp, Peer, Presence, RejectReason, ServerMessage } from './protocol';
 
@@ -42,6 +43,13 @@ export class RoomCore {
   private readonly members = new Map<string, Peer>();
   /** Members that have said hello (and so receive broadcasts). */
   private readonly ready = new Set<string>();
+  /**
+   * An op threw while being applied, after the checks passed (an engine bug).
+   * Its batch was rejected and undone as far as possible, but the workbook may
+   * still be half-changed: the owner must rebuild the room from its last
+   * checkpoint and log (the Durable Object drops it and reconnects everyone).
+   */
+  needsReload = false;
 
   constructor(
     snapshot: WorkbookSnapshot,
@@ -113,8 +121,14 @@ export class RoomCore {
       case 'presence':
         return this.presence(peer, msg.presence);
       case 'submit':
-        return this.ready.has(clientId) ? this.submit(peer, msg.batchId, msg.baseRevision, msg.op) : [];
+        // A room waiting to be rebuilt commits nothing more on a workbook it no longer trusts.
+        return this.ready.has(clientId) && !this.needsReload ? this.submit(peer, msg.batchId, msg.baseRevision, msg.op) : [];
     }
+  }
+
+  /** Rejects a batch whose message could not even be read (see `refusedBatchId`), with a resync. */
+  refuse(clientId: string, batchId: string): Outgoing[] {
+    return this.members.has(clientId) ? this.reject(clientId, batchId, 'invalid') : [];
   }
 
   private hello(peer: Peer, since: number | null): Outgoing[] {
@@ -146,11 +160,21 @@ export class RoomCore {
     if (!peer.canEdit) return this.reject(peer.clientId, batchId, 'read-only');
     if (baseRevision > this.revision || baseRevision < this.oldestBase) return this.reject(peer.clientId, batchId, 'stale');
 
-    let op = normalize(submitted);
-    for (const c of this.log) if (c.revision > baseRevision) op = transform(op, c.op, true);
+    if (!isWellFormedOp(submitted)) return this.reject(peer.clientId, batchId, 'invalid');
+    let op: Op;
+    try {
+      op = normalize(submitted);
+      for (const c of this.log) if (c.revision > baseRevision) op = transform(op, c.op, true);
+    } catch {
+      return this.reject(peer.clientId, batchId, 'invalid');
+    }
     if (validateOp(this.engine.workbook, op) !== null) return this.reject(peer.clientId, batchId, 'invalid');
-
-    applyOp(this.engine, op);
+    if (!this.applyAtomically(op)) {
+      this.needsReload = true;
+      // No resync: the workbook may be half-changed. The sender takes back its
+      // unconfirmed edits on the reject, and catches up once the room is rebuilt.
+      return [{ to: peer.clientId, msg: { type: 'reject', batchId, reason: 'invalid' } }];
+    }
     this.revision++;
     const committed: CommittedOp = { revision: this.revision, op, clientId: peer.clientId, batchId };
     this.remember(committed);
@@ -161,6 +185,23 @@ export class RoomCore {
       { to: peer.clientId, msg: { type: 'ack', batchId, revision: this.revision } },
       { to: null, except: peer.clientId, msg: { type: 'op', ...committed } },
     ];
+  }
+
+  /** Applies a batch op by op; if one throws, those before it are undone. False when that happened. */
+  private applyAtomically(op: Op): boolean {
+    const ops = op.type === 'batch' ? op.ops : [op];
+    const inverses: Op[] = [];
+    try {
+      for (const o of ops) inverses.push(applyOp(this.engine, o));
+      return true;
+    } catch {
+      try {
+        for (let i = inverses.length - 1; i >= 0; i--) applyOp(this.engine, inverses[i]!);
+      } catch {
+        // needsReload covers a workbook that could not be put back.
+      }
+      return false;
+    }
   }
 
   private reject(clientId: string, batchId: string, reason: RejectReason): Outgoing[] {

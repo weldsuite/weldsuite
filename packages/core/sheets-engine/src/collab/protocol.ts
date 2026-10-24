@@ -10,6 +10,7 @@
 
 import type { Range } from '../address';
 import type { WorkbookSnapshot } from '../model/workbook';
+import { isWellFormedOp } from '../ops/shape';
 import type { Op } from '../ops/types';
 
 /** Where someone is in the workbook, shown to everyone else. Never persisted. */
@@ -86,8 +87,23 @@ export function encode(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg);
 }
 
+/**
+ * A client message parsed from the socket, or null when it is not one. The
+ * room trusts nothing a browser sends: every field is checked, ops all the
+ * way down (`isWellFormedOp`), so applying one cannot throw halfway.
+ */
 export function decodeClient(data: string): ClientMessage | null {
-  return decode(data, CLIENT_TYPES) as ClientMessage | null;
+  const msg = decode(data, CLIENT_TYPES) as Record<string, unknown> | null;
+  return msg && isClientMessage(msg) ? (msg as unknown as ClientMessage) : null;
+}
+
+/**
+ * The batch id of a submit `decodeClient` refused, so the room can reject
+ * that batch instead of leaving the sender waiting for a reply.
+ */
+export function refusedBatchId(data: string): string | null {
+  const msg = decode(data, CLIENT_TYPES) as { type: string; batchId?: unknown } | null;
+  return msg?.type === 'submit' && isText(msg.batchId, MAX_BATCH_ID) ? (msg.batchId as string) : null;
 }
 
 export function decodeServer(data: string): ServerMessage | null {
@@ -151,6 +167,54 @@ export class FrameAssembler {
 
 const CLIENT_TYPES = new Set(['hello', 'submit', 'presence', 'ping']);
 const SERVER_TYPES = new Set(['welcome', 'ack', 'op', 'peerJoined', 'peerLeft', 'presence', 'reject', 'resync', 'pong']);
+
+/** Ranges one presence may carry (the platform sends at most 10). */
+const MAX_PRESENCE_RANGES = 50;
+const MAX_BATCH_ID = 200;
+
+function isClientMessage(msg: Record<string, unknown>): boolean {
+  switch (msg.type) {
+    case 'hello':
+      return msg.revision === null || isCount(msg.revision);
+    case 'submit':
+      return isText(msg.batchId, MAX_BATCH_ID) && isCount(msg.baseRevision) && isWellFormedOp(msg.op);
+    case 'presence':
+      return msg.presence === null || isPresence(msg.presence);
+    default:
+      return true;
+  }
+}
+
+function isPresence(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const p = v as Record<string, unknown>;
+  const active = p.active as Record<string, unknown> | null;
+  return (
+    isText(p.sheetId, MAX_BATCH_ID) &&
+    typeof active === 'object' &&
+    active !== null &&
+    isCount(active.row) &&
+    isCount(active.col) &&
+    Array.isArray(p.ranges) &&
+    p.ranges.length <= MAX_PRESENCE_RANGES &&
+    p.ranges.every(isRangeLike) &&
+    (p.editing === undefined || typeof p.editing === 'boolean')
+  );
+}
+
+function isRangeLike(v: unknown): boolean {
+  if (typeof v !== 'object' || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return isCount(r.r1) && isCount(r.c1) && isCount(r.r2) && isCount(r.c2);
+}
+
+function isCount(v: unknown): boolean {
+  return Number.isInteger(v) && (v as number) >= 0;
+}
+
+function isText(v: unknown, max: number): boolean {
+  return typeof v === 'string' && v.length > 0 && v.length <= max;
+}
 
 function decode(data: string, types: Set<string>): { type: string } | null {
   try {

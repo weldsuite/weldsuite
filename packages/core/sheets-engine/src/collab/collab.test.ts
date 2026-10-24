@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MAX_COLS } from '../address';
 import { Sheet, Workbook, type WorkbookSnapshot } from '../model/workbook';
 import type { Op } from '../ops/types';
 import { CollabClient } from './client';
-import { FrameAssembler, toFrames, type ClientMessage, type CommittedOp, type ServerMessage } from './protocol';
+import { FrameAssembler, decodeClient, encode, toFrames, type ClientMessage, type CommittedOp, type ServerMessage } from './protocol';
 import { RoomCore, type Outgoing } from './room';
 
 const ENGINE = { now: () => 0, random: () => 0.5, timezoneOffset: () => 0 };
@@ -63,8 +63,11 @@ class Network {
 
   deliverToRoom(i: number): boolean {
     const id = this.connection[i];
-    const msg = this.toRoom[i]!.shift();
-    if (!id || !msg) return false;
+    const sent = this.toRoom[i]!.shift();
+    if (!id || !sent) return false;
+    // Through JSON and the same checks the Durable Object applies to socket messages.
+    const msg = decodeClient(encode(sent));
+    if (!msg) throw new Error(`The room would refuse a client message: ${encode(sent)}`);
     this.dispatch(this.room.receive(id, msg));
     return true;
   }
@@ -144,6 +147,48 @@ describe('co-editing', () => {
     expect(net.room.engine.getValue('s1', 0, 0)).toBeNull();
     expect(value(net.clients[1]!, 0, 0)).toBeNull();
     expect(net.rejects).toBe(1);
+  });
+
+  it('refuses a garbled batch without touching the workbook', () => {
+    const net = new Network(1);
+    net.drain();
+    const garbled = { type: 'batch', ops: [{ type: 'setCells', sheetId: 's1', cells: [[0, 0, { v: 1 }]] }, { type: 'setNames', names: null }] };
+    expect(decodeClient(JSON.stringify({ type: 'submit', batchId: 'x:1', baseRevision: 0, op: garbled }))).toBeNull();
+    const out = net.room.receive('conn1', { type: 'submit', batchId: 'x:1', baseRevision: 0, op: garbled as never });
+    expect(out.map((o) => o.msg.type)).toEqual(['reject', 'resync']);
+    expect(net.room.engine.getValue('s1', 0, 0)).toBeNull();
+    expect(net.room.revision).toBe(0);
+  });
+
+  it('undoes a batch whose op throws, rejects it and asks to be rebuilt', () => {
+    const net = new Network(1);
+    net.drain();
+    vi.spyOn(net.room.engine, 'setNames').mockImplementation(() => {
+      throw new Error('engine bug');
+    });
+    const op = { type: 'batch', ops: [{ type: 'setCells', sheetId: 's1', cells: [[0, 0, { v: 1 }]] }, { type: 'setNames', names: [] }] } as const;
+    const out = net.room.receive('conn1', { type: 'submit', batchId: 'x:1', baseRevision: 0, op: op as never });
+    expect(out.map((o) => o.msg)).toEqual([{ type: 'reject', batchId: 'x:1', reason: 'invalid' }]);
+    expect(net.room.engine.getValue('s1', 0, 0)).toBeNull();
+    expect(net.room.needsReload).toBe(true);
+    expect(net.room.receive('conn1', { type: 'submit', batchId: 'x:2', baseRevision: 0, op: { type: 'setCells', sheetId: 's1', cells: [] } })).toEqual([]);
+  });
+
+  it('takes back its unconfirmed edits when the room refuses its batch', () => {
+    const net = new Network(2);
+    net.drain();
+    const [a, b] = net.clients;
+    a!.apply({ type: 'setCells', sheetId: 's1', cells: [[0, 0, { v: 1 }]] });
+    net.drain();
+    const reset = vi.fn();
+    (a as unknown as { options: { onReset: typeof reset } }).options.onReset = reset;
+    a!.apply({ type: 'setCells', sheetId: 's1', cells: [[0, 0, { v: 2 }]] });
+    a!.apply({ type: 'setCells', sheetId: 's1', cells: [[1, 0, { v: 3 }]] });
+    a!.receive({ type: 'reject', batchId: 'client0:2', reason: 'invalid' });
+    expect(a!.hasPending).toBe(false);
+    expect([value(a!, 0, 0), value(a!, 1, 0)]).toEqual([1, null]);
+    expect(reset).toHaveBeenCalledWith(a!.engine, { canEdit: true, lostEdits: true });
+    expect(JSON.stringify(a!.engine!.toSnapshot())).toBe(JSON.stringify(b!.engine!.toSnapshot()));
   });
 
   it('restores a room from a checkpoint and its op log', () => {

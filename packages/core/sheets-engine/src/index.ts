@@ -44,7 +44,8 @@ export { RoomCore } from './collab/room';
 export type { Outgoing, RoomOptions } from './collab/room';
 export { CollabClient } from './collab/client';
 export type { CollabClientOptions } from './collab/client';
-export { FrameAssembler, MAX_FRAME, decodeClient, decodeServer, encode, toFrames } from './collab/protocol';
+export { FrameAssembler, MAX_FRAME, decodeClient, decodeServer, encode, refusedBatchId, toFrames } from './collab/protocol';
+export { isWellFormedOp } from './ops/shape';
 export type { ClientMessage, CommittedOp, Peer, Presence, RejectReason, ServerMessage } from './collab/protocol';
 
 export { EN_LOCALE, NL_LOCALE, formatCategory, formatValue, isDateFormat } from './format/number-format';

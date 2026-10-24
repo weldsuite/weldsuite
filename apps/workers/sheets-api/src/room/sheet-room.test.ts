@@ -140,6 +140,44 @@ describe('SheetRoom', () => {
     expect(state.storage.data.has('op:000000000001')).toBe(false);
   });
 
+  it('refuses a garbled batch and logs nothing', async () => {
+    const room = new SheetRoom(state.ctx, env);
+    const alice = await join(room, 'alice');
+    await send(room, alice, { type: 'hello', revision: null });
+    const garbled = { type: 'submit', batchId: 'a:1', baseRevision: 0, op: { type: 'batch', ops: [setCell(0, 5), { type: 'setNames', names: null }] } };
+    await room.webSocketMessage(alice.asSocket(), JSON.stringify(garbled));
+    // Never applied or logged; the sender is told, and gets the room's state back.
+    expect(alice.messages().map((m) => m.type)).toEqual(['welcome', 'reject', 'resync']);
+    expect(state.storage.data.has('op:000000000001')).toBe(false);
+    await send(room, alice, { type: 'submit', batchId: 'a:2', baseRevision: 0, op: setCell(0, 6) });
+    expect(ofType(alice, 'ack')).toEqual([{ type: 'ack', batchId: 'a:2', revision: 1 }]);
+  });
+
+  it('rebuilds itself when an op fails to apply', async () => {
+    const room = new SheetRoom(state.ctx, env);
+    const alice = await join(room, 'alice');
+    const bob = await join(room, 'bob');
+    await send(room, alice, { type: 'hello', revision: null });
+    await send(room, bob, { type: 'hello', revision: null });
+    await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: setCell(0, 1) });
+    const loaded = (room as unknown as { room: { engine: Engine } }).room;
+    vi.spyOn(loaded.engine, 'setNames').mockImplementation(() => {
+      throw new Error('engine bug');
+    });
+    await send(room, alice, { type: 'submit', batchId: 'a:2', baseRevision: 1, op: { type: 'batch', ops: [setCell(0, 2), { type: 'setNames', names: [] }] } });
+    expect(ofType(alice, 'reject')).toEqual([{ type: 'reject', batchId: 'a:2', reason: 'invalid' }]);
+    expect([alice.closed?.code, bob.closed?.code]).toEqual([1012, 1012]);
+    expect(state.storage.data.has('op:000000000002')).toBe(false);
+
+    // Everyone comes back to a room rebuilt from the checkpoint and the log.
+    state.sockets.length = 0;
+    const again = await join(room, 'alice');
+    await send(room, again, { type: 'hello', revision: 1 });
+    expect(ofType(again, 'welcome')[0]).toMatchObject({ revision: 1, catchUp: [] });
+    await send(room, again, { type: 'submit', batchId: 'a:3', baseRevision: 1, op: setCell(0, 3) });
+    expect(ofType(again, 'ack')).toEqual([{ type: 'ack', batchId: 'a:3', revision: 2 }]);
+  });
+
   it('joins a batch sent in parts', async () => {
     const room = new SheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
