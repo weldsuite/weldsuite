@@ -18,8 +18,10 @@ import type { AxisSnapshot } from '../../model/axis';
 import { valueKey, sortFormats, type ColorPoint, type ConditionalFormat, type DataValidation, type FilterColumn, type SheetFilter } from '../../model/rules';
 import type { Sheet } from '../../model/workbook';
 import { isError, type Scalar } from '../../values';
+import { isPivotFormula } from '../../pivot/pivot';
 import { XML_HEADER, attrs, esc, escCellText } from '../xml';
-import { writeZip } from '../zip';
+import { writeZip, type ZipFile } from '../zip';
+import { CT_CHART, CT_DRAWING, writeDrawing } from './charts';
 import { toArgb } from './colors';
 import { cellIsForm, conditionFormula, pxToPoints, pxToWidth, quote } from './conditions';
 import { toExcelFormula } from './formulas';
@@ -55,8 +57,28 @@ export async function writeXlsx(engine: Engine, options: WriteXlsxOptions = {}):
   const sheetParts = sheets.map((sheet, i) => writeSheet(sheet, i === active, ctx));
   const date = options.date ?? new Date();
 
+  // Each sheet with charts gets a drawing; chart parts are numbered across the workbook.
+  const drawingFiles: ZipFile[] = [];
+  const overrides: [string, string][] = [];
+  let drawings = 0;
+  let chartCount = 0;
+  sheets.forEach((sheet, i) => {
+    if (!sheet.charts.length) return;
+    const n = ++drawings;
+    const parts = writeDrawing(engine, sheet, chartCount + 1, ctx.locale);
+    sheetParts[i] = sheetParts[i]!.replace('</worksheet>', '<drawing r:id="rId1"/></worksheet>');
+    drawingFiles.push(
+      { name: `xl/worksheets/_rels/sheet${i + 1}.xml.rels`, data: relsXml([[`${REL_TYPE}drawing`, `../drawings/drawing${n}.xml`]]) },
+      { name: `xl/drawings/drawing${n}.xml`, data: parts.drawing },
+      { name: `xl/drawings/_rels/drawing${n}.xml.rels`, data: parts.rels },
+      ...parts.charts.map((data, k) => ({ name: `xl/charts/chart${chartCount + 1 + k}.xml`, data })),
+    );
+    overrides.push([`/xl/drawings/drawing${n}.xml`, CT_DRAWING], ...parts.charts.map((_, k): [string, string] => [`/xl/charts/chart${chartCount + 1 + k}.xml`, CT_CHART]));
+    chartCount += parts.charts.length;
+  });
+
   const files = [
-    { name: '[Content_Types].xml', data: contentTypes(sheets.length, ctx.dynamic) },
+    { name: '[Content_Types].xml', data: contentTypes(sheets.length, ctx.dynamic, overrides) },
     { name: '_rels/.rels', data: rootRels() },
     { name: 'docProps/core.xml', data: coreProps(date) },
     { name: 'docProps/app.xml', data: `${XML_HEADER}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>WeldSheets</Application></Properties>` },
@@ -66,6 +88,7 @@ export async function writeXlsx(engine: Engine, options: WriteXlsxOptions = {}):
     { name: 'xl/styles.xml', data: XML_HEADER + ctx.styles.toXml() },
     { name: 'xl/sharedStrings.xml', data: ctx.strings.toXml() },
     ...(ctx.dynamic ? [{ name: 'xl/metadata.xml', data: METADATA }] : []),
+    ...drawingFiles,
   ];
   return writeZip(files, { date });
 }
@@ -147,23 +170,28 @@ function collectCells(sheet: Sheet, ctx: Context): Map<number, OutCell> {
   const { engine, styles } = ctx;
   const out = new Map<number, OutCell>();
   const book = engine.workbook;
+  const spills: Range[] = [];
   sheet.cells.forEach((row, col, cell) => {
     const xf = styles.xf(book.style(sheet, row, col));
     if (cell.f === undefined) {
       out.set(cellKey(row, col), { value: cell.v, xf });
       return;
     }
-    const entry: OutCell = { formula: cell.f, value: engine.getValue(sheet.id, row, col), xf };
+    // Excel has no PIVOT function: a pivot table goes as the values it shows.
+    const pivot = isPivotFormula(cell.f);
+    const value = engine.getValue(sheet.id, row, col);
+    const entry: OutCell = pivot ? { value, xf } : { formula: cell.f, value, xf };
     const spill = engine.spillArea(sheet.id, row, col);
     if (spill && (spill.r2 > spill.r1 || spill.c2 > spill.c1)) {
-      entry.spill = spill;
-      ctx.dynamic = true;
+      spills.push(spill);
+      if (!pivot) {
+        entry.spill = spill;
+        ctx.dynamic = true;
+      }
     }
     out.set(cellKey(row, col), entry);
   });
-  for (const entry of [...out.values()]) {
-    const spill = entry.spill;
-    if (!spill) continue;
+  for (const spill of spills) {
     for (let r = spill.r1; r <= spill.r2; r++) {
       for (let c = spill.c1; c <= spill.c2; c++) {
         const key = cellKey(r, c);
@@ -493,7 +521,7 @@ function workbookXml(engine: Engine, active: number): string {
   ].join('');
 }
 
-function contentTypes(sheetCount: number, dynamic: boolean): string {
+function contentTypes(sheetCount: number, dynamic: boolean, extra: [string, string][] = []): string {
   const override = (part: string, type: string) => `<Override PartName="${part}" ContentType="${type}"/>`;
   const sheets = Array.from({ length: sheetCount }, (_, i) => override(`/xl/worksheets/sheet${i + 1}.xml`, `${CT_PREFIX}worksheet+xml`));
   return [
@@ -505,6 +533,7 @@ function contentTypes(sheetCount: number, dynamic: boolean): string {
     override('/xl/styles.xml', `${CT_PREFIX}styles+xml`),
     override('/xl/sharedStrings.xml', `${CT_PREFIX}sharedStrings+xml`),
     dynamic ? override('/xl/metadata.xml', `${CT_PREFIX}sheetMetadata+xml`) : '',
+    ...extra.map(([part, type]) => override(part, type)),
     override('/docProps/core.xml', 'application/vnd.openxmlformats-package.core-properties+xml'),
     override('/docProps/app.xml', 'application/vnd.openxmlformats-officedocument.extended-properties+xml'),
     '</Types>',

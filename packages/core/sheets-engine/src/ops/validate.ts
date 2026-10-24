@@ -8,6 +8,7 @@
 
 import { MAX_COLS, MAX_ROWS, type Range } from '../address';
 import type { Workbook } from '../model/workbook';
+import { CHART_TYPES, MAX_CHART_SERIES, MAX_CHART_SIZE, MIN_CHART_SIZE, type Chart } from '../model/charts';
 import type { Op } from './types';
 
 /** Cells one op may write; a paste larger than this is split by the client. */
@@ -87,7 +88,23 @@ function checkSheetOp(op: SheetOp): string | null {
     case 'patchConditionalFormats':
     case 'patchValidations':
       return fail((op.set ?? []).every((rule) => rule.ranges.length > 0 && rule.ranges.length <= MAX_RULE_RANGES && rule.ranges.every(validRange)), 'range out of bounds');
+    case 'patchCharts':
+      return fail((op.set ?? []).every(validChart), 'chart out of bounds');
   }
+}
+
+function validChart(c: Chart): boolean {
+  const size = (n: number) => Number.isFinite(n) && n >= MIN_CHART_SIZE && n <= MAX_CHART_SIZE;
+  const offset = (n: number) => Number.isFinite(n) && n >= 0 && n <= MAX_CHART_SIZE;
+  return (
+    inCell(c.anchor.row, c.anchor.col) &&
+    offset(c.anchor.dx) &&
+    offset(c.anchor.dy) &&
+    size(c.width) &&
+    size(c.height) &&
+    CHART_TYPES.includes(c.type) &&
+    c.series.length <= MAX_CHART_SERIES
+  );
 }
 
 function checkCells(cells: readonly (readonly [number, number, ...unknown[]])[]): string | null {
