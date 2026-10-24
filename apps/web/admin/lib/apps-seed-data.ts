@@ -606,6 +606,46 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     contactUrl: SUPPORT_EMAIL,
   },
   {
+    code: 'weldsheets',
+    name: 'WeldSheets',
+    description: 'Spreadsheets with the formulas and formatting you know from Excel and Google Sheets.',
+    icon: 'FileSpreadsheet',
+    category: 'Productivity',
+    path: '/weldsheets',
+    overview:
+      'WeldSheets is a spreadsheet built into WeldSuite. It speaks the same formula language as Excel — over 330 functions, from SUM and XLOOKUP to FILTER, SORT and financial maths — with number formats, merged cells, frozen rows and multiple sheets per workbook. Results that hold several values spill into the cells next to them, and Dutch users type formulas with semicolons and decimal commas as they are used to.',
+    features: [
+      'Over 330 Excel-compatible functions, including dynamic arrays like FILTER, SORT and UNIQUE',
+      'Number, currency, percent and date formats, in English and Dutch notation',
+      'Bold, colours, borders, alignment, wrapping, merged cells and frozen rows and columns',
+      'Multiple sheets per spreadsheet, with references between them',
+      'Copy and paste to and from Excel and Google Sheets',
+      'Undo and redo for every change',
+    ],
+    howItWorks: [
+      {
+        title: 'Create a spreadsheet',
+        description: 'Start from a blank sheet in WeldSheets.',
+      },
+      {
+        title: 'Type or paste your data',
+        description: 'Numbers, dates and amounts are recognised as you type; paste straight from Excel.',
+      },
+      {
+        title: 'Add formulas',
+        description: 'Type = and pick a function; click cells to put their references in the formula.',
+      },
+    ],
+    sortOrder: 155,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-10-23',
+    websiteUrl: 'https://weldsuite.com/weldsheets',
+    documentationUrl: `${HELP_BASE}/weldsheets`,
+    contactUrl: SUPPORT_EMAIL,
+  },
+  {
     code: 'weldhr',
     name: 'WeldHR',
     description: 'Run your people operations and give employees and clients one branded portal.',

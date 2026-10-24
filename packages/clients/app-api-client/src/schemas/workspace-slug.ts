@@ -66,6 +66,7 @@ export const RESERVED_WORKSPACE_SLUGS: readonly string[] = [
   'weldmeet',
   'weldpass',
   'weldreach',
+  'weldsheets',
   'weldstash',
   // Folders at the platform root (apps/web/platform/public): Cloudflare Pages
   // serves them before the app, so a workspace with one of these names would

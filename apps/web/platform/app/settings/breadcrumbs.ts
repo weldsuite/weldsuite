@@ -20,6 +20,7 @@ const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
   weldapps: 'WeldApps',
   weldpass: 'WeldPass',
   weldreach: 'WeldReach',
+  weldsheets: 'WeldSheets',
   weldsuite: 'WeldSuite',
   weldcommerce: 'WeldCommerce',
   weldsocial: 'WeldSocial',
