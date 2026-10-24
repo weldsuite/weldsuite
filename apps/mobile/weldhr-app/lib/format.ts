@@ -88,6 +88,11 @@ export function parseAmount(input: string): number | null {
   return Math.round(value * 100) / 100;
 }
 
+/** "Time off (2)" for a segment with work waiting; the bare label when there is none. */
+export function withCount(label: string, count: number): string {
+  return count > 0 ? `${label} (${count})` : label;
+}
+
 /** First name for a greeting, falling back to the display name's first word. */
 export function firstName(name: string | null | undefined): string {
   return (name ?? '').trim().split(/\s+/)[0] ?? '';

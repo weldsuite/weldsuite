@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Check, ClipboardCheck } from 'lucide-react-native';
@@ -6,7 +7,8 @@ import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
-import { ErrorNote, Panel, Screen, Section } from '@/components/Screen';
+import { QueryBody } from '@/components/QueryBody';
+import { Panel, Screen, Section } from '@/components/Screen';
 import { BRAND } from '@/constants/brand';
 import { useCompleteTask, useTasks } from '@/hooks/use-weldhr-queries';
 import { todayIso } from '@/lib/dates';
@@ -26,32 +28,36 @@ export default function TasksScreen() {
     groups.set(task.checklistName, list);
   }
   for (const list of groups.values()) {
-    list.sort((a, b) => Number(Boolean(a.completedAt)) - Number(Boolean(b.completedAt)) || (a.dueDate ?? '9').localeCompare(b.dueDate ?? '9'));
+    list.sort(
+      (a, b) =>
+        Number(Boolean(a.completedAt)) - Number(Boolean(b.completedAt)) ||
+        (a.dueDate ?? '9').localeCompare(b.dueDate ?? '9'),
+    );
   }
 
   return (
     <Screen title={t.tasks.title} variant="push" refreshing={tasks.isRefetching} onRefresh={() => void tasks.refetch()}>
-      {tasks.isPending ? (
-        <ActivityIndicator style={styles.loading} />
-      ) : tasks.isError ? (
-        <ErrorNote message={t.common.somethingWrong} />
-      ) : groups.size === 0 ? (
-        <EmptyState
-          icon={<ClipboardCheck size={36} color={colors.mutedForeground} />}
-          title={t.tasks.empty}
-          description={t.tasks.emptyDescription}
-        />
-      ) : (
-        [...groups.entries()].map(([name, list]) => (
-          <Section key={name} title={name}>
-            <Panel>
-              {list.map((task, index) => (
-                <TaskRow key={task.id} task={task} first={index === 0} />
-              ))}
-            </Panel>
-          </Section>
-        ))
-      )}
+      <QueryBody query={tasks}>
+        {() =>
+          groups.size === 0 ? (
+            <EmptyState
+              icon={<ClipboardCheck size={36} color={colors.mutedForeground} />}
+              title={t.tasks.empty}
+              description={t.tasks.emptyDescription}
+            />
+          ) : (
+            [...groups.entries()].map(([name, list]) => (
+              <Section key={name} title={name}>
+                <Panel>
+                  {list.map((task, index) => (
+                    <TaskRow key={task.id} task={task} first={index === 0} />
+                  ))}
+                </Panel>
+              </Section>
+            ))
+          )
+        }
+      </QueryBody>
     </Screen>
   );
 }
@@ -63,6 +69,9 @@ function TaskRow({ task, first }: Readonly<{ task: HrSelfTask; first: boolean }>
   const complete = useCompleteTask();
   const done = Boolean(task.completedAt);
   const overdue = !done && task.dueDate != null && task.dueDate < todayIso();
+  let mark: ReactNode = null;
+  if (complete.isPending) mark = <ActivityIndicator size="small" color={done ? '#fff' : BRAND} />;
+  else if (done) mark = <Check size={14} color="#fff" />;
 
   const toggle = () => {
     complete.mutate(
@@ -96,12 +105,10 @@ function TaskRow({ task, first }: Readonly<{ task: HrSelfTask; first: boolean }>
           !task.canComplete && !done && styles.checkDisabled,
         ]}
       >
-        {complete.isPending ? <ActivityIndicator size="small" color={done ? '#fff' : BRAND} /> : done ? <Check size={14} color="#fff" /> : null}
+        {mark}
       </View>
       <View style={styles.flex}>
-        <Text
-          style={[styles.title, { color: done ? colors.mutedForeground : colors.text }, done && styles.titleDone]}
-        >
+        <Text style={[styles.title, { color: done ? colors.mutedForeground : colors.text }, done && styles.titleDone]}>
           {task.title}
         </Text>
         {task.description ? (
@@ -124,9 +131,16 @@ function TaskRow({ task, first }: Readonly<{ task: HrSelfTask; first: boolean }>
 
 const styles = StyleSheet.create({
   flex: { flex: 1, gap: 2 },
-  loading: { marginTop: 32 },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14 },
-  check: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  check: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
   checkDisabled: { opacity: 0.4 },
   title: { fontSize: 15, fontWeight: '600' },
   titleDone: { textDecorationLine: 'line-through' },

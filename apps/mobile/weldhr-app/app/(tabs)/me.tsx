@@ -195,6 +195,7 @@ function Settings() {
       <Pressable
         onPress={() => void signOut()}
         accessibilityRole="button"
+        testID="me-sign-out"
         style={({ pressed }) => [styles.signOut, { opacity: pressed ? 0.7 : 1 }]}
       >
         <LogOut size={18} color={colors.destructive} />

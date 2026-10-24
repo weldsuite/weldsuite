@@ -1,0 +1,30 @@
+appId: com.weldsuite.weldhr
+name: Request leave next month, see it pending, cancel it again
+# Writes to the test workspace and cleans up after itself.
+tags: [writes]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-time-off
+- tapOn:
+    id: time-off-new
+- tapOn: "Choose a type"
+- tapOn:
+    index: 0
+    text: "Holiday|Vakantie|Verlof|Annual leave"
+# Pick a start date next month so it cannot overlap anything this week.
+- tapOn: "From: .*"
+- tapOn: "Next month"
+- tapOn: "15"
+- tapOn:
+    id: leave-submit
+- extendedWaitUntil:
+    visible: "Request sent|Time off booked"
+    timeout: 15000
+- assertVisible: "Pending|Approved"
+# Cancel it so the account stays clean.
+- tapOn: "Pending|Approved"
+- tapOn: "Cancel request"
+- extendedWaitUntil:
+    visible: "Request cancelled"
+    timeout: 15000

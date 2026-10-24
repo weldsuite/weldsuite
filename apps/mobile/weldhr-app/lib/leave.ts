@@ -25,6 +25,22 @@ export function canCancelLeave(request: RequestLike, today: string): boolean {
   return request.status === 'approved' && request.startDate > today;
 }
 
+/**
+ * The balance that applies to leave starting on `startDate`. `GET /me/leave`
+ * returns this year's balances, while hr-api checks a request against the
+ * year it starts in; for leave starting in another year we know nothing, so
+ * there is no balance to show or check against.
+ */
+export function balanceForStart(
+  balances: HrLeaveBalance[] | undefined,
+  leaveTypeId: string | null,
+  startDate: string,
+  today: string,
+): HrLeaveBalance | undefined {
+  if (startDate.slice(0, 4) !== today.slice(0, 4)) return undefined;
+  return balances?.find((balance) => balance.leaveTypeId === leaveTypeId);
+}
+
 export type AllowanceCheck = { kind: 'ok' } | { kind: 'over'; remaining: number; blocked: boolean };
 
 /** Whether `days` fits in what is left of the leave type's allowance this year. */

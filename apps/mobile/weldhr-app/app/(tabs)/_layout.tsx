@@ -47,27 +47,28 @@ export default function TabLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: t.tabs.home, tabBarIcon: HomeTabIcon }} />
+      <Tabs.Screen name="index" options={{ title: t.tabs.home, tabBarIcon: HomeTabIcon, tabBarButtonTestID: 'tab-home' }} />
       <Tabs.Screen
         name="time-off"
-        options={{ title: t.tabs.timeOff, tabBarIcon: TimeOffTabIcon, href: self ? undefined : null }}
+        options={{ title: t.tabs.timeOff, tabBarIcon: TimeOffTabIcon, href: self ? undefined : null, tabBarButtonTestID: 'tab-time-off' }}
       />
       <Tabs.Screen
         name="expenses"
-        options={{ title: t.tabs.expenses, tabBarIcon: ExpensesTabIcon, href: self ? undefined : null }}
+        options={{ title: t.tabs.expenses, tabBarIcon: ExpensesTabIcon, href: self ? undefined : null, tabBarButtonTestID: 'tab-expenses' }}
       />
-      <Tabs.Screen name="pay" options={{ title: t.tabs.pay, tabBarIcon: PayTabIcon, href: showPay ? undefined : null }} />
+      <Tabs.Screen name="pay" options={{ title: t.tabs.pay, tabBarIcon: PayTabIcon, href: showPay ? undefined : null, tabBarButtonTestID: 'tab-pay' }} />
       <Tabs.Screen
         name="team"
         options={{
           title: t.tabs.team,
           tabBarIcon: TeamTabIcon,
           href: access.team ? undefined : null,
+          tabBarButtonTestID: 'tab-team',
           tabBarBadge: waiting > 0 ? waiting : undefined,
           tabBarBadgeStyle: { backgroundColor: BRAND, color: '#fff', fontSize: 11 },
         }}
       />
-      <Tabs.Screen name="me" options={{ title: t.tabs.me, tabBarIcon: MeTabIcon }} />
+      <Tabs.Screen name="me" options={{ title: t.tabs.me, tabBarIcon: MeTabIcon, tabBarButtonTestID: 'tab-me' }} />
     </Tabs>
   );
 }

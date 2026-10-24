@@ -119,6 +119,9 @@ function MonthCalendar({
             const disabled = Boolean((min && iso < min) || (max && iso > max));
             const selected = iso === value;
             const isToday = iso === today;
+            let dayColor = colors.text;
+            if (selected) dayColor = '#fff';
+            else if (disabled) dayColor = colors.placeholder;
             return (
               <Pressable
                 key={iso}
@@ -139,7 +142,7 @@ function MonthCalendar({
                   <Text
                     style={[
                       styles.dayText,
-                      { color: selected ? '#fff' : disabled ? colors.placeholder : colors.text },
+                      { color: dayColor },
                       selected && styles.dayTextSelected,
                     ]}
                   >

@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import type { HrAbsenceFirstDay } from '@weldsuite/app-api-client/domains/weldhr';
@@ -16,6 +16,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { DateField } from '@/components/DateField';
+import { QueryBody } from '@/components/QueryBody';
 import { ErrorNote, Panel, Screen, Section } from '@/components/Screen';
 import { useAbsences, useReportRecovered, useReportSick } from '@/hooks/use-weldhr-queries';
 import { addDays, todayIso } from '@/lib/dates';
@@ -29,15 +30,11 @@ export default function SickScreen() {
 
   return (
     <Screen title={current ? t.sick.recoverTitle : t.sick.title} variant="modal">
-      {absences.isPending ? (
-        <ActivityIndicator style={styles.loading} />
-      ) : absences.isError ? (
-        <ErrorNote message={t.common.somethingWrong} />
-      ) : current ? (
-        <RecoverForm absenceId={current.id} startDate={current.startDate} />
-      ) : (
-        <ReportForm />
-      )}
+      <QueryBody query={absences}>
+        {(data) =>
+          data.current ? <RecoverForm absenceId={data.current.id} startDate={data.current.startDate} /> : <ReportForm />
+        }
+      </QueryBody>
       {absences.data && absences.data.history.length > 0 ? <History /> : null}
     </Screen>
   );
@@ -73,7 +70,13 @@ function ReportForm() {
   return (
     <View style={styles.form}>
       {/* A report can start a few days back (ill over the weekend), never in the future. */}
-      <DateField label={t.sick.firstDay} value={startDate} max={today} min={addDays(today, -14)} onChange={setStartDate} />
+      <DateField
+        label={t.sick.firstDay}
+        value={startDate}
+        max={today}
+        min={addDays(today, -14)}
+        onChange={setStartDate}
+      />
       <View style={styles.field}>
         <Text style={[styles.label, { color: colors.text }]}>{t.sick.firstDayLength}</Text>
         <SegmentedControl
@@ -95,7 +98,14 @@ function ReportForm() {
         maxLength={1000}
       />
       {error ? <ErrorNote message={error} /> : null}
-      <Button title={t.sick.submit} onPress={submit} loading={report.isPending} fullWidth size="lg" />
+      <Button
+        title={t.sick.submit}
+        testID="sick-submit"
+        onPress={submit}
+        loading={report.isPending}
+        fullWidth
+        size="lg"
+      />
     </View>
   );
 }
@@ -152,7 +162,13 @@ function History() {
         {history.slice(0, 10).map((absence, index) => (
           <View
             key={absence.id}
-            style={[styles.row, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}
+            style={[
+              styles.row,
+              index > 0 && {
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor: colors.border,
+              },
+            ]}
           >
             <Text style={[styles.rowTitle, { color: colors.text }]}>
               {formatDateRange(absence.startDate, absence.endDate ?? absence.startDate, intlLocale)}
@@ -166,12 +182,16 @@ function History() {
 }
 
 const styles = StyleSheet.create({
-  loading: { marginTop: 32 },
   form: { gap: 16 },
   field: { gap: 6 },
   label: { fontSize: 14, fontWeight: '500' },
   text: { fontSize: 15, lineHeight: 21 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14 },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+  },
   rowTitle: { fontSize: 15, fontWeight: '500' },
   rowSub: { fontSize: 14 },
 });

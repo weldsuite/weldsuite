@@ -5,7 +5,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { CheckCircle2, Circle, MessageSquareText } from 'lucide-react-native';
 import type { HrSelfCoachingLog, HrSelfEvaluation } from '@weldsuite/app-api-client/domains/weldhr';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
@@ -17,10 +17,11 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { Pill } from '@/components/Pill';
-import { ErrorNote, Screen } from '@/components/Screen';
+import { QueryBody } from '@/components/QueryBody';
+import { Screen } from '@/components/Screen';
 import { BRAND } from '@/constants/brand';
 import { useAcknowledge, useCoaching, useEvaluations } from '@/hooks/use-weldhr-queries';
-import { formatDate, formatDateRange } from '@/lib/format';
+import { formatDate, formatDateRange, withCount } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
 
 type Tab = 'coaching' | 'evaluations';
@@ -34,9 +35,9 @@ export default function ReviewsScreen() {
   const [tab, setTab] = useState<Tab>('coaching');
   const [target, setTarget] = useState<Target | null>(null);
 
-  const query = tab === 'coaching' ? coaching : evaluations;
   const openCoaching = (coaching.data ?? []).filter((log) => !log.acknowledgedAt).length;
   const openEvaluations = (evaluations.data ?? []).filter((e) => !e.acknowledgedAt).length;
+  const emptyIcon = <MessageSquareText size={36} color={colors.mutedForeground} />;
 
   return (
     <Screen
@@ -52,32 +53,42 @@ export default function ReviewsScreen() {
         value={tab}
         onValueChange={(value) => setTab(value as Tab)}
         options={[
-          { label: `${t.reviews.coaching}${openCoaching ? ` (${openCoaching})` : ''}`, value: 'coaching' },
-          { label: `${t.reviews.evaluations}${openEvaluations ? ` (${openEvaluations})` : ''}`, value: 'evaluations' },
+          { label: withCount(t.reviews.coaching, openCoaching), value: 'coaching' },
+          { label: withCount(t.reviews.evaluations, openEvaluations), value: 'evaluations' },
         ]}
       />
-      {query.isPending ? (
-        <ActivityIndicator style={styles.loading} />
-      ) : query.isError ? (
-        <ErrorNote message={t.common.somethingWrong} />
-      ) : tab === 'coaching' ? (
-        (coaching.data ?? []).length === 0 ? (
-          <EmptyState icon={<MessageSquareText size={36} color={colors.mutedForeground} />} title={t.reviews.noCoaching} />
-        ) : (
-          (coaching.data ?? []).map((log) => (
-            <CoachingCard key={log.id} log={log} onAcknowledge={() => setTarget({ kind: 'coaching', id: log.id })} />
-          ))
-        )
-      ) : (evaluations.data ?? []).length === 0 ? (
-        <EmptyState icon={<MessageSquareText size={36} color={colors.mutedForeground} />} title={t.reviews.noEvaluations} />
+      {tab === 'coaching' ? (
+        <QueryBody query={coaching}>
+          {(logs) =>
+            logs.length === 0 ? (
+              <EmptyState icon={emptyIcon} title={t.reviews.noCoaching} />
+            ) : (
+              logs.map((log) => (
+                <CoachingCard
+                  key={log.id}
+                  log={log}
+                  onAcknowledge={() => setTarget({ kind: 'coaching', id: log.id })}
+                />
+              ))
+            )
+          }
+        </QueryBody>
       ) : (
-        (evaluations.data ?? []).map((evaluation) => (
-          <EvaluationCard
-            key={evaluation.id}
-            evaluation={evaluation}
-            onAcknowledge={() => setTarget({ kind: 'evaluation', id: evaluation.id })}
-          />
-        ))
+        <QueryBody query={evaluations}>
+          {(rows) =>
+            rows.length === 0 ? (
+              <EmptyState icon={emptyIcon} title={t.reviews.noEvaluations} />
+            ) : (
+              rows.map((evaluation) => (
+                <EvaluationCard
+                  key={evaluation.id}
+                  evaluation={evaluation}
+                  onAcknowledge={() => setTarget({ kind: 'evaluation', id: evaluation.id })}
+                />
+              ))
+            )
+          }
+        </QueryBody>
       )}
       {target ? <AcknowledgeSheet target={target} onClose={() => setTarget(null)} /> : null}
     </Screen>
@@ -237,7 +248,6 @@ function AcknowledgeSheet({ target, onClose }: Readonly<{ target: Target; onClos
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  loading: { marginTop: 32 },
   card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 8 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   title: { fontSize: 17, fontWeight: '700' },

@@ -208,6 +208,7 @@ function ClockCard({ clockedIn, since }: Readonly<{ clockedIn: boolean; since: s
         onPress={onPress}
         disabled={clock.isPending}
         accessibilityRole="button"
+        testID="home-clock"
         style={({ pressed }) => [
           styles.clockButton,
           { backgroundColor: clockedIn ? '#fff' : BRAND, opacity: pressed || clock.isPending ? 0.8 : 1 },

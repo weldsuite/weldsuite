@@ -20,7 +20,6 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.weldhr",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"

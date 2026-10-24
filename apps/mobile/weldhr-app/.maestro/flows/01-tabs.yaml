@@ -1,0 +1,40 @@
+appId: com.weldsuite.weldhr
+name: Every tab loads for the test user
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+# Home shows My HR, or says why there is none (no employee record / no access).
+- extendedWaitUntil:
+    visible: "Time off left|To do|No employee record yet|My HR is not available"
+    timeout: 30000
+- tapOn:
+    id: tab-time-off
+- assertVisible: "Requests|No requests yet"
+- tapOn:
+    id: tab-expenses
+- assertVisible: "Expenses"
+- runFlow:
+    when:
+      visible:
+        id: tab-pay
+    commands:
+      - tapOn:
+          id: tab-pay
+      - assertVisible: "Net pay|No payslips yet"
+- runFlow:
+    when:
+      visible:
+        id: tab-team
+    commands:
+      - tapOn:
+          id: tab-team
+      - assertVisible: "Approvals|Today|Directory"
+- tapOn:
+    id: tab-me
+- scrollUntilVisible:
+    element:
+      id: me-sign-out
+- assertVisible:
+    id: me-sign-out
+- tapOn:
+    id: tab-home

@@ -1,0 +1,55 @@
+appId: com.weldsuite.weldhr
+name: Leave and expense forms open, validate and close without saving
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-time-off
+# The + button only shows when leave requests are switched on for the workspace.
+- runFlow:
+    when:
+      visible:
+        id: time-off-new
+    commands:
+      - tapOn:
+          id: time-off-new
+      - assertVisible: "Request time off"
+      - assertVisible: "About .* working day.*"
+      - tapOn:
+          id: screen-close
+- tapOn:
+    id: tab-expenses
+- runFlow:
+    when:
+      visible:
+        id: expenses-new
+    commands:
+      - tapOn:
+          id: expenses-new
+      - assertVisible: "New expense"
+      # Submitting empty is caught in the app; nothing is sent.
+      - hideKeyboard
+      - scrollUntilVisible:
+          element:
+            id: expense-submit
+      - tapOn:
+          id: expense-submit
+      - assertVisible: "Enter an amount above zero."
+      - tapOn:
+          id: expense-amount
+      - inputText: "12,50"
+      - hideKeyboard
+      - scrollUntilVisible:
+          element:
+            id: expense-submit
+      - tapOn:
+          id: expense-submit
+      - assertVisible: "Say what the expense was for."
+      - scrollUntilVisible:
+          element:
+            id: screen-close
+          direction: UP
+      - tapOn:
+          id: screen-close
+- assertVisible:
+    id: tab-expenses

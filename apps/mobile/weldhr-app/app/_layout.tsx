@@ -3,7 +3,7 @@ import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-rou
 import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -21,7 +21,7 @@ import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
 import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query-client';
 
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
@@ -60,6 +60,19 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
       setActive({ organization: userMemberships.data[0].organization.id });
     }
   }, [user, organizationId, isOrgListLoaded, setActive, userMemberships?.data]);
+
+  // The cache holds payslips, balances and permissions, and its keys are not
+  // per user. Drop it whenever the signed-in user changes, sign-out and an
+  // expired session included, so the next person on a shared phone starts
+  // empty. Sign-out passes through "no user" (the sign-in screen), so the
+  // clear lands before anyone else's screens mount.
+  const queryClient = useQueryClient();
+  const lastUserId = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const userId = user?.id ?? null;
+    if (lastUserId.current !== undefined && lastUserId.current !== userId) queryClient.clear();
+    lastUserId.current = userId;
+  }, [user?.id, queryClient]);
 
   // Wire the app-api token getter SYNCHRONOUSLY during render so it is set
   // BEFORE the child screens mount and fire their first data load. Effects

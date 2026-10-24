@@ -96,6 +96,7 @@ export default function NewExpenseScreen() {
       <View style={styles.form}>
         <Input
               label={t.expenseForm.amount}
+              testID="expense-amount"
               placeholder={t.expenseForm.amountPlaceholder}
               value={amountText}
               onChangeText={setAmountText}
@@ -128,6 +129,7 @@ export default function NewExpenseScreen() {
         <Textarea
           label={t.expenseForm.description}
           placeholder={t.expenseForm.descriptionPlaceholder}
+          testID="expense-description"
           value={description}
           onChangeText={setDescription}
           numberOfLines={2}
@@ -181,7 +183,7 @@ export default function NewExpenseScreen() {
 
         {error ? <ErrorNote message={error} /> : null}
 
-        <Button title={t.expenseForm.submit} onPress={submit} loading={create.isPending} fullWidth size="lg" />
+        <Button title={t.expenseForm.submit} testID="expense-submit" onPress={submit} loading={create.isPending} fullWidth size="lg" />
       </View>
     </Screen>
   );

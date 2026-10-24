@@ -40,6 +40,7 @@ export default function TimeOffScreen() {
           <HeaderButton
             icon={<Plus size={20} color={BRAND} />}
             label={t.timeOff.newRequest}
+            testID="time-off-new"
             onPress={() => router.push('/leave/new')}
           />
         ) : undefined

@@ -64,6 +64,7 @@ export function Screen({
             onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
             accessibilityRole="button"
             accessibilityLabel={variant === 'modal' ? t.common.close : t.common.back}
+            testID={variant === 'modal' ? 'screen-close' : 'screen-back'}
             hitSlop={12}
             style={[styles.navButton, { backgroundColor: colors.inputBackground }]}
           >
@@ -94,13 +95,15 @@ export function HeaderButton({
   icon,
   label,
   onPress,
-}: Readonly<{ icon: ReactNode; label: string; onPress: () => void }>) {
+  testID,
+}: Readonly<{ icon: ReactNode; label: string; onPress: () => void; testID?: string }>) {
   const { colors } = useTheme();
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
+      testID={testID}
       hitSlop={8}
       style={({ pressed }) => [
         styles.headerButton,

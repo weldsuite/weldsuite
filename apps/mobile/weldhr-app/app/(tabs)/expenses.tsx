@@ -39,6 +39,7 @@ export default function ExpensesScreen() {
           <HeaderButton
             icon={<Plus size={20} color={BRAND} />}
             label={t.expenses.newExpense}
+            testID="expenses-new"
             onPress={() => router.push('/expense/new')}
           />
         ) : undefined
@@ -206,26 +207,40 @@ function DeclarationSheet({ declaration, onClose }: Readonly<{ declaration: HrSe
         )}
 
         {declaration.status === 'pending' ? (
-          confirming ? (
-            <View style={styles.confirm}>
-              <Text style={[styles.confirmText, { color: colors.text }]}>{t.expenses.cancelTitle}</Text>
-              <View style={styles.confirmButtons}>
-                <Button title={t.expenses.keep} variant="secondary" onPress={() => setConfirming(false)} style={styles.flex} />
-                <Button
-                  title={t.expenses.cancelConfirm}
-                  variant="destructive"
-                  onPress={withdraw}
-                  loading={cancel.isPending}
-                  style={styles.flex}
-                />
-              </View>
-            </View>
-          ) : (
-            <Button title={t.expenses.cancelConfirm} variant="ghost" onPress={() => setConfirming(true)} fullWidth />
-          )
+          <WithdrawControl
+            confirming={confirming}
+            busy={cancel.isPending}
+            onAsk={() => setConfirming(true)}
+            onKeep={() => setConfirming(false)}
+            onWithdraw={withdraw}
+          />
         ) : null}
       </View>
     </Sheet>
+  );
+}
+
+/** Withdrawing asks once more, inside the sheet, before the claim is cancelled. */
+function WithdrawControl({
+  confirming,
+  busy,
+  onAsk,
+  onKeep,
+  onWithdraw,
+}: Readonly<{ confirming: boolean; busy: boolean; onAsk: () => void; onKeep: () => void; onWithdraw: () => void }>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  if (!confirming) {
+    return <Button title={t.expenses.cancelConfirm} variant="ghost" onPress={onAsk} fullWidth />;
+  }
+  return (
+    <View style={styles.confirm}>
+      <Text style={[styles.confirmText, { color: colors.text }]}>{t.expenses.cancelTitle}</Text>
+      <View style={styles.confirmButtons}>
+        <Button title={t.expenses.keep} variant="secondary" onPress={onKeep} style={styles.flex} />
+        <Button title={t.expenses.cancelConfirm} variant="destructive" onPress={onWithdraw} loading={busy} style={styles.flex} />
+      </View>
+    </View>
   );
 }
 

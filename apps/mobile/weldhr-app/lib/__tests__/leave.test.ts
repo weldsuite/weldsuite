@@ -1,6 +1,6 @@
 import type { HrLeaveBalance } from '@weldsuite/app-api-client/domains/weldhr';
 
-import { canCancelLeave, checkAllowance, sortRequests } from '../leave';
+import { balanceForStart, canCancelLeave, checkAllowance, sortRequests } from '../leave';
 
 const TODAY = '2026-10-24';
 
@@ -46,6 +46,16 @@ describe('canCancelLeave', () => {
     expect(canCancelLeave({ status: 'approved', startDate: '2026-10-25', endDate: '2026-10-26' }, TODAY)).toBe(true);
     expect(canCancelLeave({ status: 'approved', startDate: TODAY, endDate: '2026-10-26' }, TODAY)).toBe(false);
     expect(canCancelLeave({ status: 'rejected', startDate: '2026-11-01', endDate: '2026-11-02' }, TODAY)).toBe(false);
+  });
+});
+
+describe('balanceForStart', () => {
+  it('uses this year\'s balance only for leave that starts this year', () => {
+    const balances = [balance()];
+    expect(balanceForStart(balances, 'lt_holiday', '2026-12-28', TODAY)).toBe(balances[0]);
+    // hr-api checks next year's leave against next year's allowance, which the app does not have.
+    expect(balanceForStart(balances, 'lt_holiday', '2027-01-04', TODAY)).toBeUndefined();
+    expect(balanceForStart(balances, 'lt_other', '2026-12-28', TODAY)).toBeUndefined();
   });
 });
 

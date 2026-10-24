@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "test:e2e": "maestro test .maestro",
     "start": "expo start --dev-client",
     "web": "expo start --web --port 3202",
     "android": "expo run:android",

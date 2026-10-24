@@ -32,7 +32,7 @@ import {
   useTeamDashboard,
   type ReviewDecision,
 } from '@/hooks/use-weldhr-queries';
-import { formatDateRange, formatDay, formatMoney } from '@/lib/format';
+import { formatDateRange, formatDay, formatMoney, withCount } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
 
 type ApprovalKind = 'leave' | 'expenses';
@@ -142,8 +142,13 @@ function Stat({ value, label, tone }: Readonly<{ value: number; label: string; t
   );
 }
 
+/** Which list to show: the chosen one when the member can approve both, else the one they can. */
+function visibleKind(chosen: ApprovalKind, canLeave: boolean, canExpenses: boolean): ApprovalKind {
+  if (canLeave && canExpenses) return chosen;
+  return canLeave ? 'leave' : 'expenses';
+}
+
 function Approvals() {
-  const { colors } = useTheme();
   const { t } = useI18n();
   const { access } = useHrAccess();
   const leave = usePendingLeave(access.approveLeave);
@@ -151,43 +156,55 @@ function Approvals() {
   const [kind, setKind] = useState<ApprovalKind>(access.approveLeave ? 'leave' : 'expenses');
   const [rejecting, setRejecting] = useState<{ kind: ApprovalKind; id: string } | null>(null);
 
-  const leaveRows = leave.data ?? [];
-  const expenseRows = expenses.data ?? [];
-  const both = access.approveLeave && access.approveExpenses;
-  const showing: ApprovalKind = both ? kind : access.approveLeave ? 'leave' : 'expenses';
-  const loading = showing === 'leave' ? leave.isPending : expenses.isPending;
-  const count = showing === 'leave' ? leaveRows.length : expenseRows.length;
+  const showing = visibleKind(kind, access.approveLeave, access.approveExpenses);
+  const reject = (target: { kind: ApprovalKind; id: string }) => setRejecting(target);
 
   return (
     <Section title={t.team.approvals}>
-      {both ? (
+      {access.approveLeave && access.approveExpenses ? (
         <SegmentedControl
           value={kind}
           onValueChange={(value) => setKind(value as ApprovalKind)}
           options={[
-            { label: `${t.team.leave}${leaveRows.length ? ` (${leaveRows.length})` : ''}`, value: 'leave' },
-            { label: `${t.team.expenses}${expenseRows.length ? ` (${expenseRows.length})` : ''}`, value: 'expenses' },
+            { label: withCount(t.team.leave, leave.data?.length ?? 0), value: 'leave' },
+            { label: withCount(t.team.expenses, expenses.data?.length ?? 0), value: 'expenses' },
           ]}
         />
       ) : null}
-      {loading ? (
-        <ActivityIndicator />
-      ) : count === 0 ? (
-        <EmptyState
-          icon={<CheckCheck size={32} color={colors.mutedForeground} />}
-          title={t.team.nothingToApprove}
-          description={t.team.nothingToApproveDescription}
+      {showing === 'leave' ? (
+        <ApprovalList
+          loading={leave.isPending}
+          items={(leave.data ?? []).map((row) => (
+            <LeaveApproval key={row.id} row={row} onReject={() => reject({ kind: 'leave', id: row.id })} />
+          ))}
         />
-      ) : showing === 'leave' ? (
-        leaveRows.map((row) => <LeaveApproval key={row.id} row={row} onReject={() => setRejecting({ kind: 'leave', id: row.id })} />)
       ) : (
-        expenseRows.map((row) => (
-          <ExpenseApproval key={row.id} row={row} onReject={() => setRejecting({ kind: 'expenses', id: row.id })} />
-        ))
+        <ApprovalList
+          loading={expenses.isPending}
+          items={(expenses.data ?? []).map((row) => (
+            <ExpenseApproval key={row.id} row={row} onReject={() => reject({ kind: 'expenses', id: row.id })} />
+          ))}
+        />
       )}
       {rejecting ? <RejectSheet target={rejecting} onClose={() => setRejecting(null)} /> : null}
     </Section>
   );
+}
+
+function ApprovalList({ loading, items }: Readonly<{ loading: boolean; items: ReactNode[] }>) {
+  const { colors } = useTheme();
+  const { t } = useI18n();
+  if (loading) return <ActivityIndicator />;
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        icon={<CheckCheck size={32} color={colors.mutedForeground} />}
+        title={t.team.nothingToApprove}
+        description={t.team.nothingToApproveDescription}
+      />
+    );
+  }
+  return <>{items}</>;
 }
 
 function LeaveApproval({ row, onReject }: Readonly<{ row: HrLeaveRequest; onReject: () => void }>) {
