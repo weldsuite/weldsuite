@@ -1,0 +1,224 @@
+import { describe, expect, it } from 'vitest';
+import { MAX_COLS } from '../address';
+import { Sheet, Workbook, type WorkbookSnapshot } from '../model/workbook';
+import type { Op } from '../ops/types';
+import { CollabClient } from './client';
+import type { ClientMessage, ServerMessage } from './protocol';
+import { RoomCore, type Outgoing } from './room';
+
+const ENGINE = { now: () => 0, random: () => 0.5, timezoneOffset: () => 0 };
+
+function baseSnapshot(): WorkbookSnapshot {
+  const wb = new Workbook();
+  wb.sheets.push(new Sheet('s1', 'Sheet1'));
+  return wb.toJSON();
+}
+
+/** A room and clients joined by FIFO queues whose delivery the test controls. */
+class Network {
+  readonly room: RoomCore;
+  readonly clients: CollabClient[] = [];
+  private readonly connection: (string | null)[] = [];
+  private readonly toRoom: ClientMessage[][] = [];
+  private readonly toClient: ServerMessage[][] = [];
+  private connections = 0;
+  rejects = 0;
+
+  constructor(count: number, readOnly: number[] = []) {
+    this.room = new RoomCore(baseSnapshot(), 0, { engine: ENGINE, maxLog: 50 });
+    for (let i = 0; i < count; i++) {
+      this.toRoom.push([]);
+      this.toClient.push([]);
+      this.connection.push(null);
+      this.clients.push(
+        new CollabClient({
+          send: (msg) => this.toRoom[i]!.push(msg),
+          engine: ENGINE,
+          sessionId: `client${i}`,
+        }),
+      );
+      this.connect(i, !readOnly.includes(i));
+    }
+  }
+
+  connect(i: number, canEdit = true): void {
+    const clientId = `conn${++this.connections}`;
+    this.connection[i] = clientId;
+    this.room.join({ clientId, userId: `u${i}`, name: `User ${i}`, color: '#000', canEdit });
+    this.clients[i]!.start();
+  }
+
+  disconnect(i: number): void {
+    const id = this.connection[i];
+    if (!id) return;
+    this.dispatch(this.room.leave(id));
+    this.connection[i] = null;
+    this.toRoom[i] = [];
+    this.toClient[i] = [];
+  }
+
+  connected(i: number): boolean {
+    return this.connection[i] !== null;
+  }
+
+  deliverToRoom(i: number): boolean {
+    const id = this.connection[i];
+    const msg = this.toRoom[i]!.shift();
+    if (!id || !msg) return false;
+    this.dispatch(this.room.receive(id, msg));
+    return true;
+  }
+
+  deliverToClient(i: number): boolean {
+    const msg = this.toClient[i]!.shift();
+    if (!msg) return false;
+    if (msg.type === 'reject') this.rejects++;
+    this.clients[i]!.receive(msg);
+    return true;
+  }
+
+  drain(): void {
+    for (let guard = 0; guard < 100_000; guard++) {
+      let moved = false;
+      for (let i = 0; i < this.clients.length; i++) moved = this.deliverToRoom(i) || this.deliverToClient(i) || moved;
+      if (!moved) return;
+    }
+    throw new Error('network did not settle');
+  }
+
+  private dispatch(out: Outgoing[]): void {
+    for (const o of out) {
+      this.connection.forEach((id, i) => {
+        if (!id) return;
+        const target = o.to === null ? id !== o.except && this.room.isReady(id) : id === o.to;
+        if (target) this.toClient[i]!.push(o.msg);
+      });
+    }
+  }
+}
+
+const value = (c: CollabClient, row: number, col: number) => c.engine!.getValue('s1', row, col);
+
+describe('co-editing', () => {
+  it('loads every client and shares edits', () => {
+    const net = new Network(2);
+    net.drain();
+    net.clients[0]!.apply({ type: 'setCells', sheetId: 's1', cells: [[0, 0, { v: 5 }]] });
+    net.clients[1]!.apply({ type: 'setCells', sheetId: 's1', cells: [[1, 0, { f: 'A1*2' }]] });
+    net.drain();
+    for (const c of net.clients) {
+      expect(value(c, 0, 0)).toBe(5);
+      expect(value(c, 1, 0)).toBe(10);
+    }
+    expect(net.room.revision).toBe(2);
+  });
+
+  it('rebases a pending edit over a concurrent row insert', () => {
+    const net = new Network(2);
+    net.drain();
+    net.clients[0]!.apply({ type: 'insertDims', sheetId: 's1', sheetName: 'Sheet1', axis: 'row', at: 0, count: 2 });
+    net.clients[1]!.apply({ type: 'setCells', sheetId: 's1', cells: [[0, 0, { v: 'mine' }]] });
+    net.drain();
+    for (const c of net.clients) expect(value(c, 2, 0)).toBe('mine');
+  });
+
+  it('does not apply a batch twice when its ack was lost in a reconnect', () => {
+    const net = new Network(1);
+    net.drain();
+    net.clients[0]!.apply({ type: 'insertDims', sheetId: 's1', sheetName: 'Sheet1', axis: 'row', at: 0, count: 1 });
+    net.deliverToRoom(0); // committed, but the ack never arrives
+    net.disconnect(0);
+    net.connect(0);
+    net.drain();
+    expect(net.room.revision).toBe(1);
+    expect(net.clients[0]!.revision).toBe(1);
+    expect(net.clients[0]!.hasPending).toBe(false);
+  });
+
+  it('keeps viewers from changing the workbook', () => {
+    const net = new Network(2, [1]);
+    net.drain();
+    expect(net.clients[1]!.canEdit).toBe(false);
+    net.clients[1]!.apply({ type: 'setCells', sheetId: 's1', cells: [[0, 0, { v: 'nope' }]] });
+    net.drain();
+    expect(net.room.engine.getValue('s1', 0, 0)).toBeNull();
+    expect(value(net.clients[1]!, 0, 0)).toBeNull();
+    expect(net.rejects).toBe(1);
+  });
+
+  it('converges under random edits, delays and reconnects', () => {
+    let seed = 11;
+    const rand = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const net = new Network(4);
+    let sheetCounter = 0;
+    const randomOp = (c: CollabClient): Op => {
+      const sheets = c.engine!.workbook.sheets;
+      const sheet = sheets[rand(sheets.length)]!;
+      const sheetId = sheet.id;
+      const axis = rand(2) ? 'row' : 'col';
+      const r = rand(12);
+      const col = rand(6);
+      switch (rand(12)) {
+        case 0:
+          return { type: 'insertDims', sheetId, sheetName: sheet.name, axis, at: rand(10), count: 1 + rand(2) };
+        case 1:
+          return { type: 'deleteDims', sheetId, sheetName: sheet.name, axis, at: rand(10), count: 1 + rand(2) };
+        case 2:
+          return { type: 'moveDims', sheetId, sheetName: sheet.name, axis, from: rand(4), count: 1, to: 6 + rand(3) };
+        case 3:
+          return { type: 'formatRanges', sheetId, ranges: [{ r1: r, c1: col, r2: r + rand(3), c2: col + rand(2) }], patch: { bold: rand(2) ? true : null } };
+        case 4:
+          return { type: 'formatRanges', sheetId, ranges: [{ r1: r, c1: 0, r2: r, c2: MAX_COLS - 1 }], patch: { fill: '#eeeeee' } };
+        case 5:
+          return { type: 'merge', sheetId, ranges: [{ r1: r, c1: col, r2: r + 1, c2: col + 1 }] };
+        case 6:
+          return { type: 'unmerge', sheetId, ranges: [{ r1: r, c1: col, r2: r + 2, c2: col + 2 }] };
+        case 7:
+          return sheets.length > 1 && rand(3) === 0
+            ? { type: 'deleteSheet', sheetId, sheetName: sheet.name }
+            : { type: 'addSheet', sheetId: `x${++sheetCounter}`, name: `Extra ${sheetCounter}`, index: rand(sheets.length + 1) };
+        case 8:
+          return { type: 'patchNames', set: [{ name: rand(2) ? 'total' : 'rate', formula: `Sheet1!A${1 + rand(9)}` }] };
+        default:
+          return {
+            type: 'setCells',
+            sheetId,
+            cells: [
+              [r, col, rand(3) ? { v: rand(100) } : { f: `A${1 + rand(9)}+1` }],
+              [rand(12), rand(6), null],
+            ],
+          };
+      }
+    };
+
+    for (let step = 0; step < 4000; step++) {
+      const i = rand(net.clients.length);
+      const c = net.clients[i]!;
+      const action = rand(20);
+      if (action < 7) {
+        if (net.connected(i) && c.engine) c.apply(randomOp(c));
+      } else if (action < 13) {
+        net.deliverToRoom(i);
+      } else if (action < 19) {
+        net.deliverToClient(i);
+      } else if (net.connected(i)) {
+        net.disconnect(i);
+      } else {
+        net.connect(i);
+      }
+    }
+    for (let i = 0; i < net.clients.length; i++) if (!net.connected(i)) net.connect(i);
+    net.drain();
+
+    const expected = JSON.stringify(net.room.engine.toSnapshot());
+    for (const c of net.clients) {
+      expect(c.hasPending).toBe(false);
+      expect(c.revision).toBe(net.room.revision);
+      expect(JSON.stringify(c.engine!.toSnapshot())).toBe(expected);
+    }
+    expect(net.room.revision).toBeGreaterThan(300);
+  });
+});
