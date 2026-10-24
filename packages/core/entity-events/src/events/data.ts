@@ -511,6 +511,14 @@ export interface SignEnvelopeEventData {
   title?: string;
   status?: string;
   senderUserId?: string;
+  /** The template a request was made from. */
+  templateId?: string | null;
+}
+
+/** A WeldSign template: id and title only. */
+export interface SignTemplateEventData {
+  id: string;
+  title?: string;
 }
 
 export interface DocEventData {
@@ -658,6 +666,7 @@ export interface EntityEventData {
 
   // WeldSign
   sign_envelope: SignEnvelopeEventData;
+  sign_template: SignTemplateEventData;
 
   // Calendar + meetings
   calendar_event: CalendarEventEventData;

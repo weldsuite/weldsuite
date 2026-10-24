@@ -4,23 +4,21 @@
  * draft again before anything goes out).
  */
 
-import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Send } from 'lucide-react';
+import { useState } from 'react';
+import { Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { Switch } from '@weldsuite/ui/components/switch';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import type { SignEnvelopeDetail, UpdateSignEnvelopeInput } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
-import { useSendSignEnvelope, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
+import { targetOf, useSendSignEnvelope, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
 import { readinessProblems } from '../lib/readiness';
 import { apiErrorMessage } from '../lib/errors';
+import { MessageField, ReadinessChecklist, ReminderSettings, SummaryStats } from './settings-fields';
 
-const DEFAULT_REMINDERS = { reminderAfterDays: 3, reminderEveryDays: 3, reminderMaxCount: 3 };
 const DEFAULT_EXPIRY_DAYS = 30;
 
 /** `yyyy-mm-dd` of the local date `days` from today, for a date input. */
@@ -30,19 +28,14 @@ function isoDay(days: number): string {
 }
 
 export function ReviewStep({ envelope, editable }: Readonly<{ envelope: SignEnvelopeDetail; editable: boolean }>) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const tr = t.weldsign.editor.review;
-  const update = useUpdateSignEnvelope(envelope.id);
+  const update = useUpdateSignEnvelope(targetOf(envelope));
   const send = useSendSignEnvelope(envelope.id);
   const canSend = useCan('sign_envelopes:send');
   const [confirming, setConfirming] = useState(false);
   const [expiresOn, setExpiresOn] = useState(() => isoDay(DEFAULT_EXPIRY_DAYS));
-  const save = (input: UpdateSignEnvelopeInput) => update.mutate(input);
 
-  const [message, setMessage] = useState(envelope.message ?? '');
-  useEffect(() => setMessage(envelope.message ?? ''), [envelope.message]);
-
-  const remindersOn = envelope.reminderAfterDays !== null;
   const problems = readinessProblems(envelope);
 
   return (
@@ -52,99 +45,29 @@ export function ReviewStep({ envelope, editable }: Readonly<{ envelope: SignEnve
         <p className="text-sm text-muted-foreground">{tr.description}</p>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="sign-message">{tr.message}</Label>
-        <Textarea
-          id="sign-message"
-          rows={4}
-          maxLength={5000}
-          value={message}
-          disabled={!editable}
-          placeholder={tr.messagePlaceholder}
-          onChange={(e) => setMessage(e.target.value)}
-          onBlur={() => {
-            const next = message.trim() || null;
-            if (next !== (envelope.message ?? null)) save({ message: next });
-          }}
-        />
-      </div>
+      <MessageField message={envelope.message} disabled={!editable} onSave={(message) => update.mutate({ message })} />
 
-      <section className="flex flex-col gap-3 rounded-lg border p-4">
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="block text-sm font-medium">{tr.reminders}</span>
-            <span className="block text-xs text-muted-foreground">{tr.remindersOn}</span>
-          </span>
-          <Switch
-            checked={remindersOn}
-            disabled={!editable}
-            onCheckedChange={(on) =>
-              save(on ? DEFAULT_REMINDERS : { reminderAfterDays: null, reminderEveryDays: null, reminderMaxCount: null })
-            }
-          />
-        </label>
-        {remindersOn && (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <NumberSetting
-              id="sign-reminder-after"
-              label={tr.reminderAfter}
-              value={envelope.reminderAfterDays}
-              min={1}
-              max={90}
-              disabled={!editable}
-              onCommit={(reminderAfterDays) => save({ reminderAfterDays })}
-            />
-            <NumberSetting
-              id="sign-reminder-every"
-              label={tr.reminderEvery}
-              value={envelope.reminderEveryDays}
-              min={1}
-              max={90}
-              disabled={!editable}
-              onCommit={(reminderEveryDays) => save({ reminderEveryDays })}
-            />
-            <NumberSetting
-              id="sign-reminder-max"
-              label={tr.reminderMax}
-              value={envelope.reminderMaxCount}
-              min={0}
-              max={10}
-              disabled={!editable}
-              onCommit={(reminderMaxCount) => save({ reminderMaxCount })}
-            />
-          </div>
-        )}
-      </section>
+      <ReminderSettings settings={envelope} editable={editable} save={(input) => update.mutate(input)} />
 
-      <section className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium">{tr.summary}</h3>
-        <dl className="grid grid-cols-3 gap-3">
-          <Stat label={tr.summaryDocuments} value={envelope.documents.length} />
-          <Stat label={tr.summaryRecipients} value={envelope.recipientList.length} />
-          <Stat label={tr.summaryFields} value={envelope.fields.length} />
-        </dl>
-      </section>
+      <SummaryStats
+        title={tr.summary}
+        stats={[
+          { label: tr.summaryDocuments, value: envelope.documents.length },
+          { label: tr.summaryRecipients, value: envelope.recipientList.length },
+          { label: tr.summaryFields, value: envelope.fields.length },
+        ]}
+      />
 
-      <section className="flex flex-col gap-2 rounded-lg border p-4">
-        <h3 className="text-sm font-medium">{tr.problems}</h3>
-        {problems.length === 0 ? (
-          <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
-            <CheckCircle2 className="size-4" />
-            {tr.ready}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {problems.map((problem) => (
-              <li key={problem.kind === 'signer_without_signature' ? problem.recipientId : problem.kind} className="flex items-center gap-2 text-sm">
-                <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-                {problem.kind === 'no_documents' && tr.noDocuments}
-                {problem.kind === 'no_signers' && tr.noSigners}
-                {problem.kind === 'signer_without_signature' && format(tr.signerWithoutSignature, { name: problem.name })}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <ReadinessChecklist
+        problems={problems}
+        heading={tr.problems}
+        messages={{
+          ready: tr.ready,
+          noDocuments: tr.noDocuments,
+          noSigners: tr.noSigners,
+          signerWithoutSignature: tr.signerWithoutSignature,
+        }}
+      />
 
       {editable && canSend && (
         <div className="flex justify-end">
@@ -197,52 +120,6 @@ export function ReviewStep({ envelope, editable }: Readonly<{ envelope: SignEnve
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function Stat({ label, value }: Readonly<{ label: string; value: number }>) {
-  return (
-    <div className="rounded-lg border p-3">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-xl font-semibold tabular-nums">{value}</dd>
-    </div>
-  );
-}
-
-function NumberSetting({
-  id,
-  label,
-  value,
-  min,
-  max,
-  disabled,
-  onCommit,
-}: Readonly<{ id: string; label: string; value: number | null; min: number; max: number; disabled: boolean; onCommit: (value: number) => void }>) {
-  const [text, setText] = useState(value === null ? '' : String(value));
-  useEffect(() => setText(value === null ? '' : String(value)), [value]);
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id} className="text-xs">
-        {label}
-      </Label>
-      <Input
-        id={id}
-        type="number"
-        inputMode="numeric"
-        min={min}
-        max={max}
-        value={text}
-        disabled={disabled}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => {
-          const n = Number.parseInt(text, 10);
-          if (Number.isNaN(n)) return setText(value === null ? '' : String(value));
-          const clamped = Math.min(Math.max(n, min), max);
-          setText(String(clamped));
-          if (clamped !== value) onCommit(clamped);
-        }}
-      />
     </div>
   );
 }

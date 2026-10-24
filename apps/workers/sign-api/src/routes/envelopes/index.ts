@@ -32,19 +32,30 @@ import {
   createEnvelope,
   deleteDraft,
   listEnvelopes,
+  loadDraft,
   loadEnvelope,
   loadOwnEnvelope,
   memberProfile,
   updateEnvelope,
 } from '../../services/envelopes';
 import { loadSignSettings } from '../../services/settings';
-import { detailFor, envelopeEventData, handle, viewerOf } from './shared';
-import documentsRoutes from './documents';
+import type { DraftScope } from '../draft-scope';
+import { detailFor, envelopeEventData, handle, publishEnvelopeUpdated, viewerOf } from './shared';
+import { createDocumentsRoutes } from './documents';
 import recipientsRoutes from './recipients';
-import fieldsRoutes from './fields';
+import { createFieldsRoutes } from './fields';
 import lifecycleRoutes from './lifecycle';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/** A request's draft: its sender (or `sign_envelopes:manage`) changes it while it is a draft. */
+const envelopeScope: DraftScope = {
+  read: 'sign_envelopes:read',
+  update: 'sign_envelopes:update',
+  loadEditable: async (c) => loadDraft(c.get('tenantDb'), c.req.param('id')!, await viewerOf(c)),
+  loadReadable: async (c) => loadEnvelope(c.get('tenantDb'), c.req.param('id')!, await viewerOf(c)),
+  changed: publishEnvelopeUpdated,
+};
 
 const DEFAULT_LIMIT = 50;
 
@@ -109,9 +120,9 @@ app.delete('/:id', requirePermission('sign_envelopes:delete'), (c) =>
   }),
 );
 
-app.route('/:id/documents', documentsRoutes);
+app.route('/:id/documents', createDocumentsRoutes(envelopeScope));
 app.route('/:id/recipients', recipientsRoutes);
-app.route('/:id/fields', fieldsRoutes);
+app.route('/:id/fields', createFieldsRoutes(envelopeScope));
 app.route('/', lifecycleRoutes);
 
 export default app;

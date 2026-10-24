@@ -498,6 +498,8 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldSign — weldsignKeys.all in use-weldsign-queries.ts. The payload has
   // ids and status only, so any change refetches the mounted WeldSign queries.
   sign_envelope: inv(['weldsign']),
+  // Templates share the root: the template list and detail keys sit under it.
+  sign_template: inv(['weldsign']),
 
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki

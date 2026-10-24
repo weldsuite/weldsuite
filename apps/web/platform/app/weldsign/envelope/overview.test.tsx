@@ -31,6 +31,7 @@ function recipient(overrides: Partial<SignRecipientDto> = {}): SignRecipientDto 
   return {
     id: 'rcp_ann',
     role: 'signer',
+    roleName: null,
     name: 'Ann',
     email: 'ann@example.com',
     personId: null,
@@ -67,6 +68,7 @@ function envelope(overrides: Partial<SignEnvelopeDetail> = {}): SignEnvelopeDeta
   const recipientList = overrides.recipientList ?? [ann, bob, cara];
   return {
     id: 'sgn_1',
+    kind: 'envelope',
     title: 'Service agreement',
     status: 'sent',
     senderUserId: 'user_1',

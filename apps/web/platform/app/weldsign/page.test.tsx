@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { en } from '@weldsuite/i18n/locales/en';
-import type { SignEnvelopeSummary } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignEnvelopeSummary, SignTemplateSummary } from '@weldsuite/app-api-client/schemas/weldsign';
 import WeldSignHome from './page';
 
 const state = vi.hoisted(() => ({
   canCreate: true,
   envelopes: [] as unknown[],
+  templates: [] as SignTemplateSummary[],
   folders: [] as string[],
   push: vi.fn(),
   create: vi.fn(),
@@ -26,6 +27,14 @@ vi.mock('@/hooks/queries/use-weldsign-queries', () => ({
     state.folders.push(folder);
     return { envelopes: state.envelopes, isLoading: false, error: null, hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn() };
   },
+  useSignTemplates: (_search: string, enabled = true) => ({
+    templates: enabled ? state.templates : [],
+    isLoading: false,
+    isError: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
   useCreateSignEnvelope: () => ({ mutateAsync: state.create }),
   useDeleteSignEnvelope: () => ({ mutateAsync: vi.fn() }),
 }));
@@ -36,11 +45,13 @@ vi.mock('@/components/panel-entity-list', () => ({
     items: { id: string }[];
     columns: { id: string; render: (item: never) => ReactNode }[];
     leftActionButtons?: ReactNode;
+    actionButtons?: ReactNode;
     createButton?: { label: string; onClick: () => void };
     emptyState: { title: string; description?: string; action?: { label: string; onClick: () => void } };
   }) => (
     <div>
       {props.leftActionButtons}
+      {props.actionButtons}
       {props.createButton && <button onClick={props.createButton.onClick}>{props.createButton.label}</button>}
       {props.items.length === 0 && (
         <div data-testid="empty">
@@ -65,6 +76,7 @@ const th = en.weldsign.home;
 function envelope(overrides: Partial<SignEnvelopeSummary> = {}): SignEnvelopeSummary {
   return {
     id: 'sgn_1',
+    kind: 'envelope',
     title: 'Service agreement',
     status: 'draft',
     senderUserId: 'user_1',
@@ -81,10 +93,24 @@ function envelope(overrides: Partial<SignEnvelopeSummary> = {}): SignEnvelopeSum
   };
 }
 
+function template(overrides: Partial<SignTemplateSummary> = {}): SignTemplateSummary {
+  return {
+    id: 'sgt_1',
+    title: 'Non-disclosure agreement',
+    documentCount: 1,
+    roles: [{ id: 'sgr_1', roleName: 'Client', role: 'signer' }],
+    createdByName: 'Gert',
+    createdAt: '2026-10-24T10:00:00.000Z',
+    updatedAt: '2026-10-24T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('WeldSign home', () => {
   beforeEach(() => {
     state.canCreate = true;
     state.envelopes = [];
+    state.templates = [];
     state.folders = [];
     state.push.mockReset();
     state.create.mockReset();
@@ -155,5 +181,44 @@ describe('WeldSign home', () => {
     state.canCreate = false;
     render(<WeldSignHome />);
     expect(screen.queryByRole('button', { name: th.newRequest })).toBeNull();
+  });
+});
+
+describe('WeldSign home: from template', () => {
+  const tp = en.weldsign.templates.picker;
+
+  beforeEach(() => {
+    state.canCreate = true;
+    state.envelopes = [];
+    state.templates = [];
+  });
+
+  it('offers "From template" next to "New request" when the workspace has templates', () => {
+    state.templates = [template()];
+    render(<WeldSignHome />);
+    expect(screen.getByRole('button', { name: tp.action })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: th.newRequest }).length).toBeGreaterThan(0);
+  });
+
+  it('hides it when there are no templates', () => {
+    render(<WeldSignHome />);
+    expect(screen.queryByRole('button', { name: tp.action })).toBeNull();
+  });
+
+  it('hides it without the rights to read templates and make requests', () => {
+    state.canCreate = false;
+    state.templates = [template()];
+    render(<WeldSignHome />);
+    expect(screen.queryByRole('button', { name: tp.action })).toBeNull();
+  });
+
+  it('opens a picker with the templates and their roles', () => {
+    state.templates = [template(), template({ id: 'sgt_2', title: 'Employment contract', roles: [{ id: 'sgr_2', roleName: 'Employee', role: 'signer' }] })];
+    render(<WeldSignHome />);
+    fireEvent.click(screen.getByRole('button', { name: tp.action }));
+    expect(screen.getByRole('dialog', { name: tp.title })).toBeTruthy();
+    expect(screen.getByText('Non-disclosure agreement')).toBeTruthy();
+    expect(screen.getByText('Employment contract')).toBeTruthy();
+    expect(screen.getByText('Employee')).toBeTruthy();
   });
 });

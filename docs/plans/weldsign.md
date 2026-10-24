@@ -394,8 +394,36 @@ sign-portal scaffold, docs (SIGN-001..004).
 - Platform: the "Action required" folder, Sign now, Remind, Void, Resend link
   and Correct email on a sent request, and its activity timeline.
 
+**Phase 4: done.**
+
+- Templates are `sign_envelopes` rows of kind `template` (always a draft)
+  with their own documents, fields and roles: recipient rows with
+  `role_name` set and, optionally, who usually fills the role. They belong
+  to the workspace: `sign_templates:read` sees them all; `:create`,
+  `:update` and `:delete` change them (OWNER/ADMIN by default, MEMBER and
+  VIEWER read and use them).
+- `/api/sign/templates`: list, create, get, settings, delete, `/roles`, and
+  the draft's `/documents` and `/fields` routes (shared through a scope, so
+  one implementation serves both). The detail has the editor's envelope
+  shape with `kind: 'template'`.
+- `POST /api/sign/templates/:id/use` (`sign_envelopes:create` and
+  `sign_templates:read`): a new draft request with a person in every role.
+  PDFs are copied to the draft's own keys (deleting either never touches the
+  other), fields move to the new documents and people, and the title,
+  message, signing order and reminders come from the template. Every role
+  must be filled exactly once, with distinct addresses and an access code
+  where the role asks for one; a refusal leaves nothing behind.
+- Entity events: `sign_template` `created` / `updated` / `deleted`; using a
+  template publishes `sign_envelope` `created` with the `templateId`.
+- Platform: templates list and editor (documents, roles, fields, settings),
+  the Use template dialog (from the list, the editor and "New request"), and
+  the new draft opening on its Review step, ready to send.
+
 Changes against the plan above:
 
+- A template never holds an access code: a role with `access_code` gets one
+  when the template is used. A copy role always opens by link alone: it signs nothing,
+  so it is never asked for a code.
 - Void notices are not counted by the outbound guard: they only reach people
   who already had the request. Reminders, new links and corrections are.
 - A reminder sent by hand does not use up an automatic one; it only moves the
@@ -443,4 +471,5 @@ ADRs under a new `SIGN` area, written in phase 0 (skill `weldsuite-docs`):
   completion, and what happens on workspace deletion (proposal: kept until the
   workspace deletes them; deleting a completed envelope keeps its `sign_events`
   and hashes).
-- DNS and Vercel project for `sign.weldsuite.org` / `sign-test.weldsuite.org`.
+- Done: Vercel project `weldsuite-sign-portal` with `sign.weldsuite.org` /
+  `sign-test.weldsuite.org`, deployed by `deploy.yml` (weldsuite/weldsuite#1315).

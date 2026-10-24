@@ -24,4 +24,13 @@ describe('readinessProblems', () => {
   it('is empty when every signer signs', () => {
     expect(readinessProblems({ documents: [doc], recipientList: [signer('a', 'Ann')], fields: [field('a', 'signature')] })).toEqual([]);
   });
+
+  it('names a signer the way the caller says, for a template that names its roles', () => {
+    const director = { ...signer('b', 'Dora'), roleName: 'Director' } as SignRecipientDto;
+    const problems = readinessProblems(
+      { documents: [doc], recipientList: [signer('a', 'Ann'), director], fields: [field('a', 'signature')] },
+      (recipient) => recipient.roleName ?? '',
+    );
+    expect(problems).toEqual([{ kind: 'signer_without_signature', recipientId: 'b', name: 'Director' }]);
+  });
 });

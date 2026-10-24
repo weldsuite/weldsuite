@@ -132,6 +132,7 @@ export function toRecipientDto(row: SignRecipient): SignRecipientDto {
   return {
     id: row.id,
     role: row.role,
+    roleName: row.roleName,
     name: row.name,
     email: row.email,
     personId: row.personId,
@@ -186,6 +187,7 @@ function recipientPreview(recipients: Pick<SignRecipient, 'name' | 'email' | 'ro
 function toSummary(row: SignEnvelope, documentCount: number, recipients: SignRecipient[]): SignEnvelopeSummary {
   return {
     id: row.id,
+    kind: row.kind,
     title: row.title,
     status: row.status,
     senderUserId: row.senderUserId,
