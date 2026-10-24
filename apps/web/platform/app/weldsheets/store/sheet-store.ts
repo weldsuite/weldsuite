@@ -5,18 +5,20 @@ export interface SheetMeta {
   name: string;
   createdAt: number;
   updatedAt: number;
+  /** The caller may rename, delete and edit it. */
+  canEdit: boolean;
 }
 
 /**
- * Where spreadsheets are kept. Phase 2 stores them in the browser
- * (`LocalSheetStore`); phase 3 swaps in the sheets-api client, after which a
- * sheet is a WeldDrive file opened through its SheetRoom.
+ * Where the list of spreadsheets comes from. In a workspace it is sheets-api
+ * (`ApiSheetDirectory`): a sheet is a WeldDrive file, and its content is
+ * edited over its room socket. The signed-out preview keeps sheets in the
+ * browser (`LocalSheetStore`), content included.
  */
-export interface SheetStore {
+export interface SheetDirectory {
   list(): Promise<SheetMeta[]>;
-  create(name: string): Promise<SheetMeta>;
-  load(id: string): Promise<{ meta: SheetMeta; snapshot: WorkbookSnapshot | null } | null>;
-  save(id: string, snapshot: WorkbookSnapshot): Promise<void>;
+  /** `firstTabName` names the first tab in the creator's language. */
+  create(name: string, firstTabName: string): Promise<SheetMeta>;
   rename(id: string, name: string): Promise<void>;
   remove(id: string): Promise<void>;
 }
@@ -24,8 +26,8 @@ export interface SheetStore {
 const META = 'meta';
 const SNAPSHOTS = 'snapshots';
 
-/** IndexedDB, one database per workspace. */
-export class LocalSheetStore implements SheetStore {
+/** IndexedDB, one database per workspace: the preview's sheets, content included. */
+export class LocalSheetStore implements SheetDirectory {
   private db: Promise<IDBDatabase> | null = null;
 
   constructor(private readonly workspaceId: string) {}
@@ -55,12 +57,12 @@ export class LocalSheetStore implements SheetStore {
 
   async list(): Promise<SheetMeta[]> {
     const all = (await this.run<SheetMeta[]>([META], 'readonly', (tx) => tx.objectStore(META).getAll())) ?? [];
-    return all.sort((a, b) => b.updatedAt - a.updatedAt);
+    return all.map((meta) => ({ ...meta, canEdit: true })).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   async create(name: string): Promise<SheetMeta> {
     const now = Date.now();
-    const meta: SheetMeta = { id: newId(), name, createdAt: now, updatedAt: now };
+    const meta: SheetMeta = { id: newId(), name, createdAt: now, updatedAt: now, canEdit: true };
     await this.run([META], 'readwrite', (tx) => {
       tx.objectStore(META).put(meta);
     });

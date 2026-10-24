@@ -30,7 +30,7 @@ import {
   type GridLayout,
   type Hit,
 } from './geometry';
-import { fontFor, renderGrid, type RefHighlight } from './renderer';
+import { fontFor, renderGrid, type RefHighlight, type RemoteCursor } from './renderer';
 import { readGridTheme, REFERENCE_COLORS, type GridTheme } from './theme';
 
 type Drag =
@@ -107,6 +107,13 @@ export function SheetGrid({ controller, barInputRef }: Props) {
       }))
     : [];
 
+  // Where the other people in a co-edited sheet are, on this sheet.
+  const remote: RemoteCursor[] = controller.peers.flatMap((p) =>
+    p.presence?.sheetId === controller.activeSheetId
+      ? [{ name: p.name, color: p.color, ranges: p.presence.ranges, active: p.presence.active }]
+      : [],
+  );
+
   // Draw after every render. Renders only happen on a change (edit, selection,
   // scroll, resize), so painting synchronously is cheap and never lags a frame;
   // requestAnimationFrame would also stall while the page is in the background.
@@ -131,6 +138,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
       selection: controller.selection,
       editing: editing ? { row: editing.row, col: editing.col } : null,
       highlights,
+      remote,
     });
     if (resizeGhost !== null) drawResizeGhost(ctx, layout, resizeGhost, dragRef.current, theme);
   });

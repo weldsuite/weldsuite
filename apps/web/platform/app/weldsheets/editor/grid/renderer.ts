@@ -18,6 +18,14 @@ export interface RefHighlight {
   color: string;
 }
 
+/** Where someone else is on this sheet. */
+export interface RemoteCursor {
+  name: string;
+  color: string;
+  ranges: Range[];
+  active: { row: number; col: number };
+}
+
 export interface RenderState {
   layout: GridLayout;
   controller: SheetController;
@@ -26,6 +34,8 @@ export interface RenderState {
   /** The cell being edited (its text is drawn by the DOM editor). */
   editing: { row: number; col: number } | null;
   highlights: RefHighlight[];
+  /** Other people in a co-edited sheet. */
+  remote?: RemoteCursor[];
 }
 
 export function fontFor(style: CellStyle | undefined): string {
@@ -53,6 +63,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, state: RenderState): v
   }
   for (const clip of panes(layout)) {
     withClip(ctx, clip, () => {
+      drawRemote(ctx, state, clip);
       drawHighlights(ctx, state);
       drawSelection(ctx, state);
     });
@@ -389,6 +400,42 @@ function drawSelection(ctx: CanvasRenderingContext2D, state: RenderState): void 
   const primary = rangeRect(layout, sheet, primaryRange(selection));
   ctx.fillStyle = theme.selectionBorder;
   ctx.fillRect(primary.x + primary.w - 4, primary.y + primary.h - 4, 6, 6);
+}
+
+/** Other people: a tint over their selection, their active cell outlined, their name above it. */
+function drawRemote(ctx: CanvasRenderingContext2D, state: RenderState, pane: Rect): void {
+  const sheet = state.controller.sheet;
+  for (const cursor of state.remote ?? []) {
+    ctx.fillStyle = `${cursor.color}1f`;
+    for (const range of cursor.ranges) {
+      const rect = rangeRect(state.layout, sheet, range);
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    }
+    const { row, col } = cursor.active;
+    const rect = rangeRect(state.layout, sheet, sheet.mergeAt(row, col) ?? { r1: row, c1: col, r2: row, c2: col });
+    ctx.strokeStyle = cursor.color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rect.x, rect.y, rect.w - 1, rect.h - 1);
+    drawNameFlag(ctx, cursor, rect, pane.y);
+  }
+}
+
+const FLAG_HEIGHT = 14;
+
+function drawNameFlag(ctx: CanvasRenderingContext2D, cursor: RemoteCursor, cell: Rect, paneTop: number): void {
+  ctx.font = `10px ${DEFAULT_FONT_FAMILY}`;
+  const width = ctx.measureText(cursor.name).width + 8;
+  // Above the cell, or inside its top when the cell is at the top of its pane.
+  const y = cell.y - FLAG_HEIGHT >= paneTop ? cell.y - FLAG_HEIGHT : cell.y;
+  const x = cell.x + cell.w - width;
+  ctx.fillStyle = cursor.color;
+  ctx.fillRect(x, y, width, FLAG_HEIGHT);
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(cursor.name, x + 4, y + FLAG_HEIGHT / 2);
+  ctx.restore();
 }
 
 function drawHighlights(ctx: CanvasRenderingContext2D, state: RenderState): void {

@@ -11,6 +11,7 @@ import {
   normalize,
   parseInput,
   Sheet,
+  transform,
   translateFormula,
   Workbook,
   type BorderSide,
@@ -19,6 +20,7 @@ import {
   type FormatLocale,
   type FormulaLocale,
   type Op,
+  type Peer,
   type Range,
   type Scalar,
   type StylePatch,
@@ -57,8 +59,14 @@ export type BorderKind = 'all' | 'outer' | 'inner' | 'top' | 'bottom' | 'left' |
 export interface ControllerOptions {
   locale: FormatLocale;
   formulaLocale: FormulaLocale;
-  /** Every local op, after it is applied (autosave, and the collaboration socket later). */
+  /** Every local op, after it is applied (autosave in the preview). */
   onOp?: (op: Op) => void;
+  /**
+   * Applies a local op to the engine and returns its inverse. Co-editing
+   * routes it through the room client, which also sends it; without it the
+   * op is applied directly.
+   */
+  applyOp?: (op: Op) => Op;
 }
 
 const UNDO_LIMIT = 200;
@@ -69,7 +77,8 @@ const UNDO_LIMIT = 200;
  * notifies React through `subscribe` (useSyncExternalStore).
  */
 export class SheetController {
-  readonly engine: Engine;
+  /** Replaced when a co-edited sheet reloads from the room (`replaceEngine`). */
+  engine: Engine;
   activeSheetId: string;
   selection: Selection = cellSelection(0, 0);
   editing: EditState | null = null;
@@ -77,16 +86,25 @@ export class SheetController {
   readOnly = false;
   /** Bumped on every change; the React snapshot. */
   version = 0;
+  /** Other people in a co-edited sheet, with where they are (drawn on the grid). */
+  peers: Peer[] = [];
 
   private undoStack: UndoEntry[] = [];
   private redoStack: UndoEntry[] = [];
   private readonly listeners = new Set<() => void>();
   private readonly selections = new Map<string, Selection>();
 
+  /** `source`: a snapshot to open, an engine someone else keeps (the room client's), or null for a new workbook. */
   constructor(
-    snapshot: WorkbookSnapshot | null,
+    source: WorkbookSnapshot | Engine | null,
     readonly options: ControllerOptions,
   ) {
+    if (source instanceof Engine) {
+      this.engine = source;
+      this.activeSheetId = source.workbook.sheets[0]!.id;
+      return;
+    }
+    const snapshot = source;
     let workbook: Workbook;
     if (snapshot) {
       workbook = Workbook.fromJSON(snapshot);
@@ -131,6 +149,19 @@ export class SheetController {
   // Applying ops
   // -------------------------------------------------------------------------
 
+  setPeers(peers: Peer[]): void {
+    this.peers = peers;
+    this.emit();
+  }
+
+  /** Jumps to a cell, on another sheet if need be (following someone in the sheet). */
+  goTo(sheetId: string, row: number, col: number): void {
+    this.setActiveSheet(sheetId);
+    if (this.activeSheetId !== sheetId) return;
+    const sheet = this.sheet;
+    this.select(cellSelection(Math.min(row, sheet.rowCount - 1), Math.min(col, sheet.colCount - 1)));
+  }
+
   setReadOnly(readOnly: boolean): void {
     if (this.readOnly === readOnly) return;
     this.readOnly = readOnly;
@@ -144,7 +175,7 @@ export class SheetController {
     const normalized = normalize(op);
     const before = this.selection;
     const sheetId = this.activeSheetId;
-    const inverse = applyOp(this.engine, normalized);
+    const inverse = this.run(normalized);
     this.undoStack.push({ op: normalized, inverse, sheetId, selection: before });
     if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
     this.redoStack = [];
@@ -157,7 +188,7 @@ export class SheetController {
     if (this.readOnly) return;
     const entry = this.undoStack.pop();
     if (!entry) return;
-    const redoInverse = applyOp(this.engine, entry.inverse);
+    const redoInverse = this.run(entry.inverse);
     this.redoStack.push({ op: entry.inverse, inverse: redoInverse, sheetId: entry.sheetId, selection: this.selection });
     this.options.onOp?.(entry.inverse);
     this.restore(entry);
@@ -167,10 +198,54 @@ export class SheetController {
     if (this.readOnly) return;
     const entry = this.redoStack.pop();
     if (!entry) return;
-    const inverse = applyOp(this.engine, entry.inverse);
+    const inverse = this.run(entry.inverse);
     this.undoStack.push({ op: entry.inverse, inverse, sheetId: entry.sheetId, selection: this.selection });
     this.options.onOp?.(entry.inverse);
     this.restore(entry);
+  }
+
+  private run(op: Op): Op {
+    return this.options.applyOp ? this.options.applyOp(op) : applyOp(this.engine, op);
+  }
+
+  /**
+   * Someone else's op was applied (under this user's unconfirmed edits). Undo
+   * and redo entries are moved past it, newest first, so undoing still
+   * reverses this user's own change where it now is.
+   */
+  remoteOp(op: Op): void {
+    for (const stack of [this.undoStack, this.redoStack]) {
+      let against = op;
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const entry = stack[i]!;
+        const inverse = transform(entry.inverse, against, true);
+        against = transform(against, entry.inverse, false);
+        entry.inverse = inverse;
+      }
+    }
+    this.afterOutsideChange();
+  }
+
+  /** The room sent a fresh copy of the workbook (first load is the constructor). Undo history no longer applies. */
+  replaceEngine(engine: Engine): void {
+    this.engine = engine;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.editing = null;
+    this.afterOutsideChange();
+  }
+
+  /** Keeps the active sheet and selection valid after a change this user did not make. */
+  private afterOutsideChange(): void {
+    this.ensureActiveSheet();
+    const sheet = this.sheet;
+    const { active } = this.selection;
+    if (active.row >= sheet.rowCount || active.col >= sheet.colCount) {
+      // Rows or columns under the selection were deleted.
+      this.selection = cellSelection(Math.min(active.row, sheet.rowCount - 1), Math.min(active.col, sheet.colCount - 1));
+      this.editing = null;
+    }
+    this.emit();
   }
 
   private restore(entry: UndoEntry): void {

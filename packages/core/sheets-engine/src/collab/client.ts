@@ -31,7 +31,11 @@ export interface CollabClientOptions {
    * `lostEdits` is true when unacked local edits were dropped.
    */
   onReset?: (engine: Engine, info: { canEdit: boolean; lostEdits: boolean }) => void;
-  /** Someone else's op was applied (under our own unacked edits). */
+  /**
+   * Someone else's op was applied under our own unacked edits. `op` is that
+   * op as it applies after them (the current local state), which is what an
+   * undo stack is transformed against.
+   */
   onRemoteOp?: (op: Op) => void;
   /** Our batch was committed. */
   onAck?: (revision: number) => void;
@@ -169,7 +173,7 @@ export class CollabClient {
     const inflightCount = this.inflight?.ops.length ?? 0;
     if (this.inflight) this.inflight = { batchId: this.inflight.batchId, ops: rebased.slice(0, inflightCount) };
     this.buffer = rebased.slice(inflightCount);
-    this.options.onRemoteOp?.(c.op);
+    this.options.onRemoteOp?.(against);
   }
 
   private flush(): void {
