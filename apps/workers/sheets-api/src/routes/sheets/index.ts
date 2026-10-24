@@ -181,6 +181,13 @@ app.post('/', requirePermission('sheets:create'), zValidator('json', createSheet
 const MAX_IMPORT_CELLS = 250_000;
 /** Room for the multipart envelope around the largest file. */
 const MULTIPART_SLACK = 64 * 1024;
+/**
+ * How far an .xlsx may inflate. A Worker has 128 MB, and a part is held as
+ * bytes and then as a string: past these, a file is refused (`too_large`)
+ * before it can run the isolate out of memory. 250,000 cells take well under
+ * 32 MB of sheet XML.
+ */
+const IMPORT_ZIP_LIMITS = { maxEntrySize: 32 * 1024 * 1024, maxTotalSize: 64 * 1024 * 1024 };
 const LOCALES = { en: EN_LOCALE, nl: NL_LOCALE } as const;
 
 interface ImportSource {
@@ -268,6 +275,7 @@ app.post('/import', requirePermission('sheets:create'), async (c) => {
     result = await readSpreadsheet(source.fileName, source.bytes, {
       locale: LOCALES[source.locale ?? 'en'],
       maxCells: MAX_IMPORT_CELLS,
+      limits: IMPORT_ZIP_LIMITS,
       sheetId: () => newTabId(),
     });
   } catch (err) {

@@ -88,3 +88,5 @@ export { detectDelimiter, parseCsv, readCsv, writeCsv } from './files/csv';
 export type { ReadCsvOptions, WriteCsvOptions } from './files/csv';
 export { ImportError } from './files/types';
 export type { ImportErrorCode, ImportResult, ImportWarning, ReadOptions, ReadXlsxOptions } from './files/types';
+export { ZipError, openZip, writeZip } from './files/zip';
+export type { ZipErrorCode, ZipFile, ZipLimits, ZipReader } from './files/zip';

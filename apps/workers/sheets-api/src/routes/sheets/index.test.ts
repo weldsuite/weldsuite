@@ -4,8 +4,8 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
 import { files, folders, sheets, workspaceMembers } from '@weldsuite/db/schema';
-import { WELDSHEET_MIME_TYPE, type SheetImportResult, type SheetSession, type SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
-import { Engine, writeXlsx } from '@weldsuite/sheets-engine';
+import { SHEET_IMPORT_MAX_BYTES, WELDSHEET_MIME_TYPE, type SheetImportResult, type SheetSession, type SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
+import { Engine, writeXlsx, writeZip } from '@weldsuite/sheets-engine';
 import type { Env, Variables } from '../../types';
 import { readSnapshot } from '../../room/snapshot';
 import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
@@ -227,6 +227,15 @@ describe('/api/sheets import and export', () => {
     expect(await refused(upload('broken.xlsx', new Uint8Array([0x50, 0x4b, 3, 4, 1, 2, 3])))).toBe('not_spreadsheet');
     expect(await refused({ method: 'POST', body: new FormData() })).toBeUndefined();
     expect(await db.select().from(files)).toEqual([]);
+  });
+
+  it('refuses a small file that would inflate past what a Worker can hold', async () => {
+    // Under a few hundred KB compressed, 40 MB once inflated.
+    const bomb = await writeZip([{ name: 'xl/workbook.xml', data: `<workbook>${' '.repeat(40 * 1024 * 1024)}</workbook>` }]);
+    expect(bomb.byteLength).toBeLessThan(SHEET_IMPORT_MAX_BYTES);
+    const res = await app().request('/api/sheets/import', upload('bomb.xlsx', bomb));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { details?: { reason?: string } } }).error.details?.reason).toBe('too_large');
   });
 
   it('makes a spreadsheet from a WeldDrive file, next to it when allowed', async () => {
