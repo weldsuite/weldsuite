@@ -3,8 +3,8 @@
  * fields, review). Every change is saved as it is made; the fields step saves
  * its whole field set on "Save" and when you leave it.
  *
- * A request that has been sent opens read-only (its own detail view arrives in
- * phase 3 of docs/plans/weldsign.md).
+ * A request that has been sent opens on its status view (progress, reminders,
+ * voiding, activity); its documents and fields can still be browsed read-only.
  */
 
 import { useEffect, useState } from 'react';

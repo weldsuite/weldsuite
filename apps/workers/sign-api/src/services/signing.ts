@@ -4,7 +4,7 @@
  * signer's IP and browser (ADR SIGN-003).
  */
 
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { SignEnvelope, SignField, SignRecipient } from '@weldsuite/db/schema';
 import {
@@ -96,13 +96,18 @@ export async function recordCodeCheck(db: Database, ref: SignerRef, ok: boolean,
   });
 }
 
+/**
+ * Whether this recipient agreed to sign electronically. A corrected email is
+ * a different person, so only consent given after the last correction counts.
+ */
 async function hasConsented(db: Database, recipientId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: signEvents.id })
+  const steps = await db
+    .select({ type: signEvents.type })
     .from(signEvents)
-    .where(and(eq(signEvents.recipientId, recipientId), eq(signEvents.type, 'consented')))
+    .where(and(eq(signEvents.recipientId, recipientId), inArray(signEvents.type, ['consented', 'recipient_corrected'])))
+    .orderBy(desc(signEvents.createdAt), desc(signEvents.id))
     .limit(1);
-  return !!row;
+  return steps[0]?.type === 'consented';
 }
 
 export async function portalView(

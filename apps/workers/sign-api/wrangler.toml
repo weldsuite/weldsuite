@@ -12,8 +12,8 @@
 #
 # Bindings beyond the kit: PRIVATE_STORAGE (WeldSign files), SEND_EMAIL and the
 # outbound guard (signing emails), FINALIZE_ENVELOPE (the Workflow that builds
-# the signed PDF), and the vars SIGN_PORTAL_URL (signing links) and
-# EMAIL_TRANSPORT.
+# the signed PDF), SCHEDULE_INDEX (the lifecycle sweep's due index), and the
+# vars SIGN_PORTAL_URL (signing links) and EMAIL_TRANSPORT.
 #   SIGN_SESSION_SECRET signs signer sessions and keys the stored hash of
 #   access and email codes (HMAC); any long random string. Rotating it signs
 #   every signer out and voids the access codes of requests still open.
@@ -100,6 +100,20 @@ name = "sign-finalize-dev"
 binding = "FINALIZE_ENVELOPE"
 class_name = "FinalizeEnvelopeWorkflow"
 
+# Due index (kind `sign_lifecycle`): which workspaces have a reminder or an
+# expiry coming due, so the lifecycle sweep never opens idle tenant DBs
+# (DATA-008). Migrations: workflow-worker. Dev uses the test index.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Lifecycle sweep (src/cron/lifecycle-sweep.ts): due reminders and expiry.
+# Keep in step with LIFECYCLE_SWEEP_CRONS. A quiet tick reads only the D1
+# due index, so every environment runs it.
+[triggers]
+crons = ["*/15 * * * *"]
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -140,6 +154,15 @@ namespace_id = "2101"
 name = "sign-finalize-test"
 binding = "FINALIZE_ENVELOPE"
 class_name = "FinalizeEnvelopeWorkflow"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Lifecycle sweep (see [triggers] above).
+[env.test.triggers]
+crons = ["*/15 * * * *"]
 
 [[env.test.r2_buckets]]
 binding = "PRIVATE_STORAGE"
@@ -205,6 +228,15 @@ namespace_id = "3101"
 name = "sign-finalize"
 binding = "FINALIZE_ENVELOPE"
 class_name = "FinalizeEnvelopeWorkflow"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+# Lifecycle sweep (see [triggers] above).
+[env.production.triggers]
+crons = ["*/15 * * * *"]
 
 [[env.production.r2_buckets]]
 binding = "PRIVATE_STORAGE"

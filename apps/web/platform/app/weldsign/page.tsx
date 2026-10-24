@@ -20,6 +20,18 @@ import { cn } from '@/lib/utils';
 import { useCreateSignEnvelope, useDeleteSignEnvelope, useSignEnvelopes } from '@/hooks/queries/use-weldsign-queries';
 import { EnvelopeStatusBadge } from './components/status-badge';
 
+type HomeStrings = ReturnType<typeof useI18n>['t']['weldsign']['home'];
+
+/** What an empty list says: it depends on the folder, and on whether a search is running. */
+function emptyCopy(folder: SignEnvelopeFolder, searching: boolean, th: HomeStrings) {
+  if (searching) return { title: th.noResultsTitle, description: th.noResultsDescription, canCreate: false };
+  if (folder === 'action_required') {
+    return { title: th.actionRequiredEmptyTitle, description: th.actionRequiredEmptyDescription, canCreate: false };
+  }
+  if (folder === 'all') return { title: th.emptyTitle, description: th.emptyDescription, canCreate: true };
+  return { title: th.noResultsTitle, description: th.noResultsDescription, canCreate: false };
+}
+
 export default function WeldSignHome() {
   const { t, format, language } = useI18n();
   const th = t.weldsign.home;
@@ -109,7 +121,7 @@ export default function WeldSignHome() {
     },
   ];
 
-  const isFiltered = folder !== 'all' || deferredSearch !== '';
+  const empty = emptyCopy(folder, deferredSearch !== '', th);
 
   return (
     <>
@@ -119,7 +131,7 @@ export default function WeldSignHome() {
         error={query.error}
         columns={columns}
         onRowClick={open}
-        // Only drafts can be deleted; a sent request is voided instead (phase 3).
+        // Only drafts can be deleted; a sent request is voided from its own page.
         onDelete={canDelete ? (envelope) => (envelope.status === 'draft' ? setDeleting(envelope) : undefined) : undefined}
         searchQuery={search}
         onSearchChange={setSearch}
@@ -150,9 +162,9 @@ export default function WeldSignHome() {
         onLoadMore={() => void query.fetchNextPage()}
         emptyState={{
           icon: <Signature className="size-8 text-muted-foreground" />,
-          title: isFiltered ? th.noResultsTitle : th.emptyTitle,
-          description: isFiltered ? th.noResultsDescription : th.emptyDescription,
-          action: canCreate && !isFiltered ? { label: th.newRequest, onClick: () => void newRequest() } : undefined,
+          title: empty.title,
+          description: empty.description,
+          action: canCreate && empty.canCreate ? { label: th.newRequest, onClick: () => void newRequest() } : undefined,
         }}
         noResultsState={{ title: th.noResultsTitle, description: th.noResultsDescription }}
       />
