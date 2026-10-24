@@ -36,3 +36,18 @@ pnpm --filter sign-portal dev        # http://localhost:3023
 | --- | --- | --- |
 | `APP_API_URL` | `http://localhost:8789` | Origin of the `app-api` worker. Server-side only (used by `app/api/*` route handlers); never sent to the browser. |
 | `SIGN_PORTAL_SECRET` | none | Same value as sign-api's `SIGN_PORTAL_SECRET`. Sent as `X-Sign-Portal-Key` so sign-api accepts the signer IP this server reports. Without it, the evidence trail records this server's IP instead of the signer's. Server-side only. |
+
+## Deploy
+
+Vercel project `weldsuite-sign-portal` (team weldsuite, Root Directory
+`apps/web/sign-portal`). Like the other portals it is released only by
+`deploy.yml` (`.github/scripts/vercel-apps.mjs`): a push to `develop` that
+touches this app or a package it uses deploys it to test
+(`sign-test.weldsuite.org`, bound to the `develop` branch), a push to `main` to
+production (`sign.weldsuite.org`). Vercel's own Git builds are off for both
+branches (`vercel.json`).
+
+On the Vercel project, Preview and Production each have `APP_API_URL`
+(`https://app-api-test.weldsuite.org` / `https://app-api.weldsuite.org`) and
+`SIGN_PORTAL_SECRET` (Sensitive; the Doppler `test` / `prd` value, the same as
+sign-api's). sign-api's `SIGN_PORTAL_URL` points signing links at these hosts.
