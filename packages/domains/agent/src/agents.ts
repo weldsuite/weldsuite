@@ -206,8 +206,9 @@ export type SubagentProblem =
 /**
  * Check a proposed sub-agent setup. Delegation is one level deep: working as
  * a sub-agent, an agent runs as its worker object, which never delegates (see
- * ./managed-agents). Threads are told apart by agent name, so names in the
- * roster must be distinct.
+ * ./managed-agents). The coordinator picks roster members by name, so names
+ * in the roster must be distinct (threads are matched by object id, see
+ * ./executor findMember).
  */
 export async function checkSubagents(
   db: AgentDb,
