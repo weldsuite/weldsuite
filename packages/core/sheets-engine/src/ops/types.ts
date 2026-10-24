@@ -13,6 +13,7 @@ import type { CellContent } from '../calc/engine';
 import type { Axis } from '../formula/references';
 import type { StylePatch } from '../model/styles';
 import type { DefinedName, SheetProps, SheetSnapshot } from '../model/workbook';
+import type { ConditionalFormat, DataValidation, SheetFilter } from '../model/rules';
 
 /** [row, col, content]; `null` content clears the cell's value/formula (style stays). */
 export type CellPatch = [number, number, CellContent | null];
@@ -54,6 +55,12 @@ export type Op =
    * (case-insensitive) and scope; names it does not mention are left alone.
    */
   | { type: 'patchNames'; set?: DefinedName[]; remove?: NameKey[] }
+  /** Sets or removes (null) the sheet's basic filter. */
+  | { type: 'setFilter'; sheetId: string; filter: SheetFilter | null }
+  /** Adds or replaces (`set`) and removes conditional formats, by id. */
+  | { type: 'patchConditionalFormats'; sheetId: string; set?: ConditionalFormat[]; remove?: string[] }
+  /** Adds or replaces (`set`) and removes data validation rules, by id; `set` rules not yet there go last. */
+  | { type: 'patchValidations'; sheetId: string; set?: DataValidation[]; remove?: string[] }
   /** Applied in order, atomically. */
   | { type: 'batch'; ops: Op[] };
 
@@ -106,6 +113,8 @@ function isEmpty(op: Op): boolean {
     case 'hideDims':
       return op.indices.length === 0;
     case 'patchNames':
+    case 'patchConditionalFormats':
+    case 'patchValidations':
       return !op.set?.length && !op.remove?.length;
     default:
       return false;

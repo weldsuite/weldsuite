@@ -30,7 +30,9 @@ import {
 } from '../formula/references';
 import type { EvalContext, EvalHost } from '../formula/types';
 import type { Cell } from '../model/cell-store';
+import { cloneFilter, mapFilterFormulas, mapFormatFormulas, mapValidationFormulas, type SheetFilter } from '../model/rules';
 import { Sheet, Workbook, type WorkbookSnapshot } from '../model/workbook';
+import { filteredRows } from '../rules/evaluate';
 import { err, isMatrix, sameScalar, type CellError, type Scalar } from '../values';
 import { DependencyGraph, globalKey, splitKey, type Precedent } from './graph';
 import { SccWalker } from './scc';
@@ -71,6 +73,8 @@ const TOO_DEEP: CellError = err('#CALC!', 'Too many levels of formulas depending
 const MAX_PULL_DEPTH = 256;
 /** Recalculation passes: extra ones re-run readers of changed spills and of chains cut off at MAX_PULL_DEPTH. */
 const MAX_PASSES = 16;
+/** Rule formulas kept parsed (conditional formats, validation, filters). */
+const MAX_RULE_ASTS = 500;
 
 /**
  * The Web Crypto global, present in browsers, Workers and Node 20+. Declared
@@ -108,6 +112,14 @@ export class Engine implements EvalHost {
   /** Formulas that read a value a depth-limited pull left stale; re-run next pass. */
   private readonly truncated = new Set<number>();
   private passNow = 0;
+  /** Formulas that read row visibility (SUBTOTAL, AGGREGATE): re-run when rows are hidden, shown or filtered. */
+  private readonly visibilityReaders = new Set<number>();
+  /** Formulas being evaluated, innermost last (for visibilityReaders). */
+  private readonly evaluating: number[] = [];
+  /** Sheets whose filter has to be re-applied: their values or their filter changed. */
+  private readonly filterStale = new Set<string>();
+  /** Parsed rule formulas (filters, conditional formats, validation), by text. */
+  private readonly ruleAsts = new Map<string, AstNode | FormulaSyntaxError>();
 
   constructor(
     workbook: Workbook = new Workbook(),
@@ -247,6 +259,42 @@ export class Engine implements EvalHost {
     return this.options.timezoneOffset?.() ?? new Date().getTimezoneOffset();
   }
 
+  isRowHidden(sheetId: string, row: number, manual: boolean): boolean {
+    const reader = this.evaluating.at(-1);
+    if (reader !== undefined) this.visibilityReaders.add(reader);
+    const rows = this.workbook.getSheet(sheetId)?.rows;
+    return !!rows && (rows.isFiltered(row) || (manual && rows.isHidden(row)));
+  }
+
+  cellFormula(sheetId: string, row: number, col: number): string | undefined {
+    return this.workbook.getSheet(sheetId)?.cells.get(row, col)?.f;
+  }
+
+  /**
+   * Formula text evaluated as if it were in (row, col) of `sheetId`, storing
+   * nothing: the formulas of filters, conditional formats and validation.
+   */
+  evaluateFormula(sheetId: string, row: number, col: number, formula: string): Scalar | Scalar[][] {
+    let ast = this.ruleAsts.get(formula);
+    if (!ast) {
+      try {
+        ast = parseFormula(formula);
+      } catch (e) {
+        ast = e instanceof FormulaSyntaxError ? e : new FormulaSyntaxError(String(e), 0);
+      }
+      if (this.ruleAsts.size >= MAX_RULE_ASTS) this.ruleAsts.clear();
+      this.ruleAsts.set(formula, ast);
+    }
+    if (ast instanceof FormulaSyntaxError) return err('#NAME?', `Formula parse error: ${ast.message}`);
+    const ctx: EvalContext = { host: this, sheetId, row, col };
+    try {
+      const result = resolveResult(evaluate(ast, ctx), ctx);
+      return isMatrix(result) ? result.data : result;
+    } catch (e) {
+      return err('#CALC!', e instanceof Error ? e.message : 'Calculation failed');
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Writing cells
   // -------------------------------------------------------------------------
@@ -307,6 +355,7 @@ export class Engine implements EvalHost {
 
   /** Expands the cached used range and wakes spills that this position affects. */
   private touch(sheetNum: number, row: number, col: number): void {
+    this.staleFilter(sheetNum);
     const cached = this.used.get(sheetNum);
     if (cached !== undefined) this.used.set(sheetNum, union(cached, { r1: row, c1: col, r2: row, c2: col }));
     const rec = this.spillAt(sheetNum, row, col);
@@ -327,32 +376,77 @@ export class Engine implements EvalHost {
     this.passNow = this.options.now?.() ?? Date.now();
     let evaluated = 0;
     try {
-      for (let pass = 0; pass < MAX_PASSES; pass++) {
-        const roots = this.pendingCells;
-        const formulas = [...this.pendingFormulas];
-        if (pass === 0) formulas.push(...this.graph.volatile);
-        this.pendingCells = [];
-        this.pendingFormulas.clear();
-        if (roots.length === 0 && formulas.length === 0) break;
-
-        const { order, cyclic } = this.topoOrder(roots, formulas);
-        for (const key of order) this.dirty.add(key);
-        for (const key of order) {
-          if (cyclic.has(key)) {
-            this.dirty.delete(key);
-            this.storeValue(key, CIRCULAR);
-          } else if (this.dirty.has(key)) {
-            this.evaluateCell(key);
-          }
-          evaluated++;
-        }
-        this.retryTruncated(pass === MAX_PASSES - 1);
+      evaluated += this.runPasses(true);
+      // Filters follow the values, and formulas that skip hidden rows follow the filters.
+      for (let round = 0; round < 2 && this.refreshFilters(); round++) {
+        for (const key of this.visibilityReaders) this.pendingFormulas.add(key);
+        evaluated += this.runPasses(false);
       }
     } finally {
       this.dirty.clear();
       this.passNow = 0;
     }
     return evaluated;
+  }
+
+  private runPasses(withVolatile: boolean): number {
+    let evaluated = 0;
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+      const roots = this.pendingCells;
+      const formulas = [...this.pendingFormulas];
+      if (pass === 0 && withVolatile) formulas.push(...this.graph.volatile);
+      this.pendingCells = [];
+      this.pendingFormulas.clear();
+      if (roots.length === 0 && formulas.length === 0) break;
+
+      const { order, cyclic } = this.topoOrder(roots, formulas);
+      for (const key of order) this.dirty.add(key);
+      for (const key of order) {
+        if (cyclic.has(key)) {
+          this.dirty.delete(key);
+          this.storeValue(key, CIRCULAR);
+        } else if (this.dirty.has(key)) {
+          this.evaluateCell(key);
+        }
+        evaluated++;
+      }
+      this.retryTruncated(pass === MAX_PASSES - 1);
+    }
+    return evaluated;
+  }
+
+  /** Re-applies stale filters; true when the rows any of them hides changed. */
+  private refreshFilters(): boolean {
+    let changed = false;
+    for (const id of this.filterStale) {
+      const sheet = this.workbook.getSheet(id);
+      if (!sheet) continue;
+      const rows = sheet.filter ? filteredRows(this, id, sheet.filter, sheet.rowCount) : new Set<number>();
+      if (sheet.rows.setFiltered(rows)) changed = true;
+    }
+    this.filterStale.clear();
+    return changed;
+  }
+
+  private staleFilter(sheetNum: number): void {
+    const id = this.sheetIdsByNum.get(sheetNum);
+    if (id !== undefined && this.workbook.getSheet(id)?.filter) this.filterStale.add(id);
+  }
+
+  /** Rows were hidden or shown by hand: formulas that skip hidden rows recalculate. */
+  visibilityChanged(): void {
+    for (const key of this.visibilityReaders) this.pendingFormulas.add(key);
+    this.recalc();
+  }
+
+  /** Sets or removes the sheet's filter and re-applies it. Returns the previous one. */
+  setFilter(sheetId: string, filter: SheetFilter | null): SheetFilter | null {
+    const sheet = this.workbook.requireSheet(sheetId);
+    const previous = sheet.filter;
+    sheet.filter = filter ? cloneFilter(filter) : null;
+    this.filterStale.add(sheetId);
+    this.recalc();
+    return previous;
   }
 
   /** Re-evaluates every formula (after load from a file, or a structural change). */
@@ -441,12 +535,14 @@ export class Engine implements EvalHost {
     } else {
       const ctx: EvalContext = { host: this, sheetId, row, col };
       this.computing.add(key);
+      this.evaluating.push(key);
       try {
         result = resolveResult(evaluate(ast, ctx), ctx);
       } catch (e) {
         result = err('#CALC!', e instanceof Error ? e.message : 'Calculation failed');
       } finally {
         this.computing.delete(key);
+        this.evaluating.pop();
       }
     }
 
@@ -465,6 +561,7 @@ export class Engine implements EvalHost {
     if (!cell) return;
     // An empty result shows as 0, as in Excel.
     cell.v = value === null ? 0 : value;
+    this.staleFilter(sheetNum);
   }
 
   // -------------------------------------------------------------------------
@@ -602,6 +699,7 @@ export class Engine implements EvalHost {
   }
 
   private unregisterFormula(key: number): void {
+    this.visibilityReaders.delete(key);
     this.graph.removeFormula(key);
     this.asts.delete(key);
     this.clearSpill(key);
@@ -682,7 +780,9 @@ export class Engine implements EvalHost {
     this.spillsBySheet.clear();
     this.blocked.clear();
     this.used.clear();
+    this.visibilityReaders.clear();
     for (const sheet of this.workbook.sheets) {
+      this.filterStale.add(sheet.id);
       const sheetNum = this.sheetNum(sheet.id);
       sheet.cells.forEach((row, col, cell) => {
         if (cell.f === undefined) return;
@@ -721,7 +821,41 @@ export class Engine implements EvalHost {
       const scope = name.sheetId ? this.workbook.getSheet(name.sheetId) : undefined;
       name.formula = rewrite(name.formula, scope?.name ?? NO_SHEET);
     }
+    for (const sheet of this.workbook.sheets) {
+      const fn = (f: string) => rewrite(f, sheet.name);
+      if (sheet.filter) sheet.filter = mapFilterFormulas(sheet.filter, fn);
+      sheet.conditionalFormats = sheet.conditionalFormats.map((cf) => mapFormatFormulas(cf, fn));
+      sheet.validations = sheet.validations.map((dv) => mapValidationFormulas(dv, fn));
+    }
     return rewritten;
+  }
+
+  /** Moves a sheet's filter and rule ranges for a row/column change; a rule left without cells goes. */
+  private mapRules(sheet: Sheet, axis: Axis, mapRange: (r: Range) => Range | null, mapIndex: (i: number) => number): void {
+    const max = axis === 'row' ? MAX_ROWS : MAX_COLS;
+    const [lo, hi] = axis === 'row' ? (['r1', 'r2'] as const) : (['c1', 'c2'] as const);
+    const fit = (r: Range): Range | null => {
+      const m = mapRange(r);
+      if (!m || m[lo] > max - 1) return null;
+      return { ...m, [hi]: Math.min(m[hi], max - 1) };
+    };
+    if (sheet.filter) {
+      const range = fit(sheet.filter.range);
+      const columns = sheet.filter.columns.flatMap((c) => {
+        const col = axis === 'col' ? mapIndex(c.col) : c.col;
+        return col < 0 ? [] : [{ ...c, col }];
+      });
+      sheet.filter = range ? { range, columns } : null;
+    }
+    const all = (ranges: Range[]) => ranges.map(fit).filter((r): r is Range => r !== null);
+    sheet.conditionalFormats = sheet.conditionalFormats.flatMap((cf) => {
+      const ranges = all(cf.ranges);
+      return ranges.length ? [{ ...cf, ranges }] : [];
+    });
+    sheet.validations = sheet.validations.flatMap((dv) => {
+      const ranges = all(dv.ranges);
+      return ranges.length ? [{ ...dv, ranges }] : [];
+    });
   }
 
   insertDims(sheetId: string, axis: Axis, at: number, count: number): RewrittenFormula[] {
@@ -739,6 +873,7 @@ export class Engine implements EvalHost {
     });
     (axis === 'row' ? sheet.rows : sheet.cols).insert(at, count);
     sheet.merges = sheet.merges.map((m) => mapRangeInsert(m, axis, at, count));
+    this.mapRules(sheet, axis, (r) => mapRangeInsert(r, axis, at, count), shift);
     if (axis === 'row') {
       if (at < sheet.freeze.rows) sheet.freeze.rows += count;
       sheet.rowCount = Math.min(MAX_ROWS, sheet.rowCount + count);
@@ -767,6 +902,7 @@ export class Engine implements EvalHost {
       const next = mapRangeDelete(m, axis, at, count);
       return next && (next.r1 !== next.r2 || next.c1 !== next.c2) ? [next] : [];
     });
+    this.mapRules(sheet, axis, (r) => mapRangeDelete(r, axis, at, count), shift);
     const frozen = axis === 'row' ? 'rows' : 'cols';
     const f = sheet.freeze[frozen];
     if (at < f) sheet.freeze[frozen] = Math.max(at, f - Math.min(count, f - at));
@@ -803,6 +939,17 @@ export class Engine implements EvalHost {
       if (!run) return [];
       return [axis === 'row' ? { ...m, r1: run[0], r2: run[1] } : { ...m, c1: run[0], c2: run[1] }];
     });
+    // A rule range a move splits keeps the span its cells now cover.
+    this.mapRules(
+      sheet,
+      axis,
+      (r) => {
+        const [lo, hi] = axis === 'row' ? [r.r1, r.r2] : [r.c1, r.c2];
+        const [a, b] = mapRun(lo, hi, map) ?? mappedBounds(lo, hi, map);
+        return axis === 'row' ? { ...r, r1: a, r2: b } : { ...r, c1: a, c2: b };
+      },
+      map,
+    );
     for (const r of rewritten) if (r.sheetId === sheetId) [r.row, r.col] = shiftPos(r.row, r.col, axis, map);
     this.rebuild();
     this.recalc();
@@ -906,6 +1053,18 @@ function sameData(a: Scalar[][], b: Scalar[][]): boolean {
 
 function shiftPos(row: number, col: number, axis: Axis, map: (i: number) => number): [number, number] {
   return axis === 'row' ? [map(row), col] : [row, map(col)];
+}
+
+/** The smallest and largest index [lo, hi] maps to. */
+function mappedBounds(lo: number, hi: number, map: (i: number) => number): [number, number] {
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = lo; i <= hi; i++) {
+    const j = map(i);
+    if (j < min) min = j;
+    if (j > max) max = j;
+  }
+  return [min, max];
 }
 
 /** [lo, hi] mapped index by index; null when the result is not contiguous. */

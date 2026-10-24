@@ -14,6 +14,8 @@ import type { Op } from './types';
 export const MAX_CELLS_PER_OP = 2_000_000;
 
 const MAX_SIZE = 5000;
+/** Ranges one conditional format or validation rule may cover. */
+const MAX_RULE_RANGES = 100;
 
 type SheetOp = Exclude<Op, { type: 'batch' | 'addSheet' | 'deleteSheet' | 'renameSheet' | 'setNames' | 'patchNames' }>;
 
@@ -80,6 +82,11 @@ function checkSheetOp(op: SheetOp): string | null {
       return fail(Number.isInteger(op.index) && op.index >= 0, 'out of range');
     case 'setSheetProps':
       return null;
+    case 'setFilter':
+      return fail(!op.filter || (validRange(op.filter.range) && op.filter.columns.every((c) => inAxis(c.col, MAX_COLS))), 'out of range');
+    case 'patchConditionalFormats':
+    case 'patchValidations':
+      return fail((op.set ?? []).every((rule) => rule.ranges.length > 0 && rule.ranges.length <= MAX_RULE_RANGES && rule.ranges.every(validRange)), 'range out of bounds');
   }
 }
 

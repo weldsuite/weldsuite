@@ -244,7 +244,15 @@ describe('co-editing', () => {
       const axis = rand(2) ? 'row' : 'col';
       const r = rand(12);
       const col = rand(6);
-      switch (rand(12)) {
+      switch (rand(15)) {
+        case 12:
+          return rand(3)
+            ? { type: 'setFilter', sheetId, filter: { range: { r1: rand(3), c1: 0, r2: 10, c2: 3 }, columns: [{ col: rand(3), condition: { type: 'greater', value: rand(50) } }, { col: 0, hiddenValues: [`n:${rand(100)}`] }] } }
+            : { type: 'setFilter', sheetId, filter: null };
+        case 13:
+          return { type: 'patchConditionalFormats', sheetId, set: [{ id: `cf${rand(3)}`, order: rand(5), ranges: [{ r1: r, c1: col, r2: r + 2, c2: col + 1 }], rule: { type: 'condition', condition: { type: 'formula', formula: `A${r + 1}>${rand(50)}` }, style: { bold: true } } }], remove: rand(4) ? [] : [`cf${rand(3)}`] };
+        case 14:
+          return { type: 'patchValidations', sheetId, set: [{ id: `dv${rand(3)}`, ranges: [{ r1: r, c1: col, r2: r + 3, c2: col }], criteria: { type: 'listRange', source: `$B$1:$B${1 + rand(9)}` }, strict: !!rand(2) }] };
         case 0:
           return { type: 'insertDims', sheetId, sheetName: sheet.name, axis, at: rand(10), count: 1 + rand(2) };
         case 1:

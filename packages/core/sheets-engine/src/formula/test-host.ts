@@ -24,6 +24,9 @@ export interface TestHostOptions {
   now?: number;
   timezoneOffset?: number;
   random?: () => number;
+  /** 0-based rows of Sheet1 hidden by hand, and hidden by a filter. */
+  hiddenRows?: number[];
+  filteredRows?: number[];
 }
 
 export function testHost(
@@ -98,6 +101,12 @@ export function testHost(
     now: () => options.now ?? Date.UTC(2026, 0, 15, 10, 30, 0),
     random: options.random ?? (() => 0.5),
     timezoneOffset: () => options.timezoneOffset ?? 0,
+    isRowHidden: (sheetId, row, manual) =>
+      sheetId === 'Sheet1' && (!!options.filteredRows?.includes(row) || (manual && !!options.hiddenRows?.includes(row))),
+    cellFormula(sheetId, row, col) {
+      const raw = sheets.get(sheetId)?.get(`${row}:${col}`);
+      return typeof raw === 'string' && raw.startsWith('=') ? raw.slice(1) : undefined;
+    },
   };
 
   return (formula, at = 'Z100') => {

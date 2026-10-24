@@ -372,6 +372,23 @@ describe('SUBTOTAL and AGGREGATE', () => {
     expect(run('AGGREGATE(20,6,B1:B3)')).toMatchObject({ code: '#VALUE!' });
     expect(run('AGGREGATE(9,8,B1:B3)')).toMatchObject({ code: '#VALUE!' });
   });
+
+  it('skip rows hidden by a filter, and by hand where asked', () => {
+    // Row 2 (A2 = 10) filtered out, row 4 (A4 = 23) hidden by hand.
+    const hidden = testHost({ A1: 120, A2: 10, A3: 150, A4: 23 }, { filteredRows: [1], hiddenRows: [3] });
+    expect(hidden('SUBTOTAL(9,A1:A4)')).toBe(293);
+    expect(hidden('SUBTOTAL(109,A1:A4)')).toBe(270);
+    expect(hidden('SUBTOTAL(2,A1:A4)')).toBe(3);
+    expect(hidden('AGGREGATE(9,5,A1:A4)')).toBe(270);
+    expect(hidden('AGGREGATE(9,4,A1:A4)')).toBe(303);
+    expect(hidden('SUM(A1:A4)')).toBe(303);
+  });
+
+  it('skip cells that hold a SUBTOTAL themselves', () => {
+    const nested = testHost({ A1: 5, A2: 7, A3: '=SUBTOTAL(9,A1:A2)', A4: 1 });
+    expect(nested('SUBTOTAL(9,A1:A4)')).toBe(13);
+    expect(nested('AGGREGATE(9,4,A1:A4)')).toBe(25);
+  });
 });
 
 describe('matrices', () => {
