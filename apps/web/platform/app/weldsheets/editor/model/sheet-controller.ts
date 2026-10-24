@@ -171,7 +171,7 @@ export class SheetController {
     const rule = this.validationAt(row, col);
     if (!rule) return false;
     const value = this.engine.getValue(this.activeSheetId, row, col);
-    return !passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value);
+    return !passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value, this.options.locale);
   }
 
   /** Ticks or unticks a checkbox cell. */
@@ -507,7 +507,7 @@ export class SheetController {
     const rule = this.validationAt(row, col);
     if (rule?.strict && content?.f === undefined) {
       const value = content?.v ?? null;
-      if (!passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value)) {
+      if (!passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value, this.options.locale)) {
         this.options.onInputRefused?.(rule);
         this.emit();
         return false;

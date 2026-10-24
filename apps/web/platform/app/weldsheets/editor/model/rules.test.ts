@@ -85,6 +85,19 @@ describe('rules from the editor', () => {
     expect(value(ctl, 2, 1)).toBe('apple');
   });
 
+  it('accepts list items that read as numbers, picked or typed', () => {
+    const { ctl, onInputRefused } = make();
+    saveValidation(ctl, { id: 'p', ranges: [{ r1: 10, c1: 0, r2: 10, c2: 0 }], criteria: { type: 'list', values: ['10%', '1,000'] }, strict: true, dropdown: true });
+    ctl.setInput(10, 0, '10%');
+    expect(value(ctl, 10, 0)).toBe(0.1);
+    expect(ctl.isInvalid(10, 0)).toBe(false);
+    ctl.setInput(10, 0, '1,000');
+    expect(value(ctl, 10, 0)).toBe(1000);
+    ctl.setInput(10, 0, '30%');
+    expect(onInputRefused).toHaveBeenCalledOnce();
+    expect(value(ctl, 10, 0)).toBe(1000);
+  });
+
   it('keeps a refused edit open to be corrected', () => {
     const { ctl, onInputRefused } = make();
     saveValidation(ctl, { id: 'v1', ranges: [{ r1: 2, c1: 1, r2: 5, c2: 1 }], criteria: { type: 'list', values: ['Apple', 'Pear'] }, strict: true });

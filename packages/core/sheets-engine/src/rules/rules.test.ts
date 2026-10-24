@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Engine } from '../calc/engine';
+import { NL_LOCALE, type FormatLocale } from '../format/number-format';
 import { Sheet, Workbook } from '../model/workbook';
 import type { ConditionalFormat, DataValidation, SheetFilter } from '../model/rules';
 import { applyOp } from '../ops/apply';
@@ -202,6 +203,20 @@ describe('data validation', () => {
     expect(validationAt(sheet, 3, 2)?.id).toBe('dv4');
     expect(ok(3, 2, true)).toBe(true);
     expect(ok(3, 2, 'Yes')).toBe(false);
+  });
+
+  it('matches list items that read as numbers when typed', () => {
+    const e = fruit();
+    const rates: DataValidation = { id: 'r', ranges: [{ r1: 0, c1: 5, r2: 9, c2: 5 }], criteria: { type: 'list', values: ['10%', '1,000', '007'] }, strict: true };
+    const ok = (v: string | number, locale?: FormatLocale) => passesValidation(e, { sheetId: S, row: 1, col: 5 }, rates, v, locale);
+    expect(ok(0.1)).toBe(true);
+    expect(ok(1000)).toBe(true);
+    expect(ok(7)).toBe(true);
+    expect(ok('10%')).toBe(true);
+    expect(ok(0.2)).toBe(false);
+    // In nl "1,000" is one, with a decimal comma.
+    expect(ok(1, NL_LOCALE)).toBe(true);
+    expect(ok(1000, NL_LOCALE)).toBe(false);
   });
 });
 

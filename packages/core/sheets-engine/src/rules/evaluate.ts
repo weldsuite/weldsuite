@@ -6,6 +6,8 @@
  */
 
 import { rangeContains, type Range } from '../address';
+import { parseInput } from '../format/input';
+import type { FormatLocale } from '../format/number-format';
 import { translateFormula } from '../formula/references';
 import type { Sheet } from '../model/workbook';
 import {
@@ -265,8 +267,12 @@ export function listOptions(host: RuleHost, sheetId: string, dv: DataValidation)
   return [...new Set(texts)];
 }
 
-/** Does `value`, about to be in (row, col), pass `dv`? Blank always passes. */
-export function passesValidation(host: RuleHost, at: CellAt, dv: DataValidation, value: Scalar): boolean {
+/**
+ * Does `value`, about to be in (row, col), pass `dv`? Blank always passes. A
+ * list item matches as text (any case), or a number as the item reads when
+ * typed in `locale`: "10%" matches 0.1, "1,000" matches 1000.
+ */
+export function passesValidation(host: RuleHost, at: CellAt, dv: DataValidation, value: Scalar, locale?: FormatLocale): boolean {
   if (isBlank(value)) return true;
   const c = dv.criteria;
   switch (c.type) {
@@ -276,7 +282,15 @@ export function passesValidation(host: RuleHost, at: CellAt, dv: DataValidation,
       return matchesCondition(host, c.condition, value, at, anchorOf(dv.ranges));
     default: {
       const text = textOf(value);
-      return listOptions(host, at.sheetId, dv).some((o) => o.toLowerCase() === text);
+      const options = listOptions(host, at.sheetId, dv);
+      if (options.some((o) => o.toLowerCase() === text)) return true;
+      return typeof value === 'number' && options.some((o) => typedNumber(o, locale) === value);
     }
   }
+}
+
+/** The number `text` is when typed into a cell, if it is one. */
+function typedNumber(text: string, locale: FormatLocale | undefined): number | undefined {
+  const parsed = parseInput(text, { locale });
+  return parsed.kind === 'value' && typeof parsed.value === 'number' ? parsed.value : undefined;
 }
