@@ -8,6 +8,12 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
+import {
+  EMPTY_DESK_PICKER_STATE,
+  pickDeskAssignee,
+  type DeskPickRequest,
+  type DeskPickerState,
+} from '@weldsuite/db/lib/desk-assignment';
 import type { Env, AgentCapacity, AssignRequest } from '../types';
 
 interface AssignmentState {
@@ -89,6 +95,21 @@ export class AssignmentRouter extends DurableObject<Env> {
     });
 
     await this.saveState(state);
+  }
+
+  // ─── WeldDesk inbox (desk_conversations): one instance per workspace ───
+
+  /**
+   * Pick a teammate for a desk conversation. The caller sends the roster and
+   * open counts it read from the tenant DB; this object only adds the rotation
+   * pointer and the picks of the last few seconds, single-threaded, so
+   * concurrent conversations don't land on the same person.
+   */
+  async pickDeskAssignee(request: DeskPickRequest): Promise<{ userId: string | null }> {
+    const state = (await this.ctx.storage.get<DeskPickerState>('desk')) ?? EMPTY_DESK_PICKER_STATE;
+    const result = pickDeskAssignee(state, request);
+    await this.ctx.storage.put('desk', result.state);
+    return { userId: result.userId };
   }
 
   // ─── Get current state (for debugging/monitoring) ───

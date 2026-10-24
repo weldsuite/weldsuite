@@ -167,6 +167,32 @@ export async function publishNewConversation(
  * Notify the WeldDesk inbox that a support email landed in desk_conversations.
  * Uses Clerk org id as the WorkspaceHub key (same as app-api).
  */
+/**
+ * A desk timeline event the worker wrote (auto-assignment): agents' inboxes
+ * refresh the thread and its owner, and the hub queue sees `assigned`.
+ */
+export async function publishDeskAssigned(
+  env: Env,
+  clerkOrgId: string,
+  conversation: { id: string; assigneeId: string | null; [key: string]: unknown },
+  message: { id: string; [key: string]: unknown },
+): Promise<void> {
+  const rt = getPublisher(env);
+  await Promise.all([
+    rt.publish(clerkOrgId, 'desk_conversation', 'updated', conversation, 'system'),
+    rt.publish(clerkOrgId, 'desk_message', 'created', message, 'system'),
+    publishEntityEventRaw({
+      env,
+      workspaceId: clerkOrgId,
+      userId: 'system',
+      entityType: 'desk_conversation',
+      action: 'assigned',
+      entityId: conversation.id,
+      data: conversation,
+    }),
+  ]);
+}
+
 export async function publishDeskInbound(
   env: Env,
   clerkOrgId: string,
