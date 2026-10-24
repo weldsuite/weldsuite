@@ -38,6 +38,8 @@ export class Story {
   length = 0;
   /** Bumped on every change, so caches (layout) can tell the story changed. */
   version = 0;
+  /** `version` before the last op that changed the story (so a layout can tell it missed nothing). */
+  versionBefore = 0;
 
   constructor(readonly id: string) {}
 

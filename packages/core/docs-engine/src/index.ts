@@ -55,3 +55,27 @@ export type { HtmlElement, HtmlNode, HtmlText } from './serialize/html-parse';
 export { toMarkdown } from './serialize/markdown-write';
 export { fromMarkdown } from './serialize/markdown-read';
 export type { MarkdownReadOptions } from './serialize/markdown-read';
+
+export { DocLayout } from './layout/document-layout';
+export type { DocLayoutOptions } from './layout/document-layout';
+export { CachedMeasurer, CanvasMeasurer, MetricsMeasurer, cssFont, fontKey, isWide } from './layout/measure';
+export type { FontMetrics, FontSpec, TextMeasurer } from './layout/measure';
+export { caretRect, hitTest, lineBounds, selectionRects, xOfOffset } from './layout/geometry';
+export type { Affinity, CaretRect, HitResult, SelectionRect } from './layout/geometry';
+export { cellContentOffset, cellHeight } from './layout/table';
+export { canBreakBefore } from './layout/breaks';
+export { displayText } from './layout/run-style';
+export type {
+  BlockLayout,
+  CellLayout,
+  LineLayout,
+  PageArea,
+  PageLayout,
+  ParaEntry,
+  ParagraphLayout,
+  PlacedItem,
+  RowLayout,
+  RunLayout,
+  RunStyle,
+  TableLayout,
+} from './layout/types';

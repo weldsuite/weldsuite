@@ -249,8 +249,41 @@ Decisions above agreed 2026-10-24.
   delays and 600 random edits per session converges with no refused batch
   (40 sessions in CI, 300 when written).
 
+**Phase 2 (layout engine): done**, in `packages/core/docs-engine/src/layout`.
+
+- Measurement behind `TextMeasurer`: `CanvasMeasurer` in the browser,
+  `MetricsMeasurer` (standard Helvetica/Times/Courier widths, an em for CJK
+  and emoji) in Node and workers, both behind a width cache.
+- Paragraphs: words with hanging trailing spaces, line breaks after spaces,
+  hyphens and around CJK (a practical subset of UAX #14), words wider than a
+  line broken between characters, left/centre/right/justify, first-line and
+  hanging indents, list markers in the hanging indent, tab stops (left,
+  centre, right, decimal, leaders), line height as a multiple or exact,
+  superscript and subscript, small and all caps, inline images, footnote
+  references, fields, chips, horizontal rules, page/column/section breaks.
+- Tables: columns scaled to fit, each cell's story laid out at its width,
+  rows as tall as their tallest cell, merges across rows and columns,
+  vertical alignment.
+- Pagination: sections with their own page setup and numbering, headers and
+  footers (first page, even pages, linked to earlier sections), columns,
+  footnotes at the foot of the page that refers to them, widow/orphan
+  control, keep with next, keep lines together, page break before, table
+  rows that never split with header rows repeated, pageless view.
+- Incremental: an op tells the layout which paragraphs it touched
+  (`DocLayout.apply` / `applied`); a story changed behind its back
+  (`stale()`, remote edits) is re-scanned, reusing the layout of every
+  unchanged paragraph. List numbers, footnote numbers and table contents are
+  part of a paragraph's cache key.
+- Geometry: caret rectangles (with wrap affinity), hit testing (merged cells
+  and nested tables included), selection rectangles, visual line bounds.
+- Measured (Node, built-in metrics): 2,400 paragraphs (320 pages) laid out in
+  0.3 s; an edit re-laid and re-paginated in 2.5 ms.
+
 Known gaps, to pick up in later phases:
 
+- Floating (wrapped) images lay out inline until phase 5. Table rows never
+  split across pages, so a row taller than a page overflows it.
+- Right-to-left and bidirectional text lay out left to right (phase 9).
 - An editor undo that re-creates a deleted table, footnote or section
   re-uses its ids; a concurrent edit aimed at the old one can then land in
   the new one. The editor should undo with fresh ids (phase 3).
