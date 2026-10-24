@@ -42,6 +42,12 @@ export interface ShowOsNotificationOptions {
    * Defaults to `tag`, then to title + actionUrl.
    */
   dedupeKey?: string;
+  /**
+   * Also skip the toast while the user is looking at the app in another tab.
+   * Only for events every open tab receives (bell notifications): an event
+   * only this page listens for would then reach no one.
+   */
+  skipWhenAnyTabInForeground?: boolean;
 }
 
 const BROWSER_CLICK_EVENT = 'weldsuite:notification-click';
@@ -75,12 +81,15 @@ export function isDesktopChannelEnabled(
 }
 
 /**
- * Every open tab receives the same realtime event: stay quiet while the user
- * is looking at the app in any tab, and let only one tab show the toast.
+ * Several open tabs can receive the same event: let only one of them show the
+ * toast, and (when asked) none while the user is looking at the app in any tab.
  */
 async function shouldThisTabShow(opts: ShowOsNotificationOptions): Promise<boolean> {
   const onlyWhenHidden = opts.onlyWhenHidden ?? true;
-  if (onlyWhenHidden && (!isAppInBackground() || isAnyTabInForeground())) {
+  if (onlyWhenHidden && !isAppInBackground()) {
+    return false;
+  }
+  if (opts.skipWhenAnyTabInForeground && isAnyTabInForeground()) {
     return false;
   }
   const dedupeKey =

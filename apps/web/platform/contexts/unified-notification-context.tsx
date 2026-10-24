@@ -267,6 +267,8 @@ export function UnifiedNotificationProvider({ children }: Readonly<UnifiedNotifi
         body: notification.body || undefined,
         actionUrl: notification.actionUrl,
         dedupeKey: `notification:${notification.id}`,
+        // Every tab gets this event, so the one the user is looking at covers it.
+        skipWhenAnyTabInForeground: true,
         silent,
         playSound: !silent,
       });
