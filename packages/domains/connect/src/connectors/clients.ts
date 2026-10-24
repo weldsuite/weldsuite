@@ -56,19 +56,60 @@ export interface ConnectorRuntimeEnv {
  * Stored credentials plus what the client needs at run time but must never be
  * stored with them: the Stripe platform key and the connection's import start
  * date. Never encrypt the result back onto the row.
+ *
+ * Stripe is rebuilt from an allow-list, never copied: the platform key reads
+ * *any* connected account, so it is only paired with the account id the OAuth
+ * flow wrote (`externalAccountId`, which a PATCH cannot change for OAuth
+ * rows). A tampered `stripeUserId`, or a stored `accessToken` /
+ * `platformSecretKey`, gets nothing.
  */
 export function withRuntimeCredentials(
-  connection: Pick<ConnectorConnectionRow, 'provider' | 'settings'>,
+  connection: Pick<ConnectorConnectionRow, 'provider' | 'settings' | 'externalAccountId'>,
   credentials: Record<string, string>,
   env: ConnectorRuntimeEnv,
 ): Record<string, string> {
   if (connection.provider !== 'stripe') return credentials;
-  const runtime = { ...credentials };
+  const runtime: Record<string, string> = {};
+  if (credentials.entityId) runtime.entityId = credentials.entityId;
   const start = connection.settings?.importStartDate?.trim();
   if (start) runtime.importStartDate = start;
+
+  const apiKey = credentials.apiKey?.trim();
+  if (apiKey) {
+    runtime.apiKey = apiKey;
+    return runtime;
+  }
+  const accountId = credentials.stripeUserId?.trim();
   const platformKey = env.STRIPE_SECRET_KEY?.trim();
-  if (!runtime.apiKey && platformKey) runtime.platformSecretKey = platformKey;
+  if (accountId && platformKey && accountId === connection.externalAccountId) {
+    runtime.stripeUserId = accountId;
+    runtime.platformSecretKey = platformKey;
+  }
   return runtime;
+}
+
+/** The only credential keys a Stripe connection may hold: an OAuth account id, or a pasted key. */
+const STRIPE_STORED_KEYS = new Set(['stripeUserId', 'apiKey', 'entityId']);
+
+/**
+ * Why a credential change on an existing connection is refused, or null.
+ * OAuth Stripe connections can't be re-pointed at another account (reconnect
+ * instead); API-key ones may only swap the key.
+ */
+export function credentialPatchError(
+  provider: string,
+  existing: Record<string, string>,
+  patch: Record<string, string>,
+): string | null {
+  if (provider !== 'stripe') return null;
+  if (!existing.apiKey) return 'Connect Stripe again to change the account of this connection';
+  const disallowed = Object.keys(patch).filter((key) => key !== 'apiKey');
+  return disallowed.length > 0 ? 'Only the Stripe API key can be changed' : null;
+}
+
+/** Credentials a new Stripe connection keeps: only the allow-listed keys, never a platform key or token. */
+export function stripeStoredCredentials(credentials: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(credentials).filter(([key]) => STRIPE_STORED_KEYS.has(key)));
 }
 
 /** Moneybird financial accounts the inbound sync must not import (the one WeldBooks fills from Stripe). */

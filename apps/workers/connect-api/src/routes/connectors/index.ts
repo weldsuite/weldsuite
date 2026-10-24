@@ -43,7 +43,11 @@ import {
   updateConnectionSettings,
   upsertConnection,
 } from '@weldsuite/connect-domain/connectors/connections';
-import { testConnectorCredentials } from '@weldsuite/connect-domain/connectors/clients';
+import {
+  credentialPatchError,
+  stripeStoredCredentials,
+  testConnectorCredentials,
+} from '@weldsuite/connect-domain/connectors/clients';
 import { syncConnection } from '@weldsuite/connect-domain/connectors/sync';
 import { startWooCommerceAppAuth, startMoneybirdOAuth, completeMoneybirdOAuth, selectMoneybirdAdministration } from '@weldsuite/connect-domain/connectors/auth';
 import { completeStripeOAuth, startStripeOAuth } from '@weldsuite/connect-domain/connectors/stripe-auth';
@@ -132,6 +136,20 @@ function connectRequestError(
   return null;
 }
 
+/**
+ * What a new connection stores: Stripe keeps only its allow-listed keys (a
+ * stored platform key or account id must never come from the request), plus
+ * the WeldBooks entity when one was picked.
+ */
+function credentialsToStore(
+  provider: string,
+  raw: Record<string, string>,
+  entityId: string | undefined,
+): Record<string, string> {
+  const kept = provider === 'stripe' ? stripeStoredCredentials(raw) : raw;
+  return entityId ? { ...kept, entityId } : kept;
+}
+
 /** Host part of a store URL, falling back to the raw value when it does not parse. */
 function hostnameOf(url: string): string {
   try {
@@ -212,6 +230,8 @@ async function buildCredentialPatch(
   keyring: Keyring,
 ): Promise<CredentialPatch> {
   if (body.credentials) {
+    const refused = credentialPatchError(provider, existing, body.credentials);
+    if (refused) return { error: refused };
     const merged = { ...existing, ...body.credentials };
     if (body.entityId) merged.entityId = body.entityId;
     else if (body.entityId === null) delete merged.entityId;
@@ -301,7 +321,7 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
     if (entityId && !(await accountingEntityExists(db, entityId))) {
       return error.badRequest(c, 'Accounting entity not found');
     }
-    const credentials = entityId ? { ...rawCredentials, entityId } : rawCredentials;
+    const credentials = credentialsToStore(provider, rawCredentials, entityId);
     const tested = await testProviderCredentials(provider, credentials);
     if (!tested.ok) return error.badRequest(c, tested.message);
 

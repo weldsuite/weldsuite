@@ -38,14 +38,19 @@ export interface ConnectorCatchupEnv extends ConnectInternalEnv {
 /**
  * Indexed credentials plus what a probe needs at run time: OAuth Stripe
  * connections store only the account id and are read with the platform key.
+ * Built from an allow-list (as `withRuntimeCredentials` in connect-domain), so
+ * nothing else in the copy can steer the platform key. The copy mirrors the
+ * tenant row, whose OAuth account id connect-api never lets a PATCH change.
  */
 export function withProbeSecrets(
   provider: string,
   credentials: Record<string, string>,
   env: Pick<ConnectorCatchupEnv, 'STRIPE_SECRET_KEY'>,
 ): Record<string, string> {
-  if (provider !== 'stripe' || credentials.apiKey || !env.STRIPE_SECRET_KEY) return credentials;
-  return { ...credentials, platformSecretKey: env.STRIPE_SECRET_KEY };
+  if (provider !== 'stripe') return credentials;
+  if (credentials.apiKey) return { apiKey: credentials.apiKey };
+  if (!credentials.stripeUserId || !env.STRIPE_SECRET_KEY) return {};
+  return { stripeUserId: credentials.stripeUserId, platformSecretKey: env.STRIPE_SECRET_KEY };
 }
 
 export interface ConnectorCatchupStore {

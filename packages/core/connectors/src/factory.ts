@@ -38,9 +38,10 @@ export function createConnectorProviderClient(
     });
   }
   if (provider === 'stripe') {
+    // No `accessToken`: OAuth connections never store one (callers add the
+    // platform key at run time), so a stored token could only be planted.
     return new StripeClient({
       apiKey: credentials.apiKey || null,
-      accessToken: credentials.accessToken || null,
       accountId: credentials.stripeUserId || fallbackAccountId || null,
       platformSecretKey: credentials.platformSecretKey || null,
       importStartDate: credentials.importStartDate || null,
