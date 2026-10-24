@@ -76,7 +76,12 @@ describe('storeDeskAttachments', () => {
     expect(put).toHaveBeenCalledWith(
       'desk/ws_1/inbound/email_1/1_My_Invoice__1_.pdf',
       expect.any(Uint8Array),
-      { httpMetadata: { contentType: 'application/pdf' } },
+      {
+        httpMetadata: {
+          contentType: 'application/pdf',
+          contentDisposition: 'inline; filename="My_Invoice__1_.pdf"',
+        },
+      },
     );
     expect(out).toEqual([
       {
@@ -86,6 +91,26 @@ describe('storeDeskAttachments', () => {
         filesize: 42,
       },
     ]);
+  });
+
+  it('stores script-capable types (HTML, SVG) as downloads, never inline', async () => {
+    const { put, storage } = bucket();
+    const out = await storeDeskAttachments(
+      { STORAGE: storage, R2_PUBLIC_URL: 'https://files.test' },
+      'ws_1',
+      'e',
+      [
+        { ...att('page.html'), contentType: 'text/html' },
+        { ...att('logo.svg'), contentType: 'image/svg+xml' },
+        { ...att('photo.png'), contentType: 'IMAGE/PNG; name=photo.png' },
+      ],
+    );
+    expect(put.mock.calls.map((call) => (call as unknown[])[2])).toEqual([
+      { httpMetadata: { contentType: 'application/octet-stream', contentDisposition: 'attachment; filename="page.html"' } },
+      { httpMetadata: { contentType: 'application/octet-stream', contentDisposition: 'attachment; filename="logo.svg"' } },
+      { httpMetadata: { contentType: 'image/png', contentDisposition: 'inline; filename="photo.png"' } },
+    ]);
+    expect(out.map((a) => a.contentType)).toEqual(['application/octet-stream', 'application/octet-stream', 'image/png']);
   });
 
   it('stores nothing without a public URL to link to', async () => {

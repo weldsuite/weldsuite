@@ -3,7 +3,7 @@ import { format, isSameDay } from 'date-fns';
 import { ArrowDown, Bot, Lock, Paperclip } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import type { DeskConversation, DeskMessage } from '@/hooks/queries/use-desk-queries';
+import type { DeskConversation, DeskMessage, DeskMessageAttachment } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 import { formatFileSize } from './attachments';
 
@@ -20,6 +20,42 @@ interface MessagesTimelineProps {
 const GROUP_WINDOW_MS = 5 * 60_000;
 /** How close to the bottom still counts as "following the conversation". */
 const STICK_THRESHOLD_PX = 120;
+
+/** Images as thumbnails, other files as links with their size. */
+function AttachmentList({
+  attachments,
+  spaced,
+}: Readonly<{ attachments: DeskMessageAttachment[] | null; spaced: boolean }>) {
+  if (!attachments?.length) return null;
+  return (
+    <div className={cn('flex flex-col gap-1', spaced && 'mt-2')}>
+      {attachments.map((attachment) =>
+        attachment.contentType.startsWith('image/') ? (
+          <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" title={attachment.name}>
+            <img
+              src={attachment.url}
+              alt={attachment.name}
+              loading="lazy"
+              className="max-h-48 max-w-full rounded-lg object-cover"
+            />
+          </a>
+        ) : (
+          <a
+            key={attachment.url}
+            href={attachment.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+          >
+            <Paperclip className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{attachment.name}</span>
+            <span className="opacity-70 no-underline">· {formatFileSize(attachment.filesize)}</span>
+          </a>
+        ),
+      )}
+    </div>
+  );
+}
 
 function memberLabel(members: DeskWorkspaceMember[], userId: string | null | undefined): string | null {
   if (!userId) return null;
@@ -221,34 +257,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
                     )}
                   >
                     {message.body}
-                    {message.attachments && message.attachments.length > 0 && (
-                      <div className={cn('flex flex-col gap-1', message.body && 'mt-2')}>
-                        {message.attachments.map((attachment) =>
-                          attachment.contentType.startsWith('image/') ? (
-                            <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" title={attachment.name}>
-                              <img
-                                src={attachment.url}
-                                alt={attachment.name}
-                                loading="lazy"
-                                className="max-h-48 max-w-full rounded-lg object-cover"
-                              />
-                            </a>
-                          ) : (
-                            <a
-                              key={attachment.url}
-                              href={attachment.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
-                            >
-                              <Paperclip className="h-3 w-3 flex-shrink-0" />
-                              <span className="truncate">{attachment.name}</span>
-                              <span className="opacity-70 no-underline">· {formatFileSize(attachment.filesize)}</span>
-                            </a>
-                          ),
-                        )}
-                      </div>
-                    )}
+                    <AttachmentList attachments={message.attachments} spaced={Boolean(message.body)} />
                   </div>
                   {message.pending === 'sending' && (
                     <span className="mt-1 text-[11px] text-muted-foreground">{t.pane.sending}</span>
