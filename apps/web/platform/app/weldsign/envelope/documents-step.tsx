@@ -8,7 +8,7 @@ import { SIGN_LIMITS, type SignDocumentDto, type SignEnvelopeDetail } from '@wel
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
-import { useSignDocumentMutations } from '@/hooks/queries/use-weldsign-queries';
+import { targetOf, useSignDocumentMutations } from '@/hooks/queries/use-weldsign-queries';
 import { apiErrorMessage } from '../lib/errors';
 
 const MAX_MB = SIGN_LIMITS.maxDocumentBytes / (1024 * 1024);
@@ -16,7 +16,7 @@ const MAX_MB = SIGN_LIMITS.maxDocumentBytes / (1024 * 1024);
 export function DocumentsStep({ envelope, editable }: Readonly<{ envelope: SignEnvelopeDetail; editable: boolean }>) {
   const { t, format } = useI18n();
   const td = t.weldsign.editor.documents;
-  const { upload, reorder, remove } = useSignDocumentMutations(envelope.id);
+  const { upload, reorder, remove } = useSignDocumentMutations(targetOf(envelope));
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);

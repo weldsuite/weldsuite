@@ -12,6 +12,7 @@
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import type { Env, Variables } from './types';
 import envelopesRoutes from './routes/envelopes';
+import templatesRoutes from './routes/templates';
 import signPortalRoutes from './routes/public-sign-portal';
 import { isLifecycleSweepCron, runLifecycleSweep } from './cron/lifecycle-sweep';
 
@@ -25,6 +26,7 @@ app.route('/public/sign-portal', signPortalRoutes);
 app.use('/api/*', ...apiAuth());
 
 app.route('/api/sign/envelopes', envelopesRoutes);
+app.route('/api/sign/templates', templatesRoutes);
 
 export default {
   fetch: app.fetch,
