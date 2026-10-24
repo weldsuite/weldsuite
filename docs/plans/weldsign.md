@@ -365,8 +365,43 @@ sign-portal scaffold, docs (SIGN-001..004).
 - Platform: Send button with an expiry date, and a status view for sent
   requests (who signed, download of the signed PDF).
 
+**Phase 3: done.**
+
+- Lifecycle sweep: a cron on sign-api (`*/15`) runs a due-index sweep (kind
+  `sign_lifecycle`, `SCHEDULE_INDEX` D1). It sends the automatic reminders
+  that are due and expires open requests past their expiry (every link
+  revoked, the sender told who had not signed). Sending, the next signing
+  group and a corrected email re-derive the workspace's next due time; the
+  one-time seed reads the master link registry, never the tenant DBs.
+- Reminders: first after `reminderAfterDays`, then every `reminderEveryDays`
+  (or `reminderAfterDays` again when unset), at most `reminderMaxCount`
+  (default 3), never at or after the expiry; once per interval however late
+  the sweep runs. Each one is a fresh link in a "Reminder:" variant of the
+  request email, through the outbound guard.
+- Owner actions on a sent request: void with a reason (`sign_envelopes:void`;
+  links revoked, signers who had it are emailed), remind everyone whose turn
+  it is (`sign_envelopes:send`; skips anyone emailed in the last hour),
+  resend one signer a link, and correct a recipient's name or email (old
+  links revoked; on their turn a new link and a fresh start, consent asked
+  again). The activity endpoint lists the evidence trail.
+- Visibility: a member also sees sent requests they are a recipient of (by
+  email), read-only and without the activity. The "Action required" folder
+  lists open requests where it is their turn, and "Sign now" gets them a
+  fresh link (the portal still asks their code).
+- Emails: `sign.request` with a reminder variant, `sign.voided`,
+  `sign.expired`, en + nl. Entity events: `sign_envelope` `voided` and
+  `expired`; reminders, resends and corrections publish `updated`.
+- Platform: the "Action required" folder, Sign now, Remind, Void, Resend link
+  and Correct email on a sent request, and its activity timeline.
+
 Changes against the plan above:
 
+- Void notices are not counted by the outbound guard: they only reach people
+  who already had the request. Reminders, new links and corrections are.
+- A reminder sent by hand does not use up an automatic one; it only moves the
+  next automatic reminder a full interval on.
+- No `viewed` entity event: a signer opening the link is evidence
+  (`sign_events`), not a bus event.
 - Completion does not revoke links: they stay valid for 30 days to download
   the signed PDF, and signers and copy recipients get a fresh link in the
   completion email. Decline (and later void and expiry) revokes them.

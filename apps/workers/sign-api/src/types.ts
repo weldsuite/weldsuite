@@ -39,6 +39,12 @@ export interface Env
   SIGN_PORTAL_SECRET?: string;
   /** Builds the signed PDF once the last signer has signed. Without it, sign-api finalizes in `waitUntil`. */
   FINALIZE_ENVELOPE?: Workflow<FinalizeEnvelopeParams>;
+  /**
+   * Schedule-index D1 (`workspace_due_index`, kind `sign_lifecycle`): which
+   * workspaces have a reminder or an expiry coming due, so the lifecycle
+   * sweep opens only those tenant DBs. Without it the sweep skips its tick.
+   */
+  SCHEDULE_INDEX?: D1Database;
 
   // --- System mail (@weldsuite/emails) -----------------------------------------
   /** Cloudflare Email Service binding; signing emails no-op without it (see `workerTransport`). */

@@ -1,7 +1,9 @@
 /**
- * WeldSign hooks: the envelope list, one envelope, and the draft mutations
- * (documents, recipients, fields). Keys build on `weldsignKeys.all`, which the
- * realtime sync map invalidates on every `sign_envelope` event.
+ * WeldSign hooks: the envelope list, one envelope, the draft mutations
+ * (documents, recipients, fields) and a sent request's lifecycle (void, remind,
+ * resend, correct an email, activity, "Sign now"). Keys build on
+ * `weldsignKeys.all`, which the realtime sync map invalidates on every
+ * `sign_envelope` event.
  *
  * PDF bytes live under their own root (`weldsignDocumentKeys`): a document's
  * content never changes, so an envelope event must not refetch it, and it is
@@ -11,6 +13,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type {
+  CorrectSignRecipientInput,
   CreateSignEnvelopeInput,
   CreateSignRecipientInput,
   SignEnvelopeDetail,
@@ -19,6 +22,7 @@ import type {
   SendSignEnvelopeInput,
   UpdateSignEnvelopeInput,
   UpdateSignRecipientInput,
+  VoidSignEnvelopeInput,
 } from '@weldsuite/app-api-client/schemas/weldsign';
 
 export const weldsignKeys = {
@@ -26,6 +30,8 @@ export const weldsignKeys = {
   lists: () => [...weldsignKeys.all, 'list'] as const,
   list: (folder: SignEnvelopeFolder, search: string) => [...weldsignKeys.lists(), folder, search] as const,
   envelope: (id: string) => [...weldsignKeys.all, 'envelope', id] as const,
+  /** Nested under the envelope: invalidating the envelope refreshes its activity too. */
+  events: (id: string) => [...weldsignKeys.envelope(id), 'events'] as const,
 };
 
 export const weldsignDocumentKeys = {
@@ -202,5 +208,89 @@ export function useDownloadSignedPdf(id: string) {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// A sent request: activity and lifecycle actions
+// ---------------------------------------------------------------------------
+
+/**
+ * A request's activity (the evidence trail), oldest first. Owners only: anyone
+ * else gets a 404, so callers pass `enabled: envelope.isOwner`. Names and IP
+ * addresses stay out of the persisted query cache.
+ */
+export function useSignEnvelopeEvents(id: string, enabled: boolean) {
+  const { weldsign } = useAppApi();
+  return useQuery({
+    queryKey: weldsignKeys.events(id),
+    queryFn: () => weldsign.events(id),
+    select: (res) => res.data,
+    enabled,
+    meta: { persist: false },
+  });
+}
+
+/**
+ * The lifecycle mutations below refresh the envelope, its activity and the
+ * lists whether they worked or not: a 409 means the request is no longer open,
+ * and the refetch takes its buttons away. `onError` lives on the mutation, not
+ * on `mutate`, so a toast still shows when the page was left in the meantime.
+ */
+type ErrorHandler = (error: unknown) => void;
+
+/** Stop a sent request; signers who already got it are told, with the reason. */
+export function useVoidSignEnvelope(id: string, onError?: ErrorHandler) {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateEnvelope();
+  return useMutation({
+    mutationFn: (input: VoidSignEnvelopeInput) => weldsign.voidEnvelope(id, input).then((res) => res.data),
+    onError,
+    onSuccess: (envelope) => queryClient.setQueryData(weldsignKeys.envelope(id), { data: envelope }),
+    onSettled: () => invalidate(id),
+  });
+}
+
+/** Remind every signer whose turn it is; resolves to how many were reminded. */
+export function useRemindSignEnvelope(id: string, onError?: ErrorHandler) {
+  const { weldsign } = useAppApi();
+  const invalidate = useInvalidateEnvelope();
+  return useMutation({
+    mutationFn: () => weldsign.remind(id).then((res) => res.data.reminded),
+    onError,
+    onSettled: () => invalidate(id),
+  });
+}
+
+/** Email a signer whose turn it is a new link. Takes the recipient id. */
+export function useResendSignRecipient(id: string, onError?: ErrorHandler) {
+  const { weldsign } = useAppApi();
+  const invalidate = useInvalidateEnvelope();
+  return useMutation({
+    mutationFn: (recipientId: string) => weldsign.resendRecipient(id, recipientId).then((res) => res.data),
+    onError,
+    onSettled: () => invalidate(id),
+  });
+}
+
+/** Fix a recipient's name or email; a signer whose turn it is gets a new link and the old one stops working. */
+export function useCorrectSignRecipient(id: string, onError?: ErrorHandler) {
+  const { weldsign } = useAppApi();
+  const invalidate = useInvalidateEnvelope();
+  return useMutation({
+    mutationFn: ({ recipientId, input }: { recipientId: string; input: CorrectSignRecipientInput }) =>
+      weldsign.correctRecipient(id, recipientId, input).then((res) => res.data),
+    onError,
+    onSettled: () => invalidate(id),
+  });
+}
+
+/** A fresh link for the caller's own turn ("Sign now"); resolves to the URL. */
+export function useSignSigningLink(id: string, onError?: ErrorHandler) {
+  const { weldsign } = useAppApi();
+  return useMutation({
+    mutationFn: () => weldsign.signingLink(id).then((res) => res.data.url),
+    onError,
   });
 }
