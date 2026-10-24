@@ -128,7 +128,7 @@ const recipientBase = z.object({
   authMode: z.enum(SIGN_AUTH_MODES),
   /**
    * Code the sender shares with the signer themselves (auth mode
-   * `access_code`). Write-only: it is stored hashed and never returned.
+   * `access_code`). Write-only: it is stored as a keyed hash and never returned.
    */
   accessCode: z.string().trim().min(4).max(64).nullish(),
 });

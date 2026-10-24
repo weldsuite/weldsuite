@@ -311,7 +311,8 @@ sign-portal scaffold, docs (SIGN-001..004).
   25 MB), stored in `PRIVATE_STORAGE` with their page sizes (crop box as
   displayed, rotation applied) and SHA-256. Fields are checked against the
   documents and recipients (on an existing page, inside it, for a signer).
-  Access codes are stored as SHA-256 and never returned. A member without
+  Access codes are stored as a keyed hash (HMAC with `SIGN_SESSION_SECRET`,
+  bound to the recipient) and never returned. A member without
   `sign_envelopes:manage` sees only their own envelopes; anything else is a 404.
   Mutations publish `sign_envelope` created/updated/deleted.
 - Shared contract: `@weldsuite/app-api-client/schemas/weldsign` and

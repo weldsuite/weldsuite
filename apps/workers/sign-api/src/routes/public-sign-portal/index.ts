@@ -53,6 +53,7 @@ import {
 import { advanceAfterSigning } from '../../services/sending';
 import { loadSignBrand } from '../../services/settings';
 import { sendCode, sendDeclined, workspaceBrand } from '../../services/mail';
+import { codeHash } from '../../services/hash';
 import { finalizeEnvelope, type FinalizeEnvelopeParams } from '../../workflows/finalize-envelope';
 
 export interface PortalWorkspace {
@@ -88,6 +89,11 @@ function meta(c: Context): SignerMeta {
     ip: c.req.header('x-signer-ip') ?? c.req.header('cf-connecting-ip') ?? null,
     userAgent: c.req.header('user-agent')?.slice(0, 500) ?? null,
   };
+}
+
+/** Codes are compared in their keyed, recipient-bound form (services/hash.ts `codeHash`). */
+function hasherFor(env: Env, recipientId: string) {
+  return (code: string) => codeHash(env.SIGN_SESSION_SECRET!, recipientId, code);
 }
 
 function codeError(c: Context, status: 400 | 429, code: string, message: string, details?: Record<string, unknown>) {
@@ -153,7 +159,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     if (await isLocked(kv, opened.link.tokenHash)) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
     if (recipient.authMode === 'email_code') {
       const code = newEmailCode();
-      if (await issueEmailCode(kv, opened.link.tokenHash, code)) {
+      if (await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(c.env, recipient.id))) {
         await sendCode(
           { env: c.env, db: opened.workspace.db, clerkOrgId: opened.link.clerkOrgId, envelope: opened.ref.envelope, master: deps.master(c.env) },
           recipient,
@@ -179,7 +185,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     if (recipient.authMode === 'link') return ready(c, opened);
     const kv = c.env.WORKSPACE_CACHE;
     const expected = recipient.authMode === 'email_code' ? await emailCodeHash(kv, opened.link.tokenHash) : recipient.accessCodeHash;
-    const result = await checkCode(kv, opened.link.tokenHash, expected, code);
+    const result = await checkCode(kv, opened.link.tokenHash, expected, code, hasherFor(c.env, recipient.id));
     await recordCodeCheck(opened.workspace.db, opened.ref, result.ok, meta(c));
     if (!result.ok) {
       return result.locked
@@ -197,7 +203,9 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     const kv = c.env.WORKSPACE_CACHE;
     if (await isLocked(kv, opened.link.tokenHash)) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
     const code = newEmailCode();
-    if (!(await issueEmailCode(kv, opened.link.tokenHash, code))) return codeError(c, 429, 'TOO_SOON', 'A code was sent a moment ago');
+    if (!(await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(c.env, recipient.id)))) {
+      return codeError(c, 429, 'TOO_SOON', 'A code was sent a moment ago');
+    }
     await sendCode({ env: c.env, db: opened.workspace.db, clerkOrgId: opened.link.clerkOrgId, envelope, master: deps.master(c.env) }, recipient, code, CODE_TTL_SECONDS / 60);
     return success(c, { sent: true });
   });

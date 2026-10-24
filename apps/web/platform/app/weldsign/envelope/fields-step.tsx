@@ -81,6 +81,9 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
   const [signerId, setSignerId] = useState<string | null>(signers[0]?.id ?? null);
   const [armed, setArmed] = useState<SignFieldType | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // While a save is in flight the field set is frozen: the save replaces the
+  // list with the server's copy, which would drop anything changed meanwhile.
+  const canEdit = editable && !save.isPending;
 
   // Keep the active signer valid when recipients change.
   useEffect(() => {
@@ -122,7 +125,7 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
       if (e.key === 'Escape') {
         setArmed(null);
         setSelectedId(null);
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && editable && !typing) {
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && canEdit && !typing) {
         e.preventDefault();
         change((prev) => prev.filter((f) => f.id !== selectedId));
         setSelectedId(null);
@@ -130,7 +133,7 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, editable, change]);
+  }, [selectedId, canEdit, change]);
 
   if (envelope.documents.length === 0) return <Notice text={tf.needDocuments} />;
   if (signers.length === 0) return <Notice text={tf.needSigners} />;
@@ -187,7 +190,7 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
           <SelectedFieldPanel
             field={selected}
             signers={signers}
-            editable={editable}
+            editable={canEdit}
             onChange={(patch) => updateField(selected.id, patch)}
             onDelete={() => {
               change((prev) => prev.filter((f) => f.id !== selected.id));
@@ -227,8 +230,8 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
               fields={fields.filter((f) => f.documentId === doc.id)}
               colorOf={colorOf}
               selectedId={selectedId}
-              placing={editable && armed !== null}
-              editable={editable}
+              placing={canEdit && armed !== null}
+              editable={canEdit}
               onPlace={(page, at) => place(doc, page, at)}
               onSelect={setSelectedId}
               onBoxChange={(id, box) => updateField(id, box)}

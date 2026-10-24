@@ -204,7 +204,10 @@ export const signRecipients = pgTable(
     routingOrder: integer('routing_order').notNull().default(1),
 
     authMode: varchar('auth_mode', { length: 20 }).$type<SignAuthMode>().notNull().default('link'),
-    /** SHA-256 of the access code the sender shares; never stored in the clear. */
+    /**
+     * Keyed hash (HMAC with the sign-api secret, bound to this recipient) of the
+     * access code the sender shares; never stored in the clear.
+     */
     accessCodeHash: varchar('access_code_hash', { length: 64 }),
 
     status: varchar('status', { length: 20 }).$type<SignRecipientStatus>().notNull().default('pending'),

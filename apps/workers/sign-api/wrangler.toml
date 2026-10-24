@@ -14,7 +14,9 @@
 # outbound guard (signing emails), FINALIZE_ENVELOPE (the Workflow that builds
 # the signed PDF), and the vars SIGN_PORTAL_URL (signing links) and
 # EMAIL_TRANSPORT.
-#   SIGN_SESSION_SECRET signs signer sessions (HMAC); any long random string.
+#   SIGN_SESSION_SECRET signs signer sessions and keys the stored hash of
+#   access and email codes (HMAC); any long random string. Rotating it signs
+#   every signer out and voids the access codes of requests still open.
 #
 # Signing emails carry the sender's title and message to any address, so every
 # batch goes through the outbound mail guard (source `sign`), like calendar

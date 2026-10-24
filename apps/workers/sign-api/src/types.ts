@@ -26,7 +26,10 @@ export interface Env
   // --- Signing ---------------------------------------------------------------
   /** Origin of apps/web/sign-portal; signing links are `${SIGN_PORTAL_URL}/r/<token>`. */
   SIGN_PORTAL_URL?: string;
-  /** HMAC key for signer sessions. Without it the signer portal answers 503. */
+  /**
+   * HMAC key for signer sessions and for the stored hash of access and email
+   * codes. Without it the signer portal answers 503 and access codes cannot be set.
+   */
   SIGN_SESSION_SECRET?: string;
   /** Builds the signed PDF once the last signer has signed. Without it, sign-api finalizes in `waitUntil`. */
   FINALIZE_ENVELOPE?: Workflow<FinalizeEnvelopeParams>;

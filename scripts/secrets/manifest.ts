@@ -828,8 +828,9 @@ export const manifest: Record<string, SecretEntry[]> = {
 
   // sign-api: WeldSign's API worker. Base secrets for Clerk auth and tenant
   // DB resolution, plus SIGN_SESSION_SECRET, the HMAC key of signer sessions
-  // in the signer portal (any long random string; rotating it signs every
-  // signer out, they reopen their link).
+  // in the signer portal and of the stored access/email code hashes (any long
+  // random string; rotating it signs every signer out and voids the access
+  // codes of requests still open).
   "sign-api": [
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
