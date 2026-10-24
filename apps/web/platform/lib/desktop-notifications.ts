@@ -75,21 +75,27 @@ export function isDesktopChannelEnabled(
 }
 
 /**
+ * Every open tab receives the same realtime event: stay quiet while the user
+ * is looking at the app in any tab, and let only one tab show the toast.
+ */
+async function shouldThisTabShow(opts: ShowOsNotificationOptions): Promise<boolean> {
+  const onlyWhenHidden = opts.onlyWhenHidden ?? true;
+  if (onlyWhenHidden && (!isAppInBackground() || isAnyTabInForeground())) {
+    return false;
+  }
+  const dedupeKey =
+    opts.dedupeKey ?? opts.tag ?? (opts.actionUrl ? `${opts.title}|${opts.actionUrl}` : undefined);
+  return !dedupeKey || claimCrossTabNotification(dedupeKey);
+}
+
+/**
  * Show an OS toast (desktop) or browser notification (web).
  * Returns true when a notification was actually shown.
  */
 export async function showOsNotification(
   opts: ShowOsNotificationOptions,
 ): Promise<boolean> {
-  const onlyWhenHidden = opts.onlyWhenHidden ?? true;
-  // Every open tab receives the same realtime event: stay quiet while the user
-  // is looking at the app in any tab, and let only one tab show the toast.
-  if (onlyWhenHidden && (!isAppInBackground() || isAnyTabInForeground())) {
-    return false;
-  }
-  const dedupeKey =
-    opts.dedupeKey ?? opts.tag ?? (opts.actionUrl ? `${opts.title}|${opts.actionUrl}` : undefined);
-  if (dedupeKey && !(await claimCrossTabNotification(dedupeKey))) {
+  if (!(await shouldThisTabShow(opts))) {
     return false;
   }
 

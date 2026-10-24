@@ -33,10 +33,14 @@ interface ForegroundRecord {
   at: number;
 }
 
-const tabId =
-  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function newTabId(): string {
+  if (typeof crypto === 'undefined') return String(Date.now());
+  // randomUUID needs a secure context; getRandomValues does not.
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(36)).join('');
+}
+
+const tabId = newTabId();
 
 function readJson<T>(key: string): T | null {
   try {
