@@ -15,6 +15,10 @@ import { z } from 'zod';
 // Enums
 // ---------------------------------------------------------------------------
 
+/** A signing request, or a reusable template of one (roles in place of people). */
+export const SIGN_ENVELOPE_KINDS = ['envelope', 'template'] as const;
+export type SignEnvelopeKind = (typeof SIGN_ENVELOPE_KINDS)[number];
+
 export const SIGN_ENVELOPE_STATUSES = ['draft', 'sent', 'in_progress', 'completed', 'declined', 'voided', 'expired'] as const;
 export type SignEnvelopeStatus = (typeof SIGN_ENVELOPE_STATUSES)[number];
 
@@ -214,6 +218,9 @@ export interface SignDocumentDto {
 export interface SignRecipientDto {
   id: string;
   role: SignRecipientRole;
+  /** On a template, the role ("Client"); on a request made from one, the role it filled. */
+  roleName: string | null;
+  /** On a template: who usually fills the role (may be empty). */
   name: string | null;
   email: string | null;
   personId: string | null;
@@ -257,6 +264,8 @@ export interface SignRecipientCounts {
 /** One row of the envelope list. */
 export interface SignEnvelopeSummary {
   id: string;
+  /** `template` only on a template's detail; the envelope list holds requests. */
+  kind: SignEnvelopeKind;
   title: string;
   status: SignEnvelopeStatus;
   senderUserId: string;
@@ -366,6 +375,103 @@ export interface SignRemindResult {
 /** A fresh signing link for the caller's own turn ("Sign now"). */
 export interface SignSigningLink {
   url: string;
+}
+
+// ---------------------------------------------------------------------------
+// Templates (members)
+// ---------------------------------------------------------------------------
+//
+// A template is a reusable request: documents, fields and named roles
+// ("Client", "Director") in place of people. It is stored as an envelope of
+// kind `template` (always a draft), so its detail is a `SignEnvelopeDetail`
+// with `kind: 'template'` and the editor's documents and fields steps work on
+// both. Its roles are the `recipientList`, with `roleName` set. Using a
+// template copies it into a new draft with a person in each role.
+
+export const createTemplateSchema = z.object({
+  title,
+  message: message.nullish(),
+});
+export type CreateSignTemplateInput = z.infer<typeof createTemplateSchema>;
+
+/** Template settings; the expiry is chosen when a request made from it is sent. */
+export const updateTemplateSchema = updateEnvelopeSchema.omit({ expiresAt: true });
+export type UpdateSignTemplateInput = z.infer<typeof updateTemplateSchema>;
+
+export const listTemplatesQuerySchema = z.object({
+  search: z.string().trim().max(255).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().regex(/^\d+$/).optional(),
+});
+export type ListSignTemplatesQuery = z.infer<typeof listTemplatesQuerySchema>;
+
+const roleBase = z.object({
+  roleName: z.string().trim().min(1).max(100),
+  role: z.enum(SIGN_RECIPIENT_ROLES),
+  routingOrder: z.number().int().min(1).max(SIGN_LIMITS.maxRecipients),
+  authMode: z.enum(SIGN_AUTH_MODES),
+  locale: z.enum(SIGN_LOCALES),
+  /** Who usually fills the role; prefilled when the template is used. */
+  name: z.string().trim().min(1).max(255).nullable(),
+  email: z.string().trim().toLowerCase().email().max(320).nullable(),
+});
+
+export const createTemplateRoleSchema = roleBase.partial({
+  role: true,
+  routingOrder: true,
+  authMode: true,
+  locale: true,
+  name: true,
+  email: true,
+});
+export type CreateSignTemplateRoleInput = z.infer<typeof createTemplateRoleSchema>;
+
+export const updateTemplateRoleSchema = roleBase.partial();
+export type UpdateSignTemplateRoleInput = z.infer<typeof updateTemplateRoleSchema>;
+
+/** The person who fills one role when a template is used. */
+export const templateRecipientSchema = z.object({
+  /** A role of the template (its recipient id). */
+  roleId: z.string().min(1).max(30),
+  name: z.string().trim().min(1).max(255),
+  email: z.string().trim().toLowerCase().email().max(320),
+  personId: z.string().max(30).nullish(),
+  /** Defaults to the role's. */
+  locale: z.enum(SIGN_LOCALES).optional(),
+  /** Defaults to the role's. */
+  authMode: z.enum(SIGN_AUTH_MODES).optional(),
+  /** Required when the auth mode is `access_code`: a template never holds one. */
+  accessCode: z.string().trim().min(4).max(64).nullish(),
+});
+export type SignTemplateRecipientInput = z.infer<typeof templateRecipientSchema>;
+
+/** Make a new draft from a template: one person for every role. */
+export const useTemplateSchema = z.object({
+  /** Defaults to the template's title. */
+  title: title.optional(),
+  /** Defaults to the template's message. */
+  message: message.nullish(),
+  recipients: z.array(templateRecipientSchema).min(1).max(SIGN_LIMITS.maxRecipients),
+});
+export type UseSignTemplateInput = z.infer<typeof useTemplateSchema>;
+
+/** One role of a template, for the template list. */
+export interface SignTemplateRoleSummary {
+  id: string;
+  roleName: string;
+  role: SignRecipientRole;
+}
+
+/** One row of the template list. */
+export interface SignTemplateSummary {
+  id: string;
+  title: string;
+  documentCount: number;
+  roles: SignTemplateRoleSummary[];
+  /** Name of the member who made it. */
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ---------------------------------------------------------------------------

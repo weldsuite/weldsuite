@@ -22,6 +22,7 @@ import {
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
 import envelopesRoutes from './envelopes';
+import templatesRoutes from './templates';
 
 const ROUTES_DIR = __dirname;
 
@@ -30,10 +31,12 @@ const EXEMPT_ROUTES = new Set<string>([]);
 
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/sign/envelopes', router: envelopesRoutes, prefix: 'sign_envelopes' },
+  { mount: '/api/sign/templates', router: templatesRoutes, prefix: 'sign_templates' },
 ];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/sign/envelopes', router: envelopesRoutes, permission: 'sign_envelopes:read' },
+  { mount: '/api/sign/templates', router: templatesRoutes, permission: 'sign_templates:read' },
 ];
 
 describe('entity-event coverage', () => {

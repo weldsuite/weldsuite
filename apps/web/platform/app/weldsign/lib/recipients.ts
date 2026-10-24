@@ -3,7 +3,7 @@
  * act at all (`canRemind`); these rules pick the recipients each action fits.
  */
 
-import type { SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignEnvelopeKind, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 
 type TurnState = Pick<SignRecipientDto, 'role' | 'status'>;
 
@@ -15,4 +15,13 @@ export function isSigningNow(recipient: TurnState): boolean {
 /** Anyone who has not signed or declined yet, including signers still waiting and copy recipients. */
 export function canCorrectEmail(recipient: Pick<SignRecipientDto, 'status'>): boolean {
   return recipient.status !== 'signed' && recipient.status !== 'declined';
+}
+
+/**
+ * What a recipient is called in the editor: a template's role ("Client"), else
+ * the person (their name, or their email when they have none).
+ */
+export function recipientLabel(recipient: Pick<SignRecipientDto, 'roleName' | 'name' | 'email'>, kind: SignEnvelopeKind): string {
+  if (kind === 'template') return recipient.roleName || recipient.name || recipient.email || '';
+  return recipient.name || recipient.email || '';
 }
