@@ -47,6 +47,8 @@ import {
   InsufficientAiCreditsError,
 } from '@weldsuite/core-domain/ai-billing';
 import { getAgent } from '@weldsuite/agent-domain/agents';
+import { canAccessAgent } from '@weldsuite/agent-domain/access';
+import { agentViewer } from '../../services/weldagent/viewer';
 import { streamAgentChat, runAgentOnce } from '@weldsuite/agent-domain/executor';
 import { isWorkspaceAgentModel } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
@@ -243,7 +245,9 @@ async function loadWorkspaceAgent(
     return { ok: false, response: error.forbidden(c, 'Missing permission: weldagent:use') };
   }
   const agent = await getAgent(c.get('tenantDb'), agentId);
-  if (!agent) return { ok: false, response: error.notFound(c, 'Agent not found') };
+  if (!agent || !(await canAccessAgent(c.get('tenantDb'), agent, await agentViewer(c)))) {
+    return { ok: false, response: error.notFound(c, 'Agent not found') };
+  }
   return { ok: true, agent, resolved };
 }
 

@@ -685,6 +685,15 @@ export async function listApprovals(db: AgentDb, opts?: { agentId?: string; stat
   return rows.map(serializeApproval);
 }
 
+export async function getApproval(db: AgentDb, id: string) {
+  const [row] = await db
+    .select()
+    .from(schema.weldagentApprovals)
+    .where(eq(schema.weldagentApprovals.id, id))
+    .limit(1);
+  return row ? serializeApproval(row) : null;
+}
+
 export async function decideApproval(
   db: AgentDb,
   id: string,
@@ -763,6 +772,15 @@ export async function listMemories(db: AgentDb, agentId: string) {
     .orderBy(desc(schema.weldagentMemories.updatedAt))
     .limit(100);
   return rows.map(serializeMemory);
+}
+
+export async function getMemory(db: AgentDb, id: string) {
+  const [row] = await db
+    .select()
+    .from(schema.weldagentMemories)
+    .where(and(eq(schema.weldagentMemories.id, id), isNull(schema.weldagentMemories.deletedAt)))
+    .limit(1);
+  return row ? serializeMemory(row) : null;
 }
 
 export async function createMemory(

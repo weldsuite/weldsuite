@@ -1555,6 +1555,13 @@
       "when": 1792840684922,
       "tag": "0221_weldsheets_room",
       "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "7",
+      "when": 1792845922457,
+      "tag": "0222_first_the_stranger",
+      "breakpoints": true
     }
   ]
 }

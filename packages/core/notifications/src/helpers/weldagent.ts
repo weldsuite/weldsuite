@@ -30,6 +30,46 @@ export function weldagentRunActionUrl(agentId: string, runId: string): string {
   return `/weldagent/agent/${agentId}/run/${runId}`;
 }
 
+export function weldagentAgentActionUrl(agentId: string): string {
+  return `/weldagent/agent/${agentId}`;
+}
+
+interface WeldAgentApprovalParams<Env extends NotificationEnv> {
+  db: Database;
+  env: Env;
+  workspaceId: string;
+  /** The agent's owner: approvals reach them like a manager's sign-off. */
+  userId: string;
+  agentId: string;
+  agentName: string;
+  approvalId: string;
+  toolName: string;
+}
+
+/** An agent is waiting for its owner to approve an action. */
+export async function sendWeldAgentApprovalNotification<Env extends NotificationEnv>(
+  params: WeldAgentApprovalParams<Env>,
+): Promise<string | null> {
+  const { db, env, workspaceId, userId, agentId, agentName, approvalId, toolName } = params;
+  return createAndDeliverNotification({
+    db,
+    env,
+    workspaceId,
+    userId,
+    title: `${agentName} needs your approval`,
+    body: `It wants to run "${toolName}". Tap to approve or reject.`,
+    category: 'weldagent',
+    notificationType: 'weldagent_approval',
+    entityType: 'weldagent_agent',
+    entityId: agentId,
+    actionUrl: weldagentAgentActionUrl(agentId),
+    severity: 'warning',
+    actorType: 'system',
+    excludeChannels: ['email'],
+    data: { agentId, approvalId },
+  });
+}
+
 export async function sendWeldAgentReplyNotification<Env extends NotificationEnv>(
   params: WeldAgentReplyParams<Env>,
 ): Promise<string | null> {

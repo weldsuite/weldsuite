@@ -24,11 +24,24 @@ web tools there.
 | API | `/api/weldagent/agents/*`, `/api/weldagent/conversations?agentId=`, `/api/ai/chat` (+ `agentId`), `/api/channels/*` |
 | Sandbox + web | Managed Agents built-in tools; `browser_*` via the `agent-runtime` worker |
 
-## Per-bot chat history (Grok-style)
+## Agents as teammates
 
-Each workspace agent has private conversation threads for the current user
-(`weldagent_conversations.agent_id`). Listing supports `?agentId=`. Turns are
-persisted via `POST …/complete-turn`. No migration — `agent_id` already exists.
+- **One continuous chat.** Each person has one private, ongoing chat per agent
+  (`weldagent_conversations.is_main`), opened with
+  `POST /api/weldagent/agents/:id/chat`. Turns go through `POST …/complete-turn`;
+  the Managed Agents session behind the chat compacts its own context, and a
+  turn loads only the latest messages. Routine results post into the routine
+  creator's chat. Older per-topic threads are kept but not shown.
+- **Owner and access.** Every agent has an owner (`owner_id`) who changes it and
+  receives its approvals, and a visibility: only the owner, chosen members
+  (`weldagent_agent_members`), or the whole workspace. Settings → Team.
+  `weldagent:manage` sees and changes every agent.
+- **Sub-agents.** The owner picks agents this one may hand work to
+  (`subagent_ids`, plus copies of itself). They run as "worker" agent objects
+  in a Managed Agents roster; their tool calls are narrowed to the person
+  chatting, and their work shows in the chat as a step.
+
+Decisions: AGENT-011, AGENT-012 and AGENT-013 in `weldsuite-documentation`.
 
 ## Multi-agent rooms (WeldChat)
 

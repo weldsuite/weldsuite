@@ -87,7 +87,8 @@ export function createWeldAgentApi(api: ClientApi) {
     // --- Messages ---
     listMessages(
       conversationId: string,
-      params: { limit?: number; offset?: number } = {},
+      /** `before`: a message id; returns the page of messages just older than it. */
+      params: { limit?: number; offset?: number; before?: string } = {},
     ): Promise<DataResponse<WeldAgentMessageRow[]>> {
       return api.get<DataResponse<WeldAgentMessageRow[]>>(
         `/weldagent/conversations/${conversationId}/messages${buildQueryString(params)}`,

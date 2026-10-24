@@ -18,7 +18,8 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
+import { agentViewerFor, inaccessibleAgentIds } from '@weldsuite/agent-domain/access';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -208,6 +209,13 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
   const memberType = data.memberType ?? 'user';
   if (memberType === 'agent' && !targetUserId.startsWith('agt_')) {
     return error.badRequest(c, `Invalid agent id: ${targetUserId}`);
+  }
+  // Like bringing a colleague into a room: only an agent you may work with.
+  if (memberType === 'agent') {
+    const viewer = agentViewerFor(callerId, await ensurePermissionsResolved(c));
+    if ((await inaccessibleAgentIds(db, [targetUserId], viewer)).length > 0) {
+      return error.forbidden(c, 'You do not have access to this agent');
+    }
   }
 
   // Authorization — this endpoint was previously an open self-join into ANY

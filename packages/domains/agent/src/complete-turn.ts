@@ -7,7 +7,7 @@
  * that pass `wait: true`.
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   generateText,
   recommended,
@@ -30,6 +30,7 @@ import {
   chargeAiUsage,
 } from '@weldsuite/core-domain/ai-billing';
 import { getAgent, type AgentDb } from './agents';
+import { findAccessibleAgentRow, type AgentViewer } from './access';
 import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
 import { isManagedAgentsConfigured } from './managed-agents';
 import { asText } from '@weldsuite/text';
@@ -59,6 +60,8 @@ export interface TurnGeneratorResult {
 export type TurnGenerator = (input: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   agentId: string | null;
+  /** How many older history messages precede `messages` (see {@link HISTORY_WINDOW}). */
+  historyOffset?: number;
 }) => Promise<TurnGeneratorResult>;
 
 export interface AcceptedTurn {
@@ -67,7 +70,10 @@ export interface AcceptedTurn {
   workspaceId: string;
   boundAgentId: string | null;
   userMessage: WeldAgentMessageRow;
+  /** The recent part of the history, ending with the user message. */
   chatMessages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** How many older history messages precede `chatMessages`. */
+  historyOffset: number;
   /** Permissions of the user driving the turn — narrows the agent's grants. */
   actorPermissions?: string[] | null;
   /** The user's IANA timezone, when the client sent one. */
@@ -86,6 +92,46 @@ export interface AcceptedTurnRef {
 }
 
 type MessageRow = typeof schema.weldagentMessages.$inferSelect;
+
+/** An agent the caller may not use (see ./access). */
+export class AgentAccessDeniedError extends Error {
+  constructor(agentId: string) {
+    super(`No access to agent: ${agentId}`);
+    this.name = 'AgentAccessDeniedError';
+  }
+}
+
+/**
+ * How many recent history messages a turn loads. A continuous chat grows
+ * without end; its Managed Agents session already holds (and compacts) the
+ * rest, so a turn only needs what the session has not seen yet, and a fresh
+ * session is seeded from the recent part (see ./executor).
+ */
+export const HISTORY_WINDOW = 80;
+
+/**
+ * The latest {@link HISTORY_WINDOW} model-history rows (user + assistant) of a
+ * conversation, oldest first, optionally only up to and including `through`;
+ * plus how many older ones precede them.
+ */
+async function loadRecentHistory(
+  db: AgentDb,
+  conversationId: string,
+  through?: { createdAt: Date; id: string },
+): Promise<{ rows: MessageRow[]; offset: number }> {
+  const { weldagentMessages: m } = schema;
+  const where = and(
+    eq(m.conversationId, conversationId),
+    isNull(m.deletedAt),
+    inArray(m.role, ['user', 'assistant']),
+    through ? sql`(${m.createdAt}, ${m.id}) <= (${through.createdAt}, ${through.id})` : undefined,
+  );
+  const [latest, [{ total }]] = await Promise.all([
+    db.select().from(m).where(where).orderBy(desc(m.createdAt), desc(m.id)).limit(HISTORY_WINDOW),
+    db.select({ total: sql<number>`count(*)::int` }).from(m).where(where),
+  ]);
+  return { rows: latest.reverse(), offset: Math.max(0, Number(total) - latest.length) };
+}
 
 const TOOL_SUMMARY_MAX_CHARS = 1500;
 
@@ -211,6 +257,7 @@ export async function defaultTurnGenerator(params: {
   workspaceId: string;
   userId: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  historyOffset?: number;
   agentId: string | null;
   conversationId?: string;
   actorPermissions?: string[] | null;
@@ -250,6 +297,7 @@ export async function defaultTurnGenerator(params: {
         actorPermissions: params.actorPermissions ?? null,
       },
       messages: params.messages,
+      historyOffset: params.historyOffset,
       actorPermissions: params.actorPermissions,
       extraSystem: timezoneSystem(params.timezone),
       timeoutMs: params.timeoutMs ?? REQUEST_RUN_TIMEOUT_MS,
@@ -284,6 +332,8 @@ export async function acceptConversationTurn(params: {
   agentId?: string;
   actorPermissions?: string[] | null;
   timezone?: string | null;
+  /** When set, the bound agent must be one this viewer may use. */
+  viewer?: AgentViewer;
 }): Promise<AcceptedTurn> {
   const { weldagentConversations, weldagentMessages } = schema;
   const db = params.db;
@@ -305,6 +355,10 @@ export async function acceptConversationTurn(params: {
   }
 
   const boundAgentId = params.agentId ?? conversation.agentId ?? null;
+  // Access can be withdrawn after the chat started (owner made it private).
+  if (boundAgentId && params.viewer && !(await findAccessibleAgentRow(db, boundAgentId, params.viewer))) {
+    throw new AgentAccessDeniedError(boundAgentId);
+  }
 
   // Fail fast on empty credits before accepting the turn into the background.
   // Agent turns run on Claude Managed Agents; persona turns on the gateway.
@@ -320,16 +374,7 @@ export async function acceptConversationTurn(params: {
       .where(eq(weldagentConversations.id, conversation.id));
   }
 
-  const history = await db
-    .select()
-    .from(weldagentMessages)
-    .where(
-      and(
-        eq(weldagentMessages.conversationId, conversation.id),
-        isNull(weldagentMessages.deletedAt),
-      ),
-    )
-    .orderBy(weldagentMessages.createdAt);
+  const history = await loadRecentHistory(db, conversation.id);
 
   const userMessageId = generateId('msg');
   await db.insert(weldagentMessages).values({
@@ -355,7 +400,7 @@ export async function acceptConversationTurn(params: {
     .limit(1);
 
   const chatMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-    ...toModelHistory(history),
+    ...toModelHistory(history.rows),
     { role: 'user', content: params.content },
   ];
 
@@ -366,6 +411,7 @@ export async function acceptConversationTurn(params: {
     boundAgentId,
     userMessage: serializeMessage(userRow),
     chatMessages,
+    historyOffset: history.offset,
     actorPermissions: params.actorPermissions ?? null,
     timezone: params.timezone ?? null,
   };
@@ -403,30 +449,44 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
     .limit(1);
   if (!conversation) return null;
 
-  const rows = await db
+  const [userRow] = await db
+    .select()
+    .from(weldagentMessages)
+    .where(
+      and(
+        eq(weldagentMessages.id, ref.userMessageId),
+        eq(weldagentMessages.conversationId, ref.conversationId),
+        isNull(weldagentMessages.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!userRow) return null;
+
+  // A reply already landed after this user message (e.g. a duplicate job).
+  // Approval outcomes and routine results posted meanwhile are not replies.
+  const later = await db
     .select()
     .from(weldagentMessages)
     .where(
       and(
         eq(weldagentMessages.conversationId, ref.conversationId),
         isNull(weldagentMessages.deletedAt),
+        eq(weldagentMessages.role, 'assistant'),
+        sql`(${weldagentMessages.createdAt}, ${weldagentMessages.id}) > (${userRow.createdAt}, ${userRow.id})`,
       ),
-    )
-    .orderBy(weldagentMessages.createdAt);
+    );
+  if (later.some(isTurnReply)) return null;
 
-  const index = rows.findIndex((m) => m.id === ref.userMessageId);
-  if (index === -1) return null;
-  // A reply already landed after this user message (e.g. a duplicate job).
-  // Approval outcomes posted meanwhile are not replies.
-  if (rows.slice(index + 1).some(isTurnReply)) return null;
+  const history = await loadRecentHistory(db, ref.conversationId, userRow);
 
   return {
     conversationId: ref.conversationId,
     userId: ref.userId,
     workspaceId: ref.workspaceId,
     boundAgentId: ref.agentId,
-    userMessage: serializeMessage(rows[index]),
-    chatMessages: toModelHistory(rows.slice(0, index + 1)),
+    userMessage: serializeMessage(userRow),
+    chatMessages: toModelHistory(history.rows),
+    historyOffset: history.offset,
     actorPermissions: ref.actorPermissions ?? null,
     timezone: ref.timezone ?? null,
   };
@@ -441,11 +501,12 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
  */
 export const APPROVAL_OUTCOME_KIND = 'approval_outcome';
 
+/** `metadata.kind` of an assistant message posted by a routine run (./routine-delivery). */
+export const ROUTINE_RESULT_KIND = 'routine_result';
+
 function isTurnReply(row: MessageRow): boolean {
-  return (
-    row.role === 'assistant' &&
-    (row.metadata as { kind?: unknown } | null)?.kind !== APPROVAL_OUTCOME_KIND
-  );
+  const kind = (row.metadata as { kind?: unknown } | null)?.kind;
+  return row.role === 'assistant' && kind !== APPROVAL_OUTCOME_KIND && kind !== ROUTINE_RESULT_KIND;
 }
 
 export async function persistAssistantMessage(params: {
@@ -539,6 +600,7 @@ export async function finishAcceptedTurn(params: {
           workspaceId: accepted.workspaceId,
           userId: accepted.userId,
           messages: input.messages,
+          historyOffset: input.historyOffset,
           agentId: input.agentId,
           conversationId: accepted.conversationId,
           actorPermissions: accepted.actorPermissions,
@@ -549,6 +611,7 @@ export async function finishAcceptedTurn(params: {
     const generated = await generate({
       messages: accepted.chatMessages,
       agentId: accepted.boundAgentId,
+      historyOffset: accepted.historyOffset,
     });
 
     const assistantText = generated.success
@@ -609,6 +672,7 @@ export async function completeConversationTurn(params: {
   agentId?: string;
   actorPermissions?: string[] | null;
   timezone?: string | null;
+  viewer?: AgentViewer;
   generate?: TurnGenerator;
   /** Skip push (used when the caller already notified, or in tests). */
   notify?: boolean;
@@ -623,6 +687,7 @@ export async function completeConversationTurn(params: {
     agentId: params.agentId,
     actorPermissions: params.actorPermissions,
     timezone: params.timezone,
+    viewer: params.viewer,
   });
 
   return finishAcceptedTurn({

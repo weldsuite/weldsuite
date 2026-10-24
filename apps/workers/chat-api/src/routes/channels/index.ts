@@ -8,7 +8,8 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
+import { agentViewerFor, inaccessibleAgentIds } from '@weldsuite/agent-domain/access';
 import { updateChannelMembershipSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -756,6 +757,13 @@ app.post(
     // private channel you are not in.
     if (!(await canAccessChannel(db, channelId, c.get('userId')))) {
       return error.forbidden(c, 'You do not have access to this channel');
+    }
+    // Like bringing colleagues into a room: only agents you may work with.
+    if (memberType === 'agent') {
+      const viewer = agentViewerFor(c.get('userId'), await ensurePermissionsResolved(c));
+      if ((await inaccessibleAgentIds(db, userIds, viewer)).length > 0) {
+        return error.forbidden(c, 'You do not have access to one of these agents');
+      }
     }
 
     try {

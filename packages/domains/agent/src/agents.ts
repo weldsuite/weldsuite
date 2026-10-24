@@ -2,12 +2,13 @@
  * WeldAgent agent CRUD + run persistence.
  */
 
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DEFAULT_WORKSPACE_AGENT_MODEL } from '@weldsuite/app-api-client/schemas/workspace-agents';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { WeldagentAgentRunResult } from '@weldsuite/db/schema';
+import { agentVisibleTo, SYSTEM_VIEWER, type AgentViewer, type AgentVisibility } from './access';
 
 export type AgentDb = Database;
 
@@ -25,6 +26,7 @@ export interface CreateAgentInput {
   maxIterations?: number;
   maxTotalTokens?: number;
   createdBy?: string;
+  visibility?: AgentVisibility;
 }
 
 export interface UpdateAgentInput {
@@ -43,6 +45,10 @@ export interface UpdateAgentInput {
   status?: 'draft' | 'active' | 'paused';
   /** When true, stores `agent.auto_review` in enabledTools. */
   autoReviewEnabled?: boolean;
+  ownerId?: string;
+  visibility?: AgentVisibility;
+  subagentIds?: string[];
+  delegateToSelf?: boolean;
 }
 
 function serializeAgent(row: typeof schema.weldagentAgents.$inferSelect) {
@@ -64,6 +70,10 @@ function serializeAgent(row: typeof schema.weldagentAgents.$inferSelect) {
     /** Opt-in via enabledTools including `agent.auto_review` until column migration. */
     autoReviewEnabled: ((row.enabledTools ?? []) as string[]).includes('agent.auto_review'),
     createdBy: row.createdBy,
+    ownerId: row.ownerId,
+    visibility: row.visibility as AgentVisibility,
+    subagentIds: (row.subagentIds ?? []) as string[],
+    delegateToSelf: row.delegateToSelf,
     totalRuns: row.totalRuns,
     successfulRuns: row.successfulRuns,
     failedRuns: row.failedRuns,
@@ -74,10 +84,16 @@ function serializeAgent(row: typeof schema.weldagentAgents.$inferSelect) {
   };
 }
 
-export async function listAgents(db: AgentDb, status?: string) {
+/**
+ * Agents the viewer can see (every agent for {@link SYSTEM_VIEWER}, the
+ * default, used by unattended callers such as event dispatch).
+ */
+export async function listAgents(db: AgentDb, status?: string, viewer: AgentViewer = SYSTEM_VIEWER) {
   const { weldagentAgents: a } = schema;
   const conditions = [isNull(a.deletedAt)];
   if (status) conditions.push(eq(a.status, status));
+  const visible = agentVisibleTo(viewer);
+  if (visible) conditions.push(visible);
   const rows = await db
     .select()
     .from(a)
@@ -121,6 +137,8 @@ export async function createAgent(db: AgentDb, input: CreateAgentInput) {
     maxIterations: input.maxIterations ?? 10,
     maxTotalTokens: input.maxTotalTokens ?? 20000,
     createdBy: input.createdBy ?? null,
+    ownerId: input.createdBy ?? null,
+    visibility: input.visibility ?? 'workspace',
     createdAt: now,
     updatedAt: now,
   });
@@ -141,6 +159,10 @@ const DIRECT_UPDATE_KEYS = [
   'eventSubscriptions',
   'maxIterations',
   'maxTotalTokens',
+  'ownerId',
+  'visibility',
+  'subagentIds',
+  'delegateToSelf',
 ] as const satisfies readonly (keyof UpdateAgentInput)[];
 
 function buildAgentPatch(
@@ -171,6 +193,62 @@ export async function updateAgent(db: AgentDb, id: string, input: UpdateAgentInp
   await db.update(a).set(patch).where(eq(a.id, id));
   return getAgent(db, id);
 }
+
+/** Most agents one agent can delegate to (Managed Agents roster: 20 incl. self). */
+export const MAX_SUBAGENTS = 19;
+
+export type SubagentProblem =
+  | { code: 'self' }
+  | { code: 'too_many'; max: number }
+  | { code: 'not_found'; agentId: string }
+  | { code: 'duplicate_name'; agentName: string };
+
+/**
+ * Check a proposed sub-agent setup. Delegation is one level deep: working as
+ * a sub-agent, an agent runs as its worker object, which never delegates (see
+ * ./managed-agents). The coordinator picks roster members by name, so names
+ * in the roster must be distinct (threads are matched by object id, see
+ * ./executor findMember).
+ */
+export async function checkSubagents(
+  db: AgentDb,
+  agent: { id: string; name: string },
+  subagentIds: string[],
+): Promise<SubagentProblem | null> {
+  const ids = [...new Set(subagentIds)];
+  if (ids.includes(agent.id)) return { code: 'self' };
+  if (ids.length > MAX_SUBAGENTS) return { code: 'too_many', max: MAX_SUBAGENTS };
+  if (ids.length === 0) return null;
+
+  const { weldagentAgents: a } = schema;
+  const rows = await db
+    .select({ id: a.id, name: a.name })
+    .from(a)
+    .where(and(inArray(a.id, ids), isNull(a.deletedAt)));
+  const missing = ids.find((id) => !rows.some((row) => row.id === id));
+  if (missing) return { code: 'not_found', agentId: missing };
+
+  const seen = new Set([agent.name.trim().toLowerCase()]);
+  for (const row of rows) {
+    const key = row.name.trim().toLowerCase();
+    if (seen.has(key)) return { code: 'duplicate_name', agentName: row.name };
+    seen.add(key);
+  }
+  return null;
+}
+
+/** The sub-agents an agent may delegate to (deleted ones dropped). */
+export async function getSubagents(db: AgentDb, subagentIds: string[]) {
+  if (subagentIds.length === 0) return [];
+  const { weldagentAgents: a } = schema;
+  const rows = await db
+    .select()
+    .from(a)
+    .where(and(inArray(a.id, subagentIds), isNull(a.deletedAt)));
+  return rows.map(serializeAgent);
+}
+
+export type SerializedAgent = ReturnType<typeof serializeAgent>;
 
 /**
  * Soft-delete an agent. Returns false when it does not exist, otherwise its

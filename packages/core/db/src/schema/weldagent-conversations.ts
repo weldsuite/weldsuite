@@ -1,4 +1,5 @@
-import { pgTable, varchar, boolean, timestamp, jsonb, integer, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, varchar, boolean, timestamp, jsonb, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export interface WeldAgentManagedSessionState {
   /** `sesn_…` id. */
@@ -10,7 +11,11 @@ export interface WeldAgentManagedSessionState {
   toolsHash: string;
   /** Hash of the system context last given to the session. */
   systemHash: string;
-  /** How many history messages the session has already seen. */
+  /**
+   * How many history messages (user + assistant rows, oldest first) the
+   * session has already seen. An absolute count, so a turn that loads only the
+   * recent part of a long chat still knows which messages are new.
+   */
   syncedMessages: number;
   /** Session list cost (USD) already charged to the credit wallet. */
   chargedUsd: number;
@@ -27,6 +32,12 @@ export const weldagentConversations = pgTable('weldagent_conversations', {
 
   /** When set, chat is bound to a workspace agent (tools + instructions). */
   agentId: varchar('agent_id', { length: 30 }),
+
+  /**
+   * The person's one continuous chat with `agentId` (at most one per user and
+   * agent). Other rows are older threads, kept but no longer shown.
+   */
+  isMain: boolean('is_main').notNull().default(false),
 
   // State
   isPinned: boolean('is_pinned').notNull().default(false),
@@ -56,6 +67,9 @@ export const weldagentConversations = pgTable('weldagent_conversations', {
 }, (table) => [
   index('weldagent_conversations_user_idx').on(table.userId),
   index('weldagent_conversations_last_message_idx').on(table.lastMessageAt),
+  uniqueIndex('weldagent_conversations_main_idx')
+    .on(table.userId, table.agentId)
+    .where(sql`${table.isMain} = true AND ${table.deletedAt} IS NULL`),
 ]);
 
 export type WeldAgentConversation = typeof weldagentConversations.$inferSelect;

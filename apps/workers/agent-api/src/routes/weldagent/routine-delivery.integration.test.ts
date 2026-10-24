@@ -1,5 +1,5 @@
 /**
- * Routine results land in a chat thread for their owner (pglite).
+ * Routine results land in their owner's main chat with the agent (pglite).
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { createAgent } from '@weldsuite/agent-domain/agents';
 import { deliverRoutineResult, ROUTINE_RESULT_KIND } from '@weldsuite/agent-domain/routine-delivery';
+import { getOrCreateMainConversation } from '@weldsuite/agent-domain/main-chat';
 
 const notify = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('@weldsuite/notifications', () => ({
@@ -38,7 +39,7 @@ describe('deliverRoutineResult', () => {
       error: success ? undefined : 'Agent is draft',
     });
 
-  it('posts each run into one thread per routine and notifies the owner', async () => {
+  it('posts each run into the owner\'s main chat with the agent and notifies them', async () => {
     const first = await deliver('3 overdue tasks in Website');
     const second = await deliver('All clear today');
     expect(first).toBeTruthy();
@@ -48,7 +49,11 @@ describe('deliverRoutineResult', () => {
       .select()
       .from(schema.weldagentConversations)
       .where(eq(schema.weldagentConversations.id, first!));
-    expect(conv).toMatchObject({ userId: 'user_1', agentId, name: 'Morning Task Digest' });
+    expect(conv).toMatchObject({ userId: 'user_1', agentId, isMain: true });
+
+    // The same chat the person opens on the agent's page.
+    const main = await getOrCreateMainConversation(db, { userId: 'user_1', agentId, agentName: 'Digest Bot' });
+    expect(main.id).toBe(first);
 
     const messages = await db
       .select()
