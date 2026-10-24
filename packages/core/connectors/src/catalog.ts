@@ -115,6 +115,11 @@ export interface ConnectorDef {
     scopes?: string[];
   };
   syncs: ConnectorSyncDef[];
+  /**
+   * Mapping type for contacts that arrive embedded in documents when the
+   * connector has no contact sync of its own (Stripe: the invoice's customer).
+   */
+  contactExternalEntityType?: string;
 }
 
 export const CONNECTORS: ConnectorDef[] = [
@@ -279,6 +284,44 @@ export const CONNECTORS: ConnectorDef[] = [
         model: 'MoneybirdFinancialMutation',
         internalEntity: 'bank_transaction',
         externalEntityType: 'moneybird_financial_mutation',
+        settingKey: 'bankTransactions',
+      },
+    ],
+  },
+  {
+    provider: 'stripe',
+    label: 'Stripe',
+    description:
+      'Import paid Stripe invoices, payments, fees, and payouts into WeldBooks. Pair it with Moneybird to send them on to your bookkeeping.',
+    category: 'accounting',
+    icon: 'credit-card',
+    delivery: 'hybrid',
+    auth: {
+      kind: 'oauth2',
+      fields: [],
+      scopes: ['read_write'],
+    },
+    contactExternalEntityType: 'stripe_customer',
+    syncs: [
+      {
+        syncName: 'stripe-invoices',
+        model: 'StripeInvoice',
+        internalEntity: 'invoice',
+        externalEntityType: 'stripe_invoice',
+        settingKey: 'invoices',
+      },
+      {
+        syncName: 'stripe-balances',
+        model: 'StripeBalance',
+        internalEntity: 'bank_account',
+        externalEntityType: 'stripe_balance',
+        settingKey: 'bankAccounts',
+      },
+      {
+        syncName: 'stripe-balance-transactions',
+        model: 'StripeBalanceTransaction',
+        internalEntity: 'bank_transaction',
+        externalEntityType: 'stripe_balance_transaction',
         settingKey: 'bankTransactions',
       },
     ],

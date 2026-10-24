@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronRight,
+  CreditCard,
   Loader2,
   Plug,
   Search,
@@ -17,6 +19,11 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Badge } from '@weldsuite/ui/components/badge';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@weldsuite/ui/components/collapsible';
 import {
   Card,
   CardContent,
@@ -46,6 +53,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Link } from '@/lib/router';
+import { cn } from '@/lib/utils';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
@@ -70,6 +78,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   store: ShoppingBag,
   'book-open': BookOpen,
   warehouse: Warehouse,
+  'credit-card': CreditCard,
   plug: Plug,
 };
 
@@ -215,6 +224,116 @@ function defaultSyncKeys(connector: ConnectorCatalogEntry | null): string[] {
   return [...new Set(connector.syncs.map((sync) => sync.settingKey))];
 }
 
+function defaultImportStartDate(): string {
+  return `${new Date().getFullYear()}-01-01`;
+}
+
+type ConnectorsTranslations = ReturnType<typeof useI18n>['t']['weldconnect']['connectors'];
+
+/** Stripe's button says where it goes; the others just "Connect". */
+function connectButtonLabel(tc: ConnectorsTranslations, connector: ConnectorCatalogEntry | null): string {
+  return connector?.provider === 'stripe' ? tc.connectWithStripe : tc.connect;
+}
+
+/** Accounting connectors import into a WeldBooks entity. */
+const ENTITY_PROVIDERS = new Set(['moneybird', 'stripe']);
+
+/** Send the browser to the provider's grant screen (WooCommerce, Moneybird, Stripe). */
+function authorizeRedirectCallbacks(tc: ConnectorsTranslations) {
+  return {
+    onSuccess: (result: { data: { authorizeUrl?: string } }) => {
+      const url = result.data.authorizeUrl;
+      if (!url) {
+        toast.error(tc.connectFailed);
+        return;
+      }
+      window.location.assign(url);
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
+  };
+}
+
+interface StripeImportStartFieldProps {
+  tc: ConnectorsTranslations;
+  value: string;
+  onChange: (value: string) => void;
+}
+
+/** Stripe's import start date, and what "Connect with Stripe" will ask for. */
+function StripeImportStartField({ tc, value, onChange }: Readonly<StripeImportStartFieldProps>) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="connect-import-start-date">{tc.settings.importStartDateLabel}</Label>
+      <p className="text-muted-foreground text-xs">{tc.settings.importStartDateDescription}</p>
+      <Input
+        id="connect-import-start-date"
+        type="date"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <p className="text-muted-foreground pt-1 text-xs">{tc.settings.stripeFullAccessNote}</p>
+    </div>
+  );
+}
+
+interface StripeApiKeySectionProps {
+  tc: ConnectorsTranslations;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  apiKey: string;
+  onApiKeyChange: (value: string) => void;
+  onConnect: () => void;
+  pending: boolean;
+  blocked: boolean;
+}
+
+/** "Advanced: connect with an API key", for Stripe accounts OAuth can't reach. */
+function StripeApiKeySection({
+  tc,
+  open,
+  onOpenChange,
+  apiKey,
+  onApiKeyChange,
+  onConnect,
+  pending,
+  blocked,
+}: Readonly<StripeApiKeySectionProps>) {
+  return (
+    <Collapsible open={open} onOpenChange={onOpenChange}>
+      <CollapsibleTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" className="text-muted-foreground -ml-2 gap-1.5">
+          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-90')} />
+          {tc.settings.stripeApiKeyToggle}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-3">
+        <p className="text-muted-foreground text-xs">{tc.settings.stripeApiKeyHint}</p>
+        <div className="space-y-1.5">
+          <Label htmlFor="connect-stripe-api-key">{tc.settings.stripeApiKeyLabel}</Label>
+          <Input
+            id="connect-stripe-api-key"
+            type="password"
+            autoComplete="off"
+            placeholder={tc.settings.stripeApiKeyPlaceholder}
+            value={apiKey}
+            onChange={(event) => onApiKeyChange(event.target.value)}
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onConnect}
+          disabled={pending || !apiKey.trim() || blocked}
+        >
+          {pending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+          {tc.settings.stripeApiKeyConnect}
+        </Button>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialogProps>) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
@@ -226,11 +345,17 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
   const [enabledSyncs, setEnabledSyncs] = useState<string[]>(defaultSyncKeys(connector));
   const { entities, currentEntityId } = useAccountingEntityOptions();
   const [entityId, setEntityId] = useState<string>('');
+  const [importStartDate, setImportStartDate] = useState<string>(defaultImportStartDate());
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [apiKey, setApiKey] = useState('');
 
   const fields = connector?.auth.fields ?? [];
   const isAppAuth = connector?.auth.kind === 'app_auth';
   const isOAuth2 = connector?.auth.kind === 'oauth2';
-  const needsEntity = connector?.provider === 'moneybird';
+  const isStripe = connector?.provider === 'stripe';
+  const needsEntity = ENTITY_PROVIDERS.has(connector?.provider ?? '');
+  const entityBlocked = needsEntity && (!entityId || entities.length === 0);
+  const startDateMissing = isStripe && !importStartDate;
   const busy = connect.isPending || authorize.isPending;
   let connectDescription = tc.settings.connectDescription;
   if (isOAuth2) connectDescription = tc.settings.connectDescriptionOAuth;
@@ -258,6 +383,9 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
       setCredentials({});
       setEnabledSyncs(defaultSyncKeys(connector));
       setEntityId('');
+      setImportStartDate(defaultImportStartDate());
+      setAdvancedOpen(false);
+      setApiKey('');
     }
     onOpenChange(open);
   };
@@ -273,58 +401,66 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
     );
   };
 
-  const handleConnect = () => {
-    if (!connector) return;
+  /** The entity (and for Stripe the start date) a connect needs; toasts and returns false when missing. */
+  const readyToConnect = (): boolean => {
     if (needsEntity && !entityId) {
       toast.error(entities.length === 0 ? tc.settings.entityMissing : tc.settings.entityRequired);
+      return false;
+    }
+    if (startDateMissing) {
+      toast.error(tc.settings.importStartDateRequired);
+      return false;
+    }
+    return true;
+  };
+
+  const handleStripeApiKeyConnect = () => {
+    if (!connector || !readyToConnect()) return;
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) {
+      toast.error(tc.settings.stripeApiKeyRequired);
       return;
     }
+    connect.mutate(
+      {
+        provider: 'stripe',
+        credentials: { apiKey: trimmedKey },
+        enabledSyncs,
+        entityId,
+        settings: { importStartDate },
+      },
+      {
+        onSuccess: () => {
+          toast.success(tc.connected);
+          handleOpenChange(false);
+        },
+        onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
+      },
+    );
+  };
+
+  const handleConnect = () => {
+    if (!connector || !readyToConnect()) return;
+    const returnUrl = workspaceUrl(window.location.pathname);
     if (isAppAuth) {
       const storeUrl = credentials.storeUrl?.trim();
       if (!storeUrl) {
         toast.error(tc.enterStoreUrl);
         return;
       }
-      authorize.mutate(
-        {
-          provider: 'woocommerce',
-          storeUrl,
-          enabledSyncs,
-          returnUrl: workspaceUrl(window.location.pathname),
-        },
-        {
-          onSuccess: (result) => {
-            const url = result.data.authorizeUrl;
-            if (!url) {
-              toast.error(tc.connectFailed);
-              return;
-            }
-            window.location.assign(url);
-          },
-          onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
-        },
-      );
+      authorize.mutate({ provider: 'woocommerce', storeUrl, enabledSyncs, returnUrl }, authorizeRedirectCallbacks(tc));
       return;
     }
     if (isOAuth2) {
       authorize.mutate(
         {
-          provider: 'moneybird',
+          provider: connector.provider as 'moneybird' | 'stripe',
           enabledSyncs,
           entityId,
-          returnUrl: workspaceUrl(window.location.pathname),
+          ...(isStripe ? { importStartDate } : {}),
+          returnUrl,
         },
-        {
-          onSuccess: (result) => {
-            const url = result.data.authorizeUrl;
-            if (!url) {
-              toast.error(tc.connectFailed);
-              return;
-            }
-            window.location.assign(url);
-          },
-          onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
-        },
+        authorizeRedirectCallbacks(tc),
       );
       return;
     }
@@ -388,11 +524,26 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
             </div>
           ) : null}
 
+          {isStripe ? <StripeImportStartField tc={tc} value={importStartDate} onChange={setImportStartDate} /> : null}
+
           <div>
             <h3 className="mb-2 text-sm font-medium">{tc.settings.title}</h3>
             <p className="text-muted-foreground mb-3 text-xs">{tc.settings.description}</p>
             <SyncToggles syncs={connector?.syncs ?? []} enabled={enabledSyncs} onChange={setEnabledSyncs} />
           </div>
+
+          {isStripe ? (
+            <StripeApiKeySection
+              tc={tc}
+              open={advancedOpen}
+              onOpenChange={setAdvancedOpen}
+              apiKey={apiKey}
+              onApiKeyChange={setApiKey}
+              onConnect={handleStripeApiKeyConnect}
+              pending={connect.isPending}
+              blocked={entityBlocked}
+            />
+          ) : null}
         </div>
 
         <DialogFooter className={isAppAuth || isOAuth2 ? 'gap-2' : 'gap-2 sm:justify-between'}>
@@ -402,9 +553,12 @@ export function ConnectDialog({ connector, onOpenChange }: Readonly<ConnectDialo
               {tc.testConnection}
             </Button>
           )}
-          <Button onClick={handleConnect} disabled={busy || (needsEntity && (!entityId || entities.length === 0))}>
+          <Button
+            onClick={handleConnect}
+            disabled={busy || entityBlocked || startDateMissing}
+          >
             {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            {tc.connect}
+            {connectButtonLabel(tc, connector)}
           </Button>
         </DialogFooter>
       </DialogContent>

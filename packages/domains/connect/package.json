@@ -13,6 +13,8 @@
     "./connectors/ingest": "./src/connectors/ingest.ts",
     "./connectors/mappers": "./src/connectors/mappers.ts",
     "./connectors/moneybird-attachments": "./src/connectors/moneybird-attachments.ts",
+    "./connectors/moneybird-push": "./src/connectors/moneybird-push.ts",
+    "./connectors/stripe-auth": "./src/connectors/stripe-auth.ts",
     "./connectors/sync": "./src/connectors/sync.ts",
     "./connectors/webhooks": "./src/connectors/webhooks.ts",
     "./github/app-auth": "./src/github/app-auth.ts"

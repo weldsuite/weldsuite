@@ -553,7 +553,9 @@ export function useMarkChannelAsRead() {
       return client.post<{ data: MarkChannelReadResult }>(`/channels/${channelId}/read`);
     },
     onSuccess: (_data, channelId) => {
+      // DMs live in their own list; both feed the sidebar's bold/unread state.
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.readReceipts(channelId) });
     },
   });

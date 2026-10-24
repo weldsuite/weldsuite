@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { usePathname } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
+import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { buildMeetingShareUrl } from '@/lib/weldmeet/share-link';
@@ -42,6 +43,13 @@ export function MeetingPiPWidget() {
   const navigate = useNavigate();
   const pathname = usePathname();
   const t = getTranslations('weldmeet');
+
+  // Both minimized widgets live in the shell, but only this one claims the
+  // browser's auto-PiP. A WeldChat call keeps the camera/mic busy, which is
+  // all Chrome needs to fire that handler on a tab switch, so it would pop a
+  // browser window for the chat call. Chat calls stay in the in-app widget.
+  const chatCallStatus = useWeldChatCallOptional()?.status;
+  const isChatCallActive = !!chatCallStatus && !['idle', 'ended', 'ringing-incoming'].includes(chatCallStatus);
 
   const isOnMeetingPage = !!meetingId && pathname?.startsWith(`/weldmeet/${meetingId}`);
   const shouldShow = status === 'connected' && !isFullscreen && (isPiP || !isOnMeetingPage);
@@ -113,7 +121,7 @@ export function MeetingPiPWidget() {
       onPopOutClosed={expandFromPiP}
       onCopyJoiningInfo={handleCopyJoiningInfo}
       registerPopOut={registerPopOut}
-      autoPictureInPicture
+      autoPictureInPicture={!isChatCallActive}
       autoPictureInPicturePathPrefix="/weldmeet"
       prewarmedVideoTrack={prewarmedVideoTrack}
     />

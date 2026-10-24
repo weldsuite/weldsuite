@@ -159,9 +159,13 @@ export default function ChannelPage() {
         <ChatDropZone channelId={channelId}>
           <PinnedMessagesBar channelId={channelId} />
           {/* Keyed by channel: the list's scroll/jump state and the composer's
-              text and draft belong to one channel, never carried to the next. */}
-          <MessageList key={channelId} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
-          <MessageInput key={channelId} channelId={channelId} client={client} />
+              text and draft belong to one channel, never carried to the next.
+              The two keys must differ: siblings sharing a key leave the old
+              channel's list behind in the DOM on a switch (React drops it from
+              its tree without removing it), stacked above the next channel
+              and above a call started there. */}
+          <MessageList key={`list:${channelId}`} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
+          <MessageInput key={`input:${channelId}`} channelId={channelId} client={client} />
         </ChatDropZone>
       )}
     </div>

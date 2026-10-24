@@ -1,5 +1,17 @@
 # WeldSuite Analytics Worker
 # Queue consumer for ANALYTICS_EVENTS — writes records to Cloudflare Pipeline (→ R2 Iceberg).
+#
+# One stream → pipeline → R2 Data Catalog sink per environment, each in its own
+# bucket with the same table (default.weldsuite_analytics), so the readers
+# (packages/domains/core/src/analytics-query.ts) only differ by
+# R2_ANALYTICS_BUCKET:
+#   test        weldsuite_analytics_stream_test → weldsuite-analytics-test
+#   production  weldsuite_analytics_stream      → weldsuite-analytics
+# Never bind the production stream outside [env.production]: test events would
+# land in the production table, with nothing marking them as test data.
+#
+# Stream schema: analytics-schema.json (`wrangler pipelines streams create
+# <name> --schema-file analytics-schema.json`).
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-analytics-dev"
@@ -20,10 +32,36 @@ ENVIRONMENT = "development"
 queue = "analytics-events-dev"
 max_batch_size = 25
 max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "analytics-events-dlq-dev"
 
+# The test stream, so local dev can never write to the production table.
 [[pipelines]]
-pipeline = "8724b50989ab438f92d5ffe5c51c2399"
+pipeline = "266ae75d572b47299ba0f7acf04663d6"
 binding = "ANALYTICS_STREAM"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-analytics-test"
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.queues.consumers]]
+queue = "analytics-events-test"
+max_batch_size = 25
+max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "analytics-events-dlq-test"
+
+[[env.test.pipelines]]
+pipeline = "266ae75d572b47299ba0f7acf04663d6"
+binding = "ANALYTICS_STREAM"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -37,6 +75,8 @@ ENVIRONMENT = "production"
 queue = "analytics-events"
 max_batch_size = 25
 max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "analytics-events-dlq"
 
 [[env.production.pipelines]]
 pipeline = "8724b50989ab438f92d5ffe5c51c2399"

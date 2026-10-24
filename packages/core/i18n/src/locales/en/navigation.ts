@@ -14,6 +14,7 @@ export const navigation = {
     social: 'Social',
     appStore: 'App Store',
     aiAgents: 'AI Agents',
+    unreadBadge: '{count} unread',
     dashboard: 'Dashboard',
     bookkeeping: 'Bookkeeping',
     sales: 'Sales',
@@ -149,6 +150,9 @@ export const navigation = {
         vaults: 'Vaults',
         passwordHealth: 'Password health',
         projects: 'Projects',
+      },
+      weldsheets: {
+        spreadsheets: 'Spreadsheets',
       },
       weldhr: {
         me: {

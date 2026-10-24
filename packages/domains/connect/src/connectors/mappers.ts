@@ -7,6 +7,7 @@
 
 import type { ConnectorEntity } from '@weldsuite/connectors';
 import { asText } from '@weldsuite/text';
+import { mapStripeRecord } from './stripe-mappers';
 
 export interface MappedProductVariant {
   externalId: string;
@@ -60,6 +61,8 @@ export interface MappedDocumentLine {
   lineTotal: string | null;
   lineTotalWithTax: string | null;
   sortOrder: number;
+  /** Service period the line covers (subscriptions). */
+  period?: { from: string; to: string } | null;
 }
 
 export interface MappedParty {
@@ -864,6 +867,7 @@ export function mapConnectorRecord(
 ): MappedRecord | null {
   const externalId = externalIdOf(record);
   if (!externalId) return null;
+  if (provider === 'stripe') return mapStripeRecord(entity, record, externalId);
   switch (entity) {
     case 'product':
       return mapProduct(record, externalId);

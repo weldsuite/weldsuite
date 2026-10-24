@@ -186,6 +186,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     "PLAID_CLIENT_ID",
     "PLAID_SECRET",
     "STRIPE_FC_WEBHOOK_SECRET",
+    // Stripe connector: signing secret of the platform's Connect webhook
+    // endpoint (POST /webhooks/stripe-connect, "events on connected accounts").
+    "STRIPE_CONNECT_WEBHOOK_SECRET",
     // Master DB for the bank-feed connection index lookup. Production reaches it
     // through the HYPERDRIVE_MASTER binding; the test env has no Hyperdrive.
     "DATABASE_URL_MASTER",
@@ -201,6 +204,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Master DB for the bank-feed due sweep (bank_feed_connection_index).
     // Production uses HYPERDRIVE_MASTER; the test env has no Hyperdrive.
     "DATABASE_URL_MASTER",
+    // Stripe connector catch-up probes: OAuth connections are read with the
+    // platform key + Stripe-Account (same value as connect-api's).
+    "STRIPE_SECRET_KEY",
   ],
 
   // app-api. (The GitHub App secrets for the install flow + callback +
@@ -744,6 +750,12 @@ export const manifest: Record<string, SecretEntry[]> = {
     // redirect: `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
     "MONEYBIRD_CLIENT_ID",
     "MONEYBIRD_CLIENT_SECRET",
+    // Stripe connector (WeldBooks import). The Connect platform is the billing
+    // account, so STRIPE_SECRET_KEY is the same value app-api has; the `ca_…`
+    // client id differs between test and live. OAuth redirect:
+    // `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
+    "STRIPE_CONNECT_CLIENT_ID",
+    "STRIPE_SECRET_KEY",
     // AI token for /api/workflows/generate: @weldsuite/ai uses
     // AI_GATEWAY_API_TOKEN, else CLOUDFLARE_API_TOKEN (the one app-api has),
     // so carry the same token app-api runs on.

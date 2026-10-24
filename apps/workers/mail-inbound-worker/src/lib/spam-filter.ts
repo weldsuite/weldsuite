@@ -59,6 +59,105 @@ const SPAM_LEXICON = [
   'urgent overschrijving',
 ];
 
+/**
+ * Public mailbox providers anyone can sign up at. A company never sends
+ * account or billing mail from one of these.
+ */
+const FREE_MAIL_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'hotmail.nl',
+  'live.com',
+  'live.nl',
+  'msn.com',
+  'yahoo.com',
+  'yahoo.co.uk',
+  'ymail.com',
+  'aol.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'gmx.com',
+  'gmx.de',
+  'gmx.net',
+  'web.de',
+  'mail.com',
+  'mail.ru',
+  'inbox.ru',
+  'list.ru',
+  'bk.ru',
+  'yandex.ru',
+  'yandex.com',
+  'inbox.lv',
+  'proton.me',
+  'protonmail.com',
+  'zoho.com',
+  'tutanota.com',
+  'tuta.io',
+  'orange.fr',
+  'wanadoo.fr',
+  'free.fr',
+  'laposte.net',
+  'libero.it',
+  'seznam.cz',
+  'wp.pl',
+  'o2.pl',
+  'onet.pl',
+  'interia.pl',
+  'qq.com',
+  '163.com',
+  '126.com',
+  'rediffmail.com',
+]);
+
+/**
+ * Brands phishers put in the From display name. Matched as whole words, so
+ * only names distinctive enough not to be someone's first name or a common
+ * word are listed (no "apple", "visa", "chase", "outlook").
+ */
+const IMPERSONATED_BRANDS = [
+  'american express',
+  'amex',
+  'paypal',
+  'apple id',
+  'apple support',
+  'icloud',
+  'microsoft',
+  'office 365',
+  'microsoft 365',
+  'netflix',
+  'amazon',
+  'docusign',
+  'dhl',
+  'fedex',
+  'postnl',
+  'mastercard',
+  'ing bank',
+  'rabobank',
+  'abn amro',
+  'bunq',
+  'belastingdienst',
+  'digid',
+  'coinbase',
+  'binance',
+  'metamask',
+  'wells fargo',
+  'bank of america',
+  'chase bank',
+  'facebook',
+  'instagram',
+  'whatsapp',
+  'linkedin',
+  'dropbox',
+  'adobe',
+  'norton',
+  'mcafee',
+  'ebay',
+  'booking com',
+];
+
 export interface SpamScoreEmail {
   from: { email: string; name?: string };
   to?: { email: string; name?: string }[];
@@ -199,6 +298,21 @@ function isDisplayNameSpoof(
   return false;
 }
 
+/**
+ * Brand impersonation: the display name names a well-known company while the
+ * address is a free mailbox, e.g. "American Express" <donotreply@inbox.lv>.
+ * Such mail passes SPF/DKIM/DMARC (the free provider signs it), so the auth
+ * signals never see it.
+ */
+function isBrandOnFreeMail(from: { email: string; name?: string }): boolean {
+  const fromDomain = domainOf(from.email);
+  if (!fromDomain || !FREE_MAIL_DOMAINS.has(fromDomain)) return false;
+  const words = (from.name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!words) return false;
+  const padded = ` ${words} `;
+  return IMPERSONATED_BRANDS.some((brand) => padded.includes(` ${brand} `));
+}
+
 interface SpamSignal {
   points: number;
   reason: string;
@@ -247,6 +361,11 @@ function senderSignals(email: SpamScoreEmail, recipients: string[]): SpamSignal[
   const signals: SpamSignal[] = [];
   if (isDisplayNameSpoof(email.from, recipients)) {
     signals.push({ points: 3, reason: 'from_display_spoof' });
+  }
+  // Spam on its own: no real brand sends from a free mailbox. A reply in an
+  // existing ham thread is still capped below the threshold.
+  if (isBrandOnFreeMail(email.from)) {
+    signals.push({ points: SPAM_SCORE_THRESHOLD, reason: 'from_brand_free_mail' });
   }
 
   const replyTo = parseReplyToEmail(headerValue(email.headers, 'reply-to'));

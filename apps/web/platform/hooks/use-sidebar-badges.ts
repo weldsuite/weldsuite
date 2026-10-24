@@ -1,16 +1,20 @@
 
+import { useCallback } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useIdleAwareRefetchInterval } from '@/hooks/use-user-idle';
+import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
+import { useChatActivityUnread } from '@/hooks/queries/use-weldchat-extras-queries';
 
 const SIDEBAR_BADGES_POLL_MS = 60_000;
 
 export interface SidebarBadgeCounts {
   mail: number;
   helpdesk: number;
-  calendar: number;
+  /** Pending WeldCommerce orders. Counted by the endpoint, not shown on the rail. */
+  orders: number;
 }
 
 export const sidebarBadgeKeys = {
@@ -18,7 +22,7 @@ export const sidebarBadgeKeys = {
   counts: () => [...sidebarBadgeKeys.all, 'counts'] as const,
 };
 
-const defaultCounts: SidebarBadgeCounts = { mail: 0, helpdesk: 0, calendar: 0 };
+const defaultCounts: SidebarBadgeCounts = { mail: 0, helpdesk: 0, orders: 0 };
 
 /**
  * Decrement the helpdesk badge count by 1 (e.g. when marking a conversation as read).
@@ -28,6 +32,11 @@ export function decrementHelpdeskBadge(queryClient: QueryClient): void {
   queryClient.setQueryData<SidebarBadgeCounts>(sidebarBadgeKeys.counts(), (prev) =>
     prev ? { ...prev, helpdesk: Math.max(0, prev.helpdesk - 1) } : prev
   );
+}
+
+/** Refetch the badge counts now, e.g. after mail was marked read or unread. */
+export function refreshSidebarBadges(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: sidebarBadgeKeys.counts() });
 }
 
 interface UseSidebarBadgesReturn {
@@ -57,7 +66,7 @@ export function useSidebarBadges(): UseSidebarBadgesReturn {
         return {
           mail: result.data.unreadMessages || 0,
           helpdesk: result.data.openTickets || 0,
-          calendar: result.data.pendingOrders || 0,
+          orders: result.data.pendingOrders || 0,
         };
       }
       return defaultCounts;
@@ -72,6 +81,45 @@ export function useSidebarBadges(): UseSidebarBadgesReturn {
   return {
     counts: data ?? defaultCounts,
     isLoading,
-    refresh: () => queryClient.invalidateQueries({ queryKey: sidebarBadgeKeys.counts() }),
+    refresh: () => refreshSidebarBadges(queryClient),
   };
+}
+
+/**
+ * The unread count shown on an app's rail icon, or `undefined` for apps that
+ * have no badge. Keyed on the real app codes, not legacy aliases.
+ */
+export function railBadgeCountFor(
+  appCode: string,
+  counts: SidebarBadgeCounts,
+  chatUnread: number
+): number | undefined {
+  switch (appCode) {
+    case 'weldmail':
+      return counts.mail;
+    case 'welddesk':
+      return counts.helpdesk;
+    case 'weldchat':
+      return chatUnread;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Badge counts for the app rails (desktop and mobile). Returns a lookup from
+ * app code to its unread count.
+ */
+export function useAppRailBadges(): (appCode: string) => number | undefined {
+  const { counts } = useSidebarBadges();
+  // Only talk to chat-api when the workspace has WeldChat: an app a partner
+  // licence leaves out answers 403. Shares its query with WeldChat's sidebar.
+  const chatInstalled = useIsAppInstalled('weldchat');
+  const { data: chatActivity } = useChatActivityUnread(chatInstalled);
+  const chatUnread = chatInstalled ? (chatActivity?.data?.count ?? 0) : 0;
+
+  return useCallback(
+    (appCode: string) => railBadgeCountFor(appCode, counts, chatUnread),
+    [counts, chatUnread]
+  );
 }

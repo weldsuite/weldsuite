@@ -517,5 +517,8 @@ export function getDefaultConnectorFieldMappings(
   if (provider === 'picqer' && entityType === 'product') {
     return PICQER_PRODUCT_DEFAULTS.map((m) => ({ ...m }));
   }
+  // Stripe amounts are minor-unit integers and dates unix seconds: the generic
+  // (Moneybird-shaped) paths would overwrite converted values. Its mapper owns every field.
+  if (provider === 'stripe') return [];
   return (DEFAULTS_BY_ENTITY[entityType] ?? []).map((m) => ({ ...m }));
 }

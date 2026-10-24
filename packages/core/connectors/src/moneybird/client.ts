@@ -42,6 +42,29 @@ export interface MoneybirdBinaryDownload {
   filename: string | null;
 }
 
+export interface MoneybirdLedgerAccount {
+  id: string;
+  name: string;
+  /** revenue, expenses, current_assets, … */
+  accountType: string | null;
+  /** The account code the administration gave it. */
+  accountId: string | null;
+}
+
+export interface MoneybirdTaxRate {
+  id: string;
+  name: string;
+  percentage: number | null;
+  /** sales_invoice | purchase_invoice | general_journal_document */
+  taxRateType: string | null;
+  country: string | null;
+  active: boolean;
+}
+
+function textId(value: unknown): string {
+  return value === undefined || value === null ? '' : asText(value);
+}
+
 const DEFAULT_PER_PAGE = 100;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 2;
@@ -484,6 +507,144 @@ export class MoneybirdClient implements ConnectorProviderClient {
 
   downloadSalesInvoicePdf(id: string): Promise<MoneybirdBinaryDownload> {
     return this.requestBinary(`sales_invoices/${id}/download_pdf`);
+  }
+
+  // ------------------------------------------------------------------ write side (WeldBooks → Moneybird push)
+
+  async listLedgerAccounts(): Promise<MoneybirdLedgerAccount[]> {
+    const { data } = await this.request<Array<Record<string, unknown>>>('ledger_accounts');
+    return (Array.isArray(data) ? data : [])
+      .map((row) => ({
+        id: textId(row.id),
+        name: typeof row.name === 'string' ? row.name : textId(row.id),
+        accountType: typeof row.account_type === 'string' ? row.account_type : null,
+        accountId: typeof row.account_id === 'string' ? row.account_id : null,
+      }))
+      .filter((row) => row.id);
+  }
+
+  async listTaxRates(): Promise<MoneybirdTaxRate[]> {
+    const { data } = await this.request<Array<Record<string, unknown>>>('tax_rates', { search: { per_page: '100' } });
+    return (Array.isArray(data) ? data : [])
+      .map((row) => ({
+        id: textId(row.id),
+        name: typeof row.name === 'string' ? row.name : textId(row.id),
+        percentage: row.percentage === null || row.percentage === undefined ? null : Number(row.percentage),
+        taxRateType: typeof row.tax_rate_type === 'string' ? row.tax_rate_type : null,
+        country: typeof row.country === 'string' ? row.country : null,
+        active: row.active !== false,
+      }))
+      .filter((row) => row.id);
+  }
+
+  /** Contacts matching a free-text query (Moneybird searches name, email, customer id, …). */
+  async searchContacts(query: string): Promise<Array<Record<string, unknown>>> {
+    const { data } = await this.request<Array<Record<string, unknown>>>('contacts', {
+      search: { query, per_page: '10' },
+    });
+    return Array.isArray(data) ? data : [];
+  }
+
+  async createContact(contact: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data } = await this.request<Record<string, unknown>>('contacts', {
+      method: 'POST',
+      body: { contact },
+    });
+    return data;
+  }
+
+  async createExternalSalesInvoice(invoice: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data } = await this.request<Record<string, unknown>>('external_sales_invoices', {
+      method: 'POST',
+      body: { external_sales_invoice: invoice },
+    });
+    return data;
+  }
+
+  async deleteExternalSalesInvoice(id: string): Promise<void> {
+    await this.request(`external_sales_invoices/${id}`, { method: 'DELETE' });
+  }
+
+  /** Register a payment; `financial_mutation_id` ties it to a statement line. */
+  async createExternalSalesInvoicePayment(id: string, payment: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data } = await this.request<Record<string, unknown>>(`external_sales_invoices/${id}/payments`, {
+      method: 'POST',
+      body: { payment },
+    });
+    return data;
+  }
+
+  async uploadExternalSalesInvoiceAttachment(id: string, file: { bytes: ArrayBuffer; filename: string; contentType: string }): Promise<void> {
+    const url = this.buildRequestUrl(`external_sales_invoices/${id}/attachment`);
+    await this.withRetry<void>({
+      timeoutMs: BINARY_TIMEOUT_MS,
+      failureMessage: 'Moneybird upload failed',
+      attemptOnce: async (signal) => {
+        const form = new FormData();
+        form.append('file', new Blob([file.bytes], { type: file.contentType }), file.filename);
+        const response = await this.fetchImpl(url.toString(), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${this.accessToken}`, Accept: 'application/json' },
+          body: form,
+          signal,
+        });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          return { ok: false, error: httpErrorFromResponse(response, text, 'request') };
+        }
+        return { ok: true, value: undefined };
+      },
+    });
+  }
+
+  /**
+   * Post statement lines onto a financial account. Lines go as an index-keyed
+   * hash (Moneybird's documented shape); the response carries the created
+   * mutations with their ids.
+   */
+  async createFinancialStatement(statement: {
+    financialAccountId: string;
+    reference: string;
+    officialDate?: string;
+    mutations: Array<{ date: string; message: string; amount: string }>;
+  }): Promise<Record<string, unknown>> {
+    const financialMutationsAttributes: Record<string, { date: string; message: string; amount: string }> = {};
+    statement.mutations.forEach((mutation, index) => {
+      financialMutationsAttributes[String(index + 1)] = mutation;
+    });
+    const { data } = await this.request<Record<string, unknown>>('financial_statements', {
+      method: 'POST',
+      body: {
+        financial_statement: {
+          financial_account_id: statement.financialAccountId,
+          reference: statement.reference,
+          ...(statement.officialDate ? { official_date: statement.officialDate } : {}),
+          financial_mutations_attributes: financialMutationsAttributes,
+        },
+      },
+    });
+    return data;
+  }
+
+  /**
+   * Book a statement line. Amounts are positive: for a ledger account,
+   * positive books in the mutation's own direction (Moneybird docs).
+   */
+  async linkFinancialMutation(id: string, booking: {
+    bookingType: 'LedgerAccount' | 'ExternalSalesInvoice' | 'SalesInvoice' | 'Document';
+    bookingId: string;
+    priceBase: string;
+    description?: string;
+  }): Promise<void> {
+    await this.request(`financial_mutations/${id}/link_booking`, {
+      method: 'PATCH',
+      body: {
+        booking_type: booking.bookingType,
+        booking_id: booking.bookingId,
+        price_base: booking.priceBase,
+        ...(booking.description ? { description: booking.description } : {}),
+      },
+    });
   }
 
   downloadDocumentAttachment(args: {

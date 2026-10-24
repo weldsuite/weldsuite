@@ -129,6 +129,14 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Productivity',
     path: '/weldknow',
   },
+  weldsheets: {
+    code: 'weldsheets',
+    name: 'WeldSheets',
+    description: 'Spreadsheets with Excel-compatible formulas, number formats and multiple sheets',
+    icon: 'FileSpreadsheet',
+    category: 'Productivity',
+    path: '/weldsheets',
+  },
   weldreach: {
     code: 'weldreach',
     name: 'WeldReach',
