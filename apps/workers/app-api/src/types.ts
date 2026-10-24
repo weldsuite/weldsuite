@@ -90,6 +90,8 @@ export interface Env {
   PASS_API?: Fetcher;
   /** sheets-api (WeldSheets). Target of the forwarder for /api/sheets. */
   SHEETS_API?: Fetcher;
+  /** sign-api (WeldSign). Target of the forwarder for /api/sign and /public/sign-portal. */
+  SIGN_API?: Fetcher;
   /** agent-api. Target of the forwarder for the agent module's paths. */
   AGENT_API?: Fetcher;
   /** chat-api. Target of the forwarder for the chat module's paths. */

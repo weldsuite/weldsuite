@@ -646,6 +646,43 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     contactUrl: SUPPORT_EMAIL,
   },
   {
+    code: 'weldsign',
+    name: 'WeldSign',
+    description: 'Send PDFs for electronic signature and get them back signed, with a full audit trail.',
+    icon: 'Signature',
+    category: 'Productivity',
+    path: '/weldsign',
+    overview:
+      'WeldSign gets your contracts, quotes and agreements signed without printing or scanning. Upload a PDF, mark where each person signs, initials or fills in a date, and send it. Signers open a personal link and sign in their browser on any device, without an account, one after the other or all at once. When everyone has signed, each person gets the signed PDF with a certificate page that records who signed, when, from where and how they were identified, and the document is filed in WeldDrive and on the CRM record it belongs to.',
+    features: [
+      'Signature, initials, date, name, text and checkbox fields placed on the PDF',
+      'Several signers, in a fixed order or all at once, plus people who only get a copy',
+      'Signing in the browser on any device, no account needed',
+      'Optional email code or access code before a signer can open the document',
+      'Automatic reminders and an expiry date',
+      'Reusable templates with signer roles',
+      'Signed PDF with a certificate of completion and a full audit trail',
+      'Send from WeldDrive and WeldCRM, and file the signed PDF back there',
+    ],
+    howItWorks: [
+      { title: 'Upload a PDF', description: 'Start a request from a file, a template, WeldDrive or a CRM record.' },
+      { title: 'Place the fields', description: 'Drag signature, date and text fields onto the pages for each signer.' },
+      { title: 'Send it', description: 'Signers get an email link and sign in their browser.' },
+      { title: 'Get it back signed', description: 'Everyone receives the signed PDF with its certificate page.' },
+    ],
+    sortOrder: 157,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-10-24',
+    websiteUrl: null,
+    documentationUrl: null,
+    contactUrl: SUPPORT_EMAIL,
+    // Not installable from the App Store until signing works (phase 2 of
+    // docs/plans/weldsign.md); staff publish the row then.
+    isPublished: false,
+  },
+  {
     code: 'weldhr',
     name: 'WeldHR',
     description: 'Run your people operations and give employees and clients one branded portal.',

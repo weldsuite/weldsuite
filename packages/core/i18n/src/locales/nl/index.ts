@@ -40,6 +40,7 @@ import { weldsuiteHome } from './weldsuiteHome';
 import { welddata } from './welddata';
 import { weldpass } from './weldpass';
 import { weldsheets } from './weldsheets';
+import { weldsign } from './weldsign';
 import { weldhr } from './weldhr';
 import { weldknow } from './weldknow';
 import { weldads } from './weldads';
@@ -100,6 +101,7 @@ export const nl = {
   welddata,
   weldpass,
   weldsheets,
+  weldsign,
   weldhr,
   weldknow,
   weldads,

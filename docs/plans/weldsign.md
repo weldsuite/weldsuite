@@ -264,14 +264,17 @@ bus is not a substitute for it.
 ### Permissions
 
 App `weldsign` in `packages/core/permissions/src/apps.ts`, objects
-`envelopes` and `sign_templates`:
+`sign_envelopes` and `sign_templates` (prefixed like `reach_*`, so they don't
+collide with a generic object name):
 
-- `envelopes:read|create|update|delete|send|void`, `sign_templates:read|create|update|delete`,
-  `weldsign:manage` (settings, see every envelope in the workspace).
-- Without `weldsign:manage` a member sees the envelopes they sent and the ones
-  they are a recipient of.
-- Defaults: OWNER/ADMIN all; MEMBER read/create/update/send/void own + templates
-  read; VIEWER none.
+- `sign_envelopes:read|create|update|delete|send|void|manage`,
+  `sign_templates:read|create|update|delete`. `sign_envelopes:manage` covers the
+  settings and seeing every envelope in the workspace.
+- Without `sign_envelopes:manage` a member sees the envelopes they sent and the
+  ones they are a recipient of.
+- Defaults: OWNER/ADMIN all; MEMBER read/create/update/delete/send/void (own) +
+  templates read; VIEWER `sign_envelopes:read` + `sign_templates:read`, which
+  only shows envelopes they are a recipient of.
 
 ### Plan quota
 
