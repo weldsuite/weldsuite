@@ -13,6 +13,8 @@ import { conversationsRoutes } from './conversations';
 const mocks = vi.hoisted(() => ({
   getDeskConversation: vi.fn(),
   appendDeskMessage: vi.fn(),
+  autoAssignConversation: vi.fn(),
+  notifyTeamOfVisitorMessage: vi.fn(),
 }));
 
 vi.mock('@weldsuite/db/lib/desk', () => ({
@@ -30,8 +32,9 @@ vi.mock('@weldsuite/db/lib/desk', () => ({
 }));
 
 vi.mock('../lib/desk-live', () => ({
+  autoAssignConversation: mocks.autoAssignConversation,
   isPublicMessage: () => true,
-  notifyTeamOfVisitorMessage: vi.fn(() => Promise.resolve()),
+  notifyTeamOfVisitorMessage: mocks.notifyTeamOfVisitorMessage,
   publishConversationUpdated: vi.fn(() => Promise.resolve()),
   publishVisitorEvent: vi.fn(() => Promise.resolve()),
   publishVisitorMessage: vi.fn(() => Promise.resolve()),
@@ -93,6 +96,33 @@ beforeEach(() => {
     }),
   );
   head.mockResolvedValue({ size: 4096, httpMetadata: { contentType: 'image/png' } });
+  mocks.autoAssignConversation.mockImplementation((_env: unknown, _db: unknown, _org: unknown, c: unknown) =>
+    Promise.resolve(c),
+  );
+  mocks.notifyTeamOfVisitorMessage.mockResolvedValue(undefined);
+});
+
+describe('POST /:id/messages auto-assignment', () => {
+  it('assigns an unowned thread before telling anyone, and tells the new owner', async () => {
+    mocks.autoAssignConversation.mockImplementation((_env: unknown, _db: unknown, _org: unknown, c: object) =>
+      Promise.resolve({ ...c, assigneeId: 'user_ann' }),
+    );
+    const { status } = await send({ body: 'hello?' });
+    expect(status).toBe(201);
+    await vi.waitFor(() => expect(mocks.notifyTeamOfVisitorMessage).toHaveBeenCalled());
+    expect(mocks.autoAssignConversation).toHaveBeenCalledWith(env, expect.anything(), WORKSPACE, expect.objectContaining({ id: CONVERSATION }));
+    expect(mocks.notifyTeamOfVisitorMessage.mock.calls[0][0].conversation.assigneeId).toBe('user_ann');
+  });
+
+  it('a failed assignment still lets the message through', async () => {
+    mocks.autoAssignConversation.mockImplementation((_env: unknown, _db: unknown, _org: unknown, c: unknown) =>
+      Promise.resolve(c),
+    );
+    const { status } = await send({ body: 'hello?' });
+    expect(status).toBe(201);
+    await vi.waitFor(() => expect(mocks.notifyTeamOfVisitorMessage).toHaveBeenCalled());
+    expect(mocks.notifyTeamOfVisitorMessage.mock.calls[0][0].conversation.assigneeId).toBeNull();
+  });
 });
 
 describe('POST /:id/messages with attachments', () => {

@@ -215,6 +215,7 @@ export const navigation = {
         helpCenter: 'Help Center',
         articles: 'Articles',
         savedReplies: 'Saved replies',
+        assignment: 'Assignment',
       },
       weldmeet: {
         newMeeting: 'New Meeting',

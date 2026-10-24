@@ -18,6 +18,7 @@ import { isPublicHost } from './lib/public-host';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { and, eq, isNotNull, inArray } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
+import type { DeskPickRequest } from '@weldsuite/db/lib/desk-assignment';
 import type { Env, AssignRequest, AgentCapacity } from './types';
 import type { ConversationWorkflowParams } from './workflows/conversation-workflow';
 
@@ -212,9 +213,33 @@ async function handleSyncAgents(request: Request, env: Env): Promise<Response> {
   return Response.json({ ok: true });
 }
 
+/**
+ * WeldDesk inbox pick — one AssignmentRouter per workspace (`desk:<id>`).
+ * The caller (widget-api, mail-inbound-worker) owns the tenant DB side; see
+ * `@weldsuite/db/lib/desk-assignment`.
+ */
+async function handleDeskAssign(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json()) as Partial<DeskPickRequest> & { workspaceId?: string };
+  if (
+    !body.workspaceId ||
+    (body.mode !== 'round_robin' && body.mode !== 'balanced') ||
+    !Array.isArray(body.candidates)
+  ) {
+    return Response.json({ error: 'workspaceId, mode and candidates are required' }, { status: 400 });
+  }
+  const stub = env.ASSIGNMENT_ROUTER.get(env.ASSIGNMENT_ROUTER.idFromName(`desk:${body.workspaceId}`));
+  const result = await (stub as any).pickDeskAssignee({
+    mode: body.mode,
+    candidates: body.candidates,
+    maxOpen: typeof body.maxOpen === 'number' ? body.maxOpen : null,
+  });
+  return Response.json(result);
+}
+
 const POST_ROUTES = new Map<string, (request: Request, env: Env) => Promise<Response>>([
   ['/event', handleEvent],
   ['/respond', handleRespond],
+  ['/desk/assign', handleDeskAssign],
   ['/assign', handleAssign],
   ['/release', handleRelease],
   ['/sync-agents', handleSyncAgents],
