@@ -31,6 +31,8 @@ interface ConversationListProps {
   onSortChange: (sort: DeskConversationSort) => void;
   assigneeFilter: InboxAssigneeFilter;
   onAssigneeFilterChange: (filter: InboxAssigneeFilter) => void;
+  /** Search runs server-side over every conversation, not just loaded pages. */
+  onSearchChange: (query: string) => void;
   selectedId?: string;
   onSelect: (id: string) => void;
 }
@@ -85,6 +87,7 @@ export function ConversationList({
   onSortChange,
   assigneeFilter,
   onAssigneeFilterChange,
+  onSearchChange,
   selectedId,
   onSelect,
 }: Readonly<ConversationListProps>) {
@@ -212,6 +215,7 @@ export function ConversationList({
       getItemUrl={(item) => `/welddesk/inbox/${item.id}`}
       onItemClick={(item) => onSelect(item.id)}
       filterContent={filterContent}
+      onSearchChange={onSearchChange}
       error={isError ? t.list.loadError : null}
       isLoading={isLoading}
       emptyMessage={t.list.empty}

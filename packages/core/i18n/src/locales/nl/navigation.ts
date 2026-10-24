@@ -211,6 +211,7 @@ export const navigation = {
         phoneSettings: 'Telefooninstellingen',
         helpCenter: 'Helpcentrum',
         articles: 'Artikelen',
+        savedReplies: 'Opgeslagen antwoorden',
       },
       weldmeet: {
         newMeeting: 'Nieuwe vergadering',

@@ -91,6 +91,7 @@ import {
   SquareChartGantt,
   HandCoins,
   WalletCards,
+  MessageSquareText,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -345,6 +346,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.welddesk.email, href: '/welddesk/email', icon: Mail },
           { title: t.navigation.moduleSidebar.welddesk.helpCenter, href: '/welddesk/help-center', icon: BookOpen },
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
+          { title: t.navigation.moduleSidebar.welddesk.savedReplies, href: '/welddesk/settings/saved-replies', icon: MessageSquareText },
           { title: t.navigation.moduleSidebar.welddesk.phoneSettings, href: '/welddesk/settings/phone', icon: Settings },
         ],
       },

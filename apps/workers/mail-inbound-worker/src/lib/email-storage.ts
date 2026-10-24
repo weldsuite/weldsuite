@@ -54,6 +54,13 @@ import {
 import { selectNotifyMembers } from './notify-recipients';
 import { accountingAttachmentType } from './accounting-attachment';
 import {
+  deskNotificationContent,
+  findPriorDeskState,
+  notifyDeskOfEmail,
+  planDeskNotification,
+  storeDeskAttachments,
+} from './desk-inbound';
+import {
   buildMailAutoLabelQuestions,
   buildMailAutoLabelState,
   matchedLabelsFromJevAnswers,
@@ -1977,6 +1984,7 @@ function generateId(prefix: string): string {
 export async function processHelpdeskInboxEmail(
   env: Env,
   email: ParsedEmail,
+  attachments: ParsedAttachment[] = [],
 ): Promise<{ processed: boolean; conversationIds: string[] }> {
   const recipientEmails = collectRecipientEmails(email);
 
@@ -2028,7 +2036,7 @@ export async function processHelpdeskInboxEmail(
   const conversationIds: string[] = [];
 
   for (const inbox of helpdeskInboxes) {
-    const conversationId = await ingestHelpdeskInboxEmail(env, email, inbox);
+    const conversationId = await ingestHelpdeskInboxEmail(env, email, inbox, attachments);
     if (conversationId) conversationIds.push(conversationId);
   }
 
@@ -2093,10 +2101,21 @@ async function ingestHelpdeskInboxEmail(
   env: Env,
   email: ParsedEmail,
   inbox: HelpdeskInbox,
+  rawAttachments: ParsedAttachment[] = [],
 ): Promise<string | null> {
   try {
     const tenantDb = await getTenantDbForWorkspaceById(env, inbox.workspaceId);
     const body = email.textBody || email.htmlBody || email.subject || '';
+    const attachments = await storeDeskAttachments(
+      env,
+      inbox.workspaceId,
+      email.emailId,
+      rawAttachments,
+      email.htmlBody,
+    );
+    // Read before ingest moves the conversation: tells whether the team was
+    // already waiting on this customer (and so already notified).
+    const prior = await findPriorDeskState(tenantDb, email);
 
     const { conversation, message, created } = await ingestDeskEmail(tenantDb, {
       generateId,
@@ -2110,6 +2129,7 @@ async function ingestHelpdeskInboxEmail(
       references: email.references,
       toEmails: email.to.map((t) => t.email),
       ccEmails: email.cc.map((t) => t.email),
+      attachments: attachments.length > 0 ? attachments : undefined,
     });
 
     console.log(
@@ -2117,8 +2137,26 @@ async function ingestHelpdeskInboxEmail(
     );
 
     await publishHelpdeskRealtime(env, email, inbox, { conversation, message, created, body });
-    // A customer reply on a conversation a teammate owns pings that teammate.
-    if (!created && conversation.assigneeId && inbox.clerkOrgId) {
+    const customerName = email.from.name || email.from.email;
+    const plan = planDeskNotification({ created, assigneeId: conversation.assigneeId, prior });
+    if (plan === 'notify' && inbox.clerkOrgId) {
+      // New conversation, or the ball is back with the team: assignee, else everyone.
+      const content = deskNotificationContent({
+        isNew: created,
+        customerName,
+        body: email.textBody,
+        subject: conversation.title,
+        attachmentNames: attachments.map((a) => a.name),
+      });
+      await notifyDeskOfEmail({
+        db: tenantDb,
+        env,
+        orgId: inbox.clerkOrgId,
+        conversation,
+        ...content,
+      });
+    } else if (plan === 'assignee_reply' && inbox.clerkOrgId) {
+      // A customer reply on a conversation a teammate owns pings that teammate.
       try {
         await sendTicketReplyNotification({
           db: tenantDb,
@@ -2127,7 +2165,7 @@ async function ingestHelpdeskInboxEmail(
           assigneeId: conversation.assigneeId,
           kind: 'conversation',
           entityId: conversation.id,
-          customerName: email.from.name || email.from.email,
+          customerName,
           customerContactId: conversation.contactId,
           messageBody: body,
           subject: conversation.title,

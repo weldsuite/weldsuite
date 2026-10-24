@@ -115,3 +115,124 @@ describe('/api/desk/widget · pglite integration', () => {
     expect(Array.isArray(body.data)).toBe(true);
   });
 });
+
+describe('/api/desk/conversations search, customer filter and attachments · pglite', () => {
+  const R2_PUBLIC_URL = 'https://files.example.test';
+  const stored = new Map<string, { size: number; type?: string }>();
+  const STORAGE = {
+    put: async (key: string, value: ArrayBuffer, opts?: { httpMetadata?: { contentType?: string } }) => {
+      stored.set(key, { size: value.byteLength, type: opts?.httpMetadata?.contentType });
+      return {};
+    },
+  } as unknown as R2Bucket;
+
+  const appFor = (...keys: string[]) =>
+    createTestApp('/api/desk/conversations', deskConversationsRoutes, {
+      context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'org_search' },
+      env: { STORAGE, R2_PUBLIC_URL },
+    });
+
+  let printerId: string;
+  let printerNumber: number;
+
+  beforeAll(async () => {
+    const printer = await createDeskConversation(db, {
+      generateId,
+      visitorId: 'visitor_search_1',
+      name: 'Grace Hopper',
+      email: 'Grace@Navy.test',
+      body: 'The printer shows error E42',
+    });
+    printerId = printer.conversation.id;
+    printerNumber = printer.conversation.conversationNumber;
+    await createDeskConversation(db, {
+      generateId,
+      visitorId: 'visitor_search_2',
+      name: 'Alan',
+      email: 'alan@bletchley.test',
+      body: 'Question about my invoice',
+    });
+  });
+
+  const ids = async (res: Response) => ((await res.json()) as { data: Array<{ id: string }> }).data.map((r) => r.id);
+
+  it('finds a conversation by message text, customer name and number', async () => {
+    const { request } = appFor('conversations:read');
+    for (const q of ['error e42', 'hopper', `#${printerNumber}`]) {
+      const res = await request(`/api/desk/conversations?q=${encodeURIComponent(q)}`);
+      expect(res.status).toBe(200);
+      const found = await ids(res);
+      expect(found).toContain(printerId);
+    }
+  });
+
+  it('treats % and _ in a search literally', async () => {
+    const { request } = appFor('conversations:read');
+    const res = await request(`/api/desk/conversations?q=${encodeURIComponent('%')}`);
+    expect(await ids(res)).not.toContain(printerId);
+  });
+
+  it('lists a customer\'s conversations by email, case-insensitively', async () => {
+    const { request } = appFor('conversations:read');
+    const res = await request('/api/desk/conversations?email=grace%40navy.test');
+    expect(await ids(res)).toEqual([printerId]);
+  });
+
+  it('uploads an allowed file and replies with it', async () => {
+    const { request } = appFor('conversations:update');
+    const form = new FormData();
+    form.append('file', new File(['hello'], 'steps to fix.txt', { type: 'text/plain' }));
+    const upload = await request(`/api/desk/conversations/${printerId}/attachments`, { method: 'POST', body: form });
+    expect(upload.status).toBe(201);
+    const attachment = ((await upload.json()) as { data: { url: string; name: string; filesize: number } }).data;
+    expect(attachment.url.startsWith(`${R2_PUBLIC_URL}/desk/org_search/${printerId}/`)).toBe(true);
+    expect(attachment.name).toBe('steps to fix.txt');
+    expect(attachment.filesize).toBe(5);
+    expect(stored.size).toBe(1);
+
+    const reply = await request(`/api/desk/conversations/${printerId}/reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'message', attachments: [{ ...attachment, contentType: 'text/plain' }] }),
+    });
+    expect(reply.status).toBe(201);
+    const body = (await reply.json()) as {
+      data: { message: { body: string | null; attachments: unknown[] }; conversation: { lastMessagePreview: string } };
+    };
+    expect(body.data.message.body).toBeNull();
+    expect(body.data.message.attachments).toHaveLength(1);
+    expect(body.data.conversation.lastMessagePreview).toBe('📎 steps to fix.txt');
+  });
+
+  it('rejects script-capable file types', async () => {
+    const { request } = appFor('conversations:update');
+    const form = new FormData();
+    form.append('file', new File(['<svg/>'], 'x.svg', { type: 'image/svg+xml' }));
+    const res = await request(`/api/desk/conversations/${printerId}/attachments`, { method: 'POST', body: form });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a reply that links a file from somewhere else', async () => {
+    const { request } = appFor('conversations:update');
+    const res = await request(`/api/desk/conversations/${printerId}/reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'message',
+        body: 'see attached',
+        attachments: [{ name: 'x.pdf', url: 'https://evil.test/x.pdf', contentType: 'application/pdf', filesize: 1 }],
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an empty reply', async () => {
+    const { request } = appFor('conversations:update');
+    const res = await request(`/api/desk/conversations/${printerId}/reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'message', body: '   ' }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

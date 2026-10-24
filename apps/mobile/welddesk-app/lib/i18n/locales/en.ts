@@ -93,6 +93,10 @@ export const en = {
     newest: 'Newest',
     oldest: 'Oldest',
     waitingLongest: 'Waiting longest',
+    searchPlaceholder: 'Search name, email, #number, messages',
+    searchClear: 'Clear search',
+    noResults: 'No conversations match your search',
+    noResultsHint: 'Try a different name, email, number or word.',
   },
 
   channel: {
@@ -128,6 +132,19 @@ export const en = {
     typing: '{name} is typing…',
     typingFallback: 'Visitor',
     visitorOnline: 'Online',
+    assignee: 'Assignee',
+    unassignedLabel: 'Unassigned',
+    assignToMe: 'Assign to me',
+    changeAssignee: 'Assign to…',
+    unassign: 'Unassign',
+    assignedToYou: 'You',
+    assignTitle: 'Assign conversation',
+    searchMembers: 'Search team members',
+    noMembers: 'No team members found.',
+    membersError: 'Could not load team members.',
+    assignError: 'Could not update the assignee.',
+    attachment: 'Attachment',
+    attachmentOpenError: 'Could not open this attachment.',
   },
 
   settings: {

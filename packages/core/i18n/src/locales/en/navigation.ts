@@ -211,6 +211,7 @@ export const navigation = {
         phoneSettings: 'Phone settings',
         helpCenter: 'Help Center',
         articles: 'Articles',
+        savedReplies: 'Saved replies',
       },
       weldmeet: {
         newMeeting: 'New Meeting',

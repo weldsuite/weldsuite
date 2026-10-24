@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, ChevronLeft, Loader2, Mail, Paperclip, X } from 'lucide-react';
-import type { ThreadMessage, WidgetConfigResponse } from '@/lib/api/types';
+import type { MessageAttachment, ThreadMessage, WidgetConfigResponse } from '@/lib/api/types';
 import { DRAFT_ID, type Messenger } from '@/hooks/use-messenger';
 import { cn } from '@/lib/utils/cn';
+import {
+  ATTACHMENT_ACCEPT,
+  MAX_MESSAGE_ATTACHMENTS,
+  attachmentProblem,
+  isImageAttachment,
+} from '@/lib/utils/attachments';
+import { MessageAttachments } from './message-attachments';
 import { Avatar, AvatarStack, TypingDots, clockTime, readableOn } from './parts';
 
 interface ConversationViewProps {
@@ -32,6 +39,17 @@ function eventText(message: ThreadMessage): string {
   if (message.eventType === 'assigned') return 'A teammate joined the conversation';
   return message.body || '';
 }
+
+/** A file the visitor picked: uploading, ready to send with the next message, or failed. */
+interface PendingFile {
+  key: string;
+  name: string;
+  status: 'uploading' | 'ready' | 'error';
+  attachment?: MessageAttachment;
+  error?: string;
+}
+
+let pendingCounter = 0;
 
 function EmailCapture({ messenger, color }: Readonly<{ messenger: Messenger; color: string }>) {
   const [email, setEmail] = useState('');
@@ -118,6 +136,8 @@ export function ConversationView({
   const title = assignee?.name ?? config.name ?? 'Support';
 
   const [draft, setDraft] = useState('');
+  const [pending, setPending] = useState<PendingFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -150,12 +170,63 @@ export function ConversationView({
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [draft]);
 
+  // Files can only be uploaded into a conversation that exists already.
+  const canAttach = !isDraft;
+  const readyAttachments = pending.flatMap((p) => (p.status === 'ready' && p.attachment ? [p.attachment] : []));
+  const uploading = pending.some((p) => p.status === 'uploading');
+  const canSend = !uploading && (draft.trim().length > 0 || readyAttachments.length > 0);
+
+  // A pending file belongs to the conversation it was uploaded into.
+  useEffect(() => {
+    setPending([]);
+  }, [conversationId]);
+
+  const addFiles = (files: FileList | null) => {
+    if (!files || !canAttach) return;
+    const room = MAX_MESSAGE_ATTACHMENTS - pending.length;
+    const entries: PendingFile[] = [];
+    const uploads: Array<{ key: string; file: File }> = [];
+    Array.from(files).forEach((file, index) => {
+      pendingCounter += 1;
+      const key = `f${pendingCounter}`;
+      const problem =
+        index >= room ? `You can attach up to ${MAX_MESSAGE_ATTACHMENTS} files` : attachmentProblem(file);
+      if (problem) {
+        entries.push({ key, name: file.name, status: 'error', error: problem });
+      } else {
+        entries.push({ key, name: file.name, status: 'uploading' });
+        uploads.push({ key, file });
+      }
+    });
+    setPending((prev) => [...prev, ...entries]);
+    for (const { key, file } of uploads) {
+      messenger
+        .uploadAttachment(conversationId, file)
+        .then((attachment) =>
+          setPending((prev) => prev.map((p) => (p.key === key ? { ...p, status: 'ready', attachment } : p))),
+        )
+        .catch((err: unknown) =>
+          setPending((prev) =>
+            prev.map((p) =>
+              p.key === key
+                ? { ...p, status: 'error', error: err instanceof Error ? err.message : 'Upload failed' }
+                : p,
+            ),
+          ),
+        );
+    }
+  };
+
+  const removePending = (key: string) => setPending((prev) => prev.filter((p) => p.key !== key));
+
   const submit = async () => {
+    if (!canSend) return;
     const body = draft.trim();
-    if (!body) return;
+    const attachments = readyAttachments;
     setDraft('');
+    setPending([]);
     stickRef.current = true;
-    const id = await messenger.send(conversationId, body);
+    const id = await messenger.send(conversationId, body, { attachments });
     if (isDraft && id) onCreated(id);
   };
 
@@ -243,6 +314,10 @@ export function ConversationView({
               const grouped = groupedWith(prev, message);
               const lastInGroup = !groupedWith(message, next);
               const author = message.authorName ?? 'Support';
+              const mediaOnly =
+                !message.body &&
+                !!message.attachments?.length &&
+                message.attachments.every((a) => isImageAttachment(a.contentType));
 
               return (
                 <div
@@ -258,27 +333,23 @@ export function ConversationView({
                     {!mine && !grouped && <span className="mb-1 ml-1 text-[11px] text-gray-500">{author}</span>}
                     <div
                       className={cn(
-                        'rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words',
-                        mine ? 'rounded-br-md' : 'rounded-bl-md bg-gray-100 text-gray-900',
+                        'text-sm whitespace-pre-wrap break-words rounded-2xl',
+                        // Pictures on their own don't need a coloured bubble around them.
+                        !mediaOnly && 'px-3.5 py-2.5',
+                        !mediaOnly && (mine ? 'rounded-br-md' : 'rounded-bl-md bg-gray-100 text-gray-900'),
                         message.status === 'sending' && 'opacity-70',
                         message.status === 'failed' && 'opacity-60',
                       )}
-                      style={mine ? { backgroundColor: color, color: onColor } : undefined}
+                      style={mine && !mediaOnly ? { backgroundColor: color, color: onColor } : undefined}
                       title={new Date(message.createdAt).toLocaleString()}
                     >
                       {message.body}
-                      {message.attachments?.map((attachment) => (
-                        <a
-                          key={attachment.url}
-                          href={attachment.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-1.5 flex items-center gap-1 text-xs underline underline-offset-2"
-                        >
-                          <Paperclip className="h-3 w-3" />
-                          {attachment.name}
-                        </a>
-                      ))}
+                      {message.attachments && message.attachments.length > 0 && (
+                        <MessageAttachments
+                          attachments={message.attachments}
+                          className={message.body ? 'mt-2' : undefined}
+                        />
+                      )}
                     </div>
                     {message.status === 'failed' ? (
                       <button
@@ -327,7 +398,68 @@ export function ConversationView({
         }}
         className="flex-shrink-0 p-3"
       >
-        <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-white pl-3.5 pr-1.5 py-1.5 focus-within:border-gray-300 focus-within:shadow-sm transition">
+        {pending.length > 0 && (
+          <ul className="mb-2 flex flex-wrap gap-1.5" data-testid="pending-attachments">
+            {pending.map((file) => (
+              <li
+                key={file.key}
+                title={file.error}
+                className={cn(
+                  'flex max-w-full items-center gap-1.5 rounded-full border py-1 pl-2.5 pr-1 text-xs',
+                  file.status === 'error'
+                    ? 'border-red-300 bg-red-50 text-red-600'
+                    : 'border-gray-200 bg-gray-50 text-gray-700',
+                )}
+              >
+                {file.status === 'uploading' ? (
+                  <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
+                ) : (
+                  <Paperclip className="h-3 w-3 flex-shrink-0" />
+                )}
+                <span className="min-w-0 max-w-[140px] truncate">
+                  {file.status === 'error' ? file.error : file.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removePending(file.key)}
+                  aria-label={`Remove ${file.name}`}
+                  className="rounded-full p-0.5 hover:bg-black/10"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-white pl-1.5 pr-1.5 py-1.5 focus-within:border-gray-300 focus-within:shadow-sm transition">
+          {canAttach ? (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ATTACHMENT_ACCEPT}
+                className="hidden"
+                data-testid="file-input"
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={pending.length >= MAX_MESSAGE_ATTACHMENTS}
+                aria-label="Attach a file"
+                data-testid="attach-button"
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <span className="w-2" aria-hidden="true" />
+          )}
           <textarea
             ref={inputRef}
             value={draft}
@@ -351,7 +483,7 @@ export function ConversationView({
           />
           <button
             type="submit"
-            disabled={!draft.trim()}
+            disabled={!canSend}
             aria-label="Send"
             data-testid="send-button"
             className="flex h-8 w-8 items-center justify-center rounded-full transition disabled:opacity-30"

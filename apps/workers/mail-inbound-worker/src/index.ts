@@ -177,7 +177,7 @@ async function emailHandler(
               console.log(`[Email] Accounting inbox: ${r.documentIds.length} documents created`);
             }
           }),
-          processHelpdeskInboxEmail(env, email).then((r) => {
+          processHelpdeskInboxEmail(env, email, attachments).then((r) => {
             if (r.processed) {
               console.log(`[Email] Helpdesk inbox: ${r.conversationIds.length} conversations updated/created`);
             }

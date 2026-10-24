@@ -6,7 +6,7 @@
  * generateId so workers keep their own id format.
  */
 
-import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
@@ -65,6 +65,14 @@ function previewOf(body: string | null | undefined): string | null {
   if (!body) return null;
   const trimmed = body.replace(/\s+/g, ' ').trim();
   return trimmed.length > 200 ? `${trimmed.slice(0, 197)}…` : trimmed;
+}
+
+/** List preview for a message that is only files: "📎 name" (+N more). */
+function attachmentPreviewOf(attachments: DeskMessageAttachment[] | undefined): string | null {
+  const [first] = attachments ?? [];
+  if (!first || !attachments) return null;
+  const more = attachments.length > 1 ? ` +${attachments.length - 1}` : '';
+  return previewOf(`📎 ${first.name}${more}`);
 }
 
 async function nextConversationNumber(db: AnyDb): Promise<number> {
@@ -135,6 +143,7 @@ export interface CreateDeskConversationInput {
   contactId?: string | null;
   title?: string | null;
   body: string;
+  attachments?: DeskMessageAttachment[];
   authorType?: DeskAuthorType;
   authorId?: string | null;
   metadata?: DeskMessageMetadata;
@@ -185,6 +194,7 @@ export async function createDeskConversation(
     authorType,
     authorId: input.authorId ?? input.visitorId,
     body: input.body,
+    attachments: input.attachments,
     metadata: input.metadata,
   });
 }
@@ -230,7 +240,8 @@ function progressAfterMessage(
   const next: DeskConversationProgress = {
     ...progressOf(current),
     lastMessageAt: now,
-    lastMessagePreview: previewOf(input.body) ?? current.lastMessagePreview,
+    lastMessagePreview:
+      previewOf(input.body) ?? attachmentPreviewOf(input.attachments) ?? current.lastMessagePreview,
   };
   if (input.authorType === 'visitor') {
     next.waitingSince = now;
@@ -405,9 +416,38 @@ export interface ListDeskConversationsQuery {
   unassigned?: boolean;
   channel?: DeskChannel;
   visitorId?: string;
+  /** Exact (case-insensitive) customer email, for "other conversations". */
+  email?: string;
+  /** Free text over customer, subject, number and message text. */
+  q?: string;
   sort?: 'newest' | 'oldest' | 'waiting_longest';
   cursor?: string;
   limit?: number;
+}
+
+/** `%term%` for ILIKE, with the user's own `%`, `_` and `\` taken literally. */
+function likePattern(term: string): string {
+  return `%${term.replaceAll(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
+/**
+ * Inbox search: customer name / email, subject, last preview, the
+ * conversation number ("#42" or "42") and the text of any message or note.
+ */
+function searchCondition(q: string | undefined): SQL | undefined {
+  const term = q?.trim();
+  if (!term) return undefined;
+  const pattern = likePattern(term);
+  const parts: SQL[] = [
+    sql`${conversations.name} ILIKE ${pattern}`,
+    sql`${conversations.email} ILIKE ${pattern}`,
+    sql`${conversations.title} ILIKE ${pattern}`,
+    sql`${conversations.lastMessagePreview} ILIKE ${pattern}`,
+    sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${messages.conversationId} = ${conversations.id} AND ${messages.kind} <> 'event' AND ${messages.body} ILIKE ${pattern})`,
+  ];
+  const number = /^#?(\d{1,9})$/.exec(term);
+  if (number) parts.push(eq(conversations.conversationNumber, Number(number[1])));
+  return or(...parts);
 }
 
 function conversationOrderBy(sort: ListDeskConversationsQuery['sort']) {
@@ -431,6 +471,9 @@ export async function listDeskConversations(
   if (query.unassigned) filters.push(isNull(conversations.assigneeId));
   if (query.channel) filters.push(eq(conversations.channel, query.channel));
   if (query.visitorId) filters.push(eq(conversations.visitorId, query.visitorId));
+  if (query.email) filters.push(sql`lower(${conversations.email}) = ${query.email.trim().toLowerCase()}`);
+  const search = searchCondition(query.q);
+  if (search) filters.push(search);
 
   const where = filters.length > 0 ? and(...filters) : undefined;
 
@@ -759,6 +802,8 @@ export interface IngestDeskEmailInput {
   toAddress: string;
   subject: string;
   body: string;
+  /** Files from the email, already stored where the inbox can open them. */
+  attachments?: DeskMessageAttachment[];
   rfcMessageId: string;
   inReplyTo?: string | null;
   references?: string[];
@@ -804,6 +849,7 @@ export async function ingestDeskEmail(
       authorType: 'visitor',
       authorId: visitor.id,
       body: input.body,
+      attachments: input.attachments,
       metadata: {
         ...emailMeta,
         emailThreadMessageId: undefined,
@@ -820,6 +866,7 @@ export async function ingestDeskEmail(
     email: fromEmail,
     title,
     body: input.body,
+    attachments: input.attachments,
     authorType: 'visitor',
     authorId: visitor.id,
     metadata: emailMeta,

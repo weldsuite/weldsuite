@@ -7,6 +7,7 @@ import { ConversationList, type InboxAssigneeFilter } from './conversation-list'
 import { ConversationPane } from './conversation-pane';
 import { EmptyConversationPane } from './empty-conversation-pane';
 import { useDeskInboxLive } from '@/hooks/welddesk/use-desk-live';
+import { useDebounce } from '@/hooks/use-debounce';
 
 const RESERVED_INBOX_SEGMENTS = new Set([
   'all',
@@ -41,6 +42,8 @@ export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>)
   const [state, setState] = useState<DeskConversationState>('open');
   const [sort, setSort] = useState<DeskConversationSort>('newest');
   const [assigneeFilter, setAssigneeFilter] = useState<InboxAssigneeFilter>('all');
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
 
   // One hub subscription for the whole inbox: list + open thread stay live.
   useDeskInboxLive();
@@ -53,12 +56,13 @@ export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>)
   const activeChannel = channel ?? channelFromSegment;
 
   const filters = useMemo(() => {
-    const base: { assigneeId?: string; unassigned?: boolean; channel?: InboxChannel } = {};
+    const base: { assigneeId?: string; unassigned?: boolean; channel?: InboxChannel; q?: string } = {};
     if (assigneeFilter === 'mine' && user?.id) base.assigneeId = user.id;
     if (assigneeFilter === 'unassigned') base.unassigned = true;
     if (activeChannel) base.channel = activeChannel;
+    if (debouncedSearch.trim()) base.q = debouncedSearch.trim();
     return base;
-  }, [assigneeFilter, user?.id, activeChannel]);
+  }, [assigneeFilter, user?.id, activeChannel, debouncedSearch]);
 
   const handleSelect = (id: string) => {
     if (activeChannel === 'phone') {
@@ -80,6 +84,7 @@ export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>)
             onSortChange={setSort}
             assigneeFilter={assigneeFilter}
             onAssigneeFilterChange={setAssigneeFilter}
+            onSearchChange={setSearch}
             selectedId={selectedId}
             onSelect={handleSelect}
           />

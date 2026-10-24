@@ -5,6 +5,7 @@ import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { DeskConversation, DeskMessage } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
+import { formatFileSize } from './attachments';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -221,19 +222,31 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
                   >
                     {message.body}
                     {message.attachments && message.attachments.length > 0 && (
-                      <div className="mt-2 flex flex-col gap-1">
-                        {message.attachments.map((attachment) => (
-                          <a
-                            key={attachment.url}
-                            href={attachment.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
-                          >
-                            <Paperclip className="h-3 w-3" />
-                            {attachment.name}
-                          </a>
-                        ))}
+                      <div className={cn('flex flex-col gap-1', message.body && 'mt-2')}>
+                        {message.attachments.map((attachment) =>
+                          attachment.contentType.startsWith('image/') ? (
+                            <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" title={attachment.name}>
+                              <img
+                                src={attachment.url}
+                                alt={attachment.name}
+                                loading="lazy"
+                                className="max-h-48 max-w-full rounded-lg object-cover"
+                              />
+                            </a>
+                          ) : (
+                            <a
+                              key={attachment.url}
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+                            >
+                              <Paperclip className="h-3 w-3 flex-shrink-0" />
+                              <span className="truncate">{attachment.name}</span>
+                              <span className="opacity-70 no-underline">· {formatFileSize(attachment.filesize)}</span>
+                            </a>
+                          ),
+                        )}
                       </div>
                     )}
                   </div>

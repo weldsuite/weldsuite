@@ -148,11 +148,99 @@ app.get('/:id', requirePermission('conversations:read'), zValidator('query', get
   }
 });
 
+/**
+ * Files agents attach. Same passive allow-list as widget uploads: the object
+ * is served from the public bucket domain, so SVG or HTML would run script
+ * on that host.
+ */
+const ATTACHMENT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/** Object name the upload route generates; no `/`, `..`, `?` or `#` can sneak in. */
+const UPLOADED_NAME = /^\d+_att_[A-Za-z0-9]+_[A-Za-z0-9._-]+$/;
+
+/** Where a conversation's agent files live: R2 key prefix and its public URL. */
+function attachmentLocation(env: Env, workspaceId: string, conversationId: string) {
+  if (!env.R2_PUBLIC_URL) return null;
+  const keyPrefix = `desk/${workspaceId}/${conversationId}/`;
+  return { keyPrefix, urlPrefix: `${env.R2_PUBLIC_URL.replace(/\/+$/, '')}/${keyPrefix}` };
+}
+
+app.post('/:id/attachments', requirePermission('conversations:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const location = attachmentLocation(c.env, c.get('workspaceId'), id);
+  if (!c.env.STORAGE || !location) return error.unavailable(c, 'File upload is not configured');
+
+  const [exists] = await db
+    .select({ id: schema.deskConversations.id })
+    .from(schema.deskConversations)
+    .where(eq(schema.deskConversations.id, id))
+    .limit(1);
+  if (!exists) return error.notFound(c, 'Conversation', id);
+
+  let file: File | string | null;
+  try {
+    file = (await c.req.formData()).get('file') as File | string | null;
+  } catch {
+    return error.badRequest(c, 'Expected multipart form data with a file');
+  }
+  if (!file || typeof file === 'string') return error.badRequest(c, 'No file provided');
+  if (file.size > MAX_ATTACHMENT_BYTES) return error.badRequest(c, 'File too large (max 10 MB)');
+  if (!ATTACHMENT_TYPES.has(file.type)) return error.badRequest(c, `File type not allowed: ${file.type || 'unknown'}`);
+
+  const safeName = file.name.replaceAll(/[^a-zA-Z0-9.\-_]/g, '_').slice(-120) || 'file';
+  const fileName = `${Date.now()}_${generateId('att')}_${safeName}`;
+  try {
+    await c.env.STORAGE.put(`${location.keyPrefix}${fileName}`, await file.arrayBuffer(), {
+      httpMetadata: { contentType: file.type, contentDisposition: `inline; filename="${safeName}"` },
+    });
+  } catch (err) {
+    console.error('[desk-api/desk-conversations] attachment upload failed:', err);
+    return error.internal(c, 'Failed to upload file');
+  }
+
+  return success(
+    c,
+    {
+      name: file.name.slice(0, 255) || safeName,
+      url: `${location.urlPrefix}${fileName}`,
+      contentType: file.type,
+      filesize: file.size,
+    },
+    201,
+  );
+});
+
 app.post('/:id/reply', requirePermission('conversations:update'), zValidator('json', replyToConversationSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const id = c.req.param('id');
   const data = c.req.valid('json');
+  if (data.attachments?.length) {
+    // Only files uploaded to this conversation: a reply must not make the
+    // inbox (or the customer's email) link to an arbitrary URL.
+    const location = attachmentLocation(c.env, c.get('workspaceId'), id);
+    const owned = (url: string) =>
+      location !== null &&
+      url.startsWith(location.urlPrefix) &&
+      UPLOADED_NAME.test(url.slice(location.urlPrefix.length));
+    if (!location || data.attachments.some((a) => !owned(a.url))) {
+      return error.badRequest(c, 'Attachments must be uploaded to this conversation first');
+    }
+  }
   try {
     const { conversation, message } = await appendDeskMessage(db, {
       generateId,
@@ -160,7 +248,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       kind: data.kind,
       authorType: 'agent',
       authorId: userId,
-      body: data.body,
+      body: data.body || null,
       attachments: data.attachments,
     });
     publishEntityEvent({

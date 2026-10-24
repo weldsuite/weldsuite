@@ -19,6 +19,8 @@ import {
   DeskConversationNotFoundError,
   type DeskConversation,
 } from '@weldsuite/db/lib/desk';
+import type { DeskMessageAttachment } from '@weldsuite/db/schema/desk-messages';
+import { MAX_MESSAGE_ATTACHMENTS, resolveVisitorAttachments } from '../lib/attachments';
 import type { Env, Variables } from '../index';
 import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
@@ -53,11 +55,26 @@ const startSchema = z.object({
   clientId: clientIdSchema,
 });
 
-const sendSchema = z.object({
-  visitorId: visitorIdSchema,
-  body: z.string().trim().min(1).max(10_000),
-  clientId: clientIdSchema,
+const attachmentSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  url: z.string().max(2048),
+  contentType: z.string().max(255),
+  filesize: z.number().int().nonnegative(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
 });
+
+const sendSchema = z
+  .object({
+    visitorId: visitorIdSchema,
+    body: z.string().trim().max(10_000).optional(),
+    attachments: z.array(attachmentSchema).max(MAX_MESSAGE_ATTACHMENTS).optional(),
+    clientId: clientIdSchema,
+  })
+  .refine((data) => Boolean(data.body) || (data.attachments?.length ?? 0) > 0, {
+    message: 'A message needs text or at least one attachment',
+    path: ['body'],
+  });
 
 const visitorQuerySchema = z.object({ visitorId: visitorIdSchema });
 
@@ -200,13 +217,22 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
       return error.notFound(c, 'Conversation', id);
     }
 
+    // Files must be ones this worker stored for this very conversation.
+    let attachments: DeskMessageAttachment[] | undefined;
+    if (data.attachments?.length) {
+      const resolved = await resolveVisitorAttachments(c.env, orgId, id, data.attachments);
+      if (!resolved.ok) return error.badRequest(c, resolved.message);
+      attachments = resolved.attachments;
+    }
+
     const { conversation, message } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: 'message',
       authorType: 'visitor',
       authorId: data.visitorId,
-      body: data.body,
+      body: data.body || null,
+      attachments,
       metadata: data.clientId ? { clientId: data.clientId } : undefined,
     });
 

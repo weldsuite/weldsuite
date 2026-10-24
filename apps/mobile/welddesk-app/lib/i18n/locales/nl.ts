@@ -95,6 +95,10 @@ export const nl: Translations = {
     newest: 'Nieuwste',
     oldest: 'Oudste',
     waitingLongest: 'Langst wachtend',
+    searchPlaceholder: 'Zoek naam, e-mail, #nummer, berichten',
+    searchClear: 'Zoekopdracht wissen',
+    noResults: 'Geen gesprekken gevonden',
+    noResultsHint: 'Probeer een andere naam, e-mail, nummer of woord.',
   },
 
   channel: {
@@ -130,6 +134,19 @@ export const nl: Translations = {
     typing: '{name} typt…',
     typingFallback: 'Bezoeker',
     visitorOnline: 'Online',
+    assignee: 'Toegewezen aan',
+    unassignedLabel: 'Niet toegewezen',
+    assignToMe: 'Aan mij toewijzen',
+    changeAssignee: 'Toewijzen aan…',
+    unassign: 'Toewijzing opheffen',
+    assignedToYou: 'Jij',
+    assignTitle: 'Gesprek toewijzen',
+    searchMembers: 'Zoek teamleden',
+    noMembers: 'Geen teamleden gevonden.',
+    membersError: 'Teamleden laden mislukt.',
+    assignError: 'Toewijzen mislukt.',
+    attachment: 'Bijlage',
+    attachmentOpenError: 'Bijlage openen mislukt.',
   },
 
   settings: {

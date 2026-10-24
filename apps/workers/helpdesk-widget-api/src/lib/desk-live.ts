@@ -57,6 +57,16 @@ export async function resolveAuthors(
 
 export const toPublicMessage = toPublicDeskMessage;
 
+/** Plain-text summary of a message for previews and notifications: its body, or its file names. */
+function messageText(message: DeskMessage): string {
+  const body = (message.body ?? '').trim();
+  if (body) return body;
+  const files = message.attachments ?? [];
+  if (files.length === 0) return '';
+  const more = files.length > 1 ? ` +${files.length - 1}` : '';
+  return `📎 ${files[0].name}${more}`;
+}
+
 /** Push a new visitor message to the conversation room and the agents' inbox. */
 export async function publishVisitorMessage(
   env: Env,
@@ -73,7 +83,7 @@ export async function publishVisitorMessage(
     rt.conversationPublish(conversation.id, {
       type: 'message',
       id: message.id,
-      content: message.body ?? '',
+      content: messageText(message),
       senderId: `visitor:${message.authorId ?? ''}`,
       senderName: visitorName,
       senderType: 'visitor',
@@ -146,7 +156,7 @@ export async function notifyTeamOfVisitorMessage(params: {
   const { env, db, orgId, conversation, message, visitorName, isNewConversation } = params;
   try {
     const recipients = await notificationRecipients(db, conversation);
-    const preview = (message.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 180);
+    const preview = messageText(message).replace(/\s+/g, ' ').trim().slice(0, 180);
     const title = isNewConversation
       ? `New conversation from ${visitorName}`
       : `${visitorName} replied`;
