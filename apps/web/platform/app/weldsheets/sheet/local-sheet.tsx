@@ -27,6 +27,8 @@ export function LocalSheet({ sheetId }: { sheetId: string }) {
   const dirty = useRef(false);
   const languageRef = useRef(language);
   languageRef.current = language;
+  const stringsRef = useRef(tw);
+  stringsRef.current = tw;
   const scheduleRef = useRef(() => {});
 
   useEffect(() => {
@@ -44,6 +46,7 @@ export function LocalSheet({ sheetId }: { sheetId: string }) {
         locale: locale.format,
         formulaLocale: locale.formula,
         onOp: () => scheduleRef.current(),
+        onInputRefused: (rule) => toast.error(rule.help ?? stringsRef.current.validation.refused),
       });
       setName(result.meta.name);
       setController(ctl);

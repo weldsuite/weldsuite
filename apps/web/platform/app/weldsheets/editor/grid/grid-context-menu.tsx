@@ -130,6 +130,9 @@ export function GridContextMenu({ controller, children }: { controller: SheetCon
             {tm.clearContents}
             <ContextMenuShortcut>Del</ContextMenuShortcut>
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => controller.openPanel('formats')}>{t.weldsheets.data.conditionalFormatting}</ContextMenuItem>
+          <ContextMenuItem onSelect={() => controller.openPanel('validation')}>{t.weldsheets.data.dataValidation}</ContextMenuItem>
         </ContextMenuContent>
       )}
     </ContextMenu>

@@ -46,7 +46,8 @@ worker that reads or writes sheets (exports, data refresh, agent tools).
   `INDIRECT`, `OFFSET`) recalc on every pass.
 - **Operations**: every edit is a serialisable op (`setCells`, `setStyle`,
   `insertDims`, `deleteDims`, `moveDims`, `resizeDims`, `addSheet`, `merge`,
-  `setFreeze`, …). `apply` returns the inverse op (undo), and
+  `setFreeze`, `setFilter`, `patchConditionalFormats`, `patchValidations`, …).
+  `apply` returns the inverse op (undo), and
   `transform(a, b)` resolves concurrent ops, including rewriting formula
   references inside an op when rows or columns shift under it.
 - **Formats**: Excel number format codes (parse + render), date serials, and
@@ -198,6 +199,38 @@ Still proposed (each needs approval before a migration):
 - `sheet` entity events: created, updated (rename, and content at each
   checkpoint), deleted.
 
+**Phase 4 (sort, filter, conditional formatting, data validation): done.**
+Freeze and merge came with phase 2.
+
+- Engine `model/rules.ts` and `rules/evaluate.ts`: one `Condition` type
+  (empty, text, number comparisons, between, custom formula) shared by
+  filters, conditional formats and validation rules. Rules are part of the
+  sheet and its snapshot, changed by three new ops (`setFilter`,
+  `patchConditionalFormats`, `patchValidations`, the last two by rule id) with
+  inverses, transforms and shape checks. Rule ranges and formulas follow row
+  and column inserts, deletes and moves; undoing one brings back what it
+  trimmed.
+- Filter: one per sheet, its first row the header; per column, values to hide
+  and/or a condition. Filtered rows are derived, not stored: they are worked
+  out again after every recalculation, so a filter follows the data live.
+  SUBTOTAL and AGGREGATE now skip hidden rows as in Excel (SUBTOTAL 1–11
+  skips filtered rows, 101–111 manually hidden ones too) and nested subtotals.
+- Sort: worked out in the client (`sortRangeOp`) and sent as plain cell and
+  style writes, so it co-edits like a paste and undoes exactly. Formulas move
+  like copied formulas, as in Excel. Blanks go last; numbers, then text,
+  booleans, errors. A range with merged cells is not sorted.
+- Conditional formatting: a condition with a style (fill, text colour, bold,
+  italic, underline, strikethrough), or a colour scale of two or three points.
+  Rules are ordered; the first that matches a cell wins.
+- Data validation: dropdown (listed items or a range), checkbox, or a
+  condition; invalid input is rejected or marked. A rejected entry keeps the
+  cell editor open with a message; formula results and pasted values are only
+  marked. Checkboxes toggle by click or Space.
+- Editor: filter buttons with a menu (sort, filter by condition, by values
+  with search), toolbar (filter, sort A→Z / Z→A, a sort dialog with several
+  keys), side panels for conditional formatting and data validation, and
+  right-click entries for both.
+
 Known gaps, to pick up in later phases:
 
 - Autofill (dragging the fill handle) and auto-fit on double-clicking a
@@ -213,8 +246,8 @@ Known gaps, to pick up in later phases:
   (phase 9: incremental).
 - Spilled arrays are not persisted, so every formula is evaluated on load
   (phase 9: store spills in the snapshot).
-- SUBTOTAL/AGGREGATE do not skip hidden rows yet: the eval host has no row
-  visibility (phase 4, with filters).
+- One filter per sheet; no filter views or slicers. Ctrl+Enter and paste
+  write past a strict validation rule (the values are marked).
 - No multi-area references (`(A1:B2,C3)`), structured table references, or
   LET/LAMBDA.
 - Lookups lifted over many values rescan the key column each time; a
