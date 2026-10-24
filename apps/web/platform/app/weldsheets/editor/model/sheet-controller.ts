@@ -17,7 +17,12 @@ import {
   conditionalStyleAt,
   passesValidation,
   validationAt,
+  chartData,
+  pivotTableAt,
+  pivotTablesOn,
   type BorderSide,
+  type Chart,
+  type ChartData,
   type CellPatch,
   type ConditionalStyle,
   type DataValidation,
@@ -27,6 +32,8 @@ import {
   type FormulaLocale,
   type Op,
   type Peer,
+  type PivotTable,
+  type PivotTableLayout,
   type Presence,
   type Range,
   type Scalar,
@@ -63,6 +70,12 @@ interface UndoEntry {
 
 export type BorderKind = 'all' | 'outer' | 'inner' | 'top' | 'bottom' | 'left' | 'right' | 'none';
 
+/** The side panels of the editor. */
+export type SidePanel = 'formats' | 'validation' | 'chart' | 'pivot' | null;
+
+/** A pivot table on the active sheet, with the number format each of its values shows in. */
+type PivotOutput = PivotTableLayout & { formats: (string | undefined)[] };
+
 export interface ControllerOptions {
   locale: FormatLocale;
   formulaLocale: FormulaLocale;
@@ -93,10 +106,14 @@ export class SheetController {
   editing: EditState | null = null;
   /** Without edit rights (sheets:update) a sheet can be read, selected and copied, not changed. */
   readOnly = false;
-  /** The side panel the editor shows (conditional formatting, data validation). */
-  panel: 'formats' | 'validation' | null = null;
+  /** The side panel the editor shows. */
+  panel: SidePanel = null;
+  /** The chart picked on the grid: moved, resized and deleted there, edited in the chart panel. */
+  selectedChart: string | null = null;
   /** Bumped on every change; the React snapshot. */
   version = 0;
+  /** Bumped when the workbook changes (not the selection or a panel): what the memos of charts and pivot tables key on. */
+  private contentVersion = 0;
   /** Other people in a co-edited sheet, with where they are (drawn on the grid). */
   peers: Peer[] = [];
   /** When each of them last moved (epoch ms): their name shows for a moment after. */
@@ -143,10 +160,100 @@ export class SheetController {
 
   /** Rule results for the current version (the renderer asks per visible cell). */
   private ruleMemo: { version: number; formats: FormatCache; styles: Map<number, ConditionalStyle | undefined> } | null = null;
+  /** Per sheet: chart ids are only unique within one (an imported file numbers them per sheet). */
+  private chartMemo: { version: number; sheetId: string; data: Map<string, ChartData> } | null = null;
+  private pivotMemo: { version: number; sheetId: string; tables: PivotOutput[] } | null = null;
 
-  openPanel(panel: 'formats' | 'validation' | null): void {
+  openPanel(panel: SidePanel): void {
     this.panel = panel;
     this.emit();
+  }
+
+  /** Picks a chart (null: none); the chart panel goes with it. */
+  selectChart(id: string | null): void {
+    this.selectedChart = id;
+    if (id === null && this.panel === 'chart') this.panel = null;
+    this.emit();
+  }
+
+  /** The picked chart, while it is on the active sheet. */
+  get chart(): Chart | undefined {
+    return this.selectedChart ? this.sheet.charts.find((c) => c.id === this.selectedChart) : undefined;
+  }
+
+  /** What a chart on the active sheet shows now (the renderer asks on every draw). */
+  chartData(chart: Chart): ChartData {
+    let memo = this.chartMemo;
+    if (memo?.version !== this.contentVersion || memo.sheetId !== this.activeSheetId) {
+      memo = { version: this.contentVersion, sheetId: this.activeSheetId, data: new Map() };
+      this.chartMemo = memo;
+    }
+    let data = memo.data.get(chart.id);
+    if (!data) {
+      data = chartData(this.engine, this.activeSheetId, chart);
+      memo.data.set(chart.id, data);
+    }
+    return data;
+  }
+
+  /** The pivot table the active cell holds or shows part of (the pivot editor edits it). */
+  get pivot(): PivotTable | null {
+    const { row, col } = this.selection.active;
+    return pivotTableAt(this.engine, this.activeSheetId, row, col);
+  }
+
+  /**
+   * A cell's style: its own, over what a pivot table gives its output (bold
+   * headings and totals, the number format of the field a value sums).
+   */
+  cellStyle(row: number, col: number): CellStyle | undefined {
+    const own = this.engine.workbook.style(this.sheet, row, col);
+    const pivot = this.pivotStyle(row, col);
+    return pivot ? { ...pivot, ...own } : own;
+  }
+
+  private pivotStyle(row: number, col: number): CellStyle | undefined {
+    for (const t of this.pivotTables()) {
+      const a = t.area;
+      if (row < a.r1 || row > a.r2 || col < a.c1 || col > a.c2) continue;
+      const i = row - a.r1;
+      const value = t.layout.valueOf[col - a.c1] ?? -1;
+      const style: CellStyle = {};
+      if (i < t.layout.headerRows || t.layout.totalRows.includes(i)) style.bold = true;
+      const numFmt = value >= 0 && i >= t.layout.headerRows ? t.formats[value] : undefined;
+      if (numFmt) style.numFmt = numFmt;
+      return style;
+    }
+    return undefined;
+  }
+
+  /** The pivot tables on the active sheet with their layout, worked out once per change. */
+  private pivotTables(): PivotOutput[] {
+    const memo = this.pivotMemo;
+    if (memo?.version === this.contentVersion && memo.sheetId === this.activeSheetId) return memo.tables;
+    const tables = pivotTablesOn(this.engine, this.activeSheetId).map((t) => ({ ...t, formats: this.valueFormats(t) }));
+    this.pivotMemo = { version: this.contentVersion, sheetId: this.activeSheetId, tables };
+    return tables;
+  }
+
+  /** For each value of a pivot table, the number format of its field's first value (none for counts). */
+  private valueFormats(t: PivotTableLayout): (string | undefined)[] {
+    const source = t.source!;
+    const sheet = this.engine.workbook.getSheet(source.sheetId);
+    if (!sheet) return [];
+    const { r1, c1, c2 } = source.range;
+    const fieldCol = (field: string) => {
+      for (let c = c1; c <= c2; c++) {
+        const name = this.engine.getValue(source.sheetId, r1, c);
+        if (typeof name === 'string' && name.trim().toLowerCase() === field.trim().toLowerCase()) return c;
+      }
+      return -1;
+    };
+    return t.spec.values.map((v) => {
+      if (v.fn === 'COUNT' || v.fn === 'COUNTA' || v.fn === 'COUNTUNIQUE') return undefined;
+      const col = fieldCol(v.field);
+      return col < 0 ? undefined : this.engine.workbook.style(sheet, r1 + 1, col)?.numFmt;
+    });
   }
 
   /** The conditional formatting a cell gets right now, if any. */
@@ -268,6 +375,7 @@ export class SheetController {
   }
 
   private run(op: Op): Op {
+    this.contentVersion++;
     return this.options.applyOp ? this.options.applyOp(op) : applyOp(this.engine, op);
   }
 
@@ -300,6 +408,7 @@ export class SheetController {
 
   /** Keeps the active sheet and selection valid after a change this user did not make. */
   private afterOutsideChange(): void {
+    this.contentVersion++;
     this.ensureActiveSheet();
     const sheet = this.sheet;
     const { active } = this.selection;
@@ -341,12 +450,30 @@ export class SheetController {
     this.selections.set(this.activeSheetId, this.selection);
     this.activeSheetId = sheetId;
     this.selection = this.selections.get(sheetId) ?? cellSelection(0, 0);
+    this.dropChart();
+    this.followPivot();
     this.emit();
   }
 
+  /** Selecting cells puts a picked chart down, and opens the pivot editor on a pivot table. */
   select(selection: Selection): void {
     this.selection = selection;
+    this.dropChart();
+    this.followPivot();
     this.emit();
+  }
+
+  /** The pivot editor comes up on a pivot table's cells and goes off them; other panels stay. */
+  private followPivot(): void {
+    if (this.panel !== null && this.panel !== 'pivot') return;
+    const { row, col } = this.selection.active;
+    this.panel = pivotTableAt(this.engine, this.activeSheetId, row, col) ? 'pivot' : null;
+  }
+
+  private dropChart(): void {
+    if (this.selectedChart === null) return;
+    this.selectedChart = null;
+    if (this.panel === 'chart') this.panel = null;
   }
 
   /** Arrow keys: move (or with `extend`, grow the selection); `jump` goes to the edge of the data. */
@@ -787,8 +914,7 @@ export class SheetController {
   displayText(row: number, col: number): { text: string; color?: string } {
     const value = this.engine.getValue(this.activeSheetId, row, col);
     if (value === null) return { text: '' };
-    const style = this.engine.workbook.style(this.sheet, row, col);
-    return formatValue(value, style?.numFmt, this.options.locale);
+    return formatValue(value, this.cellStyle(row, col)?.numFmt, this.options.locale);
   }
 
   /** Sum / average / count of the numbers in the selection (status bar). */
