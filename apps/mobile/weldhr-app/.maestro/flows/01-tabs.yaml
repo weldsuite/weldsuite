@@ -9,7 +9,8 @@ tags: [smoke]
     timeout: 30000
 - tapOn:
     id: tab-time-off
-- assertVisible: "Requests|No requests yet"
+# Either the request list, or why My HR is empty for this account.
+- assertVisible: "Requests|No requests yet|No employee record yet|My HR is not available"
 - tapOn:
     id: tab-expenses
 - assertVisible: "Expenses"
