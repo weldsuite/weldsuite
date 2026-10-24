@@ -426,7 +426,11 @@ export async function deleteChecklist(db: Database, checklistId: string) {
   await restoreStatusAfterOffboarding(db, existing);
 }
 
-/** Seed a sensible first onboarding + offboarding template for a new workspace. */
+/**
+ * Seed a sensible first onboarding + offboarding template for a new workspace.
+ * The rows have fixed ids and the insert skips ids that exist, so requests
+ * racing on a fresh workspace (both probes see nothing) still seed one set.
+ */
 export async function ensureDefaultTemplates(db: Database) {
   const [existing] = await db.select({ id: tpl.id }).from(tpl).where(isNull(tpl.deletedAt)).limit(1);
   if (existing) return;
@@ -439,7 +443,7 @@ export async function ensureDefaultTemplates(db: Database) {
   });
   await db.insert(tpl).values([
     {
-      id: generateId('hrctp'),
+      id: 'hrctp_default_onboarding',
       name: 'Standard onboarding',
       kind: 'onboarding',
       isDefault: true,
@@ -455,7 +459,7 @@ export async function ensureDefaultTemplates(db: Database) {
       ],
     },
     {
-      id: generateId('hrctp'),
+      id: 'hrctp_default_offboarding',
       name: 'Standard offboarding',
       kind: 'offboarding',
       isDefault: true,
@@ -468,5 +472,5 @@ export async function ensureDefaultTemplates(db: Database) {
         item('Final pay and documents', 'hr', 7),
       ],
     },
-  ]);
+  ]).onConflictDoNothing();
 }
