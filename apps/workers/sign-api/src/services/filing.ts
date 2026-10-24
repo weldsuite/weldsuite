@@ -18,7 +18,7 @@
  * never touches WeldSign's signed PDF, or the other copy.
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { createFile } from '@weldsuite/core-domain/files';
 import { ensureOwnedFolder } from '@weldsuite/core-domain/folders';
@@ -30,7 +30,7 @@ import type { Env } from '../types';
 import { recordSignEvent } from './events';
 import { sourceName } from './sources';
 
-const { signEnvelopes, signEvents, signRecipients, folders, crmOpportunities } = schema;
+const { signEnvelopes, signEvents, signRecipients, folders, files, crmOpportunities, crmActivities } = schema;
 
 /** The default folder in the sender's Drive; a subfolder per year sits under it. */
 export const DEFAULT_FOLDER_NAME = 'WeldSign';
@@ -116,12 +116,41 @@ async function publish(ctx: FilingContext, entityType: 'file' | 'folder' | 'acti
   });
 }
 
+/** Which copy a `files` row is (`metadata.weldsign.copy`). */
+type CopyKind = 'drive' | 'record';
+
+/** A copy an earlier, interrupted run already made: a retry reuses it instead of making another. */
+async function existingCopy(db: Database, envelopeId: string, copy: CopyKind) {
+  const [row] = await db
+    .select()
+    .from(files)
+    .where(
+      and(
+        isNull(files.deletedAt),
+        sql`${files.metadata}->'weldsign'->>'envelopeId' = ${envelopeId}`,
+        sql`${files.metadata}->'weldsign'->>'copy' = ${copy}`,
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** The note an earlier run already logged: it lists the record copy among its attachments. */
+async function existingNote(db: Database, recordFileId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: crmActivities.id })
+    .from(crmActivities)
+    .where(sql`${crmActivities.attachments} @> ${JSON.stringify([recordFileId])}::jsonb`)
+    .limit(1);
+  return row?.id ?? null;
+}
+
 /** Store one copy of the PDF under its own key and record it as a `files` row. */
 async function storeCopy(
   ctx: FilingContext,
   envelope: SignEnvelope,
   pdf: Uint8Array,
-  sha256: string | null,
+  copy: CopyKind,
   place: { folderId: string | null; entityType?: 'company' | 'person'; entityId?: string },
 ) {
   const key = `workspaces/${ctx.clerkOrgId}/weldsign/${envelope.id}/copies/${crypto.randomUUID()}.pdf`;
@@ -139,7 +168,7 @@ async function storeCopy(
     entityType: place.entityType,
     entityId: place.entityId ?? null,
     uploadedById: envelope.senderUserId,
-    metadata: { weldsign: { envelopeId: envelope.id, sha256 } },
+    metadata: { weldsign: { envelopeId: envelope.id, copy, sha256: envelope.finalSha256 } },
   });
   await publish(ctx, 'file', file.id, {
     id: file.id,
@@ -171,6 +200,7 @@ async function logActivity(
   ctx: FilingContext,
   envelope: SignEnvelope,
   record: { type: 'company' | 'person'; id: string; opportunityId: string | null },
+  recordFileId: string,
   now: Date,
 ): Promise<string> {
   const names = await signerNames(ctx.db, envelope.id);
@@ -188,6 +218,8 @@ async function logActivity(
       personId: record.type === 'person' ? record.id : undefined,
       opportunityId: record.opportunityId ?? undefined,
       status: 'completed',
+      // The signed copy on the record; also how a retry recognises this note.
+      attachments: [recordFileId],
     },
     envelope.senderUserId,
   );
@@ -197,8 +229,9 @@ async function logActivity(
 
 /**
  * File a completed request's signed PDF. Returns where it went; null when the
- * request is not completed yet. A second run finds the `filed` event and
- * does nothing.
+ * request is not completed yet. Each part is made once: a run that stopped
+ * half way (the Workflow retries the step) reuses the copies and the note it
+ * already made, and once the `filed` event exists nothing runs again.
  */
 export async function fileSignedPdf(ctx: FilingContext, envelopeId: string, now = new Date()): Promise<SignFilingDto | null> {
   const [envelope] = await ctx.db.select().from(signEnvelopes).where(eq(signEnvelopes.id, envelopeId)).limit(1);
@@ -206,24 +239,35 @@ export async function fileSignedPdf(ctx: FilingContext, envelopeId: string, now 
   const done = await latestFiling(ctx.db, envelopeId);
   if (done) return done;
 
-  const object = await ctx.bucket.get(envelope.finalStorageKey);
-  if (!object) throw new Error(`The signed PDF of ${envelopeId} is missing`);
-  const pdf = new Uint8Array(await object.arrayBuffer());
+  let pdf: Uint8Array | null = null;
+  const signedPdf = async () => {
+    if (pdf) return pdf;
+    const object = await ctx.bucket.get(envelope.finalStorageKey!);
+    if (!object) throw new Error(`The signed PDF of ${envelopeId} is missing`);
+    pdf = new Uint8Array(await object.arrayBuffer());
+    return pdf;
+  };
 
-  const folderId = await driveFolderFor(ctx, envelope, (envelope.completedAt ?? now).getUTCFullYear());
-  const driveFile = await storeCopy(ctx, envelope, pdf, envelope.finalSha256, { folderId });
+  let driveFile = await existingCopy(ctx.db, envelopeId, 'drive');
+  if (!driveFile) {
+    const folderId = await driveFolderFor(ctx, envelope, (envelope.completedAt ?? now).getUTCFullYear());
+    driveFile = await storeCopy(ctx, envelope, await signedPdf(), 'drive', { folderId });
+  }
 
   const record = await recordFor(ctx.db, envelope);
   let recordFileId: string | null = null;
   let activityId: string | null = null;
   if (record) {
-    recordFileId = (await storeCopy(ctx, envelope, pdf, envelope.finalSha256, { folderId: null, entityType: record.type, entityId: record.id })).id;
-    activityId = await logActivity(ctx, envelope, record, now);
+    const recordFile =
+      (await existingCopy(ctx.db, envelopeId, 'record')) ??
+      (await storeCopy(ctx, envelope, await signedPdf(), 'record', { folderId: null, entityType: record.type, entityId: record.id }));
+    recordFileId = recordFile.id;
+    activityId = (await existingNote(ctx.db, recordFile.id)) ?? (await logActivity(ctx, envelope, record, recordFile.id, now));
   }
 
   const details = {
     driveFileId: driveFile.id,
-    driveFolderId: folderId,
+    driveFolderId: driveFile.folderId,
     recordFileId,
     recordType: record?.type ?? null,
     recordId: record?.id ?? null,

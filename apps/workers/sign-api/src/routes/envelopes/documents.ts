@@ -13,7 +13,7 @@ import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { getStoredObject, isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
-import { addDocumentFromDriveSchema, reorderDocumentsSchema } from '@weldsuite/app-api-client/schemas/weldsign';
+import { SIGN_LIMITS, addDocumentFromDriveSchema, reorderDocumentsSchema } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
 import { toDocumentDto, touchEnvelope } from '../../services/envelopes';
 import { addDocument, getDocument, removeDocument, reorderDocuments } from '../../services/documents';
@@ -62,8 +62,12 @@ export function createDocumentsRoutes(scope: DraftScope) {
       // A row's key is client-supplied: only ever read this workspace's objects.
       if (!file || !key || !isWorkspaceObjectKey(key, workspaceId)) throw notFound('File', fileId);
       if (file.mimeType !== 'application/pdf' && !file.fileName.toLowerCase().endsWith('.pdf')) throw invalid('Only PDF files can be signed');
+      // Drive files have no request-body cap: refuse a big one before it is read into memory.
+      const tooBig = invalid(`A PDF can be at most ${SIGN_LIMITS.maxDocumentBytes / (1024 * 1024)} MB`);
+      if (file.fileSize > SIGN_LIMITS.maxDocumentBytes) throw tooBig;
       const object = await getStoredObject(c.env, key);
       if (!object) throw notFound('File', fileId);
+      if (object.size > SIGN_LIMITS.maxDocumentBytes) throw tooBig;
       const doc = await addDocument(db, c.env.PRIVATE_STORAGE, {
         workspaceId,
         envelope,

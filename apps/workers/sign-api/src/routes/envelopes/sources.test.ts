@@ -13,8 +13,8 @@
  *      record with a note, and does it once.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { and, eq, sql } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -24,6 +24,19 @@ import type { SignDocumentDto, SignEnvelopeDetail, SignRecipientSuggestion } fro
 import envelopesRoutes from './index';
 import { fileSignedPdf } from '../../services/filing';
 import type { Env } from '../../types';
+
+// Lets a test make the CRM note fail once, half way through filing.
+const notes = vi.hoisted(() => ({ fail: false }));
+vi.mock('@weldsuite/crm-domain/activities', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/crm-domain/activities')>();
+  return {
+    ...actual,
+    createActivity: async (...args: Parameters<typeof actual.createActivity>) => {
+      if (notes.fail) throw new Error('Neon hiccup');
+      return actual.createActivity(...args);
+    },
+  };
+});
 
 const BASE = '/api/sign/envelopes';
 const ORG = 'org_sign_sources';
@@ -126,6 +139,7 @@ beforeAll(async () => {
     file(ids.secret, 'Secret.pdf', `workspaces/${ORG}/drive/secret.pdf`, { uploadedById: 'user_bob', generalAccess: 'restricted' }),
     file(ids.notes, 'notes.txt', `workspaces/${ORG}/drive/notes.txt`),
     file(ids.foreign, 'Theirs.pdf', 'workspaces/org_someone_else/x.pdf'),
+    file('fil_scans', 'Scans.pdf', `workspaces/${ORG}/drive/nda.pdf`, { fileSize: 300 * 1024 * 1024 }),
   ]);
   for (const key of [`workspaces/${ORG}/drive/nda.pdf`, `workspaces/${ORG}/drive/secret.pdf`, 'workspaces/org_someone_else/x.pdf']) {
     await storage.bucket.put(key, pdfBytes);
@@ -173,6 +187,10 @@ describe('starting a request from WeldDrive', () => {
     expect((await from(ids.secret)).status).toBe(404);
     expect((await from(ids.foreign)).status).toBe(404);
     expect((await from(ids.notes)).status).toBe(400);
+    // Too big to sign: refused with the size limit, before it is read.
+    const scans = await from('fil_scans');
+    expect(scans.status).toBe(400);
+    expect(((await scans.json()) as { error: { message: string } }).error.message).toContain('at most 25 MB');
     expect((await from(ids.nda, [...SIGN])).status).toBe(403);
     expect((await app().request(BASE, json({ title: 'x', source: { entityType: 'file', entityId: ids.secret } }))).status).toBe(404);
   });
@@ -245,5 +263,24 @@ describe('filing the signed PDF back', () => {
     const roots = await db.select().from(schema.folders).where(and(eq(schema.folders.name, 'WeldSign')));
     expect(roots.map((r) => r.createdById).sort()).toEqual(['user_alice', 'user_bob']);
     expect(bobs).toMatchObject({ recordFileId: null, activityId: null });
+  });
+
+  it('reuses what an interrupted run made instead of filing it twice', async () => {
+    const envelopeId = await completed({ source: { entityType: 'person', entityId: ids.carl } });
+    const copies = () =>
+      db.select().from(schema.files).where(sql`${schema.files.metadata}->'weldsign'->>'envelopeId' = ${envelopeId}`);
+
+    // The note fails after both copies were made; the Workflow retries the step.
+    notes.fail = true;
+    await expect(fileSignedPdf(ctx(), envelopeId)).rejects.toThrow('Neon hiccup');
+    notes.fail = false;
+    expect(await copies()).toHaveLength(2);
+
+    const filing = (await fileSignedPdf(ctx(), envelopeId))!;
+    const after = await copies();
+    expect(after).toHaveLength(2);
+    expect(after.map((f) => f.id).sort()).toEqual([filing.driveFileId, filing.recordFileId].sort());
+    const [note] = await db.select().from(schema.crmActivities).where(eq(schema.crmActivities.id, filing.activityId!));
+    expect(note).toMatchObject({ personId: ids.carl, attachments: [filing.recordFileId] });
   });
 });
