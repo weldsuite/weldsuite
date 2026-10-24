@@ -491,6 +491,9 @@ export const platformSyncMap: EntitySyncMap = {
   // Native doc content (`docs` table). Create also publishes `file`; list
   // refresh is drive-root. Open editor (useHtmlDoc) is local — not CRDT.
   doc: inv(['drive']),
+  // WeldSheets spreadsheets (create/rename/trash also publish `file`). An
+  // open sheet is live over its own room socket; this only refreshes lists.
+  sheet: inv(['weldsheets'], ['drive']),
 
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki

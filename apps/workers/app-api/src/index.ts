@@ -287,6 +287,9 @@ app.route('/api/workspaces', workspacesRoutes);
 // WeldReach (/api/reach, /public/reach) lives in reach-api; the kit's forwarder
 // hands those paths to it over the REACH_API binding (API_FORWARD_MODULES in
 // wrangler.toml).
+// WeldSheets (/api/sheets) lives in sheets-api; the kit's forwarder hands those
+// paths to it over the SHEETS_API binding, the room socket (/api/sheets/connect,
+// a WebSocket upgrade) included.
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The module workflows that drained here after the split (welddata-enrich,

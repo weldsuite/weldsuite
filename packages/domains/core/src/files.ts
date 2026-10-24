@@ -9,7 +9,7 @@ import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
-const { files, folders } = schema;
+const { files, folders, sheets } = schema;
 
 // ============================================================================
 // Name conflict helpers
@@ -372,6 +372,8 @@ export async function purgeFile(db: Database, id: string) {
     .where(and(eq(files.id, id), isNotNull(files.deletedAt)))
     .limit(1);
   if (!existing) return null;
+  // A WeldSheets spreadsheet's row references its file.
+  await db.delete(sheets).where(eq(sheets.fileId, id));
   await db.delete(files).where(eq(files.id, id));
   return existing;
 }

@@ -491,6 +491,17 @@ export interface FolderEventData {
   previousRole?: string | null;
 }
 
+/** A WeldSheets spreadsheet (the `sheets` table); its name lives on the drive file. */
+export interface SheetEventData {
+  id: string;
+  /** The drive file (files.id) this spreadsheet is backed by. */
+  fileId: string;
+  name?: string;
+  /** Latest committed revision (content updates). */
+  revision?: number;
+  updatedById?: string | null;
+}
+
 export interface DocEventData {
   id: string;
   /** The drive file (files.id) this document is backed by. */
@@ -630,6 +641,9 @@ export interface EntityEventData {
   file: FileEventData;
   folder: FolderEventData;
   doc: DocEventData;
+
+  // WeldSheets
+  sheet: SheetEventData;
 
   // Calendar + meetings
   calendar_event: CalendarEventEventData;

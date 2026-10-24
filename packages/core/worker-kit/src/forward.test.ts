@@ -38,6 +38,23 @@ describe('moduleForwarder', () => {
     expect(forwarded.headers.get('X-Request-Id')).toBeTruthy();
   });
 
+  it('hands back a WebSocket upgrade untouched', async () => {
+    // Node cannot build a 101 Response, so call the middleware directly.
+    const upgrade = { status: 101, webSocket: {} } as unknown as Response;
+    let forwarded: Request | null = null;
+    const SHEETS_API = {
+      fetch: async (req: Request) => {
+        forwarded = req;
+        return upgrade;
+      },
+    };
+    const raw = new Request('https://app-api.test/api/sheets/connect?ticket=t', { headers: { Upgrade: 'websocket' } });
+    const c = { env: { API_FORWARD_MODULES: 'sheets', SHEETS_API }, req: { path: '/api/sheets/connect', raw } };
+    const res = await moduleForwarder({ from: 'app-api' })(c as never, async () => {});
+    expect(res).toBe(upgrade);
+    expect(forwarded!.headers.get('Upgrade')).toBe('websocket');
+  });
+
   it('keeps an incoming request id', async () => {
     const PASS_API = fakeWorker();
     const request = setup({ API_FORWARD_MODULES: 'pass', PASS_API });

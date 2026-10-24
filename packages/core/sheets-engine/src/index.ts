@@ -38,6 +38,15 @@ export { applyOp } from './ops/apply';
 export { transform, transformList } from './ops/transform';
 export { NOOP, isNoop, nameKey, normalize } from './ops/types';
 export type { AxisEntry, CellPatch, NameKey, Op, OpType } from './ops/types';
+export { MAX_CELLS_PER_OP, validateOp } from './ops/validate';
+
+export { RoomCore } from './collab/room';
+export type { Outgoing, RoomOptions } from './collab/room';
+export { CollabClient } from './collab/client';
+export type { CollabClientOptions } from './collab/client';
+export { FrameAssembler, MAX_FRAME, decodeClient, decodeServer, encode, refusedBatchId, toFrames } from './collab/protocol';
+export { isWellFormedOp } from './ops/shape';
+export type { ClientMessage, CommittedOp, Peer, Presence, RejectReason, ServerMessage } from './collab/protocol';
 
 export { EN_LOCALE, NL_LOCALE, formatCategory, formatValue, isDateFormat } from './format/number-format';
 export type { FormatCategory, FormatLocale, FormattedValue } from './format/number-format';
