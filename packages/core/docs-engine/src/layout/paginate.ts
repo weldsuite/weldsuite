@@ -192,7 +192,7 @@ export function paginate(dl: DocLayout): PageLayout[] {
     const layout = layoutOf(entry);
     const props = layout.props;
 
-    if (props.pageBreakBefore && !cursor.page.columns.every((c) => c.items.length === 0)) {
+    if (props.pageBreakBefore && !pageless && !cursor.page.columns.every((c) => c.items.length === 0)) {
       finishPage(cursor);
       newPage();
     }
@@ -278,7 +278,8 @@ export function paginate(dl: DocLayout): PageLayout[] {
             newPage();
           } else if (last.breakAfter === 'column' && !pageless) {
             advance();
-          } else if (li < lines.length) {
+          } else if (li < lines.length && !last.breakAfter) {
+            // Only a soft overflow moves on; a break already did (or is ignored when pageless).
             advance();
           }
         }

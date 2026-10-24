@@ -159,6 +159,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/articles',
     '/api/canned-responses',
     '/api/conversations',
+    '/api/desk/assignment',
     '/api/desk/conversations',
     '/api/desk/widget',
     '/api/helpcenter-settings',

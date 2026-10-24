@@ -38,6 +38,7 @@ import {
 } from '../formula/references';
 import type { DefinedName } from '../model/workbook';
 import { mapFilterFormulas, mapFormatFormulas, mapValidationFormulas } from '../model/rules';
+import { anchorAfter, mapChartFormulas } from '../model/charts';
 import { nameKey, NOOP, normalize, type CellPatch, type NameKey, type Op } from './types';
 
 export function transform(op: Op, against: Op, opWins: boolean): Op {
@@ -114,12 +115,13 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
       return a.type === 'setFilter' && a.sheetId === b.sheetId && !aWins ? NOOP : a;
     case 'patchConditionalFormats':
     case 'patchValidations':
+    case 'patchCharts':
       return overPatchRules(a, b, aWins);
   }
 }
 
-type RuleOp = OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations'>;
-type RulePatch = OpOf<'patchConditionalFormats' | 'patchValidations'>;
+type RuleOp = OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>;
+type RulePatch = OpOf<'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>;
 
 /** Two patches of one sheet's rules: the later one decides each rule both touch, so a losing patch drops those. */
 function overPatchRules(a: Simple, b: RulePatch, aWins: boolean): Op {
@@ -153,6 +155,7 @@ function overStructural(a: Simple, b: Structural, aWins: boolean): Op {
     case 'setFilter':
     case 'patchConditionalFormats':
     case 'patchValidations':
+    case 'patchCharts':
       return rulesAfter(a, b);
     default:
       // Everything else changes only when it is about b's own sheet.
@@ -207,19 +210,27 @@ function rulesAfter(a: RuleOp, b: Structural): Op {
     return next.length ? [{ ...rule, ranges: next }] : [];
   };
   switch (moved.type) {
-    case 'setFilter': {
-      if (!moved.filter) return moved;
-      const r = range(moved.filter.range);
-      if (!r) return { ...moved, filter: null };
-      const index = b.axis === 'col' ? indexMapper(b) : (i: number) => i;
-      const columns = moved.filter.columns.flatMap((c) => (index(c.col) < 0 ? [] : [{ ...c, col: index(c.col) }]));
-      return { ...moved, filter: { range: r, columns } };
-    }
+    case 'setFilter':
+      return filterAfter(moved, b, range);
     case 'patchConditionalFormats':
       return moved.set ? { ...moved, set: moved.set.flatMap(ranges) } : moved;
     case 'patchValidations':
       return moved.set ? { ...moved, set: moved.set.flatMap(ranges) } : moved;
+    case 'patchCharts': {
+      const index = indexMapper(b);
+      const max = b.axis === 'row' ? MAX_ROWS : MAX_COLS;
+      return moved.set ? { ...moved, set: moved.set.map((c) => ({ ...c, anchor: anchorAfter(c.anchor, b.axis, index, max) })) } : moved;
+    }
   }
+}
+
+function filterAfter(a: OpOf<'setFilter'>, b: Structural, range: (r: Range) => Range | null): Op {
+  if (!a.filter) return a;
+  const r = range(a.filter.range);
+  if (!r) return { ...a, filter: null };
+  const index = b.axis === 'col' ? indexMapper(b) : (i: number) => i;
+  const columns = a.filter.columns.flatMap((c) => (index(c.col) < 0 ? [] : [{ ...c, col: index(c.col) }]));
+  return { ...a, filter: { range: r, columns } };
 }
 
 /** The smallest range covering all of `rs`, or null for none. */
@@ -555,6 +566,8 @@ function mapFormulas(a: Simple, fn: (f: string) => string): Simple {
       return a.set ? { ...a, set: a.set.map((cf) => mapFormatFormulas(cf, fn)) } : a;
     case 'patchValidations':
       return a.set ? { ...a, set: a.set.map((dv) => mapValidationFormulas(dv, fn)) } : a;
+    case 'patchCharts':
+      return a.set ? { ...a, set: a.set.map((c) => mapChartFormulas(c, fn)) } : a;
     default:
       return a;
   }

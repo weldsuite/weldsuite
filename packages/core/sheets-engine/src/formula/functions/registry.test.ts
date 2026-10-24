@@ -6,6 +6,7 @@ import { infoFunctions } from './info';
 import { logicalFunctions } from './logical';
 import { lookupFunctions } from './lookup';
 import { mathFunctions } from './math';
+import { pivotFunctions } from './pivot';
 import { statsFunctions } from './stats';
 import { textFunctions } from './text';
 
@@ -20,13 +21,14 @@ describe('function registry', () => {
       ...datetimeFunctions,
       ...lookupFunctions,
       ...financialFunctions,
+      ...pivotFunctions,
     ].map((f) => f.name.toUpperCase());
     expect(all.filter((n, i) => all.indexOf(n) !== i)).toEqual([]);
     expect(functionNames()).toHaveLength(all.length);
   });
 
   it('declares sane argument counts', () => {
-    for (const fns of [mathFunctions, statsFunctions, textFunctions, lookupFunctions, datetimeFunctions, financialFunctions]) {
+    for (const fns of [mathFunctions, statsFunctions, textFunctions, lookupFunctions, datetimeFunctions, financialFunctions, pivotFunctions]) {
       for (const f of fns) {
         expect(f.minArgs, f.name).toBeGreaterThanOrEqual(0);
         expect(f.maxArgs, f.name).toBeGreaterThanOrEqual(f.minArgs);

@@ -1,6 +1,7 @@
 /**
- * WeldSign email: signing requests, identity codes, "everyone signed" and
- * "a signer declined", all system mail through @weldsuite/emails from
+ * WeldSign email: signing requests and reminders, identity codes, "everyone
+ * signed", "a signer declined", "the request was voided" and "the request
+ * expired", all system mail through @weldsuite/emails from
  * WeldSuite's address, branded as the workspace, Reply-To the sender.
  *
  * Requests carry the sender's own title and message to any address, so a
@@ -123,10 +124,10 @@ export interface RequestMail {
 }
 
 /**
- * Send signing requests. `'refused'` when the outbound guard said no (nothing
- * was sent); otherwise the addresses that went out.
+ * Send signing requests (or reminders of one). `'refused'` when the outbound
+ * guard said no (nothing was sent); otherwise the addresses that went out.
  */
-export async function sendRequests(ctx: MailContext, mails: RequestMail[]): Promise<'refused' | string[]> {
+export async function sendRequests(ctx: MailContext, mails: RequestMail[], opts: { reminder?: boolean } = {}): Promise<'refused' | string[]> {
   const list = mails.filter((m): m is RequestMail & { recipient: { email: string } } => !!m.recipient.email);
   if (list.length === 0) return [];
   const reservation = await reserve(
@@ -154,6 +155,7 @@ export async function sendRequests(ctx: MailContext, mails: RequestMail[]): Prom
           message: ctx.envelope.message,
           url: mail.url,
           expiresAt: ctx.envelope.expiresAt?.toISOString() ?? null,
+          reminder: opts.reminder ?? false,
         },
         to: mail.recipient.email,
         locale: locale(mail.recipient),
@@ -218,6 +220,49 @@ export async function sendCompleted(ctx: MailContext, mails: CompletedMail[], si
     } catch (err) {
       console.error(`[sign-api/mail] completed email for ${ctx.envelope.id} failed:`, err);
     }
+  }
+}
+
+/**
+ * Tell signers who already got the request that it was voided, with the
+ * sender's reason. Not counted by the guard: it only goes to people already
+ * invited. Best effort.
+ */
+export async function sendVoided(ctx: MailContext, recipients: Pick<SignRecipient, 'email' | 'locale'>[], reason: string): Promise<void> {
+  const transport = transportOf(ctx.env);
+  if (!transport || recipients.length === 0) return;
+  const { brand, name: workspaceName } = await workspaceBrand(ctx);
+  for (const r of recipients) {
+    if (!r.email) continue;
+    try {
+      await sendSystemEmail(transport, {
+        template: 'sign.voided',
+        props: { senderName: ctx.envelope.senderName || workspaceName, title: ctx.envelope.title, reason },
+        to: r.email,
+        locale: locale(r),
+        brand,
+        replyTo: ctx.envelope.senderEmail ?? undefined,
+      });
+    } catch (err) {
+      console.error(`[sign-api/mail] voided email for ${ctx.envelope.id} failed:`, err);
+    }
+  }
+}
+
+/** Tell the sender a request expired before everyone signed. Best effort. */
+export async function sendExpired(ctx: MailContext, unsigned: string[]): Promise<void> {
+  const transport = transportOf(ctx.env);
+  if (!transport || !ctx.envelope.senderEmail) return;
+  try {
+    await sendSystemEmail(transport, {
+      template: 'sign.expired',
+      props: { title: ctx.envelope.title, unsigned, url: envelopeAppUrl(ctx.env, ctx.clerkOrgId, ctx.envelope.id) },
+      to: ctx.envelope.senderEmail,
+      locale: resolveEmailLocale(null, undefined),
+      brand: { kind: 'weldsuite', module: 'WeldSign' },
+    });
+  } catch (err) {
+    console.error(`[sign-api/mail] expired email for ${ctx.envelope.id} failed:`, err);
   }
 }
 

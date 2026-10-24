@@ -229,3 +229,30 @@ describe('transform', () => {
     expect(doc.tables.get('t')!.rows.map((r) => r.id)).toEqual(['new']);
   });
 });
+
+describe('review fixes', () => {
+  it('refuses unsafe link targets in ops from outside', () => {
+    expect(isWellFormedOp({ type: 'formatText', story: BODY, at: 0, runs: [[1, { link: 'https://ok.example' }]] })).toBe(true);
+    expect(isWellFormedOp({ type: 'formatText', story: BODY, at: 0, runs: [[1, { link: 'javascript:alert(1)' }]] })).toBe(false);
+    expect(isWellFormedOp({ type: 'insert', story: BODY, at: 0, content: { text: 'x', runs: [[1, { link: ' data:text/html,x' }]] } })).toBe(false);
+  });
+
+  it('refuses a new row whose cell claims a table that already exists', () => {
+    const doc = tableDoc();
+    const t = doc.tables.get('t')!;
+    const cell = cellStoryId('t', 'rNew', t.cols[0]!.id);
+    const op: Op = {
+      type: 'insertTableDims',
+      table: 't',
+      axis: 'row',
+      at: 0,
+      items: [{ id: 'rNew' }],
+      content: { stories: { [cell]: { text: `${OBJECT}${PARA}`, objects: [[0, { kind: 'table', id: 't' }]] } } },
+    };
+    expect(validateOp(doc, op)).not.toBeNull();
+    const stray: Op = { type: 'insertTableDims', table: 't', axis: 'row', at: 0, items: [{ id: 'rNew' }], content: { stories: { 'cell:x:y:z': { text: PARA } } } };
+    expect(validateOp(doc, stray)).not.toBeNull();
+    const ok: Op = { type: 'insertTableDims', table: 't', axis: 'row', at: 0, items: [{ id: 'rNew' }], content: { stories: { [cell]: { text: `hi${PARA}` } } } };
+    expect(validateOp(doc, ok)).toBeNull();
+  });
+});

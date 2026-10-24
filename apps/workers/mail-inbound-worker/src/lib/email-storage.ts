@@ -54,6 +54,7 @@ import {
 import { selectNotifyMembers } from './notify-recipients';
 import { accountingAttachmentType } from './accounting-attachment';
 import {
+  autoAssignDeskEmailConversation,
   deskNotificationContent,
   findPriorDeskState,
   notifyDeskOfEmail,
@@ -2117,7 +2118,7 @@ async function ingestHelpdeskInboxEmail(
     // already waiting on this customer (and so already notified).
     const prior = await findPriorDeskState(tenantDb, email);
 
-    const { conversation, message, created } = await ingestDeskEmail(tenantDb, {
+    const ingested = await ingestDeskEmail(tenantDb, {
       generateId,
       fromName: email.from.name || null,
       fromEmail: email.from.email,
@@ -2131,12 +2132,18 @@ async function ingestHelpdeskInboxEmail(
       ccEmails: email.cc.map((t) => t.email),
       attachments: attachments.length > 0 ? attachments : undefined,
     });
+    const { message, created } = ingested;
 
     console.log(
-      `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${conversation.id} from email`,
+      `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${ingested.conversation.id} from email`,
     );
 
-    await publishHelpdeskRealtime(env, email, inbox, { conversation, message, created, body });
+    await publishHelpdeskRealtime(env, email, inbox, { conversation: ingested.conversation, message, created, body });
+    // An unowned conversation gets an owner (auto-assignment) before anyone is
+    // notified, so the planner below pings that person instead of the team.
+    const conversation = inbox.clerkOrgId
+      ? await autoAssignDeskEmailConversation(env, tenantDb, inbox.clerkOrgId, ingested.conversation, generateId)
+      : ingested.conversation;
     const customerName = email.from.name || email.from.email;
     const plan = planDeskNotification({ created, assigneeId: conversation.assigneeId, prior });
     if (plan === 'notify' && inbox.clerkOrgId) {

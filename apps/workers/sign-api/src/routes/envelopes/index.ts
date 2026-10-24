@@ -1,17 +1,19 @@
 /**
  * Envelope routes — /api/sign/envelopes/*.
  *
- * Without `sign_envelopes:manage` a member sees only the envelopes they sent;
- * one they may not see is a 404. Only drafts can be changed (409 otherwise).
+ * Without `sign_envelopes:manage` a member sees the envelopes they sent and
+ * the sent requests they are a recipient of (by email); one they may not see
+ * is a 404. Only the owner changes an envelope, and only a draft (409
+ * otherwise); a sent request has its own actions in ./lifecycle.ts.
  *
- *   GET    /api/sign/envelopes          → list (folder, search, cursor)
+ *   GET    /api/sign/envelopes          → list (folder, search, cursor; `action_required`: my turn to sign)
  *   POST   /api/sign/envelopes          → new draft
  *   GET    /api/sign/envelopes/:id      → the envelope with documents, recipients and fields
  *   PATCH  /api/sign/envelopes/:id      → draft settings
  *   DELETE /api/sign/envelopes/:id      → delete a draft and its files
  *
  * Documents, recipients and fields of a draft: ./documents.ts, ./recipients.ts, ./fields.ts.
- * Sending and the signed PDF: ./lifecycle.ts.
+ * Sending, the signed PDF, void, remind, activity and "sign now": ./lifecycle.ts.
  */
 
 import { Hono } from 'hono';
@@ -29,14 +31,14 @@ import type { Env, Variables } from '../../types';
 import {
   createEnvelope,
   deleteDraft,
-  getEnvelopeDetail,
   listEnvelopes,
   loadEnvelope,
+  loadOwnEnvelope,
   memberProfile,
   updateEnvelope,
 } from '../../services/envelopes';
 import { loadSignSettings } from '../../services/settings';
-import { envelopeEventData, handle, mayEdit, viewerOf } from './shared';
+import { detailFor, envelopeEventData, handle, viewerOf } from './shared';
 import documentsRoutes from './documents';
 import recipientsRoutes from './recipients';
 import fieldsRoutes from './fields';
@@ -52,6 +54,7 @@ app.get('/', requirePermission('sign_envelopes:read'), zValidator('query', listE
   const { rows, total } = await listEnvelopes(c.get('tenantDb'), {
     viewer: await viewerOf(c),
     statuses: folder === 'all' ? undefined : SIGN_FOLDER_STATUSES[folder],
+    awaitingViewer: folder === 'action_required',
     search,
     limit,
     offset,
@@ -73,31 +76,32 @@ app.post('/', requirePermission('sign_envelopes:create'), zValidator('json', cre
     defaults: settings,
   });
   publishEntityEvent({ c, entityType: 'sign_envelope', entityId: envelope.id, action: 'created', data: envelopeEventData(envelope) });
-  return success(c, await getEnvelopeDetail(db, envelope, await mayEdit(c)), 201);
+  return success(c, await detailFor(c, envelope), 201);
 });
 
 app.get('/:id', requirePermission('sign_envelopes:read'), (c) =>
   handle(c, async () => {
-    const db = c.get('tenantDb');
-    const envelope = await loadEnvelope(db, c.req.param('id'), await viewerOf(c));
-    return success(c, await getEnvelopeDetail(db, envelope, await mayEdit(c)));
+    const viewer = await viewerOf(c);
+    const envelope = await loadEnvelope(c.get('tenantDb'), c.req.param('id'), viewer);
+    return success(c, await detailFor(c, envelope, viewer));
   }),
 );
 
 app.patch('/:id', requirePermission('sign_envelopes:update'), zValidator('json', updateEnvelopeSchema), (c) =>
   handle(c, async () => {
     const db = c.get('tenantDb');
-    const envelope = await loadEnvelope(db, c.req.param('id'), await viewerOf(c));
+    const viewer = await viewerOf(c);
+    const envelope = await loadOwnEnvelope(db, c.req.param('id'), viewer);
     const updated = await updateEnvelope(db, envelope, c.req.valid('json'));
     publishEntityEvent({ c, entityType: 'sign_envelope', entityId: updated.id, action: 'updated', data: envelopeEventData(updated) });
-    return success(c, await getEnvelopeDetail(db, updated, await mayEdit(c)));
+    return success(c, await detailFor(c, updated, viewer));
   }),
 );
 
 app.delete('/:id', requirePermission('sign_envelopes:delete'), (c) =>
   handle(c, async () => {
     const db = c.get('tenantDb');
-    const envelope = await loadEnvelope(db, c.req.param('id'), await viewerOf(c));
+    const envelope = await loadOwnEnvelope(db, c.req.param('id'), await viewerOf(c));
     const keys = await deleteDraft(db, envelope);
     if (keys.length) c.executionCtx.waitUntil(c.env.PRIVATE_STORAGE.delete(keys));
     publishEntityEvent({ c, entityType: 'sign_envelope', entityId: envelope.id, action: 'deleted', data: envelopeEventData(envelope) });

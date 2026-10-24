@@ -65,7 +65,17 @@ function toRunStyle(doc: DocModel, para: ParaProps, direct: TextStyle): RunStyle
   return style;
 }
 
-/** Text as drawn: upper-cased for all caps and small caps. */
+/**
+ * Text as drawn: upper-cased for all caps and small caps. Characters whose
+ * capital is longer (ß → SS, ﬁ → FI) stay as they are, so the drawn text
+ * keeps one character per story position and carets stay in step.
+ */
 export function displayText(text: string, style: RunStyle): string {
-  return style.caps ? text.toUpperCase() : text;
+  if (!style.caps) return text;
+  let out = '';
+  for (const ch of text) {
+    const up = ch.toUpperCase();
+    out += up.length === ch.length ? up : ch;
+  }
+  return out;
 }

@@ -29,6 +29,7 @@ import type { Env, Variables } from '../index';
 import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
 import {
+  autoAssignConversation,
   isPublicMessage,
   notifyTeamOfVisitorMessage,
   publishConversationUpdated,
@@ -165,15 +166,18 @@ conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
     c.executionCtx.waitUntil(
       Promise.all([
         publishVisitorMessage(c.env, orgId, conversation, message, visitorName, 'created'),
-        notifyTeamOfVisitorMessage({
-          env: c.env,
-          db,
-          orgId,
-          conversation,
-          message,
-          visitorName,
-          isNewConversation: true,
-        }),
+        // Assign first, so the notification goes to the new owner, not the whole team.
+        autoAssignConversation(c.env, db, orgId, conversation).then((current) =>
+          notifyTeamOfVisitorMessage({
+            env: c.env,
+            db,
+            orgId,
+            conversation: current,
+            message,
+            visitorName,
+            isNewConversation: true,
+          }),
+        ),
       ]),
     );
 
@@ -255,17 +259,21 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
     c.executionCtx.waitUntil(
       Promise.all([
         publishVisitorMessage(c.env, orgId, conversation, message, visitorName, 'updated'),
-        teamAlreadyWaiting
-          ? Promise.resolve()
-          : notifyTeamOfVisitorMessage({
-              env: c.env,
-              db,
-              orgId,
-              conversation,
-              message,
-              visitorName,
-              isNewConversation: false,
-            }),
+        // An unowned thread the customer writes into (new, reopened, or nobody
+        // was free last time) gets an owner before anyone is told.
+        autoAssignConversation(c.env, db, orgId, conversation).then((current) =>
+          teamAlreadyWaiting
+            ? undefined
+            : notifyTeamOfVisitorMessage({
+                env: c.env,
+                db,
+                orgId,
+                conversation: current,
+                message,
+                visitorName,
+                isNewConversation: false,
+              }),
+        ),
       ]),
     );
 

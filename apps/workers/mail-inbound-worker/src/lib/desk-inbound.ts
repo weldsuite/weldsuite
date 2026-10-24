@@ -20,9 +20,11 @@ import {
   normalizeEmailSubject,
   type DeskConversation,
 } from '@weldsuite/db/lib/desk';
+import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
 import { tenantSchema, type TenantDatabase } from '../db';
 import type { Env } from '../index';
 import type { ParsedAttachment, ParsedEmail } from './email-storage';
+import { publishDeskAssigned } from './realtime';
 
 // ---------------------------------------------------------------------------
 // Attachments
@@ -151,6 +153,43 @@ export async function storeDeskAttachments(
     }
   }
   return stored;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-assignment
+// ---------------------------------------------------------------------------
+
+/**
+ * Give an unowned email conversation to a teammate when the workspace has
+ * auto-assignment on (`@weldsuite/db/lib/desk-assignment`), and push the
+ * change live. Returns the conversation as it now stands; any failure leaves
+ * it unassigned and never fails the email.
+ */
+export async function autoAssignDeskEmailConversation(
+  env: Env,
+  db: TenantDatabase,
+  clerkOrgId: string,
+  conversation: DeskConversation,
+  generateId: (prefix: string) => string,
+): Promise<DeskConversation> {
+  if (conversation.assigneeId || conversation.state !== 'open') return conversation;
+  try {
+    const result = await autoAssignDeskConversation(db, {
+      generateId,
+      conversationId: conversation.id,
+      pick: deskAssignmentRouterPicker(env.HELPDESK_WORKFLOW, clerkOrgId),
+    });
+    if (!result) return conversation;
+    try {
+      await publishDeskAssigned(env, clerkOrgId, result.conversation, result.message);
+    } catch (err) {
+      console.error(`[HelpdeskInbox] Failed to publish assignment of ${conversation.id}:`, err);
+    }
+    return result.conversation;
+  } catch (err) {
+    console.error(`[HelpdeskInbox] Auto-assignment failed for ${conversation.id}:`, err);
+    return conversation;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -39,6 +39,8 @@ export interface Env {
   REALTIME: Fetcher;
   /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
   REALTIME_INTERNAL_SECRET?: string;
+  /** helpdesk-workflow-worker: WeldDesk auto-assignment picks (`/desk/assign`). */
+  HELPDESK_WORKFLOW?: Fetcher;
   /**
    * Hub queue for entity-event fan-out (inbound `email:created`).
    * Personal `mail:new` stays on REALTIME; this binding is workspace-only.

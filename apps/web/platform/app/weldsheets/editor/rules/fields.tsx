@@ -109,3 +109,46 @@ export function Field({ label, children }: { label: string; children: ReactNode 
     </div>
   );
 }
+
+/** A text field that saves on Enter or when it loses focus; Escape puts back what is saved. */
+export function CommitInput({
+  label,
+  value,
+  placeholder,
+  onCommit,
+  mono,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  onCommit: (text: string) => void;
+  mono?: boolean;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [saved, setSaved] = useState(value);
+  // Someone else (or undo) changed it: show theirs.
+  if (saved !== value) {
+    setSaved(value);
+    setDraft(value);
+  }
+  const commit = () => {
+    if (draft !== value) onCommit(draft);
+  };
+  return (
+    <Input
+      className={`h-8 text-sm ${mono ? 'font-mono' : ''}`}
+      value={draft}
+      placeholder={placeholder}
+      aria-label={label}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+        }
+        else if (e.key === 'Escape') setDraft(value);
+      }}
+    />
+  );
+}

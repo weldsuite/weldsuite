@@ -1,20 +1,27 @@
 /**
- * Recipients of a draft — /api/sign/envelopes/:id/recipients/*.
+ * Recipients — /api/sign/envelopes/:id/recipients/*.
  *
- *   POST   /                → add a signer or copy recipient
- *   PATCH  /:recipientId    → change them (role, order, auth mode, …)
- *   DELETE /:recipientId    → remove them and their fields
+ * Of a draft:
+ *   POST   /                       → add a signer or copy recipient
+ *   PATCH  /:recipientId           → change them (role, order, auth mode, …)
+ *   DELETE /:recipientId           → remove them and their fields
+ *
+ * Of a sent request (its owner, `sign_envelopes:send`; 409 once it is closed):
+ *   POST   /:recipientId/resend    → email a signer whose turn it is a new link
+ *   POST   /:recipientId/correct   → fix a name or email ({ name?, email }); a new email
+ *                                    revokes their old links and, on their turn, mails a new one
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { noContent, success } from '@weldsuite/worker-kit/response';
-import { createRecipientSchema, updateRecipientSchema } from '@weldsuite/app-api-client/schemas/weldsign';
+import { correctRecipientSchema, createRecipientSchema, updateRecipientSchema } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
-import { loadDraft, toRecipientDto, touchEnvelope } from '../../services/envelopes';
+import { loadDraft, loadOwnEnvelope, toRecipientDto, touchEnvelope } from '../../services/envelopes';
 import { addRecipient, removeRecipient, updateRecipient } from '../../services/recipients';
-import { handle, publishEnvelopeUpdated, viewerOf } from './shared';
+import { correctRecipient, resendLink } from '../../services/lifecycle';
+import { actorOf, handle, publishEnvelopeUpdated, sendContextOf, viewerOf } from './shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -48,6 +55,26 @@ app.delete('/:recipientId', requirePermission('sign_envelopes:update'), (c) =>
     await touchEnvelope(db, envelope.id);
     publishEnvelopeUpdated(c, envelope);
     return noContent(c);
+  }),
+);
+
+app.post('/:recipientId/resend', requirePermission('sign_envelopes:send'), (c) =>
+  handle(c, async () => {
+    const envelope = await loadOwnEnvelope(c.get('tenantDb'), c.req.param('id')!, await viewerOf(c));
+    const recipient = await resendLink(await sendContextOf(c), envelope, c.req.param('recipientId'), await actorOf(c));
+    publishEnvelopeUpdated(c, envelope);
+    return success(c, toRecipientDto(recipient));
+  }),
+);
+
+app.post('/:recipientId/correct', requirePermission('sign_envelopes:send'), zValidator('json', correctRecipientSchema), (c) =>
+  handle(c, async () => {
+    const db = c.get('tenantDb');
+    const envelope = await loadOwnEnvelope(db, c.req.param('id')!, await viewerOf(c));
+    const recipient = await correctRecipient(await sendContextOf(c), envelope, c.req.param('recipientId'), c.req.valid('json'), await actorOf(c));
+    await touchEnvelope(db, envelope.id);
+    publishEnvelopeUpdated(c, envelope);
+    return success(c, toRecipientDto(recipient));
   }),
 );
 

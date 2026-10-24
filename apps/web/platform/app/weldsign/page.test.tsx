@@ -37,12 +37,18 @@ vi.mock('@/components/panel-entity-list', () => ({
     columns: { id: string; render: (item: never) => ReactNode }[];
     leftActionButtons?: ReactNode;
     createButton?: { label: string; onClick: () => void };
-    emptyState: { title: string };
+    emptyState: { title: string; description?: string; action?: { label: string; onClick: () => void } };
   }) => (
     <div>
       {props.leftActionButtons}
       {props.createButton && <button onClick={props.createButton.onClick}>{props.createButton.label}</button>}
-      {props.items.length === 0 && <p>{props.emptyState.title}</p>}
+      {props.items.length === 0 && (
+        <div data-testid="empty">
+          <p>{props.emptyState.title}</p>
+          <p>{props.emptyState.description}</p>
+          {props.emptyState.action && <button onClick={props.emptyState.action.onClick}>{props.emptyState.action.label}</button>}
+        </div>
+      )}
       {props.items.map((item) => (
         <div key={item.id} data-testid="row">
           {props.columns.map((col) => (
@@ -105,10 +111,42 @@ describe('WeldSign home', () => {
     expect(state.folders.at(-1)).toBe('completed');
   });
 
+  it('puts "Action required" second, after "All"', () => {
+    render(<WeldSignHome />);
+    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    expect(tabs.slice(0, 3)).toEqual([th.folders.all, th.folders.action_required, th.folders.drafts]);
+    expect(th.folders.action_required).toBe('Action required');
+  });
+
+  it('asks the server for the action required folder', () => {
+    render(<WeldSignHome />);
+    fireEvent.click(screen.getByRole('tab', { name: th.folders.action_required }));
+    expect(state.folders.at(-1)).toBe('action_required');
+    expect(screen.getByRole('tab', { name: th.folders.action_required }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('explains an empty action required folder, without offering to create a request', () => {
+    render(<WeldSignHome />);
+    fireEvent.click(screen.getByRole('tab', { name: th.folders.action_required }));
+    expect(screen.getByText(th.actionRequiredEmptyTitle)).toBeTruthy();
+    expect(screen.getByText(th.actionRequiredEmptyDescription)).toBeTruthy();
+    expect(screen.queryByText(th.emptyTitle)).toBeNull();
+    // The only "New request" button left is the one in the toolbar, none in the empty state.
+    expect(screen.getAllByRole('button', { name: th.newRequest })).toHaveLength(1);
+  });
+
+  it('offers a new request in the empty "All" folder only', () => {
+    render(<WeldSignHome />);
+    expect(screen.getAllByRole('button', { name: th.newRequest })).toHaveLength(2);
+    fireEvent.click(screen.getByRole('tab', { name: th.folders.drafts }));
+    expect(screen.getByText(th.noResultsTitle)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: th.newRequest })).toHaveLength(1);
+  });
+
   it('creates a draft and opens it', async () => {
     state.create.mockResolvedValue({ id: 'sgn_new' });
     render(<WeldSignHome />);
-    fireEvent.click(screen.getByRole('button', { name: th.newRequest }));
+    fireEvent.click(screen.getAllByRole('button', { name: th.newRequest })[0]!);
     await waitFor(() => expect(state.push).toHaveBeenCalledWith('/weldsign/sgn_new'));
     expect(state.create).toHaveBeenCalledWith({ title: th.untitled });
   });

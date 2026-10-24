@@ -36,6 +36,7 @@ import { filteredRows } from '../rules/evaluate';
 import { err, isMatrix, sameScalar, type CellError, type Scalar } from '../values';
 import { DependencyGraph, globalKey, splitKey, type Precedent } from './graph';
 import { SccWalker } from './scc';
+import { anchorAfter, mapChartFormulas } from '../model/charts';
 
 export interface EngineOptions {
   /** Clock for NOW()/TODAY(), epoch ms. */
@@ -159,6 +160,16 @@ export class Engine implements EvalHost {
     if (!rec) return undefined;
     const { row: r, col: c } = splitKey(rec.anchor);
     return { row: r, col: c };
+  }
+
+  /** The arrays spilled on a sheet: each one's formula cell and area. */
+  spillsOn(sheetId: string): { row: number; col: number; area: Range }[] {
+    const sheetNum = this.sheetNums.get(sheetId);
+    if (sheetNum === undefined) return [];
+    return [...(this.spillsBySheet.get(sheetNum) ?? [])].map((rec) => {
+      const { row, col } = splitKey(rec.anchor);
+      return { row, col, area: rec.area };
+    });
   }
 
   /** Area of the array spilled by the formula at (row, col), if it spills. */
@@ -826,6 +837,7 @@ export class Engine implements EvalHost {
       if (sheet.filter) sheet.filter = mapFilterFormulas(sheet.filter, fn);
       sheet.conditionalFormats = sheet.conditionalFormats.map((cf) => mapFormatFormulas(cf, fn));
       sheet.validations = sheet.validations.map((dv) => mapValidationFormulas(dv, fn));
+      sheet.charts = sheet.charts.map((c) => mapChartFormulas(c, fn));
     }
     return rewritten;
   }
@@ -856,6 +868,7 @@ export class Engine implements EvalHost {
       const ranges = all(dv.ranges);
       return ranges.length ? [{ ...dv, ranges }] : [];
     });
+    sheet.charts = sheet.charts.map((c) => ({ ...c, anchor: anchorAfter(c.anchor, axis, mapIndex, max) }));
   }
 
   insertDims(sheetId: string, axis: Axis, at: number, count: number): RewrittenFormula[] {

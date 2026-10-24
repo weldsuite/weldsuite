@@ -231,7 +231,11 @@ describe('co-editing', () => {
       const axis = rand(2) ? 'row' : 'col';
       const r = rand(12);
       const col = rand(6);
-      switch (rand(15)) {
+      switch (rand(17)) {
+        case 15:
+          return { type: 'patchCharts', sheetId, set: [{ id: `ch${rand(2)}`, type: rand(2) ? 'column' : 'line', categories: `$A$1:$A$${2 + rand(8)}`, series: [{ name: '$B$1', values: `$B$2:$B$${2 + rand(8)}` }], anchor: { row: r, col, dx: rand(20), dy: 0 }, width: 300, height: 200 }], remove: rand(5) ? [] : [`ch${rand(2)}`] };
+        case 16:
+          return { type: 'setCells', sheetId, cells: [[r, col + 4, { f: 'PIVOT($A$1:$C$8,"Region","","SUM:Amount")' }]] };
         case 12:
           return rand(3)
             ? { type: 'setFilter', sheetId, filter: { range: { r1: rand(3), c1: 0, r2: 10, c2: 3 }, columns: [{ col: rand(3), condition: { type: 'greater', value: rand(50) } }, { col: 0, hiddenValues: [`n:${rand(100)}`] }] } }
