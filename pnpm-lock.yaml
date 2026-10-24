@@ -4030,6 +4030,9 @@ importers:
 
   apps/web/sign-portal:
     dependencies:
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/ui':
         specifier: workspace:*
         version: link:../../../packages/design/ui
@@ -4039,6 +4042,9 @@ importers:
       next:
         specifier: 15.5.28
         version: 15.5.28(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(@types/node@20.19.43)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(sass@1.51.0)
+      pdfjs-dist:
+        specifier: 5.7.284
+        version: 5.7.284
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -6619,9 +6625,15 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/emails':
+        specifier: workspace:*
+        version: link:../../../packages/core/emails
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/mail-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/mail
       '@weldsuite/permissions':
         specifier: workspace:*
         version: link:../../../packages/core/permissions

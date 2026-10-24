@@ -16,6 +16,8 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
       // Workers-only module; any worker that (transitively) imports
       // @weldsuite/worker-email needs this under vitest.
+      // src/index.ts exports the FinalizeEnvelope Workflow (extends WorkflowEntrypoint).
+      'cloudflare:workers': path.resolve(__dirname, '../../../packages/core/worker-kit/src/testing/cloudflare-workers-stub.ts'),
       'cloudflare:email': path.resolve(
         __dirname,
         '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',

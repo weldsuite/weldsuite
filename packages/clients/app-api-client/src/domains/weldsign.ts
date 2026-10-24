@@ -12,6 +12,7 @@ import type {
   ListSignEnvelopesQuery,
   ReorderSignDocumentsInput,
   ReplaceSignFieldsInput,
+  SendSignEnvelopeInput,
   SignDocumentDto,
   SignEnvelopeDetail,
   SignEnvelopeSummary,
@@ -70,6 +71,15 @@ export function createWeldSignApi(api: ClientApi) {
 
     replaceFields(id: string, input: ReplaceSignFieldsInput): Promise<DataResponse<SignFieldDto[]>> {
       return api.put(`${base}/${id}/fields`, input);
+    },
+
+    /** Send a complete draft to its first signers. */
+    send(id: string, input: SendSignEnvelopeInput = {}): Promise<DataResponse<SignEnvelopeDetail>> {
+      return api.post(`${base}/${id}/send`, input);
+    },
+    /** The signed PDF with its certificate; the caller reads the response as a blob. */
+    download(id: string): Promise<Response> {
+      return api.getRaw(`${base}/${id}/download`);
     },
   };
 }

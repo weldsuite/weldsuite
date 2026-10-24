@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { portalUpstream, sessionCookieName } from '@/lib/api';
+import { SIGN_LINK_HEADER, portalUpstream, sessionCookieName } from '@/lib/api';
 
 /**
  * Generic authenticated proxy: browser code calls `/api/portal/<path>` on this
@@ -10,7 +10,8 @@ import { portalUpstream, sessionCookieName } from '@/lib/api';
  */
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params;
-  const token = (await cookies()).get(sessionCookieName())?.value;
+  const link = req.headers.get(SIGN_LINK_HEADER);
+  const token = link ? (await cookies()).get(sessionCookieName(link))?.value : undefined;
   const dest = new URL(portalUpstream(`/${path.join('/')}`));
   req.nextUrl.searchParams.forEach((value, key) => dest.searchParams.set(key, value));
 
@@ -22,7 +23,12 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   if (contentType) headers['Content-Type'] = contentType;
   // sign-api records the signer's IP and browser on the evidence trail.
   const forwardedFor = req.headers.get('x-forwarded-for');
-  if (forwardedFor) headers['X-Forwarded-For'] = forwardedFor;
+  if (forwardedFor) {
+    headers['X-Forwarded-For'] = forwardedFor;
+    // The first entry is the client; sign-api stores it as the signer's IP.
+    const clientIp = forwardedFor.split(',')[0]?.trim();
+    if (clientIp) headers['X-Signer-Ip'] = clientIp;
+  }
   const userAgent = req.headers.get('user-agent');
   if (userAgent) headers['User-Agent'] = userAgent;
 
@@ -39,6 +45,8 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
     const v = res.headers.get(name);
     if (v) outHeaders.set(name, v);
   }
+  // Signed documents and envelopes are private; never let a cache keep them.
+  outHeaders.set('cache-control', 'private, no-store');
   return new NextResponse(body, { status: res.status, headers: outHeaders });
 }
 

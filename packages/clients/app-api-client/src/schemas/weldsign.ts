@@ -271,3 +271,138 @@ export function fieldFitsPage(field: Pick<SignFieldInput, 'x' | 'y' | 'width' | 
   const slack = 0.5;
   return field.x + field.width <= page.width + slack && field.y + field.height <= page.height + slack;
 }
+
+// ---------------------------------------------------------------------------
+// Sending (members)
+// ---------------------------------------------------------------------------
+
+export const sendEnvelopeSchema = z.object({
+  /** When the request stops accepting signatures; defaults to the workspace setting (30 days). */
+  expiresAt: z.string().datetime({ offset: true }).nullish(),
+});
+export type SendSignEnvelopeInput = z.infer<typeof sendEnvelopeSchema>;
+
+// ---------------------------------------------------------------------------
+// Signer portal (/public/sign-portal/*, called by apps/web/sign-portal)
+// ---------------------------------------------------------------------------
+
+/**
+ * Version of the e-signature disclosure a signer agrees to. Stored with the
+ * `consented` event; bump it whenever the disclosure text changes.
+ */
+export const SIGN_DISCLOSURE_VERSION = '2026-10-24';
+
+export const portalSessionSchema = z.object({
+  /** The token from the signing link (`/r/<token>`). */
+  token: z.string().min(20).max(200),
+});
+export type SignPortalSessionInput = z.infer<typeof portalSessionSchema>;
+
+export const portalVerifySchema = portalSessionSchema.extend({
+  code: z.string().trim().min(4).max(64),
+});
+export type SignPortalVerifyInput = z.infer<typeof portalVerifySchema>;
+
+export const SIGN_PORTAL_CLOSED_REASONS = ['expired', 'voided', 'declined'] as const;
+export type SignPortalClosedReason = (typeof SIGN_PORTAL_CLOSED_REASONS)[number];
+
+/**
+ * Answer to opening a link (and to a code check):
+ * - `ready`: here is a signer session (bearer token for every other route);
+ * - `code_required`: ask for the emailed code or the access code first;
+ * - `closed`: the request can no longer be opened.
+ * An unknown or revoked link is a 404.
+ */
+export type SignPortalSessionResponse =
+  | { state: 'ready'; session: string; expiresAt: string }
+  | { state: 'code_required'; method: 'email_code' | 'access_code'; emailHint: string | null }
+  | { state: 'closed'; reason: SignPortalClosedReason };
+
+export const portalConsentSchema = z.object({
+  disclosureVersion: z.string().min(1).max(40),
+});
+
+const pngDataUrl = z
+  .string()
+  .max(700_000)
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, 'Expected a PNG data URL');
+
+export const portalSignatureSchema = z.object({
+  /** How the signer made it; recorded on the certificate. */
+  kind: z.enum(['drawn', 'typed', 'uploaded']),
+  /** The image, already rendered to PNG by the portal. */
+  image: pngDataUrl,
+});
+export type SignPortalSignature = z.infer<typeof portalSignatureSchema>;
+
+export const portalCompleteSchema = z.object({
+  /** Values of the signer's text and checkbox fields ('true' / 'false' for a checkbox). */
+  values: z.array(z.object({ fieldId: z.string().min(1).max(30), value: z.string().max(1000) })).max(SIGN_LIMITS.maxFields),
+  /** Required when the signer has a signature field. */
+  signature: portalSignatureSchema.nullish(),
+  /** Required when the signer has an initials field. */
+  initials: portalSignatureSchema.nullish(),
+  /** The signer's IANA time zone, for the date-signed fields. */
+  timeZone: z.string().max(64).nullish(),
+});
+export type SignPortalCompleteInput = z.infer<typeof portalCompleteSchema>;
+
+export const portalDeclineSchema = z.object({
+  reason: z.string().trim().min(1).max(1000),
+});
+export type SignPortalDeclineInput = z.infer<typeof portalDeclineSchema>;
+
+export interface SignPortalField {
+  id: string;
+  documentId: string;
+  type: SignFieldType;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  required: boolean;
+  label: string | null;
+  /** Set once the signer has signed. */
+  value: string | null;
+}
+
+export interface SignPortalBrand {
+  /** The workspace (or its WeldSign brand name). */
+  name: string;
+  color: string | null;
+  logoUrl: string | null;
+}
+
+/** What the signer sees. Only their own fields; earlier signers' values are already in the PDF. */
+export interface SignPortalEnvelope {
+  envelopeId: string;
+  title: string;
+  message: string | null;
+  status: SignEnvelopeStatus;
+  senderName: string | null;
+  senderEmail: string | null;
+  brand: SignPortalBrand;
+  recipient: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    role: SignRecipientRole;
+    status: SignRecipientStatus;
+    locale: SignLocale;
+    consented: boolean;
+  };
+  /**
+   * What the page should offer:
+   * - `sign`: it is this signer's turn;
+   * - `waiting`: they signed (or it is not their turn yet) and others still have to;
+   * - `completed`: everyone signed; the signed PDF can be downloaded;
+   * - `closed`: expired, voided or declined.
+   */
+  mode: 'sign' | 'waiting' | 'completed' | 'closed';
+  closedReason: SignPortalClosedReason | null;
+  expiresAt: string | null;
+  disclosureVersion: string;
+  documents: Pick<SignDocumentDto, 'id' | 'name' | 'pageCount' | 'pageSizes'>[];
+  fields: SignPortalField[];
+}

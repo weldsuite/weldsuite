@@ -10,7 +10,16 @@
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
 #
-# Bindings beyond the kit: PRIVATE_STORAGE (WeldSign files).
+# Bindings beyond the kit: PRIVATE_STORAGE (WeldSign files), SEND_EMAIL and the
+# outbound guard (signing emails), FINALIZE_ENVELOPE (the Workflow that builds
+# the signed PDF), and the vars SIGN_PORTAL_URL (signing links) and
+# EMAIL_TRANSPORT.
+#   SIGN_SESSION_SECRET signs signer sessions (HMAC); any long random string.
+#
+# Signing emails carry the sender's title and message to any address, so every
+# batch goes through the outbound mail guard (source `sign`), like calendar
+# invitations (ADR CAL-004). OUTBOUND_LEDGER / OUTBOUND_PLATFORM are mail-api's
+# Durable Objects bound by name; OUTBOUND_BACKSTOP is the shared burst limit.
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-sign-api-dev"
@@ -25,7 +34,8 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias (unlike most API workers): the WeldSign emails render real
+# React Email templates through @weldsuite/emails, which needs the react package.
 
 [observability]
 enabled = true
@@ -33,6 +43,10 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Signing links point here.
+SIGN_PORTAL_URL = "http://localhost:3023"
+# Under `wrangler dev` the SEND_EMAIL binding is simulated and writes mail to disk.
+EMAIL_TRANSPORT = "cloudflare"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -55,6 +69,32 @@ remote = true
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
 
+[[send_email]]
+name = "SEND_EMAIL"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-dev"
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Builds the signed PDF and certificate once the last signer has signed.
+[[workflows]]
+name = "sign-finalize-dev"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -65,6 +105,36 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+SIGN_PORTAL_URL = "https://sign-test.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Builds the signed PDF and certificate once the last signer has signed.
+[[env.test.workflows]]
+name = "sign-finalize-test"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
 
 [[env.test.r2_buckets]]
 binding = "PRIVATE_STORAGE"
@@ -100,6 +170,36 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+SIGN_PORTAL_URL = "https://sign.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Builds the signed PDF and certificate once the last signer has signed.
+[[env.production.workflows]]
+name = "sign-finalize"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
 
 [[env.production.r2_buckets]]
 binding = "PRIVATE_STORAGE"

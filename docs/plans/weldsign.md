@@ -322,9 +322,50 @@ sign-portal scaffold, docs (SIGN-001..004).
   on demand), moved and resized with the pointer, and saved as a set; leaving
   the fields step saves too. Review lists what is still missing before sending;
   the Send button stays disabled until phase 2.
-- Deferred to phase 2: the "Action required" folder (envelopes where the
-  member is a signer) needs sending first; the per-recipient folder
-  visibility rule goes in with it.
+- Deferred: the "Action required" folder (envelopes where the member is a
+  signer) and the per-recipient visibility rule that goes with it; now
+  planned for phase 3.
+
+**Phase 2: done.**
+
+- Send (`POST /api/sign/envelopes/:id/send`, `sign_envelopes:send`): checks
+  the draft (documents, signers, a signature field per signer, emails), sets
+  the expiry (chosen in the send dialog, default 30 days), creates a hashed
+  link per recipient of the first signing group and emails them. The batch is
+  checked by the outbound guard first (new source `sign`); a refusal changes
+  nothing and tells the sender.
+- Signer portal mount `/public/sign-portal` (session, verify, resend-code,
+  envelope, documents, consent, complete, decline, download), signer sessions
+  as HMAC tokens (`SIGN_SESSION_SECRET`, 2 hours), emailed 6-digit codes and
+  access codes with 5 tries per 15 minutes, all in KV. The sign-portal app
+  keeps one httpOnly session cookie per link, so two links in two tabs stay
+  apart.
+- Signing stores the signature and initials PNGs, fills name, email and date
+  server-side, records IP and browser, and rebuilds a working copy of each
+  touched document so later signers see earlier values. The next signing
+  group is emailed when the current one is done.
+- The last signature starts the `FinalizeEnvelope` Workflow: one PDF (all
+  documents with values drawn in, rotation-aware, then the certificate of
+  completion), its SHA-256 stored and on the trail, then the "everyone
+  signed" email with the PDF attached (up to 10 MB) to signers, copy
+  recipients and the sender.
+- Evidence trail: sent, opened, code_verified / code_failed, consented,
+  signed, declined, completed, delivered.
+- Emails (`@weldsuite/emails`): `sign.request`, `sign.code`,
+  `sign.completed`, `sign.declined`, en + nl, workspace-branded.
+- Entity events: `sign_envelope` `sent`, `signed`, `declined`, `completed`.
+- Platform: Send button with an expiry date, and a status view for sent
+  requests (who signed, download of the signed PDF).
+
+Changes against the plan above:
+
+- Completion does not revoke links: they stay valid for 30 days to download
+  the signed PDF, and signers and copy recipients get a fresh link in the
+  completion email. Decline (and later void and expiry) revokes them.
+- The certificate page is in English for every workspace.
+- PDFs that do not embed their fonts render with substitute fonts in the
+  portal (pdf.js gets no standard-font data yet); the signed PDF itself is
+  unaffected.
 
 ## Later (not in v1)
 

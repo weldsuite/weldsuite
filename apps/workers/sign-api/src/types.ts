@@ -1,11 +1,19 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
+import type { FinalizeEnvelopeParams } from './workflows/finalize-envelope';
 
 /**
  * sign-api bindings: the kit's (auth, tenant DB, flags) plus only what
  * the sign module uses. Add a binding here and in wrangler.toml together.
+ *
+ * `OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` are the
+ * outbound mail guard's (hosted by mail-api, all optional because the guard
+ * fails open). Signing emails count against the workspace (source `sign`).
  */
-export interface Env extends KitEnv {
+export interface Env
+  extends KitEnv,
+    Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** Entity-events hub queue (publishEntityEvent). */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
@@ -14,6 +22,24 @@ export interface Env extends KitEnv {
   REALTIME_INTERNAL_SECRET?: string;
   /** WeldSign files (private bucket, `workspaces/<org>/weldsign/<envelopeId>/…`), ADR SIGN-004. */
   PRIVATE_STORAGE: R2Bucket;
+
+  // --- Signing ---------------------------------------------------------------
+  /** Origin of apps/web/sign-portal; signing links are `${SIGN_PORTAL_URL}/r/<token>`. */
+  SIGN_PORTAL_URL?: string;
+  /** HMAC key for signer sessions. Without it the signer portal answers 503. */
+  SIGN_SESSION_SECRET?: string;
+  /** Builds the signed PDF once the last signer has signed. Without it, sign-api finalizes in `waitUntil`. */
+  FINALIZE_ENVELOPE?: Workflow<FinalizeEnvelopeParams>;
+
+  // --- System mail (@weldsuite/emails) -----------------------------------------
+  /** Cloudflare Email Service binding; signing emails no-op without it (see `workerTransport`). */
+  SEND_EMAIL?: SendEmail;
+  /** Migration switch: "resend" sends through Resend instead of Cloudflare. */
+  EMAIL_TRANSPORT?: string;
+  /** Resend API key, the fallback transport while EMAIL_TRANSPORT="resend". */
+  RESEND_API_KEY?: string;
+  /** Migration-only sender override; see `workerTransport`. */
+  SYSTEM_EMAIL_FROM?: string;
 }
 
 export type Variables = KitVariables;

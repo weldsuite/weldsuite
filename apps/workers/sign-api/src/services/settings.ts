@@ -17,6 +17,12 @@ export interface SignDefaults {
   reminderMaxCount: number | null;
 }
 
+/** The signer-facing brand the workspace set for WeldSign; nulls fall back to the workspace. */
+export async function loadSignBrand(db: Database): Promise<{ name: string | null; color: string | null; logoUrl: string | null }> {
+  const [row] = await db.select().from(schema.signSettings).limit(1);
+  return { name: row?.brandName ?? null, color: row?.brandColor ?? null, logoUrl: row?.brandLogoUrl ?? null };
+}
+
 export async function loadSignSettings(db: Database): Promise<SignDefaults> {
   const [row] = await db.select().from(schema.signSettings).limit(1);
   if (!row) return { ...SIGN_DEFAULTS };

@@ -11,9 +11,11 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "lucide-react": "^0.544.0",
     "next": "15.5.28",
+    "pdfjs-dist": "5.7.284",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

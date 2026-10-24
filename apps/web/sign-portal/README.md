@@ -14,9 +14,9 @@ The backend contract is the `/public/sign-portal/*` mount on sign-api
 (`apps/workers/sign-api`), reached through the app-api forwarder. See
 `docs/plans/weldsign.md`.
 
-**Status: phase 0.** The app renders, but signing links show a
-"not ready yet" page; the signing flow arrives in phase 2. It is not in the
-deploy pipeline yet: add it to `.github/scripts/vercel-apps.mjs` and
+**Status: phase 2.** `/r/<token>` runs the signer flow: code screen,
+e-signature consent, pdf.js document view with the signer's fields, adopt a
+signature, finish, decline and download. It is not in the deploy pipeline yet: add it to `.github/scripts/vercel-apps.mjs` and
 `deploy.yml`'s `on.push.paths` once its Vercel project and the
 `sign(-test).weldsuite.org` DNS exist.
 

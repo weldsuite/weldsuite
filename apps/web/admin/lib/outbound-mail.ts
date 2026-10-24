@@ -143,6 +143,7 @@ const SOURCE_LABELS: Record<string, string> = {
   desk: 'WeldDesk',
   calendar: 'Calendar',
   meet: 'WeldMeet',
+  sign: 'WeldSign',
   personal: 'Personal WeldMail',
   subscription: 'Subscription',
 };

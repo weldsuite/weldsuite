@@ -6,8 +6,10 @@
 export const SIGN_ENTITY_EVENTS = {
   /**
    * `updated`: anything about a draft changed (settings, documents,
-   * recipients, fields). Sending, signing and completion get their own
-   * actions when they ship (docs/plans/weldsign.md, phase 2).
+   * recipients, fields). `sent`: the request went out. `signed`: one
+   * signer signed (the payload names no one; read the envelope). `declined`:
+   * a signer declined, which closes the request. `completed`: everyone signed
+   * and the signed PDF is ready ("contract signed" in WeldConnect).
    */
-  sign_envelope: ['created', 'updated', 'deleted'],
+  sign_envelope: ['created', 'updated', 'deleted', 'sent', 'signed', 'declined', 'completed'],
 } as const;

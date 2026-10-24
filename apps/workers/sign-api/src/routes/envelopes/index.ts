@@ -11,6 +11,7 @@
  *   DELETE /api/sign/envelopes/:id      → delete a draft and its files
  *
  * Documents, recipients and fields of a draft: ./documents.ts, ./recipients.ts, ./fields.ts.
+ * Sending and the signed PDF: ./lifecycle.ts.
  */
 
 import { Hono } from 'hono';
@@ -39,6 +40,7 @@ import { envelopeEventData, handle, mayEdit, viewerOf } from './shared';
 import documentsRoutes from './documents';
 import recipientsRoutes from './recipients';
 import fieldsRoutes from './fields';
+import lifecycleRoutes from './lifecycle';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -106,5 +108,6 @@ app.delete('/:id', requirePermission('sign_envelopes:delete'), (c) =>
 app.route('/:id/documents', documentsRoutes);
 app.route('/:id/recipients', recipientsRoutes);
 app.route('/:id/fields', fieldsRoutes);
+app.route('/', lifecycleRoutes);
 
 export default app;
