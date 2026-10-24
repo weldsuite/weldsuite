@@ -50,6 +50,18 @@ vi.mock('@weldsuite/entity-events', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/entity-events')>();
   return { ...actual, publishEntityEventRaw: vi.fn(async (e: { action: string; entityId: string }) => void published.push(e)) };
 });
+// Lets a test make the reminders fail half way through a tick.
+const reminders = vi.hoisted(() => ({ fail: false }));
+vi.mock('../services/lifecycle', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/lifecycle')>();
+  return {
+    ...actual,
+    sendDueReminders: async (...args: Parameters<typeof actual.sendDueReminders>) => {
+      if (reminders.fail) throw new Error('Neon hiccup');
+      return actual.sendDueReminders(...args);
+    },
+  };
+});
 
 import { runLifecycleSweep } from './lifecycle-sweep';
 
@@ -152,5 +164,22 @@ describe('lifecycle sweep', () => {
     expect((await recipient(ann)).remindersSent).toBe(2);
     // The maximum is reached; what is left is A's expiry.
     expect(await nextDue()).toBe(now.getTime() + 10 * DAY);
+  });
+
+  it('still publishes the expiry when the reminders fail later in the tick', async () => {
+    const now = new Date('2026-11-06T09:00:00Z');
+    await request('sgn_e', { status: 'sent', expiresAt: new Date(now.getTime() - 3_600_000) });
+    await signer('sgn_e', 'Eve', { status: 'sent', sentAt: new Date(now.getTime() - 5 * DAY) });
+    const env = { SCHEDULE_INDEX: createSqliteD1(MIGRATION), WORKSPACE_CACHE: createMemoryKv(), ENVIRONMENT: 'test' } as unknown as Env;
+
+    reminders.fail = true;
+    try {
+      expect(await runLifecycleSweep(env, now)).toMatchObject({ failed: 1, expired: 1 });
+    } finally {
+      reminders.fail = false;
+    }
+    expect((await envelope('sgn_e')).status).toBe('expired');
+    // A retry would no longer find sgn_e, so its event had to go out already.
+    expect(published).toEqual([expect.objectContaining({ action: 'expired', entityId: 'sgn_e' })]);
   });
 });

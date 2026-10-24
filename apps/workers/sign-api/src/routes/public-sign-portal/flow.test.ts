@@ -527,6 +527,19 @@ describe('a sent request', () => {
     expect(events.find((e) => e.type === 'recipient_corrected')?.details).toMatchObject({ from: 'ann@example.com', to: 'ann.devries@example.com' });
   });
 
+  it('keeps a signer’s consent when only their name is fixed', async () => {
+    const { envelope, ann } = await draftWithTwoSigners();
+    const p = portal();
+    const session = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
+    const res = await member().request(`${BASE}/${envelope.id}/recipients/${ann.id}/correct`, json({ name: 'Ann de Vries', email: 'ann@example.com' }));
+    expect(await data<SignRecipientDto>(res)).toMatchObject({ name: 'Ann de Vries', email: 'ann@example.com', status: 'opened' });
+    // Same person, same session: still agreed, and she can finish.
+    expect((await data<SignPortalEnvelope>(await p.request('/envelope', {}, session))).recipient.consented).toBe(true);
+    const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, session));
+    const jobTitle = view.fields.find((f) => f.type === 'text')!;
+    expect((await p.request('/complete', json({ values: [{ fieldId: jobTitle.id, value: 'Director' }], signature }), session)).status).toBe(200);
+  });
+
   it('shows a member the requests waiting for their signature, and lets them sign now', async () => {
     const { envelope, ann } = await draftWithTwoSigners();
     await db.insert(schema.workspaceMembers).values({ id: generateId('wm'), userId: 'user_ann', email: 'Ann@Example.com', name: 'Ann' });

@@ -55,7 +55,8 @@ export async function runLifecycleSweep(
       const ctx = { env, db, master, clerkOrgId: orgId, workspaceId: workspace.id };
       const closed = await expireDue(ctx, at);
       expired += closed.length;
-      reminded += await sendDueReminders(ctx, at);
+      // Publish before the reminders run: if they fail, the retry no longer
+      // finds these requests (they are expired now) and the events would be lost.
       await Promise.all(
         closed.map((envelope) =>
           publishEntityEventRaw({
@@ -69,6 +70,7 @@ export async function runLifecycleSweep(
           }),
         ),
       );
+      reminded += await sendDueReminders(ctx, at);
       return nextLifecycleDueAt(db);
     },
   });

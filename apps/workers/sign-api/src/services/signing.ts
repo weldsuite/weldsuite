@@ -96,18 +96,24 @@ export async function recordCodeCheck(db: Database, ref: SignerRef, ok: boolean,
   });
 }
 
+/** A correction that changed the address: someone else now holds the request. */
+function changedEmail(details: Record<string, unknown> | null): boolean {
+  return !!details && details.from !== details.to;
+}
+
 /**
  * Whether this recipient agreed to sign electronically. A corrected email is
- * a different person, so only consent given after the last correction counts.
+ * a different person, so only consent given after the last such correction
+ * counts; fixing just the name changes nothing.
  */
 async function hasConsented(db: Database, recipientId: string): Promise<boolean> {
   const steps = await db
-    .select({ type: signEvents.type })
+    .select({ type: signEvents.type, details: signEvents.details })
     .from(signEvents)
     .where(and(eq(signEvents.recipientId, recipientId), inArray(signEvents.type, ['consented', 'recipient_corrected'])))
-    .orderBy(desc(signEvents.createdAt), desc(signEvents.id))
-    .limit(1);
-  return steps[0]?.type === 'consented';
+    .orderBy(desc(signEvents.createdAt), desc(signEvents.id));
+  const last = steps.find((s) => s.type === 'consented' || changedEmail(s.details));
+  return last?.type === 'consented';
 }
 
 export async function portalView(
