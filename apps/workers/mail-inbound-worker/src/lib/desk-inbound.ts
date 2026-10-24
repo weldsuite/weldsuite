@@ -20,7 +20,6 @@ import {
   normalizeEmailSubject,
   type DeskConversation,
 } from '@weldsuite/db/lib/desk';
-import { trimTrailingSlashes } from '@weldsuite/text';
 import { tenantSchema, type TenantDatabase } from '../db';
 import type { Env } from '../index';
 import type { ParsedAttachment, ParsedEmail } from './email-storage';
@@ -76,6 +75,37 @@ export function selectDeskAttachments(
   return kept;
 }
 
+/**
+ * Types served as-is from the public bucket. Anything else (HTML, SVG, …)
+ * comes from an untrusted sender and could run script on the storage host,
+ * so it is stored as a download — the same passive list desk-api accepts
+ * from agents.
+ */
+const PASSIVE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/zip',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
+/** How a sender-supplied file is stored: passive types inline, the rest as a download. */
+export function storedFileMetadata(
+  contentType: string | undefined,
+  fileName: string,
+): { contentType: string; contentDisposition: string } {
+  const type = (contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  if (PASSIVE_TYPES.has(type)) return { contentType: type, contentDisposition: `inline; filename="${fileName}"` };
+  return { contentType: 'application/octet-stream', contentDisposition: `attachment; filename="${fileName}"` };
+}
+
 function safeFileName(name: string): string {
   const cleaned = name.replaceAll(/[^a-zA-Z0-9._-]/g, '_').replaceAll(/^\.+/g, '');
   return cleaned.slice(-120) || 'attachment';
@@ -96,21 +126,24 @@ export async function storeDeskAttachments(
   attachments: ParsedAttachment[] | undefined,
   htmlBody?: string | null,
 ): Promise<DeskEmailAttachment[]> {
-  const publicUrl = env.R2_PUBLIC_URL ? trimTrailingSlashes(env.R2_PUBLIC_URL) : '';
+  // A loop, not `/\/+$/`, which backtracks.
+  let publicUrl = env.R2_PUBLIC_URL ?? '';
+  while (publicUrl.endsWith('/')) publicUrl = publicUrl.slice(0, -1);
   if (!env.STORAGE || !publicUrl) return [];
 
   const stored: DeskEmailAttachment[] = [];
   const files = selectDeskAttachments(attachments, htmlBody);
   for (let i = 0; i < files.length; i++) {
     const att = files[i]!;
-    const contentType = att.contentType || 'application/octet-stream';
-    const key = `desk/${workspaceId}/inbound/${emailId}/${i + 1}_${safeFileName(att.fileName)}`;
+    const fileName = safeFileName(att.fileName);
+    const metadata = storedFileMetadata(att.contentType, fileName);
+    const key = `desk/${workspaceId}/inbound/${emailId}/${i + 1}_${fileName}`;
     try {
-      await env.STORAGE.put(key, att.content, { httpMetadata: { contentType } });
+      await env.STORAGE.put(key, att.content, { httpMetadata: metadata });
       stored.push({
         name: att.fileName || 'attachment',
         url: `${publicUrl}/${key}`,
-        contentType,
+        contentType: metadata.contentType,
         filesize: att.content.length,
       });
     } catch (err) {

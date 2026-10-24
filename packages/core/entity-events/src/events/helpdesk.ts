@@ -9,6 +9,8 @@
 export const HELPDESK_ENTITY_EVENTS = {
   desk_conversation: ['created', 'updated', 'state_changed', 'assigned'],
   desk_message: ['created'],
+  /** A file an agent uploaded to a conversation (before it is sent in a reply). */
+  desk_attachment: ['created'],
   desk_widget: ['created', 'updated', 'deleted'],
 
   // ── Legacy (v1) ─────────────────────────────────────────────────────────

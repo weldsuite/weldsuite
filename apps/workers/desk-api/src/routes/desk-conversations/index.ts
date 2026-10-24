@@ -32,11 +32,11 @@ import {
 } from '@weldsuite/db/lib/desk';
 import * as schema from '@weldsuite/db/schema';
 import { eq } from 'drizzle-orm';
-import { trimTrailingSlashes } from '@weldsuite/text';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { sendDeskEmailReply } from '../../lib/desk-email';
+import { withoutTrailingSlash } from '../../lib/url';
 import { notifyAssigned } from '../../lib/notify';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -176,7 +176,7 @@ const UPLOADED_NAME = /^\d+_att_[A-Za-z0-9]+_[A-Za-z0-9._-]+$/;
 function attachmentLocation(env: Env, workspaceId: string, conversationId: string) {
   if (!env.R2_PUBLIC_URL) return null;
   const keyPrefix = `desk/${workspaceId}/${conversationId}/`;
-  return { keyPrefix, urlPrefix: `${trimTrailingSlashes(env.R2_PUBLIC_URL)}/${keyPrefix}` };
+  return { keyPrefix, urlPrefix: `${withoutTrailingSlash(env.R2_PUBLIC_URL)}/${keyPrefix}` };
 }
 
 app.post('/:id/attachments', requirePermission('conversations:update'), async (c) => {
@@ -213,16 +213,20 @@ app.post('/:id/attachments', requirePermission('conversations:update'), async (c
     return error.internal(c, 'Failed to upload file');
   }
 
-  return success(
+  const attachment = {
+    name: file.name.slice(0, 255) || safeName,
+    url: `${location.urlPrefix}${fileName}`,
+    contentType: file.type,
+    filesize: file.size,
+  };
+  publishEntityEvent({
     c,
-    {
-      name: file.name.slice(0, 255) || safeName,
-      url: `${location.urlPrefix}${fileName}`,
-      contentType: file.type,
-      filesize: file.size,
-    },
-    201,
-  );
+    entityType: 'desk_attachment',
+    action: 'created',
+    entityId: fileName,
+    data: { ...attachment, conversationId: id },
+  });
+  return success(c, attachment, 201);
 });
 
 app.post('/:id/reply', requirePermission('conversations:update'), zValidator('json', replyToConversationSchema), async (c) => {

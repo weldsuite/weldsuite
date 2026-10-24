@@ -11,10 +11,10 @@ import {
 } from '@weldsuite/db/lib/desk';
 import type { DeskMessageAttachment } from '@weldsuite/db/schema/desk-messages';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { trimTrailingSlashes } from '@weldsuite/text';
 import { sendEmail } from '@weldsuite/worker-email';
 import { guardedSend, OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
 import type { Env } from '../types';
+import { withoutTrailingSlash } from './url';
 import { warnReplyBlocked, type DeskOutboundContext } from './outbound-guard';
 
 function replySubject(subject: string | null | undefined): string {
@@ -33,7 +33,7 @@ interface MimeAttachment {
 
 /** Agent files live under `desk/<workspace>/<conversation>/` in STORAGE, served at R2_PUBLIC_URL. */
 function storageKeyFor(env: Env, url: string): string | null {
-  const base = env.R2_PUBLIC_URL ? trimTrailingSlashes(env.R2_PUBLIC_URL) : '';
+  const base = env.R2_PUBLIC_URL ? withoutTrailingSlash(env.R2_PUBLIC_URL) : undefined;
   if (!base || !url.startsWith(`${base}/desk/`)) return null;
   const key = url.slice(base.length + 1);
   return key.includes('..') ? null : key;

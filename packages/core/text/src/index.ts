@@ -63,10 +63,3 @@ export function stripTags(html: string): string {
 export function tagsToSpaces(html: string): string {
   return replaceTags(html, ' ', true);
 }
-
-/** Drops trailing `/`s (a base URL before appending a path): `/\/+$/` without its backtracking. */
-export function trimTrailingSlashes(value: string): string {
-  let end = value.length;
-  while (end > 0 && value[end - 1] === '/') end--;
-  return value.slice(0, end);
-}

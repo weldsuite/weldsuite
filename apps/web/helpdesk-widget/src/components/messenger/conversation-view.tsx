@@ -38,29 +38,25 @@ function groupedWith(a: ThreadMessage | undefined, b: ThreadMessage | undefined)
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() < GROUP_WINDOW_MS;
 }
 
-function eventText(message: ThreadMessage, rating: number | null): string {
-  if (message.eventType === 'closed') return 'Conversation closed';
-  if (message.eventType === 'reopened') return 'Conversation reopened';
-  if (message.eventType === 'assigned') return 'A teammate joined the conversation';
-  if (message.eventType === 'rated') return rating ? fill(t.rating.rated, { rating }) : '';
-  return message.body || '';
+interface MessageRowProps {
+  message: ThreadMessage;
+  prev: ThreadMessage | undefined;
+  next: ThreadMessage | undefined;
+  color: string;
+  onColor: string;
+  /** The conversation's rating, for the "You rated…" line of a `rated` event. */
+  rating: number | null;
+  onRetry: (message: ThreadMessage) => void;
 }
 
-/** A state change in the thread as one grey line; nothing when there is nothing to say. */
-function EventLine({ message, rating }: Readonly<{ message: ThreadMessage; rating: number | null }>) {
-  const text = eventText(message, rating);
-  return text ? <p className="px-6 py-2 text-center text-xs text-gray-400">{text}</p> : null;
-}
-
-/** Under a visitor's bubble: retry when the send failed, else "Sending…" or the time on the group's last one. */
-function DeliveryStatus({
+function MessageStatus({
   message,
   lastInGroup,
   onRetry,
-}: Readonly<{ message: ThreadMessage; lastInGroup: boolean; onRetry: () => void }>) {
+}: Readonly<{ message: ThreadMessage; lastInGroup: boolean; onRetry: (message: ThreadMessage) => void }>) {
   if (message.status === 'failed') {
     return (
-      <button type="button" onClick={onRetry} className="mt-1 text-[11px] text-red-500 hover:underline">
+      <button type="button" onClick={() => onRetry(message)} className="mt-1 text-[11px] text-red-500 hover:underline">
         Not sent · Tap to retry
       </button>
     );
@@ -71,6 +67,61 @@ function DeliveryStatus({
       {message.status === 'sending' ? 'Sending…' : clockTime(message.createdAt)}
     </span>
   );
+}
+
+function MessageRow({ message, prev, next, color, onColor, rating, onRetry }: Readonly<MessageRowProps>) {
+  if (message.kind === 'event') {
+    const text = eventText(message, rating);
+    return text ? <p className="px-6 py-2 text-center text-xs text-gray-400">{text}</p> : null;
+  }
+  const mine = message.authorType === 'visitor';
+  const grouped = groupedWith(prev, message);
+  const lastInGroup = !groupedWith(message, next);
+  const author = message.authorName ?? 'Support';
+  const attachments = message.attachments ?? [];
+  // Pictures on their own don't need a coloured bubble around them.
+  const mediaOnly =
+    !message.body && attachments.length > 0 && attachments.every((a) => isImageAttachment(a.contentType));
+  let bubble = 'px-3.5 py-2.5 rounded-bl-md bg-gray-100 text-gray-900';
+  if (mediaOnly) bubble = '';
+  else if (mine) bubble = 'px-3.5 py-2.5 rounded-br-md';
+
+  return (
+    <div className={cn('flex items-end gap-2 px-4', grouped ? 'pt-0.5' : 'pt-3', mine && 'justify-end')}>
+      {!mine && (
+        <div className="w-7 flex-shrink-0">
+          {lastInGroup && <Avatar name={author} src={message.authorAvatar} size={28} />}
+        </div>
+      )}
+      <div className={cn('flex flex-col max-w-[78%] min-w-0', mine ? 'items-end' : 'items-start')}>
+        {!mine && !grouped && <span className="mb-1 ml-1 text-[11px] text-gray-500">{author}</span>}
+        <div
+          className={cn(
+            'text-sm whitespace-pre-wrap break-words rounded-2xl',
+            bubble,
+            message.status === 'sending' && 'opacity-70',
+            message.status === 'failed' && 'opacity-60',
+          )}
+          style={mine && !mediaOnly ? { backgroundColor: color, color: onColor } : undefined}
+          title={new Date(message.createdAt).toLocaleString()}
+        >
+          {message.body}
+          {attachments.length > 0 && (
+            <MessageAttachments attachments={attachments} className={message.body ? 'mt-2' : undefined} />
+          )}
+        </div>
+        <MessageStatus message={message} lastInGroup={lastInGroup} onRetry={onRetry} />
+      </div>
+    </div>
+  );
+}
+
+function eventText(message: ThreadMessage, rating: number | null): string {
+  if (message.eventType === 'closed') return 'Conversation closed';
+  if (message.eventType === 'reopened') return 'Conversation reopened';
+  if (message.eventType === 'assigned') return 'A teammate joined the conversation';
+  if (message.eventType === 'rated') return rating ? fill(t.rating.rated, { rating }) : '';
+  return message.body || '';
 }
 
 /** A file the visitor picked: uploading, ready to send with the next message, or failed. */
@@ -274,58 +325,18 @@ export function ConversationView({
 
             {away && <AwayNotice config={config} nextOpenAt={nextOpenAt} className="px-4 pt-3" />}
 
-            {messages.map((message, index) => {
-              if (message.kind === 'event') {
-                return <EventLine key={message.clientId ?? message.id} message={message} rating={rating} />;
-              }
-              const mine = message.authorType === 'visitor';
-              const prev = messages[index - 1];
-              const next = messages[index + 1];
-              const grouped = groupedWith(prev, message);
-              const lastInGroup = !groupedWith(message, next);
-              const author = message.authorName ?? 'Support';
-              const mediaOnly =
-                !message.body &&
-                !!message.attachments?.length &&
-                message.attachments.every((a) => isImageAttachment(a.contentType));
-
-              return (
-                <div
-                  key={message.clientId ?? message.id}
-                  className={cn('flex items-end gap-2 px-4', grouped ? 'pt-0.5' : 'pt-3', mine && 'justify-end')}
-                >
-                  {!mine && (
-                    <div className="w-7 flex-shrink-0">
-                      {lastInGroup && <Avatar name={author} src={message.authorAvatar} size={28} />}
-                    </div>
-                  )}
-                  <div className={cn('flex flex-col max-w-[78%] min-w-0', mine ? 'items-end' : 'items-start')}>
-                    {!mine && !grouped && <span className="mb-1 ml-1 text-[11px] text-gray-500">{author}</span>}
-                    <div
-                      className={cn(
-                        'text-sm whitespace-pre-wrap break-words rounded-2xl',
-                        // Pictures on their own don't need a coloured bubble around them.
-                        !mediaOnly && 'px-3.5 py-2.5',
-                        !mediaOnly && (mine ? 'rounded-br-md' : 'rounded-bl-md bg-gray-100 text-gray-900'),
-                        message.status === 'sending' && 'opacity-70',
-                        message.status === 'failed' && 'opacity-60',
-                      )}
-                      style={mine && !mediaOnly ? { backgroundColor: color, color: onColor } : undefined}
-                      title={new Date(message.createdAt).toLocaleString()}
-                    >
-                      {message.body}
-                      {message.attachments && message.attachments.length > 0 && (
-                        <MessageAttachments
-                          attachments={message.attachments}
-                          className={message.body ? 'mt-2' : undefined}
-                        />
-                      )}
-                    </div>
-                    <DeliveryStatus message={message} lastInGroup={lastInGroup} onRetry={() => void retry(message)} />
-                  </div>
-                </div>
-              );
-            })}
+            {messages.map((message, index) => (
+              <MessageRow
+                key={message.clientId ?? message.id}
+                message={message}
+                prev={messages[index - 1]}
+                next={messages[index + 1]}
+                color={color}
+                onColor={onColor}
+                rating={rating}
+                onRetry={(m) => void retry(m)}
+              />
+            ))}
 
             {agentTyping && (
               <div className="flex items-end gap-2 px-4 pt-3" data-testid="typing-indicator">
