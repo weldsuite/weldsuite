@@ -60,6 +60,8 @@ export type ConnectorAuthEnv = DbEnv &
     PUBLIC_APP_URL?: string;
     MONEYBIRD_CLIENT_ID?: string;
     MONEYBIRD_CLIENT_SECRET?: string;
+    /** `ca_…` of WeldSuite's Stripe Connect platform (test and live differ). */
+    STRIPE_CONNECT_CLIENT_ID?: string;
   };
 
 function signingSecret(env: ConnectorAuthEnv): string | null {

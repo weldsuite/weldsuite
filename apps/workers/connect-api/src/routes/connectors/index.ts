@@ -43,15 +43,25 @@ import {
   updateConnectionSettings,
   upsertConnection,
 } from '@weldsuite/connect-domain/connectors/connections';
-import { testConnectorCredentials } from '@weldsuite/connect-domain/connectors/clients';
+import {
+  credentialPatchError,
+  stripeStoredCredentials,
+  testConnectorCredentials,
+} from '@weldsuite/connect-domain/connectors/clients';
 import { syncConnection } from '@weldsuite/connect-domain/connectors/sync';
 import { startWooCommerceAppAuth, startMoneybirdOAuth, completeMoneybirdOAuth, selectMoneybirdAdministration } from '@weldsuite/connect-domain/connectors/auth';
+import { completeStripeOAuth, startStripeOAuth } from '@weldsuite/connect-domain/connectors/stripe-auth';
 import {
   deleteConnectorWebhookMapping,
+  deleteStripeAccountMapping,
   putConnectorWebhookMapping,
   registerConnectionWebhooks,
   unregisterConnectionWebhooks,
 } from '@weldsuite/connect-domain/connectors/webhooks';
+import { deauthorizeStripeAccount, stripeAccountKvKey } from '@weldsuite/connectors';
+import { pushToMoneybird, scheduleMoneybirdPushBacklog } from '@weldsuite/connect-domain/connectors/moneybird-push';
+import { moneybirdPushRoutes } from './moneybird-push';
+import { connectorSettingsSchema, mergeConnectorSettings, settingsError } from './settings';
 import { and, eq, isNull } from 'drizzle-orm';
 import { originForPathFrom } from '@weldsuite/api-modules';
 import {
@@ -95,7 +105,7 @@ function normalizeEnabledSyncs(provider: string, enabled: string[] | undefined):
 function testProviderCredentials(
   provider: string,
   credentials: Record<string, string>,
-): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }> {
+): Promise<{ ok: true; storeUrl: string; accountName?: string } | { ok: false; message: string }> {
   return testConnectorCredentials(provider, credentials);
 }
 
@@ -108,8 +118,12 @@ function connectRequestError(
   connector: ConnectorDefinition,
   credentials: Record<string, string>,
 ): string | null {
+  // Stripe: OAuth from the Connect button, or a pasted restricted key (accounts OAuth can't reach).
+  if (connector.provider === 'stripe') {
+    return credentials.apiKey?.trim() ? null : 'Paste a Stripe API key, or use Connect with Stripe';
+  }
   if (connector.auth.kind === 'oauth2') {
-    return 'Connect this administration from the Connect button — Moneybird authorises via OAuth';
+    return `Connect from the Connect button — ${connector.label} authorises via OAuth`;
   }
   if (connector.auth.kind === 'app_auth' && (!credentials.consumerKey || !credentials.consumerSecret)) {
     return 'Connect this store from the Connect button — WooCommerce creates the API keys after you approve access';
@@ -120,6 +134,20 @@ function connectRequestError(
     }
   }
   return null;
+}
+
+/**
+ * What a new connection stores: Stripe keeps only its allow-listed keys (a
+ * stored platform key or account id must never come from the request), plus
+ * the WeldBooks entity when one was picked.
+ */
+function credentialsToStore(
+  provider: string,
+  raw: Record<string, string>,
+  entityId: string | undefined,
+): Record<string, string> {
+  const kept = provider === 'stripe' ? stripeStoredCredentials(raw) : raw;
+  return entityId ? { ...kept, entityId } : kept;
 }
 
 /** Host part of a store URL, falling back to the raw value when it does not parse. */
@@ -202,6 +230,8 @@ async function buildCredentialPatch(
   keyring: Keyring,
 ): Promise<CredentialPatch> {
   if (body.credentials) {
+    const refused = credentialPatchError(provider, existing, body.credentials);
+    if (refused) return { error: refused };
     const merged = { ...existing, ...body.credentials };
     if (body.entityId) merged.entityId = body.entityId;
     else if (body.entityId === null) delete merged.entityId;
@@ -273,27 +303,35 @@ const connectSchema = z.object({
   displayName: z.string().min(1).max(255).optional(),
   credentials: z.record(z.string().min(1)),
   enabledSyncs: z.array(z.string().min(1)).optional(),
+  /** WeldBooks entity for accounting connectors. */
+  entityId: z.string().min(1).max(30).optional(),
+  settings: connectorSettingsSchema.optional(),
 });
 
 app.post('/connect', requirePermission('integrations:create'), zValidator('json', connectSchema), async (c) => {
-  const { provider, displayName, credentials, enabledSyncs } = c.req.valid('json');
+  const { provider, displayName, credentials: rawCredentials, enabledSyncs, entityId, settings } = c.req.valid('json');
   const connector = getConnector(provider);
   if (!connector) return error.badRequest(c, `Unknown connector '${provider}'`);
 
-  const requestError = connectRequestError(connector, credentials);
+  const requestError = connectRequestError(connector, rawCredentials) ?? settingsError(provider, settings);
   if (requestError) return error.badRequest(c, requestError);
 
   try {
+    const db = c.get('tenantDb');
+    if (entityId && !(await accountingEntityExists(db, entityId))) {
+      return error.badRequest(c, 'Accounting entity not found');
+    }
+    const credentials = credentialsToStore(provider, rawCredentials, entityId);
     const tested = await testProviderCredentials(provider, credentials);
     if (!tested.ok) return error.badRequest(c, tested.message);
 
-    const db = c.get('tenantDb');
     const userId = c.get('userId');
     const clerkOrgId = c.get('workspaceId');
     const keyring = keyringFromEnv(c.env);
     const encrypted = await encryptCredentials(credentials, keyring);
     const syncs = normalizeEnabledSyncs(provider, enabledSyncs);
-    const label = displayName?.trim() || `${connector.label} (${hostnameOf(tested.storeUrl)})`;
+    const accountLabel = 'accountName' in tested && tested.accountName ? tested.accountName : hostnameOf(tested.storeUrl);
+    const label = displayName?.trim() || `${connector.label} (${accountLabel})`;
     const rawWebhookSecret = provider === 'shopify' ? credentials.apiSecret : generateWebhookSecret();
     const encryptedWebhookSecret = rawWebhookSecret
       ? await encryptWebhookSecret(rawWebhookSecret, keyring)
@@ -309,6 +347,13 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
       externalAccountId: tested.storeUrl,
       webhookSecret: encryptedWebhookSecret,
     });
+    if (settings) {
+      await updateConnectionSettings({
+        db,
+        connectionId: row.id,
+        settings: mergeConnectorSettings(row.settings, settings),
+      });
+    }
     await seedDefaultConnectorFieldMappings(db, row.id, provider);
 
     let warning: string | null = null;
@@ -374,6 +419,14 @@ const authorizeSchema = z.discriminatedUnion('provider', [
     returnUrl: z.string().url(),
     entityId: z.string().min(1).max(30).optional(),
   }),
+  z.object({
+    provider: z.literal('stripe'),
+    displayName: z.string().min(1).max(255).optional(),
+    enabledSyncs: z.array(z.string().min(1)).optional(),
+    returnUrl: z.string().url(),
+    entityId: z.string().min(1).max(30).optional(),
+    importStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  }),
 ]);
 
 app.post('/authorize', requirePermission('integrations:create'), zValidator('json', authorizeSchema), async (c) => {
@@ -382,6 +435,24 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
   if (!clerkOrgId) return error.orgRequired(c);
 
   try {
+    if (body.provider === 'stripe') {
+      if (body.entityId && !(await accountingEntityExists(c.get('tenantDb'), body.entityId))) {
+        return error.badRequest(c, 'Accounting entity not found');
+      }
+      const result = await startStripeOAuth({
+        env: c.env,
+        clerkOrgId,
+        userId: c.get('userId'),
+        enabledSyncs: normalizeEnabledSyncs(body.provider, body.enabledSyncs),
+        displayName: body.displayName,
+        returnUrl: body.returnUrl,
+        entityId: body.entityId ?? null,
+        importStartDate: body.importStartDate ?? null,
+      });
+      if ('error' in result) return error.badRequest(c, result.error);
+      return success(c, result);
+    }
+
     if (body.provider === 'moneybird') {
       if (body.entityId && !(await accountingEntityExists(c.get('tenantDb'), body.entityId))) {
         return error.badRequest(c, 'Accounting entity not found');
@@ -420,7 +491,7 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
 });
 
 const oauthCallbackSchema = z.object({
-  provider: z.literal('moneybird'),
+  provider: z.enum(['moneybird', 'stripe']),
   code: z.string().min(1),
   state: z.string().min(1),
 });
@@ -428,7 +499,8 @@ const oauthCallbackSchema = z.object({
 app.post('/oauth/callback', requirePermission('integrations:create'), zValidator('json', oauthCallbackSchema), async (c) => {
   const body = c.req.valid('json');
   try {
-    const result = await completeMoneybirdOAuth({
+    const complete = body.provider === 'stripe' ? completeStripeOAuth : completeMoneybirdOAuth;
+    const result = await complete({
       env: c.env,
       code: body.code,
       state: body.state,
@@ -529,7 +601,37 @@ const patchSchema = z.object({
     .optional(),
   credentials: z.record(z.string().min(1)).optional(),
   entityId: z.string().min(1).max(30).nullable().optional(),
+  /** Per key: an omitted key keeps its value. */
+  settings: connectorSettingsSchema.optional(),
 });
+
+/** Work a settings change implies: re-read Stripe from a new start date, send to Moneybird once enabled. */
+function afterSettingsChange(
+  c: { env: Env; executionCtx: ExecutionContext },
+  args: { db: Database; before: ConnectionRow; after: ConnectionRow; clerkOrgId: string; userId: string },
+): void {
+  const { before, after } = args;
+  if (after.provider === 'stripe' && before.settings?.importStartDate !== after.settings?.importStartDate) {
+    c.executionCtx.waitUntil(
+      syncConnection({
+        db: args.db,
+        env: c.env,
+        connection: after,
+        ownerId: args.userId,
+        workspaceId: args.clerkOrgId,
+        trigger: 'manual',
+        full: true,
+      }).catch((err) => console.error('[app-api/connectors] re-sync after start date change failed:', err)),
+    );
+  }
+  if (after.provider === 'moneybird' && after.settings?.moneybirdPush?.enabled) {
+    c.executionCtx.waitUntil(
+      pushToMoneybird({ db: args.db, env: c.env, connection: after, trigger: 'manual' })
+        .then((result) => (result.remaining ? scheduleMoneybirdPushBacklog(c.env, after.id) : undefined))
+        .catch((err) => console.error('[app-api/connectors] Moneybird push after settings change failed:', err)),
+    );
+  }
+}
 
 app.patch(
   '/connections/:id',
@@ -547,6 +649,8 @@ app.patch(
       if (body.entityId && !(await accountingEntityExists(db, body.entityId))) {
         return error.badRequest(c, 'Accounting entity not found');
       }
+      const invalidSettings = settingsError(row.provider, body.settings);
+      if (invalidSettings) return error.badRequest(c, invalidSettings);
 
       const existing = await decryptCredentials(row.credentials ?? undefined, keyring);
       const credentialPatch = await buildCredentialPatch(row.provider, existing, body, keyring);
@@ -561,11 +665,15 @@ app.patch(
         credentials: credentialPatch.encrypted,
         displayName: body.displayName,
         externalAccountId: credentialPatch.externalAccountId,
+        settings: body.settings ? mergeConnectorSettings(row.settings, body.settings) : undefined,
       });
 
       const updated = await getConnectionById(db, row.id);
       const clerkOrgId = c.get('workspaceId');
       if (updated && clerkOrgId) await refreshConnectorIndex(c.env, clerkOrgId, updated);
+      if (updated && clerkOrgId && body.settings) {
+        afterSettingsChange(c, { db, before: row, after: updated, clerkOrgId, userId: c.get('userId') });
+      }
       publishEntityEvent({
         c,
         entityType: 'connector_connection',
@@ -850,6 +958,21 @@ app.post('/connections/:id/resume', requirePermission('integrations:update'), as
   return success(c, { status: 'active' });
 });
 
+/**
+ * Stripe OAuth: revoke the platform's access, unless another workspace still
+ * uses the same Stripe account (they share the one platform connection).
+ */
+async function disconnectStripeAccount(env: Env, row: ConnectionRow, credentials: Record<string, string>): Promise<void> {
+  const accountId = credentials.stripeUserId;
+  if (!accountId || credentials.apiKey) return;
+  await deleteStripeAccountMapping(env, accountId, row.id);
+  const stillUsed = await env.WORKSPACE_CACHE.get(stripeAccountKvKey(accountId));
+  const clientId = env.STRIPE_CONNECT_CLIENT_ID?.trim();
+  const secretKey = env.STRIPE_SECRET_KEY?.trim();
+  if (stillUsed || !clientId || !secretKey) return;
+  await deauthorizeStripeAccount({ secretKey, clientId, stripeUserId: accountId });
+}
+
 app.delete('/connections/:id', requirePermission('integrations:delete'), async (c) => {
   const db = c.get('tenantDb');
   const row = await getConnectionById(db, c.req.param('id'));
@@ -858,6 +981,7 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
   try {
     const credentials = await decryptCredentials(row.credentials ?? undefined, keyring);
     await unregisterConnectionWebhooks({ connection: row, credentials });
+    if (row.provider === 'stripe') await disconnectStripeAccount(c.env, row, credentials);
   } catch (err) {
     console.error('[app-api/connectors] unregister webhooks failed:', err);
   }
@@ -873,5 +997,7 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
   });
   return success(c, { id: row.id, disconnected: true });
 });
+
+app.route('/', moneybirdPushRoutes);
 
 export { app as connectorRoutes };

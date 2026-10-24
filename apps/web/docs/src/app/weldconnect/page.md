@@ -68,10 +68,11 @@ Each template shows whether it is ready to use or how many fields you still need
 
 ## Connectors
 
-WeldConnect **Connectors** import live data from first-party apps (Shopify, WooCommerce, Moneybird). After the first import, the provider pushes changes over webhooks; a periodic catch-up fills gaps.
+WeldConnect **Connectors** import live data from first-party apps (Shopify, WooCommerce, Moneybird, Stripe). After the first import, the provider pushes changes over webhooks; a periodic catch-up fills gaps.
 
 - **Shopify / WooCommerce**: products, orders, and customers.
-- **Moneybird**: contacts, sales invoices, products, and purchase invoices/receipts into WeldBooks. Moneybird stays the book of record: imported invoices and bills do not post to the WeldSuite ledger.
+- **Moneybird**: contacts, sales invoices, products, and purchase invoices/receipts into WeldBooks. Moneybird stays the book of record: imported invoices and bills do not post to the WeldSuite ledger. It can also receive your Stripe sales: see [Send Stripe sales to Moneybird](/weldconnect/stripe-to-moneybird).
+- **Stripe**: finalized invoices, payments, fees and payouts into WeldBooks.
 
 Connect them from **Settings** → **Integrations**.
 

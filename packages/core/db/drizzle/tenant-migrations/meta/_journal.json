@@ -1541,6 +1541,13 @@
       "when": 1792613541059,
       "tag": "0219_crm_list_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "7",
+      "when": 1792825926901,
+      "tag": "0220_connector_connection_settings",
+      "breakpoints": true
     }
   ]
 }

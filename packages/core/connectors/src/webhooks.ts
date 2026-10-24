@@ -100,10 +100,45 @@ export const PICQER_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
   { provider: 'picqer', topic: 'location_stock_counts.completed', settingKey: 'stockCounts', kind: 'update', syncName: 'picqer-stock-counts' },
 ];
 
+/**
+ * Stripe event types. Invoice events carry the invoice (re-read in full during
+ * ingest); `payout.paid` carries the payout, whose balance transactions are
+ * then fetched. `account.application.deauthorized` is handled before topic
+ * matching (it revokes the connection).
+ */
+export const STRIPE_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
+  { provider: 'stripe', topic: 'invoice.finalized', settingKey: 'invoices', kind: 'create', syncName: 'stripe-invoices' },
+  { provider: 'stripe', topic: 'invoice.updated', settingKey: 'invoices', kind: 'update', syncName: 'stripe-invoices' },
+  { provider: 'stripe', topic: 'invoice.paid', settingKey: 'invoices', kind: 'update', syncName: 'stripe-invoices' },
+  { provider: 'stripe', topic: 'invoice.payment_succeeded', settingKey: 'invoices', kind: 'update', syncName: 'stripe-invoices' },
+  { provider: 'stripe', topic: 'invoice.voided', settingKey: 'invoices', kind: 'update', syncName: 'stripe-invoices' },
+  { provider: 'stripe', topic: 'invoice.marked_uncollectible', settingKey: 'invoices', kind: 'update', syncName: 'stripe-invoices' },
+  { provider: 'stripe', topic: 'payout.paid', settingKey: 'bankTransactions', kind: 'update', syncName: 'stripe-balance-transactions' },
+];
+
+/** Stripe event that revokes our access to a connected account. */
+export const STRIPE_DEAUTHORIZED_EVENT = 'account.application.deauthorized';
+
+/**
+ * Set by integration-webhook-worker on a Stripe Connect event it already
+ * verified with the platform's signing secret. Only trusted on the internal
+ * `connector-event` route, which outside callers cannot reach.
+ */
+export const STRIPE_CONNECT_VERIFIED_HEADER = 'x-weldsuite-stripe-connect';
+
+/** KV key: connected Stripe account → the WeldSuite connections that use it. */
+export function stripeAccountKvKey(accountId: string): string {
+  return `stripeacct:${accountId}`;
+}
+
+/** One connected Stripe account can be connected in several workspaces. */
+export type StripeAccountKvEntry = Array<{ workspaceId: string; connectionId: string }>;
+
 const TOPICS_BY_PROVIDER: Record<string, ConnectorWebhookTopic[]> = {
   woocommerce: WOOCOMMERCE_WEBHOOK_TOPICS,
   shopify: SHOPIFY_WEBHOOK_TOPICS,
   moneybird: MONEYBIRD_WEBHOOK_TOPICS,
+  stripe: STRIPE_WEBHOOK_TOPICS,
   picqer: PICQER_WEBHOOK_TOPICS,
 };
 
@@ -209,8 +244,11 @@ export const verifyWooCommerceWebhook = verifyBase64BodyHmac;
 /** Shopify: `X-Shopify-Hmac-Sha256` is HMAC-SHA256 of the raw body, Base64. */
 export const verifyShopifyWebhook = verifyBase64BodyHmac;
 
-/** Moneybird: `Moneybird-Signature` is `t=<unix>,v1=<hex hmac of t.body>`. */
-export async function verifyMoneybirdWebhook(args: {
+/**
+ * `t=<unix>,v1=<hex hmac of "t.body">` with a 5-minute tolerance. Moneybird's
+ * `Moneybird-Signature` and Stripe's `Stripe-Signature` share this scheme.
+ */
+async function verifyTimestampedHexHmac(args: {
   secret: string;
   body: string;
   signature: string | null | undefined;
@@ -229,6 +267,12 @@ export async function verifyMoneybirdWebhook(args: {
   return digests.some((digest) => timingSafeEqual(expected, digest));
 }
 
+/** Moneybird: `Moneybird-Signature` is `t=<unix>,v1=<hex hmac of t.body>`. */
+export const verifyMoneybirdWebhook = verifyTimestampedHexHmac;
+
+/** Stripe: `Stripe-Signature` is `t=<unix>,v1=<hex hmac of t.body>` (plus legacy `v0`, ignored). */
+export const verifyStripeWebhook = verifyTimestampedHexHmac;
+
 /** Picqer: `X-Picqer-Signature` is HMAC-SHA256 of the raw body, Base64. */
 export const verifyPicqerWebhook = verifyBase64BodyHmac;
 
@@ -241,6 +285,7 @@ export async function verifyConnectorWebhook(args: {
   if (args.provider === 'shopify') return verifyShopifyWebhook(args);
   if (args.provider === 'woocommerce') return verifyWooCommerceWebhook(args);
   if (args.provider === 'moneybird') return verifyMoneybirdWebhook(args);
+  if (args.provider === 'stripe') return verifyStripeWebhook(args);
   if (args.provider === 'picqer') return verifyPicqerWebhook(args);
   return false;
 }
@@ -264,6 +309,10 @@ export function readWebhookTopicFromPayload(provider: string, payload: Record<st
     const event = payload.event;
     return typeof event === 'string' && event.trim() ? event.trim().toLowerCase() : null;
   }
+  if (provider === 'stripe') {
+    const type = payload.type;
+    return typeof type === 'string' && type.trim() ? type.trim().toLowerCase() : null;
+  }
   return null;
 }
 
@@ -282,6 +331,13 @@ export function unwrapWebhookPayload(provider: string, payload: Record<string, u
     }
     return payload;
   }
+  if (provider === 'stripe') {
+    const object = (payload.data as { object?: unknown } | undefined)?.object;
+    if (object && typeof object === 'object' && !Array.isArray(object)) {
+      return object as Record<string, unknown>;
+    }
+    return payload;
+  }
   return payload;
 }
 
@@ -297,6 +353,9 @@ export function readWebhookSignatureFromHeaders(provider: string, headers: Heade
   }
   if (provider === 'picqer') {
     return headers.get('x-picqer-signature') ?? headers.get('X-Picqer-Signature');
+  }
+  if (provider === 'stripe') {
+    return headers.get('stripe-signature') ?? headers.get('Stripe-Signature');
   }
   return null;
 }

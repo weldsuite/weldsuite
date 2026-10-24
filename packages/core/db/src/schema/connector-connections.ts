@@ -58,6 +58,41 @@ export interface ConnectorWebhookRegistration {
   deliveryUrl: string;
 }
 
+/** Moneybird tax rate ids used instead of the automatic percentage match. */
+export interface MoneybirdTaxRateOverrides {
+  reverseCharge: string | null;
+  outsideEu: string | null;
+  exempt: string | null;
+  /** Stripe invoice without any tax lines. */
+  noTax: string | null;
+}
+
+/**
+ * Sending imported sales on to Moneybird (set on a Moneybird connection).
+ * Invoices go over as external sales invoices; payouts as a financial statement
+ * on the Moneybird account that stands for the Stripe balance.
+ */
+export interface MoneybirdPushSettings {
+  enabled: boolean;
+  /** Stripe connections whose invoices are sent. Empty = every Stripe connection. */
+  sourceConnectionIds: string[];
+  revenueLedgerAccountId: string | null;
+  /** Moneybird financial account for the Stripe balance. Null = send invoices only. */
+  financialAccountId: string | null;
+  feeLedgerAccountId: string | null;
+  payoutLedgerAccountId: string | null;
+  taxRateOverrides: MoneybirdTaxRateOverrides;
+  /** Only invoices issued on or after this date (YYYY-MM-DD). */
+  startDate: string | null;
+}
+
+/** Non-secret per-connection settings. Secrets stay in `credentials`. */
+export interface ConnectorConnectionSettings {
+  /** Stripe: import invoices finalized on or after this date (YYYY-MM-DD). */
+  importStartDate?: string | null;
+  moneybirdPush?: MoneybirdPushSettings | null;
+}
+
 export const connectorConnections = pgTable(
   'connector_connections',
   {
@@ -95,6 +130,8 @@ export const connectorConnections = pgTable(
     objectSyncDirections: jsonb('object_sync_directions').$type<ConnectorObjectSyncDirections>(),
     /** Per-model incremental watermark: model → ISO timestamp of the last ingest. */
     syncWatermarks: jsonb('sync_watermarks').$type<Record<string, string>>(),
+    /** Non-secret connection settings (import start date, Moneybird push, …). */
+    settings: jsonb('settings').$type<ConnectorConnectionSettings>(),
 
     lastSyncAt: timestamp('last_sync_at'),
     lastSyncStatus: varchar('last_sync_status', { length: 20 }).$type<ConnectorSyncRunStatus>(),

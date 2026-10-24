@@ -8,6 +8,7 @@ import type { ConnectorProviderClient } from './provider-client';
 import { MoneybirdClient } from './moneybird/client';
 import { PicqerClient } from './picqer/client';
 import { ShopifyClient } from './shopify/client';
+import { StripeClient } from './stripe/client';
 import { WooCommerceClient } from './woocommerce/client';
 
 export function createConnectorProviderClient(
@@ -34,6 +35,16 @@ export function createConnectorProviderClient(
       accessToken: credentials.accessToken || '',
       refreshToken: credentials.refreshToken || null,
       administrationId: credentials.administrationId || fallbackAccountId || null,
+    });
+  }
+  if (provider === 'stripe') {
+    // No `accessToken`: OAuth connections never store one (callers add the
+    // platform key at run time), so a stored token could only be planted.
+    return new StripeClient({
+      apiKey: credentials.apiKey || null,
+      accountId: credentials.stripeUserId || fallbackAccountId || null,
+      platformSecretKey: credentials.platformSecretKey || null,
+      importStartDate: credentials.importStartDate || null,
     });
   }
   if (provider === 'picqer') {

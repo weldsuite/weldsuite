@@ -22,7 +22,8 @@ export interface ConnectorWebhookCreated {
 
 export interface ConnectorProviderClient {
   readonly storeUrl: string;
-  test(): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }>;
+  /** `accountName` is a display name for the connection label, when the provider has one. */
+  test(): Promise<{ ok: true; storeUrl: string; accountName?: string } | { ok: false; message: string }>;
   listSync(
     sync: ConnectorSyncDef,
     options: {
@@ -40,4 +41,10 @@ export interface ConnectorProviderClient {
     topics: ConnectorWebhookTopic[];
   }): Promise<ConnectorWebhookCreated[]>;
   deleteWebhook(id: string): Promise<void>;
+  /**
+   * Turn a webhook payload into the records to ingest, when the payload alone
+   * is not enough (truncated lines, a parent object such as a payout). Omit to
+   * ingest the payload as-is.
+   */
+  hydrateWebhookRecords?(sync: ConnectorSyncDef, record: Record<string, unknown>): Promise<Array<Record<string, unknown>>>;
 }

@@ -18,20 +18,31 @@ import {
   readWebhookTopicFromHeaders,
   readWebhookTopicFromPayload,
   resolveConnectorObjectDirection,
+  STRIPE_CONNECT_VERIFIED_HEADER,
+  STRIPE_DEAUTHORIZED_EVENT,
+  StripeClient,
+  stripeAccountKvKey,
   unwrapWebhookPayload,
   verifyConnectorWebhook,
   webhookTopicsFor,
   type ConnectorWebhookKvEntry,
+  type StripeAccountKvEntry,
 } from '@weldsuite/connectors';
 import type { ConnectorWebhookRegistration } from '@weldsuite/db/schema';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
-import { createConnectorClient } from './clients';
+import {
+  createConnectorClient,
+  skippedFinancialAccountIds,
+  withRuntimeCredentials,
+  type ConnectorRuntimeEnv,
+} from './clients';
 import {
   decryptCredentials,
   encryptWebhookSecret,
   finishSyncRun,
   keyringFromEnv,
+  markConnectionError,
   maybeDecryptWebhookSecret,
   startSyncRun,
   type ConnectorConnectionRow,
@@ -41,6 +52,8 @@ import { ingestRecords } from './ingest';
 import { modifiedAtOf } from './mappers';
 import { touchConnectorIndexWebhook, type ConnectorSyncIndexEnv } from '../connector-sync-index';
 import { MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET, type MoneybirdAttachmentSyncContext } from './moneybird-attachments';
+import { STRIPE_PDF_DOWNLOAD_BUDGET, type StripeInvoicePdfContext } from './stripe-invoice-pdf';
+import { pushAfterStripeIngest } from './moneybird-push';
 
 export { generateWebhookSecret } from '@weldsuite/connectors';
 
@@ -55,11 +68,26 @@ export type ConnectorWebhooksEnv = Pick<
   DbEnv,
   'WORKSPACE_CACHE' | 'DATABASE_ENCRYPTION_KEY' | 'DATABASE_ENCRYPTION_KEY_V2'
 > &
-  ConnectorSyncIndexEnv & {
+  ConnectorSyncIndexEnv &
+  ConnectorRuntimeEnv & {
     ENVIRONMENT: string;
     STORAGE?: R2Bucket;
     CONNECTOR_WEBHOOK_BASE_URL?: string;
   };
+
+function stripeInvoicePdfContext(
+  env: ConnectorWebhooksEnv,
+  client: ReturnType<typeof createConnectorClient>,
+  workspaceId: string,
+): StripeInvoicePdfContext | null {
+  if (!(client instanceof StripeClient) || !env.STORAGE) return null;
+  return { client, storage: env.STORAGE, workspaceId, budget: { remaining: STRIPE_PDF_DOWNLOAD_BUDGET } };
+}
+
+/** OAuth Stripe connections report through the platform's Connect webhook, not one of their own. */
+function usesStripeConnectWebhook(connection: Pick<ConnectorConnectionRow, 'provider'>, credentials: Record<string, string>): boolean {
+  return connection.provider === 'stripe' && !credentials.apiKey;
+}
 
 function moneybirdAttachmentContext(
   env: ConnectorWebhooksEnv,
@@ -90,6 +118,9 @@ export async function registerConnectionWebhooks(args: {
   credentials: Record<string, string>;
   webhookSecret: string;
 }): Promise<{ registrations: ConnectorWebhookRegistration[]; warning: string | null }> {
+  if (usesStripeConnectWebhook(args.connection, args.credentials)) {
+    return { registrations: [], warning: null };
+  }
   const deliveryUrl = connectorWebhookDeliveryUrl(connectorWebhookBaseUrl(args.env), args.connection.id);
   if (deliveryUrl.startsWith('http://')) {
     return {
@@ -189,6 +220,42 @@ export async function deleteConnectorWebhookMapping(env: ConnectorWebhooksEnv, c
   await env.WORKSPACE_CACHE.delete(connectorWebhookKvKey(connectionId));
 }
 
+async function readStripeAccountEntry(env: ConnectorWebhooksEnv, accountId: string): Promise<StripeAccountKvEntry> {
+  const raw = await env.WORKSPACE_CACHE.get(stripeAccountKvKey(accountId));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as StripeAccountKvEntry) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Route the platform's Connect events for `accountId` to this connection (one account can be in several workspaces). */
+export async function putStripeAccountMapping(args: {
+  env: ConnectorWebhooksEnv;
+  accountId: string;
+  workspaceId: string;
+  connectionId: string;
+}): Promise<void> {
+  const entries = (await readStripeAccountEntry(args.env, args.accountId)).filter(
+    (entry) => entry.connectionId !== args.connectionId,
+  );
+  entries.push({ workspaceId: args.workspaceId, connectionId: args.connectionId });
+  await args.env.WORKSPACE_CACHE.put(stripeAccountKvKey(args.accountId), JSON.stringify(entries), {
+    expirationTtl: 86400 * 365,
+  });
+}
+
+export async function deleteStripeAccountMapping(env: ConnectorWebhooksEnv, accountId: string, connectionId: string): Promise<void> {
+  const entries = (await readStripeAccountEntry(env, accountId)).filter((entry) => entry.connectionId !== connectionId);
+  if (entries.length === 0) {
+    await env.WORKSPACE_CACHE.delete(stripeAccountKvKey(accountId));
+    return;
+  }
+  await env.WORKSPACE_CACHE.put(stripeAccountKvKey(accountId), JSON.stringify(entries), { expirationTtl: 86400 * 365 });
+}
+
 export function resolveWebhookSecret(
   connection: ConnectorConnectionRow,
   credentials: Record<string, string>,
@@ -245,6 +312,67 @@ function resolveWebhookTarget(
   return { topic, sync };
 }
 
+/**
+ * Signature check. A Stripe Connect event was already verified by the ingress
+ * worker with the platform secret and arrives marked; that header is trusted
+ * only because this runs behind the internal-only `connector-event` route.
+ */
+async function deliveryVerified(args: {
+  connection: ConnectorConnectionRow;
+  credentials: Record<string, string>;
+  keyring: ReturnType<typeof keyringFromEnv>;
+  rawBody: string;
+  headers: Headers;
+}): Promise<WebhookResult | null> {
+  if (
+    usesStripeConnectWebhook(args.connection, args.credentials)
+    && args.headers.get(STRIPE_CONNECT_VERIFIED_HEADER) === 'verified'
+  ) {
+    return null;
+  }
+  const webhookSecret = resolveWebhookSecret(
+    args.connection,
+    args.credentials,
+    await maybeDecryptWebhookSecret(args.connection.webhookSecret, args.keyring),
+  );
+  if (!webhookSecret) {
+    return { ok: false, status: 401, message: 'missing webhook secret' };
+  }
+  const verified = await verifyConnectorWebhook({
+    provider: args.connection.provider,
+    secret: webhookSecret,
+    body: args.rawBody,
+    signature: readWebhookSignatureFromHeaders(args.connection.provider, args.headers),
+  });
+  return verified ? null : { ok: false, status: 401, message: 'invalid webhook signature' };
+}
+
+/** Catch-up bookkeeping after a webhook import, and the Moneybird push when Stripe brought something new. */
+async function afterWebhookIngest(args: {
+  db: Database;
+  env: ConnectorWebhooksEnv;
+  connection: ConnectorConnectionRow;
+  model: string;
+  record: Record<string, unknown>;
+  changed: boolean;
+  waitUntil?: (promise: Promise<unknown>) => void;
+}): Promise<void> {
+  const stripe = args.connection.provider === 'stripe';
+  // Stripe records carry the re-read time, not the event's: advancing the
+  // catch-up watermark with it could skip a missed earlier event.
+  const watermark = stripe ? null : modifiedAtOf(args.record);
+  await touchConnectorIndexWebhook(args.env, {
+    connectionId: args.connection.id,
+    watermarks: watermark
+      ? { ...args.connection.syncWatermarks, [args.model]: watermark }
+      : args.connection.syncWatermarks,
+  });
+  if (!stripe || !args.changed) return;
+  const push = pushAfterStripeIngest({ db: args.db, env: args.env, stripeConnectionId: args.connection.id });
+  if (args.waitUntil) args.waitUntil(push);
+  else await push;
+}
+
 export async function processConnectorWebhook(args: {
   db: Database;
   env: ConnectorWebhooksEnv;
@@ -253,32 +381,24 @@ export async function processConnectorWebhook(args: {
   workspaceId: string;
   rawBody: string;
   headers: Headers;
+  /** Runs follow-up work (the Moneybird push) after the response; awaited when absent. */
+  waitUntil?: (promise: Promise<unknown>) => void;
 }): Promise<WebhookResult> {
   if (args.connection.status === 'paused' || args.connection.deletedAt) {
     return { ok: true, status: 200, message: 'ignored paused connection' };
   }
 
   const keyring = keyringFromEnv(args.env);
-  const credentials = await decryptCredentials(args.connection.credentials ?? undefined, keyring);
-  const webhookSecret = resolveWebhookSecret(
-    args.connection,
-    credentials,
-    await maybeDecryptWebhookSecret(args.connection.webhookSecret, keyring),
-  );
-  if (!webhookSecret) {
-    return { ok: false, status: 401, message: 'missing webhook secret' };
-  }
-
-  const signature = readWebhookSignatureFromHeaders(args.connection.provider, args.headers);
-  const verified = await verifyConnectorWebhook({
-    provider: args.connection.provider,
-    secret: webhookSecret,
-    body: args.rawBody,
-    signature,
+  const stored = await decryptCredentials(args.connection.credentials ?? undefined, keyring);
+  const rejected = await deliveryVerified({
+    connection: args.connection,
+    credentials: stored,
+    keyring,
+    rawBody: args.rawBody,
+    headers: args.headers,
   });
-  if (!verified) {
-    return { ok: false, status: 401, message: 'invalid webhook signature' };
-  }
+  if (rejected) return rejected;
+  const credentials = withRuntimeCredentials(args.connection, stored, args.env);
 
   let payload: Record<string, unknown>;
   try {
@@ -287,11 +407,19 @@ export async function processConnectorWebhook(args: {
     return { ok: false, status: 400, message: 'invalid JSON body' };
   }
 
+  if (args.connection.provider === 'stripe' && payload.type === STRIPE_DEAUTHORIZED_EVENT) {
+    await markConnectionError({
+      db: args.db,
+      connectionId: args.connection.id,
+      status: 'auth_error',
+      message: 'The Stripe account disconnected WeldSuite. Connect it again to resume the import.',
+    });
+    return { ok: true, status: 200, message: 'deauthorized' };
+  }
+
   const target = resolveWebhookTarget(args.connection, args.headers, payload);
   if ('result' in target) return target.result;
   const { topic, sync } = target;
-
-  const record = unwrapWebhookPayload(args.connection.provider, payload);
 
   const runId = await startSyncRun({
     db: args.db,
@@ -309,6 +437,10 @@ export async function processConnectorWebhook(args: {
   );
 
   try {
+    const record = unwrapWebhookPayload(args.connection.provider, payload);
+    const records = client.hydrateWebhookRecords
+      ? await client.hydrateWebhookRecords(sync, record)
+      : [record];
     const ingested = await ingestRecords({
       db: args.db,
       connectionId: args.connection.id,
@@ -316,13 +448,15 @@ export async function processConnectorWebhook(args: {
       displayName: args.connection.displayName,
       storeUrl: client.storeUrl,
       sync,
-      records: [record],
+      records,
       ownerId: args.ownerId,
       workspaceId: args.workspaceId,
       entityId: credentials.entityId?.trim() || null,
       env: args.env as unknown as Record<string, unknown>,
       forceDeleted: topic.kind === 'delete',
       moneybirdAttachments: moneybirdAttachmentContext(args.env, client, args.workspaceId),
+      stripeInvoicePdfs: stripeInvoicePdfContext(args.env, client, args.workspaceId),
+      skipFinancialAccountIds: skippedFinancialAccountIds(args.connection),
     });
     await finishSyncRun({
       db: args.db,
@@ -333,12 +467,11 @@ export async function processConnectorWebhook(args: {
       error: ingested.failed ? ingested.errorSamples[0]?.message ?? 'ingest failed' : null,
       errorSamples: ingested.errorSamples,
     });
-    const watermark = modifiedAtOf(record);
-    await touchConnectorIndexWebhook(args.env, {
-      connectionId: args.connection.id,
-      watermarks: watermark
-        ? { ...args.connection.syncWatermarks, [sync.model]: watermark }
-        : args.connection.syncWatermarks,
+    await afterWebhookIngest({
+      ...args,
+      model: sync.model,
+      record,
+      changed: ingested.created + ingested.modified > 0,
     });
     return { ok: true, status: 200, message: 'ingested' };
   } catch (err) {

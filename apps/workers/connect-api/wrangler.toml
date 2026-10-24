@@ -26,6 +26,9 @@
 # reachable only over a service binding, so it needs no secret.
 #   MONEYBIRD_CLIENT_ID + MONEYBIRD_CLIENT_SECRET (Moneybird first-party
 #     connector OAuth)
+#   STRIPE_CONNECT_CLIENT_ID + STRIPE_SECRET_KEY (Stripe connector: the Connect
+#     platform's `ca_…` and secret key — the billing account's key, same value
+#     as app-api's STRIPE_SECRET_KEY)
 #   CLOUDFLARE_API_TOKEN (the @weldsuite/ai token fallback for
 #     /api/workflows/generate — same value as app-api)
 #

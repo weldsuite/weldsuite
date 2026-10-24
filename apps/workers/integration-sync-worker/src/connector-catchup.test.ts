@@ -5,7 +5,7 @@ import {
   type ConnectorSyncIndexRow,
   type ConnectorSyncSettingKey,
 } from '@weldsuite/connectors';
-import { processConnectorCatchupRow, type ConnectorCatchupStore } from './connector-catchup';
+import { processConnectorCatchupRow, withProbeSecrets, type ConnectorCatchupStore } from './connector-catchup';
 
 const NOW = Date.UTC(2026, 7, 24, 12, 0, 0);
 
@@ -200,5 +200,23 @@ describe('processConnectorCatchupRow', () => {
     expect(outcome).toBe('probed');
     expect(catchUp).not.toHaveBeenCalled();
     expect(store.calls).toEqual(['reconciled:conn_1']);
+  });
+});
+
+describe('withProbeSecrets', () => {
+  const env = { STRIPE_SECRET_KEY: 'sk_platform' };
+
+  it('reads an OAuth Stripe connection with the platform key and nothing else from the copy', () => {
+    expect(withProbeSecrets('stripe', { stripeUserId: 'acct_1', platformSecretKey: 'sk_planted', accessToken: 't', entityId: 'e' }, env)).toEqual({
+      stripeUserId: 'acct_1',
+      platformSecretKey: 'sk_platform',
+    });
+  });
+
+  it('uses a pasted key alone, and nothing without an account or platform key', () => {
+    expect(withProbeSecrets('stripe', { apiKey: 'rk', stripeUserId: 'acct_x' }, env)).toEqual({ apiKey: 'rk' });
+    expect(withProbeSecrets('stripe', { stripeUserId: 'acct_1' }, {})).toEqual({});
+    const woo = { consumerKey: 'a', consumerSecret: 'b' };
+    expect(withProbeSecrets('woocommerce', woo, env)).toBe(woo);
   });
 });

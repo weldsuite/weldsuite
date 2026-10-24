@@ -43,6 +43,8 @@ import {
   syncMoneybirdDocumentAttachments,
   type MoneybirdAttachmentSyncContext,
 } from './moneybird-attachments';
+import { storeStripeInvoicePdf, type StripeInvoicePdfContext } from './stripe-invoice-pdf';
+import type { MappedStripeLine } from './stripe-mappers';
 import { asText } from '@weldsuite/text';
 
 type IngestEntity = 'product' | 'order' | 'person';
@@ -79,6 +81,14 @@ export interface IngestArgs {
    * ingest stores files in R2 and writes `attachmentKeys`.
    */
   moneybirdAttachments?: MoneybirdAttachmentSyncContext | null;
+  /** Stripe invoice PDF copy context (same idea as `moneybirdAttachments`). */
+  stripeInvoicePdfs?: StripeInvoicePdfContext | null;
+  /**
+   * Provider financial accounts whose accounts and statement lines are not
+   * imported: the Moneybird account WeldBooks itself fills from Stripe, which
+   * would otherwise come back as a second copy of the Stripe balance.
+   */
+  skipFinancialAccountIds?: string[];
 }
 
 const MAX_ERROR_SAMPLES = 5;
@@ -532,8 +542,15 @@ async function resolveIngestEntityId(args: IngestArgs): Promise<string | null> {
 }
 
 function partySyncExternalType(provider: string): string {
-  return getConnector(provider)?.syncs.find((sync) => sync.internalEntity === 'party')?.externalEntityType
+  const connector = getConnector(provider);
+  return connector?.syncs.find((sync) => sync.internalEntity === 'party')?.externalEntityType
+    ?? connector?.contactExternalEntityType
     ?? `${provider}_contact`;
+}
+
+/** "Moneybird", "Stripe", … for messages and stub names. */
+function providerLabel(provider: string): string {
+  return getConnector(provider)?.label ?? provider;
 }
 
 async function findIdentityByEmail(
@@ -813,6 +830,7 @@ async function replaceDocumentItems(args: {
     lineTotal: string | null;
     lineTotalWithTax: string | null;
     sortOrder: number;
+    period?: { from: string; to: string } | null;
   }>;
 }): Promise<void> {
   if (args.kind === 'invoice') {
@@ -841,6 +859,7 @@ async function replaceDocumentItems(args: {
         lineTotalWithTax: item.lineTotalWithTax,
         productId,
         sortOrder: item.sortOrder,
+        period: item.period ?? null,
       });
     } else {
       await args.db.insert(schema.billItems).values({
@@ -901,6 +920,31 @@ async function maybeSyncMoneybirdAttachments(args: {
     .update(table)
     .set({ attachmentKeys: keys, updatedAt: new Date() } as never)
     .where(eq(cols.id, args.internalId));
+}
+
+/** Copy the Stripe invoice PDF on create/change, or when an earlier pass ran out of budget. */
+async function maybeStoreStripeInvoicePdf(args: {
+  args: IngestArgs;
+  internalId: string;
+  record: Record<string, unknown>;
+  force: boolean;
+}): Promise<void> {
+  const ctx = args.args.stripeInvoicePdfs;
+  if (!ctx || args.args.provider !== 'stripe') return;
+  if (!args.force) {
+    const [row] = await args.args.db
+      .select({ attachmentKeys: schema.invoices.attachmentKeys })
+      .from(schema.invoices)
+      .where(eq(schema.invoices.id, args.internalId))
+      .limit(1);
+    if (row?.attachmentKeys != null) return;
+  }
+  const keys = await storeStripeInvoicePdf(ctx, args.record);
+  if (keys === null) return;
+  await args.args.db
+    .update(schema.invoices)
+    .set({ attachmentKeys: keys, updatedAt: new Date() })
+    .where(eq(schema.invoices.id, args.internalId));
 }
 
 type IngestEventEntityType = Parameters<typeof publishEntityEventRaw>[0]['entityType'];
@@ -1103,6 +1147,14 @@ async function ingestDocumentRecord(params: {
     record,
     force: outcome.action !== 'skipped',
   });
+  if (document.entity === 'invoice') {
+    await maybeStoreStripeInvoicePdf({
+      args,
+      internalId: outcome.internalId,
+      record,
+      force: outcome.action !== 'skipped',
+    });
+  }
 
   tallyOutcome(counts, outcome.action);
 }
@@ -1135,7 +1187,9 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
     }
 
     if (!entityId) {
-      throw new Error('Select a WeldBooks entity for this Moneybird connection (or set a default entity)');
+      throw new Error(
+        `Select a WeldBooks entity for this ${providerLabel(args.provider)} connection (or set a default entity)`,
+      );
     }
 
     await ingestDocumentRecord({
@@ -1216,16 +1270,44 @@ async function resolveBankAccountId(params: {
     table: schema.bankAccounts,
     idPrefix: 'ba',
     dedupColumn: null,
-    values: {
-      entityId,
-      name: `Moneybird account ${financialAccountExternalId}`,
-      currency: pickCurrency(txn.values) ?? 'EUR',
-      isActive: false,
-      metadata: { stubFromMutation: true, moneybirdFinancialAccountId: financialAccountExternalId },
-    },
+    values: args.provider === 'stripe'
+      ? {
+          entityId,
+          name: `Stripe balance (${pickCurrency(txn.values) ?? 'EUR'})`,
+          bankName: 'Stripe',
+          currency: pickCurrency(txn.values) ?? 'EUR',
+          isActive: true,
+          autoReconcile: false,
+          metadata: { stripeBalance: true },
+        }
+      : {
+          entityId,
+          name: `${providerLabel(args.provider)} account ${financialAccountExternalId}`,
+          currency: pickCurrency(txn.values) ?? 'EUR',
+          isActive: false,
+          metadata: { stubFromMutation: true, moneybirdFinancialAccountId: financialAccountExternalId },
+        },
     checksum: `stub:${financialAccountExternalId}`,
   });
   return stub.internalId;
+}
+
+/**
+ * A Stripe charge that paid an imported Stripe invoice is that invoice's
+ * payment: mark the line reconciled against it. Fees and payouts stay open.
+ */
+async function stripeChargeReconciliation(
+  args: IngestArgs,
+  txn: MappedBankTransaction,
+): Promise<Record<string, unknown>> {
+  if (args.provider !== 'stripe') return {};
+  const invoiceExternalId = (txn as Partial<MappedStripeLine>).invoiceExternalId;
+  if (!invoiceExternalId) return {};
+  const invoiceType = getConnector('stripe')?.syncs.find((sync) => sync.internalEntity === 'invoice')?.externalEntityType
+    ?? 'stripe_invoice';
+  const mapping = await findMapping(args.db, args.connectionId, invoiceType, invoiceExternalId);
+  if (!mapping) return {};
+  return { status: 'reconciled', reconciliationType: 'auto', reconciledInvoiceId: mapping.internalEntityId };
 }
 
 async function ingestBankTransactionRecord(params: {
@@ -1260,6 +1342,7 @@ async function ingestBankTransactionRecord(params: {
     dedupColumn: null,
     values: {
       ...txn.values,
+      ...(await stripeChargeReconciliation(args, txn)),
       entityId,
       bankAccountId,
     },
@@ -1278,11 +1361,12 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
       errorSamples: [
         {
           externalId: '-',
-          message: 'Select a WeldBooks entity for this Moneybird connection (or set a default entity)',
+          message: `Select a WeldBooks entity for this ${providerLabel(args.provider)} connection (or set a default entity)`,
         },
       ],
     };
   }
+  const skippedAccounts = new Set(args.skipFinancialAccountIds ?? []);
 
   const accountExternalType =
     getConnector(args.provider)?.syncs.find((sync) => sync.internalEntity === 'bank_account')?.externalEntityType
@@ -1306,7 +1390,18 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
     const mapped = mapWithFieldMappings(args, record, fieldMappings);
     if (!mapped || (mapped.entity !== 'bank_account' && mapped.entity !== 'bank_transaction')) {
       counts.failed++;
-      pushErrorSample(state, externalId, 'Could not map Moneybird bank record (missing required fields)');
+      pushErrorSample(
+        state,
+        externalId,
+        `Could not map ${providerLabel(args.provider)} bank record (missing required fields)`,
+      );
+      return;
+    }
+    const accountExternalId = mapped.entity === 'bank_account'
+      ? mapped.externalId
+      : (mapped as MappedBankTransaction).financialAccountExternalId;
+    if (accountExternalId && skippedAccounts.has(accountExternalId)) {
+      counts.skipped++;
       return;
     }
 

@@ -13,12 +13,25 @@ import {
 } from './catalog';
 
 describe('connector catalog', () => {
-  it('ships WooCommerce, Shopify, Moneybird, and Picqer as first-party connectors', () => {
+  it('ships WooCommerce, Shopify, Moneybird, Stripe, and Picqer as first-party connectors', () => {
     expect(listConnectors().map((c) => c.provider)).toEqual([
       'woocommerce',
       'shopify',
       'moneybird',
+      'stripe',
       'picqer',
+    ]);
+  });
+
+  it('declares Stripe as an OAuth accounting connector whose contacts come with its invoices', () => {
+    const stripe = getConnector('stripe');
+    expect(stripe?.category).toBe('accounting');
+    expect(stripe?.auth.kind).toBe('oauth2');
+    expect(stripe?.contactExternalEntityType).toBe('stripe_customer');
+    expect(stripe?.syncs.map((s) => [s.syncName, s.internalEntity])).toEqual([
+      ['stripe-invoices', 'invoice'],
+      ['stripe-balances', 'bank_account'],
+      ['stripe-balance-transactions', 'bank_transaction'],
     ]);
   });
 
