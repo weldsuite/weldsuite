@@ -102,6 +102,28 @@ describe('SheetController input', () => {
 });
 
 describe('SheetController formatting and structure', () => {
+  it('notes when someone moves, not when they only stretch a selection', () => {
+    const { ctl } = make();
+    const peer = (row: number, ranges = [{ r1: row, c1: 0, r2: row, c2: 0 }], editing = false) => ({
+      clientId: 'c1',
+      userId: 'u1',
+      name: 'Anna',
+      color: '#dc2626',
+      canEdit: true,
+      presence: { sheetId: ctl.activeSheetId, active: { row, col: 0 }, ranges, editing },
+    });
+    ctl.setPeers([peer(2)], 1000);
+    expect(ctl.peerMovedAt('c1')).toBe(1000);
+    ctl.setPeers([peer(2, [{ r1: 2, c1: 0, r2: 5, c2: 3 }])], 2000);
+    expect(ctl.peerMovedAt('c1')).toBe(1000);
+    ctl.setPeers([peer(2, undefined, true)], 3000);
+    expect(ctl.peerMovedAt('c1')).toBe(3000);
+    ctl.setPeers([peer(4)], 4000);
+    expect(ctl.peerMovedAt('c1')).toBe(4000);
+    ctl.setPeers([], 5000);
+    expect(ctl.peerMovedAt('c1')).toBeUndefined();
+  });
+
   it('drops an open edit when its sheet is deleted', () => {
     const { ctl } = make();
     const first = ctl.activeSheetId;

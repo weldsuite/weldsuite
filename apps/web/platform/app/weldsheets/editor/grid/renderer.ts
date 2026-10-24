@@ -24,6 +24,8 @@ export interface RemoteCursor {
   color: string;
   ranges: Range[];
   active: { row: number; col: number };
+  /** Draw their name above their cell (briefly after they move, or on hover). */
+  showName: boolean;
 }
 
 export interface RenderState {
@@ -416,7 +418,7 @@ function drawRemote(ctx: CanvasRenderingContext2D, state: RenderState, pane: Rec
     ctx.strokeStyle = cursor.color;
     ctx.lineWidth = 2;
     ctx.strokeRect(rect.x, rect.y, rect.w - 1, rect.h - 1);
-    drawNameFlag(ctx, cursor, rect, pane.y);
+    if (cursor.showName) drawNameFlag(ctx, cursor, rect, pane.y);
   }
 }
 

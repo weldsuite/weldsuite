@@ -8,7 +8,7 @@ import type { Env } from '../types';
 import { FakeBucket, FakeSocket, fakeObjectState } from '../test-support/fakes';
 import { createSheet, snapshotKeyFor } from '../services/sheets';
 import { readSnapshot, writeSnapshot } from './snapshot';
-import { SheetRoom, type Admission } from './sheet-room';
+import { SheetRoom, replyCode, type Admission } from './sheet-room';
 import { connectToRoom, isConnectRequest } from './connect';
 
 let db: Database;
@@ -128,6 +128,14 @@ describe('SheetRoom', () => {
     // Alice's batch, re-sent after a reconnect, is acknowledged and not applied again.
     await send(restarted, carol, { type: 'submit', batchId: 'a:2', baseRevision: 1, op: setCell(0, 2) });
     expect(ofType(carol, 'ack').at(-1)).toEqual({ type: 'ack', batchId: 'a:2', revision: 2 });
+  });
+
+  it('answers a close without a code with a normal close', async () => {
+    const room = new SheetRoom(state.ctx, env);
+    const alice = await join(room, 'alice');
+    await room.webSocketClose(alice.asSocket(), 1005, '');
+    expect(alice.closed).toEqual({ code: 1000, reason: '' });
+    expect([1000, 1001, 4001, 1005, 1006, 1015, 999, 5000].map(replyCode)).toEqual([1000, 1001, 4001, 1000, 1000, 1000, 1000, 1000]);
   });
 
   it('keeps viewers from editing', async () => {

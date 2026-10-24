@@ -21,6 +21,7 @@ import {
   type FormulaLocale,
   type Op,
   type Peer,
+  type Presence,
   type Range,
   type Scalar,
   type StylePatch,
@@ -88,6 +89,8 @@ export class SheetController {
   version = 0;
   /** Other people in a co-edited sheet, with where they are (drawn on the grid). */
   peers: Peer[] = [];
+  /** When each of them last moved (epoch ms): their name shows for a moment after. */
+  private readonly peerMoves = new Map<string, number>();
 
   private undoStack: UndoEntry[] = [];
   private redoStack: UndoEntry[] = [];
@@ -149,9 +152,19 @@ export class SheetController {
   // Applying ops
   // -------------------------------------------------------------------------
 
-  setPeers(peers: Peer[]): void {
+  setPeers(peers: Peer[], now = Date.now()): void {
+    const before = new Map(this.peers.map((p) => [p.clientId, p.presence]));
+    for (const p of peers) {
+      if (p.presence && !samePlace(before.get(p.clientId), p.presence)) this.peerMoves.set(p.clientId, now);
+    }
+    for (const id of this.peerMoves.keys()) if (!peers.some((p) => p.clientId === id)) this.peerMoves.delete(id);
     this.peers = peers;
     this.emit();
+  }
+
+  /** When this person last moved to another cell or sheet, or started or stopped typing; undefined if never seen moving. */
+  peerMovedAt(clientId: string): number | undefined {
+    return this.peerMoves.get(clientId);
   }
 
   /** Jumps to a cell, on another sheet if need be (following someone in the sheet). */
@@ -744,6 +757,11 @@ export class SheetController {
 /** Entries clearing the row or column styles set between `from` and `to`. */
 function styledIn(styles: ReadonlyMap<number, string>, from: number, to: number): [number, null][] {
   return [...styles.keys()].filter((i) => i >= from && i <= to).map((i) => [i, null]);
+}
+
+/** Same sheet, same active cell, same typing state (a selection drag alone is not a move). */
+function samePlace(a: Presence | undefined, b: Presence): boolean {
+  return !!a && a.sheetId === b.sheetId && a.active.row === b.active.row && a.active.col === b.active.col && !!a.editing === !!b.editing;
 }
 
 export function newSheetId(): string {

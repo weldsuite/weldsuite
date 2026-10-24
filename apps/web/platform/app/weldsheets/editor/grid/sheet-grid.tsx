@@ -33,6 +33,9 @@ import {
 import { fontFor, renderGrid, type RefHighlight, type RemoteCursor } from './renderer';
 import { readGridTheme, REFERENCE_COLORS, type GridTheme } from './theme';
 
+/** How long someone's name shows after they move; after that only while the pointer is on their cell. */
+const NAME_LABEL_MS = 3000;
+
 type Drag =
   | { kind: 'select'; anchor: CellPos; additive: boolean }
   | { kind: 'columns'; from: number }
@@ -61,6 +64,9 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const [resizeGhost, setResizeGhost] = useState<number | null>(null);
   const [caret, setCaret] = useState(0);
+  /** The cell under the pointer, tracked only while someone else is on this sheet. */
+  const [hoverCell, setHoverCell] = useState<CellPos | null>(null);
+  const [, setLabelClock] = useState(0);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const themeRef = useRef<GridTheme | null>(null);
   const layoutRef = useRef<GridLayout | null>(null);
@@ -108,11 +114,26 @@ export function SheetGrid({ controller, barInputRef }: Props) {
     : [];
 
   // Where the other people in a co-edited sheet are, on this sheet.
-  const remote: RemoteCursor[] = controller.peers.flatMap((p) =>
-    p.presence?.sheetId === controller.activeSheetId
-      ? [{ name: p.name, color: p.color, ranges: p.presence.ranges, active: p.presence.active }]
-      : [],
-  );
+  // Their name shows for a moment after they move (it covers the cell above
+  // theirs), and while the pointer is on their cell.
+  const now = Date.now();
+  const hovered = hoverCell ? (sheet.mergeAt(hoverCell.row, hoverCell.col) ?? { r1: hoverCell.row, c1: hoverCell.col }) : null;
+  let nextHide = Number.POSITIVE_INFINITY;
+  const remote: RemoteCursor[] = controller.peers.flatMap((p) => {
+    if (p.presence?.sheetId !== controller.activeSheetId) return [];
+    const { active, ranges } = p.presence;
+    const until = (controller.peerMovedAt(p.clientId) ?? 0) + NAME_LABEL_MS;
+    if (until > now) nextHide = Math.min(nextHide, until);
+    const pointedAt = hovered?.r1 === active.row && hovered.c1 === active.col;
+    return [{ name: p.name, color: p.color, ranges, active, showName: until > now || pointedAt }];
+  });
+
+  // Draw again when the next name is due to hide.
+  useEffect(() => {
+    if (nextHide === Number.POSITIVE_INFINITY) return;
+    const timer = window.setTimeout(() => setLabelClock((n) => n + 1), nextHide - Date.now() + 20);
+    return () => window.clearTimeout(timer);
+  }, [nextHide]);
 
   // Draw after every render. Renders only happen on a change (edit, selection,
   // scroll, resize), so painting synchronously is cheap and never lags a frame;
@@ -279,10 +300,21 @@ export function SheetGrid({ controller, barInputRef }: Props) {
     dragRef.current = { kind: 'select', anchor: cell, additive };
   };
 
+  const trackHover = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (remote.length === 0) {
+      if (hoverCell) setHoverCell(null);
+      return;
+    }
+    const { hit } = pointAt(e);
+    const cell = hit.area === 'cell' ? { row: hit.row, col: hit.col } : null;
+    setHoverCell((h) => (h?.row === cell?.row && h?.col === cell?.col ? h : cell));
+  };
+
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag) {
       updateCursor(e);
+      trackHover(e);
       return;
     }
     if (drag.kind === 'resize') {
@@ -466,6 +498,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onPointerLeave={() => setHoverCell(null)}
           onDoubleClick={onDoubleClick}
           onContextMenu={onContextMenuOpen}
           role="grid"
