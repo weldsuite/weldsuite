@@ -16,6 +16,7 @@ import type {
   SignEnvelopeDetail,
   SignEnvelopeFolder,
   SignFieldInput,
+  SendSignEnvelopeInput,
   UpdateSignEnvelopeInput,
   UpdateSignRecipientInput,
 } from '@weldsuite/app-api-client/schemas/weldsign';
@@ -171,6 +172,35 @@ export function useSaveSignFields(envelopeId: string, onError?: (error: unknown)
       queryClient.setQueryData<{ data: SignEnvelopeDetail }>(weldsignKeys.envelope(envelopeId), (old) =>
         old ? { data: { ...old.data, fields } } : old,
       );
+    },
+  });
+}
+
+export function useSendSignEnvelope(id: string) {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SendSignEnvelopeInput) => weldsign.send(id, input).then((res) => res.data),
+    onSuccess: (envelope) => {
+      queryClient.setQueryData(weldsignKeys.envelope(id), { data: envelope });
+      void queryClient.invalidateQueries({ queryKey: weldsignKeys.lists() });
+    },
+  });
+}
+
+/** Save the signed PDF of a completed request to the user's device. */
+export function useDownloadSignedPdf(id: string) {
+  const { weldsign } = useAppApi();
+  return useMutation({
+    mutationFn: async (title: string) => {
+      const res = await weldsign.download(id);
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'signed'}.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
     },
   });
 }

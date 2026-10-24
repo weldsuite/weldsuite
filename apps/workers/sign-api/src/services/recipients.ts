@@ -1,6 +1,7 @@
 /**
  * The people on an envelope: signers fill in fields, copy recipients only get
- * the signed PDF. Access codes are stored as SHA-256 and never returned.
+ * the signed PDF. Access codes are stored as a keyed hash (`codeHash`) and
+ * never returned.
  */
 
 import { and, asc, count, eq, max, ne } from 'drizzle-orm';
@@ -14,7 +15,7 @@ import {
   type UpdateSignRecipientInput,
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import { invalid, notFound } from './errors';
-import { sha256Hex } from './hash';
+import { codeHash } from './hash';
 
 const { signRecipients, signFields } = schema;
 
@@ -45,12 +46,17 @@ async function assertEmailFree(db: Database, envelopeId: string, email: string, 
 
 /** The access-code hash to store, given the auth mode and what was sent. */
 async function accessCodeHashFor(
+  secret: string | undefined,
+  recipientId: string,
   authMode: SignRecipient['authMode'],
   accessCode: string | null | undefined,
   current: string | null,
 ): Promise<string | null> {
   if (authMode !== 'access_code') return null;
-  if (accessCode) return sha256Hex(accessCode);
+  if (accessCode) {
+    if (!secret) throw invalid('Access codes are not available right now');
+    return codeHash(secret, recipientId, accessCode);
+  }
   if (current) return current;
   throw invalid('An access code is required for this recipient');
 }
@@ -60,6 +66,8 @@ export async function addRecipient(
   envelopeId: string,
   input: CreateSignRecipientInput,
   fallbackLocale: SignLocale,
+  /** `SIGN_SESSION_SECRET`: keys the access-code hash. */
+  secret?: string,
 ): Promise<SignRecipient> {
   const [{ existing, last }] = await db
     .select({ existing: count(), last: max(signRecipients.routingOrder) })
@@ -71,10 +79,11 @@ export async function addRecipient(
   await assertEmailFree(db, envelopeId, input.email);
 
   const authMode = input.authMode ?? 'link';
+  const id = generateId('sgr');
   const [row] = await db
     .insert(signRecipients)
     .values({
-      id: generateId('sgr'),
+      id,
       envelopeId,
       role: input.role ?? 'signer',
       name: input.name,
@@ -84,7 +93,7 @@ export async function addRecipient(
       // New people go last; with signing order off the number is not used.
       routingOrder: input.routingOrder ?? (last === null ? 1 : Number(last) + 1),
       authMode,
-      accessCodeHash: await accessCodeHashFor(authMode, input.accessCode, null),
+      accessCodeHash: await accessCodeHashFor(secret, id, authMode, input.accessCode, null),
     })
     .returning();
   return row!;
@@ -95,6 +104,8 @@ export async function updateRecipient(
   envelopeId: string,
   recipientId: string,
   input: UpdateSignRecipientInput,
+  /** `SIGN_SESSION_SECRET`: keys the access-code hash. */
+  secret?: string,
 ): Promise<SignRecipient> {
   const current = await getRecipient(db, envelopeId, recipientId);
   if (input.email !== undefined && input.email !== current.email) await assertEmailFree(db, envelopeId, input.email, recipientId);
@@ -111,7 +122,7 @@ export async function updateRecipient(
       ...(input.locale !== undefined && { locale: input.locale }),
       ...(input.routingOrder !== undefined && { routingOrder: input.routingOrder }),
       authMode,
-      accessCodeHash: await accessCodeHashFor(authMode, input.accessCode, current.accessCodeHash),
+      accessCodeHash: await accessCodeHashFor(secret, recipientId, authMode, input.accessCode, current.accessCodeHash),
       updatedAt: new Date(),
     })
     .where(eq(signRecipients.id, recipientId))

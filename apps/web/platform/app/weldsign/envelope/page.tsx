@@ -23,6 +23,7 @@ import { DocumentsStep } from './documents-step';
 import { RecipientsStep } from './recipients-step';
 import { FieldsStep } from './fields-step';
 import { ReviewStep } from './review-step';
+import { EnvelopeOverview } from './overview';
 
 const STEPS = ['documents', 'recipients', 'fields', 'review'] as const;
 export type EditorStep = (typeof STEPS)[number];
@@ -37,6 +38,8 @@ function EnvelopeEditor({ envelopeId }: Readonly<{ envelopeId: string }>) {
   const te = t.weldsign.editor;
   const { data: envelope, isLoading, error } = useSignEnvelope(envelopeId);
   const [step, setStep] = useState<EditorStep>('documents');
+  // A sent request opens on its status; its documents and fields can still be browsed.
+  const [browsing, setBrowsing] = useState(false);
 
   useBreadcrumbs(
     [
@@ -53,6 +56,20 @@ function EnvelopeEditor({ envelopeId }: Readonly<{ envelopeId: string }>) {
 
   const editable = envelope.canEdit;
   const index = STEPS.indexOf(step);
+
+  if (envelope.status !== 'draft' && !browsing) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3 sm:px-6">
+          <h1 className="truncate px-2 text-base font-semibold">{envelope.title}</h1>
+          <EnvelopeStatusBadge status={envelope.status} />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <EnvelopeOverview envelope={envelope} onViewDocuments={() => setBrowsing(true)} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -86,7 +103,17 @@ function EnvelopeEditor({ envelopeId }: Readonly<{ envelopeId: string }>) {
         </nav>
       </div>
 
-      {!editable && <div className="border-b bg-muted/50 px-6 py-2 text-sm text-muted-foreground">{te.readOnly}</div>}
+      {!editable && (
+        <div className="flex items-center justify-between gap-3 border-b bg-muted/50 px-6 py-2 text-sm text-muted-foreground">
+          <span>{te.readOnly}</span>
+          {envelope.status !== 'draft' && (
+            <Button variant="ghost" size="sm" onClick={() => setBrowsing(false)}>
+              <ArrowLeft />
+              {te.back}
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {step === 'documents' && <DocumentsStep envelope={envelope} editable={editable} />}

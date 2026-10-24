@@ -22,7 +22,7 @@ app.post('/', requirePermission('sign_envelopes:update'), zValidator('json', cre
   handle(c, async () => {
     const db = c.get('tenantDb');
     const envelope = await loadDraft(db, c.req.param('id')!, await viewerOf(c));
-    const recipient = await addRecipient(db, envelope.id, c.req.valid('json'), 'en');
+    const recipient = await addRecipient(db, envelope.id, c.req.valid('json'), 'en', c.env.SIGN_SESSION_SECRET);
     await touchEnvelope(db, envelope.id);
     publishEnvelopeUpdated(c, envelope);
     return success(c, toRecipientDto(recipient), 201);
@@ -33,7 +33,7 @@ app.patch('/:recipientId', requirePermission('sign_envelopes:update'), zValidato
   handle(c, async () => {
     const db = c.get('tenantDb');
     const envelope = await loadDraft(db, c.req.param('id')!, await viewerOf(c));
-    const recipient = await updateRecipient(db, envelope.id, c.req.param('recipientId'), c.req.valid('json'));
+    const recipient = await updateRecipient(db, envelope.id, c.req.param('recipientId'), c.req.valid('json'), c.env.SIGN_SESSION_SECRET);
     await touchEnvelope(db, envelope.id);
     publishEnvelopeUpdated(c, envelope);
     return success(c, toRecipientDto(recipient));

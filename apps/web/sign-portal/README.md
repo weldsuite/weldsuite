@@ -14,9 +14,9 @@ The backend contract is the `/public/sign-portal/*` mount on sign-api
 (`apps/workers/sign-api`), reached through the app-api forwarder. See
 `docs/plans/weldsign.md`.
 
-**Status: phase 0.** The app renders, but signing links show a
-"not ready yet" page; the signing flow arrives in phase 2. It is not in the
-deploy pipeline yet: add it to `.github/scripts/vercel-apps.mjs` and
+**Status: phase 2.** `/r/<token>` runs the signer flow: code screen,
+e-signature consent, pdf.js document view with the signer's fields, adopt a
+signature, finish, decline and download. It is not in the deploy pipeline yet: add it to `.github/scripts/vercel-apps.mjs` and
 `deploy.yml`'s `on.push.paths` once its Vercel project and the
 `sign(-test).weldsuite.org` DNS exist.
 
@@ -35,3 +35,4 @@ pnpm --filter sign-portal dev        # http://localhost:3023
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `APP_API_URL` | `http://localhost:8789` | Origin of the `app-api` worker. Server-side only (used by `app/api/*` route handlers); never sent to the browser. |
+| `SIGN_PORTAL_SECRET` | none | Same value as sign-api's `SIGN_PORTAL_SECRET`. Sent as `X-Sign-Portal-Key` so sign-api accepts the signer IP this server reports. Without it, the evidence trail records this server's IP instead of the signer's. Server-side only. |

@@ -1,9 +1,10 @@
 /**
  * Fields: boxes on a page that one signer fills in. The editor saves the whole
- * set at once, so the service replaces it, keeping the ids it was sent.
+ * set at once, so the service replaces it, keeping the ids of fields it
+ * already had.
  */
 
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, notInArray, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { SignField } from '@weldsuite/db/schema';
@@ -13,8 +14,6 @@ import { listDocuments } from './documents';
 import { listRecipients } from './recipients';
 
 const { signFields } = schema;
-
-const ID_PATTERN = /^sgf_[A-Za-z0-9_-]+$/;
 
 /** Check every field against the envelope's documents and recipients; returns the first problem, or null. */
 export function fieldProblem(
@@ -46,11 +45,12 @@ export async function replaceFields(db: Database, envelopeId: string, fields: Si
     if (problem) throw invalid(problem);
   }
 
-  // Keep ids the client sent (so selections survive a save), but never one
-  // that could collide: only well-formed field ids, each once.
+  // Keep an id the client sent only when it is already one of this envelope's
+  // fields (once): ids are table-wide keys, so anything else gets a new one.
+  const existing = new Set((await listFields(db, envelopeId)).map((f) => f.id));
   const seen = new Set<string>();
   const rows = fields.map((field) => {
-    const keep = field.id && ID_PATTERN.test(field.id) && !seen.has(field.id);
+    const keep = !!field.id && existing.has(field.id) && !seen.has(field.id);
     const id = keep ? field.id! : generateId('sgf');
     seen.add(id);
     return {
@@ -69,7 +69,33 @@ export async function replaceFields(db: Database, envelopeId: string, fields: Si
     };
   });
 
-  await db.delete(signFields).where(eq(signFields.envelopeId, envelopeId));
-  if (rows.length) await db.insert(signFields).values(rows);
+  // Upsert, then drop what is gone, rather than delete-all then insert: the
+  // tenant driver runs these as separate statements, and a failed insert must
+  // not leave the draft without any fields.
+  if (rows.length) {
+    await db
+      .insert(signFields)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: signFields.id,
+        set: {
+          documentId: sql`excluded.document_id`,
+          recipientId: sql`excluded.recipient_id`,
+          type: sql`excluded.type`,
+          page: sql`excluded.page`,
+          x: sql`excluded.x`,
+          y: sql`excluded.y`,
+          width: sql`excluded.width`,
+          height: sql`excluded.height`,
+          required: sql`excluded.required`,
+          label: sql`excluded.label`,
+          updatedAt: new Date(),
+        },
+      });
+  }
+  const kept = rows.map((r) => r.id);
+  await db
+    .delete(signFields)
+    .where(kept.length ? and(eq(signFields.envelopeId, envelopeId), notInArray(signFields.id, kept)) : eq(signFields.envelopeId, envelopeId));
   return listFields(db, envelopeId);
 }

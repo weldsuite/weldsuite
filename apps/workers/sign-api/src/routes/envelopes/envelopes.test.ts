@@ -8,7 +8,7 @@
  *      and SHA-256, in the private bucket under the workspace prefix.
  *   3. Fields are checked against the envelope's documents and recipients:
  *      no field off the page, on a missing page, or for a copy recipient.
- *   4. Access codes are stored hashed and never returned.
+ *   4. Access codes are stored as a keyed hash and never returned.
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -19,9 +19,11 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { SignDocumentDto, SignEnvelopeDetail, SignFieldDto, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 import envelopesRoutes from './index';
+import { codeHash, sha256Hex } from '../../services/hash';
 
 const BASE = '/api/sign/envelopes';
 const WORKSPACE = 'org_sign_test';
+const SECRET = 'envelope-test-secret';
 const ALL = ['sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete'];
 
 let db: Database;
@@ -54,7 +56,7 @@ beforeAll(async () => {
 function app(grants: string[] = ALL, userId = 'user_alice') {
   return createTestApp(BASE, envelopesRoutes, {
     context: { permissions: permissions(...grants), tenantDb: db, userId, workspaceId: WORKSPACE, orgId: WORKSPACE },
-    env: { PRIVATE_STORAGE: storage.bucket },
+    env: { PRIVATE_STORAGE: storage.bucket, SIGN_SESSION_SECRET: SECRET },
   });
 }
 
@@ -198,7 +200,9 @@ describe('recipients and fields', () => {
     expect(second.data).toMatchObject({ routingOrder: 2, hasAccessCode: true });
     expect(JSON.stringify(second.data)).not.toContain('4821');
     const [row] = await db.select().from(schema.signRecipients).where(eq(schema.signRecipients.id, second.data.id));
-    expect(row!.accessCodeHash).toMatch(/^[0-9a-f]{64}$/);
+    // Keyed and bound to the recipient, never a plain hash of a short code.
+    expect(row!.accessCodeHash).toBe(await codeHash(SECRET, second.data.id, '4821'));
+    expect(row!.accessCodeHash).not.toBe(await sha256Hex('4821'));
 
     expect((await add({ name: 'Ann again', email: 'ann@example.com' })).status).toBe(400);
     expect((await add({ name: 'No code', email: 'c@example.com', authMode: 'access_code' })).status).toBe(400);
@@ -218,6 +222,26 @@ describe('recipients and fields', () => {
 
     const again = ((await (await save([{ ...saved[0], x: 60 }])).json()) as { data: SignFieldDto[] }).data;
     expect(again[0]).toMatchObject({ id: saved[0]!.id, x: 60 });
+
+    // An id from another envelope is never taken over: the field gets a new id,
+    // the save succeeds, and the other envelope keeps its field.
+    const other = await draftWithDoc();
+    const otherSigner = (await other.add({ name: 'Zed', email: 'zed@example.com' })).data;
+    const otherSaved = (
+      (await (
+        await app().request(
+          `${BASE}/${other.draft.id}/fields`,
+          json({ fields: [{ ...field, documentId: other.doc.id, recipientId: otherSigner.id }] }, 'PUT'),
+        )
+      ).json()) as { data: SignFieldDto[] }
+    ).data;
+    const stolen = await save([{ ...field, id: otherSaved[0]!.id }]);
+    expect(stolen.status).toBe(200);
+    const mine = ((await stolen.json()) as { data: SignFieldDto[] }).data;
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.id).not.toBe(otherSaved[0]!.id);
+    const theirs = await db.select().from(schema.signFields).where(eq(schema.signFields.envelopeId, other.draft.id));
+    expect(theirs.map((f) => f.id)).toEqual([otherSaved[0]!.id]);
 
     expect((await save([{ ...field, x: 500 }])).status).toBe(400); // off the right edge
     expect((await save([{ ...field, page: 1 }])).status).toBe(400); // no page 2
