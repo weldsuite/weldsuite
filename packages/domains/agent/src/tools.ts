@@ -194,7 +194,7 @@ const saveAgentSetupParams = z.object({
     .boolean()
     .optional()
     .describe(
-      'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false (stay draft).',
+      'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false: the agent keeps its current status (a draft stays a draft, an active agent stays active).',
     ),
 });
 
@@ -207,6 +207,14 @@ const updateRoutineParams = z.object({
   enabled: z.boolean().optional(),
   requireApproval: z.boolean().optional(),
 });
+
+/** What save_agent_setup tells the model to confirm, given the status after saving. */
+function saveSetupHint(status: string, activated: boolean): string {
+  if (status !== 'active') return 'Setup saved as draft. Confirm briefly; ask if they want you activated.';
+  return activated
+    ? 'Setup saved and activated. Confirm briefly with the user.'
+    : 'Setup saved; you are still active. Confirm briefly with the user.';
+}
 
 export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
   {
@@ -252,7 +260,9 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         description: args.description?.trim() || existing.description,
         permissions,
         eventSubscriptions,
-        ...(args.activate ? { status: 'active' as const } : { status: 'draft' as const }),
+        // Saving only turns an agent on, never off: re-saving the setup of a
+        // live agent from its chat must not pause it and stop its routines.
+        ...(args.activate ? { status: 'active' as const } : {}),
       });
       if (!updated) return { error: 'Failed to save agent setup' };
       await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
@@ -272,9 +282,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
                 'Tell the user these were not granted (they lack them or they do not exist); an admin can add them under Settings → Access.',
             }
           : {}),
-        hint: args.activate
-          ? 'Setup saved and activated. Confirm briefly with the user.'
-          : 'Setup saved as draft. Confirm briefly; ask if they want you activated.',
+        hint: saveSetupHint(updated.status, Boolean(args.activate)),
       };
     },
   },
