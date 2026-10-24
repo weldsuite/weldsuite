@@ -29,6 +29,7 @@ import {
   syncDesktopBadge,
 } from '@/lib/desktop-notifications';
 import { isDesktop } from '@/lib/desktop';
+import { startForegroundTracking } from '@/lib/notifications/cross-tab';
 
 // Re-export UnifiedNotification type for backwards compatibility
 export interface UnifiedNotification {
@@ -265,11 +266,16 @@ export function UnifiedNotificationProvider({ children }: Readonly<UnifiedNotifi
         title: notification.title,
         body: notification.body || undefined,
         actionUrl: notification.actionUrl,
+        dedupeKey: `notification:${notification.id}`,
         silent,
         playSound: !silent,
       });
     }
   });
+
+  // Tell the other tabs whether this one is in the foreground, so a
+  // background tab doesn't toast while the user is looking at the app here.
+  useEffect(() => startForegroundTracking(), []);
 
   // Keep dock / taskbar badge in sync with unread count.
   useEffect(() => {

@@ -8,6 +8,10 @@
 
 import { getDesktop, isDesktop } from '@/lib/desktop';
 import { playMessageReceivedSound } from '@/lib/utils/notification-sound';
+import {
+  claimCrossTabNotification,
+  isAnyTabInForeground,
+} from '@/lib/notifications/cross-tab';
 import type {
   ModuleChannelPreferences,
   NotificationPreferences,
@@ -33,6 +37,11 @@ export interface ShowOsNotificationOptions {
   playSound?: boolean;
   tag?: string;
   icon?: string;
+  /**
+   * Identifies this notification across tabs, so only one open tab shows it.
+   * Defaults to `tag`, then to title + actionUrl.
+   */
+  dedupeKey?: string;
 }
 
 const BROWSER_CLICK_EVENT = 'weldsuite:notification-click';
@@ -73,7 +82,14 @@ export async function showOsNotification(
   opts: ShowOsNotificationOptions,
 ): Promise<boolean> {
   const onlyWhenHidden = opts.onlyWhenHidden ?? true;
-  if (onlyWhenHidden && !isAppInBackground()) {
+  // Every open tab receives the same realtime event: stay quiet while the user
+  // is looking at the app in any tab, and let only one tab show the toast.
+  if (onlyWhenHidden && (!isAppInBackground() || isAnyTabInForeground())) {
+    return false;
+  }
+  const dedupeKey =
+    opts.dedupeKey ?? opts.tag ?? (opts.actionUrl ? `${opts.title}|${opts.actionUrl}` : undefined);
+  if (dedupeKey && !(await claimCrossTabNotification(dedupeKey))) {
     return false;
   }
 
