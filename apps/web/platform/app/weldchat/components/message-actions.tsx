@@ -226,7 +226,12 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
   const handleEdit = () => {
     focusComposerOnCloseRef.current = true;
     setReplyTo(null);
-    setEditingMessage({ messageId: message.id, content: message.content ?? '', parentId: message.parentId });
+    setEditingMessage({
+      messageId: message.id,
+      content: message.content ?? '',
+      parentId: message.parentId,
+      attachments: message.attachments,
+    });
   };
 
   const handleDeleteRequest = () => {

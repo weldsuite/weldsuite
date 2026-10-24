@@ -178,7 +178,12 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Rea
   const handleEdit = () => {
     focusComposerOnCloseRef.current = true;
     setReplyTo(null);
-    setEditingMessage({ messageId: message.id, content: message.content ?? '', parentId: message.parentId });
+    setEditingMessage({
+      messageId: message.id,
+      content: message.content ?? '',
+      parentId: message.parentId,
+      attachments: message.attachments,
+    });
   };
 
   return (

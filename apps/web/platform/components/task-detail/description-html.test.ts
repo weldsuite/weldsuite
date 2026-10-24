@@ -77,6 +77,31 @@ describe('descriptionToHtml', () => {
     // An unterminated tag never matches the HTML branch, so it stays text.
     expect(descriptionToHtml('<img src=x onerror=alert(1)')).toBe('&lt;img src=x onerror=alert(1)');
   });
+
+  it('renders a markdown image, as the task dialog stores a pasted one', () => {
+    const src = 'https://app-api.weldsuite.org/api/storage/private/workspaces/org_1/projects/general/17_5c5b*x*/image.png';
+    const el = parse(descriptionToHtml(`charts **broken**\n![image.png](${src})`));
+    const img = el.querySelector('img');
+    expect(img?.getAttribute('src')).toBe(src);
+    expect(img?.getAttribute('alt')).toBe('image.png');
+    expect(el.querySelector('strong')?.textContent).toBe('broken');
+    expect(el.querySelector('em')).toBeNull();
+    expect(el.textContent).not.toContain('![');
+  });
+
+  it('renders a markdown link and drops a javascript: one', () => {
+    const el = parse(descriptionToHtml('[report.pdf](https://files.weldsuite.org/r.pdf) [x](javascript:alert`1`)'));
+    const [file, bad] = Array.from(el.querySelectorAll('a'));
+    expect(file?.getAttribute('href')).toBe('https://files.weldsuite.org/r.pdf');
+    expect(file?.getAttribute('target')).toBe('_blank');
+    expect(bad?.hasAttribute('href')).toBe(false);
+  });
+
+  it('escapes markdown image text that tries to break out of an attribute', () => {
+    const el = parse(descriptionToHtml('![" onerror="alert(1)](https://files.weldsuite.org/a.png)'));
+    expect(el.querySelector('img')?.hasAttribute('onerror')).toBe(false);
+    expect(el.querySelector('img')?.getAttribute('alt')).toBe('" onerror="alert(1)');
+  });
 });
 
 describe('escapeHtml', () => {

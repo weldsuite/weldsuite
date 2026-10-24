@@ -1,4 +1,6 @@
-import { colToLetters, isError, type BorderSide, type CellStyle, type Range, type Scalar, type Sheet } from '@weldsuite/sheets-engine';
+import { colToLetters, formatValue, isError, type BorderSide, type CellStyle, type Chart, type Range, type Scalar, type Sheet } from '@weldsuite/sheets-engine';
+import { CHART_HANDLES, chartClip, chartRect, handleCenter, HANDLE_RADIUS } from '../charts/chart-geometry';
+import { drawChart, type ChartPaint } from '../charts/draw-chart';
 import type { SheetController } from '../model/sheet-controller';
 import { primaryRange, type Selection } from '../model/selection';
 import { panes, rangeRect, type GridLayout, type Rect, type Segment } from './geometry';
@@ -38,6 +40,10 @@ export interface RenderState {
   highlights: RefHighlight[];
   /** Other people in a co-edited sheet. */
   remote?: RemoteCursor[];
+  /** A chart being moved or resized, drawn where it would land. */
+  chartPreview?: Chart | null;
+  /** Shown in a chart with nothing to plot. */
+  emptyChartLabel?: string;
 }
 
 export function fontFor(style: CellStyle | undefined): string {
@@ -71,6 +77,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, state: RenderState): v
       drawSelection(ctx, state);
     });
   }
+  drawCharts(ctx, state);
   drawFreezeLines(ctx, state);
   drawHeaders(ctx, state);
 }
@@ -118,8 +125,7 @@ function drawPane(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segme
 
 /** The cell's style with any conditional formatting on top. */
 function cellStyle(state: RenderState, row: number, col: number): CellStyle | undefined {
-  const sheet = state.controller.sheet;
-  const style = state.controller.engine.workbook.style(sheet, row, col);
+  const style = state.controller.cellStyle(row, col);
   const conditional = state.controller.conditionalStyle(row, col);
   return conditional ? { ...style, ...conditional } : style;
 }
@@ -584,6 +590,49 @@ function drawHighlights(ctx: CanvasRenderingContext2D, state: RenderState): void
     ctx.setLineDash([4, 3]);
     ctx.strokeRect(rect.x, rect.y, rect.w - 1, rect.h - 1);
     ctx.setLineDash([]);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Charts
+// ---------------------------------------------------------------------------
+
+/** Charts float over the cells, in drawing order; the picked one gets a frame with handles. */
+function drawCharts(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  const { layout, controller, theme } = state;
+  const sheet = controller.sheet;
+  if (sheet.charts.length === 0) return;
+  const paint: ChartPaint = {
+    background: theme.cellBackground,
+    text: theme.text,
+    muted: theme.headerText,
+    grid: theme.gridline,
+    border: theme.headerBorder,
+    format: (value, numFmt) => formatValue(value, numFmt, controller.options.locale).text,
+    emptyLabel: state.emptyChartLabel ?? '',
+  };
+  for (const stored of sheet.charts) {
+    const chart = state.chartPreview?.id === stored.id ? state.chartPreview : stored;
+    const rect = chartRect(layout, sheet, chart);
+    const clip = chartClip(layout, chart);
+    if (rect.x > clip.x + clip.w || rect.y > clip.y + clip.h || rect.x + rect.w < clip.x || rect.y + rect.h < clip.y) continue;
+    withClip(ctx, clip, () => {
+      drawChart(ctx, rect, chart, controller.chartData(stored), paint);
+      if (controller.selectedChart === chart.id) drawChartFrame(ctx, rect, theme);
+    });
+  }
+}
+
+function drawChartFrame(ctx: CanvasRenderingContext2D, rect: Rect, theme: GridTheme): void {
+  ctx.strokeStyle = theme.selectionBorder;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.fillStyle = theme.cellBackground;
+  ctx.lineWidth = 1.5;
+  for (const handle of CHART_HANDLES) {
+    const [x, y] = handleCenter(rect, handle);
+    ctx.fillRect(x - HANDLE_RADIUS, y - HANDLE_RADIUS, HANDLE_RADIUS * 2, HANDLE_RADIUS * 2);
+    ctx.strokeRect(x - HANDLE_RADIUS, y - HANDLE_RADIUS, HANDLE_RADIUS * 2, HANDLE_RADIUS * 2);
   }
 }
 

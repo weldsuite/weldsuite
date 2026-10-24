@@ -5,23 +5,55 @@ import { hasContextPermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { DataFor } from '@weldsuite/entity-events/events';
 import { error } from '@weldsuite/worker-kit/response';
+import { getMasterDb, getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
 import type { SignEnvelope } from '@weldsuite/db/schema';
+import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
-import { SignError } from '../../services/errors';
-import type { SignViewer } from '../../services/envelopes';
+import { SignError, invalid } from '../../services/errors';
+import { getEnvelopeDetail, memberProfile, type DetailAccess, type SignViewer } from '../../services/envelopes';
+import type { Actor, SendContext } from '../../services/sending';
 
 export type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 
 export async function viewerOf(c: Ctx): Promise<SignViewer> {
-  return {
-    userId: c.get('userId') ?? '',
-    manageAll: await hasContextPermission(c, 'sign_envelopes:manage'),
-  };
+  const userId = c.get('userId') ?? '';
+  const [manageAll, profile] = await Promise.all([
+    hasContextPermission(c, 'sign_envelopes:manage'),
+    userId ? memberProfile(c.get('tenantDb'), userId) : Promise.resolve({ email: null }),
+  ]);
+  return { userId, email: profile.email?.toLowerCase() ?? null, manageAll };
 }
 
-/** Whether the caller may change drafts at all (the envelope itself must still be a draft). */
-export async function mayEdit(c: Ctx): Promise<boolean> {
-  return !c.get('readOnly') && (await hasContextPermission(c, 'sign_envelopes:update'));
+/** The viewer and what they may do, for the detail's action flags. */
+export async function accessOf(c: Ctx, viewer?: SignViewer): Promise<DetailAccess> {
+  const writable = !c.get('readOnly');
+  const [who, update, send, voidAllowed] = await Promise.all([
+    viewer ?? viewerOf(c),
+    hasContextPermission(c, 'sign_envelopes:update'),
+    hasContextPermission(c, 'sign_envelopes:send'),
+    hasContextPermission(c, 'sign_envelopes:void'),
+  ]);
+  return { viewer: who, update: writable && update, send: writable && send, void: writable && voidAllowed };
+}
+
+/** What sending and the lifecycle need: the tenant and master DBs and both workspace ids. */
+export async function sendContextOf(c: Ctx): Promise<SendContext> {
+  const orgId = c.get('workspaceId');
+  if (!orgId) throw invalid('No workspace selected');
+  const workspace = await getWorkspaceForOrg(c.env, orgId);
+  return { env: c.env, db: c.get('tenantDb'), master: getMasterDb(c.env), clerkOrgId: orgId, workspaceId: workspace.id };
+}
+
+/** The member acting, as recorded on the evidence trail. */
+export async function actorOf(c: Ctx): Promise<Actor> {
+  const userId = c.get('userId') ?? null;
+  const profile = userId ? await memberProfile(c.get('tenantDb'), userId) : { name: null, email: null };
+  return { userId, ...profile };
+}
+
+/** The envelope as the caller sees it. */
+export async function detailFor(c: Ctx, envelope: SignEnvelope, viewer?: SignViewer): Promise<SignEnvelopeDetail> {
+  return getEnvelopeDetail(c.get('tenantDb'), envelope, await accessOf(c, viewer));
 }
 
 /** Turn a service error into the API's error envelope; rethrow anything else. */
@@ -46,7 +78,7 @@ export function envelopeEventData(envelope: SignEnvelope): DataFor<'sign_envelop
   return { id: envelope.id, title: envelope.title, status: envelope.status, senderUserId: envelope.senderUserId };
 }
 
-/** `sign_envelope:updated` after a change to a draft's documents, recipients or fields. */
+/** `sign_envelope:updated` after a change to a draft's documents, recipients or fields, or a sent request's recipients. */
 export function publishEnvelopeUpdated(c: Ctx, envelope: SignEnvelope): void {
   publishEntityEvent({ c, entityType: 'sign_envelope', entityId: envelope.id, action: 'updated', data: envelopeEventData(envelope) });
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openZip, writeZip } from '@weldsuite/zip-xml';
 import { Engine } from '../../calc/engine';
 import { styleKey, type CellStyle } from '../../model/styles';
+import type { Chart } from '../../model/charts';
 import type { WorkbookSnapshot } from '../../model/workbook';
 import { err, type Scalar } from '../../values';
 import { ImportError } from '../types';
@@ -267,6 +268,27 @@ const EXCEL_STYLES = `<styleSheet xmlns="${MAIN}">
 <dxfs count="1"><dxf><font><color rgb="FF9C0006"/></font><fill><patternFill><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf></dxfs>
 </styleSheet>`;
 
+const XDR = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing';
+const DML = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+const CHART_NS = 'http://schemas.openxmlformats.org/drawingml/2006/chart';
+
+/** A chart (B6, 3 columns and 10 rows) and a picture. */
+const EXCEL_DRAWING = `<xdr:wsDr xmlns:xdr="${XDR}" xmlns:a="${DML}">
+<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>1</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>5</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>4</xdr:col><xdr:colOff>95250</xdr:colOff><xdr:row>15</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="Chart 1"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="${CHART_NS}"><c:chart xmlns:c="${CHART_NS}" xmlns:r="${REL}" r:id="rId1"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>
+<xdr:oneCellAnchor><xdr:from><xdr:col>6</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="952500" cy="952500"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="3" name="Logo"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="${REL}" r:embed="rId2"/></xdr:blipFill><xdr:spPr/></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>
+</xdr:wsDr>`;
+
+const EXCEL_CHART = `<c:chartSpace xmlns:c="${CHART_NS}" xmlns:a="${DML}" xmlns:r="${REL}"><c:chart>
+<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>Amount </a:t></a:r><a:r><a:t>by item</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>
+<c:plotArea><c:layout/><c:barChart><c:barDir val="bar"/><c:grouping val="stacked"/><c:varyColors val="0"/>
+<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:strRef><c:f>Data!$B$1</c:f></c:strRef></c:tx><c:spPr><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></c:spPr><c:cat><c:strRef><c:f>Data!$A$2:$A$4</c:f></c:strRef></c:cat><c:val><c:numRef><c:f>Data!$B$2:$B$4</c:f></c:numRef></c:val></c:ser>
+<c:ser><c:idx val="1"/><c:order val="1"/><c:tx><c:v>Plan</c:v></c:tx><c:cat><c:strRef><c:f>Data!$A$2:$A$4</c:f></c:strRef></c:cat><c:val><c:numRef><c:f>Data!$C$2:$C$4</c:f></c:numRef></c:val></c:ser>
+<c:axId val="1"/><c:axId val="2"/></c:barChart>
+<c:catAx><c:axId val="1"/><c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>Item</a:t></a:r></a:p></c:rich></c:tx></c:title><c:crossAx val="2"/></c:catAx>
+<c:valAx><c:axId val="2"/><c:crossAx val="1"/></c:valAx></c:plotArea>
+<c:legend><c:legendPos val="r"/></c:legend></c:chart></c:chartSpace>`;
+
 async function excelFile(): Promise<Uint8Array> {
   return writeZip([
     { name: '_rels/.rels', data: rels(rel('rId1', 'officeDocument', 'xl/workbook.xml')) },
@@ -296,6 +318,9 @@ async function excelFile(): Promise<Uint8Array> {
     },
     { name: 'xl/worksheets/sheet1.xml', data: EXCEL_SHEET },
     { name: 'xl/worksheets/_rels/sheet1.xml.rels', data: rels(rel('rId1', 'drawing', '../drawings/drawing1.xml'), rel('rId2', 'comments', '../comments1.xml')) },
+    { name: 'xl/drawings/drawing1.xml', data: EXCEL_DRAWING },
+    { name: 'xl/drawings/_rels/drawing1.xml.rels', data: rels(rel('rId1', 'chart', '../charts/chart1.xml'), rel('rId2', 'image', '../media/image1.png')) },
+    { name: 'xl/charts/chart1.xml', data: EXCEL_CHART },
     { name: 'xl/worksheets/sheet3.xml', data: `<worksheet xmlns="${MAIN}"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row></sheetData></worksheet>` },
   ]);
 }
@@ -360,6 +385,30 @@ describe('reading a file as Excel writes it', () => {
     expect(sheet.cols.hidden?.length).toBe(sheet.colCount - 4);
   });
 
+  it('reads charts, and leaves out pictures', async () => {
+    const { workbook, warnings } = await readXlsx(await excelFile());
+    expect(warnings).toContain('drawings');
+    expect(workbook.sheets[0]!.charts).toEqual([
+      {
+        id: 'ch1',
+        type: 'bar',
+        stacking: 'stacked',
+        categories: 'Data!$A$2:$A$4',
+        series: [
+          { name: 'Data!$B$1', values: 'Data!$B$2:$B$4', color: '#ff0000' },
+          { name: '"Plan"', values: 'Data!$C$2:$C$4' },
+        ],
+        title: 'Amount by item',
+        legend: 'right',
+        xTitle: 'Item',
+        // From B6 + 10 px to E16 + 10 px: columns B and C (145 px each) and D (80 px); ten rows of 20 px.
+        anchor: { row: 5, col: 1, dx: 10, dy: 0 },
+        width: 370,
+        height: 200,
+      },
+    ]);
+  });
+
   it('reads the filter, conditional formats and validation, from the extension list too', async () => {
     const { workbook } = await readXlsx(await excelFile());
     const sheet = workbook.sheets[0]!;
@@ -407,6 +456,82 @@ describe('reading a file as Excel writes it', () => {
     const notExcel = await writeZip([{ name: 'readme.txt', data: 'hi' }]);
     await expect(readXlsx(notExcel)).rejects.toBeInstanceOf(ImportError);
     await expect(readXlsx(await excelFile(), { maxCells: 5 })).rejects.toMatchObject({ code: 'too_large' });
+  });
+});
+
+describe('charts and pivot tables in xlsx', () => {
+  const charts: Chart[] = [
+    {
+      id: 'a',
+      type: 'column',
+      stacking: 'stacked',
+      categories: "'Sales 2026'!$A$2:$A$4",
+      series: [
+        { name: "'Sales 2026'!$B$1", values: "'Sales 2026'!$B$2:$B$4", color: '#4285f4' },
+        { name: '"Target"', values: "'Sales 2026'!$C$2:$C$4", color: '#ea4335' },
+      ],
+      title: 'Prices',
+      legend: 'bottom',
+      xTitle: 'Item',
+      yTitle: 'Euro',
+      anchor: { row: 15, col: 4, dx: 5, dy: 3 },
+      width: 300,
+      height: 200,
+    },
+    { id: 'b', type: 'pie', categories: "'Sales 2026'!$A$2:$A$4", series: [{ values: "'Sales 2026'!$B$2:$B$4" }], legend: 'right', anchor: { row: 30, col: 0, dx: 0, dy: 0 }, width: 250, height: 250 },
+    {
+      id: 'c',
+      type: 'scatter',
+      series: [{ values: "'Sales 2026'!$B$2:$B$4", x: "'Sales 2026'!$C$2:$C$4", color: '#34a853' }],
+      legend: 'none',
+      anchor: { row: 30, col: 4, dx: 0, dy: 0 },
+      width: 250,
+      height: 250,
+    },
+  ];
+
+  async function withCharts() {
+    const snap = source();
+    snap.sheets[0]!.charts = charts;
+    snap.sheets[1]!.cells.push([0, 4, { v: null, f: 'PIVOT(\'Sales 2026\'!$A$1:$C$4,"Item","","SUM:Price")' }]);
+    const engine = Engine.fromSnapshot(snap, OPTIONS);
+    const bytes = await writeXlsx(engine, { date: DATE });
+    return { engine, bytes, read: await readXlsx(bytes, { sheetId: (i) => ['s1', 's2'][i]! }) };
+  }
+
+  it('writes charts as drawings Excel reads, with their last values', async () => {
+    const zip = openZip((await withCharts()).bytes);
+    expect(zip.names().filter((n) => /drawing|chart/.test(n)).sort()).toEqual([
+      'xl/charts/chart1.xml',
+      'xl/charts/chart2.xml',
+      'xl/charts/chart3.xml',
+      'xl/drawings/_rels/drawing1.xml.rels',
+      'xl/drawings/drawing1.xml',
+    ]);
+    expect(await zip.readText('xl/worksheets/sheet1.xml')).toMatch(/<pageMargins [^>]*\/><drawing r:id="rId1"\/><\/worksheet>$/);
+    expect(await zip.readText('xl/worksheets/_rels/sheet1.xml.rels')).toContain('Target="../drawings/drawing1.xml"');
+    expect(await zip.readText('[Content_Types].xml')).toContain('<Override PartName="/xl/charts/chart3.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>');
+    const column = (await zip.readText('xl/charts/chart1.xml'))!;
+    expect(column).toContain('<c:barChart><c:barDir val="col"/><c:grouping val="stacked"/>');
+    expect(column).toContain(`<c:val><c:numRef><c:f>'Sales 2026'!$B$2:$B$4</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="3"/><c:pt idx="0"><c:v>3.5</c:v></c:pt>`);
+    expect(column).toContain('<c:pt idx="1"><c:v>Tea</c:v></c:pt>');
+    expect((await zip.readText('xl/charts/chart2.xml'))!).toContain('<c:pieChart><c:varyColors val="1"/>');
+  });
+
+  it('reads its own charts back as they were', async () => {
+    const { read } = await withCharts();
+    const back = read.workbook.sheets[0]!.charts!.map(({ id: _id, ...rest }) => rest);
+    expect(back).toEqual(charts.map(({ id: _id, ...rest }) => rest));
+  });
+
+  it('writes a pivot table as the values it shows', async () => {
+    const { bytes, engine, read } = await withCharts();
+    expect(engine.getValue('s2', 4, 5)).toBe(9.75);
+    const sheet2 = (await openZip(bytes).readText('xl/worksheets/sheet2.xml'))!;
+    expect(sheet2).not.toContain('PIVOT');
+    const cells = new Map(read.workbook.sheets[1]!.cells.map(([r, c, cell]) => [`${r}:${c}`, cell]));
+    expect(cells.get('0:4')).toEqual({ v: 'Item' });
+    expect(cells.get('4:5')).toEqual({ v: 9.75 });
   });
 });
 

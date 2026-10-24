@@ -4,7 +4,7 @@
  * visibility (who may see which envelope) is decided here.
  */
 
-import { and, asc, count, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type {
@@ -32,28 +32,64 @@ const { signEnvelopes, signDocuments, signRecipients, signFields, signEvents, wo
 /** Who is asking, and whether they may see every envelope (`sign_envelopes:manage`). */
 export interface SignViewer {
   userId: string;
+  /** The member's email, lower-cased: they also see sent requests they are a recipient of. */
+  email: string | null;
   manageAll: boolean;
 }
 
-/** An envelope the viewer may not see is reported as missing, never as forbidden. */
-export function canSee(envelope: Pick<SignEnvelope, 'senderUserId'>, viewer: SignViewer): boolean {
+/** The viewer sent this envelope or manages WeldSign: they may act on it and see its activity. */
+export function isOwner(envelope: Pick<SignEnvelope, 'senderUserId'>, viewer: SignViewer): boolean {
   return viewer.manageAll || envelope.senderUserId === viewer.userId;
 }
 
-/** Load a live (not deleted) envelope the viewer may see, or throw `not_found`. */
-export async function loadEnvelope(db: Database, id: string, viewer: SignViewer): Promise<SignEnvelope> {
+/** Still collecting signatures: sent or in progress, and not past its expiry. */
+export function isOpenRequest(envelope: Pick<SignEnvelope, 'status' | 'expiresAt'>, now = new Date()): boolean {
+  if (envelope.status !== 'sent' && envelope.status !== 'in_progress') return false;
+  return !envelope.expiresAt || envelope.expiresAt.getTime() > now.getTime();
+}
+
+async function findEnvelope(db: Database, id: string): Promise<SignEnvelope | undefined> {
   const [row] = await db
     .select()
     .from(signEnvelopes)
     .where(and(eq(signEnvelopes.id, id), eq(signEnvelopes.kind, 'envelope'), isNull(signEnvelopes.deletedAt)))
     .limit(1);
-  if (!row || !canSee(row, viewer)) throw notFound('Envelope', id);
+  return row;
+}
+
+async function isRecipient(db: Database, envelopeId: string, email: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: signRecipients.id })
+    .from(signRecipients)
+    .where(and(eq(signRecipients.envelopeId, envelopeId), eq(signRecipients.email, email)))
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * Load a live (not deleted) envelope the viewer may see, or throw
+ * `not_found`: their own, any with `sign_envelopes:manage`, and a sent one
+ * they are a recipient of (never someone else's draft). An envelope the
+ * viewer may not see is reported as missing, never as forbidden.
+ */
+export async function loadEnvelope(db: Database, id: string, viewer: SignViewer): Promise<SignEnvelope> {
+  const row = await findEnvelope(db, id);
+  if (!row) throw notFound('Envelope', id);
+  if (isOwner(row, viewer)) return row;
+  if (row.status !== 'draft' && viewer.email && (await isRecipient(db, row.id, viewer.email))) return row;
+  throw notFound('Envelope', id);
+}
+
+/** An envelope the viewer owns (sent it, or manages WeldSign), for anything that changes it. */
+export async function loadOwnEnvelope(db: Database, id: string, viewer: SignViewer): Promise<SignEnvelope> {
+  const row = await findEnvelope(db, id);
+  if (!row || !isOwner(row, viewer)) throw notFound('Envelope', id);
   return row;
 }
 
 /** Same, and the envelope must still be a draft. */
 export async function loadDraft(db: Database, id: string, viewer: SignViewer): Promise<SignEnvelope> {
-  const row = await loadEnvelope(db, id, viewer);
+  const row = await loadOwnEnvelope(db, id, viewer);
   if (row.status !== 'draft') throw notADraft();
   return row;
 }
@@ -108,6 +144,9 @@ export function toRecipientDto(row: SignRecipient): SignRecipientDto {
     openedAt: iso(row.openedAt),
     signedAt: iso(row.signedAt),
     declinedAt: iso(row.declinedAt),
+    declineReason: row.declineReason,
+    lastRemindedAt: iso(row.lastRemindedAt),
+    remindersSent: row.remindersSent,
   };
 }
 
@@ -169,6 +208,8 @@ function toSummary(row: SignEnvelope, documentCount: number, recipients: SignRec
 export interface ListEnvelopesOptions {
   viewer: SignViewer;
   statuses?: readonly SignEnvelopeStatus[];
+  /** Only requests where the viewer is a signer whose turn it is (the "action required" folder). */
+  awaitingViewer?: boolean;
   search?: string;
   limit: number;
   offset: number;
@@ -178,12 +219,30 @@ function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
+/** Envelopes with a recipient row for `email`, optionally narrowed (a signer whose turn it is). */
+function envelopesOfRecipient(db: Database, email: string, turnOnly: boolean) {
+  const where = turnOnly
+    ? and(eq(signRecipients.email, email), eq(signRecipients.role, 'signer'), inArray(signRecipients.status, ['sent', 'opened']))
+    : eq(signRecipients.email, email);
+  return inArray(signEnvelopes.id, db.select({ id: signRecipients.envelopeId }).from(signRecipients).where(where));
+}
+
+/** What a viewer without `sign_envelopes:manage` sees: their own, and sent requests they are on. */
+function visibleTo(db: Database, viewer: SignViewer): SQL {
+  const own = eq(signEnvelopes.senderUserId, viewer.userId);
+  if (!viewer.email) return own;
+  return or(own, and(ne(signEnvelopes.status, 'draft'), envelopesOfRecipient(db, viewer.email, false)))!;
+}
+
 export async function listEnvelopes(
   db: Database,
   opts: ListEnvelopesOptions,
 ): Promise<{ rows: SignEnvelopeSummary[]; total: number }> {
   const conditions: SQL[] = [eq(signEnvelopes.kind, 'envelope'), isNull(signEnvelopes.deletedAt)];
-  if (!opts.viewer.manageAll) conditions.push(eq(signEnvelopes.senderUserId, opts.viewer.userId));
+  if (!opts.viewer.manageAll) conditions.push(visibleTo(db, opts.viewer));
+  if (opts.awaitingViewer) {
+    conditions.push(opts.viewer.email ? envelopesOfRecipient(db, opts.viewer.email, true) : sql`false`);
+  }
   if (opts.statuses?.length) conditions.push(inArray(signEnvelopes.status, [...opts.statuses]));
   if (opts.search) conditions.push(ilike(signEnvelopes.title, `%${escapeLike(opts.search)}%`));
   const where = and(...conditions);
@@ -216,10 +275,21 @@ export async function listEnvelopes(
   };
 }
 
+/** What the caller holds, for the detail's `canEdit` / `canVoid` / `canRemind` flags. */
+export interface DetailAccess {
+  viewer: SignViewer;
+  /** `sign_envelopes:update`, and not a read-only session. */
+  update: boolean;
+  /** `sign_envelopes:send` (remind, resend, correct an email too). */
+  send: boolean;
+  /** `sign_envelopes:void`. */
+  void: boolean;
+}
+
 export async function getEnvelopeDetail(
   db: Database,
   envelope: SignEnvelope,
-  canEdit: boolean,
+  access: DetailAccess,
 ): Promise<SignEnvelopeDetail> {
   const [documents, recipients, fields] = await Promise.all([
     db.select().from(signDocuments).where(eq(signDocuments.envelopeId, envelope.id)).orderBy(asc(signDocuments.position)),
@@ -230,6 +300,13 @@ export async function getEnvelopeDetail(
       .orderBy(asc(signRecipients.routingOrder), asc(signRecipients.createdAt)),
     db.select().from(signFields).where(eq(signFields.envelopeId, envelope.id)).orderBy(asc(signFields.createdAt)),
   ]);
+  const owner = isOwner(envelope, access.viewer);
+  const signers = recipients.filter((r) => r.role === 'signer');
+  // Everyone signed: the signed PDF is on its way, there is nothing left to chase.
+  const open = isOpenRequest(envelope) && !signers.every((r) => r.status === 'signed');
+  const myTurn = access.viewer.email
+    ? signers.find((r) => r.email === access.viewer.email && (r.status === 'sent' || r.status === 'opened'))
+    : undefined;
   return {
     ...toSummary(envelope, documents.length, recipients),
     message: envelope.message,
@@ -240,7 +317,13 @@ export async function getEnvelopeDetail(
     documents: documents.map(toDocumentDto),
     recipientList: recipients.map(toRecipientDto),
     fields: fields.map(toFieldDto),
-    canEdit: canEdit && envelope.status === 'draft',
+    voidedReason: envelope.voidedReason,
+    voidedAt: iso(envelope.voidedAt),
+    canEdit: owner && access.update && envelope.status === 'draft',
+    isOwner: owner,
+    canVoid: owner && access.void && open,
+    canRemind: owner && access.send && open,
+    mySignerId: open && myTurn ? myTurn.id : null,
   };
 }
 

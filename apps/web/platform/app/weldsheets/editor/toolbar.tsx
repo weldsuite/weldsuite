@@ -2,6 +2,8 @@ import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
   AlignVerticalJustifyCenter,
   ArrowDownAZ,
+  ChartColumnBig,
+  Table2,
   ListChecks,
   ListFilter,
   PaintRoller,
@@ -42,6 +44,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/component
 import { useI18n } from '@/lib/i18n/provider';
 import type { BorderKind, SheetController } from './model/sheet-controller';
 import { numberFormats, type NumberFormatKey } from './number-formats';
+import { insertChart } from './model/charts';
 import { sortByColumn, toggleFilter } from './model/rules';
 import { toast } from 'sonner';
 
@@ -55,7 +58,7 @@ const PALETTE = [
   '#a61c00', '#cc0000', '#e69138', '#f1c232', '#6aa84f', '#45818e', '#3c78d8', '#3d85c6', '#674ea7', '#a64d79',
 ];
 
-export function Toolbar({ controller, onSortRange }: { controller: SheetController; onSortRange: () => void }) {
+export function Toolbar({ controller, onSortRange, onCreatePivot }: { controller: SheetController; onSortRange: () => void; onCreatePivot: () => void }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const { t, format, language } = useI18n();
   const tt = t.weldsheets.toolbar;
@@ -209,6 +212,13 @@ export function Toolbar({ controller, onSortRange }: { controller: SheetControll
       <Toggle label={td.dataValidation} active={controller.panel === 'validation'} onClick={() => togglePanel('validation')}>
         <ListChecks />
       </Toggle>
+      <Divider />
+      <IconButton label={t.weldsheets.charts.insert} onClick={() => insertChart(controller)}>
+        <ChartColumnBig />
+      </IconButton>
+      <IconButton label={t.weldsheets.pivot.create} onClick={onCreatePivot}>
+        <Table2 />
+      </IconButton>
     </div>
   );
 }

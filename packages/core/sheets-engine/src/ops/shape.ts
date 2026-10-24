@@ -7,6 +7,7 @@
  */
 
 import { styleKey, type StylePatch } from '../model/styles';
+import { CHART_TYPES } from '../model/charts';
 import { ERROR_CODES } from '../values';
 import type { Op, OpType } from './types';
 
@@ -136,6 +137,22 @@ const isValidation = shape({
   help: optional(isStr),
 });
 
+const isRef = (v: unknown): v is string => isStr(v) && v.length <= 2048;
+const isChart = shape({
+  id: isStr,
+  type: oneOf(...CHART_TYPES),
+  stacking: optional(oneOf('stacked', 'percent')),
+  categories: optional(isRef),
+  series: arrayOf(shape({ name: optional(isRef), values: isRef, x: optional(isRef), color: optional(isStr) })),
+  title: optional(isStr),
+  legend: optional(oneOf('right', 'bottom', 'top', 'none')),
+  xTitle: optional(isStr),
+  yTitle: optional(isStr),
+  anchor: shape({ row: isInt, col: isInt, dx: isNum, dy: isNum }),
+  width: isNum,
+  height: isNum,
+});
+
 const isSheetSnapshot = shape({
   id: isStr,
   name: isStr,
@@ -150,6 +167,7 @@ const isSheetSnapshot = shape({
   filter: optional(isFilter),
   conditionalFormats: optional(arrayOf(isFormat)),
   validations: optional(arrayOf(isValidation)),
+  charts: optional(arrayOf(isChart)),
 });
 
 const sheetOp = (fields: Record<string, Check>): Check => shape({ type: isStr, sheetId: isStr, ...fields });
@@ -185,6 +203,7 @@ const CHECKS = new Map<Exclude<OpType, 'batch'>, Check>([
   ['setFilter', sheetOp({ filter: nullable(isFilter) })],
   ['patchConditionalFormats', sheetOp({ set: optional(arrayOf(isFormat)), remove: optional(arrayOf(isStr)) })],
   ['patchValidations', sheetOp({ set: optional(arrayOf(isValidation)), remove: optional(arrayOf(isStr)) })],
+  ['patchCharts', sheetOp({ set: optional(arrayOf(isChart)), remove: optional(arrayOf(isStr)) })],
 ]);
 
 /** True when `op` has the structure of an `Op` all the way down. */

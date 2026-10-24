@@ -87,6 +87,7 @@ function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], vis
   if (eventType === 'unassigned') return t.timeline.assignmentUnassigned.replace('{actor}', actor);
   if (eventType === 'assigned') {
     const target = memberLabel(members, message.metadata?.assigneeId ?? null) ?? message.metadata?.assigneeId ?? '';
+    if (message.metadata?.auto) return t.timeline.autoAssigned.replace('{target}', target);
     return t.timeline.assignmentToAdmin.replace('{actor}', actor).replace('{target}', target);
   }
   return message.body || t.timeline.genericEvent.replace('{actor}', actor).replace('{event}', eventType ?? 'event');
