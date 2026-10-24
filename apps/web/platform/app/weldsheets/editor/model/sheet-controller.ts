@@ -262,6 +262,8 @@ export class SheetController {
     if (!this.engine.workbook.getSheet(this.activeSheetId)) {
       this.activeSheetId = this.engine.workbook.sheets[0]!.id;
       this.selection = this.selections.get(this.activeSheetId) ?? cellSelection(0, 0);
+      // An edit open on the vanished sheet would otherwise be committed into this one.
+      this.editing = null;
     }
   }
 
@@ -516,13 +518,17 @@ export class SheetController {
   }
 
   clearFormatting(): void {
+    const sheet = this.sheet;
     const ops: Op[] = [];
     for (const r of this.selection.ranges) {
       const cells: [number, number, string | null][] = [];
-      this.sheet.cells.forEachInRange(r, (row, col, cell) => {
+      sheet.cells.forEachInRange(r, (row, col, cell) => {
         if (cell.s !== undefined) cells.push([row, col, null]);
       });
-      ops.push({ type: 'setStyles', sheetId: this.activeSheetId, cells });
+      // Formatting whole columns or rows is kept on the column or row itself.
+      const cols = isWholeColumns(r) ? styledIn(sheet.cols.styles, r.c1, r.c2) : [];
+      const rows = isWholeRows(r) ? styledIn(sheet.rows.styles, r.r1, r.r2) : [];
+      ops.push({ type: 'setStyles', sheetId: this.activeSheetId, cells, rows, cols });
     }
     this.apply({ type: 'batch', ops });
   }
@@ -733,6 +739,11 @@ export class SheetController {
   snapshot(): WorkbookSnapshot {
     return this.engine.toSnapshot();
   }
+}
+
+/** Entries clearing the row or column styles set between `from` and `to`. */
+function styledIn(styles: ReadonlyMap<number, string>, from: number, to: number): [number, null][] {
+  return [...styles.keys()].filter((i) => i >= from && i <= to).map((i) => [i, null]);
 }
 
 export function newSheetId(): string {

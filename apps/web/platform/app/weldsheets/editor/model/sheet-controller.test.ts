@@ -3,7 +3,7 @@ import { EN_LOCALE, NL_LOCALE } from '@weldsuite/sheets-engine';
 import { copySelection, parseHtmlTable, parseTsv, pasteInto } from './clipboard';
 import { acceptsReference, functionPrefixAt, referenceText, refsInEdit, suggestFunctions } from './formula-edit';
 import { handleEditKey, handleGridKey, type KeyInput } from './keyboard';
-import { cellSelection } from './selection';
+import { cellSelection, wholeColumns, wholeRows } from './selection';
 import { adjustDecimals, SheetController } from './sheet-controller';
 
 function make(locale: 'en' | 'nl' = 'en') {
@@ -102,6 +102,39 @@ describe('SheetController input', () => {
 });
 
 describe('SheetController formatting and structure', () => {
+  it('drops an open edit when its sheet is deleted', () => {
+    const { ctl } = make();
+    const first = ctl.activeSheetId;
+    ctl.addSheet();
+    const second = ctl.engine.workbook.sheets[1]!.id;
+    ctl.setActiveSheet(second);
+    ctl.select(cellSelection(2, 1));
+    ctl.beginEdit({ text: 'abc' });
+    ctl.deleteSheet(second);
+    expect(ctl.activeSheetId).toBe(first);
+    expect(ctl.editing).toBeNull();
+    ctl.commitEdit();
+    expect(value(ctl, 2, 1)).toBeNull();
+  });
+
+  it('clears formatting kept on whole columns and rows', () => {
+    const { ctl } = make();
+    ctl.select({ ranges: [wholeColumns(0, 0)], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    ctl.toggle('bold');
+    expect(ctl.engine.workbook.style(ctl.sheet, 5, 0)?.bold).toBe(true);
+    ctl.clearFormatting();
+    expect(ctl.engine.workbook.style(ctl.sheet, 5, 0)?.bold).toBeUndefined();
+    expect(ctl.sheet.cols.styles.size).toBe(0);
+
+    ctl.select({ ranges: [wholeRows(2, 3)], active: { row: 2, col: 0 }, anchor: { row: 2, col: 0 } });
+    ctl.toggle('italic');
+    expect(ctl.sheet.rows.styles.size).toBe(2);
+    ctl.clearFormatting();
+    expect(ctl.sheet.rows.styles.size).toBe(0);
+    ctl.undo();
+    expect(ctl.sheet.rows.styles.size).toBe(2);
+  });
+
   it('toggles bold from the active cell and changes decimals', () => {
     const { ctl } = make();
     ctl.setInput(0, 0, '1.5');
