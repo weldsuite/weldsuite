@@ -1065,7 +1065,7 @@ export const common = {
         routineNotice: {
           scheduled: 'Scheduled "{name}"',
           next: 'Next run: {time}',
-          delivery: 'Each run posts its result to you in a chat of its own, with a notification.',
+          delivery: 'Each run posts its result here in your chat, with a notification.',
           manage: 'Manage',
           postedBy: 'From routine "{name}"',
           postedByRoutine: 'From a routine',

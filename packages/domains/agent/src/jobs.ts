@@ -111,7 +111,7 @@ async function runAgentRunJob(env: Env, tenantDb: AgentDb, job: AgentRunJob): Pr
       runId: job.runId,
       timeoutMs: BACKGROUND_RUN_TIMEOUT_MS,
       skipApprovals: job.skipApprovals,
-      // A routine posts its result in its own thread and notifies from there.
+      // A routine posts its result in its owner's chat and notifies from there.
       notify: !isRoutineJob(job),
     });
     if (job.routineRunId) {
