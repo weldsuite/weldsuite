@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WeldAgentMessage } from '@/hooks/queries/use-weldagent-queries';
-import { buildThread, openQuestion } from './thread';
+import { buildThread, mergeMessages, openQuestion } from './thread';
 
 const question = { question: 'When should I act?', options: [{ label: 'Daily' }, { label: 'On new tickets' }] };
 
@@ -69,6 +69,26 @@ describe('buildThread', () => {
     ]);
     expect(thread).toHaveLength(1);
     expect(thread[0]).toMatchObject({ questions: [], steps: [] });
+  });
+
+  it('keeps messages that slide out of the live window once older pages are loaded', () => {
+    const at = (id: string, minute: number) => ({
+      ...message(id, 'user', id),
+      createdAt: `2026-10-14T00:${String(minute).padStart(2, '0')}:00.000Z`,
+    });
+    const olderPage = [at('m1', 1), at('m2', 2)];
+    const firstWindow = [at('m3', 3), at('m4', 4)];
+    const kept = mergeMessages(olderPage, firstWindow);
+    // Two new messages push m3 and m4 out of the newest-page window.
+    const nextWindow = [at('m5', 5), at('m6', 6)];
+    expect(mergeMessages(mergeMessages(kept, nextWindow), nextWindow).map((m) => m.id)).toEqual([
+      'm1',
+      'm2',
+      'm3',
+      'm4',
+      'm5',
+      'm6',
+    ]);
   });
 
   it('pairs work handed to sub-agents with their reports, apart from tool steps', () => {

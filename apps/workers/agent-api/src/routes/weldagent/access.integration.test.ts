@@ -118,4 +118,29 @@ describe('weldagent agent access', () => {
     );
     expect(hidden.status).toBe(400);
   });
+
+  it('keeps saving once a picked sub-agent is deleted or out of the owner\'s reach', async () => {
+    const lead = await createAgent('user_owner', 'Coordinator');
+    const helper = await createAgent('user_owner', 'Helper');
+    const theirs = await createAgent('user_other', 'Their Helper');
+    const owner = as('user_owner');
+    const manager = as('user_admin', permissions('weldagent:read', 'weldagent:update', 'weldagent:delete', 'weldagent:manage'));
+
+    // A manager adds an agent the owner can't see, then the helper is deleted.
+    await as('user_other')(`/api/weldagent/agents/${theirs}/access`, json({ visibility: 'private' }, 'PUT'));
+    expect(
+      (await manager(`/api/weldagent/agents/${lead}/subagents`, json({ subagentIds: [helper, theirs], delegateToSelf: false }, 'PUT')))
+        .status,
+    ).toBe(200);
+    expect((await manager(`/api/weldagent/agents/${helper}`, { method: 'DELETE' })).status).toBe(204);
+
+    // The owner flips "copies of itself" with the stored list unchanged.
+    const res = await owner(
+      `/api/weldagent/agents/${lead}/subagents`,
+      json({ subagentIds: [helper, theirs], delegateToSelf: true }, 'PUT'),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { subagentIds: string[]; delegateToSelf: boolean } };
+    expect(body.data).toMatchObject({ subagentIds: [theirs], delegateToSelf: true });
+  });
 });

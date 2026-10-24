@@ -91,6 +91,9 @@ function fakeClient(script: Array<Record<string, unknown>>) {
           })),
           list: vi.fn(async function* () {}),
         },
+        threads: {
+          retrieve: vi.fn(async (id: string) => ({ id, agent: { id: `agent_for_${id}`, name: 'Researcher' } })),
+        },
       },
     },
   };
@@ -268,7 +271,8 @@ describe('driveTurn', () => {
       allowSubagentBuiltin: (_agent, tool) => tool === 'web_search',
     });
 
-    expect(onCustomTool).toHaveBeenCalledWith('list_invoices', {}, { name: 'Researcher', objectId: null });
+    // Identified by the thread's agent object, read once and cached.
+    expect(onCustomTool).toHaveBeenCalledWith('list_invoices', {}, { name: 'Researcher', objectId: 'agent_for_sthr_1' });
     expect(sent).toContainEqual(expect.objectContaining({ tool_use_id: 'e5', result: 'allow' }));
     expect(sent).toContainEqual(expect.objectContaining({ tool_use_id: 'e6', result: 'deny' }));
     expect(invocations).toEqual([

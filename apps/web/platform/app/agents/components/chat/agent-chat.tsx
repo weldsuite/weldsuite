@@ -27,7 +27,7 @@ import { DelegationSteps } from './delegation-steps';
 import { RoutineNotice } from './routine-notice';
 import { browserTimezone } from '../routine-schedule';
 import { SetupWelcome } from './setup-welcome';
-import { buildThread, openQuestion, type ThreadItem } from './thread';
+import { buildThread, mergeMessages, openQuestion, type ThreadItem } from './thread';
 import { errorMessage } from './labels';
 
 /** Background turns run in a durable workflow (10 min step budget). */
@@ -118,7 +118,11 @@ export function AgentChat({
   const [awaitingAfterId, setAwaitingAfterId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stillWorking, setStillWorking] = useState(false);
-  /** Older pages loaded on request, oldest first. */
+  /**
+   * Once older pages are loaded: every message seen so far, oldest first. The
+   * live query is a sliding window of the newest page, so messages leaving it
+   * are kept here instead of vanishing from the middle of the chat.
+   */
   const [older, setOlder] = useState<WeldAgentMessage[]>([]);
   const [olderExhausted, setOlderExhausted] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -137,10 +141,12 @@ export function AgentChat({
   const { data: latest = [], isLoading } = useWeldAgentConversationMessages(conversationId, PAGE_SIZE, {
     refetchInterval: awaitingAfterId ? 1500 : false,
   });
-  const messages = useMemo(() => {
-    const seen = new Set(latest.map((m) => m.id));
-    return [...older.filter((m) => !seen.has(m.id)), ...latest];
-  }, [older, latest]);
+  // After paging back, fold each new window into what was kept.
+  useEffect(() => {
+    if (latest.length === 0) return;
+    setOlder((current) => (current.length === 0 ? current : mergeMessages(current, latest)));
+  }, [latest]);
+  const messages = useMemo(() => mergeMessages(older, latest), [older, latest]);
   const hasOlder = !olderExhausted && (older.length > 0 || latest.length >= PAGE_SIZE);
 
   const loadOlder = useCallback(async () => {
@@ -150,13 +156,13 @@ export function AgentChat({
     try {
       const page = await loadOlderPage(conversationId, first.id, PAGE_SIZE);
       if (page.length < PAGE_SIZE) setOlderExhausted(true);
-      setOlder((current) => [...page, ...current]);
+      setOlder((current) => mergeMessages(page, current, latest));
     } catch (err) {
       setError(errorMessage(err, t.chat.loadOlderFailed));
     } finally {
       setLoadingOlder(false);
     }
-  }, [conversationId, loadOlderPage, loadingOlder, messages, t.chat.loadOlderFailed]);
+  }, [conversationId, latest, loadOlderPage, loadingOlder, messages, t.chat.loadOlderFailed]);
 
   const thread = useMemo(() => buildThread(messages), [messages]);
   const question = openQuestion(thread);

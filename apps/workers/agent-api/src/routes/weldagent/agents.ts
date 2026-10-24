@@ -29,6 +29,7 @@ import {
   deleteAgent,
   listAgentRuns,
   checkSubagents,
+  getSubagents,
   type SerializedAgent,
   type SubagentProblem,
 } from '@weldsuite/agent-domain/agents';
@@ -232,15 +233,21 @@ app.put(
     const data = c.req.valid('json');
     const resolved = await resolveAgent(c, id, 'edit');
     if ('response' in resolved) return resolved.response;
-    const subagentIds = [...new Set(data.subagentIds)];
+    const requested = [...new Set(data.subagentIds)];
+    const stored = new Set(resolved.agent.subagentIds);
 
-    // You can only hand an agent work to teammates you can reach yourself.
-    for (const subId of subagentIds) {
+    // You can only add teammates you can reach yourself. Ids already stored
+    // (e.g. added by a manager) are not re-checked, so a save that only flips
+    // "copies of itself" never fails on them.
+    for (const subId of requested.filter((id) => !stored.has(id))) {
       const sub = await getAgent(db, subId);
       if (!sub || !(await canAccessAgent(db, sub, resolved.viewer))) {
         return error.badRequest(c, `Sub-agent not found: ${subId}`);
       }
     }
+    // Agents deleted since they were picked drop out of the list.
+    const live = new Set((await getSubagents(db, requested)).map((sub) => sub.id));
+    const subagentIds = requested.filter((id) => live.has(id));
     const problem = await checkSubagents(db, resolved.agent, subagentIds);
     if (problem) return error.badRequest(c, subagentProblemMessage(problem));
 

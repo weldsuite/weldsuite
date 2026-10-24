@@ -496,7 +496,8 @@ class TurnFollower {
       case 'agent.tool_result':
         return this.onBuiltinToolResult(ev);
       case 'session.thread_created':
-        this.threads.set(ev.session_thread_id, { name: ev.agent_name, objectId: null });
+        // The event names the agent but not its object; {@link threadAgent}
+        // reads the thread for that when the thread first needs us.
         return;
       case 'agent.thread_message_sent':
         return this.onThreadMessage(ev.to_agent_name, 'call', ev.content);
@@ -583,12 +584,14 @@ class TurnFollower {
 
   /**
    * The agent running a cross-posted call's thread; null for the primary
-   * thread. Falls back to reading the thread when its creation was missed.
+   * thread. Identified by its Anthropic object id (read from the thread once,
+   * then cached), never by name: names can collide after a rename. When the
+   * thread can't be read, `objectId` is null and the caller refuses the call.
    */
   private async threadAgent(threadId: string | null | undefined): Promise<ThreadAgent | null> {
     if (!threadId) return null;
     const known = this.threads.get(threadId);
-    if (known?.objectId || known?.name) return known;
+    if (known) return known;
     try {
       const thread = await this.params.client.beta.sessions.threads.retrieve(threadId, {
         session_id: this.params.sessionId,
@@ -979,15 +982,10 @@ async function prepareTeam(
   return roster.length > 0 ? { roster, members } : null;
 }
 
-/** The sub-agent running a thread, if it is one (a copy of the agent itself is not). */
+/** The sub-agent running a thread, matched by its worker object id (a copy of the agent itself is none). */
 function findMember(team: SubagentTeam | null, agent: ThreadAgent | null): SubagentMember | null {
-  if (!team || !agent) return null;
-  const name = agent.name.trim().toLowerCase();
-  return (
-    team.members.find((member) => member.objectId === agent.objectId) ??
-    team.members.find((member) => member.agent.name.trim().toLowerCase() === name) ??
-    null
-  );
+  if (!team || !agent?.objectId) return null;
+  return team.members.find((member) => member.objectId === agent.objectId) ?? null;
 }
 
 /** A sub-agent's sandbox / web call runs only when its narrowed grants allow it. */
@@ -1146,7 +1144,14 @@ function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocat
   const allowedNames = new Set(turn.allowedNow.map((tool) => tool.name));
   let asked = false;
   return async (name: string, args: unknown, threadAgent: ThreadAgent | null) => {
+    // A thread is this agent (primary, or a copy of itself: its main object),
+    // one of its sub-agents (a worker object), or unidentified: refused.
     const member = findMember(turn.team, threadAgent);
+    if (threadAgent && !member && threadAgent.objectId !== turn.ref.id) {
+      const error = 'This call came from a thread that could not be identified, so it was not run.';
+      invocations.push({ toolName: name, state: 'error', args, result: { error } });
+      return { result: { error }, isError: true };
+    }
     if (member) {
       // A sub-agent's call: its own tools, narrowed to the actor, attributed to it.
       const def = member.tools.find((tool) => tool.name === name);

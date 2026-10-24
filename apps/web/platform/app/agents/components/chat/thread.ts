@@ -137,6 +137,13 @@ function failed(inv: Invocation): boolean {
   return !!r && typeof r === 'object' && typeof r.error === 'string';
 }
 
+/** Message lists merged into one, deduplicated by id, oldest first (later lists win). */
+export function mergeMessages(...lists: WeldAgentMessage[][]): WeldAgentMessage[] {
+  const byId = new Map<string, WeldAgentMessage>();
+  for (const list of lists) for (const m of list) byId.set(m.id, m);
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+}
+
 export function buildThread(messages: WeldAgentMessage[]): ThreadItem[] {
   const visible = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
   return visible.map((m, index): ThreadItem => {
