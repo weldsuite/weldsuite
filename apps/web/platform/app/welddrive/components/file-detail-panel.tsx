@@ -37,6 +37,7 @@ import { useEntityAuditLogs } from '@/hooks/queries/use-audit-log-queries';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { copyText } from '@/lib/clipboard';
+import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 
 // ---------- Types ----------
 
@@ -276,6 +277,7 @@ export function FileDetailPanel({
                   {t.welddrive.fileDetail.actions.share}
                 </DropdownMenuItem>
               )}
+              <SendFileForSignatureItem file={file} iconClassName="h-4 w-4 mr-0.5" />
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
                 <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />

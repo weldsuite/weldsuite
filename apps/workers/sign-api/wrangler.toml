@@ -74,6 +74,13 @@ remote = true
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
 
+# The public bucket, read only: WeldDrive files uploaded before the private
+# bucket existed still live there (getStoredObject looks in both). WeldSign
+# never writes to it.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
 [[send_email]]
 name = "SEND_EMAIL"
 
@@ -168,6 +175,10 @@ crons = ["*/15 * * * *"]
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
 
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
 [[env.test.flagship]]
 binding = "FLAGSHIP"
 app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
@@ -241,6 +252,10 @@ crons = ["*/15 * * * *"]
 [[env.production.r2_buckets]]
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

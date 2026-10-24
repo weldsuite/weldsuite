@@ -6,6 +6,8 @@
  *   PATCH  /:recipientId           → change them (role, order, auth mode, …)
  *   DELETE /:recipientId           → remove them and their fields
  *
+ *   GET    /suggestions            → people on the draft's CRM source, to add in one click
+ *
  * Of a sent request (its owner, `sign_envelopes:send`; 409 once it is closed):
  *   POST   /:recipientId/resend    → email a signer whose turn it is a new link
  *   POST   /:recipientId/correct   → fix a name or email ({ name?, email }); a new email
@@ -16,12 +18,18 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { noContent, success } from '@weldsuite/worker-kit/response';
-import { correctRecipientSchema, createRecipientSchema, updateRecipientSchema } from '@weldsuite/app-api-client/schemas/weldsign';
+import {
+  correctRecipientSchema,
+  createRecipientSchema,
+  updateRecipientSchema,
+  type SignSourceType,
+} from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
 import { loadDraft, loadOwnEnvelope, toRecipientDto, touchEnvelope } from '../../services/envelopes';
 import { addRecipient, removeRecipient, updateRecipient } from '../../services/recipients';
 import { correctRecipient, resendLink } from '../../services/lifecycle';
-import { actorOf, handle, publishEnvelopeUpdated, sendContextOf, viewerOf } from './shared';
+import { SOURCE_READ_PERMISSION, recipientSuggestions } from '../../services/sources';
+import { actorOf, handle, mayDo, publishEnvelopeUpdated, sendContextOf, viewerOf } from './shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -55,6 +63,19 @@ app.delete('/:recipientId', requirePermission('sign_envelopes:update'), (c) =>
     await touchEnvelope(db, envelope.id);
     publishEnvelopeUpdated(c, envelope);
     return noContent(c);
+  }),
+);
+
+// The people on the draft's CRM record, for the recipients step: none for a
+// file source or none at all, nor when the member may not read that record.
+app.get('/suggestions', requirePermission('sign_envelopes:read'), (c) =>
+  handle(c, async () => {
+    const db = c.get('tenantDb');
+    const envelope = await loadOwnEnvelope(db, c.req.param('id')!, await viewerOf(c));
+    const source = envelope.source;
+    if (!source || source.entityType === 'file') return success(c, []);
+    if (!(await mayDo(c, SOURCE_READ_PERMISSION[source.entityType as SignSourceType]))) return success(c, []);
+    return success(c, await recipientSuggestions(db, source));
   }),
 );
 

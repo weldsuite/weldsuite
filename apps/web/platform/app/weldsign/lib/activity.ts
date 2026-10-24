@@ -14,6 +14,9 @@ export interface ActivityStrings {
   events: Record<SignEventType, string>;
   remindedAutomatically: string;
   recipientCorrectedPlain: string;
+  /** The signed PDF was also put on a CRM company or person. */
+  filedWithCompany: string;
+  filedWithPerson: string;
 }
 
 type Format = (template: string, values: Record<string, unknown>) => string;
@@ -53,6 +56,12 @@ function template(event: SignEventDto, strings: ActivityStrings): string | undef
   if (event.type === 'reminded' && !actorOf(event)) return strings.remindedAutomatically;
   if (event.type === 'recipient_corrected' && !(detailText(event.details, 'from') && detailText(event.details, 'to'))) {
     return strings.recipientCorrectedPlain;
+  }
+  if (event.type === 'filed') {
+    // The server records what the signed PDF was filed on: a CRM company or person, besides WeldDrive.
+    const record = detailText(event.details, 'recordType');
+    if (record === 'company') return strings.filedWithCompany;
+    if (record === 'person') return strings.filedWithPerson;
   }
   return known;
 }

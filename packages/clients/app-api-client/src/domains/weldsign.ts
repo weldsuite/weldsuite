@@ -9,6 +9,7 @@
 import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
 import type {
+  AddSignDocumentFromDriveInput,
   CorrectSignRecipientInput,
   CreateSignEnvelopeInput,
   CreateSignRecipientInput,
@@ -25,6 +26,7 @@ import type {
   SignEventDto,
   SignFieldDto,
   SignRecipientDto,
+  SignRecipientSuggestion,
   SignRemindResult,
   SignSigningLink,
   SignTemplateSummary,
@@ -73,6 +75,10 @@ export function createWeldSignApi(api: ClientApi) {
     removeDocument(id: string, documentId: string): Promise<void> {
       return api.delete(`${base}/${id}/documents/${documentId}`);
     },
+    /** Copy a WeldDrive PDF into the draft. */
+    addDocumentFromDrive(id: string, input: AddSignDocumentFromDriveInput): Promise<DataResponse<SignDocumentDto>> {
+      return api.post(`${base}/${id}/documents/from-drive`, input);
+    },
 
     addRecipient(id: string, input: CreateSignRecipientInput): Promise<DataResponse<SignRecipientDto>> {
       return api.post(`${base}/${id}/recipients`, input);
@@ -82,6 +88,10 @@ export function createWeldSignApi(api: ClientApi) {
     },
     removeRecipient(id: string, recipientId: string): Promise<void> {
       return api.delete(`${base}/${id}/recipients/${recipientId}`);
+    },
+    /** People on the draft's CRM record (company, person or opportunity), to add as recipients. */
+    recipientSuggestions(id: string): Promise<DataResponse<SignRecipientSuggestion[]>> {
+      return api.get(`${base}/${id}/recipients/suggestions`);
     },
 
     replaceFields(id: string, input: ReplaceSignFieldsInput): Promise<DataResponse<SignFieldDto[]>> {
@@ -158,6 +168,10 @@ export function createWeldSignApi(api: ClientApi) {
       },
       removeDocument(id: string, documentId: string): Promise<void> {
         return api.delete(`${templates}/${id}/documents/${documentId}`);
+      },
+      /** Copy a WeldDrive PDF into the template. */
+      addDocumentFromDrive(id: string, input: AddSignDocumentFromDriveInput): Promise<DataResponse<SignDocumentDto>> {
+        return api.post(`${templates}/${id}/documents/from-drive`, input);
       },
 
       addRole(id: string, input: CreateSignTemplateRoleInput): Promise<DataResponse<SignRecipientDto>> {

@@ -39,6 +39,7 @@ import { getLocale } from '@weldsuite/i18n';
 import { WELDSHEET_MIME_TYPE } from '@weldsuite/app-api-client/schemas/sheets';
 import { isImportable } from '@/app/weldsheets/files';
 import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
+import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { apiUrl } from '@/lib/api/public-env';
 import { isPrivateStorageUrl } from '@/lib/storage/private-url';
 import { copyText } from '@/lib/clipboard';
@@ -314,6 +315,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                   {t.welddrive.page.actions.share}
                 </DropdownMenuItem>
               )}
+              <SendFileForSignatureItem file={file} iconClassName="h-4 w-4 mr-0.5" />
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
                 <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />

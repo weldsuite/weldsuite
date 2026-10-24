@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { Button } from '@weldsuite/ui/components/button';
@@ -24,7 +24,12 @@ import {
   type UpdateSignRecipientInput,
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
-import { targetOf, useSignRecipientMutations, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
+import {
+  targetOf,
+  useSignRecipientMutations,
+  useSignRecipientSuggestions,
+  useUpdateSignEnvelope,
+} from '@/hooks/queries/use-weldsign-queries';
 import { ChoiceField } from '../components/choice-field';
 import { recipientColor } from '../lib/recipient-colors';
 import { apiErrorMessage } from '../lib/errors';
@@ -58,6 +63,8 @@ export function RecipientsStep({ envelope, editable }: Readonly<{ envelope: Sign
         onChange={(signingOrderEnabled) => updateEnvelope.mutate({ signingOrderEnabled })}
       />
 
+      {editable && <SuggestedRecipients envelope={envelope} />}
+
       {recipients.length === 0 ? (
         <p className="text-sm text-muted-foreground">{tr.empty}</p>
       ) : (
@@ -85,6 +92,55 @@ export function RecipientsStep({ envelope, editable }: Readonly<{ envelope: Sign
 
       {editable && <AddRecipientForm envelopeId={envelope.id} />}
     </div>
+  );
+}
+
+/**
+ * The people on the CRM record the draft started from (a company's people, the
+ * person themself, an opportunity's contacts), one click each to add them as a
+ * signer. Those already on the draft are left out, matched by email. Nothing is
+ * shown without a CRM source, without suggestions, or when they can not be read.
+ */
+function SuggestedRecipients({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) {
+  const { t, format, language } = useI18n();
+  const ts = t.weldsign.editor.recipients.suggestions;
+  const source = envelope.source ?? null;
+  const fromCrm = source !== null && source.entityType !== 'file';
+  const { data } = useSignRecipientSuggestions(envelope.id, fromCrm);
+  const { add } = useSignRecipientMutations(envelope.id);
+
+  const taken = new Set(envelope.recipientList.map((recipient) => recipient.email?.toLowerCase()));
+  const suggestions = (data ?? []).filter((person) => !taken.has(person.email.toLowerCase()));
+  if (!source?.name || suggestions.length === 0) return null;
+
+  return (
+    <section className="flex flex-col gap-2" aria-label={format(ts.title, { name: source.name })}>
+      <h3 className="text-sm font-medium">{format(ts.title, { name: source.name })}</h3>
+      <ul className="flex flex-wrap gap-2">
+        {suggestions.map((person) => (
+          <li key={person.personId} className="max-w-full">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="max-w-full"
+              disabled={add.isPending}
+              title={[format(ts.add, { name: person.name }), person.title].filter(Boolean).join(' · ')}
+              onClick={() =>
+                add.mutate(
+                  { name: person.name, email: person.email, role: 'signer', locale: language === 'nl' ? 'nl' : 'en', personId: person.personId },
+                  { onError: (err) => toast.error(apiErrorMessage(err)) },
+                )
+              }
+            >
+              <UserPlus />
+              <span className="truncate">{person.name}</span>
+              <span className="truncate font-normal text-muted-foreground">{person.email}</span>
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

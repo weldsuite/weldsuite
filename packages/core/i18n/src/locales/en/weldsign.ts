@@ -59,6 +59,26 @@ export const weldsign = {
     },
   },
 
+  /** "Send for signature" from WeldDrive and from CRM records. */
+  start: {
+    action: 'Send for signature',
+    preparing: 'Preparing "{name}" for signature…',
+    failed: 'Could not start the signature request',
+    documentFailed: 'The request was created, but "{name}" could not be added: {reason}',
+    recordTitle: 'Document for {name}',
+  },
+
+  /** Where a request came from: a WeldDrive file or a CRM record. */
+  source: {
+    from: 'From {name}',
+    gone: {
+      file: 'From a file that was deleted',
+      company: 'From a company that was deleted',
+      person: 'From a person that was deleted',
+      opportunity: 'From an opportunity that was deleted',
+    },
+  },
+
   editor: {
     loadFailed: 'This request could not be loaded.',
     notFound: 'This request does not exist or you cannot see it.',
@@ -96,6 +116,13 @@ export const weldsign = {
       removeTitle: 'Remove this document?',
       removeDescription: 'The fields placed on "{name}" are removed too.',
       empty: 'No documents yet.',
+      fromDrive: 'Add from WeldDrive',
+      drive: {
+        title: 'Add from WeldDrive',
+        description: 'Choose the PDFs to add. They are copied, so later changes in WeldDrive do not affect the request.',
+        confirm: 'Add',
+        adding: 'Adding…',
+      },
     },
 
     recipients: {
@@ -132,6 +159,10 @@ export const weldsign = {
       invalidEmail: 'Enter a valid email address',
       nameRequired: 'Enter a name',
       templateRole: 'Role in the template: {role}',
+      suggestions: {
+        title: 'Suggested from {name}',
+        add: 'Add {name} as a signer',
+      },
     },
 
     fields: {
@@ -193,6 +224,21 @@ export const weldsign = {
       sending: 'Sending…',
       sent: 'Request sent',
       sendFailed: 'Could not send the request',
+      signedCopy: {
+        title: 'Signed copy',
+        toDefault: 'Saved in WeldSign/{year} in your WeldDrive, a folder only you can see.',
+        toFolder: 'Saved in the folder "{name}" in WeldDrive.',
+        toFolderUnknown: 'Saved in the folder you chose in WeldDrive.',
+        alsoRecord: 'A copy is also saved on the files of {name}, with a note in its activity.',
+        alsoOpportunity: "A copy is also saved on the files of the opportunity's company, with a note on {name}.",
+        change: 'Change',
+        useDefault: 'Use default',
+        pickTitle: 'Choose a folder for the signed copy',
+        pickDescription:
+          'The signed PDF is saved in this folder when everyone has signed. Only folders you can add files to can be chosen.',
+        pickConfirm: 'Use this folder',
+        saveFailed: 'Could not change where the signed copy goes',
+      },
     },
   },
 
@@ -221,6 +267,18 @@ export const weldsign = {
     voidedReason: 'Reason: {reason}',
     fingerprint: 'SHA-256 of the signed PDF',
     viewDocuments: 'View documents and fields',
+
+    filing: {
+      title: 'Where the signed copy went',
+      drive: 'Saved to WeldDrive',
+      viewFile: 'View file',
+      openFolder: 'Open folder',
+      onRecord: 'Saved on {name}',
+      recordFallback: {
+        company: 'the company',
+        person: 'the person',
+      },
+    },
 
     signNow: 'Sign now',
     signNowFailed: 'Could not open the signing page',
@@ -294,7 +352,10 @@ export const weldsign = {
         expired: 'Request expired',
         completed: 'Everyone signed, request completed',
         downloaded: 'Signed PDF downloaded',
+        filed: 'Signed PDF saved to WeldDrive',
       },
+      filedWithCompany: 'Signed PDF saved to WeldDrive and to the files of the company',
+      filedWithPerson: 'Signed PDF saved to WeldDrive and to the files of the person',
       remindedAutomatically: 'Automatic reminder sent to {name}',
       recipientCorrectedPlain: 'Email of {name} corrected',
     },

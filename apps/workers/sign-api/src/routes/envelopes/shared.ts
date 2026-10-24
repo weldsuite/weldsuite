@@ -24,6 +24,11 @@ export async function viewerOf(c: Ctx): Promise<SignViewer> {
   return { userId, email: profile.email?.toLowerCase() ?? null, manageAll };
 }
 
+/** Whether the caller holds a permission named at run time (a source's read permission). */
+export async function mayDo(c: Ctx, permission: string): Promise<boolean> {
+  return hasContextPermission(c, permission as Parameters<typeof hasContextPermission>[1]);
+}
+
 /** The viewer and what they may do, for the detail's action flags. */
 export async function accessOf(c: Ctx, viewer?: SignViewer): Promise<DetailAccess> {
   const writable = !c.get('readOnly');
