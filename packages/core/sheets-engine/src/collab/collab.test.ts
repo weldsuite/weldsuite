@@ -189,6 +189,10 @@ describe('co-editing', () => {
     expect([value(a!, 0, 0), value(a!, 1, 0)]).toEqual([1, null]);
     expect(reset).toHaveBeenCalledWith(a!.engine, { canEdit: true, lostEdits: true });
     expect(JSON.stringify(a!.engine!.toSnapshot())).toBe(JSON.stringify(b!.engine!.toSnapshot()));
+
+    // The resync the room sends after a reject does not report the same lost edits again.
+    a!.receive({ type: 'resync', revision: net.room.revision, snapshot: net.room.engine.toSnapshot() });
+    expect(reset.mock.calls.map(([, info]) => info.lostEdits)).toEqual([true, false]);
   });
 
   it('restores a room from a checkpoint and its op log', () => {

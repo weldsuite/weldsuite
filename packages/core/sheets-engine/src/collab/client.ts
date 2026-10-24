@@ -96,7 +96,8 @@ export class CollabClient {
         this.remote(msg);
         return;
       case 'resync':
-        this.reset(msg.snapshot, msg.revision, true);
+        // After a reject the edits are already rolled back (and reported) there.
+        this.reset(msg.snapshot, msg.revision, this.hasPending);
         return;
       case 'reject':
         this.rollBack(msg.batchId);
