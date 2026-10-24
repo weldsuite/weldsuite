@@ -4,6 +4,7 @@
  * read as a tree once the cells are known (the filter needs their values).
  */
 
+import { child, childrenOf, parseXml, scanXml, type XmlAttrs, type XmlElement } from '@weldsuite/zip-xml';
 import { MAX_COLS, MAX_ROWS, cellKey, parseA1, parseRange, rangeContains, type Range } from '../../address';
 import type { FormatLocale } from '../../format/number-format';
 import { translateFormula } from '../../formula/references';
@@ -13,7 +14,7 @@ import { DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, type SheetProps, type SheetSnapsh
 import type { AxisSnapshot } from '../../model/axis';
 import { err, isErrorCode, type Scalar } from '../../values';
 import { ImportError, type ImportWarning } from '../types';
-import { child, childrenOf, decodeEscapes, parseXml, scanXml, type XmlAttrs, type XmlElement } from '../xml';
+import { decodeEscapes } from './text';
 import { resolveColor } from './colors';
 import { pointsToPx, widthToPx } from './conditions';
 import { fromExcelFormula } from './formulas';

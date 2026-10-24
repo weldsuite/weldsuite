@@ -8,10 +8,10 @@
  * default, which follows dark mode.
  */
 
+import { attrs, child, childrenOf, esc, type XmlElement } from '@weldsuite/zip-xml';
 import type { FormatLocale } from '../../format/number-format';
 import type { ConditionalStyle } from '../../model/rules';
 import type { BorderSide, CellStyle } from '../../model/styles';
-import { attrs, child, childrenOf, esc, type XmlElement } from '../xml';
 import { resolveColor, toArgb } from './colors';
 
 export interface StyleSheet {

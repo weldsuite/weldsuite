@@ -1,7 +1,7 @@
 /**
- * Just enough XML for SpreadsheetML: a streaming scanner for the large parts
- * (worksheets, shared strings), a small element tree built on it for the
- * rest, and escaping for the writer.
+ * Just enough XML for Office Open XML packages (.xlsx, .docx): a streaming
+ * scanner for the large parts (worksheets, shared strings, document bodies),
+ * a small element tree built on it for the rest, and escaping for the writer.
  *
  * Element and attribute names are reduced to their local part ("x:c" → "c"),
  * since producers differ in the prefixes they pick. Namespace declarations
@@ -194,22 +194,6 @@ export function childrenOf(el: XmlElement | undefined, name: string): XmlElement
   return el ? el.children.filter((c) => c.name === name) : [];
 }
 
-/** Text of a string item: its own `t`, or its runs' `t`s, leaving out phonetic runs (`rPh`). */
-export function stringItemText(el: XmlElement): string {
-  let out = '';
-  for (const c of el.children) {
-    if (c.name === 't') out += c.text;
-    else if (c.name === 'r') out += child(c, 't')?.text ?? '';
-  }
-  return decodeEscapes(out);
-}
-
-/** SpreadsheetML writes characters XML cannot hold as `_xHHHH_` (and a literal `_x…_` as `_x005F_x…_`). */
-export function decodeEscapes(text: string): string {
-  if (!text.includes('_x')) return text;
-  return text.replace(/_x([0-9a-fA-F]{4})_/g, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
-}
-
 // ---------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------
@@ -223,25 +207,8 @@ export function esc(text: string): string {
   });
 }
 
-/**
- * Cell text for a `t` element: control characters XML cannot carry become
- * `_xHHHH_`, and text that already looks like an escape is protected.
- */
-export function escCellText(text: string): string {
-  const protectedText = text.replace(/_x([0-9a-fA-F]{4})_/g, '_x005F_x$1_');
-  let out = '';
-  let from = 0;
-  for (let i = 0; i < protectedText.length; i++) {
-    const code = protectedText.charCodeAt(i);
-    if (!isXmlUnsafe(code)) continue;
-    out += `${protectedText.slice(from, i)}_x${code.toString(16).toUpperCase().padStart(4, '0')}_`;
-    from = i + 1;
-  }
-  return esc(from === 0 ? protectedText : out + protectedText.slice(from));
-}
-
 /** Characters XML 1.0 cannot contain (tab, newline and carriage return it can). */
-function isXmlUnsafe(code: number): boolean {
+export function isXmlUnsafe(code: number): boolean {
   return (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) || code === 0xfffe || code === 0xffff;
 }
 

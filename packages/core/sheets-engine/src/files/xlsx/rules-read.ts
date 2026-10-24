@@ -5,6 +5,7 @@
  * What WeldSheets has no counterpart for is left out with a warning.
  */
 
+import { child, childrenOf, type XmlElement } from '@weldsuite/zip-xml';
 import { formatA1, parseRange, type Range } from '../../address';
 import { formatValue, type FormatLocale } from '../../format/number-format';
 import type { Cell } from '../../model/cell-store';
@@ -21,7 +22,6 @@ import {
 } from '../../model/rules';
 import type { CellStyle } from '../../model/styles';
 import type { ImportWarning } from '../types';
-import { child, childrenOf, type XmlElement } from '../xml';
 import { resolveColor } from './colors';
 import { comparisonCondition } from './conditions';
 import { fromExcelFormula } from './formulas';

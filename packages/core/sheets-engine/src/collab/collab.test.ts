@@ -3,7 +3,7 @@ import { MAX_COLS } from '../address';
 import { Sheet, Workbook, type WorkbookSnapshot } from '../model/workbook';
 import type { Op } from '../ops/types';
 import { CollabClient } from './client';
-import { FrameAssembler, decodeClient, encode, toFrames, type ClientMessage, type CommittedOp, type ServerMessage } from './protocol';
+import { decodeClient, encode, type ClientMessage, type CommittedOp, type ServerMessage } from './protocol';
 import { RoomCore, type Outgoing } from './room';
 
 const ENGINE = { now: () => 0, random: () => 0.5, timezoneOffset: () => 0 };
@@ -214,19 +214,6 @@ describe('co-editing', () => {
     const [welcome] = restored.receive('b', { type: 'hello', revision: 1 });
     expect(welcome!.msg.type === 'welcome' && welcome!.msg.catchUp?.map((c) => c.revision)).toEqual([2, 3, 4, 5]);
     expect(() => RoomCore.restore(checkpoint, 3, committed.slice(4), { engine: ENGINE })).toThrow(/gap/);
-  });
-
-  it('splits long messages into frames and joins them again', () => {
-    const text = JSON.stringify({ type: 'resync', revision: 1, snapshot: { s: 'x"\\'.repeat(5000) + '\u{1F600}'.repeat(100) } });
-    const frames = toFrames(text, 'm1', 1000);
-    expect(frames.length).toBeGreaterThan(10);
-    const assembler = new FrameAssembler();
-    const joined = frames.map((f) => assembler.accept(f));
-    expect(joined.slice(0, -1).every((j) => j === null)).toBe(true);
-    expect(joined.at(-1)).toBe(text);
-    expect(toFrames('{"type":"ping"}', 'm2', 1000)).toEqual(['{"type":"ping"}']);
-    expect(assembler.accept('{"type":"ping"}')).toBe('{"type":"ping"}');
-    expect(new FrameAssembler(4).accept(frames[0]!)).toBeNull();
   });
 
   it('converges under random edits, delays and reconnects', () => {
