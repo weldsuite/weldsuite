@@ -86,6 +86,18 @@ export const widgetApi = {
     );
   },
 
+  rateConversation(
+    widgetId: string,
+    conversationId: string,
+    input: { visitorId: string; rating: number; comment?: string },
+  ) {
+    return request<{ conversation: PublicConversation; message: PublicMessage }>(
+      widgetId,
+      `/api/conversations/${encodeURIComponent(conversationId)}/rating`,
+      post(input),
+    );
+  },
+
   /** Upload a file into a conversation the visitor owns; the result is what `sendMessage` takes as an attachment. */
   async uploadAttachment(
     widgetId: string,

@@ -74,10 +74,14 @@ function getAvatarColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[]) {
+function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], visitorLabel: string) {
   const t = getTranslations('deskInbox2');
-  const actor = memberLabel(members, message.authorId) ?? t.timeline.unknownActor;
   const eventType = message.metadata?.eventType;
+  if (eventType === 'rated') {
+    const rating = t.timeline.ratingLabel.replace('{rating}', String(message.metadata?.rating ?? '?'));
+    return t.timeline.ratingChanged.replace('{actor}', visitorLabel).replace('{rating}', rating);
+  }
+  const actor = memberLabel(members, message.authorId) ?? t.timeline.unknownActor;
   if (eventType === 'closed') return t.timeline.closed.replace('{actor}', actor);
   if (eventType === 'reopened') return t.timeline.opened.replace('{actor}', actor);
   if (eventType === 'unassigned') return t.timeline.assignmentUnassigned.replace('{actor}', actor);
@@ -86,6 +90,38 @@ function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[]) {
     return t.timeline.assignmentToAdmin.replace('{actor}', actor).replace('{target}', target);
   }
   return message.body || t.timeline.genericEvent.replace('{actor}', actor).replace('{event}', eventType ?? 'event');
+}
+
+/** Who wrote a message: the customer, the AI, or the teammate by name. */
+function authorLabel(message: DeskMessage, members: DeskWorkspaceMember[], visitorLabel: string): string {
+  if (message.authorType === 'visitor') return visitorLabel;
+  if (message.authorType === 'bot') return getTranslations('deskInbox2').pane.ai;
+  const member = members.find((m) => m.userId === message.authorId);
+  return member?.name ?? memberLabel(members, message.authorId) ?? 'Agent';
+}
+
+/** A state change on the timeline; a rating also shows the visitor's comment under it. */
+function EventRow({
+  message,
+  members,
+  visitorLabel,
+}: Readonly<{ message: DeskMessage; members: DeskWorkspaceMember[]; visitorLabel: string }>) {
+  const comment = message.metadata?.eventType === 'rated' ? message.metadata.ratingComment : null;
+  return (
+    <>
+      <p className="text-xs text-muted-foreground text-center py-2 px-4">
+        {eventSentence(message, members, visitorLabel)} · {format(new Date(message.createdAt), 'HH:mm')}
+      </p>
+      {comment && (
+        <p
+          className="mx-auto -mt-1 mb-2 max-w-md px-4 text-center text-xs italic text-foreground/80 whitespace-pre-wrap break-words"
+          data-testid="desk-inbox-rating-comment"
+        >
+          “{comment}”
+        </p>
+      )}
+    </>
+  );
 }
 
 function sameGroup(a: DeskMessage | undefined, b: DeskMessage): boolean {
@@ -197,9 +233,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
             return (
               <div key={message.clientId ?? message.id}>
                 {showDay && <DaySeparator date={created} />}
-                <p className="text-xs text-muted-foreground text-center py-2 px-4">
-                  {eventSentence(message, members)} · {format(created, 'HH:mm')}
-                </p>
+                <EventRow message={message} members={members} visitorLabel={visitorLabel} />
               </div>
             );
           }
@@ -208,10 +242,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
           const isNote = message.kind === 'note';
           const isBot = message.authorType === 'bot';
           const member = members.find((m) => m.userId === message.authorId);
-          let label: string;
-          if (isVisitor) label = visitorLabel;
-          else if (isBot) label = t.pane.ai;
-          else label = member?.name ?? memberLabel(members, message.authorId) ?? 'Agent';
+          const label = authorLabel(message, members, visitorLabel);
           const grouped = !showDay && sameGroup(prev, message);
           const next = messages[index + 1];
           const lastInGroup = !next || !sameGroup(message, next);

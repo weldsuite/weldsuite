@@ -1569,6 +1569,13 @@
       "when": 1792850017519,
       "tag": "0223_weldsign",
       "breakpoints": true
+    },
+    {
+      "idx": 224,
+      "version": "7",
+      "when": 1792853032272,
+      "tag": "0224_desk_csat_office_hours",
+      "breakpoints": true
     }
   ]
 }

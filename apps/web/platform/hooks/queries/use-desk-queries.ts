@@ -10,7 +10,7 @@ export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' |
 export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned';
+export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated';
 
 export interface DeskConversation {
   id: string;
@@ -28,6 +28,10 @@ export interface DeskConversation {
   waitingSince: string | null;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
+  /** The visitor's CSAT answer (1–5) once they rated the closed conversation. */
+  rating?: number | null;
+  ratingComment?: string | null;
+  ratedAt?: string | null;
 }
 
 export interface DeskMessageAttachment {
@@ -51,6 +55,8 @@ export interface DeskMessage {
   metadata: {
     eventType?: DeskEventType;
     assigneeId?: string | null;
+    rating?: number;
+    ratingComment?: string | null;
     event?: string;
     callId?: string;
     turnIndex?: number;
@@ -69,6 +75,15 @@ export interface DeskWidgetBranding {
   position?: 'right' | 'left';
 }
 
+export type DeskWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export type DeskExpectedReplyTime = 'few_minutes' | 'hour' | 'few_hours' | 'day';
+
+/** Weekly office hours; a missing or null weekday is closed. Times are `HH:MM` in the widget timezone. */
+export interface DeskOfficeHours {
+  enabled: boolean;
+  days: Partial<Record<DeskWeekday, { start: string; end: string } | null>>;
+}
+
 export interface DeskWidgetSettings {
   id: string;
   createdAt: string;
@@ -79,6 +94,10 @@ export interface DeskWidgetSettings {
   greeting: string | null;
   branding: DeskWidgetBranding | null;
   allowedDomains: string[] | null;
+  officeHours: DeskOfficeHours | null;
+  timezone: string | null;
+  awayMessage: string | null;
+  expectedReplyTime: DeskExpectedReplyTime | null;
 }
 
 export interface DeskListPagination {
@@ -394,6 +413,10 @@ export function useUpdateDeskWidget() {
         greeting?: string | null;
         branding?: DeskWidgetBranding;
         allowedDomains?: string[];
+        officeHours?: DeskOfficeHours | null;
+        timezone?: string | null;
+        awayMessage?: string | null;
+        expectedReplyTime?: DeskExpectedReplyTime | null;
       };
     }) => {
       const client = await getClient();

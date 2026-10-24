@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, ChevronLeft, Loader2, Mail, Paperclip, X } from 'lucide-react';
+import { ArrowUp, ChevronLeft, Loader2, Paperclip, X } from 'lucide-react';
 import type { MessageAttachment, ThreadMessage, WidgetConfigResponse } from '@/lib/api/types';
 import { DRAFT_ID, type Messenger } from '@/hooks/use-messenger';
+import { useAvailability } from '@/hooks/use-availability';
+import { fill, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils/cn';
 import {
   ATTACHMENT_ACCEPT,
@@ -11,6 +13,9 @@ import {
 } from '@/lib/utils/attachments';
 import { MessageAttachments } from './message-attachments';
 import { Avatar, AvatarStack, TypingDots, clockTime, readableOn } from './parts';
+import { EmailCapture } from './email-capture';
+import { RatingCard } from './rating-card';
+import { AwayNotice, replyTimeText } from './away-notice';
 
 interface ConversationViewProps {
   config: WidgetConfigResponse;
@@ -39,6 +44,8 @@ interface MessageRowProps {
   next: ThreadMessage | undefined;
   color: string;
   onColor: string;
+  /** The conversation's rating, for the "You rated…" line of a `rated` event. */
+  rating: number | null;
   onRetry: (message: ThreadMessage) => void;
 }
 
@@ -62,9 +69,9 @@ function MessageStatus({
   );
 }
 
-function MessageRow({ message, prev, next, color, onColor, onRetry }: Readonly<MessageRowProps>) {
+function MessageRow({ message, prev, next, color, onColor, rating, onRetry }: Readonly<MessageRowProps>) {
   if (message.kind === 'event') {
-    const text = eventText(message);
+    const text = eventText(message, rating);
     return text ? <p className="px-6 py-2 text-center text-xs text-gray-400">{text}</p> : null;
   }
   const mine = message.authorType === 'visitor';
@@ -109,10 +116,11 @@ function MessageRow({ message, prev, next, color, onColor, onRetry }: Readonly<M
   );
 }
 
-function eventText(message: ThreadMessage): string {
+function eventText(message: ThreadMessage, rating: number | null): string {
   if (message.eventType === 'closed') return 'Conversation closed';
   if (message.eventType === 'reopened') return 'Conversation reopened';
   if (message.eventType === 'assigned') return 'A teammate joined the conversation';
+  if (message.eventType === 'rated') return rating ? fill(t.rating.rated, { rating }) : '';
   return message.body || '';
 }
 
@@ -126,71 +134,6 @@ interface PendingFile {
 }
 
 let pendingCounter = 0;
-
-function EmailCapture({ messenger, color }: Readonly<{ messenger: Messenger; color: string }>) {
-  const [email, setEmail] = useState('');
-  const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
-
-  if (messenger.profile.email) {
-    return (
-      <div className="mx-4 my-2 flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">
-        <Mail className="h-3.5 w-3.5 flex-shrink-0" />
-        <span className="truncate">
-          You&apos;ll be notified at <span className="font-medium text-gray-900">{messenger.profile.email}</span>
-        </span>
-      </div>
-    );
-  }
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const value = email.trim();
-    if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value)) {
-      setState('error');
-      return;
-    }
-    setState('saving');
-    try {
-      await messenger.identify(value);
-      setState('idle');
-    } catch {
-      setState('error');
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="mx-4 my-2 rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm" data-testid="email-capture">
-      <p className="text-[13px] font-semibold text-gray-900">Get notified by email</p>
-      <p className="text-xs text-gray-500 mt-0.5">We&apos;ll email you when we reply, in case you&apos;ve left.</p>
-      <div className="mt-2.5 flex items-center gap-2">
-        <input
-          type="email"
-          name="email"
-          required
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            if (state === 'error') setState('idle');
-          }}
-          placeholder="you@example.com"
-          className={cn(
-            'min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus-visible:outline-none focus:border-gray-400',
-            state === 'error' ? 'border-red-400' : 'border-gray-200',
-          )}
-        />
-        <button
-          type="submit"
-          disabled={state === 'saving'}
-          className="rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-60"
-          style={{ backgroundColor: color, color: readableOn(color) }}
-        >
-          {state === 'saving' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-        </button>
-      </div>
-      {state === 'error' && <p className="mt-1.5 text-xs text-red-500">Please enter a valid email address.</p>}
-    </form>
-  );
-}
 
 export function ConversationView({
   config,
@@ -210,6 +153,11 @@ export function ConversationView({
   const agentTyping = messenger.typing[conversationId] ?? null;
   const assignee = conversation?.assignee ?? null;
   const title = assignee?.name ?? config.name ?? 'Support';
+  const { away, nextOpenAt } = useAvailability(config);
+  const rating = conversation?.rating ?? null;
+  let subtitle = replyTimeText(config) ?? 'The team will reply as soon as they can';
+  if (away) subtitle = t.away.title;
+  if (agentTyping) subtitle = `${agentTyping} is typing…`;
 
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingFile[]>([]);
@@ -335,8 +283,8 @@ export function ConversationView({
         )}
         <div className="min-w-0 flex-1 pl-1">
           <p className="text-[15px] font-semibold truncate leading-tight">{title}</p>
-          <p className="text-xs opacity-80 truncate">
-            {agentTyping ? `${agentTyping} is typing…` : 'The team will reply as soon as they can'}
+          <p className="text-xs opacity-80 truncate" data-testid="chat-subtitle">
+            {subtitle}
           </p>
         </div>
         {onClose && (
@@ -375,6 +323,8 @@ export function ConversationView({
               </div>
             </div>
 
+            {away && <AwayNotice config={config} nextOpenAt={nextOpenAt} className="px-4 pt-3" />}
+
             {messages.map((message, index) => (
               <MessageRow
                 key={message.clientId ?? message.id}
@@ -383,6 +333,7 @@ export function ConversationView({
                 next={messages[index + 1]}
                 color={color}
                 onColor={onColor}
+                rating={rating}
                 onRetry={(m) => void retry(m)}
               />
             ))}
@@ -396,7 +347,15 @@ export function ConversationView({
               </div>
             )}
 
-            {hasVisitorMessage && <EmailCapture messenger={messenger} color={color} />}
+            {(hasVisitorMessage || away) && <EmailCapture messenger={messenger} color={color} away={away} />}
+
+            {conversation?.state === 'closed' && (
+              <RatingCard
+                color={color}
+                rating={conversation.rating ?? null}
+                onSubmit={(rating, comment) => messenger.rate(conversation.id, rating, comment)}
+              />
+            )}
           </>
         )}
       </div>

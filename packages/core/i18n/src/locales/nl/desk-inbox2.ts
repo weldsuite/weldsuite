@@ -151,6 +151,7 @@ export const deskInbox2 = {
     waiting: 'Wacht al',
     otherConversations: 'Andere gesprekken',
     noOtherConversations: 'Geen andere gesprekken met deze klant',
+    rating: 'Beoordeling',
   },
   timeline: {
     unsupportedBlock: 'Niet-ondersteund blok',

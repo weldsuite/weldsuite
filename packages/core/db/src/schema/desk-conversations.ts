@@ -3,6 +3,7 @@ import {
   varchar,
   timestamp,
   integer,
+  text,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -14,6 +15,10 @@ import {
  * enum already allows later channels (email, whatsapp, api) without a
  * schema change. waitingSince is the "ball is in our court" marker that
  * bots and SLAs will hang off later.
+ *
+ * rating / ratingComment / ratedAt: the visitor's CSAT answer (1–5) after
+ * the team closed the conversation. One per conversation; the answer is
+ * also on the timeline as a `rated` event.
  */
 
 export type DeskConversationState = 'open' | 'closed';
@@ -43,6 +48,10 @@ export const deskConversations = pgTable(
     waitingSince: timestamp('waiting_since'),
     lastMessageAt: timestamp('last_message_at'),
     lastMessagePreview: varchar('last_message_preview', { length: 200 }),
+
+    rating: integer('rating'),
+    ratingComment: text('rating_comment'),
+    ratedAt: timestamp('rated_at'),
   },
   (table) => [
     uniqueIndex('desk_conversations_number_uidx').on(table.conversationNumber),

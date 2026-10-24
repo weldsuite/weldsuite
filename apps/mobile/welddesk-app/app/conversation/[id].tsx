@@ -487,7 +487,7 @@ export default function ConversationScreen() {
   );
 }
 
-function eventLabel(t: Translations, eventType: unknown, body?: string | null) {
+function eventLabel(t: Translations, eventType: unknown, body?: string | null, rating?: number) {
   switch (eventType) {
     case 'closed':
       return t.conversation.closedEvent;
@@ -497,6 +497,8 @@ function eventLabel(t: Translations, eventType: unknown, body?: string | null) {
       return t.conversation.assignedEvent;
     case 'unassigned':
       return t.conversation.unassignedEvent;
+    case 'rated':
+      return t.conversation.ratedEvent.replace('{rating}', String(rating ?? '?'));
     default:
       return body || t.conversation.system;
   }
@@ -525,7 +527,7 @@ function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
   const { t } = useI18n();
 
   if (message.kind === 'event') {
-    const label = eventLabel(t, message.metadata?.eventType, message.body);
+    const label = eventLabel(t, message.metadata?.eventType, message.body, message.metadata?.rating);
 
     return (
       <View style={styles.eventRow}>
