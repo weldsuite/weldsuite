@@ -77,18 +77,27 @@ editing cell, colour) rides the same socket and is never persisted. Undo is
 per user: the inverse of the user's own op, transformed through everything
 committed after it.
 
-The room checkpoints a snapshot to R2 every N ops and when the last client
-leaves; the op log since the checkpoint stays in the DO. Snapshots are stored
-in row chunks so a 1M-row sheet loads the visible part first.
+Every committed op is written to the room's storage before its ack leaves.
+The room checkpoints the workbook (with its revision) to one R2 object per
+sheet every 200 ops, 30 s after an edit and when the last client leaves, then
+trims its log to the last 500 ops and records the checkpoint on the `sheets`
+row. Row-chunked snapshots, so a 1M-row sheet loads the visible part first,
+come with phase 9.
+
+Browsers cannot send a bearer token on a WebSocket: `POST
+/api/sheets/:id/session` (normal auth and access checks) asks the room for a
+single-use ticket, and the socket (`/api/sheets/connect?ticket=…`) presents
+it. Messages over 256 KB travel as numbered parts.
 
 ### `sheets-api` worker
 
 Hono on `@weldsuite/worker-kit`, owns `/api/sheets*`:
 
 - `GET/POST /api/sheets`, `GET/PATCH/DELETE /api/sheets/:id` (metadata; the
-  drive `files` row is created alongside)
-- `GET /api/sheets/:id/connect` → WebSocket upgrade into `SheetRoom`
-- `/api/sheets/:id/versions` (list, name, restore), `/comments`, `/members`
+  drive `files` row is created alongside; delete moves it to the trash) — built
+- `POST /api/sheets/:id/session` + `GET /api/sheets/connect?ticket=…` →
+  WebSocket into `SheetRoom` — built
+- `/api/sheets/:id/versions` (list, name, restore), `/comments`
 - `/api/sheets/:id/export?format=xlsx|csv`, `POST /api/sheets/import`
 - `/api/sheets/:id/data-sources` (live WeldSuite data, below)
 - Entity events: `sheet` created / updated (throttled) / deleted / shared,
@@ -107,9 +116,10 @@ Hono on `@weldsuite/worker-kit`, owns `/api/sheets*`:
 ### Access
 
 Workspace permissions open the door (`sheets:read|create|update|delete|share|manage`).
-Per sheet: owner, editor, commenter, viewer, plus a general-access level for
-the whole workspace (Google-style). Every route resolves access through one
-`requireSheetAccess` helper; a sheet the caller cannot see is a 404.
+Per sheet, access is the WeldDrive role on its file (owner, editor, viewer:
+ownership, shares, folders and general access), resolved in the sheets-api
+routes; a sheet the caller cannot see is a 404. A commenter role (phase 7)
+does not exist in WeldDrive yet.
 
 ### WeldSuite data and AI
 
@@ -120,14 +130,15 @@ the whole workspace (Google-style). Every route resolves access through one
 - **WeldAgent tools**: `sheets.read_range`, `sheets.write_range`,
   `sheets.create`, `sheets.find`, run server-side on the engine.
 
-## Schema (needs approval before any migration)
+## Schema
 
-The unused `sheets` table (`packages/core/db/src/schema/sheets.ts`, migration
-0148) holds a jsonb snapshot, which cannot carry a 1M-row workbook. Proposed:
+Applied in phase 3 (migration `0221_weldsheets_room`, approved 2026-10-24):
+`sheets` gained `revision`, `snapshot_key` (R2) and `snapshot_revision`, and
+its unused jsonb `snapshot` became nullable (to be dropped). Owner and general
+access are the drive file's, so `sheets` has no copy of them.
 
-- `sheets`: add `revision`, `snapshot_key` (R2), `general_access`, `owner_id`;
-  make `snapshot` nullable (dropped later).
-- `sheet_members` (sheet, user, role)
+Still proposed (each needs approval before a migration):
+
 - `sheet_versions` (sheet, revision, name, snapshot_key, created_by)
 - `sheet_comments` (sheet, thread, anchor sheet id + cell, body, mentions,
   resolved)
@@ -163,19 +174,40 @@ The unused `sheets` table (`packages/core/db/src/schema/sheets.ts`, migration
   delete, colour, reorder), right-click menu (insert/delete/hide rows and
   columns), clipboard to and from Excel/Google Sheets, undo/redo,
   status-bar sum/average/count.
-- Every edit goes through `SheetController.apply`, which phase 3 routes to
-  the SheetRoom socket.
-- Storage is temporary: an IndexedDB store per workspace in the browser
-  (`app/weldsheets/store/sheet-store.ts`) behind a `SheetStore` interface that
-  the sheets-api client replaces in phase 3. Nothing leaves the browser yet,
-  and the app only appears where an admin has installed it from the catalog.
+- Every edit goes through `SheetController.apply`.
+- Storage was an IndexedDB store in the browser until phase 3; only the
+  signed-out preview still uses it. The app only appears where an admin has
+  installed it from the catalog.
+
+**Phase 3 (backend and live co-editing): done.**
+
+- `apps/workers/sheets-api`: the routes above, and the `SheetRoom` Durable
+  Object around the engine's `RoomCore` (op log in its storage, checkpoints in
+  R2, hibernatable sockets, single-use tickets). app-api forwards
+  `/api/sheets*` to it, WebSocket upgrades included.
+- Engine `collab/`: protocol, `RoomCore`, `CollabClient` (rebasing), message
+  framing, `validateOp`; a simulation test runs a room and four clients
+  through random edits, delays and reconnects and checks they converge.
+- Platform: the home page lists sheets from sheets-api; an open sheet is
+  edited through `SheetConnection` (reconnects, re-sends unconfirmed edits,
+  warns before leaving with any); undo is moved past other people's ops;
+  presence draws each person's selection in their colour with a name flag,
+  with avatars in the header (click to jump to them).
+- WeldDrive: a sheet is a drive file (`metadata.weldsheetId`) and opens in the
+  editor from WeldDrive; purging it removes its `sheets` row too.
+- `sheet` entity events: created, updated (rename, and content at each
+  checkpoint), deleted.
 
 Known gaps, to pick up in later phases:
 
 - Autofill (dragging the fill handle) and auto-fit on double-clicking a
   column border are not built yet; a double-click resets the size.
-- Remote cursors, comments, sharing and version history arrive with the
-  backend (phases 3 and 7).
+- Comments, sharing UI and version history arrive in phase 7.
+- A sheet trashed from WeldSheets gets no automatic 30-day purge (the
+  `TrashCleanupWorkflow` is app-api's); emptying the WeldDrive trash removes
+  it. A purged sheet's room storage stays behind.
+- No state checksums between replicas yet; rebasing keeps them in step, and a
+  rejected batch reloads the client from the room.
 
 - Row/column insert, delete and move rebuild the whole dependency graph
   (phase 9: incremental).
@@ -187,8 +219,6 @@ Known gaps, to pick up in later phases:
   LET/LAMBDA.
 - Lookups lifted over many values rescan the key column each time; a
   per-pass lookup index would make exact matches O(1).
-- A concurrent row move and delete across a merged range can leave replicas
-  disagreeing about the merge; the room's checksum resync (phase 3) covers it.
 
 ## Phases (one PR each)
 
