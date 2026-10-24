@@ -15,6 +15,12 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { useI18n } from '@/lib/i18n/provider';
+import {
+  OfficeHoursSection,
+  browserTimeZone,
+  defaultOfficeHours,
+  invalidOfficeHoursDay,
+} from './office-hours-section';
 
 export interface ChatWidgetClientHandle {
   save: () => Promise<void>;
@@ -36,8 +42,17 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
     const [greeting, setGreeting] = useState(initialSettings.greeting ?? tcp.defaultGreeting);
     const [primaryColor, setPrimaryColor] = useState(initialSettings.branding?.primaryColor ?? '#2563eb');
     const [position, setPosition] = useState<'right' | 'left'>(initialSettings.branding?.position ?? 'right');
+    const [officeHours, setOfficeHours] = useState(initialSettings.officeHours ?? defaultOfficeHours());
+    const [timezone, setTimezone] = useState(initialSettings.timezone ?? browserTimeZone());
+    const [awayMessage, setAwayMessage] = useState(initialSettings.awayMessage ?? '');
+    const [expectedReplyTime, setExpectedReplyTime] = useState(initialSettings.expectedReplyTime ?? null);
 
     const save = useCallback(async () => {
+      const invalidDay = officeHours.enabled ? invalidOfficeHoursDay(officeHours) : null;
+      if (invalidDay) {
+        toast.error(tcp.invalidHours.replace('{day}', tcp.weekdays[invalidDay]));
+        return;
+      }
       try {
         await updateWidget.mutateAsync({
           widgetId,
@@ -49,13 +64,31 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
               backgroundColor: initialSettings.branding?.backgroundColor ?? '#ffffff',
               position,
             },
+            officeHours,
+            timezone,
+            awayMessage: awayMessage.trim() || null,
+            expectedReplyTime,
           },
         });
         toast.success(tw.settingsSavedSuccess);
       } catch {
         toast.error(tw.settingsSaveFailed);
       }
-    }, [enabled, greeting, primaryColor, position, widgetId, updateWidget, tw, initialSettings.branding?.backgroundColor]);
+    }, [
+      enabled,
+      greeting,
+      primaryColor,
+      position,
+      officeHours,
+      timezone,
+      awayMessage,
+      expectedReplyTime,
+      widgetId,
+      updateWidget,
+      tw,
+      tcp,
+      initialSettings.branding?.backgroundColor,
+    ]);
 
     useImperativeHandle(ref, () => ({ save, isSaving: updateWidget.isPending }), [save, updateWidget.isPending]);
 
@@ -111,6 +144,17 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
             </div>
           </div>
         </section>
+
+        <OfficeHoursSection
+          officeHours={officeHours}
+          onOfficeHoursChange={setOfficeHours}
+          timezone={timezone}
+          onTimezoneChange={setTimezone}
+          awayMessage={awayMessage}
+          onAwayMessageChange={setAwayMessage}
+          expectedReplyTime={expectedReplyTime}
+          onExpectedReplyTimeChange={setExpectedReplyTime}
+        />
 
         <section className="space-y-4">
           <h3 className="text-sm font-medium">{tw.installCode}</h3>

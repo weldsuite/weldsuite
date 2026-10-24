@@ -466,6 +466,24 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
     [send],
   );
 
+  /** Rate a closed conversation (1–5, optional comment). Throws when the API refuses. */
+  const rate = useCallback(
+    async (conversationId: string, rating: number, comment?: string) => {
+      const result = await widgetApi.rateConversation(widgetId, conversationId, {
+        visitorId,
+        rating,
+        comment: comment?.trim() || undefined,
+      });
+      setConversations((prev) => upsertConversation(prev, result.conversation));
+      setThreads((prev) =>
+        prev[conversationId]
+          ? { ...prev, [conversationId]: mergeMessage(prev[conversationId], result.message) }
+          : prev,
+      );
+    },
+    [widgetId, visitorId],
+  );
+
   /** Upload one file into an existing conversation, ready to go out with the next message. */
   const uploadAttachment = useCallback(
     (conversationId: string, file: File) =>
@@ -494,6 +512,7 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
     isUnread,
     unreadCount,
     send,
+    rate,
     uploadAttachment,
     retry,
     notifyTyping,

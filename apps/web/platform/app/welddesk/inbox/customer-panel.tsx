@@ -1,5 +1,5 @@
 import { format, formatDistanceToNowStrict } from 'date-fns';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Star } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Link } from '@/lib/router';
@@ -21,6 +21,23 @@ function Row({ label, children }: Readonly<{ label: string; children: React.Reac
       <span className="text-muted-foreground flex-shrink-0">{label}</span>
       <span className="text-right text-foreground min-w-0 break-words">{children}</span>
     </div>
+  );
+}
+
+/** The visitor's CSAT answer as five stars, filled up to the rating. */
+function RatingStars({ rating }: Readonly<{ rating: number }>) {
+  return (
+    <span className="inline-flex" aria-hidden="true">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={cn(
+            'h-3.5 w-3.5',
+            star <= rating ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40',
+          )}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -73,6 +90,21 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
           <Row label={t.customer.waiting}>
             {formatDistanceToNowStrict(new Date(conversation.waitingSince))}
           </Row>
+        )}
+        {conversation.rating != null && (
+          <div data-testid="desk-inbox-customer-rating">
+            <Row label={t.customer.rating}>
+              <span className="inline-flex items-center gap-1.5">
+                <RatingStars rating={conversation.rating} />
+                {t.timeline.ratingLabel.replace('{rating}', String(conversation.rating))}
+              </span>
+            </Row>
+            {conversation.ratingComment && (
+              <p className="pb-1.5 text-sm italic text-muted-foreground whitespace-pre-wrap break-words">
+                “{conversation.ratingComment}”
+              </p>
+            )}
+          </div>
         )}
       </div>
 

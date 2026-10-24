@@ -158,6 +158,7 @@ export const deskInbox2 = {
     waiting: 'Waiting for',
     otherConversations: 'Other conversations',
     noOtherConversations: 'No other conversations with this customer',
+    rating: 'Rating',
   },
   timeline: {
     unsupportedBlock: 'Unsupported block',

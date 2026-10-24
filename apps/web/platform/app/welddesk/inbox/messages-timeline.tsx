@@ -38,10 +38,14 @@ function getAvatarColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[]) {
+function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], visitorLabel: string) {
   const t = getTranslations('deskInbox2');
-  const actor = memberLabel(members, message.authorId) ?? t.timeline.unknownActor;
   const eventType = message.metadata?.eventType;
+  if (eventType === 'rated') {
+    const rating = t.timeline.ratingLabel.replace('{rating}', String(message.metadata?.rating ?? '?'));
+    return t.timeline.ratingChanged.replace('{actor}', visitorLabel).replace('{rating}', rating);
+  }
+  const actor = memberLabel(members, message.authorId) ?? t.timeline.unknownActor;
   if (eventType === 'closed') return t.timeline.closed.replace('{actor}', actor);
   if (eventType === 'reopened') return t.timeline.opened.replace('{actor}', actor);
   if (eventType === 'unassigned') return t.timeline.assignmentUnassigned.replace('{actor}', actor);
@@ -162,8 +166,16 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
               <div key={message.clientId ?? message.id}>
                 {showDay && <DaySeparator date={created} />}
                 <p className="text-xs text-muted-foreground text-center py-2 px-4">
-                  {eventSentence(message, members)} · {format(created, 'HH:mm')}
+                  {eventSentence(message, members, visitorLabel)} · {format(created, 'HH:mm')}
                 </p>
+                {message.metadata?.eventType === 'rated' && message.metadata.ratingComment && (
+                  <p
+                    className="mx-auto -mt-1 mb-2 max-w-md px-4 text-center text-xs italic text-foreground/80 whitespace-pre-wrap break-words"
+                    data-testid="desk-inbox-rating-comment"
+                  >
+                    “{message.metadata.ratingComment}”
+                  </p>
+                )}
               </div>
             );
           }
