@@ -321,15 +321,22 @@ function plainToks(toks: Tok[]): string {
   return out;
 }
 
+/** Renders the message's attachments that its text places inline (`<@file:id>`). */
+export interface InlineFileRenderer {
+  /** The rendered file, or null when the message has no such attachment (the token then shows nothing). */
+  render: (attachmentId: string, key: string) => ReactNode | null;
+}
+
 /**
  * Tokenises a message body. Mentions are stored inline in `text`:
  *   <@userId>             → user
  *   <@userId:DisplayName> → user with name override
  *   <@type:id|Label>      → entity reference — clickable chip
+ *   <@file:attachmentId>  → one of the message's attachments, via `files`
  * The `members` map resolves userId → display name for the user variants.
  * Returns null for an empty body.
  */
-function tokenize(text: string, members?: Map<string, string>): Tok[] | null {
+function tokenize(text: string, members?: Map<string, string>, files?: InlineFileRenderer): Tok[] | null {
   const segments = parseChatTokens(text);
   if (segments.length === 0) return null;
 
@@ -360,6 +367,13 @@ function tokenize(text: string, members?: Map<string, string>): Tok[] | null {
         ),
         text: `@${name}`,
       });
+    } else if (seg.kind === 'file') {
+      // Previews and surfaces without the attachments drop the file from the text.
+      const node = files?.render(seg.attachmentId, nextKey(`f-${seg.attachmentId}`)) ?? null;
+      if (node !== null) {
+        flat += ATOM;
+        atoms.push({ node, text: '' });
+      }
     } else {
       flat += ATOM;
       atoms.push({
@@ -381,12 +395,21 @@ function tokenize(text: string, members?: Map<string, string>): Tok[] | null {
   return emphasis ? applyEmphasis(lexed) : lexed;
 }
 
-/** Render message content with @mention badges, entity chips, links and inline formatting. */
-export function renderMessageContent(text: string, members?: Map<string, string>): ReactNode {
-  const toks = tokenize(text, members);
+/**
+ * Render message content with @mention badges, entity chips, links and inline
+ * formatting. `files` renders the attachments the text places inline; without
+ * it those tokens render nothing.
+ */
+export function renderMessageContent(
+  text: string,
+  members?: Map<string, string>,
+  files?: InlineFileRenderer,
+): ReactNode {
+  const toks = tokenize(text, members, files);
   if (!toks) return text;
   const nodes = renderToks(toks, 'm');
-  if (nodes.length === 0) return text;
+  // Only file tokens nothing could render: show nothing rather than the raw tokens.
+  if (nodes.length === 0) return null;
   if (nodes.length === 1 && typeof nodes[0] === 'string') return nodes[0];
   return nodes;
 }

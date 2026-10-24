@@ -261,11 +261,15 @@ function classifyMentionToken(body: string): string {
   return entId ? `entity:${prefix}:${entId}` : prefix;
 }
 
+/** `<@file:attachmentId>` places one of the message's attachments in its text; it mentions nobody. */
+const FILE_TOKEN = /<@file:[^>]*>/g;
+
 function extractContentMentions(content: string): string[] {
   const contentMentions: string[] = [];
   const mentionRegex = /<@([^>]+)>/g;
   let match: RegExpExecArray | null;
   while ((match = mentionRegex.exec(content)) !== null) {
+    if (match[1].startsWith('file:')) continue;
     const mentionId = classifyMentionToken(match[1]);
     if (!contentMentions.includes(mentionId)) contentMentions.push(mentionId);
   }
@@ -561,7 +565,9 @@ export async function postChatMessage(
     updatedAt: now,
   });
 
-  const preview = input.content.length > 100 ? input.content.slice(0, 100) + '...' : input.content;
+  // Inline images show nothing in a one-line preview (sidebar, notifications).
+  const previewText = input.content.replace(FILE_TOKEN, '').replace(/[ \t]{2,}/g, ' ').trim();
+  const preview = previewText.length > 100 ? previewText.slice(0, 100) + '...' : previewText;
   const [channelRef] = await db
     .update(chatChannels)
     .set({

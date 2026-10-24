@@ -291,3 +291,33 @@ describe('messagePreviewText', () => {
     expect(messagePreviewText('')).toBe('');
   });
 });
+
+describe('inline files (<@file:id>)', () => {
+  const files = {
+    render: (id: string, key: string) => (id === 'att_1' ? <i key={key} data-file="att_1" /> : null),
+  };
+  const withFiles = (text: string) => renderToStaticMarkup(<>{renderMessageContent(text, undefined, files)}</>);
+
+  it('renders the attachment where the text places it', () => {
+    expect(withFiles('before <@file:att_1> after')).toBe(
+      'before <i data-file="att_1"></i> after',
+    );
+  });
+
+  it('keeps formatting around an inline file', () => {
+    expect(withFiles('**look <@file:att_1>**')).toBe(
+      '<strong>look <i data-file="att_1"></i></strong>',
+    );
+  });
+
+  it('shows nothing for a file the message does not have, or without a renderer', () => {
+    expect(withFiles('a <@file:att_missing> b')).toBe('a  b');
+    expect(html('a <@file:att_1> b')).toBe('a  b');
+    expect(html('<@file:att_1>')).toBe('');
+  });
+
+  it('leaves the file out of one-line previews', () => {
+    expect(messagePreviewText('look <@file:att_1> here')).toBe('look here');
+    expect(messagePreviewText('<@file:att_1>')).toBe('');
+  });
+});
