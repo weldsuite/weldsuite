@@ -1,56 +1,25 @@
 /**
- * Where a routine's result lands: one chat thread per routine, owned by the
- * person who created it, next to their other chats with the agent. A routine
- * that "sends a digest" therefore shows up where they talk to the agent.
+ * Where a routine's result lands: in the main chat of the person who created
+ * the routine, the one continuous chat they have with the agent (./main-chat).
+ * A routine that "sends a digest" therefore reports back like a teammate
+ * would, in the conversation you already have, and the agent sees its own
+ * report the next time you talk to it.
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
-import { schema } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
 import { sendWeldAgentReplyNotification } from '@weldsuite/notifications';
 import type { Database as NotificationDatabase, NotificationEnv } from '@weldsuite/notifications/types';
 import { getAgent, type AgentDb } from './agents';
-import { persistAssistantMessage } from './complete-turn';
+import { persistAssistantMessage, ROUTINE_RESULT_KIND } from './complete-turn';
+import { getOrCreateMainConversation } from './main-chat';
 import type { WeldAgentEnv as Env } from './env';
 
-/** `metadata.kind` of an assistant message posted by a routine run. */
-export const ROUTINE_RESULT_KIND = 'routine_result';
-
-async function routineConversationId(
-  db: AgentDb,
-  params: { routineId: string; routineName: string; agentId: string; userId: string },
-): Promise<string> {
-  const conv = schema.weldagentConversations;
-  const [existing] = await db
-    .select({ id: conv.id })
-    .from(conv)
-    .where(
-      and(
-        eq(conv.userId, params.userId),
-        eq(conv.agentId, params.agentId),
-        sql`${conv.metadata}->>'routineId' = ${params.routineId}`,
-        isNull(conv.deletedAt),
-      ),
-    )
-    .limit(1);
-  if (existing) return existing.id;
-
-  const id = generateId('conv');
-  await db.insert(conv).values({
-    id,
-    userId: params.userId,
-    agentId: params.agentId,
-    name: params.routineName.slice(0, 255),
-    metadata: { routineId: params.routineId },
-  });
-  return id;
-}
+export { ROUTINE_RESULT_KIND };
 
 /**
- * Post a routine run's outcome into the routine's thread and notify its owner
- * (the notification opens that thread). Returns the thread id, or null when
- * there is nobody to deliver to. Never throws: the run itself already
- * succeeded or failed on its own.
+ * Post a routine run's outcome into its owner's main chat with the agent and
+ * notify them (the notification opens that chat). Returns the chat id, or
+ * null when there is nobody to deliver to. Never throws: the run itself
+ * already succeeded or failed on its own.
  */
 export async function deliverRoutineResult(
   db: AgentDb,
@@ -70,12 +39,13 @@ export async function deliverRoutineResult(
   const userId = params.userId;
   if (!userId || userId === 'system') return null;
   try {
-    const conversationId = await routineConversationId(db, {
-      routineId: params.routine.id,
-      routineName: params.routine.name,
-      agentId: params.agentId,
+    const agent = await getAgent(db, params.agentId);
+    const conversation = await getOrCreateMainConversation(db, {
       userId,
+      agentId: params.agentId,
+      agentName: agent?.name ?? params.routine.name,
     });
+    const conversationId = conversation.id;
     const content = params.success
       ? params.text
       : `The routine "${params.routine.name}" did not finish: ${params.error ?? 'unknown error'}`;
@@ -92,7 +62,6 @@ export async function deliverRoutineResult(
       },
     });
     try {
-      const agent = await getAgent(db, params.agentId);
       await sendWeldAgentReplyNotification({
         db: db as unknown as NotificationDatabase,
         env: env as unknown as NotificationEnv,

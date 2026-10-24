@@ -70,4 +70,22 @@ describe('buildThread', () => {
     expect(thread).toHaveLength(1);
     expect(thread[0]).toMatchObject({ questions: [], steps: [] });
   });
+
+  it('pairs work handed to sub-agents with their reports, apart from tool steps', () => {
+    const [reply] = buildThread([
+      message('a1', 'assistant', 'Both are done.', [
+        { toolName: 'delegate_to_agent', state: 'call', args: { agent: 'Researcher', task: 'Find invoices' } },
+        { toolName: 'delegate_to_agent', state: 'call', args: { agent: 'Writer', task: 'Draft a mail' } },
+        { toolName: 'delegate_to_agent', state: 'result', args: { agent: 'Writer' }, result: 'Drafted.' },
+        { toolName: 'list_people', state: 'result', args: {}, result: [] },
+      ]),
+    ]);
+    expect(reply).toMatchObject({
+      steps: [{ name: 'list_people', failed: false }],
+      delegations: [
+        { agent: 'Researcher', task: 'Find invoices', report: null },
+        { agent: 'Writer', task: 'Draft a mail', report: 'Drafted.' },
+      ],
+    });
+  });
 });

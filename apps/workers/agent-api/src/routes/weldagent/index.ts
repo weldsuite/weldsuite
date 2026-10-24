@@ -33,10 +33,12 @@ import {
   acceptConversationTurn,
   completeConversationTurn,
   toAcceptedTurnRef,
+  AgentAccessDeniedError,
   ConversationNotFoundError,
 } from '@weldsuite/agent-domain/complete-turn';
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
-import { getAgent } from '@weldsuite/agent-domain/agents';
+import { findAccessibleAgentRow } from '@weldsuite/agent-domain/access';
+import { agentViewer } from '../../services/weldagent/viewer';
 import {
   AllGatewaysFailedError,
   GatewayConfigError,
@@ -130,7 +132,7 @@ app.post('/conversations', zValidator('json', createConversationSchema), async (
 
   try {
     if (data.agentId) {
-      const agent = await getAgent(db, data.agentId);
+      const agent = await findAccessibleAgentRow(db, data.agentId, await agentViewer(c));
       if (!agent) return error.notFound(c, 'Agent', data.agentId);
     }
 
@@ -216,6 +218,30 @@ app.get('/conversations/:conversationId/messages', async (c) => {
       eq(weldagentMessages.conversationId, conversationId),
       isNull(weldagentMessages.deletedAt),
     );
+
+    // `before=<messageId>`: the page just older than that message (scrolling
+    // back through a long continuous chat), in chronological order.
+    const before = c.req.query('before');
+    if (before) {
+      const [anchor] = await db
+        .select({ createdAt: weldagentMessages.createdAt, id: weldagentMessages.id })
+        .from(weldagentMessages)
+        .where(and(eq(weldagentMessages.id, before), eq(weldagentMessages.conversationId, conversationId)))
+        .limit(1);
+      if (!anchor) return success(c, []);
+      const older = await db
+        .select()
+        .from(weldagentMessages)
+        .where(
+          and(
+            where,
+            sql`(${weldagentMessages.createdAt}, ${weldagentMessages.id}) < (${anchor.createdAt}, ${anchor.id})`,
+          ),
+        )
+        .orderBy(desc(weldagentMessages.createdAt), desc(weldagentMessages.id))
+        .limit(limit);
+      return success(c, older.reverse());
+    }
 
     // With an explicit offset: legacy oldest-first paging. Without one: the
     // latest `limit` messages, still in chronological order — chat UIs need
@@ -338,6 +364,8 @@ app.post(
     const userId = c.get('userId');
     // The agent acts on the user's behalf: its grants are narrowed to theirs.
     const actorPermissions = (await ensurePermissionsResolved(c))?.permissions ?? [];
+    // An agent's chat stays usable only while its owner keeps you on it.
+    const viewer = await agentViewer(c);
 
     try {
       if (wait) {
@@ -351,11 +379,16 @@ app.post(
           agentId,
           actorPermissions,
           timezone,
+          viewer,
         });
 
         c.executionCtx.waitUntil(
           work.catch((err) => {
-            if (err instanceof ConversationNotFoundError || err instanceof InsufficientAiCreditsError) {
+            if (
+              err instanceof ConversationNotFoundError ||
+              err instanceof AgentAccessDeniedError ||
+              err instanceof InsufficientAiCreditsError
+            ) {
               return;
             }
             console.error('[app-api/weldagent] complete-turn waitUntil failed:', err);
@@ -376,6 +409,7 @@ app.post(
         agentId,
         actorPermissions,
         timezone,
+        viewer,
       });
 
       // Generate the reply in the durable WeldAgent job workflow — a tool loop
@@ -396,6 +430,9 @@ app.post(
     } catch (err) {
       if (err instanceof ConversationNotFoundError) {
         return error.notFound(c, 'Conversation', conversationId);
+      }
+      if (err instanceof AgentAccessDeniedError) {
+        return error.forbidden(c, 'You no longer have access to this agent');
       }
       if (err instanceof InsufficientAiCreditsError) {
         return error.insufficientCredits(c, {

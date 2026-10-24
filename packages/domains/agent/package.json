@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./access": "./src/access.ts",
     "./actor-permissions": "./src/actor-permissions.ts",
     "./agent-mention-dispatch": "./src/agent-mention-dispatch.ts",
     "./agents": "./src/agents.ts",
@@ -14,6 +15,7 @@
     "./executor": "./src/executor.ts",
     "./grants": "./src/grants.ts",
     "./jobs": "./src/jobs.ts",
+    "./main-chat": "./src/main-chat.ts",
     "./managed-agents": "./src/managed-agents.ts",
     "./parity": "./src/parity.ts",
     "./routine-delivery": "./src/routine-delivery.ts",

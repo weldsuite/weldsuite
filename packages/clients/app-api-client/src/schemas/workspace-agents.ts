@@ -32,8 +32,29 @@ export const createWorkspaceAgentSchema = z.object({
   maxTotalTokens: z.number().int().min(1000).max(200000).optional(),
 });
 
+/**
+ * Who can see and chat with an agent: only its owner, the owner plus chosen
+ * members, or everyone in the workspace.
+ */
+export const WORKSPACE_AGENT_VISIBILITIES = ['private', 'members', 'workspace'] as const;
+export type WorkspaceAgentVisibility = (typeof WORKSPACE_AGENT_VISIBILITIES)[number];
+
 export const updateWorkspaceAgentSchema = createWorkspaceAgentSchema.partial().extend({
   status: z.enum(['draft', 'active', 'paused']).optional(),
+});
+
+/** PUT /agents/:id/access — owner, visibility and member list (owner or manager only). */
+export const updateWorkspaceAgentAccessSchema = z.object({
+  ownerId: z.string().min(1).max(255).optional(),
+  visibility: z.enum(WORKSPACE_AGENT_VISIBILITIES).optional(),
+  /** Members who may use the agent when visibility is `members` (replaces the list). */
+  memberIds: z.array(z.string().min(1).max(255)).max(500).optional(),
+});
+
+/** PUT /agents/:id/subagents — the agents this agent may hand work to. */
+export const updateWorkspaceAgentSubagentsSchema = z.object({
+  subagentIds: z.array(z.string().min(1).max(30)).max(19),
+  delegateToSelf: z.boolean(),
 });
 
 export const runWorkspaceAgentSchema = z.object({
@@ -44,6 +65,14 @@ export const runWorkspaceAgentSchema = z.object({
 export type CreateWorkspaceAgentInput = z.infer<typeof createWorkspaceAgentSchema>;
 export type UpdateWorkspaceAgentInput = z.infer<typeof updateWorkspaceAgentSchema>;
 export type RunWorkspaceAgentInput = z.infer<typeof runWorkspaceAgentSchema>;
+export type UpdateWorkspaceAgentAccessInput = z.infer<typeof updateWorkspaceAgentAccessSchema>;
+export type UpdateWorkspaceAgentSubagentsInput = z.infer<typeof updateWorkspaceAgentSubagentsSchema>;
+
+/** What the caller may do with an agent (computed per request). */
+export interface WorkspaceAgentCapabilities {
+  /** Change its setup, routines and access (owner or weldagent:manage). */
+  canEdit: boolean;
+}
 
 export interface WorkspaceAgent {
   id: string;
@@ -61,6 +90,17 @@ export interface WorkspaceAgent {
   maxIterations: number;
   maxTotalTokens: number;
   createdBy: string | null;
+  /** The member responsible for the agent; null for agents from before ownership. */
+  ownerId: string | null;
+  visibility: WorkspaceAgentVisibility;
+  /** Agents this agent may hand work to. */
+  subagentIds: string[];
+  /** Whether it may also hand work to copies of itself. */
+  delegateToSelf: boolean;
+  /** Members with access when visibility is `members` (detail responses only). */
+  memberIds?: string[];
+  /** What the caller may do (list and detail responses). */
+  capabilities?: WorkspaceAgentCapabilities;
   totalRuns: number;
   successfulRuns: number;
   failedRuns: number;

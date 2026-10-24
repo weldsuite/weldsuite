@@ -10,6 +10,10 @@ describe('webHrefForAction', () => {
     expect(webHrefForAction('/weldagent/agent/agt_1/run/run_9')).toBe('/agents/agt_1?settings=activity');
   });
 
+  it('opens approval requests on the agent', () => {
+    expect(webHrefForAction('/weldagent/agent/agt_1')).toBe('/agents/agt_1');
+  });
+
   it('leaves other links alone', () => {
     expect(webHrefForAction('/weldcrm/people/p_1')).toBe('/weldcrm/people/p_1');
   });

@@ -60,6 +60,8 @@ export {
 export {
   sendWeldAgentReplyNotification,
   sendWeldAgentRunNotification,
+  sendWeldAgentApprovalNotification,
+  weldagentAgentActionUrl,
   weldagentChatActionUrl,
   weldagentRunActionUrl,
 } from './helpers/weldagent';
