@@ -63,6 +63,8 @@ export type { FontMetrics, FontSpec, TextMeasurer } from './layout/measure';
 export { caretRect, hitTest, lineBounds, selectionRects, xOfOffset } from './layout/geometry';
 export type { Affinity, CaretRect, HitResult, SelectionRect } from './layout/geometry';
 export { cellContentOffset, cellHeight } from './layout/table';
+export { pageDisplay } from './layout/display';
+export type { DisplayItem, DisplayOptions } from './layout/display';
 export { canBreakBefore } from './layout/breaks';
 export { displayText } from './layout/run-style';
 export type {
@@ -79,3 +81,39 @@ export type {
   RunStyle,
   TableLayout,
 } from './layout/types';
+
+export { nextGrapheme, nextWord, paragraphAt, wordAt } from './editing/boundaries';
+export {
+  allHave,
+  caretAt,
+  clearFormatting,
+  commonParagraphStyle,
+  deleteBackward,
+  deleteForward,
+  deleteSelection,
+  formatParagraphs,
+  formatText,
+  indent,
+  insertFragment,
+  insertLineBreak,
+  insertObject,
+  insertText,
+  isCollapsed,
+  linkAt,
+  paragraphProps,
+  paragraphSpan,
+  removeLink,
+  replaceRange,
+  resolvedParagraphAt,
+  resolvedStyleAt,
+  selectedParagraphs,
+  selectionRange,
+  setLink,
+  splitParagraph,
+  styleForInsert,
+  toggleChecked,
+  toggleList,
+} from './editing/commands';
+export type { DeleteUnit, DocSelection, Edit, ListKind } from './editing/commands';
+export { countWords, findAll, queryPattern, replaceAll, storiesInOrder, textStats } from './editing/find';
+export type { DocumentStats, FindOptions, Match } from './editing/find';

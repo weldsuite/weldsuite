@@ -646,6 +646,46 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     contactUrl: SUPPORT_EMAIL,
   },
   {
+    code: 'welddocs',
+    name: 'WeldDocs',
+    description: 'Documents with rich formatting, pages, headers and footers, tables and live co-editing.',
+    icon: 'FileText',
+    category: 'Productivity',
+    path: '/welddocs',
+    overview:
+      'WeldDocs is a word processor built into WeldSuite. Write letters, reports and contracts on real pages, with headings and styles, lists, tables, images, headers and footers, page numbers and footnotes. Several people can edit the same document at once and see each other's cursors, and you can comment, suggest changes and share a document with colleagues. Open a Word file, or export to Word or PDF, with the layout intact.',
+    features: [
+      'Paged layout with A4 or Letter, margins, orientation, headers, footers and page numbers',
+      'Styles, lists, tables, images, links and footnotes',
+      'Live co-editing with cursors, comments and suggested changes',
+      'Share a document with colleagues as owner, editor, commenter or viewer',
+      'Open and save Word (.docx) files and export to PDF',
+      'Undo and redo for every change',
+    ],
+    howItWorks: [
+      {
+        title: 'Create a document',
+        description: 'Start from a blank page in WeldDocs, or open a Word file.',
+      },
+      {
+        title: 'Write and format',
+        description: 'Use styles for headings and lists, and add tables, images and page numbers.',
+      },
+      {
+        title: 'Share and edit together',
+        description: 'Invite colleagues; everyone sees changes as they are typed.',
+      },
+    ],
+    sortOrder: 156,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-10-24',
+    websiteUrl: 'https://weldsuite.com/welddocs',
+    documentationUrl: `${HELP_BASE}/welddocs`,
+    contactUrl: SUPPORT_EMAIL,
+  },
+  {
     code: 'weldsign',
     name: 'WeldSign',
     description: 'Send PDFs for electronic signature and get them back signed, with a full audit trail.',

@@ -51,6 +51,12 @@ export class CachedMeasurer implements TextMeasurer {
     private readonly max = 200_000,
   ) {}
 
+  /** Forget every width (web fonts finished loading). */
+  clear(): void {
+    this.widths.clear();
+    this.fontMetrics.clear();
+  }
+
   measure(text: string, font: FontSpec): number {
     if (!text) return 0;
     const key = `${fontKey(font)}\u0000${text}`;

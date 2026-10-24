@@ -279,6 +279,36 @@ Decisions above agreed 2026-10-24.
 - Measured (Node, built-in metrics): 2,400 paragraphs (320 pages) laid out in
   0.3 s; an edit re-laid and re-paginated in 2.5 ms.
 
+**Phase 3 (editor, local only): done**, in `apps/web/platform/app/welddocs`.
+
+- Module registered like WeldSheets: routes `/welddocs` and `/welddocs/$docId`
+  (+ the unauthenticated `/preview/welddocs` mirror), rail and module
+  sidebar, `docs:*` permissions with role defaults, `docs` in api-modules
+  (port 8824, `/api/docs`, worker not built yet), reserved slug, app-store
+  seed and fallback catalog entries, icons, en/nl translations.
+- Engine: `editing/` (typing, Backspace/Delete by grapheme or word, Enter
+  with the style's `next` style, Google Docs' paragraph joining, lists and
+  indents, links, objects, paste with fresh ids, find and replace, word
+  count) and `layout/display.ts`, a page's drawing as absolute items that the
+  DOM renderer (and the PDF writer, phase 6) draws.
+- Editor: pages rendered as absolutely placed DOM in points, only near the
+  viewport; caret, selection and find highlights drawn from the layout's
+  geometry; typing through a hidden textarea (`beforeinput`, IME
+  composition); mouse click, drag, double and triple click, Shift+click,
+  Ctrl+click on links; keyboard navigation and the Google Docs shortcuts;
+  menu bar (File, Edit, View, Insert, Format, Tools, Help), toolbar (styles,
+  font, size, marks, colours, link, alignment, spacing, lists, indents),
+  ruler with draggable margins and indents, outline, find and replace,
+  page setup (paper, orientation, margins, columns, page colour, first-page
+  header, pageless), word count, link and shortcut dialogs, headers and
+  footers (double-click a margin), page numbers, footnotes, page breaks,
+  printing through the browser at the real page size, and downloads as
+  HTML, Markdown and text.
+- Clipboard: HTML and text for other apps, plus the exact fragment (a custom
+  type, and in an HTML comment) for pasting back without loss.
+- Every edit goes through `DocController.apply`. Documents are kept in
+  IndexedDB per workspace until phase 4.
+
 Known gaps, to pick up in later phases:
 
 - Floating (wrapped) images lay out inline until phase 5. Table rows never
