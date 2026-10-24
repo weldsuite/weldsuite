@@ -52,13 +52,20 @@ export class RoomCore {
     this.revision = revision;
   }
 
-  /** A room at `snapshotRevision` with the ops committed after it replayed (Durable Object restart). */
+  /**
+   * A room rebuilt after a Durable Object restart: the snapshot at
+   * `snapshotRevision`, then `ops` in revision order. Ops at or before the
+   * snapshot are not applied again but go back into the log, so clients a
+   * little behind still catch up without a full reload.
+   */
   static restore(snapshot: WorkbookSnapshot, snapshotRevision: number, ops: CommittedOp[], options: RoomOptions = {}): RoomCore {
     const room = new RoomCore(snapshot, snapshotRevision, { ...options, onCommit: undefined });
     for (const c of ops) {
-      if (c.revision <= room.revision) continue;
-      applyOp(room.engine, c.op);
-      room.revision = c.revision;
+      if (c.revision > room.revision + 1) throw new Error(`Op log has a gap after revision ${room.revision}`);
+      if (c.revision > room.revision) {
+        applyOp(room.engine, c.op);
+        room.revision = c.revision;
+      }
       room.remember(c);
     }
     room.options.onCommit = options.onCommit;
@@ -74,9 +81,14 @@ export class RoomCore {
     return this.log.length ? this.log[0]!.revision - 1 : this.revision;
   }
 
-  /** A socket connected; nothing is sent until it says hello. */
-  join(peer: Peer): void {
+  /**
+   * A socket connected; nothing is sent until it says hello. `ready` re-admits
+   * a client that already said hello on this socket (the Durable Object woke
+   * from hibernation with its sockets still open).
+   */
+  join(peer: Peer, ready = false): void {
     this.members.set(peer.clientId, peer);
+    if (ready) this.ready.add(peer.clientId);
   }
 
   leave(clientId: string): Outgoing[] {

@@ -9,7 +9,9 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 
-import { aggregateAllFiles, aggregateStats, normalizeGenericFiles } from './drive-aggregation';
+import { aggregateAllFiles, aggregateStats, normalizeGenericFiles, purgeTrashed } from './drive-aggregation';
+import { purgeFile } from '@weldsuite/core-domain/files';
+import { eq } from 'drizzle-orm';
 import { isPlatformRoute } from '../test/platform-routes';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -86,6 +88,34 @@ beforeAll(async () => {
   await seedMailbox('removed.pdf', { isShared: true }, { deletedAt: new Date() });
   await seedMailbox('closed-account.pdf', { isShared: true, deletedAt: new Date() });
 }, 60_000);
+
+/** A trashed WeldSheets spreadsheet: its file plus the `sheets` row that references it. */
+async function seedTrashedSheet(): Promise<string> {
+  const fileId = generateId('fil');
+  await db.insert(schema.files).values({
+    id: fileId,
+    fileName: 'Budget',
+    mimeType: 'application/vnd.weldsuite.spreadsheet',
+    fileSize: 1,
+    fileType: 'spreadsheet',
+    storagePath: `workspaces/w/sheets/${fileId}/workbook.json.gz`,
+    deletedAt: new Date(),
+  });
+  await db.insert(schema.sheets).values({ id: generateId('sht'), fileId });
+  return fileId;
+}
+
+describe('purging a WeldSheets spreadsheet', () => {
+  it.each([
+    ['from the trash list', (fileId: string) => purgeTrashed(db, { fileIds: [fileId], folderIds: [] })],
+    ['one file', (fileId: string) => purgeFile(db, fileId)],
+  ])('removes its sheet row with the file (%s)', async (_label, purge) => {
+    const fileId = await seedTrashedSheet();
+    await purge(fileId);
+    expect(await db.select().from(schema.files).where(eq(schema.files.id, fileId))).toEqual([]);
+    expect(await db.select().from(schema.sheets).where(eq(schema.sheets.fileId, fileId))).toEqual([]);
+  });
+});
 
 describe('aggregateAllFiles · mail attachments', () => {
   it('lists only shared-mailbox attachments for an unassigned member', async () => {
@@ -183,6 +213,23 @@ describe('normalizeGenericFiles · navigateTo', () => {
     expect(navigateTo('project_document', 'doc_1', { metadata: { projectId: 'prj_1' } })).toBe(
       '/weldflow/project/prj_1/documents',
     );
+  });
+
+  it('opens a WeldSheets spreadsheet (a plain drive file) in its editor', () => {
+    const [file] = normalizeGenericFiles([
+      {
+        id: 'file_1',
+        fileName: 'Budget',
+        fileType: 'spreadsheet',
+        entityType: null,
+        entityId: null,
+        metadata: { weldsheetId: 'sht_1' },
+        createdAt: new Date(),
+        updatedAt: null,
+      } as unknown as typeof schema.files.$inferSelect,
+    ]);
+    expect(file!.navigateTo).toBe('/weldsheets/sht_1');
+    expect(isPlatformRoute(file!.navigateTo!)).toBe(true);
   });
 
   it.each([

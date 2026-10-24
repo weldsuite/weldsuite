@@ -3,7 +3,7 @@ import { MAX_COLS } from '../address';
 import { Sheet, Workbook, type WorkbookSnapshot } from '../model/workbook';
 import type { Op } from '../ops/types';
 import { CollabClient } from './client';
-import type { ClientMessage, ServerMessage } from './protocol';
+import { FrameAssembler, toFrames, type ClientMessage, type CommittedOp, type ServerMessage } from './protocol';
 import { RoomCore, type Outgoing } from './room';
 
 const ENGINE = { now: () => 0, random: () => 0.5, timezoneOffset: () => 0 };
@@ -144,6 +144,40 @@ describe('co-editing', () => {
     expect(net.room.engine.getValue('s1', 0, 0)).toBeNull();
     expect(value(net.clients[1]!, 0, 0)).toBeNull();
     expect(net.rejects).toBe(1);
+  });
+
+  it('restores a room from a checkpoint and its op log', () => {
+    // The op log as a Durable Object keeps it: revisions 1–5, checkpointed at 3.
+    const committed: CommittedOp[] = [];
+    const room = new RoomCore(baseSnapshot(), 0, { engine: ENGINE, onCommit: (c) => committed.push(c) });
+    room.join({ clientId: 'a', userId: 'u', name: 'U', color: '#000', canEdit: true });
+    room.receive('a', { type: 'hello', revision: null });
+    let checkpoint: WorkbookSnapshot = baseSnapshot();
+    for (let i = 0; i < 5; i++) {
+      room.receive('a', { type: 'submit', batchId: `b${i}`, baseRevision: i, op: { type: 'setCells', sheetId: 's1', cells: [[i, 0, { v: i + 1 }]] } });
+      if (room.revision === 3) checkpoint = room.engine.toSnapshot();
+    }
+    const restored = RoomCore.restore(checkpoint, 3, committed, { engine: ENGINE });
+    expect(restored.revision).toBe(5);
+    expect(JSON.stringify(restored.engine.toSnapshot())).toBe(JSON.stringify(room.engine.toSnapshot()));
+    // A client at revision 1 still catches up from the log.
+    restored.join({ clientId: 'b', userId: 'u', name: 'U', color: '#000', canEdit: true });
+    const [welcome] = restored.receive('b', { type: 'hello', revision: 1 });
+    expect(welcome!.msg.type === 'welcome' && welcome!.msg.catchUp?.map((c) => c.revision)).toEqual([2, 3, 4, 5]);
+    expect(() => RoomCore.restore(checkpoint, 3, committed.slice(4), { engine: ENGINE })).toThrow(/gap/);
+  });
+
+  it('splits long messages into frames and joins them again', () => {
+    const text = JSON.stringify({ type: 'resync', revision: 1, snapshot: { s: 'x"\\'.repeat(5000) + '\u{1F600}'.repeat(100) } });
+    const frames = toFrames(text, 'm1', 1000);
+    expect(frames.length).toBeGreaterThan(10);
+    const assembler = new FrameAssembler();
+    const joined = frames.map((f) => assembler.accept(f));
+    expect(joined.slice(0, -1).every((j) => j === null)).toBe(true);
+    expect(joined.at(-1)).toBe(text);
+    expect(toFrames('{"type":"ping"}', 'm2', 1000)).toEqual(['{"type":"ping"}']);
+    expect(assembler.accept('{"type":"ping"}')).toBe('{"type":"ping"}');
+    expect(new FrameAssembler(4).accept(frames[0]!)).toBeNull();
   });
 
   it('converges under random edits, delays and reconnects', () => {

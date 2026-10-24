@@ -25,6 +25,8 @@ export interface Peer {
   clientId: string;
   userId: string;
   name: string;
+  /** Avatar URL, when they have one. */
+  picture?: string | null;
   color: string;
   /** Can change the workbook; viewers only watch. */
   canEdit: boolean;
@@ -90,6 +92,61 @@ export function decodeClient(data: string): ClientMessage | null {
 
 export function decodeServer(data: string): ServerMessage | null {
   return decode(data, SERVER_TYPES) as ServerMessage | null;
+}
+
+/**
+ * Longest WebSocket message either side sends. Cloudflare refuses messages
+ * over 1 MiB, and a workbook snapshot or a large paste can be far bigger, so
+ * a longer message goes as numbered parts that the receiver joins again.
+ */
+export const MAX_FRAME = 256 * 1024;
+
+/** The frames to send for one encoded message: the message itself, or its parts. */
+export function toFrames(text: string, id: string, max = MAX_FRAME): string[] {
+  if (text.length <= max) return [text];
+  const count = Math.ceil(text.length / max);
+  const frames: string[] = [];
+  for (let index = 0; index < count; index++) {
+    // Same key order every time: FrameAssembler recognises parts by this prefix.
+    frames.push(JSON.stringify({ type: 'part', id, index, count, data: text.slice(index * max, (index + 1) * max) }));
+  }
+  return frames;
+}
+
+const PART_PREFIX = '{"type":"part"';
+
+/** Joins the parts `toFrames` produced. One per connection. */
+export class FrameAssembler {
+  private readonly pending = new Map<string, string[]>();
+
+  /** @param maxParts Parts one message may have; more is treated as garbage. */
+  constructor(private readonly maxParts = 512) {}
+
+  /** The text of a whole message, or null while its parts are still arriving (or the frame is bad). */
+  accept(frame: string): string | null {
+    if (!frame.startsWith(PART_PREFIX)) return frame;
+    let part: { id: string; index: number; count: number; data: string };
+    try {
+      part = JSON.parse(frame) as typeof part;
+    } catch {
+      return null;
+    }
+    const { id, index, count, data } = part;
+    if (!Number.isInteger(count) || count < 1 || count > this.maxParts || !Number.isInteger(index) || index < 0 || index >= count) {
+      return null;
+    }
+    let parts = this.pending.get(id);
+    if (!parts) {
+      // Parts of one message arrive back to back; anything older was abandoned.
+      this.pending.clear();
+      parts = [];
+      this.pending.set(id, parts);
+    }
+    parts[index] = data;
+    if (parts.filter((p) => p !== undefined).length < count) return null;
+    this.pending.delete(id);
+    return parts.join('');
+  }
 }
 
 const CLIENT_TYPES = new Set(['hello', 'submit', 'presence', 'ping']);
