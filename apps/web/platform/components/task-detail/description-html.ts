@@ -53,6 +53,12 @@ export function escapeHtml(input: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// Brackets a lifted-out markdown image or link while the rest is converted. A
+// private-use character, so no real description contains it (any that does is
+// stripped first).
+const EMBED_MARK = '';
+const EMBED_PLACEHOLDER = /(\d+)/g;
+
 // Converts a stored description (which may be HTML or legacy markdown) into
 // HTML suitable for a contentEditable editor. This normalizes `**bold**`,
 // `*italic*`, `~~strike~~`, and `` `code` `` into their HTML equivalents so
@@ -63,8 +69,20 @@ export function descriptionToHtml(input: string): string {
   // never the markup as written: it goes through the allowlist first.
   if (/<[a-z][^>]*>/i.test(input)) return sanitizeDescriptionHtml(input);
   // Otherwise treat it as markdown — convert the inline markers we support.
+  // Images and links first (the task dialog stores pasted images as
+  // `![name](url)`): they are lifted out behind placeholders so the emphasis
+  // rules below never touch a `*` or `~` inside a URL, and go back in escaped.
+  const embeds: string[] = [];
+  const stash = (html: string) => `${EMBED_MARK}${embeds.push(html) - 1}${EMBED_MARK}`;
   // Order matters: bold (**) before italic (*) so greedy matches don't swallow pairs.
+  // Neither bracket nor parenthesis may repeat inside the brackets/parentheses,
+  // so a failed match never rescans the same text.
   let html = input
+    .replaceAll(EMBED_MARK, '')
+    .replace(/!\[([^[\]\n]*)\]\(([^()\s]+)\)/g, (_, alt: string, src: string) =>
+      stash(`<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`))
+    .replace(/\[([^[\]\n]+)\]\(([^()\s]+)\)/g, (_, label: string, href: string) =>
+      stash(`<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`))
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -74,5 +92,8 @@ export function descriptionToHtml(input: string): string {
     .replace(/`([^`\n]+)`/g, '<code>$1</code>');
   // Preserve newlines as <br>
   html = html.replace(/\n/g, '<br>');
-  return html;
+  if (embeds.length === 0) return html;
+  // A markdown URL is as untrusted as an HTML one (`javascript:` and the like).
+  html = html.replace(EMBED_PLACEHOLDER, (_, i: string) => embeds[Number(i)] ?? '');
+  return sanitizeDescriptionHtml(html);
 }
