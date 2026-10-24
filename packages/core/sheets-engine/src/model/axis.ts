@@ -4,7 +4,8 @@
  * A million rows mostly share the default size, so only overrides are stored.
  * Offsets come from a sorted list of overridden indices with prefix sums of
  * their deltas, giving O(log n) index → pixel and pixel → index lookups for
- * the renderer. Hidden entries have size 0.
+ * the renderer. Hidden entries have size 0, and so do rows the sheet's filter
+ * hides (`filtered`: derived from values, never stored).
  */
 
 export interface AxisSnapshot {
@@ -17,6 +18,7 @@ export interface AxisSnapshot {
 export class AxisDims {
   private readonly sizes = new Map<number, number>();
   private readonly hidden = new Set<number>();
+  private filtered = new Set<number>();
   /** Default style per row/column (formatting a whole column). */
   readonly styles = new Map<number, string>();
 
@@ -26,7 +28,7 @@ export class AxisDims {
   constructor(public defaultSize: number) {}
 
   sizeOf(i: number): number {
-    if (this.hidden.has(i)) return 0;
+    if (this.hidden.has(i) || this.filtered.has(i)) return 0;
     return this.sizes.get(i) ?? this.defaultSize;
   }
 
@@ -35,8 +37,27 @@ export class AxisDims {
     return this.sizes.get(i);
   }
 
+  /** Hidden by hand (hideDims). */
   isHidden(i: number): boolean {
     return this.hidden.has(i);
+  }
+
+  /** Hidden by the sheet's filter. */
+  isFiltered(i: number): boolean {
+    return this.filtered.has(i);
+  }
+
+  /** Not shown, for either reason. */
+  isCollapsed(i: number): boolean {
+    return this.hidden.has(i) || this.filtered.has(i);
+  }
+
+  /** The rows the filter hides now; true when that changed. */
+  setFiltered(rows: Set<number>): boolean {
+    if (rows.size === this.filtered.size && [...rows].every((r) => this.filtered.has(r))) return false;
+    this.filtered = rows;
+    this.index = null;
+    return true;
   }
 
   setSize(i: number, size: number | undefined): void {
@@ -94,7 +115,7 @@ export class AxisDims {
 
   private firstVisibleFrom(i: number): number {
     let j = i;
-    while (this.hidden.has(j)) j++;
+    while (this.isCollapsed(j)) j++;
     return j;
   }
 
@@ -103,6 +124,7 @@ export class AxisDims {
     shiftMap(this.sizes, (i) => (i >= at ? i + count : i));
     shiftMap(this.styles, (i) => (i >= at ? i + count : i));
     shiftSet(this.hidden, (i) => (i >= at ? i + count : i));
+    shiftSet(this.filtered, (i) => (i >= at ? i + count : i));
     this.index = null;
   }
 
@@ -115,6 +137,7 @@ export class AxisDims {
     shiftMap(this.sizes, map);
     shiftMap(this.styles, map);
     shiftSet(this.hidden, map);
+    shiftSet(this.filtered, map);
     this.index = null;
   }
 
@@ -123,12 +146,13 @@ export class AxisDims {
     shiftMap(this.sizes, map);
     shiftMap(this.styles, map);
     shiftSet(this.hidden, map);
+    shiftSet(this.filtered, map);
     this.index = null;
   }
 
   private build(): void {
     if (this.index) return;
-    const keys = new Set<number>([...this.sizes.keys(), ...this.hidden]);
+    const keys = new Set<number>([...this.sizes.keys(), ...this.hidden, ...this.filtered]);
     const idx = [...keys].sort((a, b) => a - b);
     const prefix = new Array<number>(idx.length + 1);
     prefix[0] = 0;

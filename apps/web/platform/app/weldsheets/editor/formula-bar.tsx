@@ -35,11 +35,12 @@ export function FormulaBar({ controller, inputRef }: Props) {
       return;
     }
     if ((e.key === 'Enter' && !e.altKey) || e.key === 'Tab') {
-      controller.commitEdit();
+      e.preventDefault();
+      // Refused by a strict validation rule: stay in the bar to correct it.
+      if (!controller.commitEdit()) return;
       if (e.key === 'Tab') controller.advance(0, e.shiftKey ? -1 : 1);
       else controller.advance(e.shiftKey ? -1 : 1, 0);
       e.currentTarget.blur();
-      e.preventDefault();
     }
   };
 

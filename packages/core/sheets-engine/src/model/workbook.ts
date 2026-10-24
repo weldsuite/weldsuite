@@ -9,6 +9,15 @@ import type { Range } from '../address';
 import { AxisDims, type AxisSnapshot } from './axis';
 import { CellStore, type Cell } from './cell-store';
 import { StyleTable, type CellStyle } from './styles';
+import {
+  cloneFilter,
+  cloneFormat,
+  cloneValidation,
+  sortFormats,
+  type ConditionalFormat,
+  type DataValidation,
+  type SheetFilter,
+} from './rules';
 
 export const DEFAULT_ROW_HEIGHT = 21;
 export const DEFAULT_COL_WIDTH = 100;
@@ -33,6 +42,10 @@ export class Sheet {
   merges: Range[] = [];
   freeze = { rows: 0, cols: 0 };
   props: SheetProps = {};
+  /** The basic filter; rows it hides are derived (`rows.isFiltered`), not stored. */
+  filter: SheetFilter | null = null;
+  conditionalFormats: ConditionalFormat[] = [];
+  validations: DataValidation[] = [];
 
   constructor(
     readonly id: string,
@@ -114,6 +127,9 @@ export function sheetToJSON(s: Sheet): SheetSnapshot {
   if (s.merges.length) snap.merges = s.merges.map((m) => ({ ...m })).sort((a, b) => a.r1 - b.r1 || a.c1 - b.c1);
   if (s.freeze.rows || s.freeze.cols) snap.freeze = { ...s.freeze };
   if (Object.keys(s.props).length) snap.props = { ...s.props };
+  if (s.filter) snap.filter = cloneFilter(s.filter);
+  if (s.conditionalFormats.length) snap.conditionalFormats = sortFormats(s.conditionalFormats).map(cloneFormat);
+  if (s.validations.length) snap.validations = s.validations.map(cloneValidation);
   return snap;
 }
 
@@ -127,6 +143,9 @@ export function sheetFromJSON(s: SheetSnapshot): Sheet {
   sheet.merges = (s.merges ?? []).map((m) => ({ ...m }));
   sheet.freeze = s.freeze ? { ...s.freeze } : { rows: 0, cols: 0 };
   sheet.props = { ...(s.props ?? {}) };
+  sheet.filter = s.filter ? cloneFilter(s.filter) : null;
+  sheet.conditionalFormats = (s.conditionalFormats ?? []).map(cloneFormat);
+  sheet.validations = (s.validations ?? []).map(cloneValidation);
   return sheet;
 }
 
@@ -142,6 +161,9 @@ export interface SheetSnapshot {
   merges?: Range[];
   freeze?: { rows: number; cols: number };
   props?: SheetProps;
+  filter?: SheetFilter;
+  conditionalFormats?: ConditionalFormat[];
+  validations?: DataValidation[];
 }
 
 export interface WorkbookSnapshot {

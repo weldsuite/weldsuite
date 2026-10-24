@@ -23,6 +23,14 @@ export interface EvalHost {
   random(): number;
   /** Local timezone offset in minutes (Date#getTimezoneOffset semantics) used by NOW/TODAY. */
   timezoneOffset(): number;
+  /**
+   * Whether a row is hidden by the sheet's filter, or (with `manual`) by hand
+   * too: SUBTOTAL and AGGREGATE skip such rows. Calling it marks the formula
+   * being evaluated as depending on row visibility.
+   */
+  isRowHidden(sheetId: string, row: number, manual: boolean): boolean;
+  /** Formula text of a cell, if it holds one (SUBTOTAL skips nested SUBTOTALs). */
+  cellFormula(sheetId: string, row: number, col: number): string | undefined;
 }
 
 export interface EvalContext {

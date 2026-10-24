@@ -91,6 +91,7 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
             locale: locale.format,
             formulaLocale: locale.formula,
             applyOp: (op) => conn.apply(op),
+            onInputRefused: (rule) => toast.error(rule.help ?? strings.current.validation.refused),
           });
           current.setPeers(latestPeers);
           setController(current);

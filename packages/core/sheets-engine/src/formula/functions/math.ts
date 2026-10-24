@@ -6,7 +6,7 @@
 
 import { ERR, isError, isMatrix, isRange, matrix, type CellError, type EvalValue, type Scalar } from '../../values';
 import { MAX_MATRIX_CELLS } from '../evaluator';
-import type { EvalContext, FunctionSpec } from '../types';
+import type { EvalContext, EvalHost, FunctionSpec } from '../types';
 import { collectNumbers, int, num, text, toMatrix } from './helpers';
 import { getFunction } from './registry';
 import {
@@ -261,6 +261,40 @@ const AGGREGATE_FNS = [
   'PERCENTILE.EXC',
   'QUARTILE.EXC',
 ];
+
+/** What SUBTOTAL and AGGREGATE leave out of their ranges. */
+interface Skip {
+  /** Rows hidden by the filter, by the filter or by hand, or none. */
+  hidden: 'none' | 'filtered' | 'all';
+  /** Cells that hold a SUBTOTAL or AGGREGATE themselves. */
+  nested: boolean;
+}
+
+const NESTED = /^\s*(?:SUBTOTAL|AGGREGATE)\s*\(/i;
+
+/** A context whose ranges leave out what `skip` says (blank, as far as the aggregate can tell). */
+function skipping(ctx: EvalContext, skip: Skip): EvalContext {
+  if (skip.hidden === 'none' && !skip.nested) return ctx;
+  const host = ctx.host;
+  const skipped = (sheetId: string, row: number, col: number): boolean =>
+    (skip.hidden !== 'none' && host.isRowHidden(sheetId, row, skip.hidden === 'all')) ||
+    (skip.nested && NESTED.test(host.cellFormula(sheetId, row, col) ?? ''));
+  const visible: EvalHost = {
+    cellValue: (s, r, c) => (skipped(s, r, c) ? null : host.cellValue(s, r, c)),
+    forEachValue: (s, range, fn) => host.forEachValue(s, range, (r, c, v) => !skipped(s, r, c) && fn(r, c, v)),
+    usedRange: (s) => host.usedRange(s),
+    sheetIdByName: (name) => host.sheetIdByName(name),
+    sheetName: (s) => host.sheetName(s),
+    sheetIds: () => host.sheetIds(),
+    definedName: (name, s) => host.definedName(name, s),
+    now: () => host.now(),
+    random: () => host.random(),
+    timezoneOffset: () => host.timezoneOffset(),
+    isRowHidden: (s, r, manual) => host.isRowHidden(s, r, manual),
+    cellFormula: (s, r, c) => host.cellFormula(s, r, c),
+  };
+  return { ...ctx, host: visible };
+}
 
 function callByName(name: string, args: EvalValue[], ctx: EvalContext): EvalValue {
   const spec = getFunction(name);
@@ -670,9 +704,8 @@ export const mathFunctions: FunctionSpec[] = [
   // --- SUBTOTAL / AGGREGATE ------------------------------------------------
   {
     /**
-     * Function numbers 101–111 should also skip hidden rows, and nested
-     * SUBTOTAL/AGGREGATE cells should be skipped; the host does not expose
-     * row visibility or cell formulas yet, so both behave like 1–11.
+     * Skips rows the filter hides and cells holding SUBTOTAL or AGGREGATE;
+     * function numbers 101–111 also skip rows hidden by hand.
      */
     name: 'SUBTOTAL',
     minArgs: 2,
@@ -682,13 +715,13 @@ export const mathFunctions: FunctionSpec[] = [
       if (isError(code)) return code;
       const name = SUBTOTAL_FNS[(code > 100 ? code - 100 : code) - 1];
       if (!name || code < 1) return ERR.value;
-      return callByName(name, args.slice(1), ctx);
+      return callByName(name, args.slice(1), skipping(ctx, { hidden: code > 100 ? 'all' : 'filtered', nested: true }));
     },
   },
   {
     /**
-     * Options 2, 3, 6 and 7 ignore error values. Hidden rows and nested
-     * SUBTOTAL/AGGREGATE cells are not skipped (see SUBTOTAL).
+     * Options 0–3 skip cells holding SUBTOTAL or AGGREGATE; 1, 3, 5 and 7 skip
+     * hidden rows (filtered or by hand); 2, 3, 6 and 7 ignore error values.
      */
     name: 'AGGREGATE',
     minArgs: 3,
@@ -702,13 +735,14 @@ export const mathFunctions: FunctionSpec[] = [
       if (!name || code < 1 || option < 0 || option > 7) return ERR.value;
       let rest = args.slice(2);
       if (code >= 14 && rest.length !== 2) return ERR.value;
+      const inner = skipping(ctx, { hidden: [1, 3, 5, 7].includes(option) ? 'all' : 'none', nested: option <= 3 });
       if ([2, 3, 6, 7].includes(option)) {
         const data = code >= 14 ? rest.slice(0, 1) : rest;
-        const cleaned = data.map((a) => withoutErrors(a, ctx)).filter((a): a is EvalValue => a !== undefined);
+        const cleaned = data.map((a) => withoutErrors(a, inner)).filter((a): a is EvalValue => a !== undefined);
         rest = code >= 14 ? [cleaned[0] ?? null, rest[1]!] : cleaned;
         if (rest.length === 0) return ERR.value;
       }
-      return callByName(name, rest, ctx);
+      return callByName(name, rest, inner);
     },
   },
 

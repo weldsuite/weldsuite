@@ -91,6 +91,51 @@ const isAxisSnapshot = shape({
 });
 const sheetProps = (check: (c: Check) => Check) =>
   shape({ tabColor: check(isStr), hidden: check(isBool), gridlines: check(isBool), rtl: check(isBool) });
+const anyOf = (...checks: Check[]): Check => (v) => checks.some((c) => c(v));
+
+const isCondition = anyOf(
+  shape({ type: oneOf('empty', 'notEmpty') }),
+  shape({ type: oneOf('textContains', 'textNotContains', 'textStartsWith', 'textEndsWith', 'textIs'), value: isStr }),
+  shape({ type: oneOf('greater', 'greaterOrEqual', 'less', 'lessOrEqual', 'equal', 'notEqual'), value: isNum }),
+  shape({ type: oneOf('between', 'notBetween'), min: isNum, max: isNum }),
+  shape({ type: oneOf('formula'), formula: isStr }),
+);
+const isFilter = shape({
+  range: isRange,
+  columns: arrayOf(shape({ col: isInt, hiddenValues: optional(arrayOf(isStr)), condition: optional(isCondition) })),
+});
+const isConditionalStyle = shape({
+  bold: optional(isBool),
+  italic: optional(isBool),
+  underline: optional(isBool),
+  strike: optional(isBool),
+  color: optional(isStr),
+  fill: optional(isStr),
+});
+const isColorPoint = shape({ kind: oneOf('min', 'max', 'number', 'percent', 'percentile'), value: optional(isNum), color: isStr });
+const isFormat = shape({
+  id: isStr,
+  order: isNum,
+  ranges: arrayOf(isRange),
+  rule: anyOf(
+    shape({ type: oneOf('condition'), condition: isCondition, style: isConditionalStyle }),
+    shape({ type: oneOf('colorScale'), points: arrayOf(isColorPoint) }),
+  ),
+});
+const isValidation = shape({
+  id: isStr,
+  ranges: arrayOf(isRange),
+  criteria: anyOf(
+    shape({ type: oneOf('list'), values: arrayOf(isStr) }),
+    shape({ type: oneOf('listRange'), source: isStr }),
+    shape({ type: oneOf('condition'), condition: isCondition }),
+    shape({ type: oneOf('checkbox') }),
+  ),
+  strict: isBool,
+  dropdown: optional(isBool),
+  help: optional(isStr),
+});
+
 const isSheetSnapshot = shape({
   id: isStr,
   name: isStr,
@@ -102,6 +147,9 @@ const isSheetSnapshot = shape({
   merges: optional(arrayOf(isRange)),
   freeze: optional(shape({ rows: isInt, cols: isInt })),
   props: optional(sheetProps(optional)),
+  filter: optional(isFilter),
+  conditionalFormats: optional(arrayOf(isFormat)),
+  validations: optional(arrayOf(isValidation)),
 });
 
 const sheetOp = (fields: Record<string, Check>): Check => shape({ type: isStr, sheetId: isStr, ...fields });
@@ -134,6 +182,9 @@ const CHECKS = new Map<Exclude<OpType, 'batch'>, Check>([
   ['setFreeze', sheetOp({ rows: isInt, cols: isInt })],
   ['setNames', shape({ type: isStr, names: arrayOf(isDefinedName) })],
   ['patchNames', shape({ type: isStr, set: optional(arrayOf(isDefinedName)), remove: optional(arrayOf(isNameKey)) })],
+  ['setFilter', sheetOp({ filter: nullable(isFilter) })],
+  ['patchConditionalFormats', sheetOp({ set: optional(arrayOf(isFormat)), remove: optional(arrayOf(isStr)) })],
+  ['patchValidations', sheetOp({ set: optional(arrayOf(isValidation)), remove: optional(arrayOf(isStr)) })],
 ]);
 
 /** True when `op` has the structure of an `Op` all the way down. */

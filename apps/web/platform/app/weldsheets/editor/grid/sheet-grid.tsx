@@ -29,8 +29,10 @@ import {
   COL_HEADER_HEIGHT,
   type GridLayout,
   type Hit,
+  type Rect,
 } from './geometry';
-import { fontFor, renderGrid, type RefHighlight, type RemoteCursor } from './renderer';
+import { checkboxRect, dropdownRect, filterButtonRect, fontFor, renderGrid, type RefHighlight, type RemoteCursor } from './renderer';
+import { FilterMenu, ListMenu } from '../rules/cell-menus';
 import { readGridTheme, REFERENCE_COLORS, type GridTheme } from './theme';
 
 /** How long someone's name shows after they move; after that only while the pointer is on their cell. */
@@ -66,6 +68,8 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   const [caret, setCaret] = useState(0);
   /** The cell under the pointer, tracked only while someone else is on this sheet. */
   const [hoverCell, setHoverCell] = useState<CellPos | null>(null);
+  /** An open filter menu (on a filter header cell) or dropdown list (on a list cell). */
+  const [cellMenu, setCellMenu] = useState<{ kind: 'filter' | 'list'; row: number; col: number } | null>(null);
   const [, setLabelClock] = useState(0);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const themeRef = useRef<GridTheme | null>(null);
@@ -215,19 +219,52 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   // Pointer
   // -------------------------------------------------------------------------
 
+  const cellRect = (row: number, col: number): Rect => rangeRect(layout, sheet, sheet.mergeAt(row, col) ?? { r1: row, c1: col, r2: row, c2: col });
+
+  /** A click on a filter button, a checkbox or a dropdown arrow: handled here instead of selecting. */
+  const clickedControl = (hit: Hit, x: number, y: number): boolean => {
+    if (hit.area !== 'cell' || controller.readOnly) return false;
+    const cell = cellRect(hit.row, hit.col);
+    const inside = (r: Rect) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    const filter = sheet.filter;
+    if (filter && hit.row === filter.range.r1 && hit.col >= filter.range.c1 && hit.col <= filter.range.c2 && inside(filterButtonRect(cell))) {
+      setCellMenu({ kind: 'filter', row: hit.row, col: hit.col });
+      return true;
+    }
+    const rule = controller.validationAt(hit.row, hit.col);
+    if (rule?.criteria.type === 'checkbox' && inside(checkboxRect(cell))) {
+      controller.select(cellSelection(hit.row, hit.col));
+      controller.toggleCheckbox(hit.row, hit.col);
+      return true;
+    }
+    const isList = rule?.criteria.type === 'list' || rule?.criteria.type === 'listRange';
+    if (rule?.dropdown && isList && inside(dropdownRect(cell))) {
+      controller.select(cellSelection(hit.row, hit.col));
+      setCellMenu({ kind: 'list', row: hit.row, col: hit.col });
+      return true;
+    }
+    return false;
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const { hit, x, y } = pointAt(e);
     if (hit.area === 'cell' && x > layout.width - 16 && y > layout.height - 16) return; // scrollbar corner
+    if (!editing && clickedControl(hit, x, y)) {
+      e.preventDefault();
+      return;
+    }
     const input = activeInput();
     const caretPos = input?.selectionStart ?? 0;
     const pointing = hit.area === 'cell' && !!editing && acceptsReference(editing.text, caretPos);
-    if (pointing) {
-      startPointMode(hit, caretPos);
-    } else {
-      controller.commitEdit();
-      startSelection(hit, e);
+    if (!pointing && !controller.commitEdit()) {
+      // Refused by a strict validation rule: keep editing that cell.
+      e.preventDefault();
+      input?.focus({ preventScroll: true });
+      return;
     }
+    if (pointing) startPointMode(hit, caretPos);
+    else startSelection(hit, e);
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
     (pointing ? input : editorRef.current)?.focus({ preventScroll: true });
@@ -398,8 +435,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   const onContextMenuOpen = (e: React.MouseEvent<HTMLDivElement>) => {
     const { hit } = pointAt(e);
     if (hit.area === 'cell' && !selectionContains(controller.selection, hit.row, hit.col)) {
-      controller.commitEdit();
-      controller.select(cellSelection(hit.row, hit.col));
+      if (controller.commitEdit()) controller.select(cellSelection(hit.row, hit.col));
     }
   };
 
@@ -516,6 +552,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
       </GridContextMenu>
       <textarea
         ref={editorRef}
+        rows={editing ? editing.text.split('\n').length : 1}
         value={editing ? editing.text : ''}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -545,6 +582,12 @@ export function SheetGrid({ controller, barInputRef }: Props) {
             : { left: editRect.x, top: editRect.y, width: 1, height: 1, opacity: 0, padding: 0, border: 0 }
         }
       />
+      {cellMenu?.kind === 'filter' && sheet.filter && (
+        <FilterMenu controller={controller} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
+      )}
+      {cellMenu?.kind === 'list' && (
+        <ListMenu controller={controller} row={cellMenu.row} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
+      )}
       {suggestions.length > 0 && (
         <ul
           className="absolute z-20 min-w-[180px] rounded-md border bg-popover py-1 text-sm text-popover-foreground shadow-md"

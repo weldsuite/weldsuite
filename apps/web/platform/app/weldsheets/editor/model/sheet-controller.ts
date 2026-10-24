@@ -14,8 +14,14 @@ import {
   transform,
   translateFormula,
   Workbook,
+  conditionalStyleAt,
+  passesValidation,
+  validationAt,
   type BorderSide,
   type CellPatch,
+  type ConditionalStyle,
+  type DataValidation,
+  type FormatCache,
   type CellStyle,
   type FormatLocale,
   type FormulaLocale,
@@ -62,6 +68,8 @@ export interface ControllerOptions {
   formulaLocale: FormulaLocale;
   /** Every local op, after it is applied (autosave in the preview). */
   onOp?: (op: Op) => void;
+  /** Typed input a strict validation rule refused (the cell keeps its value). */
+  onInputRefused?: (rule: DataValidation) => void;
   /**
    * Applies a local op to the engine and returns its inverse. Co-editing
    * routes it through the room client, which also sends it; without it the
@@ -85,6 +93,8 @@ export class SheetController {
   editing: EditState | null = null;
   /** Without edit rights (sheets:update) a sheet can be read, selected and copied, not changed. */
   readOnly = false;
+  /** The side panel the editor shows (conditional formatting, data validation). */
+  panel: 'formats' | 'validation' | null = null;
   /** Bumped on every change; the React snapshot. */
   version = 0;
   /** Other people in a co-edited sheet, with where they are (drawn on the grid). */
@@ -130,6 +140,46 @@ export class SheetController {
   };
 
   getVersion = (): number => this.version;
+
+  /** Rule results for the current version (the renderer asks per visible cell). */
+  private ruleMemo: { version: number; formats: FormatCache; styles: Map<number, ConditionalStyle | undefined> } | null = null;
+
+  openPanel(panel: 'formats' | 'validation' | null): void {
+    this.panel = panel;
+    this.emit();
+  }
+
+  /** The conditional formatting a cell gets right now, if any. */
+  conditionalStyle(row: number, col: number): ConditionalStyle | undefined {
+    const sheet = this.sheet;
+    if (sheet.conditionalFormats.length === 0) return undefined;
+    if (this.ruleMemo?.version !== this.version) this.ruleMemo = { version: this.version, formats: new Map(), styles: new Map() };
+    const key = row * 16_384 + col;
+    const memo = this.ruleMemo.styles;
+    if (!memo.has(key)) memo.set(key, conditionalStyleAt(this.engine, sheet, row, col, this.ruleMemo.formats));
+    return memo.get(key);
+  }
+
+  /** The validation rule a cell on the active sheet follows. */
+  validationAt(row: number, col: number): DataValidation | undefined {
+    const sheet = this.sheet;
+    return sheet.validations.length ? validationAt(sheet, row, col) : undefined;
+  }
+
+  /** The cell's value fails its validation rule (shown with a marker). */
+  isInvalid(row: number, col: number): boolean {
+    const rule = this.validationAt(row, col);
+    if (!rule) return false;
+    const value = this.engine.getValue(this.activeSheetId, row, col);
+    return !passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value, this.options.locale);
+  }
+
+  /** Ticks or unticks a checkbox cell. */
+  toggleCheckbox(row: number, col: number): void {
+    if (this.readOnly || this.validationAt(row, col)?.criteria.type !== 'checkbox') return;
+    const current = this.engine.getValue(this.activeSheetId, row, col);
+    this.apply({ type: 'setCells', sheetId: this.activeSheetId, cells: [[row, col, { v: current !== true }]] });
+  }
 
   private emit(): void {
     this.version++;
@@ -286,7 +336,8 @@ export class SheetController {
 
   setActiveSheet(sheetId: string): void {
     if (sheetId === this.activeSheetId || !this.engine.workbook.getSheet(sheetId)) return;
-    this.commitEdit();
+    // A refused edit belongs to the sheet being left: drop it.
+    if (!this.commitEdit()) this.editing = null;
     this.selections.set(this.activeSheetId, this.selection);
     this.activeSheetId = sheetId;
     this.selection = this.selections.get(sheetId) ?? cellSelection(0, 0);
@@ -431,27 +482,44 @@ export class SheetController {
     this.emit();
   }
 
-  /** Writes the edit into the cell; returns whether there was one. */
+  /**
+   * Writes the edit into the cell. Returns false when a strict validation rule
+   * refused it: the edit then stays open, with its text, to be corrected.
+   */
   commitEdit(): boolean {
     const edit = this.editing;
-    if (!edit) return false;
+    if (!edit) return true;
     this.editing = null;
-    if (edit.text !== this.inputText(edit.row, edit.col)) {
-      this.setInput(edit.row, edit.col, edit.text);
-    } else {
+    if (edit.text === this.inputText(edit.row, edit.col)) {
       this.emit();
+      return true;
     }
-    return true;
+    if (this.setInput(edit.row, edit.col, edit.text)) return true;
+    this.editing = { ...edit, replace: false };
+    this.emit();
+    return false;
   }
 
-  /** Interprets typed text (number, date, %, formula, …) and writes it to a cell. */
-  setInput(row: number, col: number, text: string): void {
-    const ops: Op[] = [{ type: 'setCells', sheetId: this.activeSheetId, cells: [[row, col, this.contentFor(text)]] }];
+  /** Interprets typed text (number, date, %, formula, …) and writes it to a cell; false when a strict rule refused it. */
+  setInput(row: number, col: number, text: string): boolean {
+    const content = this.contentFor(text);
+    // A strict rule refuses a typed value that fails it; a formula's result is only marked.
+    const rule = this.validationAt(row, col);
+    if (rule?.strict && content?.f === undefined) {
+      const value = content?.v ?? null;
+      if (!passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value, this.options.locale)) {
+        this.options.onInputRefused?.(rule);
+        this.emit();
+        return false;
+      }
+    }
+    const ops: Op[] = [{ type: 'setCells', sheetId: this.activeSheetId, cells: [[row, col, content]] }];
     const numFmt = this.impliedFormat(text, row, col);
     if (numFmt) {
       ops.push({ type: 'formatRanges', sheetId: this.activeSheetId, ranges: [{ r1: row, c1: col, r2: row, c2: col }], patch: { numFmt } });
     }
     this.apply({ type: 'batch', ops });
+    return true;
   }
 
   /** Writes the same input into every cell of the selection (ctrl+enter). */
