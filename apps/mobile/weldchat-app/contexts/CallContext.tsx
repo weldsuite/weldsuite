@@ -432,6 +432,20 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
       }
     } else if (event.event === 'call_ended') {
       handleCallEnded(event.data as { channelId?: string; callId?: string });
+    } else if (event.event === 'call_answered') {
+      // Answered on another device or in the web app: stop the in-app ring
+      // here. The native ring stops through the server's cancel push, and the
+      // call itself goes on, so the channel's banner stays. A ring this phone
+      // answered is already cleared by acceptCall.
+      const answeredId = (event.data as { callId?: string } | undefined)?.callId;
+      if (!answeredId) return;
+      setIncomingCall((cur) => {
+        if (cur?.callId === answeredId) {
+          setStatus((s) => (s === 'ringing-incoming' ? 'idle' : s));
+          return null;
+        }
+        return cur;
+      });
     }
   }, [presentIncoming, handleCallEnded]);
 
