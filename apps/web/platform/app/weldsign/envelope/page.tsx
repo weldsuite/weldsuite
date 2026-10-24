@@ -3,8 +3,10 @@
  * fields, review). Every change is saved as it is made; the fields step saves
  * its whole field set on "Save" and when you leave it.
  *
- * A draft normally opens on Documents; `?step=review` opens it on Review, which
- * is where a draft made from a template lands so it can be sent right away.
+ * A draft normally opens on Documents. `?step=review` opens it on Review, which
+ * is where a draft made from a template lands so it can be sent right away;
+ * `?step=recipients` opens it on Recipients, where a draft made from a WeldDrive
+ * file lands (its document is already in).
  *
  * A request that has been sent opens on its status view (progress, reminders,
  * voiding, activity); its documents and fields can still be browsed read-only.
@@ -31,6 +33,13 @@ import { EditorFrame } from './editor-frame';
 const STEPS = ['documents', 'recipients', 'fields', 'review'] as const;
 export type EditorStep = (typeof STEPS)[number];
 
+/** The steps an address may open the editor on; any other value opens Documents. */
+const START_STEPS: readonly EditorStep[] = ['recipients', 'review'];
+
+function startStep(requested: string | null): EditorStep {
+  return START_STEPS.find((step) => step === requested) ?? 'documents';
+}
+
 export default function EnvelopePage() {
   const { envelopeId = '' } = useParams({ strict: false });
   return <EnvelopeEditor key={envelopeId} envelopeId={envelopeId} />;
@@ -40,8 +49,8 @@ function EnvelopeEditor({ envelopeId }: Readonly<{ envelopeId: string }>) {
   const { t } = useI18n();
   const te = t.weldsign.editor;
   const { data: envelope, isLoading, error } = useSignEnvelope(envelopeId);
-  const startOnReview = useSearchParams().get('step') === 'review';
-  const [step, setStep] = useState<EditorStep>(startOnReview ? 'review' : 'documents');
+  const requestedStep = useSearchParams().get('step');
+  const [step, setStep] = useState<EditorStep>(() => startStep(requestedStep));
   // A sent request opens on its status; its documents and fields can still be browsed.
   const [browsing, setBrowsing] = useState(false);
 

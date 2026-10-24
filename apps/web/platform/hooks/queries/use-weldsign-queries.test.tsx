@@ -11,6 +11,7 @@ function sharedCalls() {
     documentContent: vi.fn(),
     reorderDocuments: vi.fn(),
     removeDocument: vi.fn(),
+    addDocumentFromDrive: vi.fn(),
     replaceFields: vi.fn(),
     update: vi.fn(),
   };
@@ -26,9 +27,12 @@ import {
   targetOf,
   templateTarget,
   useSaveSignFields,
+  useSetSignFileBackFolder,
   useSignDocumentContent,
   useSignDocumentMutations,
+  useSignRecipientSuggestions,
   useSignTemplateRoleMutations,
+  useStartSignEnvelope,
   useUpdateSignEnvelope,
   useUseSignTemplate,
   weldsignKeys,
@@ -39,6 +43,12 @@ const templateOnly = {
   updateRole: vi.fn(),
   removeRole: vi.fn(),
   use: vi.fn(),
+};
+
+/** Calls only a request has. */
+const envelopeOnly = {
+  create: vi.fn(),
+  recipientSuggestions: vi.fn(),
 };
 
 function detail(overrides: Partial<SignEnvelopeDetail>): SignEnvelopeDetail {
@@ -57,7 +67,8 @@ beforeEach(() => {
   calls.envelope = sharedCalls();
   calls.template = sharedCalls();
   for (const fn of Object.values(templateOnly)) fn.mockReset();
-  api.weldsign = { ...calls.envelope, templates: { ...calls.template, ...templateOnly } };
+  for (const fn of Object.values(envelopeOnly)) fn.mockReset();
+  api.weldsign = { ...calls.envelope, ...envelopeOnly, templates: { ...calls.template, ...templateOnly } };
 });
 
 describe('targets', () => {
@@ -241,5 +252,132 @@ describe('useUseSignTemplate', () => {
     expect(draft.id).toBe('sgn_new');
     expect(client.getQueryData<{ data: SignEnvelopeDetail }>(weldsignKeys.envelope('sgn_new'))?.data.title).toBe('NDA for Acme');
     await waitFor(() => expect(invalidated()).toEqual([weldsignKeys.lists()]));
+  });
+});
+
+describe('adding a WeldDrive PDF', () => {
+  it('copies it into a request through the request API', async () => {
+    calls.envelope.addDocumentFromDrive.mockResolvedValue({ data: { id: 'sgd_1' } });
+    const { wrapper, invalidated } = setup();
+    const { result } = renderHook(() => useSignDocumentMutations(envelopeTarget('sgn_1')), { wrapper });
+
+    const document = await result.current.addFromDrive.mutateAsync('fil_1');
+
+    expect(document).toEqual({ id: 'sgd_1' });
+    expect(calls.envelope.addDocumentFromDrive).toHaveBeenCalledWith('sgn_1', { fileId: 'fil_1' });
+    expect(calls.template.addDocumentFromDrive).not.toHaveBeenCalled();
+    await waitFor(() => expect(invalidated()).toEqual([weldsignKeys.envelope('sgn_1'), weldsignKeys.lists()]));
+  });
+
+  it('copies it into a template through the template API', async () => {
+    calls.template.addDocumentFromDrive.mockResolvedValue({ data: { id: 'sgd_1' } });
+    const { wrapper, invalidated } = setup();
+    const { result } = renderHook(() => useSignDocumentMutations(templateTarget('sgt_1')), { wrapper });
+
+    await result.current.addFromDrive.mutateAsync('fil_1');
+
+    expect(calls.template.addDocumentFromDrive).toHaveBeenCalledWith('sgt_1', { fileId: 'fil_1' });
+    expect(calls.envelope.addDocumentFromDrive).not.toHaveBeenCalled();
+    await waitFor(() => expect(invalidated()).toEqual([weldsignKeys.template('sgt_1'), weldsignKeys.templateLists()]));
+  });
+});
+
+describe('useSignRecipientSuggestions', () => {
+  const people = [{ personId: 'per_1', name: 'Ann', email: 'ann@example.com', title: null }];
+
+  it("reads the people on the draft's CRM record, under the envelope key", async () => {
+    envelopeOnly.recipientSuggestions.mockResolvedValue({ data: people });
+    const { client, wrapper } = setup();
+    const { result } = renderHook(() => useSignRecipientSuggestions('sgn_1', true), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toEqual(people));
+    expect(envelopeOnly.recipientSuggestions).toHaveBeenCalledWith('sgn_1');
+    // Under the envelope: every change to the draft refreshes who is still suggested.
+    expect(weldsignKeys.recipientSuggestions('sgn_1').slice(0, 3)).toEqual(weldsignKeys.envelope('sgn_1'));
+    // And out of the persisted cache: it holds names and emails.
+    expect(client.getQueryCache().find({ queryKey: weldsignKeys.recipientSuggestions('sgn_1') })?.meta).toEqual({ persist: false });
+  });
+
+  it('waits until it is wanted', () => {
+    const { wrapper } = setup();
+    renderHook(() => useSignRecipientSuggestions('sgn_1', false), { wrapper });
+    expect(envelopeOnly.recipientSuggestions).not.toHaveBeenCalled();
+  });
+});
+
+describe('useStartSignEnvelope', () => {
+  const source = { entityType: 'file', entityId: 'fil_1' } as const;
+
+  it('makes the draft, then copies the file in, and refreshes the request lists', async () => {
+    envelopeOnly.create.mockResolvedValue({ data: detail({ id: 'sgn_new' }) });
+    calls.envelope.addDocumentFromDrive.mockResolvedValue({ data: { id: 'sgd_1' } });
+    const { client, wrapper, invalidated } = setup();
+    const { result } = renderHook(() => useStartSignEnvelope(), { wrapper });
+
+    const started = await result.current.mutateAsync({ input: { title: 'Contract', source }, fileId: 'fil_1' });
+
+    expect(envelopeOnly.create).toHaveBeenCalledWith({ title: 'Contract', source });
+    expect(calls.envelope.addDocumentFromDrive).toHaveBeenCalledWith('sgn_new', { fileId: 'fil_1' });
+    expect(started.envelope.id).toBe('sgn_new');
+    expect(started.documentError).toBeNull();
+    // The detail was read before the file went in, so it is not cached: the editor loads it fresh.
+    expect(client.getQueryData(weldsignKeys.envelope('sgn_new'))).toBeUndefined();
+    await waitFor(() => expect(invalidated()).toEqual([weldsignKeys.lists()]));
+  });
+
+  it('makes only the draft for a CRM record', async () => {
+    envelopeOnly.create.mockResolvedValue({ data: detail({ id: 'sgn_new' }) });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useStartSignEnvelope(), { wrapper });
+
+    await result.current.mutateAsync({ input: { title: 'Document for Acme', source: { entityType: 'company', entityId: 'cus_1' } } });
+
+    expect(calls.envelope.addDocumentFromDrive).not.toHaveBeenCalled();
+  });
+
+  it('still gives the draft when the file is refused, with the reason', async () => {
+    const refusal = new Error('The PDF is encrypted');
+    envelopeOnly.create.mockResolvedValue({ data: detail({ id: 'sgn_new' }) });
+    calls.envelope.addDocumentFromDrive.mockRejectedValue(refusal);
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useStartSignEnvelope(), { wrapper });
+
+    const started = await result.current.mutateAsync({ input: { title: 'Contract', source }, fileId: 'fil_1' });
+
+    expect(started.envelope.id).toBe('sgn_new');
+    expect(started.documentError).toBe(refusal);
+  });
+
+  it('fails when the draft itself can not be made', async () => {
+    envelopeOnly.create.mockRejectedValue(new Error('No access to that file'));
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useStartSignEnvelope(), { wrapper });
+
+    await expect(result.current.mutateAsync({ input: { title: 'Contract', source }, fileId: 'fil_1' })).rejects.toThrow('No access to that file');
+    expect(calls.envelope.addDocumentFromDrive).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSetSignFileBackFolder', () => {
+  it('sets the folder of the signed copy, and puts the updated draft in the cache', async () => {
+    calls.envelope.update.mockResolvedValue({ data: detail({ id: 'sgn_1', fileBackFolderId: 'fld_1' }) });
+    const { client, wrapper, invalidated } = setup();
+    const { result } = renderHook(() => useSetSignFileBackFolder('sgn_1'), { wrapper });
+
+    await result.current.mutateAsync('fld_1');
+
+    expect(calls.envelope.update).toHaveBeenCalledWith('sgn_1', { fileBackFolderId: 'fld_1' });
+    expect(client.getQueryData<{ data: SignEnvelopeDetail }>(weldsignKeys.envelope('sgn_1'))?.data.fileBackFolderId).toBe('fld_1');
+    await waitFor(() => expect(invalidated()).toEqual([weldsignKeys.lists()]));
+  });
+
+  it('goes back to the default place with null', async () => {
+    calls.envelope.update.mockResolvedValue({ data: detail({ id: 'sgn_1' }) });
+    const { wrapper } = setup();
+    const { result } = renderHook(() => useSetSignFileBackFolder('sgn_1'), { wrapper });
+
+    await result.current.mutateAsync(null);
+
+    expect(calls.envelope.update).toHaveBeenCalledWith('sgn_1', { fileBackFolderId: null });
   });
 });

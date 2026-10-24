@@ -1,7 +1,9 @@
 /**
  * WeldSign hooks: the envelope list, one envelope, the draft mutations
- * (documents, recipients, fields), a sent request's lifecycle (void, remind,
- * resend, correct an email, activity, "Sign now") and templates. Keys build on
+ * (documents, recipients and who to suggest from the CRM record, fields, where
+ * the signed copy is filed), starting a draft from a WeldDrive file or a CRM
+ * record, a sent request's lifecycle (void, remind, resend, correct an email,
+ * activity, "Sign now") and templates. Keys build on
  * `weldsignKeys.all`, which the realtime sync map invalidates on every
  * `sign_envelope` and `sign_template` event.
  *
@@ -42,6 +44,8 @@ export const weldsignKeys = {
   envelope: (id: string) => [...weldsignKeys.all, 'envelope', id] as const,
   /** Nested under the envelope: invalidating the envelope refreshes its activity too. */
   events: (id: string) => [...weldsignKeys.envelope(id), 'events'] as const,
+  /** Nested under the envelope too: adding or removing a recipient refreshes who is still suggested. */
+  recipientSuggestions: (id: string) => [...weldsignKeys.envelope(id), 'recipient-suggestions'] as const,
   templateLists: () => [...weldsignKeys.all, 'template-list'] as const,
   templateList: (search: string) => [...weldsignKeys.templateLists(), search] as const,
   template: (id: string) => [...weldsignKeys.all, 'template', id] as const,
@@ -166,6 +170,23 @@ export function useUpdateSignEnvelope(target: SignTarget) {
   });
 }
 
+/**
+ * Where the signed copy of a draft goes in WeldDrive: a folder, or `null` for
+ * the default place. A request has this setting, a template does not, which is
+ * why it is not part of `useUpdateSignEnvelope`.
+ */
+export function useSetSignFileBackFolder(id: string) {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (fileBackFolderId: string | null) => weldsign.update(id, { fileBackFolderId }).then((res) => res.data),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(weldsignKeys.envelope(id), { data: detail });
+      void queryClient.invalidateQueries({ queryKey: weldsignKeys.lists() });
+    },
+  });
+}
+
 export function useDeleteSignEnvelope() {
   const { weldsign } = useAppApi();
   const queryClient = useQueryClient();
@@ -195,6 +216,11 @@ export function useSignDocumentMutations(target: SignTarget) {
       mutationFn: (documentId: string) => api.removeDocument(target.id, documentId),
       onSettled: done,
     }),
+    /** Copy a WeldDrive PDF in; takes the Drive file id. */
+    addFromDrive: useMutation({
+      mutationFn: (fileId: string) => api.addDocumentFromDrive(target.id, { fileId }).then((res) => res.data),
+      onSettled: done,
+    }),
   };
 }
 
@@ -220,6 +246,22 @@ export function useSignRecipientMutations(envelopeId: string) {
 }
 
 /**
+ * The people on the draft's CRM record, to add as recipients. `enabled` keeps
+ * it quiet for a draft that did not start from a CRM record (the server
+ * answers `[]` then anyway). Names and emails stay out of the persisted cache.
+ */
+export function useSignRecipientSuggestions(id: string, enabled: boolean) {
+  const { weldsign } = useAppApi();
+  return useQuery({
+    queryKey: weldsignKeys.recipientSuggestions(id),
+    queryFn: () => weldsign.recipientSuggestions(id),
+    select: (res) => res.data,
+    enabled,
+    meta: { persist: false },
+  });
+}
+
+/**
  * Save the whole field set. `onError` lives on the mutation, not on `mutate`,
  * so it still fires for the save made when the fields step unmounts.
  */
@@ -234,6 +276,40 @@ export function useSaveSignFields(target: SignTarget, onError?: (error: unknown)
         old ? { data: { ...old.data, fields } } : old,
       );
     },
+  });
+}
+
+/** A request started from a WeldDrive file or a CRM record. */
+export interface StartedSignEnvelope {
+  envelope: SignEnvelopeDetail;
+  /** Why the Drive file could not be added to the new draft; null when it was (or no file was given). */
+  documentError: unknown;
+}
+
+/**
+ * Make a draft that starts from a WeldDrive file or a CRM record, and, for a
+ * file, copy it in as the first document. The draft exists even when adding
+ * the file fails (the PDF may be encrypted, say): that is reported through
+ * `documentError`, not thrown, so the caller can still open the draft.
+ *
+ * The new draft's detail is not cached: it was read before the document was
+ * added, so the editor loads it fresh.
+ */
+export function useStartSignEnvelope() {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ input, fileId }: { input: CreateSignEnvelopeInput; fileId?: string }): Promise<StartedSignEnvelope> => {
+      const envelope = (await weldsign.create(input)).data;
+      if (!fileId) return { envelope, documentError: null };
+      try {
+        await weldsign.addDocumentFromDrive(envelope.id, { fileId });
+        return { envelope, documentError: null };
+      } catch (documentError) {
+        return { envelope, documentError };
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: weldsignKeys.lists() }),
   });
 }
 

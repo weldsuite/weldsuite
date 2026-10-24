@@ -55,6 +55,7 @@ export const SIGN_EVENT_TYPES = [
   'expired',
   'completed',
   'downloaded',
+  'filed',
 ] as const;
 export type SignEventType = (typeof SIGN_EVENT_TYPES)[number];
 
@@ -113,9 +114,29 @@ const title = z.string().trim().min(1).max(255);
 const message = z.string().trim().max(5000);
 const days = z.number().int().min(1).max(90);
 
+/**
+ * Records a request can start from: a WeldDrive file, or a CRM company,
+ * person or opportunity. The signed PDF is filed back to it on completion.
+ */
+export const SIGN_SOURCE_TYPES = ['file', 'company', 'person', 'opportunity'] as const;
+export type SignSourceType = (typeof SIGN_SOURCE_TYPES)[number];
+
+export const signSourceSchema = z.object({
+  entityType: z.enum(SIGN_SOURCE_TYPES),
+  entityId: z.string().min(1).max(255),
+});
+export type SignSourceInput = z.infer<typeof signSourceSchema>;
+
+/** A WeldDrive folder id for the signed copy; null files it in the default place. */
+const fileBackFolderId = z.string().min(1).max(255).nullable();
+
 export const createEnvelopeSchema = z.object({
   title,
   message: message.nullish(),
+  /** Where the request comes from; the caller must be able to read that record or file. */
+  source: signSourceSchema.nullish(),
+  /** Where the signed copy goes in WeldDrive; the caller must be able to add files there. */
+  fileBackFolderId: fileBackFolderId.optional(),
 });
 export type CreateSignEnvelopeInput = z.infer<typeof createEnvelopeSchema>;
 
@@ -129,6 +150,7 @@ export const updateEnvelopeSchema = z
     reminderAfterDays: days.nullable(),
     reminderEveryDays: days.nullable(),
     reminderMaxCount: z.number().int().min(0).max(10).nullable(),
+    fileBackFolderId,
   })
   .partial();
 export type UpdateSignEnvelopeInput = z.infer<typeof updateEnvelopeSchema>;
@@ -146,6 +168,12 @@ export const reorderDocumentsSchema = z.object({
   documentIds: z.array(z.string().min(1)).min(1).max(SIGN_LIMITS.maxDocuments),
 });
 export type ReorderSignDocumentsInput = z.infer<typeof reorderDocumentsSchema>;
+
+/** Add a WeldDrive PDF to a draft or template; its bytes are copied, so later changes in Drive do not touch it. */
+export const addDocumentFromDriveSchema = z.object({
+  fileId: z.string().min(1).max(255),
+});
+export type AddSignDocumentFromDriveInput = z.infer<typeof addDocumentFromDriveSchema>;
 
 const recipientBase = z.object({
   role: z.enum(SIGN_RECIPIENT_ROLES),
@@ -293,6 +321,12 @@ export interface SignEnvelopeDetail extends SignEnvelopeSummary {
   fields: SignFieldDto[];
   voidedReason: string | null;
   voidedAt: string | null;
+  /** The file or CRM record the request started from, with its display name (null when it is gone). */
+  source: SignSourceDto | null;
+  /** The WeldDrive folder chosen for the signed copy; null files it in the default place. */
+  fileBackFolderId: string | null;
+  /** Where the signed copy went, once the request is completed and filed. */
+  filing: SignFilingDto | null;
   /** The caller may change this envelope: it is a draft, they own it (or manage WeldSign) and hold `sign_envelopes:update`. */
   canEdit: boolean;
   /**
@@ -306,6 +340,38 @@ export interface SignEnvelopeDetail extends SignEnvelopeSummary {
   canRemind: boolean;
   /** The caller's own recipient id when it is their turn to sign; they open it with "Sign now". */
   mySignerId: string | null;
+}
+
+export interface SignSourceDto {
+  entityType: SignSourceType;
+  entityId: string;
+  /** The file's or record's name; null when it was deleted since. */
+  name: string | null;
+}
+
+/**
+ * Where the signed copy went: a WeldDrive file (in the chosen folder, the
+ * source file's folder, or the sender's own "WeldSign/<year>"), and for a
+ * CRM source a copy on the company or person and a note activity.
+ */
+export interface SignFilingDto {
+  driveFileId: string | null;
+  driveFolderId: string | null;
+  /** The copy on the CRM record (`files.entity_type` company or person). */
+  recordFileId: string | null;
+  recordType: 'company' | 'person' | null;
+  recordId: string | null;
+  activityId: string | null;
+  filedAt: string;
+}
+
+/** Someone on the request's CRM record, offered as a recipient. */
+export interface SignRecipientSuggestion {
+  personId: string;
+  name: string;
+  email: string;
+  /** Their job title, when the record has one. */
+  title: string | null;
 }
 
 /** One entry of a request's activity (the evidence trail), oldest first. */
@@ -395,7 +461,7 @@ export const createTemplateSchema = z.object({
 export type CreateSignTemplateInput = z.infer<typeof createTemplateSchema>;
 
 /** Template settings; the expiry is chosen when a request made from it is sent. */
-export const updateTemplateSchema = updateEnvelopeSchema.omit({ expiresAt: true });
+export const updateTemplateSchema = updateEnvelopeSchema.omit({ expiresAt: true, fileBackFolderId: true });
 export type UpdateSignTemplateInput = z.infer<typeof updateTemplateSchema>;
 
 export const listTemplatesQuerySchema = z.object({

@@ -36,6 +36,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { canOpenInWeldSheets, fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile, fetchDriveFileContent } from './drive-file-card';
 import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
+import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { driveSourceKey, driveSourceLabel, fileKindLabel, isTextPreviewable } from './drive-utils';
 import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
@@ -444,6 +445,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                     {t.welddrive.filePreview.actions.share}
                   </DropdownMenuItem>
                 )}
+                <SendFileForSignatureItem file={file} iconClassName="h-4 w-4 mr-0.5" />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"

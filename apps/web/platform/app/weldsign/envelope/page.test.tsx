@@ -76,10 +76,32 @@ describe('request editor', () => {
     expect(screen.getByRole('button', { name: new RegExp(te.steps.documents) })).toBeInTheDocument();
   });
 
-  it('ignores any other step in the address', async () => {
-    search.params = new URLSearchParams('step=fields');
+  it('opens on Recipients with ?step=recipients: where a draft made from a WeldDrive file lands', async () => {
+    search.params = new URLSearchParams('step=recipients');
     renderPage();
-    expect(await screen.findByTestId('documents-step')).toBeInTheDocument();
+    expect(await screen.findByTestId('recipients-step')).toBeInTheDocument();
+    expect(screen.queryByTestId('documents-step')).toBeNull();
+    // The document step is one click away, and Back leads to it.
+    expect(screen.getByRole('button', { name: new RegExp(te.steps.documents) })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: te.back })).toBeEnabled();
+  });
+
+  it('carries on from Recipients to Fields as from any other start', async () => {
+    const user = userEvent.setup();
+    search.params = new URLSearchParams('step=recipients');
+    renderPage();
+    await screen.findByTestId('recipients-step');
+    await user.click(screen.getByRole('button', { name: te.next }));
+    expect(screen.getByTestId('fields-step')).toBeInTheDocument();
+  });
+
+  it('ignores any other step in the address', async () => {
+    for (const step of ['fields', 'documents', 'nonsense', '']) {
+      search.params = new URLSearchParams({ step });
+      cleanup();
+      renderPage();
+      expect(await screen.findByTestId('documents-step'), step).toBeInTheDocument();
+    }
   });
 
   it('still has the four request steps: documents, recipients, fields, review', async () => {

@@ -59,6 +59,26 @@ export const weldsign = {
     },
   },
 
+  /** "Versturen voor ondertekening" vanuit WeldDrive en vanuit CRM-records. */
+  start: {
+    action: 'Versturen voor ondertekening',
+    preparing: '"{name}" voorbereiden voor ondertekening…',
+    failed: 'Het ondertekenverzoek kon niet worden gestart',
+    documentFailed: 'Het verzoek is aangemaakt, maar "{name}" kon niet worden toegevoegd: {reason}',
+    recordTitle: 'Document voor {name}',
+  },
+
+  /** Waar een verzoek vandaan komt: een bestand in WeldDrive of een CRM-record. */
+  source: {
+    from: 'Van {name}',
+    gone: {
+      file: 'Van een bestand dat is verwijderd',
+      company: 'Van een bedrijf dat is verwijderd',
+      person: 'Van een persoon die is verwijderd',
+      opportunity: 'Van een kans die is verwijderd',
+    },
+  },
+
   editor: {
     loadFailed: 'Dit verzoek kon niet worden geladen.',
     notFound: 'Dit verzoek bestaat niet of je kunt het niet zien.',
@@ -96,6 +116,13 @@ export const weldsign = {
       removeTitle: 'Dit document verwijderen?',
       removeDescription: 'De velden op "{name}" worden ook verwijderd.',
       empty: 'Nog geen documenten.',
+      fromDrive: 'Toevoegen uit WeldDrive',
+      drive: {
+        title: 'Toevoegen uit WeldDrive',
+        description: "Kies de pdf's die je wilt toevoegen. Ze worden gekopieerd, dus latere wijzigingen in WeldDrive hebben geen invloed op het verzoek.",
+        confirm: 'Toevoegen',
+        adding: 'Toevoegen…',
+      },
     },
 
     recipients: {
@@ -132,6 +159,10 @@ export const weldsign = {
       invalidEmail: 'Vul een geldig e-mailadres in',
       nameRequired: 'Vul een naam in',
       templateRole: 'Rol in het sjabloon: {role}',
+      suggestions: {
+        title: 'Voorgesteld vanuit {name}',
+        add: '{name} toevoegen als ondertekenaar',
+      },
     },
 
     fields: {
@@ -193,6 +224,21 @@ export const weldsign = {
       sending: 'Versturen…',
       sent: 'Verzoek verstuurd',
       sendFailed: 'Het verzoek kon niet worden verstuurd',
+      signedCopy: {
+        title: 'Ondertekende kopie',
+        toDefault: 'Opgeslagen in WeldSign/{year} in je WeldDrive, een map die alleen jij kunt zien.',
+        toFolder: 'Opgeslagen in de map "{name}" in WeldDrive.',
+        toFolderUnknown: 'Opgeslagen in de map die je in WeldDrive hebt gekozen.',
+        alsoRecord: 'Een kopie wordt ook opgeslagen bij de bestanden van {name}, met een notitie in de activiteit.',
+        alsoOpportunity: 'Een kopie wordt ook opgeslagen bij de bestanden van het bedrijf van de kans, met een notitie bij {name}.',
+        change: 'Wijzigen',
+        useDefault: 'Standaard gebruiken',
+        pickTitle: 'Kies een map voor de ondertekende kopie',
+        pickDescription:
+          'De ondertekende pdf wordt in deze map opgeslagen zodra iedereen heeft getekend. Je kunt alleen mappen kiezen waaraan je bestanden mag toevoegen.',
+        pickConfirm: 'Deze map gebruiken',
+        saveFailed: 'Kon niet wijzigen waar de ondertekende kopie wordt opgeslagen',
+      },
     },
   },
 
@@ -221,6 +267,18 @@ export const weldsign = {
     voidedReason: 'Reden: {reason}',
     fingerprint: 'SHA-256 van de ondertekende pdf',
     viewDocuments: 'Documenten en velden bekijken',
+
+    filing: {
+      title: 'Waar de ondertekende kopie is opgeslagen',
+      drive: 'Opgeslagen in WeldDrive',
+      viewFile: 'Bestand bekijken',
+      openFolder: 'Map openen',
+      onRecord: 'Opgeslagen bij {name}',
+      recordFallback: {
+        company: 'het bedrijf',
+        person: 'de persoon',
+      },
+    },
 
     signNow: 'Nu tekenen',
     signNowFailed: 'De ondertekenpagina kon niet worden geopend',
@@ -294,7 +352,10 @@ export const weldsign = {
         expired: 'Verzoek verlopen',
         completed: 'Iedereen heeft getekend, verzoek voltooid',
         downloaded: 'Ondertekende pdf gedownload',
+        filed: 'Ondertekende pdf opgeslagen in WeldDrive',
       },
+      filedWithCompany: 'Ondertekende pdf opgeslagen in WeldDrive en bij de bestanden van het bedrijf',
+      filedWithPerson: 'Ondertekende pdf opgeslagen in WeldDrive en bij de bestanden van de persoon',
       remindedAutomatically: 'Automatische herinnering verstuurd naar {name}',
       recipientCorrectedPlain: 'E-mailadres van {name} gecorrigeerd',
     },

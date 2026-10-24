@@ -1,7 +1,7 @@
 /**
- * Step 4: the message, reminders, what is still missing, and Send. Sending asks
- * for the expiry date and then emails the first signers (sign-api checks the
- * draft again before anything goes out).
+ * Step 4: the message, reminders, where the signed copy goes, what is still
+ * missing, and Send. Sending asks for the expiry date and then emails the
+ * first signers (sign-api checks the draft again before anything goes out).
  */
 
 import { useState } from 'react';
@@ -18,6 +18,7 @@ import { targetOf, useSendSignEnvelope, useUpdateSignEnvelope } from '@/hooks/qu
 import { readinessProblems } from '../lib/readiness';
 import { apiErrorMessage } from '../lib/errors';
 import { MessageField, ReadinessChecklist, ReminderSettings, SummaryStats } from './settings-fields';
+import { SignedCopy } from './signed-copy';
 
 const DEFAULT_EXPIRY_DAYS = 30;
 
@@ -48,6 +49,8 @@ export function ReviewStep({ envelope, editable }: Readonly<{ envelope: SignEnve
       <MessageField message={envelope.message} disabled={!editable} onSave={(message) => update.mutate({ message })} />
 
       <ReminderSettings settings={envelope} editable={editable} save={(input) => update.mutate(input)} />
+
+      <SignedCopy envelope={envelope} editable={editable} />
 
       <SummaryStats
         title={tr.summary}

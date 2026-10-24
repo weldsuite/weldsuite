@@ -4,10 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import { en } from '@weldsuite/i18n/locales/en';
-import type { SignEnvelopeDetail, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignEnvelopeDetail, SignRecipientDto, SignRecipientSuggestion } from '@weldsuite/app-api-client/schemas/weldsign';
 
 const api = vi.hoisted(() => ({
-  weldsign: { update: vi.fn(), addRecipient: vi.fn(), updateRecipient: vi.fn(), removeRecipient: vi.fn() },
+  weldsign: { update: vi.fn(), addRecipient: vi.fn(), updateRecipient: vi.fn(), removeRecipient: vi.fn(), recipientSuggestions: vi.fn() },
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
@@ -74,6 +74,7 @@ beforeEach(() => {
   api.weldsign.update.mockResolvedValue({ data: draft([]) });
   api.weldsign.updateRecipient.mockResolvedValue({ data: recipient({}) });
   api.weldsign.addRecipient.mockResolvedValue({ data: recipient({}) });
+  api.weldsign.recipientSuggestions.mockResolvedValue({ data: [] });
 });
 
 afterEach(() => cleanup());
@@ -149,6 +150,112 @@ describe('recipients step', () => {
       expect(screen.getByDisplayValue('Ann')).toBeDisabled();
       expect(screen.getByRole('switch')).toBeDisabled();
       expect(screen.queryByRole('button', { name: tr.add })).toBeNull();
+    });
+  });
+
+  describe('a draft that started from a CRM record', () => {
+    const company = { entityType: 'company', entityId: 'cus_1', name: 'Acme BV' } as const;
+    const lee: SignRecipientSuggestion = { personId: 'per_lee', name: 'Ann Lee', email: 'ann.lee@acme.test', title: 'Director' };
+    const kim: SignRecipientSuggestion = { personId: 'per_kim', name: 'Kim Roe', email: 'kim.roe@acme.test', title: null };
+
+    const chip = (name: string) => screen.queryByRole('button', { name: new RegExp(name) });
+
+    it('offers the people on the record, one button each', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [lee, kim] });
+      renderStep(draft([], { source: company }));
+
+      expect(await screen.findByText('Suggested from Acme BV')).toBeInTheDocument();
+      expect(chip('Ann Lee')).toHaveTextContent('ann.lee@acme.test');
+      expect(chip('Kim Roe')).toBeInTheDocument();
+      expect(api.weldsign.recipientSuggestions).toHaveBeenCalledWith('sgn_1');
+    });
+
+    it('adds a person as a signer in one click, with the person they are in the CRM', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [lee, kim] });
+      const user = userEvent.setup();
+      renderStep(draft([], { source: company }));
+
+      await user.click(await screen.findByRole('button', { name: /Ann Lee/ }));
+
+      await waitFor(() =>
+        expect(api.weldsign.addRecipient).toHaveBeenCalledWith('sgn_1', {
+          name: 'Ann Lee',
+          email: 'ann.lee@acme.test',
+          role: 'signer',
+          locale: 'en',
+          personId: 'per_lee',
+        }),
+      );
+      expect(api.weldsign.addRecipient).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not offer someone already on the draft, whatever the case of their email', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [lee, kim] });
+      renderStep(draft([recipient({ id: 'rcp_lee', name: 'Ann', email: 'Ann.Lee@Acme.test' })], { source: company }));
+
+      expect(await screen.findByRole('button', { name: /Kim Roe/ })).toBeInTheDocument();
+      expect(chip('Ann Lee')).toBeNull();
+    });
+
+    it('shows nothing once everyone is on the draft', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [lee] });
+      renderStep(draft([recipient({ email: 'ann.lee@acme.test' })], { source: company }));
+
+      await waitFor(() => expect(api.weldsign.recipientSuggestions).toHaveBeenCalled());
+      expect(screen.queryByText(/^Suggested from/)).toBeNull();
+    });
+
+    it('shows nothing when the record has no one with an email', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [] });
+      renderStep(draft([], { source: company }));
+
+      await waitFor(() => expect(api.weldsign.recipientSuggestions).toHaveBeenCalled());
+      expect(screen.queryByText(/^Suggested from/)).toBeNull();
+    });
+
+    it('shows nothing, and does not complain, when the suggestions can not be read', async () => {
+      api.weldsign.recipientSuggestions.mockRejectedValue(new Error('Forbidden'));
+      renderStep(draft([], { source: company }));
+
+      await waitFor(() => expect(api.weldsign.recipientSuggestions).toHaveBeenCalled());
+      expect(screen.queryByText(/^Suggested from/)).toBeNull();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it('works for a person and an opportunity too', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [kim] });
+      renderStep(draft([], { source: { entityType: 'opportunity', entityId: 'opp_1', name: 'Website rebuild' } }));
+      expect(await screen.findByText('Suggested from Website rebuild')).toBeInTheDocument();
+    });
+
+    it('says why a person could not be added', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [lee] });
+      api.weldsign.addRecipient.mockRejectedValue(new Error('A request can have at most 20 recipients'));
+      const user = userEvent.setup();
+      renderStep(draft([], { source: company }));
+
+      await user.click(await screen.findByRole('button', { name: /Ann Lee/ }));
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('A request can have at most 20 recipients'));
+    });
+
+    it('is not offered when the draft can not be changed', async () => {
+      api.weldsign.recipientSuggestions.mockResolvedValue({ data: [lee] });
+      renderStep(draft([], { source: company }), false);
+
+      expect(screen.queryByText(/^Suggested from/)).toBeNull();
+      expect(api.weldsign.recipientSuggestions).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a draft without a CRM record', () => {
+    it.each([
+      ['no source', null],
+      ['a WeldDrive file', { entityType: 'file', entityId: 'fil_1', name: 'Contract.pdf' }],
+    ] as const)('asks for no suggestions with %s', (_label, source) => {
+      renderStep(draft([], { source }));
+      expect(api.weldsign.recipientSuggestions).not.toHaveBeenCalled();
+      expect(screen.queryByText(/^Suggested from/)).toBeNull();
     });
   });
 });

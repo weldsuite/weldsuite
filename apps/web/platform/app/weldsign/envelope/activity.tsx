@@ -12,6 +12,7 @@ import {
   Clock,
   Download,
   Eye,
+  FileCheck,
   FilePlus,
   KeyRound,
   Mail,
@@ -50,6 +51,7 @@ const EVENT_ICON: Record<SignEventType, { icon: LucideIcon; className: string }>
   expired: { icon: Clock, className: 'text-muted-foreground' },
   completed: { icon: CheckCheck, className: 'text-emerald-600' },
   downloaded: { icon: Download, className: 'text-muted-foreground' },
+  filed: { icon: FileCheck, className: 'text-emerald-600' },
 };
 
 export function ActivityTimeline({ envelopeId, enabled }: Readonly<{ envelopeId: string; enabled: boolean }>) {

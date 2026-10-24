@@ -59,6 +59,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/component
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
 import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
+import { SendForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { useComposeSafe } from '@/contexts/compose-context';
 import {
   PropertyRow,
@@ -174,7 +175,8 @@ type TabConfigEntry = {
   defaultVisible: boolean;
 };
 
-function PersonActions({
+/** The header actions of a person: add to CRM, email, call and the kebab menu. */
+export function PersonActions({
   person,
   onDelete,
   onArchiveToggle,
@@ -275,6 +277,7 @@ function PersonActions({
         </DropdownMenuTrigger>
         {/* Stock shadcn menu: default width, default icon sizing, stock destructive item. */}
         <DropdownMenuContent align="end">
+          <SendForSignatureItem source={{ entityType: 'person', id: person.id, name: person.displayName }} />
           <ConfigureTabsSubmenu
             tabs={tabFields}
             isTabVisible={isTabVisible}

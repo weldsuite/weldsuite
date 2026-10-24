@@ -10,6 +10,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type {
   SignDocument,
   SignEnvelope,
+  SignEnvelopeSource,
   SignField,
   SignRecipient,
   SignEnvelopeStatus,
@@ -26,6 +27,8 @@ import type {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import { notADraft, notFound } from './errors';
 import { recordSignEvent } from './events';
+import { latestFiling } from './filing';
+import { toSourceDto } from './sources';
 
 const { signEnvelopes, signDocuments, signRecipients, signFields, signEvents, workspaceMembers } = schema;
 
@@ -293,7 +296,7 @@ export async function getEnvelopeDetail(
   envelope: SignEnvelope,
   access: DetailAccess,
 ): Promise<SignEnvelopeDetail> {
-  const [documents, recipients, fields] = await Promise.all([
+  const [documents, recipients, fields, source, filing] = await Promise.all([
     db.select().from(signDocuments).where(eq(signDocuments.envelopeId, envelope.id)).orderBy(asc(signDocuments.position)),
     db
       .select()
@@ -301,6 +304,8 @@ export async function getEnvelopeDetail(
       .where(eq(signRecipients.envelopeId, envelope.id))
       .orderBy(asc(signRecipients.routingOrder), asc(signRecipients.createdAt)),
     db.select().from(signFields).where(eq(signFields.envelopeId, envelope.id)).orderBy(asc(signFields.createdAt)),
+    toSourceDto(db, envelope.source),
+    envelope.status === 'completed' ? latestFiling(db, envelope.id) : Promise.resolve(null),
   ]);
   const owner = isOwner(envelope, access.viewer);
   const signers = recipients.filter((r) => r.role === 'signer');
@@ -321,6 +326,9 @@ export async function getEnvelopeDetail(
     fields: fields.map(toFieldDto),
     voidedReason: envelope.voidedReason,
     voidedAt: iso(envelope.voidedAt),
+    source,
+    fileBackFolderId: envelope.fileBackFolderId,
+    filing,
     canEdit: owner && access.update && envelope.status === 'draft',
     isOwner: owner,
     canVoid: owner && access.void && open,
@@ -339,6 +347,10 @@ export interface CreateEnvelopeInput {
   sender: { userId: string; name: string | null; email: string | null };
   /** Defaults from `sign_settings`, when the workspace has saved any. */
   defaults?: { expiryDays: number | null; reminderAfterDays: number | null; reminderEveryDays: number | null; reminderMaxCount: number | null };
+  /** The Drive file or CRM record it starts from, already checked by the caller. */
+  source?: SignEnvelopeSource | null;
+  /** WeldDrive folder for the signed copy, already checked by the caller. */
+  fileBackFolderId?: string | null;
 }
 
 export async function createEnvelope(db: Database, input: CreateEnvelopeInput): Promise<SignEnvelope> {
@@ -359,6 +371,8 @@ export async function createEnvelope(db: Database, input: CreateEnvelopeInput): 
       reminderAfterDays: d?.reminderAfterDays ?? null,
       reminderEveryDays: d?.reminderEveryDays ?? null,
       reminderMaxCount: d?.reminderMaxCount ?? null,
+      source: input.source ?? null,
+      fileBackFolderId: input.fileBackFolderId ?? null,
     })
     .returning();
   await recordSignEvent(db, {
@@ -383,6 +397,7 @@ export async function updateEnvelope(db: Database, envelope: SignEnvelope, input
       ...(input.reminderAfterDays !== undefined && { reminderAfterDays: input.reminderAfterDays }),
       ...(input.reminderEveryDays !== undefined && { reminderEveryDays: input.reminderEveryDays }),
       ...(input.reminderMaxCount !== undefined && { reminderMaxCount: input.reminderMaxCount }),
+      ...(input.fileBackFolderId !== undefined && { fileBackFolderId: input.fileBackFolderId }),
       updatedAt: new Date(),
     })
     .where(eq(signEnvelopes.id, envelope.id))

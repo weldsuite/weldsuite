@@ -227,6 +227,25 @@ export const welddrive = {
     moveHere: 'Hierheen verplaatsen',
   },
 
+  /** De keuzevensters die andere modules openen om bestanden of een map uit WeldDrive te kiezen. */
+  picker: {
+    files: {
+      searchPlaceholder: 'Zoek bestanden',
+      loading: 'Bestanden laden…',
+      loadFailed: 'De bestanden konden niet worden geladen.',
+      empty: 'Geen bestanden gevonden.',
+      limited: 'De eerste {count} bestanden worden getoond. Zoek om andere te vinden.',
+      selected: '{count} geselecteerd',
+      selectedOf: '{count} van {max} geselecteerd',
+    },
+    folders: {
+      loading: 'Mappen laden…',
+      loadFailed: 'De mappen konden niet worden geladen.',
+      empty: 'Er zijn nog geen mappen. Maak er eerst een aan in WeldDrive.',
+      viewOnly: 'Alleen bekijken',
+    },
+  },
+
   fileDetail: {
     you: 'U',
     timeAgo: {
