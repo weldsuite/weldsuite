@@ -14,6 +14,7 @@ import { usePortal } from './portal-context';
 import { SignaturePad } from './signature-pad';
 
 type Tab = 'draw' | 'type' | 'upload';
+const KIND_BY_TAB: Record<Tab, AdoptedSignature['kind']> = { draw: 'drawn', type: 'typed', upload: 'uploaded' };
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 interface SignatureDialogProps {
@@ -75,7 +76,7 @@ export function SignatureDialog({ open, variant, suggestedText, onAdopt, onClose
   }
 
   function adopt() {
-    const source = tab === 'draw' ? drawn : tab === 'type' ? typedCanvas : uploaded;
+    const source = { draw: drawn, type: typedCanvas, upload: uploaded }[tab];
     const emptyMessage = isInitials ? t.adopt.emptyInitials : t.adopt.empty;
     if (!source) {
       setError(emptyMessage);
@@ -86,7 +87,7 @@ export function SignatureDialog({ open, variant, suggestedText, onAdopt, onClose
       setError(result.error === 'empty' ? emptyMessage : t.adopt.tooLarge);
       return;
     }
-    onAdopt({ kind: tab === 'draw' ? 'drawn' : tab === 'type' ? 'typed' : 'uploaded', image: result.image });
+    onAdopt({ kind: KIND_BY_TAB[tab], image: result.image });
   }
 
   return (

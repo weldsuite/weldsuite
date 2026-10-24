@@ -27,6 +27,12 @@ interface SignViewProps {
   onLocaleChange: (locale: Locale) => void;
 }
 
+/** A text or checkbox field's value as the server expects it. */
+function submittedValue(type: SignPortalEnvelope['fields'][number]['type'], raw: string | undefined): string {
+  if (type === 'checkbox') return raw === 'true' ? 'true' : 'false';
+  return (raw ?? '').trim();
+}
+
 /** The signer's turn: consent, then the document with its fields, then Finish. */
 export function SignView({ envelope, disclosureVersion, withSession, onEnvelope, onLocaleChange }: Readonly<SignViewProps>) {
   const { t, locale } = usePortal();
@@ -116,7 +122,7 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
     setFinishError(null);
     const values = envelope.fields
       .filter((f) => f.type === 'text' || f.type === 'checkbox')
-      .map((f) => ({ fieldId: f.id, value: f.type === 'checkbox' ? (state.values[f.id] === 'true' ? 'true' : 'false') : (state.values[f.id] ?? '').trim() }));
+      .map((f) => ({ fieldId: f.id, value: submittedValue(f.type, state.values[f.id]) }));
     const body: SignPortalCompleteInput = {
       values,
       signature: hasSignatureField ? state.signature : null,
@@ -129,6 +135,8 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
     } catch (err) {
       if (err instanceof PortalNetworkError) setFinishError(t.error.network);
       else if (err instanceof PortalApiError && err.status === 401) setFinishError(t.sign.sessionExpired);
+      // Signed, but the request could not be finished yet: finishing again picks it up.
+      else if (err instanceof PortalApiError && err.status === 503) setFinishError(t.sign.finishPending);
       else setFinishError(t.sign.finishFailed);
       setFinishing(false);
     }

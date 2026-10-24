@@ -344,12 +344,19 @@ sign-portal scaffold, docs (SIGN-001..004).
 - Signing stores the signature and initials PNGs, fills name, email and date
   server-side, records IP and browser, and rebuilds a working copy of each
   touched document so later signers see earlier values. The next signing
-  group is emailed when the current one is done.
+  group is emailed when the current one is done. The IP is the one
+  sign-portal reports (`X-Signer-Ip`), trusted only next to the shared
+  `SIGN_PORTAL_SECRET` (`X-Sign-Portal-Key`); any other caller is recorded
+  by its own address.
 - The last signature starts the `FinalizeEnvelope` Workflow: one PDF (all
   documents with values drawn in, rotation-aware, then the certificate of
   completion), its SHA-256 stored and on the trail, then the "everyone
   signed" email with the PDF attached (up to 10 MB) to signers, copy
-  recipients and the sender.
+  recipients and the sender. If the Workflow cannot start, the last signer
+  gets a 503 (their signature stays saved) and finishing again retries the
+  start; reopening any link of the request also starts it again. The
+  instance id is fixed per request, so a second start leaves a running one
+  alone and restarts a failed one.
 - Evidence trail: sent, opened, code_verified / code_failed, consented,
   signed, declined, completed, delivered.
 - Emails (`@weldsuite/emails`): `sign.request`, `sign.code`,

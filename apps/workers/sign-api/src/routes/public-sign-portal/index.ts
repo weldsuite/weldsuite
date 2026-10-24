@@ -11,17 +11,20 @@
  *   GET  /documents/:documentId         → the PDF with earlier signers' values drawn in
  *   POST /consent      { disclosureVersion }
  *   POST /complete     { values, signature, initials, timeZone }
+ *                                      → 503 when the last signature could not start finalizing; again retries
  *   POST /decline      { reason }
  *   GET  /download                      → the signed PDF (completed requests)
  *
  * Writes publish `sign_envelope` events (`signed`, `declined`); the evidence
- * of each step is `sign_events`, with the signer's IP and browser.
+ * of each step is `sign_events`, with the signer's IP (as the portal reports
+ * it, next to `X-Sign-Portal-Key`) and browser.
  */
 
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { secretMatches } from '@weldsuite/worker-kit/webhook-token';
 import { getMasterDb, getWorkspaceContextForOrg, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import {
   portalCompleteSchema,
@@ -50,7 +53,7 @@ import {
   type SignerMeta,
   type SignerRef,
 } from '../../services/signing';
-import { advanceAfterSigning } from '../../services/sending';
+import { advanceAfterSigning, awaitingFinalize } from '../../services/sending';
 import { loadSignBrand } from '../../services/settings';
 import { sendCode, sendDeclined, workspaceBrand } from '../../services/mail';
 import { codeHash } from '../../services/hash';
@@ -84,9 +87,16 @@ interface SignerVars {
 type PortalEnv = { Bindings: Env; Variables: Variables & SignerVars };
 type PortalCtx = Context<PortalEnv>;
 
+/**
+ * The signer's IP and browser for the evidence trail. sign-portal reports the
+ * browser's IP in `X-Signer-Ip`, which counts only next to the shared portal
+ * key: anyone else could put any address there, so their own is recorded.
+ */
 function meta(c: Context): SignerMeta {
+  const env: Env = c.env;
+  const reported = secretMatches(c.req.header('x-sign-portal-key'), env.SIGN_PORTAL_SECRET) ? c.req.header('x-signer-ip') : undefined;
   return {
-    ip: c.req.header('x-signer-ip') ?? c.req.header('cf-connecting-ip') ?? null,
+    ip: reported ?? c.req.header('cf-connecting-ip') ?? null,
     userAgent: c.req.header('user-agent')?.slice(0, 500) ?? null,
   };
 }
@@ -130,8 +140,38 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     }
   }
 
+  /**
+   * Start the Workflow that builds the signed PDF. Its instance id is fixed per
+   * request, so a second start finds the first: one still running or done is
+   * left alone, one that failed is restarted. Throws when it could not start.
+   */
+  async function startFinalizing(c: Context, params: FinalizeEnvelopeParams): Promise<void> {
+    const env: Env = c.env;
+    const workflow = env.FINALIZE_ENVELOPE;
+    if (!workflow) {
+      c.executionCtx.waitUntil(deps.finalize(env, params));
+      return;
+    }
+    const id = `finalize-${params.envelopeId}`;
+    try {
+      await workflow.create({ id, params });
+    } catch (err) {
+      const instance = await workflow.get(id).catch(() => null);
+      if (!instance) throw err;
+      const { status } = await instance.status();
+      if (status === 'errored' || status === 'terminated') await instance.restart();
+    }
+  }
+
   async function ready(c: Context, opened: { link: ResolvedLink; workspace: PortalWorkspace; ref: SignerRef }) {
     await markOpened(opened.workspace.db, opened.ref, meta(c));
+    // Everyone signed but finalizing never got going: reopening any link of the request starts it again.
+    if (await awaitingFinalize(opened.workspace.db, opened.ref.envelope)) {
+      const params: FinalizeEnvelopeParams = { clerkOrgId: opened.link.clerkOrgId, workspaceId: opened.workspace.id, envelopeId: opened.link.envelopeId };
+      c.executionCtx.waitUntil(
+        startFinalizing(c, params).catch((err: unknown) => console.error(`[sign-api] could not start finalizing ${params.envelopeId}:`, err)),
+      );
+    }
     const { token, expiresAt } = await signSession(c.env.SIGN_SESSION_SECRET!, {
       orgId: opened.link.clerkOrgId,
       envelopeId: opened.link.envelopeId,
@@ -268,11 +308,29 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     }
   });
 
+  /**
+   * After the last signature: start finalizing. When it cannot start, the
+   * signer hears so (503) while their signature stays saved, and finishing
+   * again retries the start.
+   */
+  async function finish(c: PortalCtx, params: FinalizeEnvelopeParams) {
+    try {
+      await startFinalizing(c, params);
+    } catch (err) {
+      console.error(`[sign-api] could not start finalizing ${params.envelopeId}:`, err);
+      return error.unavailable(c, 'Your signature is saved, but the request could not be completed yet. Try again in a moment.');
+    }
+    return success(c, await view(c, await current(c)));
+  }
+
   signer.post('/complete', zValidator('json', portalCompleteSchema), async (c) => {
     try {
       const { db, id: workspaceId } = c.get('workspace');
       const session = c.get('signer');
       const ref = await current(c);
+      const params: FinalizeEnvelopeParams = { clerkOrgId: session.orgId, workspaceId, envelopeId: ref.envelope.id };
+      // A retry after finalizing could not start: the signature is already saved.
+      if (ref.recipient.status === 'signed' && (await awaitingFinalize(db, ref.envelope))) return await finish(c, params);
       await completeSigning({ db, bucket: c.env.PRIVATE_STORAGE, workspaceId: session.orgId, meta: meta(c) }, ref, c.req.valid('json'));
       c.executionCtx.waitUntil(
         publishEntityEventRaw({
@@ -290,16 +348,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
         { env: c.env, db, master: deps.master(c.env), clerkOrgId: session.orgId, workspaceId },
         ref.envelope,
       );
-      if (next === 'all_signed') {
-        const params: FinalizeEnvelopeParams = { clerkOrgId: session.orgId, workspaceId, envelopeId: ref.envelope.id };
-        if (c.env.FINALIZE_ENVELOPE) {
-          await c.env.FINALIZE_ENVELOPE.create({ id: `finalize-${ref.envelope.id}`, params }).catch((err: unknown) => {
-            console.error(`[sign-api] could not start finalizing ${ref.envelope.id}:`, err);
-          });
-        } else {
-          c.executionCtx.waitUntil(deps.finalize(c.env, params));
-        }
-      }
+      if (next === 'all_signed') return await finish(c, params);
       return success(c, await view(c, await current(c)));
     } catch (err) {
       return respond(c, err);

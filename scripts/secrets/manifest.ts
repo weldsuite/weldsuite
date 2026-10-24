@@ -830,7 +830,9 @@ export const manifest: Record<string, SecretEntry[]> = {
   // DB resolution, plus SIGN_SESSION_SECRET, the HMAC key of signer sessions
   // in the signer portal and of the stored access/email code hashes (any long
   // random string; rotating it signs every signer out and voids the access
-  // codes of requests still open).
+  // codes of requests still open), and SIGN_PORTAL_SECRET, shared with the
+  // sign-portal (a Next.js app; sync does not push to it, set the same value
+  // there by hand) so sign-api trusts the signer IP the portal reports.
   "sign-api": [
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
@@ -838,6 +840,7 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
     "SIGN_SESSION_SECRET",
+    "SIGN_PORTAL_SECRET",
   ],
 };
 

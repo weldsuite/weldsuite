@@ -26,6 +26,21 @@ export function inkColor(): string {
   return INK;
 }
 
+/** Alpha above which a pixel counts as ink; fainter anti-aliasing noise does not count as a signature. */
+const INK_ALPHA = 24;
+
+/** First and last inked column of one pixel row, or null for a blank row. */
+function rowInk(data: Uint8ClampedArray, width: number, y: number): { first: number; last: number } | null {
+  let first = -1;
+  let last = -1;
+  for (let x = 0; x < width; x++) {
+    if (data[(y * width + x) * 4 + 3]! <= INK_ALPHA) continue;
+    if (first < 0) first = x;
+    last = x;
+  }
+  return first < 0 ? null : { first, last };
+}
+
 /** Bounding box of every non-transparent pixel, or null for an empty canvas. */
 function contentBounds(canvas: HTMLCanvasElement): { x: number; y: number; width: number; height: number } | null {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -33,21 +48,18 @@ function contentBounds(canvas: HTMLCanvasElement): { x: number; y: number; width
   const { width, height } = canvas;
   const { data } = ctx.getImageData(0, 0, width, height);
   let minX = width;
-  let minY = height;
   let maxX = -1;
+  let minY = -1;
   let maxY = -1;
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      // Ignore faint anti-aliasing noise so a stray pixel does not count as a signature.
-      if (data[(y * width + x) * 4 + 3]! > 24) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
+    const ink = rowInk(data, width, y);
+    if (!ink) continue;
+    if (minY < 0) minY = y;
+    maxY = y;
+    minX = Math.min(minX, ink.first);
+    maxX = Math.max(maxX, ink.last);
   }
-  if (maxX < 0) return null;
+  if (maxY < 0) return null;
   return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
@@ -81,9 +93,12 @@ export function exportTrimmedPng(source: HTMLCanvasElement): { image: string } |
 export function renderTypedSignature(text: string): HTMLCanvasElement {
   const canvas = createCanvas(PAD_WIDTH, PAD_HEIGHT);
   const value = text.trim();
-  if (!value) return canvas;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return canvas;
+  if (value && ctx) drawScript(ctx, value);
+  return canvas;
+}
+
+function drawScript(ctx: CanvasRenderingContext2D, value: string): void {
   const fontSize = 160;
   ctx.font = `italic ${fontSize}px ${SCRIPT_FONTS}`;
   const measured = ctx.measureText(value).width;
@@ -94,7 +109,6 @@ export function renderTypedSignature(text: string): HTMLCanvasElement {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(value, PAD_WIDTH / 2, PAD_HEIGHT / 2);
-  return canvas;
 }
 
 /**

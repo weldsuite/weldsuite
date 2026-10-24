@@ -104,6 +104,12 @@ async function emailGroup(ctx: SendContext, envelope: SignEnvelope, group: SignR
   return 'ok';
 }
 
+/** The date the sender picked, else the workspace default (days from now), else none. */
+function expiryDate(picked: string | null | undefined, defaultDays: number | null | undefined): Date | null {
+  if (picked) return new Date(picked);
+  return defaultDays ? new Date(Date.now() + defaultDays * 86_400_000) : null;
+}
+
 /**
  * Send a draft. Checks it is complete, sets its expiry, and emails the first
  * signing group. A refusal by the outbound guard changes nothing.
@@ -113,12 +119,7 @@ export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor:
   const problem = await sendProblem(ctx.db, draft.id);
   if (problem) throw invalid(problem);
 
-  const settings = await loadSignSettings(ctx.db);
-  const expiry = expiresAt
-    ? new Date(expiresAt)
-    : settings.expiryDays
-      ? new Date(Date.now() + settings.expiryDays * 86_400_000)
-      : null;
+  const expiry = expiryDate(expiresAt, (await loadSignSettings(ctx.db)).expiryDays);
   if (expiry && expiry.getTime() <= Date.now()) throw invalid('The expiry date must be in the future');
 
   const recipients = await ctx.db
@@ -172,4 +173,18 @@ export async function advanceAfterSigning(ctx: SendContext, envelope: SignEnvelo
     return 'waiting';
   }
   return 'next_group';
+}
+
+/**
+ * Every signer has signed but the request is not completed: finalizing has
+ * not finished, or never started (the caller may start it again; the
+ * Workflow's steps are idempotent).
+ */
+export async function awaitingFinalize(db: Database, envelope: SignEnvelope): Promise<boolean> {
+  if (envelope.status !== 'sent' && envelope.status !== 'in_progress') return false;
+  const signers = await db
+    .select({ status: signRecipients.status })
+    .from(signRecipients)
+    .where(and(eq(signRecipients.envelopeId, envelope.id), eq(signRecipients.role, 'signer')));
+  return signers.length > 0 && signers.every((r) => r.status === 'signed');
 }

@@ -35,3 +35,4 @@ pnpm --filter sign-portal dev        # http://localhost:3023
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `APP_API_URL` | `http://localhost:8789` | Origin of the `app-api` worker. Server-side only (used by `app/api/*` route handlers); never sent to the browser. |
+| `SIGN_PORTAL_SECRET` | none | Same value as sign-api's `SIGN_PORTAL_SECRET`. Sent as `X-Sign-Portal-Key` so sign-api accepts the signer IP this server reports. Without it, the evidence trail records this server's IP instead of the signer's. Server-side only. |

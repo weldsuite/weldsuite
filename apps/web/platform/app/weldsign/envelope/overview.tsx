@@ -29,16 +29,18 @@ export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envel
   const when = (iso: string | null) => (iso ? dateTime.format(new Date(iso)) : '');
 
   const signers = envelope.recipientList.filter((r) => r.role === 'signer');
-  const note =
-    envelope.status === 'completed'
-      ? to.completedNote
-      : envelope.status === 'declined'
-        ? to.declinedNote
-        : envelope.status === 'expired'
-          ? to.expiredNote
-          : envelope.status === 'voided'
-            ? to.voidedNote
-            : null;
+  const notes: Partial<Record<string, string>> = {
+    completed: to.completedNote,
+    declined: to.declinedNote,
+    expired: to.expiredNote,
+    voided: to.voidedNote,
+  };
+  const note = notes[envelope.status] ?? null;
+  const statusLabel = (r: (typeof envelope.recipientList)[number]) => {
+    if (r.role === 'cc') return to.copy;
+    if (r.status === 'signed' && r.signedAt) return format(to.signedAt, { date: when(r.signedAt) });
+    return to.statuses[r.status];
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
@@ -101,11 +103,7 @@ export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envel
                 )}
                 <span className={cn('flex shrink-0 items-center gap-1.5 text-xs', r.role === 'cc' ? 'text-muted-foreground' : status.className)}>
                   <Icon className="size-4" />
-                  {r.role === 'cc'
-                    ? to.copy
-                    : r.status === 'signed' && r.signedAt
-                      ? format(to.signedAt, { date: when(r.signedAt) })
-                      : to.statuses[r.status]}
+                  {statusLabel(r)}
                 </span>
               </li>
             );

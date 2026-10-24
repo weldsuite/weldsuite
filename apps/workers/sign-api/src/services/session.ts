@@ -5,6 +5,8 @@
  * hours. The portal keeps it in an httpOnly cookie.
  */
 
+import { base64Url } from './hash';
+
 export const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 
 export interface SignerSession {
@@ -18,10 +20,6 @@ export interface SignerSession {
 
 const encoder = new TextEncoder();
 
-function b64url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-}
-
 function fromB64url(text: string): Uint8Array {
   const b64 = text.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - (text.length % 4)) % 4);
   return Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
@@ -33,9 +31,9 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
 
 export async function signSession(secret: string, session: Omit<SignerSession, 'exp'>, now = Date.now()): Promise<{ token: string; expiresAt: Date }> {
   const payload: SignerSession = { ...session, exp: now + SESSION_TTL_MS };
-  const body = b64url(encoder.encode(JSON.stringify(payload)));
+  const body = base64Url(encoder.encode(JSON.stringify(payload)));
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', await hmacKey(secret), encoder.encode(body)));
-  return { token: `${body}.${b64url(sig)}`, expiresAt: new Date(payload.exp) };
+  return { token: `${body}.${base64Url(sig)}`, expiresAt: new Date(payload.exp) };
 }
 
 /** The session in a bearer token, or null when it is malformed, forged or expired. */

@@ -9,7 +9,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { sha256Hex } from './hash';
+import { base64Url, sha256Hex } from './hash';
 
 const { signLinkRegistry } = masterSchema;
 
@@ -17,8 +17,7 @@ const { signLinkRegistry } = masterSchema;
 export const DOWNLOAD_WINDOW_DAYS = 30;
 
 export function newLinkToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  return base64Url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
 export function signingLink(portalUrl: string | undefined, token: string): string {

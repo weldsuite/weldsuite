@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { SignPortalSessionResponse } from '@weldsuite/app-api-client/schemas/weldsign';
-import { portalUpstream, sessionCookieName } from '@/lib/api';
+import { portalUpstream, sessionCookieName, signerHeaders } from '@/lib/api';
 
 /**
  * Server-only helpers for the `app/api/session|verify|resend-code` route
@@ -9,14 +9,10 @@ import { portalUpstream, sessionCookieName } from '@/lib/api';
 
 /** JSON headers plus the signer's IP and browser, which sign-api records on the evidence trail. */
 export function upstreamHeaders(req: NextRequest): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const forwardedFor = req.headers.get('x-forwarded-for');
-  if (forwardedFor) headers['X-Forwarded-For'] = forwardedFor;
-  const clientIp = forwardedFor?.split(',')[0]?.trim();
-  if (clientIp) headers['X-Signer-Ip'] = clientIp;
-  const userAgent = req.headers.get('user-agent');
-  if (userAgent) headers['User-Agent'] = userAgent;
-  return headers;
+  return {
+    'Content-Type': 'application/json',
+    ...signerHeaders(req.headers.get('x-forwarded-for'), req.headers.get('user-agent')),
+  };
 }
 
 type UpstreamBody = { data?: SignPortalSessionResponse } & Record<string, unknown>;

@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { SIGN_LINK_HEADER, portalUpstream, sessionCookieName } from '@/lib/api';
+import { SIGN_LINK_HEADER, portalUpstream, sessionCookieName, signerHeaders } from '@/lib/api';
 
 /**
  * Generic authenticated proxy: browser code calls `/api/portal/<path>` on this
@@ -17,20 +17,12 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
 
   const headers: Record<string, string> = {
     Accept: req.headers.get('Accept') || 'application/json',
+    // sign-api records the signer's IP and browser on the evidence trail.
+    ...signerHeaders(req.headers.get('x-forwarded-for'), req.headers.get('user-agent')),
   };
   if (token) headers.Authorization = `Bearer ${token}`;
   const contentType = req.headers.get('Content-Type');
   if (contentType) headers['Content-Type'] = contentType;
-  // sign-api records the signer's IP and browser on the evidence trail.
-  const forwardedFor = req.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    headers['X-Forwarded-For'] = forwardedFor;
-    // The first entry is the client; sign-api stores it as the signer's IP.
-    const clientIp = forwardedFor.split(',')[0]?.trim();
-    if (clientIp) headers['X-Signer-Ip'] = clientIp;
-  }
-  const userAgent = req.headers.get('user-agent');
-  if (userAgent) headers['User-Agent'] = userAgent;
 
   const init: RequestInit = { method: req.method, headers };
   if (req.method !== 'GET' && req.method !== 'HEAD') {

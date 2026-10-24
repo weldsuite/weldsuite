@@ -4,12 +4,13 @@
  * recipient is sent, both sign through the portal routes, and the request is
  * finalized into one PDF with a certificate whose hash is recorded.
  *
- * Also: codes, consent, required fields, decline and expiry.
+ * Also: codes, consent, required fields, decline, expiry, the signer IP the
+ * portal may report, and finishing again when finalizing could not start.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -47,6 +48,7 @@ vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
 const ORG = 'org_flow';
 const WS = 'ws_flow';
 const SECRET = 'flow-test-secret';
+const PORTAL_KEY = 'flow-test-portal-key';
 const BASE = '/api/sign/envelopes';
 const PORTAL = '/public/sign-portal';
 
@@ -83,6 +85,7 @@ function env(): Env {
     PRIVATE_STORAGE: storage.bucket,
     WORKSPACE_CACHE: kv,
     SIGN_SESSION_SECRET: SECRET,
+    SIGN_PORTAL_SECRET: PORTAL_KEY,
     SIGN_PORTAL_URL: 'https://sign.test',
     ENVIRONMENT: 'test',
   } as unknown as Env;
@@ -105,7 +108,39 @@ function member(grants: string[] = ['*']) {
   });
 }
 
-function portal() {
+/** A stand-in for the FINALIZE_ENVELOPE Workflow binding whose first `create` fails, like a Workflows API outage. */
+function flakyWorkflow() {
+  const calls: string[] = [];
+  const instances = new Map<string, { status: string; restarted: number }>();
+  let failNext = true;
+  const binding = {
+    async create({ id }: { id: string }) {
+      calls.push(id);
+      if (failNext) {
+        failNext = false;
+        throw new Error('Workflows API unavailable');
+      }
+      if (instances.has(id)) throw new Error('instance.already_exists');
+      instances.set(id, { status: 'running', restarted: 0 });
+      return { id };
+    },
+    async get(id: string) {
+      const instance = instances.get(id);
+      if (!instance) throw new Error('instance.not_found');
+      return {
+        id,
+        status: async () => ({ status: instance.status }),
+        restart: async () => {
+          instance.restarted++;
+          instance.status = 'running';
+        },
+      };
+    },
+  };
+  return { calls, instances, binding };
+}
+
+function portal(extraEnv: Partial<Env> = {}) {
   const routes = createSignPortalRoutes({
     master: () => master,
     workspace: async () => ({ id: WS, db, suspended: false }),
@@ -122,8 +157,18 @@ function portal() {
     request: (path: string, init: RequestInit = {}, session?: string) =>
       app.request(
         `${PORTAL}${path}`,
-        { ...init, headers: { 'Content-Type': 'application/json', 'X-Signer-Ip': '203.0.113.9', 'User-Agent': 'FlowTest/1.0', ...(session ? { Authorization: `Bearer ${session}` } : {}), ...(init.headers ?? {}) } },
-        env() as never,
+        {
+          ...init,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Signer-Ip': '203.0.113.9',
+            'X-Sign-Portal-Key': PORTAL_KEY,
+            'User-Agent': 'FlowTest/1.0',
+            ...(session ? { Authorization: `Bearer ${session}` } : {}),
+            ...(init.headers ?? {}),
+          },
+        },
+        { ...env(), ...extraEnv } as never,
         executionCtx as never,
       ),
   };
@@ -316,6 +361,51 @@ describe('signing flow', () => {
     await master.update(masterSchema.signLinkRegistry).set({ expiresAt: null }).where(eq(masterSchema.signLinkRegistry.envelopeId, envelope.id));
     const res = await data<{ state: string; reason: string }>(await portal().request('/session', json({ token })));
     expect(res).toEqual({ state: 'closed', reason: 'expired' });
+  });
+
+  it('records the IP the portal reports only next to the portal key', async () => {
+    const { ann } = await draftWithTwoSigners();
+    const token = linksByRecipient().get('ann@example.com')!;
+    // A caller without the key cannot pick the address on the evidence trail.
+    await portal().request('/session', { ...json({ token }), headers: { 'X-Sign-Portal-Key': 'not-the-key', 'CF-Connecting-IP': '198.51.100.7' } });
+    const [opened] = await db
+      .select()
+      .from(schema.signEvents)
+      .where(and(eq(schema.signEvents.recipientId, ann.id), eq(schema.signEvents.type, 'opened')));
+    expect(opened!.ip).toBe('198.51.100.7');
+  });
+
+  it('lets the last signer finish again when finalizing could not start', async () => {
+    const { envelope, bob } = await draftWithTwoSigners();
+    await db.update(schema.signRecipients).set({ authMode: 'link' }).where(eq(schema.signRecipients.id, bob.id));
+    const workflow = flakyWorkflow();
+    const p = portal({ FINALIZE_ENVELOPE: workflow.binding as never });
+
+    const annSession = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
+    const jobTitle = (await data<SignPortalEnvelope>(await p.request('/envelope', {}, annSession))).fields.find((f) => f.type === 'text')!;
+    expect((await p.request('/complete', json({ values: [{ fieldId: jobTitle.id, value: 'Director' }], signature }), annSession)).status).toBe(200);
+
+    const bobSession = await openAndConsent(p, linksByRecipient().get('bob@example.com')!);
+    const box = (await data<SignPortalEnvelope>(await p.request('/envelope', {}, bobSession))).fields.find((f) => f.type === 'checkbox')!;
+    const finishBob = () => p.request('/complete', json({ values: [{ fieldId: box.id, value: 'true' }], signature }), bobSession);
+
+    // The Workflows API fails once: Bob hears so, and his signature is kept.
+    expect((await finishBob()).status).toBe(503);
+    const [bobRow] = await db.select().from(schema.signRecipients).where(eq(schema.signRecipients.id, bob.id));
+    expect(bobRow!.status).toBe('signed');
+
+    // Finishing again starts it; another try finds it running and leaves it alone.
+    expect((await finishBob()).status).toBe(200);
+    expect((await finishBob()).status).toBe(200);
+    const id = `finalize-${envelope.id}`;
+    expect(workflow.calls).toEqual([id, id, id]);
+    expect(workflow.instances.get(id)).toEqual({ status: 'running', restarted: 0 });
+
+    // A run that failed is restarted by the next start, here from reopening a link.
+    workflow.instances.get(id)!.status = 'errored';
+    await p.request('/session', json({ token: linksByRecipient().get('ann@example.com') }));
+    await Promise.all(p.pending);
+    expect(workflow.instances.get(id)).toEqual({ status: 'running', restarted: 1 });
   });
 
   it('refuses to send a draft that is not complete', async () => {

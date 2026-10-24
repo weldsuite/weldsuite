@@ -210,52 +210,56 @@ export function workingKey(originalKey: string): string {
   return originalKey.replace(/\.pdf$/, '.working.pdf');
 }
 
+type ResolvedField = { value: string | null; signatureKey: string | null };
+type AdoptedKeys = { signature: string | null; initials: string | null };
+
+function adoptedImage(f: SignField, keys: AdoptedKeys): ResolvedField {
+  const key = f.type === 'signature' ? keys.signature : keys.initials;
+  if (!key) throw invalid(f.type === 'signature' ? 'Adopt a signature first' : 'Adopt your initials first');
+  return { value: null, signatureKey: key };
+}
+
+/** What the signer typed or ticked. */
+function enteredValue(f: SignField, raw: string | undefined): ResolvedField {
+  if (f.type === 'checkbox') {
+    const checked = raw === 'true';
+    if (f.required && !checked) throw invalid(`${f.label || 'A required checkbox'} must be checked`);
+    return { value: checked ? 'true' : 'false', signatureKey: null };
+  }
+  const v = (raw ?? '').trim();
+  if (f.required && !v) throw invalid(`${f.label || 'A required field'} is empty`);
+  return { value: v || null, signatureKey: null };
+}
+
+function resolveField(f: SignField, recipient: SignRecipient, raw: string | undefined, keys: AdoptedKeys, date: string): ResolvedField {
+  switch (f.type) {
+    case 'signature':
+    case 'initials':
+      return adoptedImage(f, keys);
+    case 'name':
+      return { value: recipient.name ?? '', signatureKey: null };
+    case 'email':
+      return { value: recipient.email ?? '', signatureKey: null };
+    case 'date_signed':
+      return { value: date, signatureKey: null };
+    default:
+      return enteredValue(f, raw);
+  }
+}
+
 /** Field values and signature keys for a signer's submission; throws on anything missing or out of place. */
 export function resolveSubmission(
   fields: SignField[],
   recipient: SignRecipient,
   input: SignPortalCompleteInput,
-  keys: { signature: string | null; initials: string | null },
-): Map<string, { value: string | null; signatureKey: string | null }> {
+  keys: AdoptedKeys,
+): Map<string, ResolvedField> {
   const values = new Map(input.values.map((v) => [v.fieldId, v.value]));
   for (const id of values.keys()) {
     if (!fields.some((f) => f.id === id)) throw invalid(`Field ${id} is not one of yours`);
   }
   const date = signedDate(recipient.locale, input.timeZone);
-  const out = new Map<string, { value: string | null; signatureKey: string | null }>();
-  for (const f of fields) {
-    switch (f.type) {
-      case 'signature':
-      case 'initials': {
-        const key = f.type === 'signature' ? keys.signature : keys.initials;
-        if (!key) throw invalid(f.type === 'signature' ? 'Adopt a signature first' : 'Adopt your initials first');
-        out.set(f.id, { value: null, signatureKey: key });
-        break;
-      }
-      case 'name':
-        out.set(f.id, { value: recipient.name ?? '', signatureKey: null });
-        break;
-      case 'email':
-        out.set(f.id, { value: recipient.email ?? '', signatureKey: null });
-        break;
-      case 'date_signed':
-        out.set(f.id, { value: date, signatureKey: null });
-        break;
-      case 'checkbox': {
-        const v = values.get(f.id);
-        const checked = v === 'true';
-        if (f.required && !checked) throw invalid(`${f.label || 'A required checkbox'} must be checked`);
-        out.set(f.id, { value: checked ? 'true' : 'false', signatureKey: null });
-        break;
-      }
-      default: {
-        const v = (values.get(f.id) ?? '').trim();
-        if (f.required && !v) throw invalid(`${f.label || 'A required field'} is empty`);
-        out.set(f.id, { value: v || null, signatureKey: null });
-      }
-    }
-  }
-  return out;
+  return new Map(fields.map((f) => [f.id, resolveField(f, recipient, values.get(f.id), keys, date)]));
 }
 
 export interface CompleteContext {

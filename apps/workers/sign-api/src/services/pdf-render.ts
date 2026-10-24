@@ -256,7 +256,8 @@ export async function appendCertificate(doc: PDFDocument, input: CertificateInpu
   line('Recipients', { size: 11, f: bold, gap: 6 });
   for (const r of input.recipients) {
     ensure(110);
-    line(`${r.name ?? r.email ?? '-'}${r.email && r.name ? ` <${r.email}>` : ''}`, { size: 10, f: bold, gap: 4 });
+    const address = r.email && r.name ? ` <${r.email}>` : '';
+    line((r.name ?? r.email ?? '-') + address, { size: 10, f: bold, gap: 4 });
     row('Role', r.role === 'signer' ? 'Signer' : 'Receives a copy');
     if (r.role === 'signer') {
       row('Identity check', AUTH_LABELS[r.authMode] ?? r.authMode);

@@ -31,6 +31,12 @@ export interface Env
    * codes. Without it the signer portal answers 503 and access codes cannot be set.
    */
   SIGN_SESSION_SECRET?: string;
+  /**
+   * Shared with apps/web/sign-portal, which sends it as `X-Sign-Portal-Key`.
+   * Only a request carrying it may report the signer's IP (`X-Signer-Ip`) for
+   * the evidence trail; any other caller is recorded by `cf-connecting-ip`.
+   */
+  SIGN_PORTAL_SECRET?: string;
   /** Builds the signed PDF once the last signer has signed. Without it, sign-api finalizes in `waitUntil`. */
   FINALIZE_ENVELOPE?: Workflow<FinalizeEnvelopeParams>;
 

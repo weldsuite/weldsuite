@@ -47,12 +47,12 @@ const en = {
     verifying: 'Checking',
     resend: 'Send a new code',
     resent: 'We sent you a new code.',
-    wrongCode: (attemptsLeft: number | null) =>
-      attemptsLeft === null
-        ? 'That code is not correct.'
-        : attemptsLeft === 1
-          ? 'That code is not correct. You have 1 attempt left.'
-          : `That code is not correct. You have ${attemptsLeft} attempts left.`,
+    wrongCode: (attemptsLeft: number | null) => {
+      if (attemptsLeft === null) return 'That code is not correct.';
+      return attemptsLeft === 1
+        ? 'That code is not correct. You have 1 attempt left.'
+        : `That code is not correct. You have ${attemptsLeft} attempts left.`;
+    },
     locked: 'Too many wrong attempts. Ask the sender to send you a new link.',
     tooManyResends: 'You asked for a code a moment ago. Wait a minute and try again.',
   },
@@ -109,6 +109,7 @@ const en = {
     menu: 'More options',
     decline: 'Decline to sign',
     finishFailed: 'We could not finish signing. Check your fields and try again.',
+    finishPending: 'Your signature is saved, but we could not complete the request yet. Select Finish again in a moment.',
     sessionExpired: 'Your session expired. Open the link again if this keeps happening.',
     signHere: 'Sign here',
     initialHere: 'Initial',
@@ -211,12 +212,10 @@ const nl: Dictionary = {
     verifying: 'Controleren',
     resend: 'Stuur een nieuwe code',
     resent: 'We hebben je een nieuwe code gestuurd.',
-    wrongCode: (attemptsLeft: number | null) =>
-      attemptsLeft === null
-        ? 'Die code klopt niet.'
-        : attemptsLeft === 1
-          ? 'Die code klopt niet. Je hebt nog 1 poging.'
-          : `Die code klopt niet. Je hebt nog ${attemptsLeft} pogingen.`,
+    wrongCode: (attemptsLeft: number | null) => {
+      if (attemptsLeft === null) return 'Die code klopt niet.';
+      return attemptsLeft === 1 ? 'Die code klopt niet. Je hebt nog 1 poging.' : `Die code klopt niet. Je hebt nog ${attemptsLeft} pogingen.`;
+    },
     locked: 'Te veel foute pogingen. Vraag de afzender om je een nieuwe link te sturen.',
     tooManyResends: 'Je hebt zojuist al een code aangevraagd. Wacht een minuut en probeer het opnieuw.',
   },
@@ -273,6 +272,7 @@ const nl: Dictionary = {
     menu: 'Meer opties',
     decline: 'Weigeren te ondertekenen',
     finishFailed: 'We konden het ondertekenen niet afronden. Controleer je velden en probeer het opnieuw.',
+    finishPending: 'Je handtekening is opgeslagen, maar we konden het verzoek nog niet afronden. Kies zo nog een keer Afronden.',
     sessionExpired: 'Je sessie is verlopen. Open de link opnieuw als dit blijft gebeuren.',
     signHere: 'Teken hier',
     initialHere: 'Paraaf',

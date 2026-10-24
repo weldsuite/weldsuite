@@ -7,6 +7,11 @@ export async function sha256Hex(data: ArrayBuffer | Uint8Array | string): Promis
 
 const encoder = new TextEncoder();
 
+/** Base64url without padding, for link tokens and signer sessions. */
+export function base64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+}
+
 /** HMAC-SHA-256 as lowercase hex. */
 export async function hmacHex(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);

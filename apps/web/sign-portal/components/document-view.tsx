@@ -99,7 +99,8 @@ function DocumentPages({ doc, envelope, state, withSession, autoText, highlighte
             {t.sign.pdfRetry}
           </Button>
         </div>
-      ) : !pdf ? (
+      ) : null}
+      {!failed && !pdf ? (
         <p role="status" className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
           {t.sign.pdfLoading}
