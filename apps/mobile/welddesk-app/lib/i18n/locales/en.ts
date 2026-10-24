@@ -129,6 +129,7 @@ export const en = {
     reopenedEvent: 'Conversation reopened',
     assignedEvent: 'Assigned',
     unassignedEvent: 'Unassigned',
+    ratedEvent: 'Customer rated this {rating}/5',
     typing: '{name} is typing…',
     typingFallback: 'Visitor',
     visitorOnline: 'Online',

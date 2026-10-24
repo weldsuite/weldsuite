@@ -131,6 +131,7 @@ export const nl: Translations = {
     reopenedEvent: 'Gesprek heropend',
     assignedEvent: 'Toegewezen',
     unassignedEvent: 'Niet toegewezen',
+    ratedEvent: 'Klant gaf dit gesprek een {rating}/5',
     typing: '{name} typt…',
     typingFallback: 'Bezoeker',
     visitorOnline: 'Online',
