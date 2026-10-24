@@ -137,6 +137,18 @@ export const error = {
     ),
 
   /**
+   * 409 Conflict - The resource is not in a state that allows this
+   */
+  conflict: (c: Context, message: string) =>
+    c.json(
+      {
+        success: false,
+        error: { code: 'CONFLICT', message },
+      },
+      409
+    ),
+
+  /**
    * 500 Internal Server Error - Unexpected error
    */
   internal: (c: Context, message = 'Internal server error') =>

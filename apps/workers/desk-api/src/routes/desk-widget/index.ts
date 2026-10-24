@@ -118,6 +118,10 @@ app.patch('/:widgetId', requirePermission('settings:update'), zValidator('json',
         ...(data.greeting !== undefined ? { greeting: data.greeting } : {}),
         ...(data.branding !== undefined ? { branding: data.branding } : {}),
         ...(data.allowedDomains !== undefined ? { allowedDomains: data.allowedDomains } : {}),
+        ...(data.officeHours !== undefined ? { officeHours: data.officeHours } : {}),
+        ...(data.timezone !== undefined ? { timezone: data.timezone } : {}),
+        ...(data.awayMessage !== undefined ? { awayMessage: data.awayMessage || null } : {}),
+        ...(data.expectedReplyTime !== undefined ? { expectedReplyTime: data.expectedReplyTime } : {}),
       })
       .where(eq(widgets.id, existing.id))
       .returning();

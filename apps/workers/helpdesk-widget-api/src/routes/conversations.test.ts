@@ -22,13 +22,18 @@ vi.mock('@weldsuite/db/lib/desk', () => ({
   createDeskConversation: vi.fn(),
   listDeskConversationsForVisitor: vi.fn(),
   upsertDeskVisitor: vi.fn(),
+  rateDeskConversation: vi.fn(),
+  DESK_RATING_MIN: 1,
+  DESK_RATING_MAX: 5,
   DeskConversationNotFoundError: class DeskConversationNotFoundError extends Error {},
+  DeskRatingRejectedError: class DeskRatingRejectedError extends Error {},
 }));
 
 vi.mock('../lib/desk-live', () => ({
   isPublicMessage: () => true,
   notifyTeamOfVisitorMessage: vi.fn(() => Promise.resolve()),
   publishConversationUpdated: vi.fn(() => Promise.resolve()),
+  publishVisitorEvent: vi.fn(() => Promise.resolve()),
   publishVisitorMessage: vi.fn(() => Promise.resolve()),
   resolveAuthors: vi.fn(() => Promise.resolve(new Map())),
   toPublicConversation: (c: unknown) => c,

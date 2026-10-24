@@ -340,6 +340,66 @@ export async function appendDeskMessage(
   return { conversation, message };
 }
 
+export const DESK_RATING_MIN = 1;
+export const DESK_RATING_MAX = 5;
+
+/** Why a rating was refused: the conversation is still open, or it was rated already. */
+export class DeskRatingRejectedError extends Error {
+  constructor(readonly reason: 'not_closed' | 'already_rated') {
+    super(reason === 'not_closed' ? 'Only a closed conversation can be rated' : 'This conversation was already rated');
+    this.name = 'DeskRatingRejectedError';
+  }
+}
+
+export interface RateDeskConversationInput {
+  generateId: IdGenerator;
+  conversationId: string;
+  /** Who rated: the widget visitor id. */
+  authorId: string | null;
+  rating: number;
+  comment?: string | null;
+}
+
+/**
+ * Store the visitor's CSAT answer on a closed conversation and put it on the
+ * timeline as a `rated` event. One rating per conversation: the update only
+ * lands while rated_at is still empty, so a double submit can't rate twice.
+ */
+export async function rateDeskConversation(
+  db: AnyDb,
+  input: RateDeskConversationInput,
+): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+  if (!Number.isInteger(input.rating) || input.rating < DESK_RATING_MIN || input.rating > DESK_RATING_MAX) {
+    throw new RangeError(`Rating must be a whole number from ${DESK_RATING_MIN} to ${DESK_RATING_MAX}`);
+  }
+  const [current] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, input.conversationId))
+    .limit(1);
+  if (!current) throw new DeskConversationNotFoundError(input.conversationId);
+  if (current.state !== 'closed') throw new DeskRatingRejectedError('not_closed');
+  if (current.ratedAt) throw new DeskRatingRejectedError('already_rated');
+
+  const comment = input.comment?.trim() || null;
+  const now = new Date();
+  const [rated] = await db
+    .update(conversations)
+    .set({ rating: input.rating, ratingComment: comment, ratedAt: now, updatedAt: now })
+    .where(and(eq(conversations.id, input.conversationId), isNull(conversations.ratedAt)))
+    .returning({ id: conversations.id });
+  if (!rated) throw new DeskRatingRejectedError('already_rated');
+
+  return appendDeskMessage(db, {
+    generateId: input.generateId,
+    conversationId: input.conversationId,
+    kind: 'event',
+    authorType: 'visitor',
+    authorId: input.authorId,
+    metadata: { eventType: 'rated', rating: input.rating, ratingComment: comment },
+  });
+}
+
 export async function findOpenConversationForVisitor(
   db: AnyDb,
   visitorId: string,
@@ -913,6 +973,8 @@ export interface PublicDeskConversation {
   /** True when the last public message came from the team (ball in the visitor's court). */
   lastMessageFromTeam: boolean;
   assignee: DeskAuthorInfo | null;
+  /** The visitor's CSAT answer (1–5), null until they rate a closed conversation. */
+  rating: number | null;
 }
 
 function toIso(value: Date | string | null | undefined): string | null {
@@ -972,5 +1034,6 @@ export function toPublicDeskConversation(
     lastMessagePreview: conversation.lastMessagePreview,
     lastMessageFromTeam: conversation.waitingSince === null && conversation.lastMessageAt !== null,
     assignee: conversation.assigneeId ? authors.get(conversation.assigneeId) ?? null : null,
+    rating: conversation.rating ?? null,
   };
 }

@@ -20,6 +20,7 @@ import { schema, type Database } from '../db';
 import type { Env } from '../index';
 import {
   deskAuthorFromMember,
+  toPublicDeskConversation,
   toPublicDeskMessage,
   type DeskAuthorInfo,
   type DeskConversation,
@@ -111,6 +112,42 @@ export async function publishConversationUpdated(
     await rt.publish(orgId, 'desk_conversation', 'updated', conversation, 'system');
   } catch (err) {
     console.error('[widget-api] realtime publish failed:', err);
+  }
+}
+
+/**
+ * Push a visitor-made timeline event (a rating) to the agents' inbox and to
+ * the conversation room, where the visitor's other tabs pick it up as a
+ * system event carrying the updated conversation.
+ */
+export async function publishVisitorEvent(
+  env: Env,
+  orgId: string,
+  conversation: DeskConversation,
+  message: DeskMessage,
+): Promise<void> {
+  if (!env.REALTIME) return;
+  const rt = new RealtimePublisher(env.REALTIME, { internalSecret: env.REALTIME_INTERNAL_SECRET });
+  const authors = new Map<string, DeskAuthor>();
+  const record = toPublicMessage(message, authors);
+  const results = await Promise.allSettled([
+    rt.conversationPublish(conversation.id, {
+      type: 'system',
+      event: record.eventType ?? 'event',
+      data: {
+        state: conversation.state,
+        conversation: toPublicDeskConversation(conversation, authors),
+        record,
+      },
+      ts: Date.now(),
+    }),
+    rt.publish(orgId, 'desk_conversation', 'updated', conversation, 'system'),
+    rt.publish(orgId, 'desk_message', 'created', message, 'system'),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.error('[widget-api] realtime publish failed:', result.reason);
+    }
   }
 }
 

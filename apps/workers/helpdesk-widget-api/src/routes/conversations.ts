@@ -15,8 +15,12 @@ import {
   createDeskConversation,
   getDeskConversation,
   listDeskConversationsForVisitor,
+  rateDeskConversation,
   upsertDeskVisitor,
+  DESK_RATING_MAX,
+  DESK_RATING_MIN,
   DeskConversationNotFoundError,
+  DeskRatingRejectedError,
   type DeskConversation,
 } from '@weldsuite/db/lib/desk';
 import type { DeskMessageAttachment } from '@weldsuite/db/schema/desk-messages';
@@ -28,6 +32,7 @@ import {
   isPublicMessage,
   notifyTeamOfVisitorMessage,
   publishConversationUpdated,
+  publishVisitorEvent,
   publishVisitorMessage,
   resolveAuthors,
   toPublicConversation,
@@ -77,6 +82,12 @@ const sendSchema = z
   });
 
 const visitorQuerySchema = z.object({ visitorId: visitorIdSchema });
+
+const rateSchema = z.object({
+  visitorId: visitorIdSchema,
+  rating: z.number().int().min(DESK_RATING_MIN).max(DESK_RATING_MAX),
+  comment: z.string().trim().max(2000).optional(),
+});
 
 function ownedBy(conversation: DeskConversation, visitorId: string): boolean {
   return conversation.visitorId === visitorId;
@@ -271,5 +282,44 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
     console.error('[widget-api] send message failed:', err);
     return error.internal(c, 'Failed to send message');
+  }
+});
+
+/** The visitor's CSAT answer for a conversation the team closed. */
+conversationsRoutes.post('/:id/rating', zValidator('json', rateSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const orgId = c.get('workspaceId');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  try {
+    const existing = await getDeskConversation(db, id);
+    if (!existing || !ownedBy(existing.conversation, data.visitorId)) {
+      return error.notFound(c, 'Conversation', id);
+    }
+
+    const { conversation, message } = await rateDeskConversation(db, {
+      generateId,
+      conversationId: id,
+      authorId: data.visitorId,
+      rating: data.rating,
+      comment: data.comment,
+    });
+
+    c.executionCtx.waitUntil(publishVisitorEvent(c.env, orgId, conversation, message));
+
+    const authors = await resolveAuthors(db, [conversation.assigneeId]);
+    return success(
+      c,
+      {
+        conversation: toPublicConversation(conversation, authors),
+        message: toPublicMessage(message, authors),
+      },
+      201,
+    );
+  } catch (err) {
+    if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
+    if (err instanceof DeskRatingRejectedError) return error.conflict(c, err.message);
+    console.error('[widget-api] rate conversation failed:', err);
+    return error.internal(c, 'Failed to save rating');
   }
 });
