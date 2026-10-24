@@ -29,7 +29,7 @@ describe('save_agent_setup', () => {
       systemPrompt: 'Every weekday at 8:00, send a digest of overdue tasks on a schedule.',
       permissions: ['tasks:read'],
       ...(activate === undefined ? {} : { activate }),
-    }) as Promise<{ ok?: boolean; status?: string }>;
+    }) as Promise<{ ok?: boolean; status?: string; hint?: string }>;
   };
 
   it('keeps an active agent active when the setup is saved again', async () => {
@@ -52,6 +52,9 @@ describe('save_agent_setup', () => {
     const agent = await createAgent(db, { name: 'Paused', createdBy: 'user_1' });
     await updateAgent(db, agent.id, { status: 'paused' });
 
-    expect(await save(agent.id)).toMatchObject({ ok: true, status: 'paused' });
+    const saved = await save(agent.id);
+    expect(saved).toMatchObject({ ok: true, status: 'paused' });
+    // The model is told it is still paused, not that it is a draft.
+    expect(saved.hint).toContain('still paused');
   });
 });

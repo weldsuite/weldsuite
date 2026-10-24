@@ -210,6 +210,9 @@ const updateRoutineParams = z.object({
 
 /** What save_agent_setup tells the model to confirm, given the status after saving. */
 function saveSetupHint(status: string, activated: boolean): string {
+  if (status === 'paused') {
+    return 'Setup saved; you are still paused. Confirm briefly; they can turn you back on with the Activate button.';
+  }
   if (status !== 'active') return 'Setup saved as draft. Confirm briefly; ask if they want you activated.';
   return activated
     ? 'Setup saved and activated. Confirm briefly with the user.'
