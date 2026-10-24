@@ -31,6 +31,8 @@ export interface MessageAttachment {
   url: string;
   contentType: string;
   filesize: number;
+  width?: number;
+  height?: number;
 }
 
 export interface PublicMessage {

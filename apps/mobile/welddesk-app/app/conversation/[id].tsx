@@ -3,7 +3,7 @@
  * Kept live by `useDeskConversationLive` (hub records + visitor typing/presence).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,20 +18,24 @@ import {
 import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Send, CheckCircle2, RotateCcw } from 'lucide-react-native';
+import { Send, CheckCircle2, RotateCcw, UserCheck, UserPlus, UserMinus } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
+import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 
 import api from '@/services/api';
-import { BRAND } from '@/lib/brand';
+import { BRAND, tint } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { ErrorState, LoadingState } from '@/components/data-states';
+import { AssigneePicker } from '@/components/assignee-picker';
+import { MessageAttachments } from '@/components/message-attachments';
 import { ChannelBadge, ConversationStateBadge } from '@/components/status-badge';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 import { mergeDeskMessage, useDeskConversationLive } from '@/hooks/useDeskConversationLive';
+import { useAssignableMembers } from '@/hooks/useAssignableMembers';
 import type { DeskConversation, DeskConversationWithMessages, DeskMessage } from '@/types/desk';
 
 type ComposerMode = 'message' | 'note';
@@ -49,11 +53,49 @@ interface ConversationHeaderProps {
   title: string;
   visitorOnline: boolean;
   managing: boolean;
+  assigneeLabel: string;
+  isMine: boolean;
   onBack: () => void;
   onToggleState: () => void;
+  onAssignToMe: () => void;
+  onOpenPicker: () => void;
+  onUnassign: () => void;
 }
 
-function ConversationHeader({ data, title, visitorOnline, managing, onBack, onToggleState }: Readonly<ConversationHeaderProps>) {
+function AssignChip({
+  label,
+  icon,
+  disabled,
+  onPress,
+}: Readonly<{ label: string; icon: React.ReactNode; disabled: boolean; onPress: () => void }>) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.assignChip, { backgroundColor: tint(BRAND), opacity: disabled ? 0.5 : 1 }]}
+    >
+      {icon}
+      <Text style={[styles.assignChipText, { color: colors.text }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function ConversationHeader({
+  data,
+  title,
+  visitorOnline,
+  managing,
+  assigneeLabel,
+  isMine,
+  onBack,
+  onToggleState,
+  onAssignToMe,
+  onOpenPicker,
+  onUnassign,
+}: Readonly<ConversationHeaderProps>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   const isOpen = data?.state === 'open';
@@ -81,20 +123,52 @@ function ConversationHeader({ data, title, visitorOnline, managing, onBack, onTo
       }
       below={
         data ? (
-          <View style={styles.metaRow}>
-            <ConversationStateBadge state={data.state} />
-            <ChannelBadge channel={data.channel} />
-            <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-              #{data.conversationNumber}
-            </Text>
-            {visitorOnline ? (
-              <View style={styles.online}>
-                <View style={styles.onlineDot} />
-                <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-                  {t.conversation.visitorOnline}
-                </Text>
+          <View style={styles.headerBelow}>
+            <View style={styles.metaRow}>
+              <ConversationStateBadge state={data.state} />
+              <ChannelBadge channel={data.channel} />
+              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
+                #{data.conversationNumber}
+              </Text>
+              {visitorOnline ? (
+                <View style={styles.online}>
+                  <View style={styles.onlineDot} />
+                  <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
+                    {t.conversation.visitorOnline}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.assignBlock}>
+              <Text style={[styles.metaText, { color: colors.mutedForeground }]} numberOfLines={1}>
+                {t.conversation.assignee}:{' '}
+                <Text style={{ color: colors.text, fontWeight: '600' }}>{assigneeLabel}</Text>
+              </Text>
+              <View style={styles.assignRow}>
+                {isMine ? null : (
+                  <AssignChip
+                    label={t.conversation.assignToMe}
+                    icon={<UserCheck size={14} color={BRAND} />}
+                    disabled={managing}
+                    onPress={onAssignToMe}
+                  />
+                )}
+                <AssignChip
+                  label={t.conversation.changeAssignee}
+                  icon={<UserPlus size={14} color={BRAND} />}
+                  disabled={managing}
+                  onPress={onOpenPicker}
+                />
+                {data.assigneeId ? (
+                  <AssignChip
+                    label={t.conversation.unassign}
+                    icon={<UserMinus size={14} color={BRAND} />}
+                    disabled={managing}
+                    onPress={onUnassign}
+                  />
+                ) : null}
               </View>
-            ) : null}
+            </View>
           </View>
         ) : null
       }
@@ -191,6 +265,8 @@ export default function ConversationScreen() {
   const { colors } = useTheme();
   const { t, format } = useI18n();
   const toast = useToast();
+  const { user } = useClerkAuth();
+  const { members, load: loadMembers } = useAssignableMembers();
   const listRef = useRef<FlatList<DeskMessage>>(null);
 
   const [data, setData] = useState<DeskConversationWithMessages | null>(null);
@@ -200,6 +276,7 @@ export default function ConversationScreen() {
   const [mode, setMode] = useState<ComposerMode>('message');
   const [sending, setSending] = useState(false);
   const [managing, setManaging] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -286,6 +363,43 @@ export default function ConversationScreen() {
     }
   }, [id, data, managing, toast, t, applyConversation, applyMessage]);
 
+  const currentUserId = user?.id ?? null;
+  const assigneeId = data?.assigneeId ?? null;
+  const isMine = Boolean(assigneeId) && assigneeId === currentUserId;
+
+  // Resolve a teammate's name for the header (the roster is cached app-wide).
+  useEffect(() => {
+    if (assigneeId && !isMine && members === null) void loadMembers();
+  }, [assigneeId, isMine, members, loadMembers]);
+
+  const assigneeLabel = useMemo(() => {
+    if (!assigneeId) return t.conversation.unassignedLabel;
+    if (isMine) return t.conversation.assignedToYou;
+    return members?.find((m) => m.userId === assigneeId)?.name ?? t.conversation.assignedEvent;
+  }, [assigneeId, isMine, members, t]);
+
+  const assign = useCallback(
+    async (nextAssigneeId: string | null) => {
+      if (!id || managing) return;
+      setPickerOpen(false);
+      setManaging(true);
+      try {
+        const res = await api.manageConversation(id, { action: 'assign', assigneeId: nextAssigneeId });
+        if (!res.success || !res.data) {
+          toast.error(t.conversation.assignError);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          return;
+        }
+        applyConversation(res.data.conversation);
+        applyMessage(res.data.message);
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } finally {
+        setManaging(false);
+      }
+    },
+    [id, managing, toast, t, applyConversation, applyMessage],
+  );
+
   const title = resolveConversationTitle(data, t.conversation.title);
 
   const header = (
@@ -294,8 +408,15 @@ export default function ConversationScreen() {
       title={title}
       visitorOnline={live.visitorOnline}
       managing={managing}
+      assigneeLabel={assigneeLabel}
+      isMine={isMine}
       onBack={() => router.back()}
       onToggleState={() => void toggleState()}
+      onAssignToMe={() => {
+        if (currentUserId) void assign(currentUserId);
+      }}
+      onOpenPicker={() => setPickerOpen(true)}
+      onUnassign={() => void assign(null)}
     />
   );
 
@@ -354,6 +475,14 @@ export default function ConversationScreen() {
           onSend={() => void send()}
         />
       </KeyboardAvoidingView>
+
+      <AssigneePicker
+        visible={pickerOpen}
+        currentAssigneeId={assigneeId}
+        currentUserId={currentUserId}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(next) => void assign(next)}
+      />
     </Screen>
   );
 }
@@ -430,9 +559,12 @@ function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
           {author}
           {isNote ? ` · ${t.conversation.note}` : ''}
         </Text>
-        <Text style={[styles.body, { color: onBrand ? '#fff' : colors.text }]}>
-          {message.body || t.common.dash}
-        </Text>
+        {message.body || !message.attachments?.length ? (
+          <Text style={[styles.body, { color: onBrand ? '#fff' : colors.text }]}>
+            {message.body || t.common.dash}
+          </Text>
+        ) : null}
+        <MessageAttachments attachments={message.attachments} onBrand={onBrand} />
         <Text
           style={[
             styles.time,
@@ -448,7 +580,19 @@ function MessageBubble({ message }: Readonly<{ message: DeskMessage }>) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  headerBelow: { gap: 8 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  assignBlock: { gap: 6 },
+  assignRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  assignChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  assignChipText: { fontSize: 12, fontWeight: '600' },
   metaText: { fontSize: 13, fontWeight: '500' },
   online: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#10B981' },

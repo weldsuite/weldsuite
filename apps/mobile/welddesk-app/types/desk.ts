@@ -57,6 +57,17 @@ export interface DeskConversationFilters {
   assigneeId?: string;
   unassigned?: boolean;
   channel?: DeskChannel;
+  /** Free-text search: customer, subject, "#42" number, message text. */
+  q?: string;
+}
+
+/** Workspace member as shown in the assignee picker. */
+export interface DeskMember {
+  /** Clerk user id, the value `assigneeId` takes. */
+  userId: string;
+  name: string;
+  email: string;
+  picture: string | null;
 }
 
 export type DeskConversationWithMessages = DeskConversation & {

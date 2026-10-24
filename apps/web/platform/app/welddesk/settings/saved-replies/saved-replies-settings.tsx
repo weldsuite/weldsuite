@@ -9,7 +9,6 @@ import {
   Plus,
   Pencil,
   Trash2,
-  ArrowLeft,
   BookOpen,
   Globe,
   User,
@@ -18,7 +17,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   useCannedResponses,
@@ -65,8 +63,7 @@ export function SavedRepliesSettings() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useBreadcrumbs([
-    { label: srp.helpdeskBreadcrumb, href: '/welddesk' },
-    { label: srp.settingsBreadcrumb, href: '/welddesk/settings' },
+    { label: srp.helpdeskBreadcrumb, href: '/welddesk/inbox' },
     { label: srp.breadcrumb },
   ]);
 
@@ -219,11 +216,6 @@ export function SavedRepliesSettings() {
       <div className="container max-w-4xl mx-auto p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" asChild className="shrink-0">
-            <Link href="/welddesk/settings">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
           <div className="flex-1">
             <h1 className="text-2xl font-bold tracking-tight">{srp.title}</h1>
             <p className="text-sm text-muted-foreground">

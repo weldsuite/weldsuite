@@ -102,6 +102,11 @@ export interface DeskConversationFilters {
   assigneeId?: string;
   unassigned?: boolean;
   channel?: DeskChannel;
+  /** Server-side search over customer, subject, number and message text. */
+  q?: string;
+  /** A customer's conversations: by email, else by widget visitor. */
+  email?: string;
+  visitorId?: string;
 }
 
 function buildConversationQuery(
@@ -114,6 +119,9 @@ function buildConversationQuery(
   if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
   if (filters.unassigned) params.set('unassigned', 'true');
   if (filters.channel) params.set('channel', filters.channel);
+  if (filters.q?.trim()) params.set('q', filters.q.trim());
+  if (filters.email) params.set('email', filters.email);
+  if (filters.visitorId) params.set('visitorId', filters.visitorId);
   if (sort) params.set('sort', sort);
   if (cursor) params.set('cursor', cursor);
   const qs = params.toString();
@@ -147,6 +155,83 @@ export function useDeskConversation(id: string, enabled = true) {
       );
     },
     enabled: !!id && enabled,
+  });
+}
+
+/**
+ * The customer's other conversations (any state), for the details panel.
+ * Matched by email when known, else by the widget visitor.
+ */
+export function useDeskCustomerConversations(conversation: DeskConversation | undefined) {
+  const { getClient } = useAppApiClient();
+  const filters: DeskConversationFilters = conversation?.email
+    ? { email: conversation.email }
+    : { visitorId: conversation?.visitorId ?? undefined };
+  return useQuery({
+    queryKey: [...deskKeys.conversations(), 'customer', filters] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const query = buildConversationQuery(filters, 'newest');
+      const res = await client.get<{ data: DeskConversation[]; pagination: DeskListPagination }>(
+        `/desk/conversations${query}${query ? '&' : '?'}limit=10`,
+      );
+      return res.data;
+    },
+    enabled: Boolean(filters.email || filters.visitorId),
+  });
+}
+
+/** Upload one file to a conversation; attach the result to the next reply. */
+export function useUploadDeskAttachment() {
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ conversationId, file }: { conversationId: string; file: File }) => {
+      const client = await getClient();
+      const form = new FormData();
+      form.append('file', file);
+      const res = await client.postForm<{ data: DeskMessageAttachment }>(
+        `/desk/conversations/${conversationId}/attachments`,
+        form,
+      );
+      return res.data;
+    },
+  });
+}
+
+export interface DeskSavedReply {
+  id: string;
+  name: string;
+  content: string;
+  shortcut: string | null;
+  category: string | null;
+}
+
+/** Saved replies the agent may use (active; others' personal ones hidden). */
+export function useDeskSavedReplies(search: string, enabled = true) {
+  const { getClient } = useAppApiClient();
+  const q = search.trim();
+  return useQuery({
+    queryKey: [...deskKeys.all, 'saved-replies', q] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const params = new URLSearchParams({ q, limit: '20' });
+      const res = await client.get<{ data: DeskSavedReply[] }>(`/canned-responses/search?${params.toString()}`);
+      return res.data;
+    },
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/** Render a saved reply with the conversation's variables; counts the use. */
+export function useApplyDeskSavedReply() {
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ id, variables }: { id: string; variables: Record<string, unknown> }) => {
+      const client = await getClient();
+      const res = await client.post<{ data: { content: string } }>(`/canned-responses/${id}/use`, { variables });
+      return res.data.content;
+    },
   });
 }
 
