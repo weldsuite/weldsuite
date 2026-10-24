@@ -29,6 +29,7 @@ import { USER_APPS_ENTITY_EVENTS } from './user-apps';
 import { ADS_ENTITY_EVENTS } from './ads';
 import { HR_ENTITY_EVENTS } from './hr';
 import { REACH_ENTITY_EVENTS } from './reach';
+import { SHEETS_ENTITY_EVENTS } from './sheets';
 
 const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['crm', CRM_ENTITY_EVENTS],
@@ -51,6 +52,7 @@ const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['ads', ADS_ENTITY_EVENTS],
   ['hr', HR_ENTITY_EVENTS],
   ['reach', REACH_ENTITY_EVENTS],
+  ['sheets', SHEETS_ENTITY_EVENTS],
 ];
 
 describe('ENTITY_EVENTS catalog', () => {

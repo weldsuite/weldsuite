@@ -23,7 +23,7 @@ export default function WeldSheetsHome() {
   const canDelete = useCan('sheets:delete');
 
   const createSheet = async () => {
-    const meta = await create.mutateAsync(th.untitled);
+    const meta = await create.mutateAsync({ name: th.untitled, firstTabName: th.firstTab });
     open(meta.id);
   };
 
@@ -72,7 +72,7 @@ export default function WeldSheetsHome() {
             </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">{th.localNotice}</p>
+        {preview && <p className="text-xs text-muted-foreground">{th.localNotice}</p>}
 
         {!sheets?.length ? (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
@@ -97,8 +97,8 @@ export default function WeldSheetsHome() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => open(sheet.id)}>{th.open}</DropdownMenuItem>
-                    {canUpdate && <DropdownMenuItem onSelect={() => promptRename(sheet)}>{th.rename}</DropdownMenuItem>}
-                    {canDelete && (
+                    {canUpdate && sheet.canEdit && <DropdownMenuItem onSelect={() => promptRename(sheet)}>{th.rename}</DropdownMenuItem>}
+                    {canDelete && sheet.canEdit && (
                       <DropdownMenuItem className="text-destructive" onSelect={() => setDeleting(sheet)}>
                         {th.delete}
                       </DropdownMenuItem>
@@ -115,7 +115,7 @@ export default function WeldSheetsHome() {
         open={!!deleting}
         onOpenChange={(o) => !o && setDeleting(null)}
         title={th.deleteTitle}
-        description={format(th.deleteDescription, { name: deleting?.name ?? '' })}
+        description={format(preview ? th.deletePermanently : th.deleteDescription, { name: deleting?.name ?? '' })}
         confirmLabel={th.delete}
         variant="destructive"
         onConfirm={() => {

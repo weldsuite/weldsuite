@@ -111,6 +111,12 @@ function buildNavigateUrl(
   }
 }
 
+/** A WeldSheets spreadsheet (a drive file whose metadata names its sheet) opens in the editor. */
+function weldsheetUrl(metadata: Record<string, unknown> | null | undefined): string | null {
+  const sheetId = metadata?.weldsheetId;
+  return typeof sheetId === 'string' ? `/weldsheets/${sheetId}` : null;
+}
+
 function guessFileType(mimeType: string | null, fileName: string | null): string {
   if (!mimeType) return 'file';
   if (mimeType.startsWith('image/')) return 'image';
@@ -160,7 +166,7 @@ export function normalizeGenericFiles(
     // action), but a WeldFlow sheet or document is labelled as the project's.
     source: 'drive',
     sourceLabel: r.entityType && PROJECT_ENTITY_TYPES.has(r.entityType) ? 'Projects' : 'My Drive',
-    navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id),
+    navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id) ?? weldsheetUrl(r.metadata),
     folderId: r.folderId,
     isStarred: r.isStarred,
     createdAt: r.createdAt.toISOString(),
@@ -606,8 +612,11 @@ export async function listPurgedFileKeys(db: Database, ids: TrashedIds): Promise
  */
 export async function purgeTrashed(db: Database, ids: TrashedIds): Promise<void> {
   const where = purgedFilesWhere(ids);
-  // Files first: they reference their folder.
-  if (where) await db.delete(files).where(where);
+  if (where) {
+    // A WeldSheets spreadsheet's row references its file; files reference their folder.
+    await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, db.select({ id: files.id }).from(files).where(where)));
+    await db.delete(files).where(where);
+  }
   if (ids.folderIds.length > 0) {
     await db.delete(folders).where(and(inArray(folders.id, ids.folderIds), isNotNull(folders.deletedAt)));
   }
