@@ -12,6 +12,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Label } from '@weldsuite/ui/components/label';
+import { Input } from '@weldsuite/ui/components/input';
 import {
   Select,
   SelectContent,
@@ -52,6 +53,7 @@ import {
   type ConnectorSyncRun,
 } from '@/hooks/queries/use-connector-queries';
 import { ConnectorFieldMappingEditor } from './connector-field-mapping-editor';
+import { MoneybirdPushSettingsPanel } from './moneybird-push-settings';
 
 type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';
 
@@ -397,6 +399,81 @@ function EntityField({ tc, activeEntities, currentEntityId, canManage, onChange 
   );
 }
 
+interface ImportStartDateFieldProps {
+  tc: ConnectorsTranslations;
+  value: string;
+  canManage: boolean;
+  onChange: (value: string) => void;
+}
+
+/** Stripe: invoices issued before this date are not imported. */
+function ImportStartDateField({ tc, value, canManage, onChange }: Readonly<ImportStartDateFieldProps>) {
+  return (
+    <div className="mb-4 space-y-1.5">
+      <Label htmlFor="connection-import-start-date">{tc.settings.importStartDateLabel}</Label>
+      <p className="text-muted-foreground text-xs">{tc.settings.importStartDateDescription}</p>
+      <Input
+        id="connection-import-start-date"
+        type="date"
+        disabled={!canManage}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+/** Accounting connectors import into a WeldBooks entity. */
+const ENTITY_PROVIDERS = new Set(['moneybird', 'stripe']);
+
+/** The Stripe import start date being edited; `patch` is null while unchanged or for other providers. */
+function useImportStartDateDraft(connection: ConnectorConnection | undefined) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const saved = connection?.settings?.importStartDate ?? '';
+  const patch = connection?.provider === 'stripe' ? draft : null;
+  return {
+    value: draft ?? saved,
+    patch,
+    dirty: patch !== null && patch !== saved,
+    set: setDraft,
+    reset: () => setDraft(null),
+  };
+}
+
+interface ProviderSettingsProps {
+  connection: ConnectorConnection;
+  tc: ConnectorsTranslations;
+  canManage: boolean;
+  importStartDate: string;
+  onImportStartDateChange: (value: string) => void;
+}
+
+/** Settings only one provider has: Stripe's import start date, Moneybird's push to Moneybird. */
+function ProviderSettings({ connection, tc, canManage, importStartDate, onImportStartDateChange }: Readonly<ProviderSettingsProps>) {
+  if (connection.provider === 'stripe') {
+    return <ImportStartDateField tc={tc} value={importStartDate} canManage={canManage} onChange={onImportStartDateChange} />;
+  }
+  if (connection.provider === 'moneybird') {
+    return <MoneybirdPushSettingsPanel connection={connection} canManage={canManage} />;
+  }
+  return null;
+}
+
+/** The `settings` part of the PATCH when the start date changed. */
+function importStartSettingsPatch(patch: string | null): { settings?: { importStartDate: string } } {
+  return patch === null ? {} : { settings: { importStartDate: patch } };
+}
+
+/** Why the settings draft can't be saved, or null. */
+function settingsDraftError(
+  tc: ConnectorsTranslations,
+  draft: { entityMissing: boolean; noEntities: boolean; emptyStartDate: boolean },
+): string | null {
+  if (draft.entityMissing) return draft.noEntities ? tc.settings.entityMissing : tc.settings.entityRequired;
+  if (draft.emptyStartDate) return tc.settings.importStartDateRequired;
+  return null;
+}
+
 interface ConnectionDetailsProps {
   connectionId: string | null;
   onOpenChange: (open: boolean) => void;
@@ -422,10 +499,11 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
   const [direction, setDirection] = useState<SyncDirection | null>(null);
   const [objectDirections, setObjectDirections] = useState<Record<string, SyncDirection> | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const importStart = useImportStartDateDraft(connection);
   const currentSyncs = enabledSyncs ?? connection?.enabledSyncs ?? [];
   const currentDirection = direction ?? connection?.direction ?? 'inbound';
   const currentObjectDirections = objectDirections ?? connection?.objectSyncDirections ?? {};
-  const needsEntity = connection?.provider === 'moneybird';
+  const needsEntity = ENTITY_PROVIDERS.has(connection?.provider ?? '');
   const workspaceId = useWorkspaceId();
   const { data: entities = [] } = useQuery<Array<{ id: string; name: string; isActive?: boolean | null }>>({
     queryKey: accountingEntitiesQueryKey(workspaceId),
@@ -444,7 +522,16 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
     enabledSyncs !== null
     || direction !== null
     || objectDirections !== null
-    || (needsEntity && selectedEntityId !== null && selectedEntityId !== (connection?.entityId ?? ''));
+    || (needsEntity && selectedEntityId !== null && selectedEntityId !== (connection?.entityId ?? ''))
+    || importStart.dirty;
+
+  const resetDraft = () => {
+    setEnabledSyncs(null);
+    setDirection(null);
+    setObjectDirections(null);
+    setSelectedEntityId(null);
+    importStart.reset();
+  };
 
   const handleSync = (full: boolean) => {
     if (!connectionId) return;
@@ -470,8 +557,13 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
 
   const handleSaveSettings = () => {
     if (!connectionId) return;
-    if (needsEntity && !(selectedEntityId ?? connection?.entityId)) {
-      toast.error(activeEntities.length === 0 ? tc.settings.entityMissing : tc.settings.entityRequired);
+    const invalid = settingsDraftError(tc, {
+      entityMissing: needsEntity && !(selectedEntityId ?? connection?.entityId),
+      noEntities: activeEntities.length === 0,
+      emptyStartDate: importStart.patch === '',
+    });
+    if (invalid) {
+      toast.error(invalid);
       return;
     }
     update.mutate(
@@ -481,14 +573,12 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
         ...(direction !== null ? { direction: currentDirection } : {}),
         ...(objectDirections !== null ? { objectSyncDirections: currentObjectDirections } : {}),
         ...(needsEntity && selectedEntityId !== null ? { entityId: selectedEntityId } : {}),
+        ...importStartSettingsPatch(importStart.patch),
       },
       {
         onSuccess: () => {
           toast.success(tc.settings.saved);
-          setEnabledSyncs(null);
-          setDirection(null);
-          setObjectDirections(null);
-          setSelectedEntityId(null);
+          resetDraft();
         },
         onError: () => toast.error(tc.settings.saveFailed),
       },
@@ -501,12 +591,7 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
     <Sheet
       open={Boolean(connectionId)}
       onOpenChange={(open) => {
-        if (!open) {
-          setEnabledSyncs(null);
-          setDirection(null);
-          setObjectDirections(null);
-          setSelectedEntityId(null);
-        }
+        if (!open) resetDraft();
         onOpenChange(open);
       }}
     >
@@ -583,6 +668,14 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     onChange={setSelectedEntityId}
                   />
                 ) : null}
+
+                <ProviderSettings
+                  connection={connection}
+                  tc={tc}
+                  canManage={canManage}
+                  importStartDate={importStart.value}
+                  onImportStartDateChange={importStart.set}
+                />
 
                 <div className="mb-4 space-y-1.5">
                   <Label htmlFor="connection-direction">{tc.settings.directionLabel}</Label>

@@ -8,6 +8,7 @@ import type { ConnectorProviderClient } from './provider-client';
 import { MoneybirdClient } from './moneybird/client';
 import { PicqerClient } from './picqer/client';
 import { ShopifyClient } from './shopify/client';
+import { StripeClient } from './stripe/client';
 import { WooCommerceClient } from './woocommerce/client';
 
 export function createConnectorProviderClient(
@@ -34,6 +35,15 @@ export function createConnectorProviderClient(
       accessToken: credentials.accessToken || '',
       refreshToken: credentials.refreshToken || null,
       administrationId: credentials.administrationId || fallbackAccountId || null,
+    });
+  }
+  if (provider === 'stripe') {
+    return new StripeClient({
+      apiKey: credentials.apiKey || null,
+      accessToken: credentials.accessToken || null,
+      accountId: credentials.stripeUserId || fallbackAccountId || null,
+      platformSecretKey: credentials.platformSecretKey || null,
+      importStartDate: credentials.importStartDate || null,
     });
   }
   if (provider === 'picqer') {

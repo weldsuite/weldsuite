@@ -90,6 +90,10 @@ export interface Env extends KitEnv {
   /** Moneybird OAuth app credentials (first-party WeldConnect connector). */
   MONEYBIRD_CLIENT_ID?: string;
   MONEYBIRD_CLIENT_SECRET?: string;
+  /** Stripe connector: `ca_…` of WeldSuite's Connect platform (test and live differ). */
+  STRIPE_CONNECT_CLIENT_ID?: string;
+  /** Stripe connector: the platform's secret key (OAuth exchange, deauthorize, `Stripe-Account` calls). */
+  STRIPE_SECRET_KEY?: string;
   /** Google Calendar OAuth app credentials (distinct from GOOGLE_CLIENT_ID,
    *  which belongs to the WeldConnect workflow-integrations app). */
   GOOGLE_CALENDAR_CLIENT_ID?: string;

@@ -31,6 +31,21 @@ import { maybeDecryptField, type EncryptionKeyring } from '@weldsuite/db/lib/cry
 export interface ConnectorCatchupEnv extends ConnectInternalEnv {
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
+  /** Stripe platform key: OAuth Stripe connections are probed with it + `Stripe-Account`. */
+  STRIPE_SECRET_KEY?: string;
+}
+
+/**
+ * Indexed credentials plus what a probe needs at run time: OAuth Stripe
+ * connections store only the account id and are read with the platform key.
+ */
+export function withProbeSecrets(
+  provider: string,
+  credentials: Record<string, string>,
+  env: Pick<ConnectorCatchupEnv, 'STRIPE_SECRET_KEY'>,
+): Record<string, string> {
+  if (provider !== 'stripe' || credentials.apiKey || !env.STRIPE_SECRET_KEY) return credentials;
+  return { ...credentials, platformSecretKey: env.STRIPE_SECRET_KEY };
 }
 
 export interface ConnectorCatchupStore {
@@ -267,7 +282,8 @@ export async function runConnectorCatchupSweep(
     const outcome = await processConnectorCatchupRow(row, {
       now,
       store,
-      decryptCredentials: (json) => decryptIndexedCredentials(json, keyring),
+      decryptCredentials: async (json) =>
+        withProbeSecrets(row.provider, await decryptIndexedCredentials(json, keyring), env),
       probe: probeConnectorUpdates,
       fingerprint: connectorRemoteFingerprint,
       catchUp: (due) => requestConnectorCatchup(env, due),

@@ -46,10 +46,43 @@ export function storeUrlOf(client: ConnectorClient): string {
   return client.storeUrl;
 }
 
+/** Worker secrets a provider client may need besides the stored credentials. */
+export interface ConnectorRuntimeEnv {
+  /** WeldSuite's Stripe platform key: OAuth Stripe connections call the API with it + `Stripe-Account`. */
+  STRIPE_SECRET_KEY?: string;
+}
+
+/**
+ * Stored credentials plus what the client needs at run time but must never be
+ * stored with them: the Stripe platform key and the connection's import start
+ * date. Never encrypt the result back onto the row.
+ */
+export function withRuntimeCredentials(
+  connection: Pick<ConnectorConnectionRow, 'provider' | 'settings'>,
+  credentials: Record<string, string>,
+  env: ConnectorRuntimeEnv,
+): Record<string, string> {
+  if (connection.provider !== 'stripe') return credentials;
+  const runtime = { ...credentials };
+  const start = connection.settings?.importStartDate?.trim();
+  if (start) runtime.importStartDate = start;
+  const platformKey = env.STRIPE_SECRET_KEY?.trim();
+  if (!runtime.apiKey && platformKey) runtime.platformSecretKey = platformKey;
+  return runtime;
+}
+
+/** Moneybird financial accounts the inbound sync must not import (the one WeldBooks fills from Stripe). */
+export function skippedFinancialAccountIds(connection: Pick<ConnectorConnectionRow, 'provider' | 'settings'>): string[] {
+  if (connection.provider !== 'moneybird') return [];
+  // Even while sending is paused: what was already posted there is a copy of the Stripe balance.
+  const accountId = connection.settings?.moneybirdPush?.financialAccountId;
+  return accountId ? [accountId] : [];
+}
+
 export function testConnectorCredentials(
   provider: string,
   credentials: Record<string, string>,
-): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }> {
+): Promise<{ ok: true; storeUrl: string; accountName?: string } | { ok: false; message: string }> {
   try {
     const client = createConnectorClient(provider, credentials);
     return client.test();

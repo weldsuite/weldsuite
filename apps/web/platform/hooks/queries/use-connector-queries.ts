@@ -16,6 +16,8 @@ const connectorKeys = {
   records: (id: string) => [...connectorKeys.all, 'records', id] as const,
   fieldMappings: (id: string, entityType?: string) =>
     [...connectorKeys.all, 'field-mappings', id, entityType ?? 'all'] as const,
+  moneybirdPushOptions: (id: string) => [...connectorKeys.all, 'moneybird-push-options', id] as const,
+  moneybirdPushStatus: (id: string) => [...connectorKeys.all, 'moneybird-push-status', id] as const,
 };
 
 export type ConnectorConnectionStatus = 'pending' | 'active' | 'auth_error' | 'sync_error' | 'paused';
@@ -34,6 +36,29 @@ export interface ConnectorSyncDef {
   model: string;
   internalEntity: string;
   settingKey: string;
+}
+
+export interface MoneybirdPushTaxRateOverrides {
+  reverseCharge: string | null;
+  outsideEu: string | null;
+  exempt: string | null;
+  noTax: string | null;
+}
+
+export interface MoneybirdPushSettings {
+  enabled: boolean;
+  sourceConnectionIds: string[];
+  revenueLedgerAccountId: string | null;
+  financialAccountId: string | null;
+  feeLedgerAccountId: string | null;
+  payoutLedgerAccountId: string | null;
+  taxRateOverrides: MoneybirdPushTaxRateOverrides;
+  startDate: string | null;
+}
+
+export interface ConnectorConnectionSettings {
+  importStartDate?: string | null;
+  moneybirdPush?: MoneybirdPushSettings | null;
 }
 
 export interface ConnectorConnection {
@@ -61,6 +86,7 @@ export interface ConnectorConnection {
   isConnected: boolean;
   webhookCount?: number;
   warning?: string | null;
+  settings: ConnectorConnectionSettings;
 }
 
 export interface ConnectorCatalogEntry {
@@ -113,6 +139,8 @@ export interface ConnectConnectorInput {
   displayName?: string;
   credentials: Record<string, string>;
   enabledSyncs: string[];
+  entityId?: string;
+  settings?: Partial<ConnectorConnectionSettings>;
 }
 
 export interface UpdateConnectorInput {
@@ -122,6 +150,7 @@ export interface UpdateConnectorInput {
   objectSyncDirections?: Record<string, SyncDirection> | null;
   credentials?: Record<string, string>;
   entityId?: string | null;
+  settings?: Partial<ConnectorConnectionSettings>;
 }
 
 export function useConnectorCatalog() {
@@ -189,12 +218,13 @@ function invalidateConnectorQueries(queryClient: ReturnType<typeof useQueryClien
 }
 
 export interface AuthorizeConnectorInput {
-  provider: 'woocommerce' | 'moneybird';
+  provider: 'woocommerce' | 'moneybird' | 'stripe';
   storeUrl?: string;
   displayName?: string;
   enabledSyncs: string[];
   returnUrl: string;
   entityId?: string;
+  importStartDate?: string;
 }
 
 export interface MoneybirdAdministration {
@@ -227,7 +257,7 @@ export function useConnectorOAuthCallback() {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { provider: 'moneybird'; code: string; state: string }) => {
+    mutationFn: async (input: { provider: 'stripe' | 'moneybird'; code: string; state: string }) => {
       const client = await getClient();
       return client.post<{ data: ConnectorOAuthCallbackResult }>('/connectors/oauth/callback', input);
     },
@@ -376,6 +406,113 @@ export function useConnectorDefaultFieldMappings(connectionId: string | null, en
       return client.get<{ data: ConnectorFieldMappingDefinition[] }>(
         `/connectors/connections/${connectionId}/field-mappings/defaults?entityType=${encodeURIComponent(entityType)}`,
       );
+    },
+  });
+}
+
+export interface MoneybirdLedgerAccountOption {
+  id: string;
+  name: string;
+  accountType: string;
+}
+
+export interface MoneybirdFinancialAccountOption {
+  id: string;
+  name: string;
+  type: string;
+  identifier: string;
+}
+
+export interface MoneybirdTaxRateOption {
+  id: string;
+  name: string;
+  percentage: number;
+  taxRateType: string;
+}
+
+export interface MoneybirdPushSourceConnection {
+  id: string;
+  displayName: string | null;
+  externalAccountId: string | null;
+}
+
+export interface MoneybirdPushOptions {
+  ledgerAccounts: MoneybirdLedgerAccountOption[];
+  financialAccounts: MoneybirdFinancialAccountOption[];
+  taxRates: MoneybirdTaxRateOption[];
+  stripeConnections: MoneybirdPushSourceConnection[];
+}
+
+export function useMoneybirdPushOptions(connectionId: string | null, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: connectorKeys.moneybirdPushOptions(connectionId ?? ''),
+    enabled: Boolean(connectionId) && enabled,
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: MoneybirdPushOptions }>(
+        `/connectors/connections/${connectionId}/moneybird/options`,
+      );
+    },
+  });
+}
+
+export interface MoneybirdPushErrorSample {
+  externalId: string;
+  message: string;
+}
+
+export interface MoneybirdPushLastRun {
+  status: ConnectorSyncRunStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  error: string | null;
+  errorSamples?: MoneybirdPushErrorSample[] | null;
+}
+
+export interface MoneybirdPushStatus {
+  enabled: boolean;
+  pushedInvoices: number;
+  pendingInvoices: number;
+  failedInvoices: number;
+  pushedPayouts: number;
+  pendingPayouts: number;
+  lastRun: MoneybirdPushLastRun | null;
+}
+
+export function useMoneybirdPushStatus(connectionId: string | null, options?: { poll?: boolean }) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: connectorKeys.moneybirdPushStatus(connectionId ?? ''),
+    enabled: Boolean(connectionId),
+    refetchInterval: (query) => {
+      if (!options?.poll) return false;
+      const data = query.state.data as { data?: MoneybirdPushStatus } | undefined;
+      return data?.data?.lastRun?.status === 'running' ? 5000 : false;
+    },
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: MoneybirdPushStatus }>(
+        `/connectors/connections/${connectionId}/moneybird/push-status`,
+      );
+    },
+  });
+}
+
+export function useTriggerMoneybirdPush() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (connectionId: string) => {
+      const client = await getClient();
+      return client.post<{ data: { started: boolean } }>(
+        `/connectors/connections/${connectionId}/moneybird/push`,
+        {},
+      );
+    },
+    onSuccess: (_data, connectionId) => {
+      void queryClient.invalidateQueries({ queryKey: connectorKeys.moneybirdPushStatus(connectionId) });
+      void queryClient.invalidateQueries({ queryKey: connectorKeys.connection(connectionId) });
     },
   });
 }
