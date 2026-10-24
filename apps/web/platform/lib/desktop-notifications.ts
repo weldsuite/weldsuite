@@ -8,6 +8,10 @@
 
 import { getDesktop, isDesktop } from '@/lib/desktop';
 import { playMessageReceivedSound } from '@/lib/utils/notification-sound';
+import {
+  claimCrossTabNotification,
+  isAnyTabInForeground,
+} from '@/lib/notifications/cross-tab';
 import type {
   ModuleChannelPreferences,
   NotificationPreferences,
@@ -33,6 +37,17 @@ export interface ShowOsNotificationOptions {
   playSound?: boolean;
   tag?: string;
   icon?: string;
+  /**
+   * Identifies this notification across tabs, so only one open tab shows it.
+   * Defaults to `tag`, then to title + actionUrl.
+   */
+  dedupeKey?: string;
+  /**
+   * Also skip the toast while the user is looking at the app in another tab.
+   * Only for events every open tab receives (bell notifications): an event
+   * only this page listens for would then reach no one.
+   */
+  skipWhenAnyTabInForeground?: boolean;
 }
 
 const BROWSER_CLICK_EVENT = 'weldsuite:notification-click';
@@ -66,14 +81,30 @@ export function isDesktopChannelEnabled(
 }
 
 /**
+ * Several open tabs can receive the same event: let only one of them show the
+ * toast, and (when asked) none while the user is looking at the app in any tab.
+ */
+async function shouldThisTabShow(opts: ShowOsNotificationOptions): Promise<boolean> {
+  const onlyWhenHidden = opts.onlyWhenHidden ?? true;
+  if (onlyWhenHidden && !isAppInBackground()) {
+    return false;
+  }
+  if (opts.skipWhenAnyTabInForeground && isAnyTabInForeground()) {
+    return false;
+  }
+  const dedupeKey =
+    opts.dedupeKey ?? opts.tag ?? (opts.actionUrl ? `${opts.title}|${opts.actionUrl}` : undefined);
+  return !dedupeKey || claimCrossTabNotification(dedupeKey);
+}
+
+/**
  * Show an OS toast (desktop) or browser notification (web).
  * Returns true when a notification was actually shown.
  */
 export async function showOsNotification(
   opts: ShowOsNotificationOptions,
 ): Promise<boolean> {
-  const onlyWhenHidden = opts.onlyWhenHidden ?? true;
-  if (onlyWhenHidden && !isAppInBackground()) {
+  if (!(await shouldThisTabShow(opts))) {
     return false;
   }
 

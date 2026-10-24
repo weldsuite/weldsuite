@@ -34,6 +34,7 @@ import {
   publishChatCallParticipantJoined,
   publishChatCallParticipantLeft,
   publishChatCallIncoming,
+  publishChatCallAnswered,
   broadcastChatCallToMembers,
 } from '@weldsuite/chat-domain/realtime/weldchat-call-publisher';
 import {
@@ -258,6 +259,10 @@ async function joinExistingCall(p: JoinExistingCallParams) {
       }).where(eq(schema.chatCalls.id, call.id)),
       evictRtkSessions(env, cfAppId, staleSessionIds, { orgId: p.orgId, userId, callId: call.id }),
       leaveOtherLiveCalls(db, env, p.orgId, userId, call.id, p.requestStartedAt),
+      // Joining a call that rang us answers it: stop the ring everywhere else.
+      cancelRingOnAnswer(db, env, call, userId),
+      publishChatCallAnswered(env, p.orgId, userId, { callId: call.id, channelId: p.channelId })
+        .catch((e) => console.error('[Chat:Calls] Realtime publish failed:', e)),
       publishChatCallParticipantJoined(env, p.channelId, {
         callId: call.id,
         userId,
@@ -941,8 +946,11 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
         db.update(chatCalls).set(updates).where(eq(chatCalls.id, callId)),
         evictRtkSessions(c.env, call.cfAppId, staleSessionIds, { orgId, userId, callId }),
         leaveOtherLiveCalls(db, c.env, orgId, userId, callId, requestStartedAt),
-        // Answered a ring here: stop it on the user's other phones.
+        // Answered a ring here: stop it on the user's other phones, and in
+        // their other tabs and windows.
         cancelRingOnAnswer(db, c.env, call, userId),
+        publishChatCallAnswered(c.env, orgId, userId, { callId, channelId: call.channelId })
+          .catch((e) => console.error('[Chat:Calls] Realtime publish failed:', e)),
         publishChatCallParticipantJoined(c.env, call.channelId, {
           callId,
           userId,
