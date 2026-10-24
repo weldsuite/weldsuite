@@ -196,10 +196,12 @@ export class SheetRoom extends DurableObject<Env> {
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
     const state = socketState(ws);
+    // Complete the closing handshake, or the browser waits seconds before it
+    // sees the socket closed.
     try {
-      ws.close(code, reason);
+      ws.close(replyCode(code), reason);
     } catch {
-      // Already closed, or a code that may not be sent back.
+      // Already closed.
     }
     if (!state) return;
     this.sockets.delete(state.peer.clientId);
@@ -393,6 +395,16 @@ export class SheetRoom extends DurableObject<Env> {
       console.error('[sheets-api/room] recording the checkpoint failed:', err);
     }
   }
+}
+
+/**
+ * The code to answer a client's close with. 1005 (closed without a code),
+ * 1006 (dropped) and the other reserved codes may not be sent, so those get a
+ * normal close.
+ */
+export function replyCode(code: number): number {
+  const sendable = (code >= 1000 && code <= 1003) || (code >= 1007 && code <= 1014) || (code >= 3000 && code <= 4999);
+  return sendable ? code : 1000;
 }
 
 function socketState(ws: WebSocket): SocketState | null {
