@@ -653,14 +653,19 @@ export async function deleteLeaveType(db: Database, id: string) {
   return { archived: false };
 }
 
+/**
+ * Seed annual, sick and unpaid leave for a new workspace.
+ * The rows have fixed ids and the insert skips ids that exist, so requests
+ * racing on a fresh workspace (both probes see nothing) still seed one set.
+ */
 export async function ensureDefaultLeaveTypes(db: Database) {
   const [existing] = await db.select({ id: lt.id }).from(lt).limit(1);
   if (existing) return;
   await db.insert(lt).values([
-    { id: generateId('hrlvt'), name: 'Annual leave', color: '#3b82f6', isPaid: true, requiresApproval: true, defaultAllowanceDays: 20 },
-    { id: generateId('hrlvt'), name: 'Sick leave', color: '#ef4444', isPaid: true, requiresApproval: false, defaultAllowanceDays: null },
-    { id: generateId('hrlvt'), name: 'Unpaid leave', color: '#6b7280', isPaid: false, requiresApproval: true, defaultAllowanceDays: null },
-  ]);
+    { id: 'hrlvt_default_annual', name: 'Annual leave', color: '#3b82f6', isPaid: true, requiresApproval: true, defaultAllowanceDays: 20 },
+    { id: 'hrlvt_default_sick', name: 'Sick leave', color: '#ef4444', isPaid: true, requiresApproval: false, defaultAllowanceDays: null },
+    { id: 'hrlvt_default_unpaid', name: 'Unpaid leave', color: '#6b7280', isPaid: false, requiresApproval: true, defaultAllowanceDays: null },
+  ]).onConflictDoNothing();
 }
 
 export async function setAllowance(
