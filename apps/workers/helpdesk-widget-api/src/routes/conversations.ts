@@ -305,9 +305,9 @@ conversationsRoutes.post('/:id/rating', zValidator('json', rateSchema), async (c
       comment: data.comment,
     });
 
-    c.executionCtx.waitUntil(publishVisitorEvent(c.env, orgId, conversation, message));
-
     const authors = await resolveAuthors(db, [conversation.assigneeId]);
+    c.executionCtx.waitUntil(publishVisitorEvent(c.env, orgId, conversation, message, authors));
+
     return success(
       c,
       {

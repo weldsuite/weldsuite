@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => {
     getDeskConversation: vi.fn(),
     rateDeskConversation: vi.fn(),
     publishVisitorEvent: vi.fn(() => Promise.resolve()),
+    resolveAuthors: vi.fn(() => Promise.resolve(new Map())),
     DeskRatingRejectedError,
   };
 });
@@ -45,7 +46,7 @@ vi.mock('../lib/desk-live', () => ({
   publishConversationUpdated: vi.fn(() => Promise.resolve()),
   publishVisitorEvent: mocks.publishVisitorEvent,
   publishVisitorMessage: vi.fn(() => Promise.resolve()),
-  resolveAuthors: vi.fn(() => Promise.resolve(new Map())),
+  resolveAuthors: mocks.resolveAuthors,
   toPublicConversation: (c: unknown) => c,
   toPublicMessage: (m: unknown) => m,
   visitorDisplayName: vi.fn(() => Promise.resolve('Visitor')),
@@ -103,6 +104,19 @@ describe('POST /:id/rating', () => {
       expect.objectContaining({ conversationId: CONVERSATION, authorId: VISITOR, rating: 4, comment: 'Quick and friendly' }),
     );
     expect(mocks.publishVisitorEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes the conversation with its assignee, so the visitor's other tabs keep the name", async () => {
+    const assignee = new Map([['user_1', { name: 'Ada', avatar: null }]]);
+    mocks.resolveAuthors.mockResolvedValueOnce(assignee);
+    mocks.rateDeskConversation.mockResolvedValueOnce({
+      conversation: { id: CONVERSATION, assigneeId: 'user_1', rating: 5 },
+      message: { id: 'dmsg_1', kind: 'event', metadata: { eventType: 'rated', rating: 5 } },
+    });
+    expect((await rate({ rating: 5 })).status).toBe(201);
+    expect(mocks.resolveAuthors).toHaveBeenCalledWith(expect.anything(), ['user_1']);
+    const call = mocks.publishVisitorEvent.mock.calls[0] as unknown[];
+    expect(call[4]).toBe(assignee);
   });
 
   it('accepts a rating without a comment', async () => {
