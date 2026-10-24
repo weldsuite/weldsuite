@@ -93,7 +93,9 @@ export type { ZipErrorCode, ZipFile, ZipLimits, ZipReader } from './files/zip';
 
 export { CHART_PALETTE, CHART_TYPES, MAX_CHART_SERIES, MAX_CHART_SIZE, MIN_CHART_SIZE, anchorAfter, cloneChart, mapChartFormulas } from './model/charts';
 export type { Chart, ChartAnchor, ChartSeries, ChartType } from './model/charts';
-export { chartData, chartSourceOf, guessChartSource, resolveRef, seriesFromRange } from './charts/data';
+export { chartData, chartSourceOf, guessChartSource, refText, resolveRef, seriesFromRange } from './charts/data';
 export type { ChartData, ChartSource, RangeAt, SeriesData } from './charts/data';
 export { PIVOT_FUNCTIONS, computePivot, isPivotFormula, parsePivotFormula, pivotFormula, valueLabel } from './pivot/pivot';
 export type { PivotFilter, PivotFunction, PivotGroup, PivotLayoutSpec, PivotResult, PivotSpec, PivotValue } from './pivot/pivot';
+export { pivotSourceData, pivotTableAt, pivotTablesOn } from './pivot/tables';
+export type { PivotTable, PivotTableLayout } from './pivot/tables';

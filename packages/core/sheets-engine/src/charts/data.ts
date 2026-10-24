@@ -154,6 +154,11 @@ function isLabel(engine: Engine, sheetId: string, row: number, col: number): boo
   return typeof v === 'number' && fmt !== undefined && /[dmy]/i.test(fmt) && !/[#0]/.test(fmt);
 }
 
+/** The cells at `at` as an absolute, sheet-qualified reference ('Sales'!$A$1:$C$9). */
+export function refText(engine: Engine, at: RangeAt): string {
+  return absolute(engine.sheetName(at.sheetId) ?? '', at.range);
+}
+
 const absolute = (sheet: string, r: Range): string =>
   printRef({
     sheet,

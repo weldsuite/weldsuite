@@ -162,6 +162,16 @@ export class Engine implements EvalHost {
     return { row: r, col: c };
   }
 
+  /** The arrays spilled on a sheet: each one's formula cell and area. */
+  spillsOn(sheetId: string): { row: number; col: number; area: Range }[] {
+    const sheetNum = this.sheetNums.get(sheetId);
+    if (sheetNum === undefined) return [];
+    return [...(this.spillsBySheet.get(sheetNum) ?? [])].map((rec) => {
+      const { row, col } = splitKey(rec.anchor);
+      return { row, col, area: rec.area };
+    });
+  }
+
   /** Area of the array spilled by the formula at (row, col), if it spills. */
   spillArea(sheetId: string, row: number, col: number): Range | undefined {
     const sheet = this.sheetNums.get(sheetId);

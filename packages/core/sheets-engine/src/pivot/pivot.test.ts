@@ -5,6 +5,7 @@ import { applyOp } from '../ops/apply';
 import type { CellPatch } from '../ops/types';
 import { err, type Scalar } from '../values';
 import { computePivot, parsePivotFormula, pivotFormula, type PivotLayoutSpec, type PivotSpec } from './pivot';
+import { pivotTableAt, pivotTablesOn } from './tables';
 
 const DATA: Scalar[][] = [
   ['Region', 'Product', 'Year', 'Amount', 'Status'],
@@ -122,5 +123,13 @@ describe('PIVOT formulas', () => {
     applyOp(e, { type: 'insertDims', sheetId: 'd', sheetName: 'Data', axis: 'col', at: 0, count: 1 });
     expect(e.getCell('p', 0, 0)?.f).toBe('PIVOT(Data!B:F,"Region","","SUM:Amount")');
     expect(e.getValue('p', 3, 1)).toBe(140);
+
+    // The editor finds the table from any cell it shows, with its layout.
+    expect(pivotTableAt(e, 'p', 2, 1)).toMatchObject({ row: 0, col: 0, source: { sheetId: 'd', range: { c1: 1, c2: 5 } }, area: { r1: 0, c1: 0, r2: 3, c2: 1 } });
+    expect(pivotTableAt(e, 'p', 5, 5)).toBeNull();
+    expect(pivotTableAt(e, 'd', 0, 0)).toBeNull();
+    const [table] = pivotTablesOn(e, 'p');
+    expect(table).toMatchObject({ row: 0, col: 0, area: { r2: 3, c2: 1 }, layout: { headerRows: 1, totalRows: [3], valueOf: [-1, 0] } });
+    expect(pivotTablesOn(e, 'd')).toEqual([]);
   });
 });
