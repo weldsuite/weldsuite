@@ -16,12 +16,14 @@
   "dependencies": {
     "@hono/zod-validator": "^0.4.0",
     "@weldsuite/api-modules": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "4.13.13",
+    "pdf-lib": "^1.17.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

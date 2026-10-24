@@ -12,6 +12,8 @@ export interface Env extends KitEnv {
   REALTIME?: Fetcher;
   /** Sent as x-internal-secret on every realtime-worker /publish/* call. */
   REALTIME_INTERNAL_SECRET?: string;
+  /** WeldSign files (private bucket, `workspaces/<org>/weldsign/<envelopeId>/…`), ADR SIGN-004. */
+  PRIVATE_STORAGE: R2Bucket;
 }
 
 export type Variables = KitVariables;

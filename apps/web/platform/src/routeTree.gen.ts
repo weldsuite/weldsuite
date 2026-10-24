@@ -98,6 +98,7 @@ import { Route as WeldstashStockIndexRouteImport } from './routes/weldstash/stoc
 import { Route as WeldstashProductsIndexRouteImport } from './routes/weldstash/products/index'
 import { Route as WeldstashPickListsIndexRouteImport } from './routes/weldstash/pick-lists/index'
 import { Route as WeldstashPackingIndexRouteImport } from './routes/weldstash/packing/index'
+import { Route as WeldsignEnvelopeIdIndexRouteImport } from './routes/weldsign/$envelopeId/index'
 import { Route as WeldsheetsSheetIdIndexRouteImport } from './routes/weldsheets/$sheetId/index'
 import { Route as WeldreachSetupIndexRouteImport } from './routes/weldreach/setup/index'
 import { Route as WeldreachSettingsIndexRouteImport } from './routes/weldreach/settings/index'
@@ -941,6 +942,11 @@ const WeldstashPackingIndexRoute = WeldstashPackingIndexRouteImport.update({
   id: '/packing/',
   path: '/packing/',
   getParentRoute: () => WeldstashRouteRoute,
+} as any)
+const WeldsignEnvelopeIdIndexRoute = WeldsignEnvelopeIdIndexRouteImport.update({
+  id: '/$envelopeId/',
+  path: '/$envelopeId/',
+  getParentRoute: () => WeldsignRouteRoute,
 } as any)
 const WeldsheetsSheetIdIndexRoute = WeldsheetsSheetIdIndexRouteImport.update({
   id: '/$sheetId/',
@@ -3415,6 +3421,7 @@ export interface FileRoutesByFullPath {
   '/weldreach/settings/': typeof WeldreachSettingsIndexRoute
   '/weldreach/setup/': typeof WeldreachSetupIndexRoute
   '/weldsheets/$sheetId/': typeof WeldsheetsSheetIdIndexRoute
+  '/weldsign/$envelopeId/': typeof WeldsignEnvelopeIdIndexRoute
   '/weldstash/packing/': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
@@ -3861,6 +3868,7 @@ export interface FileRoutesByTo {
   '/weldreach/settings': typeof WeldreachSettingsIndexRoute
   '/weldreach/setup': typeof WeldreachSetupIndexRoute
   '/weldsheets/$sheetId': typeof WeldsheetsSheetIdIndexRoute
+  '/weldsign/$envelopeId': typeof WeldsignEnvelopeIdIndexRoute
   '/weldstash/packing': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists': typeof WeldstashPickListsIndexRoute
   '/weldstash/products': typeof WeldstashProductsIndexRoute
@@ -4347,6 +4355,7 @@ export interface FileRoutesById {
   '/weldreach/settings/': typeof WeldreachSettingsIndexRoute
   '/weldreach/setup/': typeof WeldreachSetupIndexRoute
   '/weldsheets/$sheetId/': typeof WeldsheetsSheetIdIndexRoute
+  '/weldsign/$envelopeId/': typeof WeldsignEnvelopeIdIndexRoute
   '/weldstash/packing/': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
@@ -4836,6 +4845,7 @@ export interface FileRouteTypes {
     | '/weldreach/settings/'
     | '/weldreach/setup/'
     | '/weldsheets/$sheetId/'
+    | '/weldsign/$envelopeId/'
     | '/weldstash/packing/'
     | '/weldstash/pick-lists/'
     | '/weldstash/products/'
@@ -5282,6 +5292,7 @@ export interface FileRouteTypes {
     | '/weldreach/settings'
     | '/weldreach/setup'
     | '/weldsheets/$sheetId'
+    | '/weldsign/$envelopeId'
     | '/weldstash/packing'
     | '/weldstash/pick-lists'
     | '/weldstash/products'
@@ -5767,6 +5778,7 @@ export interface FileRouteTypes {
     | '/weldreach/settings/'
     | '/weldreach/setup/'
     | '/weldsheets/$sheetId/'
+    | '/weldsign/$envelopeId/'
     | '/weldstash/packing/'
     | '/weldstash/pick-lists/'
     | '/weldstash/products/'
@@ -6675,6 +6687,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldstash/packing/'
       preLoaderRoute: typeof WeldstashPackingIndexRouteImport
       parentRoute: typeof WeldstashRouteRoute
+    }
+    '/weldsign/$envelopeId/': {
+      id: '/weldsign/$envelopeId/'
+      path: '/$envelopeId'
+      fullPath: '/weldsign/$envelopeId/'
+      preLoaderRoute: typeof WeldsignEnvelopeIdIndexRouteImport
+      parentRoute: typeof WeldsignRouteRoute
     }
     '/weldsheets/$sheetId/': {
       id: '/weldsheets/$sheetId/'
@@ -10647,10 +10666,12 @@ const WeldsheetsRouteRouteWithChildren = WeldsheetsRouteRoute._addFileChildren(
 
 interface WeldsignRouteRouteChildren {
   WeldsignIndexRoute: typeof WeldsignIndexRoute
+  WeldsignEnvelopeIdIndexRoute: typeof WeldsignEnvelopeIdIndexRoute
 }
 
 const WeldsignRouteRouteChildren: WeldsignRouteRouteChildren = {
   WeldsignIndexRoute: WeldsignIndexRoute,
+  WeldsignEnvelopeIdIndexRoute: WeldsignEnvelopeIdIndexRoute,
 }
 
 const WeldsignRouteRouteWithChildren = WeldsignRouteRoute._addFileChildren(
