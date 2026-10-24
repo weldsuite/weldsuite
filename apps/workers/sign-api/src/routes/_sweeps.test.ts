@@ -21,15 +21,20 @@ import {
 } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
+import envelopesRoutes from './envelopes';
 
 const ROUTES_DIR = __dirname;
 
 /** Route dirs intentionally excluded from entity-event coverage. */
 const EXEMPT_ROUTES = new Set<string>([]);
 
-const AUTH_CASES: AuthGateCase<Env, Variables>[] = [];
+const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
+  { mount: '/api/sign/envelopes', router: envelopesRoutes, prefix: 'sign_envelopes' },
+];
 
-const LIST_CASES: ListSweepCase<Env, Variables>[] = [];
+const LIST_CASES: ListSweepCase<Env, Variables>[] = [
+  { mount: '/api/sign/envelopes', router: envelopesRoutes, permission: 'sign_envelopes:read' },
+];
 
 describe('entity-event coverage', () => {
   const report = findMissingEntityEvents(ROUTES_DIR, EXEMPT_ROUTES);

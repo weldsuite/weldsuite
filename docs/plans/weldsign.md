@@ -296,6 +296,36 @@ shows the usage bar and an upgrade link. Drafts and templates are not limited.
 | 5. CRM and Drive | Send from Drive and CRM records, file back to Drive and CRM | Signed contract appears on the CRM company and in Drive |
 | 6. Quota and docs | Plan limit, usage bar, help docs (`apps/web/docs` guide + screenshots), QA pass | Free plan blocked after its quota; help guide live |
 
+### Progress
+
+**Phase 0: done** (weldsuite/weldsuite#1304). Module, worker, schema, migrations
+(tenant `0223_weldsign`, master `0060_weldsign_link_registry`), permissions,
+sign-portal scaffold, docs (SIGN-001..004).
+
+**Phase 1: done.**
+
+- sign-api: `/api/sign/envelopes` (list by folder and search, create, get,
+  update, delete draft) with `/documents` (multipart upload, reorder, content,
+  remove), `/recipients` (add, update, remove) and `/fields` (replace the set).
+  PDFs are checked with pdf-lib (readable, not encrypted, at most 500 pages and
+  25 MB), stored in `PRIVATE_STORAGE` with their page sizes (crop box as
+  displayed, rotation applied) and SHA-256. Fields are checked against the
+  documents and recipients (on an existing page, inside it, for a signer).
+  Access codes are stored as SHA-256 and never returned. A member without
+  `sign_envelopes:manage` sees only their own envelopes; anything else is a 404.
+  Mutations publish `sign_envelope` created/updated/deleted.
+- Shared contract: `@weldsuite/app-api-client/schemas/weldsign` and
+  `/domains/weldsign`.
+- Platform: the list (folders, search, new request creates a draft and opens
+  it, delete draft) and a four-step editor (documents, recipients, fields,
+  review). Fields are placed on pdf.js-rendered pages (`pdfjs-dist` 5.7, loaded
+  on demand), moved and resized with the pointer, and saved as a set; leaving
+  the fields step saves too. Review lists what is still missing before sending;
+  the Send button stays disabled until phase 2.
+- Deferred to phase 2: the "Action required" folder (envelopes where the
+  member is a signer) needs sending first; the per-recipient folder
+  visibility rule goes in with it.
+
 ## Later (not in v1)
 
 - PAdES seal with a WeldSuite certificate (Adobe "signed and unchanged" check),

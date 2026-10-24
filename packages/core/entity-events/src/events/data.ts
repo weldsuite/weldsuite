@@ -502,6 +502,17 @@ export interface SheetEventData {
   updatedById?: string | null;
 }
 
+/**
+ * A WeldSign envelope (signing request). Ids, title and status only: field
+ * values, signature images and access codes stay off the bus (EVT-005).
+ */
+export interface SignEnvelopeEventData {
+  id: string;
+  title?: string;
+  status?: string;
+  senderUserId?: string;
+}
+
 export interface DocEventData {
   id: string;
   /** The drive file (files.id) this document is backed by. */
@@ -644,6 +655,9 @@ export interface EntityEventData {
 
   // WeldSheets
   sheet: SheetEventData;
+
+  // WeldSign
+  sign_envelope: SignEnvelopeEventData;
 
   // Calendar + meetings
   calendar_event: CalendarEventEventData;

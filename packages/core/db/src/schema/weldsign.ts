@@ -98,8 +98,12 @@ export type SignEnvelopeSource = {
   entityId: string;
 };
 
-/** Page size in PDF points, in page order. */
-export type SignPageSize = { width: number; height: number };
+/**
+ * Page size in PDF points as a viewer displays it (crop box, with width and
+ * height swapped on a page rotated by 90 or 270 degrees), in page order.
+ * `rotation` is the page's /Rotate when it is not 0.
+ */
+export type SignPageSize = { width: number; height: number; rotation?: number };
 
 // ---------------------------------------------------------------------------
 // Tables

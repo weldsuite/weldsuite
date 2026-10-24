@@ -35,6 +35,7 @@ import { ADS_ENTITY_EVENTS } from './ads';
 import { HR_ENTITY_EVENTS } from './hr';
 import { REACH_ENTITY_EVENTS } from './reach';
 import { SHEETS_ENTITY_EVENTS } from './sheets';
+import { SIGN_ENTITY_EVENTS } from './sign';
 
 export const ENTITY_EVENTS = {
   ...CRM_ENTITY_EVENTS,
@@ -58,6 +59,7 @@ export const ENTITY_EVENTS = {
   ...HR_ENTITY_EVENTS,
   ...REACH_ENTITY_EVENTS,
   ...SHEETS_ENTITY_EVENTS,
+  ...SIGN_ENTITY_EVENTS,
 } as const;
 
 export type EntityType = keyof typeof ENTITY_EVENTS;

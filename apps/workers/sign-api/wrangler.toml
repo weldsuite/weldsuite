@@ -9,6 +9,8 @@
 # Secrets (scripts/secrets/manifest.ts → "sign-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#
+# Bindings beyond the kit: PRIVATE_STORAGE (WeldSign files).
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-sign-api-dev"
@@ -46,6 +48,13 @@ binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
 
+# WeldSign files (originals, signatures, final PDFs) live only in the private
+# bucket (ADR SIGN-004). Dev uses the TEST bucket: `wrangler dev` must never
+# read or write customer files. R2 bindings are NOT inherited by [env.*].
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -56,6 +65,10 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -87,6 +100,10 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
