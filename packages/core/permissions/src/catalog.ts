@@ -256,6 +256,27 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   // teamspace still takes joining it. Personal spaces stay sealed.
   objectPermissions('knowledge',     'Knowledge Base',       ['read', 'create', 'update', 'delete', 'manage']),
 
+  // ── Spreadsheets (WeldSheets) ─────────────────────────────────────────
+  // These open the app. Who may edit a given spreadsheet is its own sharing
+  // (owner, editor, commenter, viewer); `sheets:manage` lets an admin see
+  // every spreadsheet and fix its sharing.
+  {
+    key: 'sheets',
+    label: 'Spreadsheets (WeldSheets)',
+    permissions: [
+      { key: 'sheets:read', label: 'Open spreadsheets', description: 'Spreadsheets this person owns or that are shared with them.' },
+      { key: 'sheets:create', label: 'Create spreadsheets' },
+      { key: 'sheets:update', label: 'Edit spreadsheets' },
+      { key: 'sheets:delete', label: 'Delete spreadsheets' },
+      { key: 'sheets:share', label: 'Share spreadsheets' },
+      {
+        key: 'sheets:manage',
+        label: 'Administer spreadsheets',
+        description: "See every spreadsheet in the workspace and change who it is shared with.",
+      },
+    ],
+  },
+
   // ── Parcel ────────────────────────────────────────────────────────────
   objectPermissions('parcels',       'Parcels'),
   objectPermissions('carriers',      'Carriers',             ['read', 'create', 'update', 'delete', 'manage']),
@@ -647,6 +668,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'payroll:read', 'payroll:prepare', 'payroll:approve', 'payroll:manage',
   // WeldKnow — admins also see and fix every teamspace (knowledge:manage)
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
+  // WeldSheets — admins also administer every spreadsheet's sharing (sheets:manage)
+  'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share', 'sheets:manage',
   // WeldReach — admins also run mailboxes (billed) and settings
   'reach_campaigns:read', 'reach_campaigns:create', 'reach_campaigns:update', 'reach_campaigns:delete',
   'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
@@ -767,6 +790,8 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // WeldKnow — teamspace membership decides which pages a member reads and
   // edits, so these only open the app; they grant nothing inside a teamspace.
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete',
+  // WeldSheets — a sheet's own sharing decides who edits it; these open the app.
+  'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share',
   // WeldHR — My HR only: their own leave, expenses, sick reports, attendance
   // and payslips. Nobody else's records, no approving. Still needs the WeldHR
   // app assigned and a linked employee record.
@@ -795,6 +820,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'weldobjects:read', 'weldobjects:*:read',
   // WeldKnow — read-only
   'knowledge:read',
+  // WeldSheets — read-only
+  'sheets:read',
   // WeldReach — read-only
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
 ];
