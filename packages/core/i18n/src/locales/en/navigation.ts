@@ -154,6 +154,9 @@ export const navigation = {
       weldsheets: {
         spreadsheets: 'Spreadsheets',
       },
+      weldsign: {
+        envelopes: 'Signature requests',
+      },
       weldhr: {
         me: {
           overview: 'Overview',

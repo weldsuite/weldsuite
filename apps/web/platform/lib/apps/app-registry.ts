@@ -24,6 +24,7 @@ import {
   UsersRound,
   Send,
   FileSpreadsheet,
+  Signature,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -140,6 +141,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/weldsheets/logo-light.svg',
       iconDark: '/assets/images/weldsheets/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldSign. Icon-only logo like WeldPass: a signature over a signing line.
+  weldsign: {
+    lucideIcon: Signature,
+    shortName: 'Signatures',
+    icon: '/assets/images/weldsign/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldsign/logo-light.svg',
+      iconDark: '/assets/images/weldsign/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

@@ -1175,6 +1175,48 @@ describe('WeldChatCallProvider · the incoming call ringtone', () => {
     expect(call.status).toBe('ringing-incoming');
   });
 
+  it('stops ringing when the call is answered in another tab or on another device', () => {
+    vi.useFakeTimers();
+    ringIncoming();
+
+    publish('call_answered', { callId: 'call_9', channelId: 'ch_9' });
+
+    expect(call.incomingCall).toBeNull();
+    expect(call.status).toBe('idle');
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops ringing when the caller hangs up first', () => {
+    ringIncoming();
+
+    publish('call_ended', { callId: 'call_9', channelId: 'ch_9' });
+
+    expect(call.incomingCall).toBeNull();
+    expect(call.status).toBe('idle');
+  });
+
+  it('keeps ringing when another call is answered or ends', () => {
+    ringIncoming();
+
+    publish('call_answered', { callId: 'call_other', channelId: 'ch_other' });
+    publish('call_ended', { callId: 'call_other', channelId: 'ch_other' });
+
+    expect(call.incomingCall).toMatchObject({ callId: 'call_9' });
+    expect(call.status).toBe('ringing-incoming');
+  });
+
+  it('an answer elsewhere during a call ends only the ring', async () => {
+    await startConnectedCall();
+    publish('call_incoming', { callId: 'call_9', channelId: 'ch_9', callType: 'voice', callerName: 'Sam' });
+
+    publish('call_answered', { callId: 'call_9', channelId: 'ch_9' });
+
+    expect(call.incomingCall).toBeNull();
+    expect(call.status).toBe('connected');
+    expect(call.callId).toBe('call_1');
+  });
+
   it('stops ringing as soon as the call is declined', async () => {
     vi.useFakeTimers();
     ringIncoming();
