@@ -11,13 +11,15 @@
 
 import { child, childrenOf, openZip, parseXml, scanXml, XmlError, ZipError, type XmlElement, type ZipReader } from '@weldsuite/zip-xml';
 import { EN_LOCALE, isDateFormat } from '../../format/number-format';
+import type { Chart } from '../../model/charts';
 import type { DefinedName, SheetSnapshot } from '../../model/workbook';
 import { styleKey } from '../../model/styles';
 import { ImportError, type ImportResult, type ImportWarning, type ReadXlsxOptions } from '../types';
 import { decodeEscapes } from './text';
 import { readTheme } from './colors';
 import { fromExcelFormula } from './formulas';
-import { readWorksheet } from './sheet-read';
+import { chartFromPart, readDrawingCharts } from './charts';
+import { readWorksheet, type SheetContext } from './sheet-read';
 import { readStyles } from './styles';
 
 /** Cells read at most when the caller sets no limit. */
@@ -73,6 +75,7 @@ async function readPackage(zip: ZipReader, options: ReadXlsxOptions): Promise<Im
   const xfKeys = styles.xfs.map((s) => styleKey(s));
   const dateXfs = styles.xfs.map((s) => isDateFormat(s?.numFmt));
   const budget = { cells: options.maxCells ?? DEFAULT_MAX_CELLS };
+  const shared: Omit<SheetContext, 'id' | 'name'> = { styles, xfKeys, dateXfs, sharedStrings, theme, locale, date1904, warnings, budget };
 
   const sheets: SheetSnapshot[] = [];
   /** Sheet ids by position in the workbook, for sheet-scoped names. */
@@ -84,13 +87,11 @@ async function readPackage(zip: ZipReader, options: ReadXlsxOptions): Promise<Im
       warnings.add('chartSheets');
       continue;
     }
-    const xml = await zip.readText(rel.target);
-    if (xml === null) continue;
     const id = options.sheetId?.(sheets.length) ?? `sheet${sheets.length + 1}`;
     const name = uniqueName(el.attrs.name || `Sheet${sheets.length + 1}`, sheets);
-    const sheet = readWorksheet(xml, { id, name, styles, xfKeys, dateXfs, sharedStrings, theme, locale, date1904, warnings, budget });
+    const sheet = await readSheet(zip, rel.target, { ...shared, id, name });
+    if (!sheet) continue;
     if (el.attrs.state === 'hidden' || el.attrs.state === 'veryHidden') sheet.props = { ...sheet.props, hidden: true };
-    await notePartsOf(zip, rel.target, warnings);
     idAt.set(i, id);
     sheets.push(sheet);
   }
@@ -100,6 +101,17 @@ async function readPackage(zip: ZipReader, options: ReadXlsxOptions): Promise<Im
 
   const names = definedNames(workbook, idAt);
   return { workbook: { version: 1, sheets, ...(names.length ? { names } : {}) }, warnings: [...warnings].sort() };
+}
+
+/** One worksheet part with its charts; null when the part is missing. */
+async function readSheet(zip: ZipReader, path: string, ctx: SheetContext): Promise<SheetSnapshot | null> {
+  const xml = await zip.readText(path);
+  if (xml === null) return null;
+  const sheet = readWorksheet(xml, ctx);
+  await notePartsOf(zip, path, ctx.warnings);
+  const charts = await readCharts(zip, path, sheet, ctx.theme, ctx.warnings);
+  if (charts.length) sheet.charts = charts;
+  return sheet;
 }
 
 function uniqueName(name: string, taken: SheetSnapshot[]): string {
@@ -184,11 +196,23 @@ async function readSharedStrings(zip: ZipReader, path: string | undefined, warni
   return out;
 }
 
-/** What a sheet links to that WeldSheets leaves out: drawings, comments, pivot tables, tables. */
+/** The charts in a sheet's drawings (pictures and shapes there are left out with a warning). */
+async function readCharts(zip: ZipReader, sheetPath: string, sheet: SheetSnapshot, theme: string[], warnings: Set<ImportWarning>): Promise<Chart[]> {
+  const charts: Chart[] = [];
+  for (const r of (await relationships(zip, sheetPath)) ?? []) {
+    if (!r.type.endsWith('/drawing')) continue;
+    for (const part of await readDrawingCharts(zip, r.target, (path) => relationships(zip, path), warnings)) {
+      const chart = chartFromPart(part, sheet, `ch${charts.length + 1}`, theme, warnings);
+      if (chart) charts.push(chart);
+    }
+  }
+  return charts;
+}
+
+/** What a sheet links to that WeldSheets leaves out: comments, pivot tables, tables. */
 async function notePartsOf(zip: ZipReader, sheetPath: string, warnings: Set<ImportWarning>): Promise<void> {
   for (const r of (await relationships(zip, sheetPath)) ?? []) {
-    if (r.type.endsWith('/drawing')) warnings.add('drawings');
-    else if (r.type.endsWith('/comments')) warnings.add('comments');
+    if (r.type.endsWith('/comments')) warnings.add('comments');
     else if (r.type.endsWith('/pivotTable')) warnings.add('pivotTables');
     else if (r.type.endsWith('/table')) warnings.add('tables');
   }

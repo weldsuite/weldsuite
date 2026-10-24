@@ -1,46 +1,27 @@
 /**
- * A request after it was sent: who has signed, and the signed PDF once
- * everyone has. The activity timeline, reminders and voiding come in phase 3
- * of docs/plans/weldsign.md.
+ * A request after it was sent: who has signed, the signed PDF once everyone
+ * has, and what its owner can still do: remind, resend a link, correct an
+ * email, void it, and read its activity. The caller's own "Sign now" is here
+ * too, for a member who is also a signer.
  */
 
-import { CheckCircle2, Circle, Clock, Download, Eye, Mail, XCircle, type LucideIcon } from 'lucide-react';
-import { toast } from 'sonner';
-import { Button } from '@weldsuite/ui/components/button';
-import type { SignEnvelopeDetail, SignRecipientStatus } from '@weldsuite/app-api-client/schemas/weldsign';
+import { useState } from 'react';
+import type { SignEnvelopeDetail, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
-import { useDownloadSignedPdf } from '@/hooks/queries/use-weldsign-queries';
-import { recipientColor } from '../lib/recipient-colors';
-
-const STATUS_ICON: Record<SignRecipientStatus, { icon: LucideIcon; className: string }> = {
-  pending: { icon: Circle, className: 'text-muted-foreground' },
-  sent: { icon: Mail, className: 'text-sky-600' },
-  opened: { icon: Eye, className: 'text-amber-600' },
-  signed: { icon: CheckCircle2, className: 'text-emerald-600' },
-  declined: { icon: XCircle, className: 'text-destructive' },
-};
+import { useDateTime } from '../lib/use-date-time';
+import { ActivityTimeline } from './activity';
+import { CorrectRecipientDialog } from './correct-recipient-dialog';
+import { OverviewActions } from './overview-actions';
+import { RecipientList } from './recipient-list';
+import { VoidDialog } from './void-dialog';
 
 export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envelope: SignEnvelopeDetail; onViewDocuments: () => void }>) {
-  const { t, format, language } = useI18n();
+  const { t, format } = useI18n();
   const to = t.weldsign.overview;
-  const download = useDownloadSignedPdf(envelope.id);
-  const dateTime = new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' });
-  const when = (iso: string | null) => (iso ? dateTime.format(new Date(iso)) : '');
-
-  const signers = envelope.recipientList.filter((r) => r.role === 'signer');
-  const notes: Partial<Record<string, string>> = {
-    completed: to.completedNote,
-    declined: to.declinedNote,
-    expired: to.expiredNote,
-    voided: to.voidedNote,
-  };
-  const note = notes[envelope.status] ?? null;
-  const statusLabel = (r: (typeof envelope.recipientList)[number]) => {
-    if (r.role === 'cc') return to.copy;
-    if (r.status === 'signed' && r.signedAt) return format(to.signedAt, { date: when(r.signedAt) });
-    return to.statuses[r.status];
-  };
+  const when = useDateTime();
+  const [correcting, setCorrecting] = useState<SignRecipientDto | null>(null);
+  const [voiding, setVoiding] = useState(false);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
@@ -56,61 +37,53 @@ export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envel
             envelope.expiresAt && <span>{format(to.expiresAt, { date: when(envelope.expiresAt) })}</span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onViewDocuments}>
-            <Eye />
-            {to.viewDocuments}
-          </Button>
-          {envelope.status === 'completed' && (
-            <Button
-              size="sm"
-              disabled={download.isPending}
-              onClick={() => download.mutate(envelope.title, { onError: () => toast.error(to.downloadFailed) })}
-            >
-              <Download />
-              {to.download}
-            </Button>
-          )}
-        </div>
+        <OverviewActions envelope={envelope} onViewDocuments={onViewDocuments} onVoid={() => setVoiding(true)} />
       </div>
 
-      {note && (
-        <p
-          className={cn(
-            'rounded-lg border px-4 py-3 text-sm',
-            envelope.status === 'completed' ? 'border-emerald-600/30 bg-emerald-600/5' : 'bg-muted/50',
-          )}
-        >
-          {note}
-        </p>
-      )}
+      <StatusNote envelope={envelope} />
+      <RecipientList envelope={envelope} onCorrect={setCorrecting} />
+      <ActivityTimeline envelopeId={envelope.id} enabled={envelope.isOwner} />
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium">{to.recipients}</h2>
-        <ol className="divide-y rounded-lg border">
-          {envelope.recipientList.map((r, i) => {
-            const status = STATUS_ICON[r.status];
-            const Icon = r.role === 'cc' ? Clock : status.icon;
-            return (
-              <li key={r.id} className="flex items-center gap-3 px-4 py-3">
-                <span className="size-2.5 shrink-0 rounded-full" style={{ background: recipientColor(i).border }} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{r.name || r.email}</p>
-                  <p className="truncate text-xs text-muted-foreground">{r.email}</p>
-                </div>
-                {envelope.signingOrderEnabled && r.role === 'signer' && (
-                  <span className="text-xs tabular-nums text-muted-foreground">#{r.routingOrder}</span>
-                )}
-                <span className={cn('flex shrink-0 items-center gap-1.5 text-xs', r.role === 'cc' ? 'text-muted-foreground' : status.className)}>
-                  <Icon className="size-4" />
-                  {statusLabel(r)}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-        {signers.length === 0 && <p className="text-sm text-muted-foreground">{t.weldsign.editor.recipients.empty}</p>}
-      </section>
+      <CorrectRecipientDialog envelopeId={envelope.id} recipient={correcting} onClose={() => setCorrecting(null)} />
+      <VoidDialog envelopeId={envelope.id} title={envelope.title} open={voiding} onClose={() => setVoiding(false)} />
+    </div>
+  );
+}
+
+/** One line about how the request ended; a voided one adds when and why. */
+function StatusNote({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) {
+  const { t, format } = useI18n();
+  const to = t.weldsign.overview;
+  const when = useDateTime();
+
+  const notes: Partial<Record<string, string>> = {
+    completed: to.completedNote,
+    declined: to.declinedNote,
+    expired: to.expiredNote,
+    voided: to.voidedNote,
+  };
+  const note = notes[envelope.status];
+  if (!note) return null;
+
+  const voided = envelope.status === 'voided';
+  const details = [
+    voided && envelope.voidedAt ? format(to.voidedAt, { date: when(envelope.voidedAt) }) : null,
+    voided && envelope.voidedReason ? format(to.voidedReason, { reason: envelope.voidedReason }) : null,
+  ].filter((line): line is string => line !== null);
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border px-4 py-3 text-sm',
+        envelope.status === 'completed' ? 'border-emerald-600/30 bg-emerald-600/5' : 'bg-muted/50',
+      )}
+    >
+      <p>{note}</p>
+      {details.map((line) => (
+        <p key={line} className="break-words text-muted-foreground">
+          {line}
+        </p>
+      ))}
     </div>
   );
 }

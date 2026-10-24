@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  completeInlineImage,
   contentToFragment,
   contentToHtml,
+  createInlineImage,
+  editorHasContent,
   editorToContent,
+  insertNodesAtCaret,
   extractMentions,
   getMentionQueryAtCaret,
   htmlToContent,
@@ -241,5 +245,68 @@ describe('replaceMentionQuery', () => {
     const chip = contentToFragment('<@user_1>', members).firstChild as Node;
     expect(replaceMentionQuery(editor, chip)).toBe(false);
     expect(editor.textContent).toBe('plain text');
+  });
+});
+
+describe('inline images', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const files = new Map([['att_1', { url: 'https://files.test/att_1.png', fileName: 'shot.png' }]]);
+
+  it('round-trips a file token through the editor', () => {
+    const editor = makeEditor('');
+    loadContentIntoEditor(editor, 'see <@file:att_1> here', members, files);
+    const node = editor.querySelector('.inline-image') as HTMLElement;
+    expect(node.getAttribute('contenteditable')).toBe('false');
+    expect(node.dataset.fileId).toBe('att_1');
+    expect(node.querySelector('img')?.getAttribute('src')).toBe('https://files.test/att_1.png');
+    expect(editorToContent(editor)).toBe('see <@file:att_1> here');
+  });
+
+  it('keeps the token of a file it cannot show', () => {
+    const editor = makeEditor('');
+    loadContentIntoEditor(editor, '<@file:att_9>', members);
+    expect(editor.querySelector('.inline-image img')).toBeNull();
+    expect(editorToContent(editor)).toBe('<@file:att_9>');
+  });
+
+  it('a still-uploading image serialises to nothing until it is completed', () => {
+    const editor = makeEditor('a');
+    const node = createInlineImage(null, { url: 'blob:x', fileName: 'shot.png' });
+    editor.appendChild(node);
+    expect(editorToContent(editor)).toBe('a');
+    completeInlineImage(node, 'att_1', 'https://files.test/att_1.png');
+    expect(editorToContent(editor)).toBe('a<@file:att_1>');
+    expect(node.hasAttribute('data-pending')).toBe(false);
+  });
+
+  it('is not a mention', () => {
+    expect(extractMentions('<@file:att_1> <@user_1>')).toEqual(['user_1']);
+  });
+
+  it('counts as content even with no text', () => {
+    const editor = makeEditor('');
+    expect(editorHasContent(editor)).toBe(false);
+    editor.appendChild(createInlineImage('att_1', null));
+    expect(editorHasContent(editor)).toBe(true);
+  });
+
+  it('inserts at the caret and puts the caret after the inserted nodes', () => {
+    const editor = makeEditor('abcd');
+    setCaret(editor.firstChild as Node, 2);
+    const node = createInlineImage('att_1', null);
+    insertNodesAtCaret(editor, [node]);
+    expect(editorToContent(editor)).toBe('ab<@file:att_1>cd');
+    const range = window.getSelection()?.getRangeAt(0);
+    expect(range?.startContainer.childNodes[(range?.startOffset ?? 0) - 1]).toBe(node);
+  });
+
+  it('appends at the end when the caret is outside the editor', () => {
+    const editor = makeEditor('abc');
+    window.getSelection()?.removeAllRanges();
+    insertNodesAtCaret(editor, [createInlineImage('att_1', null)]);
+    expect(editorToContent(editor)).toBe('abc<@file:att_1>');
   });
 });

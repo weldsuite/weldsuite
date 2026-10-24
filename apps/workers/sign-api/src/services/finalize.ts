@@ -71,7 +71,8 @@ export async function buildFinalPdf(ctx: FinalizeContext, envelopeId: string): P
     for (const page of pages) out.addPage(page);
   }
 
-  const eventAt = (recipientId: string, type: string) => events.find((e) => e.recipientId === recipientId && e.type === type);
+  // The latest of each: after a corrected email, the new person consented and signed again.
+  const eventAt = (recipientId: string, type: string) => events.filter((e) => e.recipientId === recipientId && e.type === type).at(-1);
   const certificateRecipients: CertificateRecipient[] = recipients.map((r) => ({
     name: r.name,
     email: r.email,

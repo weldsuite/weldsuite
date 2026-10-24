@@ -248,8 +248,8 @@ Freeze and merge came with phase 2.
   2010's cross-sheet lists). CSV and TSV: reading as typed input in the
   reader's locale (separator detected), writing displayed values (';' where
   the decimal is a comma).
-- What a file has that WeldSheets does not (charts and pictures, comments,
-  pivot tables, table styles, data bars and icon sets, macros, links to other
+- What a file has that WeldSheets does not (pictures, comments, pivot
+  tables, table styles, data bars and icon sets, macros, links to other
   files, formatting within a cell) is left out, and the import says so.
   Formulas WeldSheets cannot read keep their last value.
 - sheets-api: `POST /api/sheets/import` makes a new spreadsheet from an
@@ -264,6 +264,56 @@ Freeze and merge came with phase 2.
   the current tab as .csv), written in the browser from the editor's own
   workbook; in WeldDrive, "Open in WeldSheets" on .xlsx, .csv and .tsv files,
   and WeldSheets files download as .xlsx.
+
+**Phase 6 (charts and pivot tables): done.**
+
+- Charts are part of the sheet (`sheet.charts`, in its snapshot), changed by
+  a `patchCharts` op (by chart id, like the rule ops) with an inverse,
+  transforms and shape checks. A chart has a type (column, bar, line and area,
+  each also stacked or 100% stacked; pie, doughnut, scatter), series and
+  categories as absolute, sheet-qualified references (`Sheet1!$B$2:$B$9`),
+  a title, axis titles, a legend position, and a place: a cell plus an offset
+  in pixels, and a size in pixels. Its references follow row and column
+  inserts, deletes and moves and sheet renames like formulas; when its anchor
+  row or column is deleted it moves to the next one.
+- WeldSheets draws charts itself on the grid canvas
+  (`editor/charts/draw-chart.ts`, no chart library): over the cells,
+  scrolling with their anchor cell (one anchored in a frozen pane stays put).
+  A chart is picked with a click, moved, resized with eight handles, deleted
+  with Delete, and every change undoes. "Insert chart" (toolbar, right-click)
+  charts the selection, or the block of data around a single cell: series
+  along its longer side, names and labels where there is text, a line chart
+  over dates. The chart editor panel changes the type, the data range (rows
+  or columns, headers, labels), series colours, titles and legend, saving as
+  it goes.
+- Pivot tables are a spilling formula,
+  `PIVOT(source, rows, columns, values, [filters], [totals])`, for example
+  `=PIVOT(Data!$A$1:$E$500, "Region", "Year", "SUM:Amount")`: field names
+  for rows and columns (`-Name` sorts descending), `FUNCTION:Field` for
+  values (SUM, COUNTA, COUNT, AVERAGE, MIN, MAX, COUNTUNIQUE, MEDIAN), a
+  two-column array of field and shown value for filters, totals on unless
+  FALSE. Being a formula, a pivot table recalculates live, co-edits and
+  undoes as one cell and follows its source when rows and columns move; it
+  needs no op or storage of its own. Its labels are English ("SUM of Amount",
+  "Grand Total").
+- "Create pivot table" (toolbar, right-click) puts one on a new sheet or at a
+  given cell, starting with the first text field as rows and the sum of the
+  first number field. The pivot editor panel opens when a cell of a pivot
+  table is selected and rewrites its formula: source, rows, columns and their
+  order, values and how they are summarised, filters (a checklist of the
+  field's values), totals. Headings and totals show bold, and values take the
+  number format of the field they sum (counts do not); a cell's own format
+  wins.
+- Files: charts are written to .xlsx as DrawingML charts with cached values,
+  so Excel shows them before it recalculates, and read back from Excel files
+  (bar, column, line, area, pie, doughnut, scatter; other chart types,
+  pictures and shapes are left out, and the import says so). Pivot tables are
+  exported as their values; Excel pivot tables are not imported.
+- Phase 6 gaps: no combo charts, secondary axes, trendlines or data labels;
+  a duplicated sheet's charts still read the original sheet. Pivot tables
+  have no calculated fields, date grouping, "show as % of" or drill-down, and
+  the editor works out each pivot table's layout again after every change to
+  style it (phase 9 moves calculation into a worker).
 
 Known gaps, to pick up in later phases:
 

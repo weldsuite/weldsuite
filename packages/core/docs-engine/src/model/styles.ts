@@ -37,6 +37,17 @@ export interface TextStyle {
   suggestion?: { id: string; kind: 'insert' | 'delete' | 'format' };
 }
 
+/**
+ * Link targets a document may hold: web, mail and phone addresses, and
+ * places in the document. Anything else (javascript:, data:, …) is refused
+ * wherever links come in: ops from outside, pasted HTML, Markdown.
+ */
+export const SAFE_LINK = /^(https?:|mailto:|tel:|#)/i;
+
+export function isSafeLink(url: string): boolean {
+  return SAFE_LINK.test(url.trim());
+}
+
 export type Align = 'left' | 'center' | 'right' | 'justify';
 
 export interface TabStop {

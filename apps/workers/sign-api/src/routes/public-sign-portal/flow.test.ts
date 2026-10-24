@@ -17,7 +17,15 @@ import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/test
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { memoryTransport } from '@weldsuite/emails/transports/memory';
-import type { SignDocumentDto, SignEnvelopeDetail, SignPortalEnvelope, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
+import { generateId } from '@weldsuite/worker-kit/id';
+import type {
+  SignDocumentDto,
+  SignEnvelopeDetail,
+  SignEnvelopeSummary,
+  SignEventDto,
+  SignPortalEnvelope,
+  SignRecipientDto,
+} from '@weldsuite/app-api-client/schemas/weldsign';
 import envelopesRoutes from '../envelopes';
 import { createSignPortalRoutes } from './index';
 import { sendEnvelope } from '../../services/sending';
@@ -43,6 +51,12 @@ vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
     commitOutbound: vi.fn(async () => undefined),
     releaseOutbound: vi.fn(async () => undefined),
   };
+});
+// The lifecycle routes resolve the master DB and the workspace's master id themselves.
+const dbs = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => dbs.master, getWorkspaceForOrg: async () => ({ id: 'ws_flow' }) };
 });
 
 const ORG = 'org_flow';
@@ -94,6 +108,7 @@ function env(): Env {
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
   master = (await createMasterPgliteDb()).db as MasterDatabase;
+  dbs.master = master;
 }, 120_000);
 
 beforeEach(() => {
@@ -101,10 +116,10 @@ beforeEach(() => {
   finalizeCalls.length = 0;
 });
 
-function member(grants: string[] = ['*']) {
+function member(grants: string[] = ['*'], userId = 'user_sender') {
   return createTestApp(BASE, envelopesRoutes, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId: 'user_sender', workspaceId: ORG, orgId: ORG },
-    env: { PRIVATE_STORAGE: storage.bucket } as Partial<Env>,
+    context: { permissions: permissions(...grants), tenantDb: db, userId, workspaceId: ORG, orgId: ORG },
+    env: env() as Partial<Env>,
   });
 }
 
@@ -415,5 +430,138 @@ describe('signing flow', () => {
     await expect(
       sendEnvelope({ env: env(), db, master, clerkOrgId: ORG, workspaceId: WS }, row!, { userId: 'u', name: null, email: null }),
     ).rejects.toThrow('Add at least one document');
+  });
+});
+
+const POST = { method: 'POST' } satisfies RequestInit;
+
+/** The signing link in the last mail sent to `email`. */
+function lastLinkFor(email: string): string {
+  const mailToThem = mail.transport!.sent.filter((m) => to(m) === email).at(-1);
+  return /https:\/\/sign\.test\/r\/([A-Za-z0-9_-]+)/.exec(mailToThem?.text ?? '')![1]!;
+}
+
+describe('a sent request', () => {
+  it('voids: the links stop, signers who got it hear why, nothing more can be done', async () => {
+    const { envelope } = await draftWithTwoSigners();
+    const annToken = linksByRecipient().get('ann@example.com')!;
+    mail.transport = memoryTransport();
+    const app = member();
+
+    const res = await app.request(`${BASE}/${envelope.id}/void`, json({ reason: 'Wrong version attached.' }));
+    expect(res.status).toBe(200);
+    expect(await data<SignEnvelopeDetail>(res)).toMatchObject({ status: 'voided', voidedReason: 'Wrong version attached.', canVoid: false, canRemind: false });
+    // Ann had the request and is told; Bob's turn never came, so he never heard of it.
+    expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
+    expect(mail.transport.sent[0]!.text).toContain('Wrong version attached.');
+    expect((await portal().request('/session', json({ token: annToken }))).status).toBe(404);
+
+    expect((await app.request(`${BASE}/${envelope.id}/void`, json({ reason: 'Again' }))).status).toBe(409);
+    expect((await app.request(`${BASE}/${envelope.id}/remind`, POST)).status).toBe(409);
+    const events = await data<SignEventDto[]>(await app.request(`${BASE}/${envelope.id}/events`));
+    expect(events.at(-1)).toMatchObject({ type: 'voided', details: { reason: 'Wrong version attached.' } });
+  });
+
+  it('reminds by hand at most once an hour, with a link that opens the request', async () => {
+    const { envelope, ann } = await draftWithTwoSigners();
+    const app = member();
+    // Ann was emailed a moment ago.
+    expect((await app.request(`${BASE}/${envelope.id}/remind`, POST)).status).toBe(409);
+
+    await db.update(schema.signRecipients).set({ sentAt: new Date(Date.now() - 2 * 3_600_000) }).where(eq(schema.signRecipients.id, ann.id));
+    mail.transport = memoryTransport();
+    expect(await data<{ reminded: number }>(await app.request(`${BASE}/${envelope.id}/remind`, POST))).toEqual({ reminded: 1 });
+    expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
+    expect(mail.transport.sent[0]!.subject).toMatch(/^Reminder:/);
+    expect(await data<{ state: string }>(await portal().request('/session', json({ token: lastLinkFor('ann@example.com') })))).toMatchObject({ state: 'ready' });
+
+    const [row] = await db.select().from(schema.signRecipients).where(eq(schema.signRecipients.id, ann.id));
+    expect(row!.lastRemindedAt).not.toBeNull();
+    // By hand: it does not use up an automatic reminder.
+    expect(row!.remindersSent).toBe(0);
+    expect((await app.request(`${BASE}/${envelope.id}/remind`, POST)).status).toBe(409);
+  });
+
+  it('sends one signer a new link, only when it is their turn', async () => {
+    const { envelope, ann, bob } = await draftWithTwoSigners();
+    const app = member();
+    mail.transport = memoryTransport();
+    expect((await app.request(`${BASE}/${envelope.id}/recipients/${ann.id}/resend`, POST)).status).toBe(200);
+    expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
+    expect(mail.transport.sent[0]!.subject).not.toMatch(/^Reminder:/);
+    expect((await app.request(`${BASE}/${envelope.id}/recipients/${bob.id}/resend`, POST)).status).toBe(409);
+    const events = await data<SignEventDto[]>(await app.request(`${BASE}/${envelope.id}/events`));
+    expect(events.at(-1)).toMatchObject({ type: 'resent', recipientName: 'Ann' });
+  });
+
+  it('corrects an email: the old link stops, the new address gets one and agrees again', async () => {
+    const { envelope, ann, bob } = await draftWithTwoSigners();
+    const oldToken = linksByRecipient().get('ann@example.com')!;
+    const p = portal();
+    // Whoever holds the wrong address already agreed to sign electronically.
+    await openAndConsent(p, oldToken);
+    const app = member();
+    mail.transport = memoryTransport();
+
+    const res = await app.request(
+      `${BASE}/${envelope.id}/recipients/${ann.id}/correct`,
+      json({ name: 'Ann de Vries', email: 'Ann.deVries@example.com' }),
+    );
+    expect(res.status).toBe(200);
+    expect(await data<SignRecipientDto>(res)).toMatchObject({ name: 'Ann de Vries', email: 'ann.devries@example.com', status: 'sent', openedAt: null });
+    expect((await p.request('/session', json({ token: oldToken }))).status).toBe(404);
+    const opened = await data<{ session: string }>(await p.request('/session', json({ token: lastLinkFor('ann.devries@example.com') })));
+    const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, opened.session));
+    expect(view.recipient.consented).toBe(false);
+
+    // Taken by another recipient, or nothing changed: refused.
+    expect((await app.request(`${BASE}/${envelope.id}/recipients/${ann.id}/correct`, json({ email: 'bob@example.com' }))).status).toBe(400);
+    expect((await app.request(`${BASE}/${envelope.id}/recipients/${ann.id}/correct`, json({ email: 'ann.devries@example.com' }))).status).toBe(400);
+    // Bob's turn has not come: his address changes and he is emailed nothing yet.
+    mail.transport = memoryTransport();
+    const bobRes = await app.request(`${BASE}/${envelope.id}/recipients/${bob.id}/correct`, json({ email: 'robert@example.com' }));
+    expect(await data<SignRecipientDto>(bobRes)).toMatchObject({ email: 'robert@example.com', status: 'pending' });
+    expect(mail.transport.sent).toHaveLength(0);
+
+    const events = await data<SignEventDto[]>(await app.request(`${BASE}/${envelope.id}/events`));
+    expect(events.find((e) => e.type === 'recipient_corrected')?.details).toMatchObject({ from: 'ann@example.com', to: 'ann.devries@example.com' });
+  });
+
+  it('keeps a signer’s consent when only their name is fixed', async () => {
+    const { envelope, ann } = await draftWithTwoSigners();
+    const p = portal();
+    const session = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
+    const res = await member().request(`${BASE}/${envelope.id}/recipients/${ann.id}/correct`, json({ name: 'Ann de Vries', email: 'ann@example.com' }));
+    expect(await data<SignRecipientDto>(res)).toMatchObject({ name: 'Ann de Vries', email: 'ann@example.com', status: 'opened' });
+    // Same person, same session: still agreed, and she can finish.
+    expect((await data<SignPortalEnvelope>(await p.request('/envelope', {}, session))).recipient.consented).toBe(true);
+    const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, session));
+    const jobTitle = view.fields.find((f) => f.type === 'text')!;
+    expect((await p.request('/complete', json({ values: [{ fieldId: jobTitle.id, value: 'Director' }], signature }), session)).status).toBe(200);
+  });
+
+  it('shows a member the requests waiting for their signature, and lets them sign now', async () => {
+    const { envelope, ann } = await draftWithTwoSigners();
+    await db.insert(schema.workspaceMembers).values({ id: generateId('wm'), userId: 'user_ann', email: 'Ann@Example.com', name: 'Ann' });
+    const annApp = member(['sign_envelopes:read'], 'user_ann');
+
+    const waiting = await annApp.request(`${BASE}?folder=action_required`);
+    const rows = ((await waiting.json()) as { data: SignEnvelopeSummary[] }).data;
+    expect(rows.map((r) => r.id)).toContain(envelope.id);
+    expect(rows.every((r) => r.status === 'sent' || r.status === 'in_progress')).toBe(true);
+    const detail = await data<SignEnvelopeDetail>(await annApp.request(`${BASE}/${envelope.id}`));
+    expect(detail).toMatchObject({ isOwner: false, canEdit: false, canVoid: false, canRemind: false, mySignerId: ann.id });
+    // Only the owner sees the activity.
+    expect((await annApp.request(`${BASE}/${envelope.id}/events`)).status).toBe(404);
+
+    const link = await data<{ url: string }>(await annApp.request(`${BASE}/${envelope.id}/signing-link`, POST));
+    const token = /\/r\/([A-Za-z0-9_-]+)$/.exec(link.url)![1]!;
+    expect(await data<{ state: string }>(await portal().request('/session', json({ token })))).toMatchObject({ state: 'ready' });
+
+    // A draft that names her stays the sender's own; a member not on the request sees nothing.
+    const draft = await data<SignEnvelopeDetail>(await member().request(BASE, json({ title: 'Still a draft' })));
+    await member().request(`${BASE}/${draft.id}/recipients`, json({ name: 'Ann', email: 'ann@example.com' }));
+    expect((await annApp.request(`${BASE}/${draft.id}`)).status).toBe(404);
+    expect((await member(['sign_envelopes:read'], 'user_stranger').request(`${BASE}/${envelope.id}`)).status).toBe(404);
   });
 });

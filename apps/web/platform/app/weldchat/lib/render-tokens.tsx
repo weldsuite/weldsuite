@@ -13,6 +13,10 @@
  *                                 must match `VALID_TYPES`; otherwise the
  *                                 token falls back to the user-name-override
  *                                 path.
+ *   <@file:attachmentId>        — one of the message's own attachments,
+ *                                 placed at this spot in the text (an image
+ *                                 pasted mid-sentence). The file itself stays
+ *                                 in the message's `attachments`.
  *
  * The renderer is plain text → ReactNode. It does NOT process inline markdown
  * formatting (`**bold**`, `*italic*`, etc.) — callers that need that should
@@ -28,7 +32,34 @@ const MENTION_TOKEN_REGEX = /<@([^>]+)>/g;
 export type ChatTokenSegment =
   | { kind: 'text'; text: string }
   | { kind: 'user'; userId: string; displayName: string | null }
-  | { kind: 'entity'; entityType: EntitySheetType; entityId: string; label: string | null };
+  | { kind: 'entity'; entityType: EntitySheetType; entityId: string; label: string | null }
+  | { kind: 'file'; attachmentId: string };
+
+/** Prefix of an inline attachment token: `<@file:attachmentId>`. */
+export const FILE_TOKEN_PREFIX = 'file';
+
+/** Build the inline token for one of the message's attachments. */
+export function encodeFileToken(attachmentId: string): string {
+  return `<@${FILE_TOKEN_PREFIX}:${attachmentId}>`;
+}
+
+/** Attachment ids placed inline in `text`, in order, without duplicates. */
+export function fileTokenIds(text: string): string[] {
+  const ids: string[] = [];
+  for (const seg of parseChatTokens(text)) {
+    if (seg.kind === 'file' && !ids.includes(seg.attachmentId)) ids.push(seg.attachmentId);
+  }
+  return ids;
+}
+
+/** Drop the `<@file:…>` tokens whose attachment `keep` rejects; everything else stays as written. */
+export function dropFileTokens(text: string, keep: (attachmentId: string) => boolean): string {
+  MENTION_TOKEN_REGEX.lastIndex = 0;
+  return text.replace(MENTION_TOKEN_REGEX, (raw, body: string) => {
+    const seg = classifyTokenBody(body, raw);
+    return seg.kind === 'file' && !keep(seg.attachmentId) ? '' : raw;
+  });
+}
 
 /** Classify the inside of one `<@…>` token (`raw` is the whole token, kept for malformed fallbacks). */
 function classifyTokenBody(body: string, raw: string): ChatTokenSegment {
@@ -41,6 +72,10 @@ function classifyTokenBody(body: string, raw: string): ChatTokenSegment {
 
   const prefix = body.slice(0, colonIdx);
   const rest = body.slice(colonIdx + 1);
+
+  if (prefix === FILE_TOKEN_PREFIX) {
+    return rest ? { kind: 'file', attachmentId: rest } : { kind: 'text', text: raw };
+  }
 
   if (!VALID_TYPES.has(prefix)) {
     // <@userId:DisplayName> — user mention with name override
@@ -102,6 +137,8 @@ interface RenderChatTokensOptions {
   ) => ReactNode;
   /** Optional: transform plain-text segments. Default: identity. */
   renderText?: (text: string, key: string) => ReactNode;
+  /** Optional: renders an inline attachment. Default: nothing (the file shows with the message's attachments). */
+  renderFile?: (segment: { attachmentId: string }, key: string) => ReactNode;
 }
 
 /**
@@ -117,6 +154,9 @@ export function renderChatTokens(text: string, opts: RenderChatTokensOptions): R
     }
     if (seg.kind === 'user') {
       return opts.renderUser({ userId: seg.userId, displayName: seg.displayName }, key);
+    }
+    if (seg.kind === 'file') {
+      return opts.renderFile ? opts.renderFile({ attachmentId: seg.attachmentId }, key) : null;
     }
     return opts.renderEntity(
       { entityType: seg.entityType, entityId: seg.entityId, label: seg.label },

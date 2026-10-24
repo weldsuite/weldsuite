@@ -1,7 +1,8 @@
 /**
  * WeldSign: a request to review and sign a document, with the signer's
- * personal link. Sent from WeldSuite's address under the workspace's brand,
- * Reply-To the sender (sign-api, services/mail.ts).
+ * personal link, or a reminder of one (`reminder`). Sent from WeldSuite's
+ * address under the workspace's brand, Reply-To the sender (sign-api,
+ * services/mail.ts).
  */
 
 import { Actions, Button, EmailLayout, Heading, Kicker, LinkFallback, MultilineText, Paragraph, Quote } from '../../components';
@@ -20,19 +21,25 @@ export interface SignRequestEmailProps {
   /** ISO time the request expires. */
   expiresAt?: string | null;
   timeZone?: string | null;
+  /** A reminder: the signer got this request before and has not signed yet. */
+  reminder?: boolean;
 }
 
 export default defineTemplate<SignRequestEmailProps>({
   defaultBrand: { kind: 'weldsuite', module: 'WeldSign' },
 
-  subject: (props, { locale }) => fill(emailStrings(locale).sign.request.subject, { sender: props.senderName, title: props.title }),
+  subject: (props, { locale }) => {
+    const t = emailStrings(locale).sign.request;
+    return fill(props.reminder ? t.reminderSubject : t.subject, { sender: props.senderName, title: props.title });
+  },
 
   Component: (props) => {
     const { locale, brand } = props;
     const t = emailStrings(locale).sign.request;
+    const preview = fill(props.reminder ? t.reminderPreview : t.preview, { title: props.title });
     return (
-      <EmailLayout brand={brand} locale={locale} preview={fill(t.preview, { title: props.title })} footer={t.footer}>
-        <Kicker>{fill(t.kicker, { sender: props.senderName })}</Kicker>
+      <EmailLayout brand={brand} locale={locale} preview={preview} footer={t.footer}>
+        <Kicker>{fill(props.reminder ? t.reminderKicker : t.kicker, { sender: props.senderName })}</Kicker>
         <Heading>{props.title}</Heading>
         {props.message?.trim() ? (
           <Quote label={fill(t.messageFrom, { sender: props.senderName })}>
@@ -67,6 +74,17 @@ export default defineTemplate<SignRequestEmailProps>({
     plain: {
       brand: { kind: 'workspace', name: 'Acme Staffing' },
       props: { senderName: 'Acme Staffing', title: 'NDA', url: 'https://sign.weldsuite.org/r/def456' },
+    },
+    reminder: {
+      brand: { kind: 'workspace', name: 'Acme Staffing', accentColor: '#4f46e5' },
+      props: {
+        senderName: 'Gert van den Berg',
+        title: 'Service agreement 2027',
+        url: 'https://sign.weldsuite.org/r/ghi789',
+        expiresAt: '2026-11-23T12:00:00.000Z',
+        timeZone: 'Europe/Amsterdam',
+        reminder: true,
+      },
     },
   },
 });

@@ -16,7 +16,7 @@ import { newId } from '../model/ids';
 import type { CellProps, ObjectData } from '../model/objects';
 import { resolveText } from '../model/resolve';
 import type { ListDef, ListFormat, NamedStyle, ParaProps, TextStyle } from '../model/styles';
-import { isEmptyObject } from '../model/styles';
+import { isEmptyObject, isSafeLink } from '../model/styles';
 import { parseColor, parseFontFamily, parseLength, parseStyleAttr } from './css';
 import { parseHtml, type HtmlElement, type HtmlNode } from './html-parse';
 
@@ -38,7 +38,6 @@ const BLOCK_TAGS = new Set([
   'summary', 'caption', 'body', 'html',
 ]);
 const SKIP_TAGS = new Set(['head', 'script', 'style', 'meta', 'link', 'title', 'template', 'noscript', 'button', 'select', 'svg', 'math', 'iframe', 'object']);
-const SAFE_LINK = /^(https?:|mailto:|tel:|#)/i;
 
 type Item =
   | { kind: 'text'; text: string; style: TextStyle }
@@ -326,7 +325,7 @@ class Converter {
         break;
       case 'a': {
         const href = (el.attrs.href ?? '').trim();
-        if (href && SAFE_LINK.test(href) && !/^#fn/.test(href)) s.link = href.slice(0, 4096);
+        if (href && isSafeLink(href) && !/^#fn/.test(href)) s.link = href.slice(0, 4096);
         break;
       }
       case 'font': {

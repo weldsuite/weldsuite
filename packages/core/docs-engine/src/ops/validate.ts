@@ -84,11 +84,7 @@ function validateSimple(doc: DocModel, op: SimpleOp): string | null {
         ids.add(d.id);
         if (op.axis === 'col' && !('width' in d)) return 'column without a width';
       }
-      for (const [, s] of Object.entries(op.content?.stories ?? {})) {
-        const err = validateStoryContent(s);
-        if (err) return err;
-      }
-      return checkFreshIds(doc, op.content ?? {});
+      return validateNewCells(doc, op.table, table, op.axis, op.items.map((d) => d.id), op.content ?? {});
     }
     case 'deleteTableDims': {
       const table = doc.tables.get(op.table);
@@ -240,12 +236,57 @@ function validateTable(t: TableData): string | null {
   return null;
 }
 
+/**
+ * The content an inserted row or column brings back (an undo): only stories
+ * of its own new cells, and what the objects in them own, checked as an
+ * insert's content is, so no table or footnote ends up owned twice.
+ */
+function validateNewCells(
+  doc: DocModel,
+  tableId: string,
+  table: TableData,
+  axis: 'row' | 'col',
+  newIds: string[],
+  content: Pick<Content, 'tables' | 'stories'>,
+): string | null {
+  const cells = new Set<string>();
+  for (const id of newIds) {
+    for (const other of axis === 'row' ? table.cols : table.rows) {
+      cells.add(axis === 'row' ? cellStoryId(tableId, id, other.id) : cellStoryId(tableId, other.id, id));
+    }
+  }
+  const tables = new Set<string>();
+  const stories = new Set<string>(cells);
+  for (const id of cells) {
+    const cell = content.stories?.[id];
+    if (!cell) continue;
+    const err = validateStoryContent(cell);
+    if (err) return err;
+    if (!cell.text.endsWith(PARA)) return `story ${id} does not end with a paragraph mark`;
+    const owned = ownedIn({ ...cell, tables: content.tables, stories: content.stories });
+    if (typeof owned === 'string') return owned;
+    for (const t of owned.tables) tables.add(t);
+    for (const s of owned.stories) stories.add(s);
+  }
+  for (const id of Object.keys(content.tables ?? {})) if (!tables.has(id)) return `table ${id} is not used`;
+  for (const [id, s] of Object.entries(content.stories ?? {})) {
+    if (!stories.has(id)) return `story ${id} is not used`;
+    const err = validateStoryContent(s);
+    if (err) return err;
+  }
+  return checkFreshIds(doc, content);
+}
+
 /** New tables, stories and id-carrying objects must not reuse ids already in the document. */
 function checkFreshIds(doc: DocModel, content: Pick<Content, 'tables' | 'stories'> & Partial<StoryContent>): string | null {
   for (const id of Object.keys(content.tables ?? {})) if (doc.tables.has(id)) return `table ${id} already exists`;
   for (const id of Object.keys(content.stories ?? {})) if (doc.stories.has(id)) return `story ${id} already exists`;
-  for (const [, obj] of content.objects ?? []) {
-    if ((obj.kind === 'footnote' || obj.kind === 'sectionBreak' || obj.kind === 'table') && doc.hasId(obj.id)) return `id ${obj.id} already exists`;
+  // Objects in the content's own text and in every story it brings.
+  const all = [content.objects ?? [], ...Object.values(content.stories ?? {}).map((s) => s.objects ?? [])];
+  for (const objects of all) {
+    for (const [, obj] of objects) {
+      if ((obj.kind === 'footnote' || obj.kind === 'sectionBreak' || obj.kind === 'table') && doc.hasId(obj.id)) return `id ${obj.id} already exists`;
+    }
   }
   return null;
 }

@@ -1,12 +1,14 @@
 /**
  * App-API WeldSign domain client — `/api/sign/*` (sign-api).
  *
- * Drafts in phase 1: envelopes, their PDFs, recipients and fields.
+ * Drafts (envelopes, their PDFs, recipients and fields), sending, and a sent
+ * request's lifecycle: void, remind, resend, correct an email, activity.
  */
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
 import type {
+  CorrectSignRecipientInput,
   CreateSignEnvelopeInput,
   CreateSignRecipientInput,
   ListSignEnvelopesQuery,
@@ -16,10 +18,14 @@ import type {
   SignDocumentDto,
   SignEnvelopeDetail,
   SignEnvelopeSummary,
+  SignEventDto,
   SignFieldDto,
   SignRecipientDto,
+  SignRemindResult,
+  SignSigningLink,
   UpdateSignEnvelopeInput,
   UpdateSignRecipientInput,
+  VoidSignEnvelopeInput,
 } from '../schemas/weldsign';
 
 const base = '/sign/envelopes';
@@ -80,6 +86,31 @@ export function createWeldSignApi(api: ClientApi) {
     /** The signed PDF with its certificate; the caller reads the response as a blob. */
     download(id: string): Promise<Response> {
       return api.getRaw(`${base}/${id}/download`);
+    },
+
+    /** Stop a sent request; its links stop working and signers who got it are told. */
+    voidEnvelope(id: string, input: VoidSignEnvelopeInput): Promise<DataResponse<SignEnvelopeDetail>> {
+      return api.post(`${base}/${id}/void`, input);
+    },
+    /** Remind every signer whose turn it is (not those reminded in the last hour). */
+    remind(id: string): Promise<DataResponse<SignRemindResult>> {
+      return api.post(`${base}/${id}/remind`, {});
+    },
+    /** Email a signer whose turn it is a new link. */
+    resendRecipient(id: string, recipientId: string): Promise<DataResponse<SignRecipientDto>> {
+      return api.post(`${base}/${id}/recipients/${recipientId}/resend`, {});
+    },
+    /** Fix a recipient's email on a sent request; their old link stops working. */
+    correctRecipient(id: string, recipientId: string, input: CorrectSignRecipientInput): Promise<DataResponse<SignRecipientDto>> {
+      return api.post(`${base}/${id}/recipients/${recipientId}/correct`, input);
+    },
+    /** The request's activity, oldest first (owners only). */
+    events(id: string): Promise<DataResponse<SignEventDto[]>> {
+      return api.get(`${base}/${id}/events`);
+    },
+    /** A fresh link for the caller's own turn to sign. */
+    signingLink(id: string): Promise<DataResponse<SignSigningLink>> {
+      return api.post(`${base}/${id}/signing-link`, {});
     },
   };
 }

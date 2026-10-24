@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@clerk/clerk-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -28,11 +28,52 @@ import {
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
-import { messagePreviewText, renderMessageContent } from '../lib/render-message-content';
+import { messagePreviewText, renderMessageContent, type InlineFileRenderer } from '../lib/render-message-content';
+import { fileTokenIds } from '../lib/render-tokens';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
 import { formatCallDuration, type CallSummary } from '../lib/call-history';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
+
+type MessageFile = ChatAttachment | ChatClipAttachment;
+/** The attachment shape `FilePreview` reads (real rows always carry the full upload shape). */
+type PreviewAttachment = { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string };
+
+const NO_FILES: MessageFile[] = [];
+
+/**
+ * A message body rendered with the files its text places inline
+ * (`<@file:id>`, an image pasted mid-sentence), plus the files it doesn't
+ * place, for the gallery under the text. Memoised: parsing is not free, so it
+ * runs once per content/attachments/member-map change, not on every row render.
+ */
+function useMessageBody(
+  content: string | null | undefined,
+  attachments: MessageFile[],
+  membersMap: Map<string, string> | undefined,
+  channelId: string,
+  messageId: string,
+): { body: ReactNode; gallery: MessageFile[] } {
+  return useMemo(() => {
+    const byId = new Map(attachments.map((att) => [att.id, att]));
+    const files: InlineFileRenderer = {
+      render: (attachmentId, key) => {
+        const att = byId.get(attachmentId);
+        if (!att) return null;
+        return (
+          <span key={key} className="inline-block align-bottom max-w-full my-1 mr-1">
+            <FilePreview attachment={att as unknown as PreviewAttachment} channelId={channelId} messageId={messageId} />
+          </span>
+        );
+      },
+    };
+    const placed = new Set(content ? fileTokenIds(content) : []);
+    return {
+      body: content ? renderMessageContent(content, membersMap, files) : null,
+      gallery: attachments.filter((att) => !placed.has(att.id)),
+    };
+  }, [content, attachments, membersMap, channelId, messageId]);
+}
 
 /** Live timer that counts up from a start time */
 function LiveCallTimer({ startedAt }: Readonly<{ startedAt: string }>) {
@@ -94,9 +135,12 @@ function ForwardedMessage({
 }>) {
   const { t } = useI18n();
   const ChannelIcon = forwardedChannelIcon(forwardedFrom.channelType);
-  const renderedForwarded = useMemo(
-    () => renderMessageContent(forwardedFrom.content, membersMap),
-    [forwardedFrom.content, membersMap],
+  const { body: renderedForwarded, gallery: forwardedGallery } = useMessageBody(
+    forwardedFrom.content,
+    forwardedFrom.attachments ?? NO_FILES,
+    membersMap,
+    channelId,
+    parentMessageId,
   );
   const sourceTime = new Date(forwardedFrom.createdAt).toLocaleString();
 
@@ -129,12 +173,12 @@ function ForwardedMessage({
           <div className="text-sm whitespace-pre-wrap break-words">
             {renderedForwarded}
           </div>
-          {forwardedFrom.attachments && forwardedFrom.attachments.length > 0 && (
+          {forwardedGallery.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
-              {forwardedFrom.attachments.map((att) => (
+              {forwardedGallery.map((att) => (
                 <FilePreview
                   key={att.id}
-                  attachment={att as unknown as { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string }}
+                  attachment={att as unknown as PreviewAttachment}
                   channelId={channelId}
                   messageId={parentMessageId}
                 />
@@ -477,10 +521,16 @@ export function MessageItem({
   const { userId } = useAuth();
   const { t, format } = useI18n();
   const { openUserProfile, openAgentProfile } = useChatContext();
-  // Parsing is not free: render each body once per content/member-map change, not on every row render (hover, menu, …).
-  const renderedContent = useMemo(
-    () => (message.content ? renderMessageContent(message.content, membersMap) : null),
-    [message.content, membersMap],
+  const resolvedChannelId = channelId || message.channelId || '';
+  // The cache-side `ChatAttachment` models only the fields cache-merge helpers
+  // touch (all optional); real rows always carry the full upload shape.
+  const messageFiles = (message.attachments as unknown as MessageFile[] | undefined) ?? NO_FILES;
+  const { body: renderedContent, gallery } = useMessageBody(
+    message.content,
+    messageFiles,
+    membersMap,
+    resolvedChannelId,
+    message.id,
   );
   const isMentioned =
     userId &&
@@ -509,7 +559,6 @@ export function MessageItem({
 
   const timeStr = new Date(message.createdAt ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const fullTime = new Date(message.createdAt ?? '').toLocaleString();
-  const resolvedChannelId = channelId || message.channelId || '';
 
   return (
     <MessageContextMenu message={message} channelId={resolvedChannelId} readBy={readBy}>
@@ -620,14 +669,11 @@ export function MessageItem({
           />
         )}
 
-        {/* Attachments */}
-        {(message.attachments?.length ?? 0) > 0 && (
+        {/* Attachments the text doesn't place inline */}
+        {gallery.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
-            {/* The cache-side `ChatAttachment` models only the fields cache-merge
-                helpers touch (all optional); real rows always carry the full
-                upload shape `FilePreview` expects. */}
-            {(message.attachments as unknown as Array<ChatAttachment | ChatClipAttachment>).map((att) => (
-              <FilePreview key={att.id} attachment={att as unknown as { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string }} channelId={resolvedChannelId} messageId={message.id} />
+            {gallery.map((att) => (
+              <FilePreview key={att.id} attachment={att as unknown as PreviewAttachment} channelId={resolvedChannelId} messageId={message.id} />
             ))}
           </div>
         )}

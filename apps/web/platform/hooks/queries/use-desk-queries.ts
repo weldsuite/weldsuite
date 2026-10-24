@@ -114,7 +114,62 @@ export const deskKeys = {
   conversationDetail: (id: string) => [...deskKeys.conversations(), 'detail', id] as const,
   widget: () => [...deskKeys.all, 'widget'] as const,
   widgetDetail: (widgetId: string) => [...deskKeys.widget(), widgetId] as const,
+  assignment: () => [...deskKeys.all, 'assignment'] as const,
 };
+
+export type DeskAssignmentMode = 'off' | 'round_robin' | 'balanced';
+
+export interface DeskAssignmentSettings {
+  mode: DeskAssignmentMode;
+  memberIds: string[];
+  awayMemberIds: string[];
+  maxOpenPerMember: number | null;
+  /** The signed-in teammate's own place in the rotation. */
+  me: { inRotation: boolean; away: boolean };
+}
+
+export type DeskAssignmentUpdate = Pick<DeskAssignmentSettings, 'mode' | 'memberIds' | 'maxOpenPerMember'>;
+
+/** Auto-assignment rules (`/api/desk/assignment`). */
+export function useDeskAssignment() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: deskKeys.assignment(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: DeskAssignmentSettings }>('/desk/assignment');
+      return res.data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateDeskAssignment() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: DeskAssignmentUpdate) => {
+      const client = await getClient();
+      const res = await client.put<{ data: DeskAssignmentSettings }>('/desk/assignment', data);
+      return res.data;
+    },
+    onSuccess: (settings) => qc.setQueryData(deskKeys.assignment(), settings),
+  });
+}
+
+/** The signed-in teammate stops (or resumes) taking new conversations. */
+export function useSetDeskAway() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (away: boolean) => {
+      const client = await getClient();
+      const res = await client.post<{ data: DeskAssignmentSettings }>('/desk/assignment/away', { away });
+      return res.data;
+    },
+    onSuccess: (settings) => qc.setQueryData(deskKeys.assignment(), settings),
+  });
+}
 
 export interface DeskConversationFilters {
   state?: DeskConversationState;

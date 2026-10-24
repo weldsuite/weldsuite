@@ -6,7 +6,7 @@
  * of truth: a registry hit is always re-checked against them.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { base64Url, sha256Hex } from './hash';
@@ -74,6 +74,42 @@ export async function revokeEnvelopeLinks(master: MasterDatabase, workspaceId: s
     .update(signLinkRegistry)
     .set({ revokedAt: new Date() })
     .where(and(eq(signLinkRegistry.workspaceId, workspaceId), eq(signLinkRegistry.envelopeId, envelopeId), isNull(signLinkRegistry.revokedAt)));
+}
+
+/** Stop one recipient's links (a corrected email), except the one just sent to them. */
+export async function revokeRecipientLinks(
+  master: MasterDatabase,
+  target: { workspaceId: string; envelopeId: string; recipientId: string },
+  keepToken?: string,
+): Promise<void> {
+  const conditions = [
+    eq(signLinkRegistry.workspaceId, target.workspaceId),
+    eq(signLinkRegistry.envelopeId, target.envelopeId),
+    eq(signLinkRegistry.recipientId, target.recipientId),
+    isNull(signLinkRegistry.revokedAt),
+  ];
+  if (keepToken) conditions.push(ne(signLinkRegistry.tokenHash, await sha256Hex(keepToken)));
+  await master.update(signLinkRegistry).set({ revokedAt: new Date() }).where(and(...conditions));
+}
+
+/** Take back links that were created but never reached anyone (the outbound guard said no). */
+export async function revokeTokens(master: MasterDatabase, tokens: string[]): Promise<void> {
+  if (tokens.length === 0) return;
+  const hashes = await Promise.all(tokens.map((t) => sha256Hex(t)));
+  await master.update(signLinkRegistry).set({ revokedAt: new Date() }).where(inArray(signLinkRegistry.tokenHash, hashes));
+}
+
+/**
+ * Clerk org ids of workspaces with a link still standing: the requests that
+ * may need a reminder or an expiry. Seeds the lifecycle due index once,
+ * without opening any tenant DB.
+ */
+export async function workspacesWithLiveLinks(master: MasterDatabase): Promise<string[]> {
+  const rows = await master
+    .selectDistinct({ clerkOrgId: signLinkRegistry.clerkOrgId })
+    .from(signLinkRegistry)
+    .where(isNull(signLinkRegistry.revokedAt));
+  return rows.map((r) => r.clerkOrgId);
 }
 
 /** After completion links only download the signed PDF, for a limited time. */
