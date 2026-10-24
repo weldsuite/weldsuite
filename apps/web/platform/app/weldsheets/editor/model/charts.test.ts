@@ -81,6 +81,23 @@ describe('chart commands', () => {
     expect(withVariant(stacked, 'pie').stacking).toBeUndefined();
   });
 
+  it('keeps chart data apart per sheet, where ids can repeat', () => {
+    const ctl = make();
+    const first = ctl.activeSheetId;
+    const chart = insertChart(ctl)!;
+    ctl.addSheet();
+    const second = ctl.activeSheetId;
+    ctl.setInput(1, 0, '99');
+    const other = { ...chart, series: [{ values: 'Sheet2!$A$2' }] };
+    delete other.categories;
+    ctl.apply({ type: 'patchCharts', sheetId: second, set: [other] });
+    // Same id on both sheets, no edit in between: each sheet shows its own.
+    ctl.setActiveSheet(first);
+    expect(ctl.chartData(ctl.sheet.charts[0]!).series[0]!.values).toEqual([10, 12, 9]);
+    ctl.setActiveSheet(second);
+    expect(ctl.chartData(ctl.sheet.charts[0]!).series[0]!.values).toEqual([99]);
+  });
+
   it('removes a chart and lets go of it', () => {
     const ctl = make();
     const chart = insertChart(ctl)!;

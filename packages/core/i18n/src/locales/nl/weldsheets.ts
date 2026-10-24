@@ -408,5 +408,7 @@ export const weldsheets = {
     selectAll: 'Alles selecteren',
     clear: 'Wissen',
     blank: '(Leeg)',
+    tooManyValues: 'Dit veld heeft meer dan {max} verschillende waarden, te veel om op te filteren.',
+    partialList: 'Alleen de eerste {max} waarden staan in de lijst.',
   },
 };

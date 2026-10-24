@@ -22,8 +22,15 @@ import {
 import { cellSelection } from './selection';
 import { newSheetId, type SheetController } from './sheet-controller';
 
-/** Distinct values a filter lists at most. */
-const MAX_FILTER_VALUES = 500;
+/** Distinct values a filter lists at most; the editor does not add a filter on a field with more. */
+export const MAX_FILTER_VALUES = 500;
+
+export interface FieldValues {
+  /** As text, in order ('' for blanks). */
+  values: string[];
+  /** False when the field has more distinct values than a filter lists, and `values` is only the first of them. */
+  complete: boolean;
+}
 
 /** A cell typed as where the pivot table goes (B3, 'Report'!B3); null when it is not one. */
 export function parseTargetCell(ctl: SheetController, text: string): { sheetId: string; row: number; col: number } | null {
@@ -46,19 +53,24 @@ export function pivotFields(ctl: SheetController, source: RangeAt): string[] {
   return out;
 }
 
-/** The values a field holds, as text, in order ('' for blanks): what a filter can show or hide. */
-export function fieldValues(ctl: SheetController, source: RangeAt, field: string): string[] {
+/** The values a field holds: what a filter can show or hide. */
+export function fieldValues(ctl: SheetController, source: RangeAt, field: string): FieldValues {
   const data = pivotSourceData(ctl.engine, source);
   const col = (data[0] ?? []).findIndex((v) => textOf(v).trim().toLowerCase() === field.trim().toLowerCase());
-  if (col < 0) return [];
+  if (col < 0) return { values: [], complete: true };
   const seen = new Map<string, string>();
+  let complete = true;
   for (const row of data.slice(1)) {
     if (!row.some((v) => v !== null && v !== '')) continue;
     const text = textOf(row[col] ?? null);
-    if (!seen.has(text.toLowerCase())) seen.set(text.toLowerCase(), text);
-    if (seen.size >= MAX_FILTER_VALUES) break;
+    if (seen.has(text.toLowerCase())) continue;
+    if (seen.size === MAX_FILTER_VALUES) {
+      complete = false;
+      break;
+    }
+    seen.set(text.toLowerCase(), text);
   }
-  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return { values: [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), complete };
 }
 
 /** A first layout that shows something: the first text field as rows, the sum of the first number field. */

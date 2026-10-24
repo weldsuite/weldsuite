@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EN_LOCALE } from '@weldsuite/sheets-engine';
 import { parseDataRange } from './charts';
-import { createPivotTable, fieldValues, parseTargetCell, pivotFields, savePivot, suggestedLayout } from './pivots';
+import { createPivotTable, fieldValues, MAX_FILTER_VALUES, parseTargetCell, pivotFields, savePivot, suggestedLayout } from './pivots';
 import { cellSelection } from './selection';
 import { SheetController } from './sheet-controller';
 
@@ -116,8 +116,18 @@ describe('pivot table commands', () => {
     const ctl = make();
     const source = parseDataRange(ctl, 'A1:C6')!;
     expect(pivotFields(ctl, source)).toEqual(['Region', 'Product', 'Amount']);
-    expect(fieldValues(ctl, source, 'region')).toEqual(['', 'North', 'South']);
-    expect(fieldValues(ctl, source, 'Colour')).toEqual([]);
+    expect(fieldValues(ctl, source, 'region')).toEqual({ values: ['', 'North', 'South'], complete: true });
+    expect(fieldValues(ctl, source, 'Colour')).toEqual({ values: [], complete: true });
+  });
+
+  it('says when a field has more values than a filter lists', () => {
+    const ctl = new SheetController(null, { locale: EN_LOCALE, formulaLocale: { decimal: '.' } });
+    ctl.setInput(0, 0, 'Id');
+    for (let r = 1; r <= MAX_FILTER_VALUES + 1; r++) ctl.setInput(r, 0, `id${r}`);
+    const ids = fieldValues(ctl, parseDataRange(ctl, `A1:A${MAX_FILTER_VALUES + 2}`)!, 'Id');
+    expect(ids.complete).toBe(false);
+    expect(ids.values).toHaveLength(MAX_FILTER_VALUES);
+    expect(fieldValues(ctl, parseDataRange(ctl, `A1:A${MAX_FILTER_VALUES + 1}`)!, 'Id')).toMatchObject({ complete: true });
   });
 
   it('says what stops it', () => {

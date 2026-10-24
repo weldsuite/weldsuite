@@ -160,7 +160,8 @@ export class SheetController {
 
   /** Rule results for the current version (the renderer asks per visible cell). */
   private ruleMemo: { version: number; formats: FormatCache; styles: Map<number, ConditionalStyle | undefined> } | null = null;
-  private chartMemo: { version: number; data: Map<string, ChartData> } | null = null;
+  /** Per sheet: chart ids are only unique within one (an imported file numbers them per sheet). */
+  private chartMemo: { version: number; sheetId: string; data: Map<string, ChartData> } | null = null;
   private pivotMemo: { version: number; sheetId: string; tables: PivotOutput[] } | null = null;
 
   openPanel(panel: SidePanel): void {
@@ -182,11 +183,15 @@ export class SheetController {
 
   /** What a chart on the active sheet shows now (the renderer asks on every draw). */
   chartData(chart: Chart): ChartData {
-    if (this.chartMemo?.version !== this.contentVersion) this.chartMemo = { version: this.contentVersion, data: new Map() };
-    let data = this.chartMemo.data.get(chart.id);
+    let memo = this.chartMemo;
+    if (memo?.version !== this.contentVersion || memo.sheetId !== this.activeSheetId) {
+      memo = { version: this.contentVersion, sheetId: this.activeSheetId, data: new Map() };
+      this.chartMemo = memo;
+    }
+    let data = memo.data.get(chart.id);
     if (!data) {
       data = chartData(this.engine, this.activeSheetId, chart);
-      this.chartMemo.data.set(chart.id, data);
+      memo.data.set(chart.id, data);
     }
     return data;
   }

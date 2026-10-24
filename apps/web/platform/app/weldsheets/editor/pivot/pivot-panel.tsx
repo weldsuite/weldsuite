@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useI18n } from '@/lib/i18n/provider';
 import { parseDataRange, rangeLabel } from '../model/charts';
-import { fieldValues, pivotFields, savePivot } from '../model/pivots';
+import { fieldValues, MAX_FILTER_VALUES, pivotFields, savePivot, type FieldValues } from '../model/pivots';
 import type { SheetController } from '../model/sheet-controller';
 import { CommitInput, Field } from '../rules/fields';
 import { RulePanel } from '../rules/panel';
@@ -26,7 +26,7 @@ export function PivotPanel({ controller }: { controller: SheetController }) {
 }
 
 function PivotForm({ controller, table }: { controller: SheetController; table: PivotTable }) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const tp = t.weldsheets.pivot;
   const spec = table.spec;
   const fields = table.source ? pivotFields(controller, table.source) : [];
@@ -39,6 +39,17 @@ function PivotForm({ controller, table }: { controller: SheetController; table: 
       return;
     }
     save({ source: refText(controller.engine, at) });
+  };
+
+  /** A new filter shows every value; a field with more values than a filter lists is refused, not cut short. */
+  const addFilter = (field: string) => {
+    if (!table.source) return;
+    const { values, complete } = fieldValues(controller, table.source, field);
+    if (!complete) {
+      toast.error(format(tp.tooManyValues, { max: MAX_FILTER_VALUES }));
+      return;
+    }
+    save({ filters: [...spec.filters, { field, values }] });
   };
 
   const groups = (key: 'rows' | 'columns', label: string) => {
@@ -88,13 +99,13 @@ function PivotForm({ controller, table }: { controller: SheetController; table: 
         label={tp.filters}
         fields={fields.filter((f) => !spec.filters.some((x) => x.field.toLowerCase() === f.toLowerCase()))}
         addLabel={tp.add}
-        onAdd={(field) => table.source && save({ filters: [...spec.filters, { field, values: fieldValues(controller, table.source, field) }] })}
+        onAdd={addFilter}
       >
         {spec.filters.map((f, i) => (
           <FieldRow key={f.field} field={f.field} removeLabel={tp.remove} onRemove={() => save({ filters: spec.filters.filter((_, j) => j !== i) })}>
             {table.source && (
               <FilterValues
-                all={fieldValues(controller, table.source, f.field)}
+                field={fieldValues(controller, table.source, f.field)}
                 shown={f.values}
                 onChange={(values) => save({ filters: spec.filters.map((x, j) => (j === i ? { ...x, values } : x)) })}
               />
@@ -180,30 +191,37 @@ function GroupRow({ group, onChange, onRemove }: { group: PivotGroup; onChange: 
   );
 }
 
-/** Which values of a filter field show: a checklist in a popover. */
-function FilterValues({ all, shown, onChange }: { all: string[]; shown: string[]; onChange: (values: string[]) => void }) {
+/**
+ * Which values of a filter field show: a checklist in a popover. The list may
+ * hold only the first values of a field (a filter typed into the formula), so
+ * changes keep whatever else the filter shows.
+ */
+function FilterValues({ field, shown, onChange }: { field: FieldValues; shown: string[]; onChange: (values: string[]) => void }) {
   const { t, format } = useI18n();
   const tp = t.weldsheets.pivot;
   const [open, setOpen] = useState(false);
+  const all = field.values;
   const isShown = (v: string) => shown.some((s) => s.toLowerCase() === v.toLowerCase());
   const count = all.filter(isShown).length;
   const toggle = (v: string, on: boolean) => onChange(on ? [...shown, v] : shown.filter((s) => s.toLowerCase() !== v.toLowerCase()));
+  const label = field.complete && count === all.length ? tp.allShown : format(tp.someShown, { count, total: field.complete ? all.length : `${all.length}+` });
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" className="rounded border bg-background px-1.5 py-0.5 text-xs hover:bg-accent">
-          {count === all.length ? tp.allShown : format(tp.someShown, { count, total: all.length })}
+          {label}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-56 p-2" align="end">
         <div className="mb-2 flex gap-2 text-xs">
-          <button type="button" className="text-primary hover:underline" onClick={() => onChange(all)}>
+          <button type="button" className="text-primary hover:underline" onClick={() => onChange([...shown, ...all.filter((v) => !isShown(v))])}>
             {tp.selectAll}
           </button>
           <button type="button" className="text-primary hover:underline" onClick={() => onChange([])}>
             {tp.clear}
           </button>
         </div>
+        {!field.complete && <p className="mb-2 text-xs text-muted-foreground">{format(tp.partialList, { max: MAX_FILTER_VALUES })}</p>}
         <ul className="flex max-h-60 flex-col gap-1 overflow-y-auto">
           {all.map((v) => (
             <li key={v}>
