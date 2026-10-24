@@ -32,6 +32,8 @@ export type {
   MoneybirdListOptions,
   MoneybirdDocumentAttachmentKind,
   MoneybirdBinaryDownload,
+  MoneybirdLedgerAccount,
+  MoneybirdTaxRate,
 } from './moneybird/client';
 export {
   MONEYBIRD_API_BASE,
@@ -48,6 +50,34 @@ export {
   revokeMoneybirdToken,
 } from './moneybird/auth';
 export type { MoneybirdAdministration, MoneybirdOAuthTokens } from './moneybird/auth';
+export {
+  StripeClient,
+  createStripeClient,
+  stripeAmountToDecimal,
+  stripeBalanceAccountId,
+  stripeMinorUnits,
+  STRIPE_API_BASE,
+  STRIPE_API_VERSION,
+  STRIPE_INVOICE_EVENT_TYPES,
+  STRIPE_PAYOUT_EVENT_TYPES,
+} from './stripe/client';
+export type { StripeAuthMode, StripeCredentials } from './stripe/client';
+export {
+  STRIPE_AUTH_STATE_TTL_SECONDS,
+  STRIPE_CALLBACK_PATH,
+  STRIPE_CONNECT_AUTHORIZE_URL,
+  STRIPE_CONNECT_DEAUTHORIZE_URL,
+  STRIPE_CONNECT_SCOPE,
+  STRIPE_CONNECT_TOKEN_URL,
+  STRIPE_OAUTH_STATE_PREFIX,
+  buildStripeAuthorizeUrl,
+  deauthorizeStripeAccount,
+  exchangeStripeCode,
+  isStripeOAuthState,
+  newStripeOAuthState,
+  stripeRedirectUri,
+} from './stripe/auth';
+export type { StripeOAuthTokens } from './stripe/auth';
 export {
   PicqerClient,
   createPicqerClient,

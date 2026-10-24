@@ -313,6 +313,46 @@ describe('/api/channels · pglite integration', () => {
     expect(memIds).toContain(privId);
   });
 
+  it('GET / returns the caller\'s read cursor, and POST /:id/read moves it past lastMessageAt', async () => {
+    const earlier = new Date(Date.now() - 60_000);
+    const channelId = generateId('ch');
+    const reader = 'user_ch_read_cursor';
+    const otherReader = 'user_ch_read_cursor_other';
+
+    await db.insert(schema.chatChannels).values({
+      id: channelId, name: 'read-cursor', slug: `read-cursor-${channelId}`, type: 'public',
+      createdAt: earlier, updatedAt: earlier, lastMessageAt: earlier,
+    });
+    await db.insert(schema.chatChannelMembers).values([
+      { id: generateId('cmb'), channelId, userId: reader, role: 'member', createdAt: earlier, joinedAt: earlier, unreadMentionCount: 2 },
+      { id: generateId('cmb'), channelId, userId: otherReader, role: 'member', createdAt: earlier, joinedAt: earlier, lastReadAt: earlier },
+    ]);
+
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: reader, permissions: permissions('channels:read'), tenantDb: db },
+    });
+    type Row = { id: string; lastMessageAt: string | null; lastReadAt: string | null; unreadMentionCount: number };
+    const listRow = async (): Promise<Row | undefined> => {
+      const res = await request('/api/channels?limit=100');
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: Row[] };
+      return body.data.find((r) => r.id === channelId);
+    };
+
+    // Never read: the caller's own cursor (not another member's) comes back.
+    const before = await listRow();
+    expect(before?.lastReadAt).toBeNull();
+    expect(before?.unreadMentionCount).toBe(2);
+
+    const read = await request(`/api/channels/${channelId}/read`, { method: 'POST' });
+    expect(read.status).toBe(200);
+
+    const after = await listRow();
+    expect(after?.lastReadAt).not.toBeNull();
+    expect(new Date(after!.lastReadAt!).getTime()).toBeGreaterThan(new Date(after!.lastMessageAt!).getTime());
+    expect(after?.unreadMentionCount).toBe(0);
+  });
+
   it('DELETE /:id lets a workspace ADMIN delete a public channel they never joined', async () => {
     const now = new Date();
     const wsAdmin = 'user_ws_admin_delete';

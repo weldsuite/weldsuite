@@ -132,17 +132,38 @@ async function channelNameTaken(
   return Boolean(clash);
 }
 
-/** The caller's own `isMuted` flag per channel id (absent row = not muted). */
-async function callerMuteFlags(
+interface CallerChannelState {
+  isMuted: boolean;
+  lastReadAt: Date | null;
+  lastReadMessageId: string | null;
+  unreadMentionCount: number;
+}
+
+const NO_MEMBERSHIP: CallerChannelState = {
+  isMuted: false,
+  lastReadAt: null,
+  lastReadMessageId: null,
+  unreadMentionCount: 0,
+};
+
+/**
+ * The caller's own membership state per channel id: mute flag plus the read
+ * cursor the sidebar compares against `lastMessageAt` to bold unread channels.
+ * An absent row means not muted and never read.
+ */
+async function callerChannelState(
   db: Database,
   userId: string,
   channelIds: string[],
-): Promise<Map<string, boolean>> {
+): Promise<Map<string, CallerChannelState>> {
   if (channelIds.length === 0) return new Map();
   const rows = await db
     .select({
       channelId: schema.chatChannelMembers.channelId,
       isMuted: schema.chatChannelMembers.isMuted,
+      lastReadAt: schema.chatChannelMembers.lastReadAt,
+      lastReadMessageId: schema.chatChannelMembers.lastReadMessageId,
+      unreadMentionCount: schema.chatChannelMembers.unreadMentionCount,
     })
     .from(schema.chatChannelMembers)
     .where(
@@ -151,7 +172,17 @@ async function callerMuteFlags(
         inArray(schema.chatChannelMembers.channelId, channelIds),
       ),
     );
-  return new Map(rows.map((r) => [r.channelId, r.isMuted === true]));
+  return new Map(
+    rows.map((r) => [
+      r.channelId,
+      {
+        isMuted: r.isMuted === true,
+        lastReadAt: r.lastReadAt ?? null,
+        lastReadMessageId: r.lastReadMessageId ?? null,
+        unreadMentionCount: r.unreadMentionCount ?? 0,
+      },
+    ]),
+  );
 }
 
 app.get('/', requirePermission('channels:read'), async (c) => {
@@ -202,8 +233,8 @@ app.get('/', requirePermission('channels:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    const muted = await callerMuteFlags(db, userId, data.map((r) => r.id));
-    const items = data.map((r) => ({ ...r, isMuted: muted.get(r.id) ?? false }));
+    const state = await callerChannelState(db, userId, data.map((r) => r.id));
+    const items = data.map((r) => ({ ...r, ...(state.get(r.id) ?? NO_MEMBERSHIP) }));
     return list(c, items, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/channels] list failed:', err);

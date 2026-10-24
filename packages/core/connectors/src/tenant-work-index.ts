@@ -8,7 +8,15 @@
  */
 import { asText } from '@weldsuite/text';
 
-export type TenantWorkKind = 'webhook_retry' | 'workflow_poll';
+/**
+ * `moneybird_push`: a Moneybird push pass stopped on its request budget or a
+ * rate limit with work left (typically the first import of a year of Stripe
+ * sales). The cron runs another pass until nothing is pending.
+ */
+export type TenantWorkKind = 'webhook_retry' | 'workflow_poll' | 'moneybird_push';
+
+/** Pause between Moneybird push passes; Moneybird allows ~150 requests per 5 minutes. */
+export const MONEYBIRD_PUSH_INTERVAL_MS = 5 * 60_000;
 
 /** Cadence for workspaces that still have real poll/retry work. */
 export const TENANT_WORK_INTERVAL_MS = 10 * 60_000;

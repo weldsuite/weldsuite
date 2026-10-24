@@ -52,6 +52,8 @@ export interface Env {
   CONNECTOR_SYNC_INDEX?: D1Database;
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
+  /** Stripe platform key, for probing OAuth Stripe connections (same value as connect-api's). */
+  STRIPE_SECRET_KEY?: string;
 }
 
 function getMasterDb(env: Env) {

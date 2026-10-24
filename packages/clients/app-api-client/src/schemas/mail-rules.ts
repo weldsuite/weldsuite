@@ -27,6 +27,7 @@ export const mailRuleConditionSchema = z.object({
 export const mailRuleActionType = z.enum([
   'move_to_folder', 'copy_to_folder', 'delete', 'mark_as_read', 'mark_as_unread',
   'star', 'add_label', 'remove_label', 'forward_to', 'auto_reply', 'flag', 'archive',
+  'mark_as_spam',
 ]);
 
 export const mailRuleActionSchema = z.object({

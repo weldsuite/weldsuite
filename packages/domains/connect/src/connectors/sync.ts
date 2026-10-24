@@ -18,12 +18,19 @@ import {
   getConnector,
   MoneybirdClient,
   resolveConnectorObjectDirection,
+  StripeClient,
 } from '@weldsuite/connectors';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
 import { ingestRecords, type IngestCounts } from './ingest';
 import { modifiedAtOf } from './mappers';
-import { createConnectorClient, storeUrlOf } from './clients';
+import {
+  createConnectorClient,
+  skippedFinancialAccountIds,
+  storeUrlOf,
+  withRuntimeCredentials,
+  type ConnectorRuntimeEnv,
+} from './clients';
 import {
   decryptCredentials,
   finishSyncRun,
@@ -36,18 +43,32 @@ import {
   MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET,
   type MoneybirdAttachmentSyncContext,
 } from './moneybird-attachments';
+import { STRIPE_PDF_DOWNLOAD_BUDGET, type StripeInvoicePdfContext } from './stripe-invoice-pdf';
+import { pushAfterStripeIngest } from './moneybird-push';
+import type { ConnectorSyncIndexEnv } from '../connector-sync-index';
 
 /**
  * What the sync runner reads: the credential keyring and the R2 bucket
  * Moneybird attachments are copied into (skipped without it). The env is
  * also handed on to entity-event publishing during ingest.
  */
-export type ConnectorSyncEnv = Pick<DbEnv, 'DATABASE_ENCRYPTION_KEY' | 'DATABASE_ENCRYPTION_KEY_V2'> & {
-  STORAGE?: R2Bucket;
-};
+export type ConnectorSyncEnv = Pick<DbEnv, 'DATABASE_ENCRYPTION_KEY' | 'DATABASE_ENCRYPTION_KEY_V2'> &
+  ConnectorRuntimeEnv &
+  ConnectorSyncIndexEnv & {
+    STORAGE?: R2Bucket;
+  };
 
 const MAX_PAGES = 10;
 const PER_PAGE = 100;
+
+function stripeInvoicePdfContext(
+  env: ConnectorSyncEnv,
+  client: ReturnType<typeof createConnectorClient>,
+  workspaceId: string,
+): StripeInvoicePdfContext | null {
+  if (!(client instanceof StripeClient) || !env.STORAGE) return null;
+  return { client, storage: env.STORAGE, workspaceId, budget: { remaining: STRIPE_PDF_DOWNLOAD_BUDGET } };
+}
 
 function moneybirdAttachmentContext(
   env: ConnectorSyncEnv,
@@ -111,20 +132,22 @@ type SyncConnector = NonNullable<ReturnType<typeof getConnector>>;
 type SyncDefinition = SyncConnector['syncs'][number];
 type SyncClient = ReturnType<typeof createConnectorClient>;
 
-/** Setting keys / sync names to run, plus the bank-account dependency for Moneybird. */
+/** Setting keys / sync names to run, plus the bank-account dependency of bank transactions. */
 function requestedSyncKeys(connector: SyncConnector, args: SyncConnectionArgs): string[] {
   const requested = args.syncs?.length
     ? [...args.syncs]
     : [...(args.connection.enabledSyncs ?? [])];
-  // Mutations need account mappings. If transactions are enabled but accounts are not,
+  const syncNamesFor = (entity: string) =>
+    connector.syncs.filter((sync) => sync.internalEntity === entity).map((sync) => sync.syncName);
+  // Transactions need account mappings. If transactions are enabled but accounts are not,
   // still pull accounts first so statement lines can attach to a bank account.
   const wantsBankTx = requested.some(
-    (key) => key === 'bankTransactions' || key === 'moneybird-financial-mutations',
+    (key) => key === 'bankTransactions' || syncNamesFor('bank_transaction').includes(key),
   );
   const hasBankAccounts = requested.some(
-    (key) => key === 'bankAccounts' || key === 'moneybird-financial-accounts',
+    (key) => key === 'bankAccounts' || syncNamesFor('bank_account').includes(key),
   );
-  if (wantsBankTx && !hasBankAccounts && connector.provider === 'moneybird') {
+  if (wantsBankTx && !hasBankAccounts && syncNamesFor('bank_account').length > 0) {
     return ['bankAccounts', ...requested];
   }
   return requested;
@@ -145,6 +168,7 @@ interface SyncPullContext {
   client: SyncClient;
   credentials: Record<string, string>;
   moneybirdAttachments: MoneybirdAttachmentSyncContext | null;
+  stripeInvoicePdfs: StripeInvoicePdfContext | null;
   sync: SyncDefinition;
 }
 
@@ -165,7 +189,7 @@ async function pullPages(
   state: SyncPullState,
   modifiedAfter: string | undefined,
 ): Promise<void> {
-  const { args, client, credentials, moneybirdAttachments, sync } = ctx;
+  const { args, client, credentials, moneybirdAttachments, stripeInvoicePdfs, sync } = ctx;
   while (state.pagesFetched < MAX_PAGES) {
     const result = await client.listSync(sync, {
       page: state.page,
@@ -192,6 +216,8 @@ async function pullPages(
       entityId: credentials.entityId?.trim() || null,
       env: args.env as unknown as Record<string, unknown>,
       moneybirdAttachments,
+      stripeInvoicePdfs,
+      skipFinancialAccountIds: skippedFinancialAccountIds(args.connection),
     });
     Object.assign(state.applied, addCounts(state.applied, ingested));
     state.errorSamples.push(...ingested.errorSamples.slice(0, 5 - state.errorSamples.length));
@@ -330,7 +356,11 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
   if (syncs.length === 0) return { triggered: [] };
 
   const keyring = keyringFromEnv(args.env);
-  const credentials = await decryptCredentials(args.connection.credentials ?? undefined, keyring);
+  const credentials = withRuntimeCredentials(
+    args.connection,
+    await decryptCredentials(args.connection.credentials ?? undefined, keyring),
+    args.env,
+  );
   const client = createConnectorClient(
     args.connection.provider,
     credentials,
@@ -344,8 +374,18 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
     attachmentBudget,
   );
 
+  const stripeInvoicePdfs = stripeInvoicePdfContext(args.env, client, args.workspaceId);
+
   for (const sync of syncs) {
-    await runSingleSync({ args, client, credentials, moneybirdAttachments, sync });
+    await runSingleSync({ args, client, credentials, moneybirdAttachments, stripeInvoicePdfs, sync });
+  }
+
+  if (args.connection.provider === 'stripe') {
+    await pushAfterStripeIngest({
+      db: args.db,
+      env: args.env,
+      stripeConnectionId: args.connection.id,
+    });
   }
 
   return { triggered: syncs.map((s) => s.syncName) };
