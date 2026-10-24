@@ -137,6 +137,16 @@
         "dev"
       ],
       "port": 3203
+    },
+    {
+      "name": "weldhr-app-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "weldhr-app",
+        "web"
+      ],
+      "port": 3202
     }
   ]
 }
