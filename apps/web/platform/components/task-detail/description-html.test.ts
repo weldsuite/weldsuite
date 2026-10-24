@@ -90,7 +90,7 @@ describe('descriptionToHtml', () => {
   });
 
   it('renders a markdown link and drops a javascript: one', () => {
-    const el = parse(descriptionToHtml('[report.pdf](https://files.weldsuite.org/r.pdf) [x](javascript:alert(1))'));
+    const el = parse(descriptionToHtml('[report.pdf](https://files.weldsuite.org/r.pdf) [x](javascript:alert`1`)'));
     const [file, bad] = Array.from(el.querySelectorAll('a'));
     expect(file?.getAttribute('href')).toBe('https://files.weldsuite.org/r.pdf');
     expect(file?.getAttribute('target')).toBe('_blank');
