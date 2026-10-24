@@ -427,8 +427,7 @@ function propsOf(root: XmlElement, ctx: SheetContext): SheetProps {
   return props;
 }
 
-/** Parts of the sheet WeldSheets leaves out, for the warnings. */
+/** Parts of the sheet WeldSheets leaves out, for the warnings (its drawings are read with the package). */
 function noteParts(root: XmlElement, ctx: SheetContext): void {
-  if (child(root, 'drawing')) ctx.warnings.add('drawings');
   if (child(root, 'tableParts')) ctx.warnings.add('tables');
 }

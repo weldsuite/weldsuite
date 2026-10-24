@@ -90,3 +90,10 @@ export { ImportError } from './files/types';
 export type { ImportErrorCode, ImportResult, ImportWarning, ReadOptions, ReadXlsxOptions } from './files/types';
 export { ZipError, openZip, writeZip } from './files/zip';
 export type { ZipErrorCode, ZipFile, ZipLimits, ZipReader } from './files/zip';
+
+export { CHART_PALETTE, CHART_TYPES, MAX_CHART_SERIES, MAX_CHART_SIZE, MIN_CHART_SIZE, anchorAfter, cloneChart, mapChartFormulas } from './model/charts';
+export type { Chart, ChartAnchor, ChartSeries, ChartType } from './model/charts';
+export { chartData, chartSourceOf, guessChartSource, resolveRef, seriesFromRange } from './charts/data';
+export type { ChartData, ChartSource, RangeAt, SeriesData } from './charts/data';
+export { PIVOT_FUNCTIONS, computePivot, isPivotFormula, parsePivotFormula, pivotFormula, valueLabel } from './pivot/pivot';
+export type { PivotFilter, PivotFunction, PivotGroup, PivotLayoutSpec, PivotResult, PivotSpec, PivotValue } from './pivot/pivot';
