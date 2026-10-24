@@ -30,6 +30,7 @@ on:
       - 'apps/web/hr-portal/**'
       - 'apps/web/meeting-portal/**'
       - 'apps/web/partner/**'
+      - 'apps/web/sign-portal/**'
       - 'apps/workers/**'
       - 'apps/mobile/**'
       - 'apps/tools/migrate-databases/**'
