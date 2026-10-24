@@ -63,8 +63,18 @@ export function descriptionToHtml(input: string): string {
   // never the markup as written: it goes through the allowlist first.
   if (/<[a-z][^>]*>/i.test(input)) return sanitizeDescriptionHtml(input);
   // Otherwise treat it as markdown — convert the inline markers we support.
+  // Images and links first (the task dialog stores pasted images as
+  // `![name](url)`): they are lifted out behind placeholders so the emphasis
+  // rules below never touch a `*` or `~` inside a URL, and go back in escaped.
+  const embeds: string[] = [];
+  const stash = (html: string) => `\u0000${embeds.push(html) - 1}\u0000`;
   // Order matters: bold (**) before italic (*) so greedy matches don't swallow pairs.
   let html = input
+    .replace(/\u0000/g, '')
+    .replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (_, alt: string, src: string) =>
+      stash(`<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`))
+    .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, label: string, href: string) =>
+      stash(`<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`))
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -74,5 +84,8 @@ export function descriptionToHtml(input: string): string {
     .replace(/`([^`\n]+)`/g, '<code>$1</code>');
   // Preserve newlines as <br>
   html = html.replace(/\n/g, '<br>');
-  return html;
+  if (embeds.length === 0) return html;
+  // A markdown URL is as untrusted as an HTML one (`javascript:` and the like).
+  html = html.replace(/\u0000(\d+)\u0000/g, (_, i: string) => embeds[Number(i)] ?? '');
+  return sanitizeDescriptionHtml(html);
 }
