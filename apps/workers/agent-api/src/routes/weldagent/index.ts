@@ -350,6 +350,26 @@ function validTimezone(value: string | undefined): string | null {
   }
 }
 
+/** Turn failures the response already reports (no log noise from the waitUntil copy). */
+function isExpectedTurnError(err: unknown): boolean {
+  return (
+    err instanceof ConversationNotFoundError ||
+    err instanceof AgentAccessDeniedError ||
+    err instanceof InsufficientAiCreditsError
+  );
+}
+
+/** The response for a missing conversation or an agent the caller lost access to. */
+function expectedTurnErrorResponse(
+  c: Parameters<typeof error.notFound>[0],
+  err: unknown,
+  conversationId: string,
+): Response | null {
+  if (err instanceof ConversationNotFoundError) return error.notFound(c, 'Conversation', conversationId);
+  if (err instanceof AgentAccessDeniedError) return error.forbidden(c, 'You no longer have access to this agent');
+  return null;
+}
+
 app.post(
   '/conversations/:conversationId/complete-turn',
   requirePermission('agents:read', 'weldagent:use'),
@@ -384,13 +404,7 @@ app.post(
 
         c.executionCtx.waitUntil(
           work.catch((err) => {
-            if (
-              err instanceof ConversationNotFoundError ||
-              err instanceof AgentAccessDeniedError ||
-              err instanceof InsufficientAiCreditsError
-            ) {
-              return;
-            }
+            if (isExpectedTurnError(err)) return;
             console.error('[app-api/weldagent] complete-turn waitUntil failed:', err);
           }),
         );
@@ -428,12 +442,8 @@ app.post(
         assistantMessage: null,
       });
     } catch (err) {
-      if (err instanceof ConversationNotFoundError) {
-        return error.notFound(c, 'Conversation', conversationId);
-      }
-      if (err instanceof AgentAccessDeniedError) {
-        return error.forbidden(c, 'You no longer have access to this agent');
-      }
+      const expected = expectedTurnErrorResponse(c, err, conversationId);
+      if (expected) return expected;
       if (err instanceof InsufficientAiCreditsError) {
         return error.insufficientCredits(c, {
           currentBalance: err.currentBalance,

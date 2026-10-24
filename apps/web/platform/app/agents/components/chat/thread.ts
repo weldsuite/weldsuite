@@ -111,19 +111,25 @@ export function readDelegations(raw: unknown): ThreadDelegation[] {
   if (!Array.isArray(raw)) return [];
   const delegations: ThreadDelegation[] = [];
   for (const inv of raw as Invocation[]) {
-    if (!inv || typeof inv !== 'object' || inv.toolName !== DELEGATION_TOOL_NAME) continue;
-    const args = (inv.args ?? {}) as { agent?: unknown; task?: unknown };
-    const agent = typeof args.agent === 'string' ? args.agent : '';
-    if (inv.state === 'call') {
-      delegations.push({ agent, task: typeof args.task === 'string' ? args.task : '', report: null });
-      continue;
-    }
-    const report = typeof inv.result === 'string' ? inv.result : '';
-    const open = delegations.find((d) => d.agent === agent && d.report === null);
-    if (open) open.report = report;
-    else delegations.push({ agent, task: '', report });
+    if (inv?.toolName === DELEGATION_TOOL_NAME) addDelegationStep(delegations, inv);
   }
   return delegations;
+}
+
+const text = (value: unknown) => (typeof value === 'string' ? value : '');
+
+/** A hand-off opens a step; a report closes the oldest open step for that agent. */
+function addDelegationStep(delegations: ThreadDelegation[], inv: Invocation): void {
+  const args = (inv.args ?? {}) as { agent?: unknown; task?: unknown };
+  const agent = text(args.agent);
+  if (inv.state === 'call') {
+    delegations.push({ agent, task: text(args.task), report: null });
+    return;
+  }
+  const report = text(inv.result);
+  const open = delegations.find((d) => d.agent === agent && d.report === null);
+  if (open) open.report = report;
+  else delegations.push({ agent, task: '', report });
 }
 
 function routineNameOf(metadata: Record<string, unknown> | null | undefined): string | null {
