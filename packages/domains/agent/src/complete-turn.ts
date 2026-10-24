@@ -110,21 +110,32 @@ export class AgentAccessDeniedError extends Error {
 export const HISTORY_WINDOW = 80;
 
 /**
+ * SQL condition: the message sorts after (`>`) or at-or-before (`<=`) the
+ * message `anchorId`, in (created_at, id) order. The anchor's timestamp is
+ * read inside SQL: Postgres keeps microseconds, a JS Date only milliseconds,
+ * so passing a Date back in would put the anchor itself on the wrong side.
+ */
+export function relativeToMessage(op: '>' | '<=' | '<', anchorId: string) {
+  const { weldagentMessages: m } = schema;
+  return sql`(${m.createdAt}, ${m.id}) ${sql.raw(op)} (select "created_at", "id" from ${m} where "id" = ${anchorId})`;
+}
+
+/**
  * The latest {@link HISTORY_WINDOW} model-history rows (user + assistant) of a
- * conversation, oldest first, optionally only up to and including `through`;
- * plus how many older ones precede them.
+ * conversation, oldest first, optionally only up to and including the message
+ * `throughId`; plus how many older ones precede them.
  */
 async function loadRecentHistory(
   db: AgentDb,
   conversationId: string,
-  through?: { createdAt: Date; id: string },
+  throughId?: string,
 ): Promise<{ rows: MessageRow[]; offset: number }> {
   const { weldagentMessages: m } = schema;
   const where = and(
     eq(m.conversationId, conversationId),
     isNull(m.deletedAt),
     inArray(m.role, ['user', 'assistant']),
-    through ? sql`(${m.createdAt}, ${m.id}) <= (${through.createdAt}, ${through.id})` : undefined,
+    throughId ? relativeToMessage('<=', throughId) : undefined,
   );
   const [latest, [{ total }]] = await Promise.all([
     db.select().from(m).where(where).orderBy(desc(m.createdAt), desc(m.id)).limit(HISTORY_WINDOW),
@@ -472,12 +483,12 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
         eq(weldagentMessages.conversationId, ref.conversationId),
         isNull(weldagentMessages.deletedAt),
         eq(weldagentMessages.role, 'assistant'),
-        sql`(${weldagentMessages.createdAt}, ${weldagentMessages.id}) > (${userRow.createdAt}, ${userRow.id})`,
+        relativeToMessage('>', userRow.id),
       ),
     );
   if (later.some(isTurnReply)) return null;
 
-  const history = await loadRecentHistory(db, ref.conversationId, userRow);
+  const history = await loadRecentHistory(db, ref.conversationId, userRow.id);
 
   return {
     conversationId: ref.conversationId,

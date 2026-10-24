@@ -1065,7 +1065,7 @@ export const common = {
         routineNotice: {
           scheduled: '"{name}" ingepland',
           next: 'Volgende keer: {time}',
-          delivery: 'Elke uitvoering zet het resultaat in een eigen chat voor je, met een melding.',
+          delivery: 'Elke uitvoering zet het resultaat hier in je chat, met een melding.',
           manage: 'Beheren',
           postedBy: 'Van routine "{name}"',
           postedByRoutine: 'Van een routine',

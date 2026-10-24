@@ -35,6 +35,7 @@ import {
   toAcceptedTurnRef,
   AgentAccessDeniedError,
   ConversationNotFoundError,
+  relativeToMessage,
 } from '@weldsuite/agent-domain/complete-turn';
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import { findAccessibleAgentRow } from '@weldsuite/agent-domain/access';
@@ -224,7 +225,7 @@ app.get('/conversations/:conversationId/messages', async (c) => {
     const before = c.req.query('before');
     if (before) {
       const [anchor] = await db
-        .select({ createdAt: weldagentMessages.createdAt, id: weldagentMessages.id })
+        .select({ id: weldagentMessages.id })
         .from(weldagentMessages)
         .where(and(eq(weldagentMessages.id, before), eq(weldagentMessages.conversationId, conversationId)))
         .limit(1);
@@ -232,12 +233,7 @@ app.get('/conversations/:conversationId/messages', async (c) => {
       const older = await db
         .select()
         .from(weldagentMessages)
-        .where(
-          and(
-            where,
-            sql`(${weldagentMessages.createdAt}, ${weldagentMessages.id}) < (${anchor.createdAt}, ${anchor.id})`,
-          ),
-        )
+        .where(and(where, relativeToMessage('<', anchor.id)))
         .orderBy(desc(weldagentMessages.createdAt), desc(weldagentMessages.id))
         .limit(limit);
       return success(c, older.reverse());
