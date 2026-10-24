@@ -6,7 +6,7 @@
  * AssignmentRouter (ADR DESK-005).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Search } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
@@ -58,10 +58,19 @@ export default function DeskAssignmentSettingsPage() {
     { label: ta.title },
   ]);
 
+  // The query also changes when the away switch saves or a refetch lands;
+  // only take the server's rules into the form while it has no unsaved edits.
+  const seeded = useRef<DeskAssignmentUpdate | null>(null);
   useEffect(() => {
-    if (settings) {
-      setDraft({ mode: settings.mode, memberIds: settings.memberIds, maxOpenPerMember: settings.maxOpenPerMember });
-    }
+    if (!settings) return;
+    const next: DeskAssignmentUpdate = {
+      mode: settings.mode,
+      memberIds: settings.memberIds,
+      maxOpenPerMember: settings.maxOpenPerMember,
+    };
+    const previous = seeded.current;
+    setDraft((current) => (!current || !previous || sameRules(current, previous) ? next : current));
+    seeded.current = next;
   }, [settings]);
 
   const visibleMembers = useMemo(() => {
