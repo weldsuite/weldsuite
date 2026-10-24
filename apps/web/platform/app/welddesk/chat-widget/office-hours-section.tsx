@@ -38,7 +38,7 @@ export function browserTimeZone(): string {
 export function invalidOfficeHoursDay(officeHours: DeskOfficeHours): DeskWeekday | null {
   return WEEKDAYS.find((day) => {
     const window = officeHours.days[day];
-    return window ? !(window.end > window.start) : false;
+    return window ? window.end <= window.start : false;
   }) ?? null;
 }
 
@@ -112,7 +112,7 @@ export function OfficeHoursSection({
           <div className="divide-y rounded-lg border">
             {WEEKDAYS.map((day) => {
               const window = officeHours.days[day] ?? null;
-              const invalid = window ? !(window.end > window.start) : false;
+              const invalid = window ? window.end <= window.start : false;
               return (
                 <div key={day} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
                   <Switch

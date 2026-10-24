@@ -9,6 +9,7 @@
  */
 
 import type { DeskMessageAttachment } from '@weldsuite/db/schema/desk-messages';
+import { trimTrailingSlashes } from '@weldsuite/text';
 import type { Env } from '../index';
 
 export const MAX_MESSAGE_ATTACHMENTS = 10;
@@ -18,8 +19,8 @@ const OBJECT_NAME_PATTERN = /^\d+_att_[a-z0-9]+_[A-Za-z0-9._-]*$/;
 
 /** Public bucket origin without a trailing slash, or null when it is not configured. */
 export function publicStorageBase(env: Pick<Env, 'R2_PUBLIC_URL'>): string | null {
-  const base = env.R2_PUBLIC_URL?.trim().replace(/\/+$/, '');
-  return base ? base : null;
+  const base = trimTrailingSlashes(env.R2_PUBLIC_URL?.trim() ?? '');
+  return base || null;
 }
 
 /** Public URL of an uploaded object, or null when the public bucket URL is not configured. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asText, logSafe, stripTags, tagsToSpaces } from './index';
+import { asText, logSafe, stripTags, tagsToSpaces, trimTrailingSlashes } from './index';
 
 describe('asText', () => {
   it('matches String() for primitives, dates and nullish values', () => {
@@ -89,5 +89,14 @@ describe('tagsToSpaces', () => {
   it('keeps an unclosed `<` and the rest of the text', () => {
     const input = `hi ${'<'.repeat(50_000)}`;
     expect(tagsToSpaces(input)).toBe(input);
+  });
+});
+
+describe('trimTrailingSlashes', () => {
+  it('drops every trailing slash and nothing else', () => {
+    expect(trimTrailingSlashes('https://files.example.org///')).toBe('https://files.example.org');
+    expect(trimTrailingSlashes('https://files.example.org/a/b')).toBe('https://files.example.org/a/b');
+    expect(trimTrailingSlashes('///')).toBe('');
+    expect(trimTrailingSlashes('')).toBe('');
   });
 });

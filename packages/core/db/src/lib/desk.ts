@@ -487,7 +487,9 @@ export interface ListDeskConversationsQuery {
 
 /** `%term%` for ILIKE, with the user's own `%`, `_` and `\` taken literally. */
 function likePattern(term: string): string {
-  return `%${term.replaceAll(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  // `$&` is the matched character, so each one gets a backslash in front.
+  const escaped = term.replaceAll(/[\\%_]/g, '\\$&');
+  return `%${escaped}%`;
 }
 
 /**

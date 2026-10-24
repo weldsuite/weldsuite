@@ -23,6 +23,7 @@
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/text": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.13",
     "nanoid": "^5.1.16",

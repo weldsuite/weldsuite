@@ -20,6 +20,7 @@ import {
   normalizeEmailSubject,
   type DeskConversation,
 } from '@weldsuite/db/lib/desk';
+import { trimTrailingSlashes } from '@weldsuite/text';
 import { tenantSchema, type TenantDatabase } from '../db';
 import type { Env } from '../index';
 import type { ParsedAttachment, ParsedEmail } from './email-storage';
@@ -95,7 +96,7 @@ export async function storeDeskAttachments(
   attachments: ParsedAttachment[] | undefined,
   htmlBody?: string | null,
 ): Promise<DeskEmailAttachment[]> {
-  const publicUrl = env.R2_PUBLIC_URL?.replace(/\/+$/, '');
+  const publicUrl = env.R2_PUBLIC_URL ? trimTrailingSlashes(env.R2_PUBLIC_URL) : '';
   if (!env.STORAGE || !publicUrl) return [];
 
   const stored: DeskEmailAttachment[] = [];

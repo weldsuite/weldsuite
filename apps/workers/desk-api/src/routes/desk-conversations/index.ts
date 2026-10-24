@@ -32,6 +32,7 @@ import {
 } from '@weldsuite/db/lib/desk';
 import * as schema from '@weldsuite/db/schema';
 import { eq } from 'drizzle-orm';
+import { trimTrailingSlashes } from '@weldsuite/text';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -175,7 +176,7 @@ const UPLOADED_NAME = /^\d+_att_[A-Za-z0-9]+_[A-Za-z0-9._-]+$/;
 function attachmentLocation(env: Env, workspaceId: string, conversationId: string) {
   if (!env.R2_PUBLIC_URL) return null;
   const keyPrefix = `desk/${workspaceId}/${conversationId}/`;
-  return { keyPrefix, urlPrefix: `${env.R2_PUBLIC_URL.replace(/\/+$/, '')}/${keyPrefix}` };
+  return { keyPrefix, urlPrefix: `${trimTrailingSlashes(env.R2_PUBLIC_URL)}/${keyPrefix}` };
 }
 
 app.post('/:id/attachments', requirePermission('conversations:update'), async (c) => {

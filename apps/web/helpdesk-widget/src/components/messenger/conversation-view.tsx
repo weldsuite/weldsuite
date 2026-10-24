@@ -46,6 +46,33 @@ function eventText(message: ThreadMessage, rating: number | null): string {
   return message.body || '';
 }
 
+/** A state change in the thread as one grey line; nothing when there is nothing to say. */
+function EventLine({ message, rating }: Readonly<{ message: ThreadMessage; rating: number | null }>) {
+  const text = eventText(message, rating);
+  return text ? <p className="px-6 py-2 text-center text-xs text-gray-400">{text}</p> : null;
+}
+
+/** Under a visitor's bubble: retry when the send failed, else "Sending…" or the time on the group's last one. */
+function DeliveryStatus({
+  message,
+  lastInGroup,
+  onRetry,
+}: Readonly<{ message: ThreadMessage; lastInGroup: boolean; onRetry: () => void }>) {
+  if (message.status === 'failed') {
+    return (
+      <button type="button" onClick={onRetry} className="mt-1 text-[11px] text-red-500 hover:underline">
+        Not sent · Tap to retry
+      </button>
+    );
+  }
+  if (!lastInGroup) return null;
+  return (
+    <span className="mt-1 mx-1 text-[11px] text-gray-400">
+      {message.status === 'sending' ? 'Sending…' : clockTime(message.createdAt)}
+    </span>
+  );
+}
+
 /** A file the visitor picked: uploading, ready to send with the next message, or failed. */
 interface PendingFile {
   key: string;
@@ -76,6 +103,7 @@ export function ConversationView({
   const assignee = conversation?.assignee ?? null;
   const title = assignee?.name ?? config.name ?? 'Support';
   const { away, nextOpenAt } = useAvailability(config);
+  const rating = conversation?.rating ?? null;
   let subtitle = replyTimeText(config) ?? 'The team will reply as soon as they can';
   if (away) subtitle = t.away.title;
   if (agentTyping) subtitle = `${agentTyping} is typing…`;
@@ -248,12 +276,7 @@ export function ConversationView({
 
             {messages.map((message, index) => {
               if (message.kind === 'event') {
-                const text = eventText(message, conversation?.rating ?? null);
-                return text ? (
-                  <p key={message.clientId ?? message.id} className="px-6 py-2 text-center text-xs text-gray-400">
-                    {text}
-                  </p>
-                ) : null;
+                return <EventLine key={message.clientId ?? message.id} message={message} rating={rating} />;
               }
               const mine = message.authorType === 'visitor';
               const prev = messages[index - 1];
@@ -298,21 +321,7 @@ export function ConversationView({
                         />
                       )}
                     </div>
-                    {message.status === 'failed' ? (
-                      <button
-                        type="button"
-                        onClick={() => void retry(message)}
-                        className="mt-1 text-[11px] text-red-500 hover:underline"
-                      >
-                        Not sent · Tap to retry
-                      </button>
-                    ) : (
-                      lastInGroup && (
-                        <span className="mt-1 mx-1 text-[11px] text-gray-400">
-                          {message.status === 'sending' ? 'Sending…' : clockTime(message.createdAt)}
-                        </span>
-                      )
-                    )}
+                    <DeliveryStatus message={message} lastInGroup={lastInGroup} onRetry={() => void retry(message)} />
                   </div>
                 </div>
               );
