@@ -113,7 +113,7 @@ ENVIRONMENT = "development"
 PARTNER_PORTAL_URL = "http://localhost:3203"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -270,6 +270,10 @@ binding = "SHEETS_API"
 service = "weldsuite-sheets-api-dev"
 
 [[services]]
+binding = "SIGN_API"
+service = "weldsuite-sign-api-dev"
+
+[[services]]
 binding = "AGENT_API"
 service = "weldsuite-agent-api-dev"
 
@@ -421,7 +425,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -501,6 +505,10 @@ service = "weldsuite-pass-api-test"
 [[env.test.services]]
 binding = "SHEETS_API"
 service = "weldsuite-sheets-api-test"
+
+[[env.test.services]]
+binding = "SIGN_API"
+service = "weldsuite-sign-api-test"
 
 [[env.test.services]]
 binding = "AGENT_API"
@@ -644,7 +652,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -731,6 +739,10 @@ service = "weldsuite-pass-api"
 [[env.production.services]]
 binding = "SHEETS_API"
 service = "weldsuite-sheets-api"
+
+[[env.production.services]]
+binding = "SIGN_API"
+service = "weldsuite-sign-api"
 
 [[env.production.services]]
 binding = "AGENT_API"

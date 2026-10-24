@@ -9,6 +9,16 @@ import { moveIndexMapper, type Axis } from '../formula/references';
 import type { AxisDims } from '../model/axis';
 import type { Cell } from '../model/cell-store';
 import type { StylePatch } from '../model/styles';
+import {
+  cloneFilter,
+  cloneFormat,
+  cloneValidation,
+  sameRule,
+  sortFormats,
+  type ConditionalFormat,
+  type DataValidation,
+  type SheetFilter,
+} from '../model/rules';
 import { sheetFromJSON, sheetToJSON, type DefinedName, type Sheet, type SheetProps } from '../model/workbook';
 import { nameKey, normalize, type AxisEntry, type CellPatch, type NameKey, type Op } from './types';
 
@@ -43,13 +53,13 @@ function applyInner(engine: Engine, op: Op): Op {
       return setStyles(engine, op);
 
     case 'insertDims':
-      return restoringNames(engine, () => insertDims(engine, op));
+      return restoring(engine, () => insertDims(engine, op));
 
     case 'deleteDims':
-      return restoringNames(engine, () => deleteDims(engine, op.sheetId, op.axis, op.at, op.count));
+      return restoring(engine, () => deleteDims(engine, op.sheetId, op.axis, op.at, op.count));
 
     case 'moveDims':
-      return restoringNames(engine, () => moveDims(engine, op));
+      return restoring(engine, () => moveDims(engine, op));
 
     case 'resizeDims':
       return resizeDims(engine, op);
@@ -58,6 +68,7 @@ function applyInner(engine: Engine, op: Op): Op {
       const axis = axisOf(engine.workbook.requireSheet(op.sheetId), op.axis);
       const changed = op.indices.filter((i) => axis.isHidden(i) !== op.hidden);
       for (const i of changed) axis.setHidden(i, op.hidden);
+      if (changed.length > 0 && op.axis === 'row') engine.visibilityChanged();
       return { type: 'hideDims', sheetId: op.sheetId, axis: op.axis, indices: changed, hidden: !op.hidden };
     }
 
@@ -71,6 +82,7 @@ function applyInner(engine: Engine, op: Op): Op {
       const sheet = engine.workbook.requireSheet(op.sheetId);
       const snapshot = sheetToJSON(sheet);
       const names = engine.workbook.names.map((n) => ({ ...n }));
+      const rules = captureRules(engine);
       const { index, rewritten } = engine.removeSheet(op.sheetId);
       return {
         type: 'batch',
@@ -78,6 +90,7 @@ function applyInner(engine: Engine, op: Op): Op {
           { type: 'addSheet', sheetId: op.sheetId, name: snapshot.name, index, snapshot },
           ...restoreFormulas(rewritten, null, 'row', (i) => i),
           namesBack(names, engine.workbook.names),
+          ...rulesBack(engine, rules),
         ],
       };
     }
@@ -131,7 +144,102 @@ function applyInner(engine: Engine, op: Op): Op {
 
     case 'patchNames':
       return patchNames(engine, op);
+
+    case 'setFilter':
+    case 'patchConditionalFormats':
+    case 'patchValidations':
+      return applyRuleOp(engine, op);
   }
+}
+
+function applyRuleOp(engine: Engine, op: OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations'>): Op {
+  if (op.type === 'setFilter') {
+    const previous = engine.setFilter(op.sheetId, op.filter);
+    return { type: 'setFilter', sheetId: op.sheetId, filter: previous ? cloneFilter(previous) : null };
+  }
+  const sheet = engine.workbook.requireSheet(op.sheetId);
+  if (op.type === 'patchConditionalFormats') {
+    const { list, back } = patchById(sheet.conditionalFormats, op.set, op.remove, cloneFormat);
+    sheet.conditionalFormats = sortFormats(list);
+    return { type: 'patchConditionalFormats', sheetId: op.sheetId, ...back };
+  }
+  const { list, back } = patchById(sheet.validations, op.set, op.remove, cloneValidation);
+  sheet.validations = list;
+  return { type: 'patchValidations', sheetId: op.sheetId, ...back };
+}
+
+/**
+ * Upserts and removes rules by id (a new id goes last); `back` puts each
+ * touched id back as it was.
+ */
+function patchById<T extends { id: string }>(
+  current: T[],
+  set: T[] | undefined,
+  remove: string[] | undefined,
+  clone: (rule: T) => T,
+): { list: T[]; back: { set: T[]; remove: string[] } } {
+  const list = [...current];
+  const previous = new Map<string, T | null>();
+  const touch = (id: string) => {
+    if (previous.has(id)) return;
+    const existing = list.find((r) => r.id === id);
+    previous.set(id, existing ? clone(existing) : null);
+  };
+  for (const id of remove ?? []) {
+    touch(id);
+    const i = list.findIndex((r) => r.id === id);
+    if (i >= 0) list.splice(i, 1);
+  }
+  for (const rule of set ?? []) {
+    touch(rule.id);
+    const i = list.findIndex((r) => r.id === rule.id);
+    if (i >= 0) list[i] = clone(rule);
+    else list.push(clone(rule));
+  }
+  const back = {
+    set: [...previous.values()].filter((r): r is T => r !== null),
+    remove: [...previous].filter(([, r]) => r === null).map(([id]) => id),
+  };
+  return { list, back };
+}
+
+interface SheetRules {
+  sheetId: string;
+  filter: SheetFilter | null;
+  formats: ConditionalFormat[];
+  validations: DataValidation[];
+}
+
+function captureRules(engine: Engine): SheetRules[] {
+  return engine.workbook.sheets.map((sheet) => ({
+    sheetId: sheet.id,
+    filter: sheet.filter ? cloneFilter(sheet.filter) : null,
+    formats: sheet.conditionalFormats.map(cloneFormat),
+    validations: sheet.validations.map(cloneValidation),
+  }));
+}
+
+/** Ops that put every sheet's filter and rules back to `before`, touching only what differs. */
+function rulesBack(engine: Engine, before: SheetRules[]): Op[] {
+  const ops: Op[] = [];
+  for (const b of before) {
+    const sheet = engine.workbook.getSheet(b.sheetId);
+    if (!sheet) continue;
+    if (!sameRule(b.filter, sheet.filter)) ops.push({ type: 'setFilter', sheetId: b.sheetId, filter: b.filter });
+    const formats = patchBack(b.formats, sheet.conditionalFormats);
+    if (formats) ops.push({ type: 'patchConditionalFormats', sheetId: b.sheetId, ...formats });
+    const validations = patchBack(b.validations, sheet.validations);
+    if (validations) ops.push({ type: 'patchValidations', sheetId: b.sheetId, ...validations });
+  }
+  return ops;
+}
+
+function patchBack<T extends { id: string }>(before: T[], after: T[]): { set: T[]; remove: string[] } | null {
+  const now = new Map(after.map((r) => [r.id, r]));
+  const then = new Set(before.map((r) => r.id));
+  const set = before.filter((r) => !sameRule(now.get(r.id), r));
+  const remove = after.filter((r) => !then.has(r.id)).map((r) => r.id);
+  return set.length || remove.length ? { set, remove } : null;
 }
 
 type OpOf<T extends Op['type']> = Extract<Op, { type: T }>;
@@ -202,10 +310,12 @@ function moveDims(engine: Engine, op: OpOf<'moveDims'>): Op {
  * defined names it rewrote (re-inserting rows cannot restore a reference that
  * became #REF!). Only those names: one defined in the meantime survives undo.
  */
-function restoringNames(engine: Engine, run: () => Op): Op {
-  const before = engine.workbook.names.map((n) => ({ ...n }));
+/** Runs a structural change; its inverse also puts back the names and sheet rules it rewrote or dropped. */
+function restoring(engine: Engine, run: () => Op): Op {
+  const names = engine.workbook.names.map((n) => ({ ...n }));
+  const rules = captureRules(engine);
   const inverse = run();
-  return { type: 'batch', ops: [inverse, namesBack(before, engine.workbook.names)] };
+  return { type: 'batch', ops: [inverse, namesBack(names, engine.workbook.names), ...rulesBack(engine, rules)] };
 }
 
 /** A patch from `after` back to `before`, touching only the names that differ. */

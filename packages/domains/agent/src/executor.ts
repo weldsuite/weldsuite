@@ -150,7 +150,7 @@ const SETUP_INTERVIEW_INSTRUCTIONS =
   'HARD RULES:\n' +
   '- NEVER call save_agent_setup until the user has answered at least one question about routines (when you act).\n' +
   '- NEVER say you are "active", "ready", or "now helping" until save_agent_setup has succeeded.\n' +
-  '- Set activate=true only if the user explicitly asks you to go live / activate; otherwise save as draft (activate=false).\n' +
+  '- Set activate=true only if the user explicitly asks you to go live / activate; otherwise set activate=false and you keep your current status (a new agent stays a draft).\n' +
   '- Do not invent workspace data or claim you already run automations.\n\n' +
   'When purpose and routines are clear, call save_agent_setup with a short display name, lasting systemPrompt, description, ' +
   'and the workspace permissions the job needs (e.g. tasks:read for a task digest, tickets:read and tickets:update for triage). ' +

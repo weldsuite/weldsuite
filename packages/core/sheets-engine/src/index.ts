@@ -39,6 +39,32 @@ export { transform, transformList } from './ops/transform';
 export { NOOP, isNoop, nameKey, normalize } from './ops/types';
 export type { AxisEntry, CellPatch, NameKey, Op, OpType } from './ops/types';
 export { MAX_CELLS_PER_OP, validateOp } from './ops/validate';
+export { compareForSort, sortRangeOp } from './ops/sort';
+export type { SortKey, SortResult } from './ops/sort';
+
+export { sortFormats, valueKey } from './model/rules';
+export type {
+  ColorPoint,
+  Condition,
+  ConditionType,
+  ConditionalFormat,
+  ConditionalRule,
+  ConditionalStyle,
+  DataValidation,
+  FilterColumn,
+  SheetFilter,
+  ValidationCriteria,
+} from './model/rules';
+export {
+  anchorOf,
+  conditionalStyleAt,
+  filteredRows,
+  listOptions,
+  matchesCondition,
+  passesValidation,
+  validationAt,
+} from './rules/evaluate';
+export type { FormatCache, RuleHost } from './rules/evaluate';
 
 export { RoomCore } from './collab/room';
 export type { Outgoing, RoomOptions } from './collab/room';

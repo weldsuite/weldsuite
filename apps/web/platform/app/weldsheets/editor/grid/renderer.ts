@@ -65,6 +65,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, state: RenderState): v
   }
   for (const clip of panes(layout)) {
     withClip(ctx, clip, () => {
+      drawFilterButtons(ctx, state);
       drawRemote(ctx, state, clip);
       drawHighlights(ctx, state);
       drawSelection(ctx, state);
@@ -115,9 +116,12 @@ function drawPane(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segme
   drawBorders(ctx, state, rows, cols);
 }
 
+/** The cell's style with any conditional formatting on top. */
 function cellStyle(state: RenderState, row: number, col: number): CellStyle | undefined {
   const sheet = state.controller.sheet;
-  return state.controller.engine.workbook.style(sheet, row, col);
+  const style = state.controller.engine.workbook.style(sheet, row, col);
+  const conditional = state.controller.conditionalStyle(row, col);
+  return conditional ? { ...style, ...conditional } : style;
 }
 
 function drawFills(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
@@ -200,17 +204,18 @@ function horizontalAlign(style: CellStyle | undefined, value: Scalar): HAlign {
   return 'left';
 }
 
-function drawCellText(ctx: CanvasRenderingContext2D, state: RenderState, row: number, col: number, rect: Rect, merge?: Range): void {
+function drawCellText(ctx: CanvasRenderingContext2D, state: RenderState, row: number, col: number, cell: Rect, merge?: Range): void {
   const editing = state.editing;
   if (editing && editing.row === row && editing.col === col) return;
   const value = state.controller.engine.getValue(state.controller.sheet.id, row, col);
-  if (value === null) return;
+  const rect = drawValidationDecor(ctx, state, row, col, cell, value);
+  if (!rect || value === null) return;
   const style = cellStyle(state, row, col);
   const display = state.controller.displayText(row, col);
   if (!display.text) return;
 
   ctx.font = fontFor(style);
-  ctx.fillStyle = display.color ?? style?.color ?? state.theme.text;
+  ctx.fillStyle = display.color ?? style?.color ?? defaultTextColor(style?.fill, state.theme);
   const align = horizontalAlign(style, value);
   const indent = (style?.indent ?? 0) * 9;
 
@@ -235,6 +240,134 @@ function drawCellText(ctx: CanvasRenderingContext2D, state: RenderState, row: nu
     ctx.fillText(text, x, y);
     decorate(ctx, style, x, y, ctx.measureText(text).width);
   });
+}
+
+/** Text without a colour of its own: dark on a light fill in dark mode, where the theme's text is light. */
+function defaultTextColor(fill: string | undefined, theme: GridTheme): string {
+  const hex = fill && /^#([0-9a-f]{6})$/i.exec(fill)?.[1];
+  if (!theme.dark || !hex) return theme.text;
+  const [r, g, b] = [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+  const luminance = (0.299 * r! + 0.587 * g! + 0.114 * b!) / 255;
+  return luminance > 0.6 ? '#202124' : theme.text;
+}
+
+const CHECKBOX_SIZE = 14;
+const DROPDOWN_WIDTH = 16;
+/** Size of the filter button in a filter's header cells. */
+export const FILTER_BUTTON = 16;
+
+/** Where a cell's checkbox is (centred), for drawing and for clicks. */
+export function checkboxRect(cell: Rect): Rect {
+  return { x: cell.x + (cell.w - CHECKBOX_SIZE) / 2, y: cell.y + (cell.h - CHECKBOX_SIZE) / 2, w: CHECKBOX_SIZE, h: CHECKBOX_SIZE };
+}
+
+/** Where a list cell's dropdown arrow is (right edge), for drawing and for clicks. */
+export function dropdownRect(cell: Rect): Rect {
+  return { x: cell.x + cell.w - DROPDOWN_WIDTH - 1, y: cell.y, w: DROPDOWN_WIDTH, h: cell.h };
+}
+
+/** Where the filter button of a header cell is (right edge). */
+export function filterButtonRect(cell: Rect): Rect {
+  return { x: cell.x + cell.w - FILTER_BUTTON - 3, y: cell.y + (cell.h - FILTER_BUTTON) / 2, w: FILTER_BUTTON, h: FILTER_BUTTON };
+}
+
+/**
+ * What a validation rule draws in a cell: a checkbox (which replaces the
+ * text), a dropdown arrow, a mark on an invalid value. Returns the space left
+ * for the text, or null when the cell is done.
+ */
+function drawValidationDecor(ctx: CanvasRenderingContext2D, state: RenderState, row: number, col: number, cell: Rect, value: Scalar): Rect | null {
+  const rule = state.controller.validationAt(row, col);
+  if (!rule) return cell;
+  if (rule.criteria.type === 'checkbox' && (value === null || typeof value === 'boolean')) {
+    drawCheckbox(ctx, state, cell, value === true);
+    return null;
+  }
+  let rect = cell;
+  if (rule.dropdown && (rule.criteria.type === 'list' || rule.criteria.type === 'listRange')) {
+    drawDropdownArrow(ctx, state, cell);
+    rect = { ...cell, w: Math.max(0, cell.w - DROPDOWN_WIDTH) };
+  }
+  if (value !== null && state.controller.isInvalid(row, col)) drawInvalidMark(ctx, cell);
+  return rect;
+}
+
+function drawCheckbox(ctx: CanvasRenderingContext2D, state: RenderState, cell: Rect, checked: boolean): void {
+  const box = checkboxRect(cell);
+  ctx.save();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = checked ? state.theme.selectionBorder : state.theme.headerText;
+  ctx.fillStyle = checked ? state.theme.selectionBorder : state.theme.cellBackground;
+  ctx.beginPath();
+  ctx.roundRect(box.x, box.y, box.w, box.h, 2);
+  ctx.fill();
+  ctx.stroke();
+  if (checked) {
+    ctx.strokeStyle = state.theme.cellBackground;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(box.x + 3, box.y + 7);
+    ctx.lineTo(box.x + 6, box.y + 10);
+    ctx.lineTo(box.x + 11, box.y + 4);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawDropdownArrow(ctx: CanvasRenderingContext2D, state: RenderState, cell: Rect): void {
+  const r = dropdownRect(cell);
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  ctx.fillStyle = state.theme.headerText;
+  ctx.beginPath();
+  ctx.moveTo(cx - 4, cy - 2);
+  ctx.lineTo(cx + 4, cy - 2);
+  ctx.lineTo(cx, cy + 3);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** A red corner on a value its validation rule refuses. */
+function drawInvalidMark(ctx: CanvasRenderingContext2D, cell: Rect): void {
+  ctx.fillStyle = '#d93025';
+  ctx.beginPath();
+  ctx.moveTo(cell.x + cell.w - 8, cell.y);
+  ctx.lineTo(cell.x + cell.w - 1, cell.y);
+  ctx.lineTo(cell.x + cell.w - 1, cell.y + 7);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Filter buttons in the header row of the sheet's filter; a column that filters gets a filled one. */
+function drawFilterButtons(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  const sheet = state.controller.sheet;
+  const filter = sheet.filter;
+  if (!filter) return;
+  const row = filter.range.r1;
+  for (const c of state.layout.cols) {
+    if (c.index < filter.range.c1 || c.index > filter.range.c2) continue;
+    const cell = rangeRect(state.layout, sheet, { r1: row, c1: c.index, r2: row, c2: c.index });
+    if (cell.h <= 0) continue;
+    const b = filterButtonRect(cell);
+    const active = filter.columns.some((fc) => fc.col === c.index && (fc.hiddenValues?.length || fc.condition));
+    ctx.fillStyle = active ? state.theme.selectionBorder : state.theme.headerBackground;
+    ctx.strokeStyle = active ? state.theme.selectionBorder : state.theme.headerBorder;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y, b.w, b.h, 3);
+    ctx.fill();
+    ctx.stroke();
+    // A funnel: three lines, each shorter than the one above.
+    ctx.strokeStyle = active ? state.theme.cellBackground : state.theme.headerText;
+    ctx.lineWidth = 1.5;
+    for (const [i, half] of [4.5, 3, 1.5].entries()) {
+      const y = b.y + 5 + i * 3;
+      ctx.beginPath();
+      ctx.moveTo(b.x + b.w / 2 - half, y);
+      ctx.lineTo(b.x + b.w / 2 + half, y);
+      ctx.stroke();
+    }
+  }
 }
 
 function alignedX(ctx: CanvasRenderingContext2D, text: string, rect: Rect, align: HAlign, indent: number): number {

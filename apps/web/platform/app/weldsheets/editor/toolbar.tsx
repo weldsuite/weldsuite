@@ -1,6 +1,10 @@
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import {
   AlignVerticalJustifyCenter,
+  ArrowDownAZ,
+  ListChecks,
+  ListFilter,
+  PaintRoller,
   AlignVerticalJustifyEnd,
   AlignVerticalJustifyStart,
   Baseline,
@@ -38,6 +42,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/component
 import { useI18n } from '@/lib/i18n/provider';
 import type { BorderKind, SheetController } from './model/sheet-controller';
 import { numberFormats, type NumberFormatKey } from './number-formats';
+import { sortByColumn, toggleFilter } from './model/rules';
+import { toast } from 'sonner';
 
 const FONT_SIZES = [6, 7, 8, 9, 10, 11, 12, 14, 18, 24, 36];
 
@@ -49,13 +55,19 @@ const PALETTE = [
   '#a61c00', '#cc0000', '#e69138', '#f1c232', '#6aa84f', '#45818e', '#3c78d8', '#3d85c6', '#674ea7', '#a64d79',
 ];
 
-export function Toolbar({ controller }: { controller: SheetController }) {
+export function Toolbar({ controller, onSortRange }: { controller: SheetController; onSortRange: () => void }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const { t, format, language } = useI18n();
   const tt = t.weldsheets.toolbar;
   const style: CellStyle = controller.activeStyle();
   const formats = numberFormats(language);
   const { row, col } = controller.selection.active;
+  const td = t.weldsheets.data;
+  const sortBy = (descending: boolean) => {
+    const problem = sortByColumn(controller, col, descending);
+    if (problem) toast.error(problem === 'merged' ? td.sortMerged : td.sortNothing);
+  };
+  const togglePanel = (panel: 'formats' | 'validation') => controller.openPanel(controller.panel === panel ? null : panel);
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b px-2" role="toolbar" aria-label={t.weldsheets.title}>
@@ -178,6 +190,25 @@ export function Toolbar({ controller }: { controller: SheetController }) {
       <IconButton label={tt.clearFormatting} onClick={() => controller.clearFormatting()}>
         <RemoveFormatting />
       </IconButton>
+      <Divider />
+      <Toggle label={controller.sheet.filter ? td.removeFilter : td.createFilter} active={!!controller.sheet.filter} onClick={() => toggleFilter(controller)}>
+        <ListFilter />
+      </Toggle>
+      <Menu
+        label={td.sort}
+        trigger={<ArrowDownAZ />}
+        items={[
+          { key: 'asc', label: td.sortAsc, onSelect: () => sortBy(false) },
+          { key: 'desc', label: td.sortDesc, onSelect: () => sortBy(true) },
+          { key: 'range', label: td.sortRange, onSelect: onSortRange },
+        ]}
+      />
+      <Toggle label={td.conditionalFormatting} active={controller.panel === 'formats'} onClick={() => togglePanel('formats')}>
+        <PaintRoller />
+      </Toggle>
+      <Toggle label={td.dataValidation} active={controller.panel === 'validation'} onClick={() => togglePanel('validation')}>
+        <ListChecks />
+      </Toggle>
     </div>
   );
 }

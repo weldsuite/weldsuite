@@ -41,7 +41,8 @@ export type ApiModuleId =
   | 'ads'
   | 'pass'
   | 'reach'
-  | 'sheets';
+  | 'sheets'
+  | 'sign';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -420,6 +421,10 @@ export const API_MODULES: readonly ApiModule[] = [
   // WeldSheets. Its worker (sheets-api, with the SheetRoom Durable Object)
   // arrives with live co-editing; until then nothing calls these paths.
   mod('sheets', 8822, ['weldsheets'], ['/api/sheets']),
+  // WeldSign (e-signatures, docs/plans/weldsign.md). `/public/sign-portal` is
+  // the signer portal's mount: signers have no Clerk session, so its routes
+  // check the link token or the signer session themselves.
+  mod('sign', 8823, ['weldsign'], ['/api/sign', '/public/sign-portal']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));

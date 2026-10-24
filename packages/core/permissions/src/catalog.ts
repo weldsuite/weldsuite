@@ -277,6 +277,29 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
 
+  // ── E-signatures (WeldSign) ───────────────────────────────────────────
+  // Without `sign_envelopes:manage` a person sees the envelopes they sent and
+  // the ones they are a recipient of; with it, every envelope in the
+  // workspace and the WeldSign settings.
+  {
+    key: 'sign_envelopes',
+    label: 'Signature requests (WeldSign)',
+    permissions: [
+      { key: 'sign_envelopes:read', label: 'View signature requests', description: 'Requests this person sent or is a recipient of.' },
+      { key: 'sign_envelopes:create', label: 'Create signature requests' },
+      { key: 'sign_envelopes:update', label: 'Edit draft signature requests' },
+      { key: 'sign_envelopes:delete', label: 'Delete signature requests' },
+      { key: 'sign_envelopes:send', label: 'Send signature requests', description: 'Counts towards the monthly WeldSign limit of the plan.' },
+      { key: 'sign_envelopes:void', label: 'Void sent signature requests' },
+      {
+        key: 'sign_envelopes:manage',
+        label: 'Administer WeldSign',
+        description: 'See every signature request in the workspace and change the WeldSign settings.',
+      },
+    ],
+  },
+  objectPermissions('sign_templates', 'Signature templates'),
+
   // ── Parcel ────────────────────────────────────────────────────────────
   objectPermissions('parcels',       'Parcels'),
   objectPermissions('carriers',      'Carriers',             ['read', 'create', 'update', 'delete', 'manage']),
@@ -670,6 +693,10 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
   // WeldSheets — admins also administer every spreadsheet's sharing (sheets:manage)
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share', 'sheets:manage',
+  // WeldSign — admins also see every envelope and edit the settings (sign_envelopes:manage)
+  'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
+  'sign_envelopes:send', 'sign_envelopes:void', 'sign_envelopes:manage',
+  'sign_templates:read', 'sign_templates:create', 'sign_templates:update', 'sign_templates:delete',
   // WeldReach — admins also run mailboxes (billed) and settings
   'reach_campaigns:read', 'reach_campaigns:create', 'reach_campaigns:update', 'reach_campaigns:delete',
   'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
@@ -792,6 +819,10 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete',
   // WeldSheets — a sheet's own sharing decides who edits it; these open the app.
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share',
+  // WeldSign — send and track their own signature requests; shared templates are read-only
+  'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
+  'sign_envelopes:send', 'sign_envelopes:void',
+  'sign_templates:read',
   // WeldHR — My HR only: their own leave, expenses, sick reports, attendance
   // and payslips. Nobody else's records, no approving. Still needs the WeldHR
   // app assigned and a linked employee record.
@@ -822,6 +853,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'knowledge:read',
   // WeldSheets — read-only
   'sheets:read',
+  // WeldSign — read-only: only requests they are a recipient of, and templates
+  'sign_envelopes:read', 'sign_templates:read',
   // WeldReach — read-only
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
 ];

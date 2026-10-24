@@ -154,6 +154,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     objects: ['sheets'],
   },
   {
+    code: 'weldsign',
+    label: 'WeldSign',
+    objects: ['sign_envelopes', 'sign_templates'],
+  },
+  {
     code: 'weldreach',
     label: 'WeldReach',
     objects: ['reach_campaigns', 'reach_prospects', 'reach_inbox', 'reach_mailboxes', 'reach_settings'],

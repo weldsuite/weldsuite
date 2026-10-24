@@ -109,6 +109,16 @@
       "port": 3022
     },
     {
+      "name": "sign-portal",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "sign-portal",
+        "dev"
+      ],
+      "port": 3023
+    },
+    {
       "name": "parcel-tracking-portal",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

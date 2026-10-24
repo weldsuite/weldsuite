@@ -124,6 +124,8 @@ describe('criteria functions', () => {
       now: () => 0,
       random: () => 0.5,
       timezoneOffset: () => 0,
+      isRowHidden: () => false,
+      cellFormula: () => undefined,
     };
     const ctx: EvalContext = { host, sheetId: 'S', row: 50, col: 5 };
     const calc = (f: string) => resolveResult(evaluate(parseFormula(f), ctx), ctx);
