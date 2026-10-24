@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
 import { files, sheets } from '@weldsuite/db/schema';
-import { Engine, Sheet, Workbook, encode, toFrames, type ClientMessage, type Op, type ServerMessage } from '@weldsuite/sheets-engine';
+import { Engine, Sheet, Workbook, encode, readXlsx, toFrames, type ClientMessage, type Op, type ServerMessage } from '@weldsuite/sheets-engine';
 import type { Env } from '../types';
 import { FakeBucket, FakeSocket, fakeObjectState } from '../test-support/fakes';
 import { createSheet, snapshotKeyFor } from '../services/sheets';
@@ -195,6 +195,33 @@ describe('SheetRoom', () => {
     expect(frames.length).toBeGreaterThan(3);
     for (const frame of frames) await room.webSocketMessage(alice.asSocket(), frame);
     expect(ofType(alice, 'ack')).toEqual([{ type: 'ack', batchId: 'a:big', revision: 1 }]);
+  });
+
+  const meta = () => ({ workspaceId: WORKSPACE, sheetId, snapshotKey: snapshotKeyFor(WORKSPACE, sheetId) });
+  const text = (bytes: Uint8Array) => new TextDecoder('utf-8', { ignoreBOM: true, fatal: false }).decode(bytes);
+
+  it('exports its live workbook, edits not checkpointed yet included', async () => {
+    const room = new SheetRoom(state.ctx, env);
+    const alice = await join(room, 'alice');
+    await send(room, alice, { type: 'hello', revision: null });
+    await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: setCell(0, 7.5) });
+
+    const xlsx = await room.exportFile(meta(), { format: 'xlsx' });
+    expect(xlsx?.tabName).toBeNull();
+    const { workbook } = await readXlsx(xlsx!.bytes);
+    expect(workbook.sheets[0]!.cells).toEqual([[0, 0, { v: 7.5 }]]);
+
+    const csv = await room.exportFile(meta(), { format: 'csv', locale: 'nl' });
+    expect(csv?.tabName).toBe('Sheet1');
+    expect(text(csv!.bytes)).toBe('\uFEFF7,5\r\n');
+    expect(await room.exportFile(meta(), { format: 'csv', tab: 'sh_nope' })).toBeNull();
+  });
+
+  it('exports a sheet nobody has open, from its checkpoint', async () => {
+    const room = new SheetRoom(state.ctx, env);
+    const csv = await room.exportFile(meta(), { format: 'csv', tab: TAB });
+    expect(text(csv!.bytes)).toBe('\uFEFF');
+    expect(state.storage.data.get('meta')).toEqual(meta());
   });
 });
 

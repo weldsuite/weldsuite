@@ -4,18 +4,18 @@
  */
 
 import { FrameAssembler, decodeServer, type ServerMessage } from '@weldsuite/sheets-engine';
-import type { Admission } from '../room/sheet-room';
+import type { Admission, ExportRequest, ExportedFile, RoomMeta } from '../room/sheet-room';
 
 export class FakeBucket {
   readonly objects = new Map<string, Uint8Array>();
 
-  async put(key: string, body: ArrayBuffer | string): Promise<void> {
+  async put(key: string, body: ArrayBuffer | Uint8Array | string): Promise<void> {
     this.objects.set(key, typeof body === 'string' ? new TextEncoder().encode(body) : new Uint8Array(body));
   }
 
-  async get(key: string): Promise<{ body: ReadableStream } | null> {
+  async get(key: string): Promise<{ body: ReadableStream; arrayBuffer: () => Promise<ArrayBuffer> } | null> {
     const bytes = this.objects.get(key);
-    return bytes ? { body: new Blob([bytes]).stream() } : null;
+    return bytes ? { body: new Blob([bytes]).stream(), arrayBuffer: async () => new Uint8Array(bytes).buffer } : null;
   }
 
   async delete(key: string): Promise<void> {
@@ -113,9 +113,13 @@ export function fakeObjectState(id = 'a'.repeat(64)) {
   return { ctx, storage, sockets };
 }
 
-/** SHEET_ROOM for route tests: records admissions and hands out a fixed ticket. */
+/**
+ * SHEET_ROOM for route tests: records admissions and hands out a fixed
+ * ticket; an export is the format's name as bytes (tab "missing" has none).
+ */
 export function fakeRoomNamespace() {
   const admissions: { name: string; admission: Admission }[] = [];
+  const exports: { name: string; sheet: RoomMeta; request: ExportRequest }[] = [];
   const binding = {
     idFromName: (name: string) => ({ name }),
     get: (id: { name: string }) => ({
@@ -123,7 +127,13 @@ export function fakeRoomNamespace() {
         admissions.push({ name: id.name, admission });
         return `${'f'.repeat(64)}.ticket-for-${admission.userId}`;
       },
+      exportFile: async (sheet: RoomMeta, request: ExportRequest): Promise<ExportedFile | null> => {
+        exports.push({ name: id.name, sheet, request });
+        if (request.tab === 'missing') return null;
+        const tabName = request.format === 'csv' ? (request.tab ?? 'Sheet1') : null;
+        return { bytes: new TextEncoder().encode(`${request.format} file`), tabName };
+      },
     }),
   };
-  return { admissions, binding: binding as unknown as DurableObjectNamespace<import('../room/sheet-room').SheetRoom> };
+  return { admissions, exports, binding: binding as unknown as DurableObjectNamespace<import('../room/sheet-room').SheetRoom> };
 }

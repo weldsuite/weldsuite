@@ -1,4 +1,9 @@
-import type { WorkbookSnapshot } from '@weldsuite/sheets-engine';
+import { readSpreadsheet, type WorkbookSnapshot } from '@weldsuite/sheets-engine';
+import type { SheetFileLocale, SheetImportWarning } from '@weldsuite/app-api-client/schemas/sheets';
+import { sheetLocale } from '../editor/number-formats';
+
+/** Most cells a file imported into the preview may have (it lives in the browser). */
+const LOCAL_MAX_CELLS = 250_000;
 
 export interface SheetMeta {
   id: string;
@@ -21,6 +26,14 @@ export interface SheetDirectory {
   create(name: string, firstTabName: string): Promise<SheetMeta>;
   rename(id: string, name: string): Promise<void>;
   remove(id: string): Promise<void>;
+  /** A new spreadsheet from an .xlsx, .csv or .tsv file, read in `locale`. */
+  importFile(file: File, locale: SheetFileLocale): Promise<ImportedSheet>;
+}
+
+export interface ImportedSheet {
+  meta: SheetMeta;
+  /** What the file had that the spreadsheet does not. */
+  warnings: SheetImportWarning[];
 }
 
 const META = 'meta';
@@ -114,6 +127,15 @@ export class LocalSheetStore implements SheetDirectory {
       tx.objectStore(META).delete(id);
       tx.objectStore(SNAPSHOTS).delete(id);
     });
+  }
+
+  /** Reads the file here in the browser, as sheets-api does for a workspace. */
+  async importFile(file: File, locale: SheetFileLocale): Promise<ImportedSheet> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { workbook, warnings } = await readSpreadsheet(file.name, bytes, { locale: sheetLocale(locale).format, maxCells: LOCAL_MAX_CELLS });
+    const meta = await this.create(file.name.replace(/\.[^.]+$/, '').trim() || file.name);
+    await this.save(meta.id, workbook);
+    return { meta, warnings };
   }
 }
 

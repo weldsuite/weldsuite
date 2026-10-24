@@ -21,7 +21,9 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import {
+  EN_LOCALE,
   FrameAssembler,
+  NL_LOCALE,
   RoomCore,
   Sheet,
   Workbook,
@@ -29,6 +31,8 @@ import {
   refusedBatchId,
   encode,
   toFrames,
+  writeCsv,
+  writeXlsx,
   type CommittedOp,
   type Op,
   type Outgoing,
@@ -54,10 +58,24 @@ export interface Admission {
   canEdit: boolean;
 }
 
-interface RoomMeta {
+/** Which sheet a room holds, and where its checkpoint is. */
+export interface RoomMeta {
   workspaceId: string;
   sheetId: string;
   snapshotKey: string;
+}
+
+export interface ExportRequest {
+  format: 'xlsx' | 'csv';
+  /** The tab a CSV holds; default the first visible one. */
+  tab?: string;
+  locale?: 'en' | 'nl';
+}
+
+export interface ExportedFile {
+  bytes: Uint8Array;
+  /** The tab a CSV holds, for its file name. */
+  tabName: string | null;
 }
 
 interface Ticket {
@@ -119,6 +137,26 @@ export class SheetRoom extends DurableObject<Env> {
       [`${TICKET_PREFIX}${secret}`]: { peer, expires: now + TICKET_TTL_MS } satisfies Ticket,
     });
     return `${this.ctx.id.toString()}.${secret}`;
+  }
+
+  /**
+   * The workbook as a file, written from the room's live state, edits not
+   * yet checkpointed included (RPC from the export route). Null when the CSV's
+   * tab does not exist.
+   */
+  async exportFile(sheet: RoomMeta, request: ExportRequest): Promise<ExportedFile | null> {
+    if (!this.meta) {
+      this.meta = sheet;
+      await this.ctx.storage.put('meta', sheet);
+    }
+    const { engine } = this.room ?? (await this.load());
+    const locale = request.locale === 'nl' ? NL_LOCALE : EN_LOCALE;
+    if (request.format === 'xlsx') return { bytes: await writeXlsx(engine, { locale }), tabName: null };
+    const sheets = engine.workbook.sheets;
+    const tab = request.tab ? engine.workbook.getSheet(request.tab) : (sheets.find((s) => !s.props.hidden) ?? sheets[0]);
+    if (!tab) return null;
+    // A byte-order mark, so Excel reads the CSV as UTF-8.
+    return { bytes: new TextEncoder().encode(`\uFEFF${writeCsv(engine, tab.id, { locale })}`), tabName: tab.name };
   }
 
   async fetch(request: Request): Promise<Response> {
