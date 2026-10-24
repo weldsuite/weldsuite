@@ -16,6 +16,7 @@ import { sheetLocale } from '../editor/number-formats';
 import { SheetConnection } from '../collab/sheet-connection';
 import { sheetsQueryKey, useSheetMutations } from '../store/use-sheet-store';
 import { MissingSheet, SheetHeader, type SheetStatus } from './sheet-chrome';
+import { DownloadMenu } from './download-menu';
 import { PeerAvatars } from './peer-avatars';
 
 /** How often, at most, this person's cursor goes out to the others. */
@@ -183,6 +184,7 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SheetHeader name={name} canRename={canEdit && !!record.data?.canEdit} onRename={onRename} status={status}>
+        <DownloadMenu controller={controller} name={name || tw.home.untitled} />
         <PeerAvatars
           peers={peers}
           onSelect={(peer) => {

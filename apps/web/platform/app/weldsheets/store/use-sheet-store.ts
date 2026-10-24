@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApi } from '@/lib/api/use-app-api';
+import type { SheetFileLocale } from '@weldsuite/app-api-client/schemas/sheets';
 import { LocalSheetStore, type SheetDirectory, type SheetMeta } from './sheet-store';
 import { ApiSheetDirectory } from './api-sheet-directory';
 
@@ -68,7 +69,11 @@ export function useSheetMutations() {
     mutationFn: (id: string) => directory!.remove(id),
     onSuccess: invalidate,
   });
-  return { create, rename, remove };
+  const importFile = useMutation({
+    mutationFn: ({ file, locale }: { file: File; locale: SheetFileLocale }) => directory!.importFile(file, locale),
+    onSuccess: invalidate,
+  });
+  return { create, rename, remove, importFile };
 }
 
 export type { SheetMeta };

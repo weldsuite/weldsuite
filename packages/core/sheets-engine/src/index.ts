@@ -78,3 +78,13 @@ export { EN_LOCALE, NL_LOCALE, formatCategory, formatValue, isDateFormat } from 
 export type { FormatCategory, FormatLocale, FormattedValue } from './format/number-format';
 export { parseInput } from './format/input';
 export type { ParseInputOptions, ParsedInput } from './format/input';
+
+export { readSpreadsheet, spreadsheetFormat } from './files';
+export type { ReadSpreadsheetOptions, SpreadsheetFormat } from './files';
+export { readXlsx } from './files/xlsx/read';
+export { writeXlsx } from './files/xlsx/write';
+export type { WriteXlsxOptions } from './files/xlsx/write';
+export { detectDelimiter, parseCsv, readCsv, writeCsv } from './files/csv';
+export type { ReadCsvOptions, WriteCsvOptions } from './files/csv';
+export { ImportError } from './files/types';
+export type { ImportErrorCode, ImportResult, ImportWarning, ReadOptions, ReadXlsxOptions } from './files/types';

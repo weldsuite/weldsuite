@@ -117,6 +117,48 @@ export async function getSheet(db: Database, id: string): Promise<SheetRecord | 
   return row ? toRecord(row) : null;
 }
 
+export interface DriveFileRecord {
+  name: string;
+  mimeType: string;
+  size: number;
+  /** Where its bytes are in R2. */
+  key: string;
+  /** Set when the file is itself a WeldSheets spreadsheet (nothing to import). */
+  weldsheetId: string | null;
+  file: DriveFileRef;
+}
+
+/** A drive file not in the trash, with what importing it needs; null when there is none. */
+export async function getDriveFile(db: Database, id: string): Promise<DriveFileRecord | null> {
+  const [row] = await db
+    .select({
+      id: files.id,
+      name: files.fileName,
+      mimeType: files.mimeType,
+      size: files.fileSize,
+      fileKey: files.fileKey,
+      storagePath: files.storagePath,
+      metadata: files.metadata,
+      uploadedById: files.uploadedById,
+      folderId: files.folderId,
+      generalAccess: files.generalAccess,
+      entityType: files.entityType,
+    })
+    .from(files)
+    .where(and(eq(files.id, id), isNull(files.deletedAt)))
+    .limit(1);
+  if (!row) return null;
+  const weldsheetId = (row.metadata as { weldsheetId?: unknown } | null)?.weldsheetId;
+  return {
+    name: row.name,
+    mimeType: row.mimeType,
+    size: row.size,
+    key: row.fileKey || row.storagePath,
+    weldsheetId: typeof weldsheetId === 'string' ? weldsheetId : null,
+    file: { id: row.id, uploadedById: row.uploadedById, folderId: row.folderId, generalAccess: row.generalAccess, entityType: row.entityType },
+  };
+}
+
 /** The R2 key a sheet's checkpoints are written to (one object, overwritten each time). */
 export function snapshotKeyFor(workspaceId: string, sheetId: string): string {
   return `workspaces/${workspaceId}/sheets/${sheetId}/workbook.json.gz`;

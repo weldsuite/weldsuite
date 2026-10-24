@@ -99,7 +99,8 @@ Hono on `@weldsuite/worker-kit`, owns `/api/sheets*`:
 - `POST /api/sheets/:id/session` + `GET /api/sheets/connect?ticket=…` →
   WebSocket into `SheetRoom` — built
 - `/api/sheets/:id/versions` (list, name, restore), `/comments`
-- `/api/sheets/:id/export?format=xlsx|csv`, `POST /api/sheets/import`
+- `GET /api/sheets/:id/export?format=xlsx|csv`, `POST /api/sheets/import`
+  (an upload, or a WeldDrive file by id) — built
 - `/api/sheets/:id/data-sources` (live WeldSuite data, below)
 - Entity events: `sheet` created / updated (throttled) / deleted / shared,
   `sheet_comment` created.
@@ -231,6 +232,39 @@ Freeze and merge came with phase 2.
   keys), side panels for conditional formatting and data validation, and
   right-click entries for both.
 
+**Phase 5 (files): done.**
+
+- Engine `files/`: a ZIP reader and writer on the platform's
+  `CompressionStream` / `DecompressionStream` (ZIP64 on read; every entry
+  inflated against a size budget, so a zip bomb stops with an error), a small
+  XML scanner (no DTDs, no entity expansion), and SpreadsheetML in both
+  directions: values and formulas with their last values (shared and array
+  formulas on read; spilled formulas written as Excel 365 dynamic arrays;
+  `_xlfn.` prefixes dropped and added), styles (fonts, fills, borders,
+  alignment, number formats; theme and indexed colours on read), column
+  widths and row heights, hidden rows and columns, merges, frozen panes, tab
+  colours, hidden sheets, defined names, the filter, conditional formats
+  (condition rules and colour scales) and data validation (including Excel
+  2010's cross-sheet lists). CSV and TSV: reading as typed input in the
+  reader's locale (separator detected), writing displayed values (';' where
+  the decimal is a comma).
+- What a file has that WeldSheets does not (charts and pictures, comments,
+  pivot tables, table styles, data bars and icon sets, macros, links to other
+  files, formatting within a cell) is left out, and the import says so.
+  Formulas WeldSheets cannot read keep their last value.
+- sheets-api: `POST /api/sheets/import` makes a new spreadsheet from an
+  upload or a WeldDrive file (next to it when the caller may add there; the
+  file stays as it is), up to 25 MB and 250,000 cells until phase 9.
+  `GET /api/sheets/:id/export` is written by the sheet's room from its live
+  workbook, so it includes edits not yet checkpointed. sheets-api now reads
+  the public `STORAGE` bucket too, for drive files uploaded before private
+  storage.
+- Platform: "Import a file" on the WeldSheets home page (the preview reads
+  the file in the browser); a Download menu in the sheet header (.xlsx, or
+  the current tab as .csv), written in the browser from the editor's own
+  workbook; in WeldDrive, "Open in WeldSheets" on .xlsx, .csv and .tsv files,
+  and WeldSheets files download as .xlsx.
+
 Known gaps, to pick up in later phases:
 
 - Autofill (dragging the fill handle) and auto-fit on double-clicking a
@@ -246,6 +280,10 @@ Known gaps, to pick up in later phases:
   (phase 9: incremental).
 - Spilled arrays are not persisted, so every formula is evaluated on load
   (phase 9: store spills in the snapshot).
+- Files: no .xls (binary), .ods or Numbers; imports always make a new
+  spreadsheet (no "insert as new tabs" or "replace"); a whole-number or date
+  validation rule comes in as a number rule; a list rule over 255 characters
+  or with commas in its items is left out of an .xlsx.
 - One filter per sheet; no filter views or slicers. Ctrl+Enter and paste
   write past a strict validation rule (the values are marked).
 - No multi-area references (`(A1:B2,C3)`), structured table references, or

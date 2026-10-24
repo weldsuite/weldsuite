@@ -35,6 +35,10 @@ import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';
+import { getLocale } from '@weldsuite/i18n';
+import { WELDSHEET_MIME_TYPE } from '@weldsuite/app-api-client/schemas/sheets';
+import { isImportable } from '@/app/weldsheets/files';
+import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
 import { apiUrl } from '@/lib/api/public-env';
 import { isPrivateStorageUrl } from '@/lib/storage/private-url';
 import { copyText } from '@/lib/clipboard';
@@ -68,6 +72,39 @@ export async function fetchDriveFileContent(id: string, signal?: AbortSignal): P
   });
 }
 
+/** An Excel or CSV file in WeldDrive, which WeldSheets can make a spreadsheet of. */
+export function canOpenInWeldSheets(file: Pick<UnifiedFile, 'name' | 'source' | 'mimeType'>): boolean {
+  return file.source === 'drive' && file.mimeType !== WELDSHEET_MIME_TYPE && isImportable(file.name);
+}
+
+/** The spreadsheet a WeldSheets drive file stands for (it opens at /weldsheets/<id>), or null. */
+export function weldsheetIdOf(file: Partial<Pick<UnifiedFile, 'mimeType' | 'navigateTo'>>): string | null {
+  if (file.mimeType !== WELDSHEET_MIME_TYPE) return null;
+  return /^\/weldsheets\/([^/?#]+)/.exec(file.navigateTo ?? '')?.[1] ?? null;
+}
+
+/**
+ * A WeldSheets spreadsheet keeps its content in its own store, not in the
+ * drive file: it downloads as an .xlsx that sheets-api writes.
+ */
+async function downloadSpreadsheet(sheetId: string, name: string): Promise<void> {
+  const t = getTranslations('welddrive');
+  try {
+    const token = await getClerkToken();
+    const locale = getLocale() === 'nl' ? 'nl' : 'en';
+    const res = await fetch(apiUrl(`/api/sheets/${sheetId}/export?format=xlsx&locale=${locale}`), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blobUrl = URL.createObjectURL(await res.blob());
+    triggerAnchorDownload(blobUrl, /\.xlsx$/i.test(name) ? name : `${name}.xlsx`, false);
+    URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error('[downloadFile] spreadsheet export failed', err);
+    toast.error(t.toasts.failedToDownloadFile);
+  }
+}
+
 /**
  * Download a UnifiedFile. Drive-source files (rows in the `files` table —
  * including WeldFlow documents/sheets stored as .docx/.xlsx in R2) stream
@@ -81,9 +118,11 @@ export async function fetchDriveFileContent(id: string, signal?: AbortSignal): P
  * URLs because they live in different tables / buckets.
  */
 export async function downloadFile(
-  file: Pick<UnifiedFile, 'id' | 'name' | 'url' | 'source'>,
+  file: Pick<UnifiedFile, 'id' | 'name' | 'url' | 'source'> & Partial<Pick<UnifiedFile, 'mimeType' | 'navigateTo'>>,
 ): Promise<void> {
   const t = getTranslations('welddrive');
+  const sheetId = weldsheetIdOf(file);
+  if (sheetId) return downloadSpreadsheet(sheetId, file.name);
   if (file.source === 'drive') {
     try {
       const token = await getClerkToken();
@@ -200,6 +239,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
   const isImage = file.fileType === 'image' && (file.thumbnailUrl || file.url);
   // A viewer opens and downloads; changing the file is for its owner and editors.
   const canChange = file.accessRole !== 'viewer';
+  const openInSheets = useOpenInWeldSheets();
 
   return (
     <Button
@@ -250,6 +290,12 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                     <ExternalLink className="h-4 w-4 mr-0.5" />
                     {t.welddrive.page.actions.openInNewTab}
                   </a>
+                </DropdownMenuItem>
+              )}
+              {openInSheets && canOpenInWeldSheets(file) && (
+                <DropdownMenuItem onClick={() => void openInSheets(file)}>
+                  <FileSpreadsheet className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.openInWeldSheets}
                 </DropdownMenuItem>
               )}
               {(file.source === 'drive' || file.url) && (

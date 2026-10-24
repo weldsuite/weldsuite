@@ -15,8 +15,10 @@ export interface Env extends KitEnv {
   REALTIME_INTERNAL_SECRET?: string;
   /** One SheetRoom per spreadsheet, named `${workspaceId}:${sheetId}`. */
   SHEET_ROOM: DurableObjectNamespace<SheetRoom>;
-  /** Workbook checkpoints (private bucket, `workspaces/<org>/sheets/<id>/…`). */
+  /** Workbook checkpoints (private bucket, `workspaces/<org>/sheets/<id>/…`); also read for imports of drive files. */
   PRIVATE_STORAGE: R2Bucket;
+  /** The public bucket, read only: drive files uploaded before private storage, when imported as spreadsheets. */
+  STORAGE?: R2Bucket;
 }
 
 export type Variables = KitVariables;

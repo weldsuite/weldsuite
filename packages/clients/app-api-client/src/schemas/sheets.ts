@@ -63,3 +63,60 @@ export interface SheetSession {
   /** This person's colour in the room (cursor, selection, avatar). */
   color: string;
 }
+
+// ---------------------------------------------------------------------------
+// Files: import (.xlsx, .csv, .tsv) and export (.xlsx, .csv)
+// ---------------------------------------------------------------------------
+
+/** Largest file `POST /api/sheets/import` takes. */
+export const SHEET_IMPORT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** Language a file's dates and numbers are read in (CSV values, Excel's built-in date format). */
+export const sheetFileLocaleSchema = z.enum(['en', 'nl']);
+export type SheetFileLocale = z.infer<typeof sheetFileLocaleSchema>;
+
+/**
+ * Import a file already in WeldDrive as a new spreadsheet (JSON body). An
+ * upload goes as multipart/form-data instead: `file`, and optionally `name`,
+ * `folderId` and `locale`.
+ */
+export const importDriveFileSchema = z.object({
+  fileId: z.string().min(1),
+  name: sheetName.optional(),
+  folderId: z.string().nullish(),
+  locale: sheetFileLocaleSchema.optional(),
+});
+export type ImportDriveFileInput = z.infer<typeof importDriveFileSchema>;
+
+/** What an import could not bring over (the spreadsheet is created without it). */
+export const SHEET_IMPORT_WARNINGS = [
+  'formulas',
+  'conditionalFormats',
+  'validations',
+  'filters',
+  'drawings',
+  'comments',
+  'pivotTables',
+  'tables',
+  'chartSheets',
+  'macros',
+  'externalLinks',
+  'richText',
+] as const;
+export type SheetImportWarning = (typeof SHEET_IMPORT_WARNINGS)[number];
+
+export interface SheetImportResult {
+  sheet: SheetSummary;
+  warnings: SheetImportWarning[];
+}
+
+/** Why an import was refused (the error's `details.reason`). */
+export type SheetImportFailure = 'not_spreadsheet' | 'too_large' | 'corrupt' | 'unsupported' | 'empty';
+
+export const exportSheetQuerySchema = z.object({
+  format: z.enum(['xlsx', 'csv']).default('xlsx'),
+  /** The tab a CSV holds (default the first visible one). */
+  tab: z.string().min(1).max(64).optional(),
+  locale: sheetFileLocaleSchema.optional(),
+});
+export type ExportSheetQuery = z.input<typeof exportSheetQuerySchema>;

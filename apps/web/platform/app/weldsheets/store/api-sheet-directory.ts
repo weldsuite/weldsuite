@@ -1,6 +1,6 @@
 import type { createSheetsApi } from '@weldsuite/app-api-client/domains/sheets';
-import type { SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
-import type { SheetDirectory, SheetMeta } from './sheet-store';
+import type { SheetFileLocale, SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
+import type { ImportedSheet, SheetDirectory, SheetMeta } from './sheet-store';
 
 type SheetsApi = ReturnType<typeof createSheetsApi>;
 
@@ -27,6 +27,11 @@ export class ApiSheetDirectory implements SheetDirectory {
 
   async remove(id: string): Promise<void> {
     await this.api.remove(id);
+  }
+
+  async importFile(file: File, locale: SheetFileLocale): Promise<ImportedSheet> {
+    const { data } = await this.api.importFile(file, { locale });
+    return { meta: toMeta(data.sheet), warnings: data.warnings };
   }
 }
 

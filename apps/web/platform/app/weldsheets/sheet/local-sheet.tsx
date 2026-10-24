@@ -9,6 +9,7 @@ import { SheetController } from '../editor/model/sheet-controller';
 import { sheetLocale } from '../editor/number-formats';
 import { useLocalSheetStore, useSheetMutations } from '../store/use-sheet-store';
 import { MissingSheet, SheetHeader, type SheetStatus } from './sheet-chrome';
+import { DownloadMenu } from './download-menu';
 
 const SAVE_DELAY_MS = 800;
 
@@ -119,7 +120,9 @@ export function LocalSheet({ sheetId }: { sheetId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <SheetHeader name={name} canRename={canUpdate} onRename={onRename} status={status} />
+      <SheetHeader name={name} canRename={canUpdate} onRename={onRename} status={status}>
+        <DownloadMenu controller={loaded} name={name || tw.home.untitled} />
+      </SheetHeader>
       <div className="min-h-0 flex-1">
         <SheetEditor controller={loaded} />
       </div>
