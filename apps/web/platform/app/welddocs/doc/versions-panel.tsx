@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { MoreVertical, X } from 'lucide-react';
 import type { DocVersion } from '@weldsuite/app-api-client/schemas/docs';
@@ -15,6 +15,8 @@ import type { Person } from '../editor/comments-panel';
 import { imageFetcher } from '../files';
 import { docsQueryKey } from '../store/use-doc-store';
 
+const PAGE_SIZE = 50;
+
 /**
  * Named versions of a document beside its pages: name the current version,
  * rename one, download one as .docx, or restore one (the room keeps the
@@ -27,7 +29,14 @@ export function VersionsPanel({ docId, name, canEdit, people, onClose }: { docId
   const docs = useAppApi().docs;
   const queryClient = useQueryClient();
   const key = [...docsQueryKey, 'versions', docId] as const;
-  const versions = useQuery({ queryKey: key, queryFn: async () => (await docs.versions(docId, { limit: 100 })).data });
+  // A page at a time: every restore adds an automatic version, so a long history is normal.
+  const pages = useInfiniteQuery({
+    queryKey: key,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => docs.versions(docId, { limit: PAGE_SIZE, ...(pageParam ? { cursor: pageParam } : {}) }),
+    getNextPageParam: (last) => (last.pagination.hasMore ? (last.pagination.cursor ?? undefined) : undefined),
+  });
+  const versions = pages.data?.pages.flatMap((page) => page.data);
   const refresh = () => queryClient.invalidateQueries({ queryKey: key });
   const [naming, setNaming] = useState<{ version: DocVersion | null; value: string } | null>(null);
   const [restoring, setRestoring] = useState<DocVersion | null>(null);
@@ -112,8 +121,8 @@ export function VersionsPanel({ docId, name, canEdit, people, onClose }: { docId
             </div>
           </form>
         )}
-        {versions.data?.length === 0 && <p className="px-1 py-6 text-center text-muted-foreground">{tv.empty}</p>}
-        {versions.data?.map((v) => (
+        {versions?.length === 0 && <p className="px-1 py-6 text-center text-muted-foreground">{tv.empty}</p>}
+        {versions?.map((v) => (
           <div key={v.id} className="flex items-start gap-2 rounded-lg border bg-card p-3">
             <div className="min-w-0 flex-1">
               <div className={`truncate font-medium ${v.name ? '' : 'italic text-muted-foreground'}`} title={v.name ? undefined : tv.automaticHint}>
@@ -138,6 +147,11 @@ export function VersionsPanel({ docId, name, canEdit, people, onClose }: { docId
             </DropdownMenu>
           </div>
         ))}
+        {pages.hasNextPage && (
+          <Button size="sm" variant="ghost" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>
+            {tv.showMore}
+          </Button>
+        )}
       </div>
       <ConfirmDialog
         open={!!restoring}

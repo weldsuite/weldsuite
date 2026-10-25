@@ -378,6 +378,7 @@ export const welddocs = {
     created: 'Versie bewaard',
     failed: 'Dat is niet gelukt. Probeer het opnieuw.',
     by: 'door {name}',
+    showMore: 'Oudere versies tonen',
   },
 
   ruler: {
