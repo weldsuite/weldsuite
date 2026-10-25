@@ -15,7 +15,15 @@ export type LastWeldChatPage =
   | { kind: 'dm'; path: string; userId: string };
 
 /** Module pages that exist for everyone who can open WeldChat. */
-const MODULE_PAGES: ReadonlySet<string> = new Set(['dm', 'activity', 'drafts', 'directories', 'bookmarks', 'search']);
+const MODULE_PAGES: ReadonlySet<string> = new Set([
+  'dm',
+  'activity',
+  'drafts',
+  'directories',
+  'bookmarks',
+  'records',
+  'search',
+]);
 
 const SEGMENT = '([^/?#]+)';
 const GROUP_DM = new RegExp(`^/weldchat/dm/group/${SEGMENT}$`);

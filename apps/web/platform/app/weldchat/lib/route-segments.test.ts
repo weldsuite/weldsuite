@@ -54,7 +54,7 @@ describe('parseWeldChatPath', () => {
   });
 
   it('covers every WeldChat sibling route', () => {
-    for (const segment of ['dm', 'activity', 'drafts', 'directories', 'bookmarks', 'search', 'thread']) {
+    for (const segment of ['dm', 'activity', 'drafts', 'directories', 'bookmarks', 'records', 'search', 'thread']) {
       expect(NON_CHANNEL_SEGMENTS.has(segment)).toBe(true);
     }
   });
