@@ -9,10 +9,11 @@
  */
 
 import { HEADING_STYLES } from '../model/defaults';
+import type { ObjectData, TableProps } from '../model/objects';
 import { ListCounter, isOrdered } from '../model/numbering';
 import type { BorderLine, ListLevel, ParaProps, TextStyle } from '../model/styles';
 import { resolveText, styleChain, type StyleSource } from '../model/resolve';
-import { lookup, toBlocks, type Block, type Inline, type ParagraphBlock, type TableBlock, type WriteSource } from './blocks';
+import { lookup, toBlocks, type Block, type Inline, type ParagraphBlock, type TableBlock, type TableCellBlock, type WriteSource } from './blocks';
 
 export interface HtmlOptions {
   /** URL for an image's `src` (e.g. a WeldDrive file id → a signed URL); default: as stored. */
@@ -58,43 +59,34 @@ class HtmlWriter {
 
   blocks(blocks: Block[]): string {
     let out = '';
-    // Open lists, outermost first: [tag, level].
-    const open: { tag: 'ul' | 'ol'; level: number }[] = [];
-    const closeTo = (level: number) => {
-      while (open.length && open[open.length - 1]!.level > level) out += `</li></${open.pop()!.tag}>`;
-    };
+    // Open lists, outermost first.
+    const open: OpenList[] = [];
     for (const b of blocks) {
       if (b.type === 'paragraph' && b.props.list) {
-        const list = this.counter.next(b.props);
-        const level = b.props.list.level;
-        const tag = isOrdered(list?.level) ? 'ol' : 'ul';
-        closeTo(level);
-        const top = open[open.length - 1];
-        if (top && top.level === level && top.tag !== tag) {
-          out += `</li></${open.pop()!.tag}>`;
-        }
-        if (!open.length || open[open.length - 1]!.level < level) {
-          while (!open.length || open[open.length - 1]!.level < level) {
-            const lvl = open.length ? open[open.length - 1]!.level + 1 : level;
-            const checklist = list?.level.format === 'check' ? ' data-weld-list="check" style="list-style:none"' : '';
-            const numbering = tag === 'ol' ? olAttrs(list?.level) : '';
-            out += `<${tag}${checklist}${numbering}>`;
-            open.push({ tag, level: lvl });
-            if (lvl < level) out += '<li style="list-style:none">';
-          }
-        } else {
-          out += '</li>';
-        }
-        const checked = list?.level.format === 'check' ? ` data-checked="${b.props.checked ? 'true' : 'false'}"` : '';
-        const css = this.paraCss(b.props, true);
-        out += `<li${checked}${css ? ` style="${css}"` : ''}>${list?.level.format === 'check' ? (b.props.checked ? '☑ ' : '☐ ') : ''}${this.inlines(b)}`;
+        out += this.listItem(b, b.props.list.level, open);
         continue;
       }
-      closeTo(-1);
+      out += closeLists(open, -1);
       out += b.type === 'paragraph' ? this.paragraph(b) : this.table(b);
     }
-    closeTo(-1);
-    return out;
+    return out + closeLists(open, -1);
+  }
+
+  /** Opens (or ends the previous) `<li>` for a list paragraph, opening and closing lists around it as the level changes. */
+  private listItem(b: ParagraphBlock, level: number, open: OpenList[]): string {
+    const list = this.counter.next(b.props);
+    const tag = isOrdered(list?.level) ? 'ol' : 'ul';
+    let out = closeLists(open, level);
+    const top = open[open.length - 1];
+    if (top && top.level === level && top.tag !== tag) {
+      out += `</li></${open.pop()!.tag}>`;
+    }
+    if (!open.length || open[open.length - 1]!.level < level) out += openLists(open, tag, level, list?.level);
+    else out += '</li>';
+    const isCheck = list?.level.format === 'check';
+    const checked = isCheck ? ` data-checked="${String(!!b.props.checked)}"` : '';
+    const box = isCheck ? checkBox(b.props.checked) : '';
+    return `${out}<li${checked}${styleAttr(this.paraCss(b.props, true))}>${box}${this.inlines(b)}`;
   }
 
   private paragraph(b: ParagraphBlock): string {
@@ -104,18 +96,11 @@ class HtmlWriter {
     const named = styleId !== 'normal' && headingIndex < 0 ? ` data-weld-style="${escapeAttr(styleId)}"` : '';
     const css = this.paraCss(b.props, false);
     const body = this.inlines(b);
-    return `<${tag}${named}${css ? ` style="${css}"` : ''}>${body || '<br>'}</${tag}>`;
+    return `<${tag}${named}${styleAttr(css)}>${body || '<br>'}</${tag}>`;
   }
 
   private paraCss(props: ParaProps, inList: boolean): string {
-    const css: string[] = [];
-    // Text formatting of a named style other than normal, so other editors see it.
-    if (this.styles && props.style && props.style !== 'normal') {
-      const chain = styleChain(this.styles, props.style).slice(1);
-      let text: TextStyle = {};
-      for (const s of chain) text = { ...text, ...s.text };
-      css.push(...textCss(text));
-    }
+    const css: string[] = this.namedStyleCss(props.style);
     if (props.align) css.push(`text-align:${props.align}`);
     if (!inList && props.indentLeft) css.push(`margin-left:${pt(props.indentLeft)}`);
     if (props.indentRight) css.push(`margin-right:${pt(props.indentRight)}`);
@@ -127,11 +112,17 @@ class HtmlWriter {
     if (props.shading) css.push(`background-color:${props.shading}`);
     if (props.direction === 'rtl') css.push('direction:rtl');
     if (props.pageBreakBefore) css.push('page-break-before:always');
-    for (const side of ['top', 'bottom', 'left', 'right'] as const) {
-      const line = props.borders?.[side];
-      if (line) css.push(`border-${side}:${borderCss(line)}`);
-    }
+    css.push(...paraBordersCss(props.borders));
     return css.join(';');
+  }
+
+  /** Text formatting of a named style other than normal, so other editors see it. */
+  private namedStyleCss(style: string | undefined): string[] {
+    if (!this.styles || !style || style === 'normal') return [];
+    const chain = styleChain(this.styles, style).slice(1);
+    let text: TextStyle = {};
+    for (const s of chain) text = { ...text, ...s.text };
+    return textCss(text);
   }
 
   private inlines(b: ParagraphBlock): string {
@@ -148,29 +139,31 @@ class HtmlWriter {
         return '<br>';
       case 'tab':
         return wrapText('<span style="white-space:pre">\t</span>', inline.style);
-      case 'object': {
-        const d = inline.data;
-        switch (d.kind) {
-          case 'image': {
-            const src = this.options.imageUrl ? this.options.imageUrl(d.src) : d.src;
-            return `<img src="${escapeAttr(src)}" alt="${escapeAttr(d.alt ?? '')}" width="${Math.round(d.width * 4 / 3)}" height="${Math.round(d.height * 4 / 3)}" style="width:${pt(d.width)};height:${pt(d.height)}">`;
-          }
-          case 'pageBreak':
-            return '<br data-weld="pageBreak" style="page-break-before:always;clear:both">';
-          case 'hr':
-            return '<hr>';
-          case 'footnote': {
-            this.footnote++;
-            return `<sup><a href="#fn${this.footnote}" id="fnref${this.footnote}">${this.footnote}</a></sup>`;
-          }
-          case 'chip':
-            return wrapText(`<span data-weld-chip="${escapeAttr(d.type)}" data-ref="${escapeAttr(d.ref)}">${escapeHtml(d.label)}</span>`, inline.style);
-          case 'equation':
-            return `<span data-weld-equation="${escapeAttr(d.latex)}">${escapeHtml(d.latex)}</span>`;
-          default:
-            return '';
-        }
+      case 'object':
+        return this.object(inline.data, inline.style);
+    }
+  }
+
+  private object(d: ObjectData, style: TextStyle): string {
+    switch (d.kind) {
+      case 'image': {
+        const src = this.options.imageUrl ? this.options.imageUrl(d.src) : d.src;
+        return `<img src="${escapeAttr(src)}" alt="${escapeAttr(d.alt ?? '')}" width="${Math.round(d.width * 4 / 3)}" height="${Math.round(d.height * 4 / 3)}" style="width:${pt(d.width)};height:${pt(d.height)}">`;
       }
+      case 'pageBreak':
+        return '<br data-weld="pageBreak" style="page-break-before:always;clear:both">';
+      case 'hr':
+        return '<hr>';
+      case 'footnote': {
+        this.footnote++;
+        return `<sup><a href="#fn${this.footnote}" id="fnref${this.footnote}">${this.footnote}</a></sup>`;
+      }
+      case 'chip':
+        return wrapText(`<span data-weld-chip="${escapeAttr(d.type)}" data-ref="${escapeAttr(d.ref)}">${escapeHtml(d.label)}</span>`, style);
+      case 'equation':
+        return `<span data-weld-equation="${escapeAttr(d.latex)}">${escapeHtml(d.latex)}</span>`;
+      default:
+        return '';
     }
   }
 
@@ -189,27 +182,78 @@ class HtmlWriter {
       if (ri === headerRows) out += '<tbody>';
       const height = t.data.rows[ri]?.height;
       out += height ? `<tr style="height:${pt(height)}">` : '<tr>';
-      for (const cell of row) {
-        if (cell.covered) continue;
-        const css: string[] = [];
-        const border = props.border ?? { width: 0.75, color: '#000000' };
-        for (const side of ['top', 'right', 'bottom', 'left'] as const) {
-          css.push(`border-${side}:${borderCss(cell.props.borders?.[side] ?? border)}`);
-        }
-        css.push(`padding:${pt(cell.props.padding ?? props.padding ?? 5)}`);
-        if (cell.props.background) css.push(`background-color:${cell.props.background}`);
-        if (cell.props.vAlign) css.push(`vertical-align:${cell.props.vAlign}`);
-        const span =
-          (cell.props.colSpan && cell.props.colSpan > 1 ? ` colspan="${cell.props.colSpan}"` : '') +
-          (cell.props.rowSpan && cell.props.rowSpan > 1 ? ` rowspan="${cell.props.rowSpan}"` : '');
-        out += `<td${span} style="${css.join(';')}">${this.blocks(cell.blocks)}</td>`;
-      }
+      for (const cell of row) if (!cell.covered) out += this.cell(cell, props);
       out += '</tr>';
       if (ri === headerRows - 1) out += '</thead>';
     });
     if (headerRows < t.rows.length) out += '</tbody>';
     return out + '</table>';
   }
+
+  /** A `<td>`: its borders fall back to the table's, its padding to the table's or 5 pt. */
+  private cell(cell: TableCellBlock, table: TableProps): string {
+    const css: string[] = [];
+    const border = table.border ?? { width: 0.75, color: '#000000' };
+    for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+      css.push(`border-${side}:${borderCss(cell.props.borders?.[side] ?? border)}`);
+    }
+    css.push(`padding:${pt(cell.props.padding ?? table.padding ?? 5)}`);
+    if (cell.props.background) css.push(`background-color:${cell.props.background}`);
+    if (cell.props.vAlign) css.push(`vertical-align:${cell.props.vAlign}`);
+    const span = spanAttr('colspan', cell.props.colSpan) + spanAttr('rowspan', cell.props.rowSpan);
+    return `<td${span} style="${css.join(';')}">${this.blocks(cell.blocks)}</td>`;
+  }
+}
+
+interface OpenList {
+  tag: 'ul' | 'ol';
+  level: number;
+}
+
+/** Closes the open lists deeper than `level`. */
+function closeLists(open: OpenList[], level: number): string {
+  let out = '';
+  while (open.length && open[open.length - 1]!.level > level) out += `</li></${open.pop()!.tag}>`;
+  return out;
+}
+
+/** Opens lists down to `level`; a level skipped on the way gets a bulletless item to hold the next one. */
+function openLists(open: OpenList[], tag: 'ul' | 'ol', level: number, listLevel: ListLevel | undefined): string {
+  let out = '';
+  while (!open.length || open[open.length - 1]!.level < level) {
+    const lvl = open.length ? open[open.length - 1]!.level + 1 : level;
+    out += `<${tag}${listAttrs(tag, listLevel)}>`;
+    open.push({ tag, level: lvl });
+    if (lvl < level) out += '<li style="list-style:none">';
+  }
+  return out;
+}
+
+function listAttrs(tag: 'ul' | 'ol', level: ListLevel | undefined): string {
+  const checklist = level?.format === 'check' ? ' data-weld-list="check" style="list-style:none"' : '';
+  return checklist + (tag === 'ol' ? olAttrs(level) : '');
+}
+
+/** The box our own checklist export writes in front of an item (the HTML reader takes it back off). */
+function checkBox(checked: boolean | undefined): string {
+  return checked ? '☑ ' : '☐ ';
+}
+
+function styleAttr(css: string): string {
+  return css ? ` style="${css}"` : '';
+}
+
+function spanAttr(name: string, span: number | undefined): string {
+  return span && span > 1 ? ` ${name}="${span}"` : '';
+}
+
+function paraBordersCss(borders: ParaProps['borders']): string[] {
+  const css: string[] = [];
+  for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+    const line = borders?.[side];
+    if (line) css.push(`border-${side}:${borderCss(line)}`);
+  }
+  return css;
 }
 
 /** `type` and `start` of an <ol>, so numbering formats survive a round trip. */
@@ -261,8 +305,10 @@ function pt(n: number): string {
   return `${Math.round(n * 100) / 100}pt`;
 }
 
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
+
 export function escapeHtml(s: string): string {
-  return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+  return s.replace(/[&<>]/g, (c) => HTML_ESCAPES[c]!);
 }
 
 export function escapeAttr(s: string): string {

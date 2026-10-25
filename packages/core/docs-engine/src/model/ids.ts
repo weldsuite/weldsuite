@@ -5,7 +5,7 @@
  */
 
 import type { Content, StoryContent } from './content';
-import { cellStoryId, footnoteStoryId, headerSection, headerStoryId, type CellProps, type ObjectData, type TableData } from './objects';
+import { cellKey, cellStoryId, footnoteStoryId, headerSection, headerStoryId, type CellProps, type ObjectData, type TableData } from './objects';
 
 const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 
@@ -32,31 +32,45 @@ export function freshIds(content: Content, makeId: () => string = newId): Conten
     return { ...s, objects };
   };
 
+  /** Copies table `oldId` (rows, columns, cell props and cell stories) under the new id `id`. */
+  const copyTable = (oldId: string, id: string, table: TableData): void => {
+    const rowIds = new Map(table.rows.map((r) => [r.id, makeId()]));
+    const colIds = new Map(table.cols.map((c) => [c.id, makeId()]));
+    const cells: Record<string, CellProps> = {};
+    for (const [key, props] of Object.entries(table.cells ?? {})) {
+      const [r, c] = key.split(':') as [string, string];
+      const row = rowIds.get(r);
+      const col = colIds.get(c);
+      if (row !== undefined && col !== undefined) cells[cellKey(row, col)] = props;
+    }
+    tables[id] = {
+      ...table,
+      rows: table.rows.map((r) => ({ ...r, id: rowIds.get(r.id)! })),
+      cols: table.cols.map((c) => ({ ...c, id: colIds.get(c.id)! })),
+      cells,
+    };
+    if (!Object.keys(cells).length) delete tables[id]!.cells;
+    for (const r of table.rows) {
+      for (const c of table.cols) {
+        const cell = content.stories?.[cellStoryId(oldId, r.id, c.id)];
+        if (cell) stories[cellStoryId(id, rowIds.get(r.id)!, colIds.get(c.id)!)] = visit(cell);
+      }
+    }
+  };
+
+  /** Copies the header and footer stories of section `oldId` under the new id `id`. */
+  const copySectionStories = (oldId: string, id: string): void => {
+    for (const [sid, story] of Object.entries(content.stories ?? {})) {
+      const h = headerSection(sid);
+      if (h && h.sectionId === oldId) stories[headerStoryId(id, h.kind, h.variant)] = visit(story);
+    }
+  };
+
   const remap = (obj: ObjectData): ObjectData => {
     if (obj.kind === 'table') {
       const table = content.tables?.[obj.id];
       const id = makeId();
-      if (!table) return { ...obj, id };
-      const rowIds = new Map(table.rows.map((r) => [r.id, makeId()]));
-      const colIds = new Map(table.cols.map((c) => [c.id, makeId()]));
-      const cells: Record<string, CellProps> = {};
-      for (const [key, props] of Object.entries(table.cells ?? {})) {
-        const [r, c] = key.split(':') as [string, string];
-        if (rowIds.has(r) && colIds.has(c)) cells[`${rowIds.get(r)}:${colIds.get(c)}`] = props;
-      }
-      tables[id] = {
-        ...table,
-        rows: table.rows.map((r) => ({ ...r, id: rowIds.get(r.id)! })),
-        cols: table.cols.map((c) => ({ ...c, id: colIds.get(c.id)! })),
-        cells,
-      };
-      if (!Object.keys(cells).length) delete tables[id]!.cells;
-      for (const r of table.rows) {
-        for (const c of table.cols) {
-          const cell = content.stories?.[cellStoryId(obj.id, r.id, c.id)];
-          if (cell) stories[cellStoryId(id, rowIds.get(r.id)!, colIds.get(c.id)!)] = visit(cell);
-        }
-      }
+      if (table) copyTable(obj.id, id, table);
       return { ...obj, id };
     }
     if (obj.kind === 'footnote') {
@@ -67,10 +81,7 @@ export function freshIds(content: Content, makeId: () => string = newId): Conten
     }
     if (obj.kind === 'sectionBreak') {
       const id = makeId();
-      for (const [sid, story] of Object.entries(content.stories ?? {})) {
-        const h = headerSection(sid);
-        if (h && h.sectionId === obj.id) stories[headerStoryId(id, h.kind, h.variant)] = visit(story);
-      }
+      copySectionStories(obj.id, id);
       return { ...obj, id };
     }
     if (obj.kind === 'image') return { ...obj, id: makeId() };

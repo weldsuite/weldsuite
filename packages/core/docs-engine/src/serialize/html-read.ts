@@ -45,6 +45,25 @@ type Item =
   | { kind: 'tab'; style: TextStyle }
   | { kind: 'object'; data: ObjectData; style: TextStyle };
 
+type ListKind = 'bullet' | 'numbered' | 'check';
+
+const NEW_LIST: Record<ListKind, () => ListDef> = { bullet: bulletList, numbered: numberedList, check: checkList };
+
+/** The marker text a list level shows in `format`. */
+function levelText(format: ListFormat, level: number): string {
+  if (format === 'bullet') return ['●', '○', '■'][level % 3]!;
+  if (format === 'check') return '☐';
+  return `%${level + 1}.`;
+}
+
+/** Numbering of an `<ol type="…">`. */
+const OL_TYPE_FORMATS = new Map<string, ListFormat>([
+  ['a', 'lowerAlpha'],
+  ['A', 'upperAlpha'],
+  ['i', 'lowerRoman'],
+  ['I', 'upperRoman'],
+]);
+
 interface Ctx {
   text: TextStyle;
   para: ParaProps;
@@ -75,9 +94,9 @@ class HtmlReader {
     return this.styles instanceof Map ? this.styles.has(id) : Object.hasOwn(this.styles, id);
   }
 
-  newList(kind: 'bullet' | 'numbered' | 'check'): string {
+  newList(kind: ListKind): string {
     const id = this.makeId();
-    this.lists[id] = kind === 'bullet' ? bulletList() : kind === 'numbered' ? numberedList() : checkList();
+    this.lists[id] = NEW_LIST[kind]();
     return id;
   }
 
@@ -87,7 +106,7 @@ class HtmlReader {
     if (!l) return;
     if (l.format !== format) {
       l.format = format;
-      l.text = format === 'bullet' ? ['●', '○', '■'][level % 3]! : format === 'check' ? '☐' : `%${level + 1}.`;
+      l.text = levelText(format, level);
     }
     if (start !== undefined) l.start = start;
   }
@@ -163,7 +182,7 @@ class Converter {
 
     switch (tag) {
       case 'br':
-        if (el.attrs['data-weld'] === 'pageBreak' || /always|page/.test(css.get('page-break-before') ?? css.get('break-before') ?? '')) {
+        if (el.attrs['data-weld'] === 'pageBreak' || breaksPageBefore(css)) {
           this.items.push({ kind: 'object', data: { kind: 'pageBreak' }, style: {} });
         } else {
           this.items.push({ kind: 'break', style: ctx.text });
@@ -220,24 +239,33 @@ class Converter {
   private paraProps(tag: string, el: HtmlElement, css: Map<string, string>, parent: Ctx): ParaProps {
     const props: ParaProps = {};
     const inherited = parent.para;
-    // Named style: headings, our own marker, Google Docs' and Word's classes; blockquote and pre.
+    const style = this.namedStyle(tag, el, inherited);
+    if (style) props.style = style;
+    const align = paraAlign(tag, el, css, inherited);
+    if (align) props.align = align;
+    this.listProps(props, tag, el, css, parent);
+    if (!props.list) indentProps(props, tag, css, inherited);
+    spacingProps(props, el, css);
+    return props;
+  }
+
+  /** Named style: headings, our own marker, Google Docs' and Word's classes; blockquote and pre. */
+  private namedStyle(tag: string, el: HtmlElement, inherited: ParaProps): string | undefined {
     const heading = /^h([1-6])$/.exec(tag);
+    if (heading) return `heading${heading[1]}`;
     const weld = el.attrs['data-weld-style'];
+    if (weld && this.reader.hasStyle(weld)) return weld;
     const cls = (el.attrs.class ?? '').toLowerCase();
-    if (heading) props.style = `heading${heading[1]}`;
-    else if (weld && this.reader.hasStyle(weld)) props.style = weld;
-    else if (/\btitle\b|msotitle/.test(cls)) props.style = 'title';
-    else if (/\bsubtitle\b|msosubtitle/.test(cls)) props.style = 'subtitle';
-    else if (tag === 'pre') props.style = 'code';
-    else if (tag === 'blockquote' || /msoquote/.test(cls)) props.style = 'quote';
-    else if (inherited.style) props.style = inherited.style;
+    if (/\btitle\b|msotitle/.test(cls)) return 'title';
+    if (/\bsubtitle\b|msosubtitle/.test(cls)) return 'subtitle';
+    if (tag === 'pre') return 'code';
+    if (tag === 'blockquote' || /msoquote/.test(cls)) return 'quote';
+    return inherited.style;
+  }
 
-    const align = (css.get('text-align') ?? el.attrs.align ?? '').toLowerCase();
-    if (align === 'center' || align === 'right' || align === 'justify') props.align = align;
-    else if (align === 'left' || align === 'start') props.align = 'left';
-    else if (inherited.align) props.align = inherited.align;
-    if (tag === 'center') props.align = 'center';
-
+  /** List membership: Word's `mso-list`, an `<li>` of the list being read, or the enclosing item's. */
+  private listProps(props: ParaProps, tag: string, el: HtmlElement, css: Map<string, string>, parent: Ctx): void {
+    const inherited = parent.para;
     const list = parent.list;
     const mso = /l(\d+)\s+level(\d+)\s+lfo(\d+)/i.exec(css.get('mso-list') ?? '');
     if (mso) {
@@ -255,117 +283,14 @@ class Converter {
       props.list = inherited.list;
       if (inherited.checked !== undefined) props.checked = inherited.checked;
     }
-
-    if (!props.list) {
-      const left = parseLength(css.get('margin-left') ?? css.get('padding-left'));
-      if (left && left > 0) props.indentLeft = round(left + (inherited.indentLeft ?? 0));
-      else if (inherited.indentLeft) props.indentLeft = inherited.indentLeft;
-      if (tag === 'blockquote' && !left) props.indentLeft = (inherited.indentLeft ?? 0) + 36;
-      const first = parseLength(css.get('text-indent'));
-      if (first) props.indentFirst = round(first);
-    }
-    const right = parseLength(css.get('margin-right'));
-    if (right && right > 0) props.indentRight = round(right);
-    const before = parseLength(css.get('margin-top'));
-    if (before && before > 0) props.spaceBefore = round(before);
-    const after = parseLength(css.get('margin-bottom'));
-    if (after && after > 0) props.spaceAfter = round(after);
-    const lh = css.get('line-height');
-    if (lh && lh !== 'normal') {
-      if (/^[\d.]+$/.test(lh)) props.lineHeight = clamp(parseFloat(lh), 0.5, 5);
-      else if (lh.endsWith('%')) props.lineHeight = clamp(parseFloat(lh) / 100, 0.5, 5);
-      else {
-        const exact = parseLength(lh);
-        if (exact && exact > 0) props.lineHeightExact = round(exact);
-      }
-    }
-    const shading = parseColor(css.get('background-color') ?? css.get('background'));
-    if (shading && shading !== '#ffffff') props.shading = shading;
-    if ((css.get('direction') ?? el.attrs.dir) === 'rtl') props.direction = 'rtl';
-    if (/always|page/.test(css.get('page-break-before') ?? css.get('break-before') ?? '')) props.pageBreakBefore = true;
-    return props;
   }
 
   private textStyle(tag: string, el: HtmlElement, css: Map<string, string>, parent: TextStyle): TextStyle {
     const s: TextStyle = { ...parent };
-    switch (tag) {
-      case 'b':
-      case 'strong':
-        s.bold = true;
-        break;
-      case 'i':
-      case 'em':
-      case 'cite':
-      case 'var':
-        s.italic = true;
-        break;
-      case 'u':
-      case 'ins':
-        s.underline = true;
-        break;
-      case 's':
-      case 'strike':
-      case 'del':
-        s.strike = true;
-        break;
-      case 'sup':
-        s.script = 'super';
-        break;
-      case 'sub':
-        s.script = 'sub';
-        break;
-      case 'code':
-      case 'kbd':
-      case 'samp':
-      case 'tt':
-        s.font = 'Courier New';
-        break;
-      case 'mark':
-        s.highlight = '#ffff00';
-        break;
-      case 'a': {
-        const href = (el.attrs.href ?? '').trim();
-        if (href && isSafeLink(href) && !/^#fn/.test(href)) s.link = href.slice(0, 4096);
-        break;
-      }
-      case 'font': {
-        const face = parseFontFamily(el.attrs.face);
-        if (face) s.font = face;
-        const color = parseColor(el.attrs.color);
-        if (color) s.color = color;
-        const size = Number(el.attrs.size);
-        if (size >= 1 && size <= 7) s.size = [7.5, 10, 12, 13.5, 18, 24, 36][size - 1];
-        break;
-      }
-    }
-    const weight = css.get('font-weight');
-    if (weight) s.bold = /bold|bolder|[6-9]00/.test(weight);
-    const fontStyle = css.get('font-style');
-    if (fontStyle) s.italic = /italic|oblique/.test(fontStyle);
-    const deco = css.get('text-decoration-line') ?? css.get('text-decoration');
-    if (deco) {
-      if (/none/.test(deco)) {
-        s.underline = false;
-        s.strike = false;
-      }
-      if (/underline/.test(deco)) s.underline = true;
-      if (/line-through/.test(deco)) s.strike = true;
-    }
-    const color = parseColor(css.get('color'));
-    if (color) s.color = color;
-    const bg = parseColor(css.get('background-color') ?? css.get('mso-highlight') ?? css.get('background'));
-    if (bg && !BLOCK_TAGS.has(tag) && bg !== '#ffffff') s.highlight = bg;
-    const font = parseFontFamily(css.get('font-family'));
-    if (font) s.font = font;
-    const size = parseLength(css.get('font-size'), parent.size ?? 11);
-    if (size && size > 0) s.size = clamp(round(size * 2) / 2, 1, 400);
-    const va = css.get('vertical-align');
-    if (va === 'super' || va === 'sub') s.script = va;
-    else if (va === 'baseline') delete s.script;
-    if (css.get('font-variant') === 'small-caps') s.smallCaps = true;
-    if (css.get('text-transform') === 'uppercase') s.allCaps = true;
-    const spacing = parseLength(css.get('letter-spacing'));
-    if (spacing) s.spacing = clamp(round(spacing), -100, 100);
+    tagTextStyle(s, tag, el);
+    cssEmphasis(s, css);
+    cssColors(s, tag, css);
+    cssFont(s, css, parent);
     return s;
   }
 
@@ -387,90 +312,26 @@ class Converter {
 
   private list(el: HtmlElement, ctx: Ctx): void {
     this.flush(false);
-    const kind = el.tag === 'ol' ? 'numbered' : el.attrs['data-weld-list'] === 'check' ? 'check' : 'bullet';
-    let list: { id: string; level: number };
-    if (ctx.list) {
-      list = { id: ctx.list.id, level: Math.min(8, ctx.list.level + 1) };
-    } else {
-      list = { id: this.reader.newList(kind), level: 0 };
-    }
-    const typeAttr = el.attrs.type;
-    const format: ListFormat =
-      kind === 'check' ? 'check' : kind === 'bullet' ? 'bullet' : typeAttr === 'a' ? 'lowerAlpha' : typeAttr === 'A' ? 'upperAlpha' : typeAttr === 'i' ? 'lowerRoman' : typeAttr === 'I' ? 'upperRoman' : 'decimal';
-    const start = el.attrs.start !== undefined && /^\d+$/.test(el.attrs.start) ? Number(el.attrs.start) : undefined;
-    this.reader.setLevel(list.id, list.level, format, start);
-    const { list: _outerList, ...para } = ctx.para;
+    const kind = listKind(el);
+    const list = ctx.list ? { id: ctx.list.id, level: Math.min(8, ctx.list.level + 1) } : { id: this.reader.newList(kind), level: 0 };
+    this.reader.setLevel(list.id, list.level, listFormat(kind, el.attrs.type), listStart(el));
+    // The items get the new list, not the one of the paragraph around it.
+    const para: ParaProps = { ...ctx.para };
+    delete para.list;
     const inner: Ctx = { ...ctx, list, para };
     for (const child of el.children) {
-      if (child.type === 'element' && child.tag !== 'li' && child.tag !== 'ul' && child.tag !== 'ol') {
-        // Content directly in a list (bad markup): treat as an item.
-        this.element({ ...child, tag: BLOCK_TAGS.has(child.tag) ? child.tag : 'li', children: BLOCK_TAGS.has(child.tag) ? child.children : [child] }, inner);
-      } else if (child.type === 'element') {
-        this.element(child, inner);
-      }
+      if (child.type !== 'element') continue;
+      const isItem = child.tag === 'li' || child.tag === 'ul' || child.tag === 'ol';
+      this.element(isItem ? child : asListItem(child), inner);
     }
   }
 
   private table(el: HtmlElement, ctx: Ctx): void {
     this.flush(false);
-    const rows: HtmlElement[] = [];
-    const headerRows = new Set<HtmlElement>();
-    const collect = (node: HtmlElement, inHead: boolean) => {
-      for (const c of node.children) {
-        if (c.type !== 'element') continue;
-        if (c.tag === 'tr') {
-          rows.push(c);
-          if (inHead) headerRows.add(c);
-        } else if (c.tag === 'thead' || c.tag === 'tbody' || c.tag === 'tfoot') collect(c, c.tag === 'thead');
-      }
-    };
-    collect(el, false);
+    const { rows, headerRows } = collectRows(el);
     if (!rows.length) return;
-
-    // Place cells on a grid, as browsers do, so row/column spans line up.
-    const grid: (TableCellInput | null)[][] = [];
-    const taken: boolean[][] = [];
-    let colCount = 0;
-    const widths: (number | null)[] = [];
-    rows.forEach((tr, r) => {
-      grid[r] ??= [];
-      taken[r] ??= [];
-      let c = 0;
-      for (const td of tr.children) {
-        if (td.type !== 'element' || (td.tag !== 'td' && td.tag !== 'th')) continue;
-        while (taken[r]![c]) c++;
-        const colSpan = clamp(Number(td.attrs.colspan) || 1, 1, 100);
-        const rowSpan = clamp(Number(td.attrs.rowspan) || 1, 1, 1000);
-        const css = parseStyleAttr(td.attrs.style);
-        const props: CellProps = {};
-        if (colSpan > 1) props.colSpan = colSpan;
-        if (rowSpan > 1) props.rowSpan = Math.min(rowSpan, rows.length - r);
-        const bg = parseColor(css.get('background-color') ?? css.get('background') ?? td.attrs.bgcolor);
-        if (bg) props.background = bg;
-        const va = css.get('vertical-align') ?? td.attrs.valign;
-        if (va === 'middle' || va === 'bottom' || va === 'top') props.vAlign = va;
-        const pad = parseLength(css.get('padding'));
-        if (pad !== null && pad >= 0) props.padding = round(pad);
-        const width = parseLength(css.get('width') ?? td.attrs.width);
-        if (width && colSpan === 1 && widths[c] == null) widths[c] = width;
-        const converter = new Converter(this.reader);
-        converter.nodes(td.children, { text: td.tag === 'th' ? { ...ctx.text, bold: true } : ctx.text, para: {}, pre: false });
-        grid[r]![c] = { content: converter.finish(), props };
-        for (let dr = 0; dr < (props.rowSpan ?? 1); dr++) {
-          taken[r + dr] ??= [];
-          for (let dc = 0; dc < colSpan; dc++) taken[r + dr]![c + dc] = true;
-        }
-        c += colSpan;
-        colCount = Math.max(colCount, c);
-      }
-    });
-    for (const col of el.children.filter((c): c is HtmlElement => c.type === 'element' && (c.tag === 'colgroup' || c.tag === 'col'))) {
-      const cols = col.tag === 'col' ? [col] : col.children.filter((c): c is HtmlElement => c.type === 'element' && c.tag === 'col');
-      cols.forEach((c, i) => {
-        const w = parseLength(parseStyleAttr(c.attrs.style).get('width') ?? c.attrs.width);
-        if (w) widths[i] = w;
-      });
-    }
+    const { grid, widths, colCount } = this.placeCells(rows, ctx);
+    applyColWidths(el, widths);
     if (colCount === 0) return;
     const known = widths.slice(0, colCount).filter((w): w is number => !!w);
     const fallback = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 451 / colCount;
@@ -481,6 +342,50 @@ class Converter {
       headerRows: headerCount < 0 ? 0 : Math.min(headerCount, rows.length - 1),
     });
     this.builder.endParagraph(this.para);
+  }
+
+  /** Places cells on a grid, as browsers do, so row/column spans line up. */
+  private placeCells(rows: HtmlElement[], ctx: Ctx): { grid: (TableCellInput | null)[][]; widths: (number | null)[]; colCount: number } {
+    const grid: (TableCellInput | null)[][] = [];
+    const taken: boolean[][] = [];
+    const widths: (number | null)[] = [];
+    let colCount = 0;
+    for (let r = 0; r < rows.length; r++) {
+      const gridRow: (TableCellInput | null)[] = [];
+      grid[r] = gridRow;
+      taken[r] ??= [];
+      let c = 0;
+      for (const td of rows[r]!.children.filter(isCell)) {
+        while (taken[r]![c]) c++;
+        const cell = this.readCell(td, ctx, rows.length - r);
+        if (cell.width && cell.colSpan === 1 && widths[c] == null) widths[c] = cell.width;
+        gridRow[c] = cell.input;
+        markTaken(taken, r, c, cell.input.props?.rowSpan ?? 1, cell.colSpan);
+        c += cell.colSpan;
+        colCount = Math.max(colCount, c);
+      }
+    }
+    return { grid, widths, colCount };
+  }
+
+  /** One `<td>`/`<th>`: its properties and content; a row span is cut at the table's last row. */
+  private readCell(td: HtmlElement, ctx: Ctx, rowsLeft: number): { input: TableCellInput; colSpan: number; width: number | null } {
+    const colSpan = clamp(Number(td.attrs.colspan) || 1, 1, 100);
+    const rowSpan = clamp(Number(td.attrs.rowspan) || 1, 1, 1000);
+    const css = parseStyleAttr(td.attrs.style);
+    const props: CellProps = {};
+    if (colSpan > 1) props.colSpan = colSpan;
+    if (rowSpan > 1) props.rowSpan = Math.min(rowSpan, rowsLeft);
+    const bg = parseColor(css.get('background-color') ?? css.get('background') ?? td.attrs.bgcolor);
+    if (bg) props.background = bg;
+    const va = css.get('vertical-align') ?? td.attrs.valign;
+    if (va === 'middle' || va === 'bottom' || va === 'top') props.vAlign = va;
+    const pad = parseLength(css.get('padding'));
+    if (pad !== null && pad >= 0) props.padding = round(pad);
+    const width = parseLength(css.get('width') ?? td.attrs.width);
+    const converter = new Converter(this.reader);
+    converter.nodes(td.children, { text: td.tag === 'th' ? { ...ctx.text, bold: true } : ctx.text, para: {}, pre: false });
+    return { input: { content: converter.finish(), props }, colSpan, width };
   }
 
   /**
@@ -518,6 +423,225 @@ class Converter {
   }
 }
 
+// ---------------------------------------------------------------- paragraph properties
+
+function paraAlign(tag: string, el: HtmlElement, css: Map<string, string>, inherited: ParaProps): ParaProps['align'] {
+  if (tag === 'center') return 'center';
+  const align = (css.get('text-align') ?? el.attrs.align ?? '').toLowerCase();
+  if (align === 'center' || align === 'right' || align === 'justify') return align;
+  if (align === 'left' || align === 'start') return 'left';
+  return inherited.align;
+}
+
+/** Left and first-line indents, for paragraphs outside a list (a list sets its own). */
+function indentProps(props: ParaProps, tag: string, css: Map<string, string>, inherited: ParaProps): void {
+  const left = parseLength(css.get('margin-left') ?? css.get('padding-left'));
+  if (left && left > 0) props.indentLeft = round(left + (inherited.indentLeft ?? 0));
+  else if (inherited.indentLeft) props.indentLeft = inherited.indentLeft;
+  if (tag === 'blockquote' && !left) props.indentLeft = (inherited.indentLeft ?? 0) + 36;
+  const first = parseLength(css.get('text-indent'));
+  if (first) props.indentFirst = round(first);
+}
+
+/** Right indent, spacing, line height, shading, direction and page break. */
+function spacingProps(props: ParaProps, el: HtmlElement, css: Map<string, string>): void {
+  const right = positiveLength(css.get('margin-right'));
+  if (right) props.indentRight = round(right);
+  const before = positiveLength(css.get('margin-top'));
+  if (before) props.spaceBefore = round(before);
+  const after = positiveLength(css.get('margin-bottom'));
+  if (after) props.spaceAfter = round(after);
+  lineHeightProps(props, css.get('line-height'));
+  const shading = parseColor(css.get('background-color') ?? css.get('background'));
+  if (shading && shading !== '#ffffff') props.shading = shading;
+  if ((css.get('direction') ?? el.attrs.dir) === 'rtl') props.direction = 'rtl';
+  if (breaksPageBefore(css)) props.pageBreakBefore = true;
+}
+
+/** `line-height` as a multiple (unitless or %) or an exact height (a length). */
+function lineHeightProps(props: ParaProps, lh: string | undefined): void {
+  if (!lh || lh === 'normal') return;
+  if (/^[\d.]+$/.test(lh)) props.lineHeight = clamp(parseFloat(lh), 0.5, 5);
+  else if (lh.endsWith('%')) props.lineHeight = clamp(parseFloat(lh) / 100, 0.5, 5);
+  else {
+    const exact = positiveLength(lh);
+    if (exact) props.lineHeightExact = round(exact);
+  }
+}
+
+/** A length in points when it is above zero, else null. */
+function positiveLength(value: string | undefined): number | null {
+  const n = parseLength(value);
+  return n && n > 0 ? n : null;
+}
+
+function breaksPageBefore(css: Map<string, string>): boolean {
+  return /always|page/.test(css.get('page-break-before') ?? css.get('break-before') ?? '');
+}
+
+// ---------------------------------------------------------------- text style
+
+/** What the tag itself means: `<b>`, `<em>`, `<a href>`, `<font>` and the like. */
+function tagTextStyle(s: TextStyle, tag: string, el: HtmlElement): void {
+  switch (tag) {
+    case 'b':
+    case 'strong':
+      s.bold = true;
+      break;
+    case 'i':
+    case 'em':
+    case 'cite':
+    case 'var':
+      s.italic = true;
+      break;
+    case 'u':
+    case 'ins':
+      s.underline = true;
+      break;
+    case 's':
+    case 'strike':
+    case 'del':
+      s.strike = true;
+      break;
+    case 'sup':
+      s.script = 'super';
+      break;
+    case 'sub':
+      s.script = 'sub';
+      break;
+    case 'code':
+    case 'kbd':
+    case 'samp':
+    case 'tt':
+      s.font = 'Courier New';
+      break;
+    case 'mark':
+      s.highlight = '#ffff00';
+      break;
+    case 'a': {
+      const href = (el.attrs.href ?? '').trim();
+      if (href && isSafeLink(href) && !/^#fn/.test(href)) s.link = href.slice(0, 4096);
+      break;
+    }
+    case 'font':
+      fontTagStyle(s, el);
+      break;
+  }
+}
+
+/** The old `<font face color size>` attributes. */
+function fontTagStyle(s: TextStyle, el: HtmlElement): void {
+  const face = parseFontFamily(el.attrs.face);
+  if (face) s.font = face;
+  const color = parseColor(el.attrs.color);
+  if (color) s.color = color;
+  const size = Number(el.attrs.size);
+  if (size >= 1 && size <= 7) s.size = [7.5, 10, 12, 13.5, 18, 24, 36][size - 1];
+}
+
+/** Bold, italic, underline and strikethrough from CSS. */
+function cssEmphasis(s: TextStyle, css: Map<string, string>): void {
+  const weight = css.get('font-weight');
+  if (weight) s.bold = /bold|bolder|[6-9]00/.test(weight);
+  const fontStyle = css.get('font-style');
+  if (fontStyle) s.italic = /italic|oblique/.test(fontStyle);
+  const deco = css.get('text-decoration-line') ?? css.get('text-decoration');
+  if (!deco) return;
+  if (/none/.test(deco)) {
+    s.underline = false;
+    s.strike = false;
+  }
+  if (/underline/.test(deco)) s.underline = true;
+  if (/line-through/.test(deco)) s.strike = true;
+}
+
+/** Text colour, and a background as highlight (not on blocks, whose background is shading). */
+function cssColors(s: TextStyle, tag: string, css: Map<string, string>): void {
+  const color = parseColor(css.get('color'));
+  if (color) s.color = color;
+  const bg = parseColor(css.get('background-color') ?? css.get('mso-highlight') ?? css.get('background'));
+  if (bg && !BLOCK_TAGS.has(tag) && bg !== '#ffffff') s.highlight = bg;
+}
+
+/** Font, size, script, caps and letter spacing from CSS. */
+function cssFont(s: TextStyle, css: Map<string, string>, parent: TextStyle): void {
+  const font = parseFontFamily(css.get('font-family'));
+  if (font) s.font = font;
+  const size = parseLength(css.get('font-size'), parent.size ?? 11);
+  if (size && size > 0) s.size = clamp(round(size * 2) / 2, 1, 400);
+  const va = css.get('vertical-align');
+  if (va === 'super' || va === 'sub') s.script = va;
+  else if (va === 'baseline') delete s.script;
+  if (css.get('font-variant') === 'small-caps') s.smallCaps = true;
+  if (css.get('text-transform') === 'uppercase') s.allCaps = true;
+  const spacing = parseLength(css.get('letter-spacing'));
+  if (spacing) s.spacing = clamp(round(spacing), -100, 100);
+}
+
+// ---------------------------------------------------------------- lists and tables
+
+function listKind(el: HtmlElement): ListKind {
+  if (el.tag === 'ol') return 'numbered';
+  return el.attrs['data-weld-list'] === 'check' ? 'check' : 'bullet';
+}
+
+function listFormat(kind: ListKind, typeAttr: string | undefined): ListFormat {
+  if (kind === 'check') return 'check';
+  if (kind === 'bullet') return 'bullet';
+  return OL_TYPE_FORMATS.get(typeAttr ?? '') ?? 'decimal';
+}
+
+function listStart(el: HtmlElement): number | undefined {
+  const start = el.attrs.start;
+  return start !== undefined && /^\d+$/.test(start) ? Number(start) : undefined;
+}
+
+/** Content directly in a list (bad markup) is read as an item. */
+function asListItem(child: HtmlElement): HtmlElement {
+  return BLOCK_TAGS.has(child.tag) ? { ...child } : { ...child, tag: 'li', children: [child] };
+}
+
+/** The table's rows, through thead/tbody/tfoot, and which of them sit in a thead. */
+function collectRows(table: HtmlElement): { rows: HtmlElement[]; headerRows: Set<HtmlElement> } {
+  const rows: HtmlElement[] = [];
+  const headerRows = new Set<HtmlElement>();
+  const collect = (node: HtmlElement, inHead: boolean) => {
+    for (const c of node.children) {
+      if (c.type !== 'element') continue;
+      if (c.tag === 'tr') {
+        rows.push(c);
+        if (inHead) headerRows.add(c);
+      } else if (c.tag === 'thead' || c.tag === 'tbody' || c.tag === 'tfoot') collect(c, c.tag === 'thead');
+    }
+  };
+  collect(table, false);
+  return { rows, headerRows };
+}
+
+function isCell(node: HtmlNode): node is HtmlElement {
+  return node.type === 'element' && (node.tag === 'td' || node.tag === 'th');
+}
+
+/** Marks the grid slots a cell covers. */
+function markTaken(taken: boolean[][], r: number, c: number, rowSpan: number, colSpan: number): void {
+  for (let dr = 0; dr < rowSpan; dr++) {
+    taken[r + dr] ??= [];
+    const row = taken[r + dr]!;
+    for (let dc = 0; dc < colSpan; dc++) row[c + dc] = true;
+  }
+}
+
+/** Column widths given by `<col>` elements (directly or in a `<colgroup>`) override the cells'. */
+function applyColWidths(table: HtmlElement, widths: (number | null)[]): void {
+  for (const col of table.children.filter((c): c is HtmlElement => c.type === 'element' && (c.tag === 'colgroup' || c.tag === 'col'))) {
+    const cols = col.tag === 'col' ? [col] : col.children.filter((c): c is HtmlElement => c.type === 'element' && c.tag === 'col');
+    cols.forEach((c, i) => {
+      const w = parseLength(parseStyleAttr(c.attrs.style).get('width') ?? c.attrs.width);
+      if (w) widths[i] = w;
+    });
+  }
+}
+
 /** Collapses spaces across items and trims the paragraph's ends. */
 function trimItems(items: Item[]): void {
   let prevSpace = true;
@@ -532,13 +656,20 @@ function trimItems(items: Item[]): void {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]!;
     if (item.kind !== 'text') break;
-    item.text = item.text.replace(/ +$/, '');
+    item.text = trimTrailingSpaces(item.text);
     if (item.text) break;
   }
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]!;
     if (item.kind === 'text' && !item.text) items.splice(i, 1);
   }
+}
+
+/** `s` without its trailing plain spaces (other whitespace stays). */
+function trimTrailingSpaces(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === ' ') end--;
+  return s.slice(0, end);
 }
 
 function withoutDefaults(style: TextStyle, named: TextStyle): TextStyle {

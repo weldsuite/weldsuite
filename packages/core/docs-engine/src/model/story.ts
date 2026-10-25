@@ -89,12 +89,11 @@ export class Story {
   slice(from: number, to: number): StoryPiece {
     const piece: StoryPiece = { text: '', styles: [], attrs: new Map() };
     if (from >= to) return piece;
-    this.walk(from, to, (chunk, start, end, base) => {
+    this.walk(from, to, (chunk, start, end) => {
       const at = piece.text.length;
       piece.text += chunk.text.slice(start, end);
       for (let i = start; i < end; i++) piece.styles.push(chunk.styles[i]!);
       if (chunk.attrs) for (const [o, a] of chunk.attrs) if (o >= start && o < end) piece.attrs.set(at + o - start, a);
-      void base;
     });
     return piece;
   }
@@ -176,21 +175,11 @@ export class Story {
     const [c2, o2] = this.locate(to, true);
     const first = this.chunks[c1]!;
     const last = this.chunks[c2]!;
-    const text = first.text.slice(0, o1) + last.text.slice(o2);
-    const styles = first.styles.slice(0, o1).concat(last.styles.slice(o2));
-    const attrs = new Map<number, Attr>();
-    if (first.attrs) for (const [o, a] of first.attrs) if (o < o1) attrs.set(o, a);
-    if (last.attrs) for (const [o, a] of last.attrs) if (o >= o2) attrs.set(o1 + o - o2, a);
-    const merged: Chunk = { text, styles, attrs: attrs.size ? attrs : null };
+    const merged = joinChunks(first, o1, last, o2);
     this.chunks.splice(c1, c2 - c1 + 1, merged);
     this.starts.splice(c1 + 1, c2 - c1);
     this.validTo = Math.min(this.validTo, c1);
-    if (merged.text.length === 0 && this.chunks.length > 1) {
-      this.chunks.splice(c1, 1);
-      this.starts.splice(c1, 1);
-      this.starts[0] = 0;
-      this.validTo = Math.max(0, Math.min(this.validTo, c1 - 1));
-    }
+    if (merged.text.length === 0 && this.chunks.length > 1) this.dropChunk(c1);
     this.length -= to - from;
     this.version++;
     return removed;
@@ -245,24 +234,21 @@ export class Story {
     return [lo, pos - this.starts[lo]!];
   }
 
+  /** Removes the (empty) chunk `ci`; a story always keeps at least one chunk. */
+  private dropChunk(ci: number): void {
+    this.chunks.splice(ci, 1);
+    this.starts.splice(ci, 1);
+    this.starts[0] = 0;
+    this.validTo = Math.max(0, Math.min(this.validTo, ci - 1));
+  }
+
   private replaceChunk(ci: number, chunk: Chunk): void {
     if (chunk.text.length <= MAX_CHUNK) {
       this.chunks[ci] = chunk;
       this.validTo = Math.min(this.validTo, ci);
       return;
     }
-    const pieces: Chunk[] = [];
-    const size = MAX_CHUNK >> 1;
-    for (let start = 0; start < chunk.text.length; ) {
-      let end = Math.min(chunk.text.length, start + size);
-      // Never split a surrogate pair across chunks.
-      const code = chunk.text.charCodeAt(end - 1);
-      if (end < chunk.text.length && code >= 0xd800 && code <= 0xdbff) end++;
-      const attrs = new Map<number, Attr>();
-      if (chunk.attrs) for (const [o, a] of chunk.attrs) if (o >= start && o < end) attrs.set(o - start, a);
-      pieces.push({ text: chunk.text.slice(start, end), styles: chunk.styles.slice(start, end), attrs: attrs.size ? attrs : null });
-      start = end;
-    }
+    const pieces = splitChunk(chunk);
     this.chunks.splice(ci, 1, ...pieces);
     this.starts.splice(ci + 1, 0, ...new Array<number>(pieces.length - 1).fill(0));
     this.validTo = Math.min(this.validTo, ci);
@@ -283,4 +269,36 @@ export class Story {
       off = 0;
     }
   }
+}
+
+/** `first` up to `o1` followed by `last` from `o2`: what is left of a removal spanning them. */
+function joinChunks(first: Chunk, o1: number, last: Chunk, o2: number): Chunk {
+  const text = first.text.slice(0, o1) + last.text.slice(o2);
+  const styles = first.styles.slice(0, o1).concat(last.styles.slice(o2));
+  const attrs = new Map<number, Attr>();
+  if (first.attrs) for (const [o, a] of first.attrs) if (o < o1) attrs.set(o, a);
+  if (last.attrs) for (const [o, a] of last.attrs) if (o >= o2) attrs.set(o1 + o - o2, a);
+  return { text, styles, attrs: attrs.size ? attrs : null };
+}
+
+/** Cuts an oversized chunk into half-size pieces, never splitting a surrogate pair. */
+function splitChunk(chunk: Chunk): Chunk[] {
+  const pieces: Chunk[] = [];
+  const size = MAX_CHUNK >> 1;
+  let start = 0;
+  while (start < chunk.text.length) {
+    let end = Math.min(chunk.text.length, start + size);
+    const code = chunk.text.charCodeAt(end - 1);
+    if (end < chunk.text.length && code >= 0xd800 && code <= 0xdbff) end++;
+    pieces.push(chunkSlice(chunk, start, end));
+    start = end;
+  }
+  return pieces;
+}
+
+/** Copy of [start, end) of a chunk, attribute offsets made relative to `start`. */
+function chunkSlice(chunk: Chunk, start: number, end: number): Chunk {
+  const attrs = new Map<number, Attr>();
+  if (chunk.attrs) for (const [o, a] of chunk.attrs) if (o >= start && o < end) attrs.set(o - start, a);
+  return { text: chunk.text.slice(start, end), styles: chunk.styles.slice(start, end), attrs: attrs.size ? attrs : null };
 }
