@@ -18,8 +18,10 @@
  *
  * Following a chat is a `chat_channel_members` row. New followers get a
  * `channel_new` push on their user topic so the chat appears in their sidebar
- * live. WeldChat streams over its own ChatRoom DO / realtime path, not the
- * entity-event bus — no entity events are published here.
+ * live. Messages stream over WeldChat's own ChatRoom DO / realtime path; the
+ * roster changes publish the same `chat_channel` entity events as
+ * `/api/channels`: `created` when a record chat is created, `joined` on
+ * follow and `left` on unfollow.
  *
  * Permissions: channels:read (read, follow) | messages:create (post), plus the
  * record type's own permission (provider `requiredPermission`, e.g.
@@ -34,6 +36,7 @@ import {
   sendEntityMessageSchema,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import { publishChatMemberLeft } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import {
@@ -65,6 +68,28 @@ const writePerm = requirePermission('messages:create') as unknown as MiddlewareH
 /** The caller's permission check, app- and deny-aware like requirePermission. */
 function callerCan(c: AppContext): PermissionCheck {
   return (permission) => hasContextPermission(c, permission);
+}
+
+/**
+ * Publish a `chat_channel` entity event without letting a publish failure turn
+ * a done mutation into a 500 (same as the `/api/channels` routes).
+ */
+function publishChannelEvent(
+  c: AppContext,
+  action: 'created' | 'joined' | 'left',
+  channel: { id: string; name?: string; type?: string },
+): void {
+  try {
+    publishEntityEvent({
+      c,
+      entityType: 'chat_channel',
+      action,
+      entityId: channel.id,
+      data: { id: channel.id, name: channel.name, type: channel.type },
+    });
+  } catch (e) {
+    console.error('[chat-api/chat-entity-channels] entity event publish failed:', e);
+  }
 }
 
 function waitUntilFor(c: AppContext): (p: Promise<unknown>) => void {
@@ -196,6 +221,7 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
       input,
     );
     await announceNewFollowers(c.env, orgId, channel, newFollowerIds);
+    if (created) publishChannelEvent(c, 'created', channel);
 
     return success(c, { channel, message, createdChannel: created }, 201);
   } catch (err) {
@@ -231,6 +257,8 @@ app.post('/:entityType/:entityId/follow', readPerm, async (c) => {
     });
     const added = await addFollowers(db, channel.id, [userId]);
     await announceNewFollowers(c.env, orgId, channel, [...new Set([...newFollowerIds, ...added])]);
+    if (created) publishChannelEvent(c, 'created', channel);
+    if (created || added.length > 0) publishChannelEvent(c, 'joined', channel);
 
     return success(c, { channel, following: true, createdChannel: created });
   } catch (err) {
@@ -260,6 +288,7 @@ app.delete('/:entityType/:entityId/follow', readPerm, async (c) => {
       } catch (e) {
         console.error('[chat-api/chat-entity-channels] member-left publish failed:', e);
       }
+      publishChannelEvent(c, 'left', channel);
     }
     return noContent(c);
   } catch (err) {

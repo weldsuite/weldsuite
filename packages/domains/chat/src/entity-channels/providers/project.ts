@@ -101,8 +101,11 @@ export const projectEntityProvider: EntityChannelProvider = {
     return { ...project, ...(stats.get(entityId) ?? EMPTY_PROJECT_STATS), members };
   },
 
-  /** The project manager and active members of live projects. */
-  async filterVisible({ db, actingUserId }, entityIds) {
+  /**
+   * Live projects the caller manages or is an active member of, or every live
+   * project with `projects:scope:all` (as flow-domain's `resolveProjectAccess`).
+   */
+  async filterVisible({ db, actingUserId, can }, entityIds) {
     if (entityIds.length === 0) return new Set();
     const { projects, projectMembers } = schema;
 
@@ -110,6 +113,7 @@ export const projectEntityProvider: EntityChannelProvider = {
       .select({ id: projects.id, projectManagerId: projects.projectManagerId })
       .from(projects)
       .where(and(inArray(projects.id, entityIds), isNull(projects.deletedAt)));
+    if (await can('projects:scope:all')) return new Set(live.map((p) => p.id));
 
     const visible = new Set<string>();
     const others: string[] = [];

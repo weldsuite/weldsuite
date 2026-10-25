@@ -23,6 +23,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
 import { chatActivityRoutes } from './chat-activity';
 import { chatDmRoutes } from './chat-dm';
+import { chatEntityChannelsRoutes } from './chat-entity-channels';
 import { chatStatusRoutes } from './chat-status';
 
 const ROUTES_DIR = __dirname;
@@ -40,7 +41,7 @@ const EXEMPT_ROUTES = new Set<string>([
   'chat-activity', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
   'chat-directories', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
   'chat-dm', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
-  'chat-entity-channels', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
+  'chat-entity-channels', // No core-CRUD shape; follow / unfollow publish chat_channel joined / left.
   'chat-search', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
   'chat-status', // WeldChat — streams over its own ChatRoom DO, not the entity-event bus.
   // chat-calls — WeldChat call records, stream over the ChatRoom DO, not the entity-event bus.
@@ -58,6 +59,8 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/chat-dm', router: chatDmRoutes, permission: 'messages:read' },
   { mount: '/api/chat-status', router: chatStatusRoutes, permission: 'settings:read' },
   { mount: '/api/chat-activity', router: chatActivityRoutes, permission: 'messages:read' },
+  // Record chats — cursor paginated; with no record permission every type is left out.
+  { mount: '/api/chat-entity-channels', router: chatEntityChannelsRoutes, permission: 'channels:read' },
 ];
 
 describe('entity-event coverage', () => {

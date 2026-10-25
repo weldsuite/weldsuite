@@ -5,8 +5,15 @@
  * endpoints with their permission and deleted-record filtering.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+
+vi.mock('@weldsuite/entity-events', async () => {
+  const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
+  return { ...actual, publishEntityEvent: vi.fn() };
+});
+
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import { chatEntityChannelsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -316,6 +323,42 @@ describe('POST /:entityType/:entityId/messages · company and person', () => {
   });
 });
 
+describe('task and project visibility', () => {
+  const allows = (perms: string[]) => async (p: string) => perms.includes(p);
+  let projectId: string;
+  let taskId: string;
+
+  beforeAll(async () => {
+    const now = new Date();
+    projectId = generateId('prj');
+    taskId = generateId('tsk');
+    await db.insert(schema.projects).values({ id: projectId, name: 'Launch', projectManagerId: 'u_tp_pm', createdAt: now, updatedAt: now });
+    await db.insert(schema.projectMembers).values([
+      { id: generateId('pm'), projectId, userId: 'u_tp_member', role: 'member', isActive: true, createdAt: now, updatedAt: now, joinedAt: now },
+      // Removed from the project: flow-api only deactivates the row.
+      { id: generateId('pm'), projectId, userId: 'u_tp_removed', role: 'member', isActive: false, deletedAt: now, createdAt: now, updatedAt: now, joinedAt: now },
+    ]);
+    await db.insert(schema.tasks).values({ id: taskId, title: 'Ship it', projectId, createdAt: now, updatedAt: now } as typeof schema.tasks.$inferInsert);
+  });
+
+  const sees = (type: string, entityId: () => string, userId: string, perms: string[] = []) =>
+    getEntityProvider(type)!.canAccess({ db, actingUserId: userId, entityId: entityId(), can: allows(perms) });
+
+  it('opens a project task to its active members, not to someone removed from the project', async () => {
+    expect(await sees('task', () => taskId, 'u_tp_member')).toBe(true);
+    expect(await sees('task', () => taskId, 'u_tp_removed')).toBe(false);
+    expect(await sees('project', () => projectId, 'u_tp_removed')).toBe(false);
+  });
+
+  it('opens every live project and its tasks with projects:scope:all, as WeldFlow does', async () => {
+    expect(await sees('project', () => projectId, 'u_tp_admin')).toBe(false);
+    expect(await sees('task', () => taskId, 'u_tp_admin')).toBe(false);
+    expect(await sees('project', () => projectId, 'u_tp_admin', ['projects:scope:all'])).toBe(true);
+    expect(await sees('task', () => taskId, 'u_tp_admin', ['projects:scope:all'])).toBe(true);
+    expect(await sees('project', () => projectId, 'u_tp_pm')).toBe(true);
+  });
+});
+
 describe('POST / DELETE /:entityType/:entityId/follow', () => {
   it('follow creates the chat when nobody has written yet, with its default followers', async () => {
     await seedMember('u_fl_owner');
@@ -346,14 +389,23 @@ describe('POST / DELETE /:entityType/:entityId/follow', () => {
     const first = await api('u_uf_owner', CRM).json(`/company/${companyId}/messages`, 'POST', { content: 'hi' });
     const channelId = ((await first.json()) as { data: { channel: { id: string } } }).data.channel.id;
 
+    const events = vi.mocked(publishEntityEvent);
+    const channelEvents = () =>
+      events.mock.calls
+        .map(([e]) => e as { entityType: string; action: string; entityId: string })
+        .filter((e) => e.entityType === 'chat_channel' && e.entityId === channelId)
+        .map((e) => e.action);
+
     const me = api('u_uf_me', CRM);
     expect((await me.json(`/company/${companyId}/follow`, 'POST')).status).toBe(200);
     expect(await followerIds(channelId)).toEqual(['u_uf_me', 'u_uf_owner']);
     expect(me.realtime.channelNewFor(channelId)).toEqual(['u_uf_me']);
+    expect(channelEvents()).toEqual(['created', 'joined']);
 
     expect((await me.json(`/company/${companyId}/follow`, 'DELETE')).status).toBe(204);
     expect(await followerIds(channelId)).toEqual(['u_uf_owner']);
     expect(await memberCount(channelId)).toBe(1);
+    expect(channelEvents()).toEqual(['created', 'joined', 'left']);
     // Not following (any more) and no chat at all are both a quiet 204.
     expect((await me.json(`/company/${companyId}/follow`, 'DELETE')).status).toBe(204);
     expect((await me.json(`/company/${await seedCompany('No Chat')}/follow`, 'DELETE')).status).toBe(204);
