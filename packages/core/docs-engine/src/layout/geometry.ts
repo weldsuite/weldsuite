@@ -122,19 +122,25 @@ function lineOf(layout: ParagraphLayout, off: number, affinity: Affinity): { bi:
       if (b.offset === off) return { bi, table: true };
       continue;
     }
-    const lines = b.lines;
-    const first = lines[0]!;
-    const last = lines[lines.length - 1]!;
-    if (off < first.start || off >= last.end) continue;
-    for (let li = 0; li < lines.length; li++) {
-      const l = lines[li]!;
-      if (off >= l.start && off < l.end) {
-        if (affinity === 'backward' && off === l.start && li > 0 && isSoftWrap(lines[li - 1]!)) return { bi, li: li - 1 };
-        return { bi, li };
-      }
-    }
+    const li = lineIndex(b.lines, off, affinity);
+    if (li >= 0) return { bi, li };
   }
   return null;
+}
+
+/** Index of the line holding `off`, or -1. At a soft-wrapped line's start, backward affinity picks the line before. */
+function lineIndex(lines: LineLayout[], off: number, affinity: Affinity): number {
+  const first = lines[0]!;
+  const last = lines[lines.length - 1]!;
+  if (off < first.start || off >= last.end) return -1;
+  for (let li = 0; li < lines.length; li++) {
+    const l = lines[li]!;
+    if (off >= l.start && off < l.end) {
+      const before = affinity === 'backward' && off === l.start && li > 0 && isSoftWrap(lines[li - 1]!);
+      return before ? li - 1 : li;
+    }
+  }
+  return -1;
 }
 
 function isSoftWrap(line: LineLayout): boolean {
@@ -166,28 +172,38 @@ function prefixWidth(dl: DocLayout, run: RunLayout, n: number): number {
 
 /** Offset (from the paragraph start) nearest to x within a line, and whether it is the line's soft-wrapped end. */
 function offsetAtX(dl: DocLayout, line: LineLayout, x: number): { off: number; atWrapEnd: boolean } {
-  for (const run of line.runs) {
-    if (x >= run.x + run.width) continue;
-    if (x < run.x) return { off: run.start, atWrapEnd: false };
-    if (run.kind === 'text' && run.text !== undefined) {
-      // Binary search for the character boundary nearest to x.
-      let lo = 0;
-      let hi = run.text.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        const a = prefixWidth(dl, run, mid);
-        const b = prefixWidth(dl, run, mid + 1);
-        if (run.x + (a + b) / 2 < x) lo = mid + 1;
-        else hi = mid;
-      }
-      // Never between the halves of a surrogate pair.
-      const code = run.text.charCodeAt(lo);
-      if (code >= 0xdc00 && code <= 0xdfff) lo++;
-      return { off: run.start + lo, atWrapEnd: false };
-    }
-    if (run.kind === 'mark' || run.kind === 'break') return { off: run.start, atWrapEnd: false };
-    return { off: x < run.x + run.width / 2 ? run.start : run.end, atWrapEnd: false };
+  const run = line.runs.find((r) => x < r.x + r.width);
+  if (run) return { off: offsetInRun(dl, run, x), atWrapEnd: false };
+  return offsetPastLine(line);
+}
+
+/** Offset nearest to x, for an x left of the run's right edge. */
+function offsetInRun(dl: DocLayout, run: RunLayout, x: number): number {
+  if (x < run.x) return run.start;
+  if (run.kind === 'text' && run.text !== undefined) return run.start + charBoundaryAt(dl, run, run.text, x);
+  if (run.kind === 'mark' || run.kind === 'break') return run.start;
+  return x < run.x + run.width / 2 ? run.start : run.end;
+}
+
+/** Binary search for the character boundary of a text run nearest to x. */
+function charBoundaryAt(dl: DocLayout, run: RunLayout, text: string, x: number): number {
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const a = prefixWidth(dl, run, mid);
+    const b = prefixWidth(dl, run, mid + 1);
+    if (run.x + (a + b) / 2 < x) lo = mid + 1;
+    else hi = mid;
   }
+  // Never between the halves of a surrogate pair.
+  const code = text.charCodeAt(lo);
+  if (code >= 0xdc00 && code <= 0xdfff) lo++;
+  return lo;
+}
+
+/** Offset for an x past the line's last run: its mark or break, or its end (a soft-wrapped end). */
+function offsetPastLine(line: LineLayout): { off: number; atWrapEnd: boolean } {
   const last = line.runs[line.runs.length - 1];
   if (last && (last.kind === 'mark' || last.kind === 'break')) return { off: last.start, atWrapEnd: false };
   if (line.breakAfter || line.rule) return { off: Math.max(line.start, line.end - 1), atWrapEnd: false };
@@ -254,14 +270,20 @@ export function hitTest(dl: DocLayout, pageIndex: number, x: number, y: number):
     // The column nearest to x that has content.
     const cols = page.columns.filter((c) => c.items.length);
     area = cols.reduce<PageArea | undefined>((best, c) => {
-      const d = x < c.x ? c.x - x : x > c.x + c.width ? x - c.x - c.width : 0;
-      const bd = best ? (x < best.x ? best.x - x : x > best.x + best.width ? x - best.x - best.width : 0) : Infinity;
-      return d < bd ? c : best;
+      const bd = best ? gap(x, best.x, best.width) : Infinity;
+      return gap(x, c.x, c.width) < bd ? c : best;
     }, undefined);
   }
   if (!area || !area.items.length) return null;
   const item = nearestItem(dl, area.items, y);
   return item ? hitItem(dl, item, x, y) : null;
+}
+
+/** Distance from `v` to the span [start, start + size]; 0 inside it. */
+function gap(v: number, start: number, size: number): number {
+  if (v < start) return start - v;
+  if (v > start + size) return v - start - size;
+  return 0;
 }
 
 function itemHeight(item: PlacedItem): number {
@@ -281,7 +303,7 @@ function nearestItem(_dl: DocLayout, items: PlacedItem[], y: number): PlacedItem
   let bestD = Infinity;
   for (const it of items) {
     const h = itemHeight(it);
-    const d = y < it.y ? it.y - y : y > it.y + h ? y - it.y - h : 0;
+    const d = gap(y, it.y, h);
     if (d < bestD) {
       bestD = d;
       best = it;
@@ -314,41 +336,41 @@ function hitLines(dl: DocLayout, story: string, entry: ParaEntry, lines: LineLay
 }
 
 function hitTable(dl: DocLayout, story: string, entry: ParaEntry, table: TableLayout, rows: number[], ox: number, oy: number, x: number, y: number): HitResult | null {
-  // The row under y (rows are drawn in this order, repeated headers first).
+  const { row, top } = rowAtY(table, rows, oy, y);
+  const hit = cellAtX(table, row, x - ox - table.x, top);
+  if (!hit) return { story, pos: entry.start + 0, affinity: 'forward' };
+  const cell = hit.cell;
+  const cx = ox + table.x + cell.x + cell.padding;
+  const cy = hit.top + cellContentOffset(table, cell);
+  return hitParagraphs(dl, cell.story, cell.paragraphs, cx, cy, x, y);
+}
+
+/** The row under y and its top (rows are drawn in this order, repeated headers first); the last row when y is below them all. */
+function rowAtY(table: TableLayout, rows: number[], oy: number, y: number): { row: number; top: number } {
   let ry = oy;
-  let row = rows[rows.length - 1]!;
-  let rowTop = oy;
+  let top = oy;
   for (const r of rows) {
     const h = table.rows[r]!.height;
-    rowTop = ry;
-    if (y < ry + h) {
-      row = r;
-      break;
-    }
+    top = ry;
+    if (y < ry + h) return { row: r, top };
     ry += h;
   }
-  // The cell under x, merged cells included.
-  const tx = x - ox - table.x;
-  let cell: CellLayout | undefined;
-  let cellTop = rowTop;
-  for (let r = row; r >= 0 && !cell; r--) {
-    for (const c of table.rows[r]!.cells) {
-      if (r + c.rowSpan <= row) continue;
-      if (tx >= c.x && tx < c.x + c.width) {
-        cell = c;
-        cellTop = rowTop - rowsHeight(table, r, row);
-        break;
-      }
-    }
+  return { row: rows[rows.length - 1]!, top };
+}
+
+/**
+ * The cell under table x `tx` in a row whose top is `rowTop`, merged cells
+ * from rows above included, with its box's top; past either side, the row's
+ * first or last cell.
+ */
+function cellAtX(table: TableLayout, row: number, tx: number, rowTop: number): { cell: CellLayout; top: number } | null {
+  for (let r = row; r >= 0; r--) {
+    const cell = table.rows[r]!.cells.find((c) => r + c.rowSpan > row && tx >= c.x && tx < c.x + c.width);
+    if (cell) return { cell, top: rowTop - rowsHeight(table, r, row) };
   }
-  if (!cell) {
-    const cells = table.rows[row]!.cells;
-    cell = tx < 0 ? cells[0] : cells[cells.length - 1];
-  }
-  if (!cell) return { story, pos: entry.start + 0, affinity: 'forward' };
-  const cx = ox + table.x + cell.x + cell.padding;
-  const cy = cellTop + cellContentOffset(table, cell);
-  return hitParagraphs(dl, cell.story, cell.paragraphs, cx, cy, x, y);
+  const cells = table.rows[row]!.cells;
+  const cell = tx < 0 ? cells[0] : cells[cells.length - 1];
+  return cell ? { cell, top: rowTop } : null;
 }
 
 function hitParagraphs(dl: DocLayout, story: string, paragraphs: CellLayout['paragraphs'], ox: number, oy: number, x: number, y: number): HitResult | null {

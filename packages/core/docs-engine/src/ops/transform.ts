@@ -82,25 +82,17 @@ export function mapInsert(p: number, at: number, n: number, after: boolean): num
 
 /** Where a position goes when [from, to) is deleted; one inside lands on `from`. */
 export function mapDelete(p: number, from: number, to: number): number {
-  return p <= from ? p : p >= to ? p - (to - from) : from;
+  if (p <= from) return p;
+  if (p >= to) return p - (to - from);
+  return from;
 }
 
 function overInsert(a: SimpleOp, story: string, at: number, n: number, aWins: boolean): Op {
   switch (a.type) {
     case 'insert':
       return a.story === story ? { ...a, at: mapInsert(a.at, at, n, aWins) } : a;
-    case 'delete': {
-      if (a.story !== story || at >= a.to) return a;
-      if (at <= a.from) return { ...a, from: a.from + n, to: a.to + n };
-      // Text typed inside a range someone else deletes survives: delete around it (the later part first).
-      return {
-        type: 'batch',
-        ops: [
-          { type: 'delete', story, from: at + n, to: a.to + n },
-          { type: 'delete', story, from: a.from, to: at },
-        ],
-      };
-    }
+    case 'delete':
+      return deleteOverInsert(a, story, at, n);
     case 'formatText':
     case 'formatParagraphs': {
       if (a.story !== story) return a;
@@ -111,15 +103,24 @@ function overInsert(a: SimpleOp, story: string, at: number, n: number, aWins: bo
     case 'setObject':
       return a.story === story && at <= a.at ? { ...a, at: a.at + n } : a;
     case 'patchAnchors':
-      return a.set?.some((x) => x.story === story)
-        ? {
-            ...a,
-            set: a.set.map((x) => (x.story === story ? moveAnchor(x, (p, isEnd) => (isEnd ? mapInsert(p, at, n, false) : mapInsert(p, at, n, true))) : x)),
-          }
-        : a;
+      // An anchor's start moves past text typed exactly at it; its end does not grow to cover it.
+      return moveAnchorsIn(a, story, (p, isEnd) => mapInsert(p, at, n, !isEnd));
     default:
       return a;
   }
+}
+
+function deleteOverInsert(a: OpOf<'delete'>, story: string, at: number, n: number): Op {
+  if (a.story !== story || at >= a.to) return a;
+  if (at <= a.from) return { ...a, from: a.from + n, to: a.to + n };
+  // Text typed inside a range someone else deletes survives: delete around it (the later part first).
+  return {
+    type: 'batch',
+    ops: [
+      { type: 'delete', story, from: at + n, to: a.to + n },
+      { type: 'delete', story, from: a.from, to: at },
+    ],
+  };
 }
 
 function overDelete(a: SimpleOp, story: string, from: number, to: number): Op {
@@ -129,26 +130,33 @@ function overDelete(a: SimpleOp, story: string, from: number, to: number): Op {
     case 'delete':
       return a.story === story ? { ...a, from: mapDelete(a.from, from, to), to: mapDelete(a.to, from, to) } : a;
     case 'formatText':
-    case 'formatParagraphs': {
-      if (a.story !== story) return a;
-      const end = a.at + runsLength(a.runs);
-      if (to <= a.at) return { ...a, at: a.at - (to - from) };
-      if (from >= end) return a;
-      const cutFrom = Math.max(from, a.at) - a.at;
-      const cutTo = Math.min(to, end) - a.at;
-      return { ...a, at: Math.min(a.at, from), runs: cutRuns(a.runs as FormatRun<unknown>[], cutFrom, cutTo) } as Op;
-    }
+    case 'formatParagraphs':
+      return a.story === story ? formatOverDelete(a, from, to) : a;
     case 'setObject':
       if (a.story !== story) return a;
       if (a.at >= from && a.at < to) return NOOP;
       return { ...a, at: mapDelete(a.at, from, to) };
     case 'patchAnchors':
-      return a.set?.some((x) => x.story === story)
-        ? { ...a, set: a.set.map((x) => (x.story === story ? moveAnchor(x, (p) => mapDelete(p, from, to)) : x)) }
-        : a;
+      return moveAnchorsIn(a, story, (p) => mapDelete(p, from, to));
     default:
       return a;
   }
+}
+
+/** A format op past a delete in its story: shifted, with the deleted stretch cut out of its runs. */
+function formatOverDelete(a: OpOf<'formatText'> | OpOf<'formatParagraphs'>, from: number, to: number): Op {
+  const end = a.at + runsLength(a.runs);
+  if (to <= a.at) return { ...a, at: a.at - (to - from) };
+  if (from >= end) return a;
+  const cutFrom = Math.max(from, a.at) - a.at;
+  const cutTo = Math.min(to, end) - a.at;
+  return { ...a, at: Math.min(a.at, from), runs: cutRuns(a.runs as FormatRun<unknown>[], cutFrom, cutTo) } as Op;
+}
+
+/** Moves the anchors an op sets in `story`; the op comes back as is when it sets none there. */
+function moveAnchorsIn(a: OpOf<'patchAnchors'>, story: string, map: (p: number, isEnd: boolean) => number): Op {
+  if (!a.set?.some((x) => x.story === story)) return a;
+  return { ...a, set: a.set.map((x) => (x.story === story ? moveAnchor(x, map) : x)) };
 }
 
 function moveAnchor(anchor: Anchor, map: (p: number, isEnd: boolean) => number): Anchor {

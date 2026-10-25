@@ -181,7 +181,8 @@ export function stableKey(value: unknown): string {
   const keys = Object.keys(obj)
     .filter((k) => obj[k] !== undefined)
     .sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableKey(obj[k])}`).join(',')}}`;
+  const entries = keys.map((k) => JSON.stringify(k) + ':' + stableKey(obj[k]));
+  return `{${entries.join(',')}}`;
 }
 
 export function sameValue(a: unknown, b: unknown): boolean {

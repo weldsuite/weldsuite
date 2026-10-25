@@ -65,67 +65,100 @@ export function toBlocks(content: Content): BlockTree {
 }
 
 function storyBlocks(story: StoryContent, all: Content, footnotes: BlockTree['footnotes']): Block[] {
-  const { text } = story;
-  const styleAt = runLookup(story.runs ?? []);
-  const paras = new Map(story.paras ?? []);
-  const objects = new Map(story.objects ?? []);
-  const blocks: Block[] = [];
-  let inlines: Inline[] = [];
-  let buf = '';
-  let bufStyle: TextStyle | null = null;
+  return new StoryWalker(story, all, footnotes).walk();
+}
 
-  const flushText = () => {
-    if (buf) inlines.push({ type: 'text', text: buf, style: bufStyle ?? {} });
-    buf = '';
-    bufStyle = null;
-  };
-  const pushParagraph = (props: ParaProps) => {
-    flushText();
-    blocks.push({ type: 'paragraph', props, inlines });
-    inlines = [];
-  };
+/** Walks one story's text once, collecting its paragraphs and tables. */
+class StoryWalker {
+  private readonly text: string;
+  private readonly styleAt: (offset: number) => TextStyle;
+  private readonly paras: Map<number, ParaProps>;
+  private readonly objects: Map<number, ObjectData>;
+  private readonly blocks: Block[] = [];
+  private inlines: Inline[] = [];
+  /** Plain text not yet turned into an inline, all in `bufStyle`. */
+  private buf = '';
+  private bufStyle: TextStyle | null = null;
 
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    const style = styleAt(i);
-    if (ch === PARA) {
-      // The mark of a paragraph that held only a table adds no empty paragraph.
-      const onlyTable = inlines.length === 0 && !buf && blocks[blocks.length - 1]?.type === 'table' && text[i - 1] === OBJECT;
-      if (!onlyTable) pushParagraph(paras.get(i) ?? {});
-      else inlines = [];
-      continue;
-    }
-    if (ch === OBJECT) {
-      const data = objects.get(i);
-      if (!data) continue;
-      if (data.kind === 'table') {
-        const table = all.tables?.[data.id];
-        if (!table) continue;
-        flushText();
-        if (inlines.length) pushParagraph(paras.get(text.indexOf(PARA, i)) ?? {});
-        blocks.push(tableBlock(data.id, table, all, footnotes));
-        continue;
-      }
-      if (data.kind === 'footnote') {
-        const fn = all.stories?.[footnoteStoryId(data.id)];
-        footnotes.push({ id: data.id, number: footnotes.length + 1, blocks: fn ? storyBlocks(fn, all, footnotes) : [] });
-      }
-      flushText();
-      inlines.push({ type: 'object', data, style });
-      continue;
-    }
-    if (ch === LINE_BREAK || ch === TAB) {
-      flushText();
-      inlines.push({ type: ch === TAB ? 'tab' : 'break', style });
-      continue;
-    }
-    if (bufStyle !== null && bufStyle !== style) flushText();
-    bufStyle = style;
-    buf += ch;
+  constructor(
+    story: StoryContent,
+    private readonly all: Content,
+    private readonly footnotes: BlockTree['footnotes'],
+  ) {
+    this.text = story.text;
+    this.styleAt = runLookup(story.runs ?? []);
+    this.paras = new Map(story.paras ?? []);
+    this.objects = new Map(story.objects ?? []);
   }
-  flushText();
-  if (inlines.length) pushParagraph({});
-  return blocks;
+
+  walk(): Block[] {
+    const { text } = this;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]!;
+      const style = this.styleAt(i);
+      if (ch === PARA) this.paragraphMark(i);
+      else if (ch === OBJECT) this.object(i, style);
+      else if (ch === LINE_BREAK || ch === TAB) {
+        this.flushText();
+        this.inlines.push({ type: ch === TAB ? 'tab' : 'break', style });
+      } else {
+        if (this.bufStyle !== null && this.bufStyle !== style) this.flushText();
+        this.bufStyle = style;
+        this.buf += ch;
+      }
+    }
+    this.flushText();
+    if (this.inlines.length) this.pushParagraph({});
+    return this.blocks;
+  }
+
+  private paragraphMark(i: number): void {
+    // The mark of a paragraph that held only a table adds no empty paragraph.
+    const onlyTable =
+      this.inlines.length === 0 && !this.buf && this.blocks[this.blocks.length - 1]?.type === 'table' && this.text[i - 1] === OBJECT;
+    if (onlyTable) this.inlines = [];
+    else this.pushParagraph(this.paras.get(i) ?? {});
+  }
+
+  private object(i: number, style: TextStyle): void {
+    const data = this.objects.get(i);
+    if (!data) return;
+    if (data.kind === 'table') {
+      this.table(i, data.id);
+      return;
+    }
+    if (data.kind === 'footnote') {
+      const fn = this.all.stories?.[footnoteStoryId(data.id)];
+      this.footnotes.push({
+        id: data.id,
+        number: this.footnotes.length + 1,
+        blocks: fn ? storyBlocks(fn, this.all, this.footnotes) : [],
+      });
+    }
+    this.flushText();
+    this.inlines.push({ type: 'object', data, style });
+  }
+
+  /** A table becomes its own block; text before it in the paragraph becomes a paragraph first. */
+  private table(i: number, id: string): void {
+    const table = this.all.tables?.[id];
+    if (!table) return;
+    this.flushText();
+    if (this.inlines.length) this.pushParagraph(this.paras.get(this.text.indexOf(PARA, i)) ?? {});
+    this.blocks.push(tableBlock(id, table, this.all, this.footnotes));
+  }
+
+  private flushText(): void {
+    if (this.buf) this.inlines.push({ type: 'text', text: this.buf, style: this.bufStyle ?? {} });
+    this.buf = '';
+    this.bufStyle = null;
+  }
+
+  private pushParagraph(props: ParaProps): void {
+    this.flushText();
+    this.blocks.push({ type: 'paragraph', props, inlines: this.inlines });
+    this.inlines = [];
+  }
 }
 
 function tableBlock(id: string, data: TableData, all: Content, footnotes: BlockTree['footnotes']): TableBlock {
