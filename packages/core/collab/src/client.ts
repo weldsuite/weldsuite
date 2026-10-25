@@ -37,6 +37,11 @@ export interface CollabClientOptions<State, Op, Presence> {
   onAck?: (revision: number) => void;
   onPeers?: (peers: Peer<Presence>[]) => void;
   /**
+   * Someone restored an earlier version. `onReset` has already run with the
+   * restored document; this says why (for a notice).
+   */
+  onRestored?: (info: { versionId: string; userId: string; revision: number }) => void;
+  /**
    * Prefix that makes this client's batch ids unique in the room (it survives
    * reconnects, which get a new client id). The platform passes a random id.
    */
@@ -100,6 +105,10 @@ export class CollabClient<State, Op, Snapshot, Presence> {
         return;
       case 'reject':
         this.rollBack(msg.batchId);
+        return;
+      case 'restored':
+        this.reset(msg.snapshot, msg.revision, this.hasPending);
+        this.options.onRestored?.({ versionId: msg.versionId, userId: msg.userId, revision: msg.revision });
         return;
       case 'peerJoined':
         this.peers.set(msg.peer.clientId, msg.peer);

@@ -22,6 +22,11 @@ export interface Peer<Presence> {
   color: string;
   /** Can change the document; viewers only watch. */
   canEdit: boolean;
+  /**
+   * Cannot edit, but may commit the ops the room's `mayComment` option
+   * accepts (comments on the document). Ignored when `canEdit` is true.
+   */
+  canComment?: boolean;
   /** Where they are in the document. Never persisted. */
   presence?: Presence;
 }
@@ -71,6 +76,13 @@ export type ServerMessage<Op, Snapshot, Presence> =
   | { type: 'reject'; batchId: string; reason: RejectReason }
   /** Start over from this state (after a reject, or when the client is too far behind). */
   | { type: 'resync'; revision: number; snapshot: Snapshot }
+  /**
+   * Someone (`userId`) restored an earlier version (`versionId`): the
+   * document was replaced by `snapshot` at `revision`. Every client starts
+   * over from it; unconfirmed edits are dropped, they were made on the
+   * replaced document.
+   */
+  | { type: 'restored'; revision: number; snapshot: Snapshot; versionId: string; userId: string }
   | { type: 'pong' };
 
 export type RejectReason = 'read-only' | 'stale' | 'invalid';
@@ -162,7 +174,7 @@ export class FrameAssembler {
 }
 
 const CLIENT_TYPES = new Set(['hello', 'submit', 'presence', 'ping']);
-const SERVER_TYPES = new Set(['welcome', 'ack', 'op', 'peerJoined', 'peerLeft', 'presence', 'reject', 'resync', 'pong']);
+const SERVER_TYPES = new Set(['welcome', 'ack', 'op', 'peerJoined', 'peerLeft', 'presence', 'reject', 'resync', 'restored', 'pong']);
 
 const MAX_BATCH_ID = 200;
 
