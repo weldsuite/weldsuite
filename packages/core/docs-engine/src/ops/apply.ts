@@ -34,6 +34,10 @@ export function applyOp(doc: DocModel, op: Op): Op {
 }
 
 function applySimple(doc: DocModel, op: SimpleOp): Op {
+  if (op.type === 'insert' || op.type === 'delete' || op.type === 'formatText' || op.type === 'formatParagraphs' || op.type === 'setObject') {
+    const story = doc.stories.get(op.story);
+    if (story) story.versionBefore = story.version;
+  }
   switch (op.type) {
     case 'insert':
       return applyInsert(doc, op);
