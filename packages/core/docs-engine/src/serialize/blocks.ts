@@ -101,7 +101,10 @@ function bookmarkMarks(ranges: readonly BookmarkRange[], length: number): Map<nu
   const out = new Map<number, MarksAt>();
   const at = (pos: number) => {
     let m = out.get(pos);
-    if (!m) out.set(pos, (m = { ends: [], starts: [], empty: [] }));
+    if (!m) {
+      m = { ends: [], starts: [], empty: [] };
+      out.set(pos, m);
+    }
     return m;
   };
   const last = Math.max(0, length - 1);
@@ -144,24 +147,25 @@ class StoryWalker {
 
   walk(): Block[] {
     const { text } = this;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i]!;
-      const style = this.styleAt(i);
-      if (this.marks.size) this.bookmarks(i, style);
-      if (ch === PARA) this.paragraphMark(i);
-      else if (ch === OBJECT) this.object(i, style);
-      else if (ch === LINE_BREAK || ch === TAB) {
-        this.flushText();
-        this.inlines.push({ type: ch === TAB ? 'tab' : 'break', style });
-      } else {
-        if (this.bufStyle !== null && this.bufStyle !== style) this.flushText();
-        this.bufStyle = style;
-        this.buf += ch;
-      }
-    }
+    for (let i = 0; i < text.length; i++) this.character(i, text[i]!);
     this.flushText();
     if (this.inlines.length) this.pushParagraph({});
     return this.blocks;
+  }
+
+  private character(i: number, ch: string): void {
+    const style = this.styleAt(i);
+    if (this.marks.size) this.bookmarks(i, style);
+    if (ch === PARA) this.paragraphMark(i);
+    else if (ch === OBJECT) this.object(i, style);
+    else if (ch === LINE_BREAK || ch === TAB) {
+      this.flushText();
+      this.inlines.push({ type: ch === TAB ? 'tab' : 'break', style });
+    } else {
+      if (this.bufStyle !== null && this.bufStyle !== style) this.flushText();
+      this.bufStyle = style;
+      this.buf += ch;
+    }
   }
 
   private bookmarks(i: number, style: TextStyle): void {

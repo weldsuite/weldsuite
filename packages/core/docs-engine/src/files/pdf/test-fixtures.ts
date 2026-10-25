@@ -140,7 +140,29 @@ export function buildTestFont(options: { format12?: boolean; postScriptName?: st
   loca.u16(glyf.length / 2);
   tables.set('glyf', glyf.finish());
   tables.set('loca', loca.finish());
+  tables.set('cmap', cmapTable(options.format12 ?? true));
 
+  const os2 = new ByteWriter();
+  os2.u16(4).i16(500).u16(400);
+  while (os2.length < 62) os2.u16(0);
+  os2.u16(0x40); // fsSelection: regular
+  os2.u16(0x20).u16(0x4e2d); // first / last char index
+  os2.i16(800).i16(-200).i16(0).u16(1000).u16(200); // typo ascender, descender, line gap, win ascent, win descent
+  os2.u32(1).u32(0); // code page ranges
+  os2.i16(500).i16(700).u16(0).u16(0x20).u16(0); // x-height, cap height, default char, break char, max context
+  tables.set('OS/2', os2.finish());
+
+  const post = new ByteWriter();
+  post.u32(0x00030000).u32(0).i16(-100).i16(50).u32(0).u32(0).u32(0).u32(0).u32(0);
+  tables.set('post', post.finish());
+
+  tables.set('name', nameTable(options.postScriptName ?? 'TestSans-Regular'));
+
+  return assembleFont(tables);
+}
+
+/** The cmap: format 4 for the BMP characters, plus format 12 for all of them when `withF12`. */
+function cmapTable(withF12: boolean): Uint8Array {
   // Format 4: 0x20 and 0x3A9 by delta, 0x416 through the glyph id array, 0x4E2D by delta, then 0xFFFF.
   const segs: { start: number; end: number; delta: number; viaArray?: number }[] = [
     { start: 0x20, end: 0x20, delta: GLYPHS.space - 0x20 },
@@ -164,7 +186,6 @@ export function buildTestFont(options: { format12?: boolean; postScriptName?: st
   const sub4 = f4.finish();
 
   const cmap = new ByteWriter();
-  const withF12 = options.format12 ?? true;
   cmap.u16(0).u16(withF12 ? 2 : 1);
   const first = 4 + (withF12 ? 2 : 1) * 8;
   cmap.u16(3).u16(1).u32(first);
@@ -177,23 +198,11 @@ export function buildTestFont(options: { format12?: boolean; postScriptName?: st
     cmap.u16(12).u16(0).u32(16 + 12 * groups.length).u32(0).u32(groups.length);
     for (const [cp, g] of groups) cmap.u32(cp).u32(cp).u32(g);
   }
-  tables.set('cmap', cmap.finish());
+  return cmap.finish();
+}
 
-  const os2 = new ByteWriter();
-  os2.u16(4).i16(500).u16(400);
-  while (os2.length < 62) os2.u16(0);
-  os2.u16(0x40); // fsSelection: regular
-  os2.u16(0x20).u16(0x4e2d); // first / last char index
-  os2.i16(800).i16(-200).i16(0).u16(1000).u16(200); // typo ascender, descender, line gap, win ascent, win descent
-  os2.u32(1).u32(0); // code page ranges
-  os2.i16(500).i16(700).u16(0).u16(0x20).u16(0); // x-height, cap height, default char, break char, max context
-  tables.set('OS/2', os2.finish());
-
-  const post = new ByteWriter();
-  post.u32(0x00030000).u32(0).i16(-100).i16(50).u32(0).u32(0).u32(0).u32(0).u32(0);
-  tables.set('post', post.finish());
-
-  const ps = options.postScriptName ?? 'TestSans-Regular';
+/** A name table with the family and PostScript names, Windows Unicode only. */
+function nameTable(ps: string): Uint8Array {
   const nameW = new ByteWriter();
   const strings = new ByteWriter();
   const records: [number, string][] = [
@@ -207,9 +216,7 @@ export function buildTestFont(options: { format12?: boolean; postScriptName?: st
     nameW.u16(3).u16(1).u16(0x409).u16(id).u16(strings.length - at).u16(at);
   }
   nameW.bytes(strings.finish());
-  tables.set('name', nameW.finish());
-
-  return assembleFont(tables);
+  return nameW.finish();
 }
 
 // ---------------------------------------------------------------- PNG
@@ -250,6 +257,20 @@ export interface PngSpec {
   interlace?: boolean;
 }
 
+/** What filter `f` predicts a byte from: `a` to its left, `b` above, `c` above-left. */
+function predict(f: number, a: number, b: number, c: number): number {
+  if (f === 1) return a;
+  if (f === 2) return b;
+  if (f === 3) return (a + b) >> 1;
+  if (f !== 4) return 0;
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  return pb <= pc ? b : c;
+}
+
 /** Encodes a PNG, applying each row's filter for real so decoding exercises it. */
 export async function makePng(spec: PngSpec): Promise<Uint8Array> {
   const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[spec.colorType as 0 | 2 | 3 | 4 | 6];
@@ -265,18 +286,7 @@ export async function makePng(spec: PngSpec): Promise<Uint8Array> {
       const a = k >= bpp ? row[k - bpp]! : 0;
       const b = up[k]!;
       const c = k >= bpp ? up[k - bpp]! : 0;
-      let pred = 0;
-      if (f === 1) pred = a;
-      else if (f === 2) pred = b;
-      else if (f === 3) pred = (a + b) >> 1;
-      else if (f === 4) {
-        const p = a + b - c;
-        const pa = Math.abs(p - a);
-        const pb = Math.abs(p - b);
-        const pc = Math.abs(p - c);
-        pred = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
-      }
-      raw.u8((row[k]! - pred) & 0xff);
+      raw.u8((row[k]! - predict(f, a, b, c)) & 0xff);
     }
     prev = row;
   });

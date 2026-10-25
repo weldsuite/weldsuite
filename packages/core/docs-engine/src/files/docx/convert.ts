@@ -176,7 +176,8 @@ export function readNumFmt(value: string | undefined): ListFormat {
 type PageFormat = NonNullable<SectionProps['pageNumberFormat']>;
 
 export function pageFmt(format: PageFormat): string {
-  return format === 'lowerAlpha' ? 'lowerLetter' : format === 'upperAlpha' ? 'upperLetter' : format;
+  if (format === 'lowerAlpha') return 'lowerLetter';
+  return format === 'upperAlpha' ? 'upperLetter' : format;
 }
 
 export function readPageFmt(value: string | undefined): PageFormat | undefined {

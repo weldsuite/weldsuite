@@ -32,6 +32,7 @@ import {
   type TableData,
 } from '../../model/objects';
 import type { CellProps } from '../../model/objects';
+import type { ParaProps } from '../../model/styles';
 import { toBlocks, type Block, type BookmarkRange, type Inline, type ParagraphBlock, type TableBlock } from '../../serialize/blocks';
 import { EMU_PER_POINT, NS, REL, hex, imageExtension, pageFmt, twips } from './convert';
 import type { WriteDocxOptions } from './types';
@@ -162,7 +163,8 @@ class DocxWriter {
     let bodyXml = this.blocksXml(body, this.document, true);
     bodyXml += this.sectPr(this.sections[this.sections.length - 1]!);
     const background = this.snapshot.props.section.background;
-    const documentXml = `${XML_HEADER}<w:document ${ROOT_NS}>${background ? `<w:background w:color="${hex(background)}"/>` : ''}<w:body>${bodyXml}</w:body></w:document>`;
+    const backgroundXml = background ? `<w:background w:color="${hex(background)}"/>` : '';
+    const documentXml = `${XML_HEADER}<w:document ${ROOT_NS}>${backgroundXml}<w:body>${bodyXml}</w:body></w:document>`;
 
     this.document.rel(REL.styles, 'styles.xml');
     this.document.rel(REL.numbering, 'numbering.xml');
@@ -227,28 +229,14 @@ class DocxWriter {
    * falls inside it.
    */
   private paragraphXml(block: ParagraphBlock, part: Part, sections: boolean, lead: string): string {
-    let out = '';
-    let current: Inline[] = [];
-    let emitted = false;
-    const flush = (sectPr?: string) => {
-      out += `<w:p>${pPrXml(block.props, this.ctx, { sectPr })}${emitted ? '' : lead}${this.runsXml(current, part)}</w:p>`;
-      current = [];
-      emitted = true;
-    };
+    const p = new ParagraphXml(block.props, lead, this.ctx, (inlines) => this.runsXml(inlines, part));
     for (const inline of block.inlines) {
-      if (inline.type === 'object' && inline.data.kind === 'hr') {
-        if (current.length) flush();
-        const { list: _list, checked: _checked, borders: _borders, ...rest } = block.props;
-        out += `<w:p>${pPrXml(rest, this.ctx, { borders: { bottom: DEFAULT_TABLE_BORDER } })}${emitted ? '' : lead}</w:p>`;
-        emitted = true;
-      } else if (inline.type === 'object' && inline.data.kind === 'sectionBreak') {
-        if (sections && this.sectionIndex < this.sections.length - 1) flush(this.sectPr(this.sections[this.sectionIndex++]!));
-      } else {
-        current.push(inline);
-      }
+      if (isObjectOf(inline, 'hr')) p.rule();
+      else if (isObjectOf(inline, 'sectionBreak')) {
+        if (sections && this.sectionIndex < this.sections.length - 1) p.flush(this.sectPr(this.sections[this.sectionIndex++]!));
+      } else p.add(inline);
     }
-    if (current.length || !emitted) flush();
-    return out;
+    return p.finish();
   }
 
   private runsXml(inlines: Inline[], part: Part): string {
@@ -295,7 +283,10 @@ class DocxWriter {
 
   private bookmarkXml(id: string, edge: 'start' | 'end'): string {
     let n = this.bookmarkIds.get(id);
-    if (n === undefined) this.bookmarkIds.set(id, (n = this.bookmarkIds.size));
+    if (n === undefined) {
+      n = this.bookmarkIds.size;
+      this.bookmarkIds.set(id, n);
+    }
     return edge === 'start' ? `<w:bookmarkStart w:id="${n}" w:name="${esc(bookmarkName(id))}"/>` : `<w:bookmarkEnd w:id="${n}"/>`;
   }
 
@@ -347,8 +338,9 @@ class DocxWriter {
     const line = img.border?.width
       ? `<a:ln w="${Math.round(img.border.width * EMU_PER_POINT)}"><a:solidFill><a:srgbClr val="${hex(img.border.color)}"/></a:solidFill></a:ln>`
       : '';
+    const docPr = attrs({ id, name: `Picture ${id}`, descr: img.alt || undefined });
     const inner =
-      `<wp:docPr${attrs({ id, name: `Picture ${id}`, descr: img.alt || undefined })}/>` +
+      `<wp:docPr${docPr}/>` +
       '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>' +
       `<a:graphic><a:graphicData uri="${NS.pic}"><pic:pic>` +
       `<pic:nvPicPr><pic:cNvPr id="${id}" name="${esc(m.name)}"/><pic:cNvPicPr/></pic:nvPicPr>` +
@@ -389,7 +381,8 @@ class DocxWriter {
       if (r.cantSplit) trPr += '<w:cantSplit/>';
       if (r.height) trPr += `<w:trHeight w:val="${twips(r.height)}" w:hRule="atLeast"/>`;
       if (r.header) trPr += '<w:tblHeader/>';
-      out += `<w:tr>${trPr ? `<w:trPr>${trPr}</w:trPr>` : ''}`;
+      const trPrXml = trPr ? `<w:trPr>${trPr}</w:trPr>` : '';
+      out += `<w:tr>${trPrXml}`;
       let ci = 0;
       while (ci < data.cols.length) {
         const span = spans[ri]![ci]!;
@@ -517,6 +510,65 @@ function coreXml(title: string | undefined, date: Date): string {
   );
 }
 
+/** Whether an inline is an object of the given kind. */
+function isObjectOf(inline: Inline, kind: ObjectData['kind']): boolean {
+  return inline.type === 'object' && inline.data.kind === kind;
+}
+
+/** A paragraph's properties for a rule split out of it: no list, checkbox or borders of its own. */
+function ruleParaProps(props: ParaProps): ParaProps {
+  const rest = { ...props };
+  delete rest.list;
+  delete rest.checked;
+  delete rest.borders;
+  return rest;
+}
+
+/**
+ * Writes one engine paragraph as Word paragraphs: split where a horizontal
+ * rule (its own bordered paragraph) or a section end falls inside it. The
+ * `lead` (a footnote's own number mark) goes into the first one written.
+ */
+class ParagraphXml {
+  private out = '';
+  private current: Inline[] = [];
+  private emitted = false;
+
+  constructor(
+    private readonly props: ParaProps,
+    private readonly lead: string,
+    private readonly ctx: FormatContext,
+    private readonly runs: (inlines: Inline[]) => string,
+  ) {}
+
+  add(inline: Inline): void {
+    this.current.push(inline);
+  }
+
+  /** Writes the runs collected so far as a paragraph, ending a section when `sectPr` is given. */
+  flush(sectPr?: string): void {
+    this.out += `<w:p>${pPrXml(this.props, this.ctx, { sectPr })}${this.takeLead()}${this.runs(this.current)}</w:p>`;
+    this.current = [];
+  }
+
+  /** A horizontal rule: an empty paragraph with a bottom border, after the runs before it. */
+  rule(): void {
+    if (this.current.length) this.flush();
+    this.out += `<w:p>${pPrXml(ruleParaProps(this.props), this.ctx, { borders: { bottom: DEFAULT_TABLE_BORDER } })}${this.takeLead()}</w:p>`;
+  }
+
+  finish(): string {
+    if (this.current.length || !this.emitted) this.flush();
+    return this.out;
+  }
+
+  private takeLead(): string {
+    const lead = this.emitted ? '' : this.lead;
+    this.emitted = true;
+    return lead;
+  }
+}
+
 function textRun(rPr: string, text: string): string {
   return `<w:r>${rPr}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
 }
@@ -593,26 +645,30 @@ function cellSpans(data: TableData): Span[][] {
     data.cols.forEach((c, ci) => {
       if (grid[ri]![ci]) return;
       const props = data.cells?.[`${r.id}:${c.id}`];
-      let cols = Math.max(1, Math.min(props?.colSpan ?? 1, data.cols.length - ci));
+      const cols = freeCols(grid[ri]!, ci, Math.max(1, Math.min(props?.colSpan ?? 1, data.cols.length - ci)));
       const rows = Math.max(1, Math.min(props?.rowSpan ?? 1, data.rows.length - ri));
-      // A span stops at a position an earlier merge already took.
-      for (let k = 1; k < cols; k++) {
-        if (grid[ri]![ci + k]) {
-          cols = k;
-          break;
-        }
-      }
       grid[ri]![ci] = { kind: 'origin', rows, cols };
-      for (let dr = 0; dr < rows; dr++) {
-        for (let dc = 0; dc < cols; dc++) {
-          if (!dr && !dc) continue;
-          const row = grid[ri + dr]!;
-          if (row[ci + dc]) continue;
-          row[ci + dc] = dc === 0 ? { kind: 'below', row: ri, cols } : { kind: 'covered' };
-        }
-      }
+      coverSpan(grid, ri, ci, rows, cols);
     }),
   );
   return grid.map((row) => row.map((s) => s ?? { kind: 'covered' }));
+}
+
+/** How many of `cols` columns from `ci` a span gets: it stops at a position an earlier merge already took. */
+function freeCols(row: (Span | undefined)[], ci: number, cols: number): number {
+  for (let k = 1; k < cols; k++) if (row[ci + k]) return k;
+  return cols;
+}
+
+/** Marks the positions a span starting at (`ri`, `ci`) covers that nothing has taken yet. */
+function coverSpan(grid: (Span | undefined)[][], ri: number, ci: number, rows: number, cols: number): void {
+  for (let dr = 0; dr < rows; dr++) {
+    for (let dc = 0; dc < cols; dc++) {
+      if (!dr && !dc) continue;
+      const row = grid[ri + dr]!;
+      if (row[ci + dc]) continue;
+      row[ci + dc] = dc === 0 ? { kind: 'below', row: ri, cols } : { kind: 'covered' };
+    }
+  }
 }
 

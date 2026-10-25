@@ -18,8 +18,20 @@ export function num(n: number): string {
   if (!Number.isFinite(n)) return '0';
   const s = (Math.round(n * 10000) / 10000).toString();
   if (!s.includes('e')) return s === '-0' ? '0' : s;
-  return n.toFixed(4).replace(/\.?0+$/, '');
+  return trimZeros(n.toFixed(4));
 }
+
+/** `s` without its trailing zeros, and without the decimal point before them when there is one. */
+function trimZeros(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === '0') end--;
+  if (end === s.length) return s;
+  if (s[end - 1] === '.') end--;
+  return s.slice(0, end);
+}
+
+/** What a literal string escapes, and how. */
+const LITERAL_ESCAPES: Record<string, string> = { '\\': '\\\\', '(': '\\(', ')': '\\)', '\r': '\\r', '\n': '\\n' };
 
 /** A name (`/Helvetica`), with delimiters and non-printing characters escaped. */
 export function name(s: string): string {
@@ -32,7 +44,7 @@ export function name(s: string): string {
 
 /** A literal string of bytes (characters 0–255), escaping what the syntax needs. */
 export function literal(bytes: string): string {
-  return `(${bytes.replace(/[\\()\r\n]/g, (c) => (c === '\r' ? '\\r' : c === '\n' ? '\\n' : `\\${c}`))})`;
+  return `(${bytes.replace(/[\\()\r\n]/g, (c) => LITERAL_ESCAPES[c]!)})`;
 }
 
 /** A text string (document info, bookmarks): plain when ASCII, else UTF-16BE with a byte order mark. */

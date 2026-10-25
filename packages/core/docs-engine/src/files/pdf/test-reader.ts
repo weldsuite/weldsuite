@@ -41,6 +41,13 @@ export interface PdfObject {
 const WS = /[\0\t\n\f\r ]/;
 const DELIM = /[()<>[\]{}/%]/;
 
+/** Where a name or operator that starts at `p` ends: at whitespace, a delimiter or the end. */
+function tokenEnd(t: string, p: number): number {
+  let q = p;
+  while (q < t.length && !WS.test(t[q]!) && !DELIM.test(t[q]!)) q++;
+  return q;
+}
+
 /** PDF object syntax over a string of characters 0–255. */
 class Syntax {
   constructor(readonly text: string) {}
@@ -56,46 +63,63 @@ class Syntax {
 
   parse(start: number): { value: PdfValue; end: number } {
     const t = this.text;
-    let p = this.skip(start);
+    const p = this.skip(start);
     const c = t[p];
-    if (t.startsWith('<<', p)) {
-      const entries = new Map<string, PdfValue>();
-      p += 2;
-      for (;;) {
-        p = this.skip(p);
-        if (t.startsWith('>>', p)) return { value: new PdfDict(entries), end: p + 2 };
-        const key = this.parse(p);
-        if (!(key.value instanceof PdfName)) throw new Error(`Dictionary key expected at ${p}`);
-        const val = this.parse(key.end);
-        entries.set(key.value.name, val.value);
-        p = val.end;
-      }
-    }
-    if (c === '<') {
-      const end = t.indexOf('>', p);
-      const hex = t.slice(p + 1, end).replace(/\s+/g, '');
-      let s = '';
-      for (let i = 0; i < hex.length; i += 2) s += String.fromCharCode(parseInt(hex.slice(i, i + 2).padEnd(2, '0'), 16));
-      return { value: new PdfString(s), end: end + 1 };
-    }
-    if (c === '[') {
-      const arr: PdfValue[] = [];
-      p++;
-      for (;;) {
-        p = this.skip(p);
-        if (t[p] === ']') return { value: arr, end: p + 1 };
-        const v = this.parse(p);
-        arr.push(v.value);
-        p = v.end;
-      }
-    }
+    if (t.startsWith('<<', p)) return this.dictionary(p);
+    if (c === '<') return this.hexString(p);
+    if (c === '[') return this.array(p);
     if (c === '(') return this.literal(p);
-    if (c === '/') {
-      let q = p + 1;
-      while (q < t.length && !WS.test(t[q]!) && !DELIM.test(t[q]!)) q++;
-      const raw = t.slice(p + 1, q).replace(/#([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
-      return { value: new PdfName(raw), end: q };
+    if (c === '/') return this.name(p);
+    return this.scalar(p);
+  }
+
+  private dictionary(start: number): { value: PdfDict; end: number } {
+    const t = this.text;
+    const entries = new Map<string, PdfValue>();
+    let p = start + 2;
+    for (;;) {
+      p = this.skip(p);
+      if (t.startsWith('>>', p)) return { value: new PdfDict(entries), end: p + 2 };
+      const key = this.parse(p);
+      if (!(key.value instanceof PdfName)) throw new Error(`Dictionary key expected at ${p}`);
+      const val = this.parse(key.end);
+      entries.set(key.value.name, val.value);
+      p = val.end;
     }
+  }
+
+  private hexString(p: number): { value: PdfString; end: number } {
+    const t = this.text;
+    const end = t.indexOf('>', p);
+    const hex = t.slice(p + 1, end).replace(/\s+/g, '');
+    let s = '';
+    for (let i = 0; i < hex.length; i += 2) s += String.fromCharCode(parseInt(hex.slice(i, i + 2).padEnd(2, '0'), 16));
+    return { value: new PdfString(s), end: end + 1 };
+  }
+
+  private array(start: number): { value: PdfValue[]; end: number } {
+    const t = this.text;
+    const arr: PdfValue[] = [];
+    let p = start + 1;
+    for (;;) {
+      p = this.skip(p);
+      if (t[p] === ']') return { value: arr, end: p + 1 };
+      const v = this.parse(p);
+      arr.push(v.value);
+      p = v.end;
+    }
+  }
+
+  private name(p: number): { value: PdfName; end: number } {
+    const t = this.text;
+    const q = tokenEnd(t, p + 1);
+    const raw = t.slice(p + 1, q).replace(/#([0-9a-fA-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
+    return { value: new PdfName(raw), end: q };
+  }
+
+  /** A boolean, null, a number, or a reference (`n 0 R`). */
+  private scalar(p: number): { value: PdfValue; end: number } {
+    const t = this.text;
     for (const [word, value] of [
       ['true', true],
       ['false', false],
@@ -253,40 +277,47 @@ export interface ShownText {
 /** Text shown by `Tj` and `TJ` operators, one entry per operator (enough for content written as BT … Tm … TJ ET). */
 export function shownStrings(content: string): ShownText[] {
   const syntax = new Syntax(content);
-  const out: ShownText[] = [];
+  const state = new TextOperators();
   let operands: PdfValue[] = [];
-  let font = '';
-  let size = 0;
-  let x = 0;
-  let y = 0;
   let p = 0;
   for (;;) {
     p = syntax.skip(p);
-    if (p >= content.length) return out;
-    const c = content[p]!;
-    if (/[[(</+\-.\d]/.test(c)) {
+    if (p >= content.length) return state.out;
+    if (/[[(</+\-.\d]/.test(content[p]!)) {
       const v = syntax.parse(p);
       operands.push(v.value);
       p = v.end;
       continue;
     }
-    let q = p;
-    while (q < content.length && !WS.test(content[q]!) && !DELIM.test(content[q]!)) q++;
-    const op = content.slice(p, Math.max(q, p + 1));
-    p = Math.max(q, p + 1);
+    // An operator is at least one character, even a stray delimiter.
+    const end = Math.max(tokenEnd(content, p), p + 1);
+    state.apply(content.slice(p, end), operands);
+    p = end;
+    operands = [];
+  }
+}
+
+/** The text state `shownStrings` tracks (font, size, matrix origin) and the text it has seen shown. */
+class TextOperators {
+  readonly out: ShownText[] = [];
+  private font = '';
+  private size = 0;
+  private x = 0;
+  private y = 0;
+
+  apply(op: string, operands: PdfValue[]): void {
     if (op === 'Tf') {
       const f = operands[0];
-      font = f instanceof PdfName ? f.name : '';
-      size = Number(operands[1]);
+      this.font = f instanceof PdfName ? f.name : '';
+      this.size = Number(operands[1]);
     } else if (op === 'Tm') {
-      x = Number(operands[4]);
-      y = Number(operands[5]);
+      this.x = Number(operands[4]);
+      this.y = Number(operands[5]);
     } else if (op === 'Tj' || op === 'TJ') {
       const v = operands[0];
       let text = '';
       for (const part of Array.isArray(v) ? v : [v]) if (part instanceof PdfString) text += part.bytes;
-      out.push({ text, font, size, x, y });
+      this.out.push({ text, font: this.font, size: this.size, x: this.x, y: this.y });
     }
-    operands = [];
   }
 }
