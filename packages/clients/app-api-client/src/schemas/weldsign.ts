@@ -15,6 +15,10 @@ import { z } from 'zod';
 // Enums
 // ---------------------------------------------------------------------------
 
+/** A signing request, or a reusable template of one (roles in place of people). */
+export const SIGN_ENVELOPE_KINDS = ['envelope', 'template'] as const;
+export type SignEnvelopeKind = (typeof SIGN_ENVELOPE_KINDS)[number];
+
 export const SIGN_ENVELOPE_STATUSES = ['draft', 'sent', 'in_progress', 'completed', 'declined', 'voided', 'expired'] as const;
 export type SignEnvelopeStatus = (typeof SIGN_ENVELOPE_STATUSES)[number];
 
@@ -51,6 +55,7 @@ export const SIGN_EVENT_TYPES = [
   'expired',
   'completed',
   'downloaded',
+  'filed',
 ] as const;
 export type SignEventType = (typeof SIGN_EVENT_TYPES)[number];
 
@@ -109,9 +114,29 @@ const title = z.string().trim().min(1).max(255);
 const message = z.string().trim().max(5000);
 const days = z.number().int().min(1).max(90);
 
+/**
+ * Records a request can start from: a WeldDrive file, or a CRM company,
+ * person or opportunity. The signed PDF is filed back to it on completion.
+ */
+export const SIGN_SOURCE_TYPES = ['file', 'company', 'person', 'opportunity'] as const;
+export type SignSourceType = (typeof SIGN_SOURCE_TYPES)[number];
+
+export const signSourceSchema = z.object({
+  entityType: z.enum(SIGN_SOURCE_TYPES),
+  entityId: z.string().min(1).max(255),
+});
+export type SignSourceInput = z.infer<typeof signSourceSchema>;
+
+/** A WeldDrive folder id for the signed copy; null files it in the default place. */
+const fileBackFolderId = z.string().min(1).max(255).nullable();
+
 export const createEnvelopeSchema = z.object({
   title,
   message: message.nullish(),
+  /** Where the request comes from; the caller must be able to read that record or file. */
+  source: signSourceSchema.nullish(),
+  /** Where the signed copy goes in WeldDrive; the caller must be able to add files there. */
+  fileBackFolderId: fileBackFolderId.optional(),
 });
 export type CreateSignEnvelopeInput = z.infer<typeof createEnvelopeSchema>;
 
@@ -125,6 +150,7 @@ export const updateEnvelopeSchema = z
     reminderAfterDays: days.nullable(),
     reminderEveryDays: days.nullable(),
     reminderMaxCount: z.number().int().min(0).max(10).nullable(),
+    fileBackFolderId,
   })
   .partial();
 export type UpdateSignEnvelopeInput = z.infer<typeof updateEnvelopeSchema>;
@@ -142,6 +168,12 @@ export const reorderDocumentsSchema = z.object({
   documentIds: z.array(z.string().min(1)).min(1).max(SIGN_LIMITS.maxDocuments),
 });
 export type ReorderSignDocumentsInput = z.infer<typeof reorderDocumentsSchema>;
+
+/** Add a WeldDrive PDF to a draft or template; its bytes are copied, so later changes in Drive do not touch it. */
+export const addDocumentFromDriveSchema = z.object({
+  fileId: z.string().min(1).max(255),
+});
+export type AddSignDocumentFromDriveInput = z.infer<typeof addDocumentFromDriveSchema>;
 
 const recipientBase = z.object({
   role: z.enum(SIGN_RECIPIENT_ROLES),
@@ -214,6 +246,9 @@ export interface SignDocumentDto {
 export interface SignRecipientDto {
   id: string;
   role: SignRecipientRole;
+  /** On a template, the role ("Client"); on a request made from one, the role it filled. */
+  roleName: string | null;
+  /** On a template: who usually fills the role (may be empty). */
   name: string | null;
   email: string | null;
   personId: string | null;
@@ -257,6 +292,8 @@ export interface SignRecipientCounts {
 /** One row of the envelope list. */
 export interface SignEnvelopeSummary {
   id: string;
+  /** `template` only on a template's detail; the envelope list holds requests. */
+  kind: SignEnvelopeKind;
   title: string;
   status: SignEnvelopeStatus;
   senderUserId: string;
@@ -284,6 +321,12 @@ export interface SignEnvelopeDetail extends SignEnvelopeSummary {
   fields: SignFieldDto[];
   voidedReason: string | null;
   voidedAt: string | null;
+  /** The file or CRM record the request started from, with its display name (null when it is gone). */
+  source: SignSourceDto | null;
+  /** The WeldDrive folder chosen for the signed copy; null files it in the default place. */
+  fileBackFolderId: string | null;
+  /** Where the signed copy went, once the request is completed and filed. */
+  filing: SignFilingDto | null;
   /** The caller may change this envelope: it is a draft, they own it (or manage WeldSign) and hold `sign_envelopes:update`. */
   canEdit: boolean;
   /**
@@ -297,6 +340,38 @@ export interface SignEnvelopeDetail extends SignEnvelopeSummary {
   canRemind: boolean;
   /** The caller's own recipient id when it is their turn to sign; they open it with "Sign now". */
   mySignerId: string | null;
+}
+
+export interface SignSourceDto {
+  entityType: SignSourceType;
+  entityId: string;
+  /** The file's or record's name; null when it was deleted since. */
+  name: string | null;
+}
+
+/**
+ * Where the signed copy went: a WeldDrive file (in the chosen folder, the
+ * source file's folder, or the sender's own "WeldSign/<year>"), and for a
+ * CRM source a copy on the company or person and a note activity.
+ */
+export interface SignFilingDto {
+  driveFileId: string | null;
+  driveFolderId: string | null;
+  /** The copy on the CRM record (`files.entity_type` company or person). */
+  recordFileId: string | null;
+  recordType: 'company' | 'person' | null;
+  recordId: string | null;
+  activityId: string | null;
+  filedAt: string;
+}
+
+/** Someone on the request's CRM record, offered as a recipient. */
+export interface SignRecipientSuggestion {
+  personId: string;
+  name: string;
+  email: string;
+  /** Their job title, when the record has one. */
+  title: string | null;
 }
 
 /** One entry of a request's activity (the evidence trail), oldest first. */
@@ -366,6 +441,103 @@ export interface SignRemindResult {
 /** A fresh signing link for the caller's own turn ("Sign now"). */
 export interface SignSigningLink {
   url: string;
+}
+
+// ---------------------------------------------------------------------------
+// Templates (members)
+// ---------------------------------------------------------------------------
+//
+// A template is a reusable request: documents, fields and named roles
+// ("Client", "Director") in place of people. It is stored as an envelope of
+// kind `template` (always a draft), so its detail is a `SignEnvelopeDetail`
+// with `kind: 'template'` and the editor's documents and fields steps work on
+// both. Its roles are the `recipientList`, with `roleName` set. Using a
+// template copies it into a new draft with a person in each role.
+
+export const createTemplateSchema = z.object({
+  title,
+  message: message.nullish(),
+});
+export type CreateSignTemplateInput = z.infer<typeof createTemplateSchema>;
+
+/** Template settings; the expiry is chosen when a request made from it is sent. */
+export const updateTemplateSchema = updateEnvelopeSchema.omit({ expiresAt: true, fileBackFolderId: true });
+export type UpdateSignTemplateInput = z.infer<typeof updateTemplateSchema>;
+
+export const listTemplatesQuerySchema = z.object({
+  search: z.string().trim().max(255).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().regex(/^\d+$/).optional(),
+});
+export type ListSignTemplatesQuery = z.infer<typeof listTemplatesQuerySchema>;
+
+const roleBase = z.object({
+  roleName: z.string().trim().min(1).max(100),
+  role: z.enum(SIGN_RECIPIENT_ROLES),
+  routingOrder: z.number().int().min(1).max(SIGN_LIMITS.maxRecipients),
+  authMode: z.enum(SIGN_AUTH_MODES),
+  locale: z.enum(SIGN_LOCALES),
+  /** Who usually fills the role; prefilled when the template is used. */
+  name: z.string().trim().min(1).max(255).nullable(),
+  email: z.string().trim().toLowerCase().email().max(320).nullable(),
+});
+
+export const createTemplateRoleSchema = roleBase.partial({
+  role: true,
+  routingOrder: true,
+  authMode: true,
+  locale: true,
+  name: true,
+  email: true,
+});
+export type CreateSignTemplateRoleInput = z.infer<typeof createTemplateRoleSchema>;
+
+export const updateTemplateRoleSchema = roleBase.partial();
+export type UpdateSignTemplateRoleInput = z.infer<typeof updateTemplateRoleSchema>;
+
+/** The person who fills one role when a template is used. */
+export const templateRecipientSchema = z.object({
+  /** A role of the template (its recipient id). */
+  roleId: z.string().min(1).max(30),
+  name: z.string().trim().min(1).max(255),
+  email: z.string().trim().toLowerCase().email().max(320),
+  personId: z.string().max(30).nullish(),
+  /** Defaults to the role's. */
+  locale: z.enum(SIGN_LOCALES).optional(),
+  /** Defaults to the role's. */
+  authMode: z.enum(SIGN_AUTH_MODES).optional(),
+  /** Required when the auth mode is `access_code`: a template never holds one. */
+  accessCode: z.string().trim().min(4).max(64).nullish(),
+});
+export type SignTemplateRecipientInput = z.infer<typeof templateRecipientSchema>;
+
+/** Make a new draft from a template: one person for every role. */
+export const useTemplateSchema = z.object({
+  /** Defaults to the template's title. */
+  title: title.optional(),
+  /** Defaults to the template's message. */
+  message: message.nullish(),
+  recipients: z.array(templateRecipientSchema).min(1).max(SIGN_LIMITS.maxRecipients),
+});
+export type UseSignTemplateInput = z.infer<typeof useTemplateSchema>;
+
+/** One role of a template, for the template list. */
+export interface SignTemplateRoleSummary {
+  id: string;
+  roleName: string;
+  role: SignRecipientRole;
+}
+
+/** One row of the template list. */
+export interface SignTemplateSummary {
+  id: string;
+  title: string;
+  documentCount: number;
+  roles: SignTemplateRoleSummary[];
+  /** Name of the member who made it. */
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -59,6 +59,26 @@ export const weldsign = {
     },
   },
 
+  /** "Send for signature" from WeldDrive and from CRM records. */
+  start: {
+    action: 'Send for signature',
+    preparing: 'Preparing "{name}" for signature…',
+    failed: 'Could not start the signature request',
+    documentFailed: 'The request was created, but "{name}" could not be added: {reason}',
+    recordTitle: 'Document for {name}',
+  },
+
+  /** Where a request came from: a WeldDrive file or a CRM record. */
+  source: {
+    from: 'From {name}',
+    gone: {
+      file: 'From a file that was deleted',
+      company: 'From a company that was deleted',
+      person: 'From a person that was deleted',
+      opportunity: 'From an opportunity that was deleted',
+    },
+  },
+
   editor: {
     loadFailed: 'This request could not be loaded.',
     notFound: 'This request does not exist or you cannot see it.',
@@ -66,6 +86,7 @@ export const weldsign = {
     back: 'Back',
     next: 'Next',
     titleLabel: 'Request title',
+    stepsLabel: 'Steps',
     saved: 'Saved',
     saving: 'Saving…',
     saveFailed: 'Could not save',
@@ -74,6 +95,8 @@ export const weldsign = {
       recipients: 'Recipients',
       fields: 'Fields',
       review: 'Review',
+      roles: 'Roles',
+      settings: 'Settings',
     },
 
     documents: {
@@ -93,6 +116,13 @@ export const weldsign = {
       removeTitle: 'Remove this document?',
       removeDescription: 'The fields placed on "{name}" are removed too.',
       empty: 'No documents yet.',
+      fromDrive: 'Add from WeldDrive',
+      drive: {
+        title: 'Add from WeldDrive',
+        description: 'Choose the PDFs to add. They are copied, so later changes in WeldDrive do not affect the request.',
+        confirm: 'Add',
+        adding: 'Adding…',
+      },
     },
 
     recipients: {
@@ -128,6 +158,11 @@ export const weldsign = {
       saveFailed: 'Could not save {name}',
       invalidEmail: 'Enter a valid email address',
       nameRequired: 'Enter a name',
+      templateRole: 'Role in the template: {role}',
+      suggestions: {
+        title: 'Suggested from {name}',
+        add: 'Add {name} as a signer',
+      },
     },
 
     fields: {
@@ -135,7 +170,9 @@ export const weldsign = {
       description: 'Choose a signer, then a field, and click on the page to place it.',
       needDocuments: 'Add a document first.',
       needSigners: 'Add at least one signer first.',
+      needRoles: 'Add at least one role that signs first.',
       signer: 'Signer',
+      role: 'Role',
       fieldTypes: 'Fields',
       types: {
         signature: 'Signature',
@@ -187,6 +224,21 @@ export const weldsign = {
       sending: 'Sending…',
       sent: 'Request sent',
       sendFailed: 'Could not send the request',
+      signedCopy: {
+        title: 'Signed copy',
+        toDefault: 'Saved in WeldSign/{year} in your WeldDrive, a folder only you can see.',
+        toFolder: 'Saved in the folder "{name}" in WeldDrive.',
+        toFolderUnknown: 'Saved in the folder you chose in WeldDrive.',
+        alsoRecord: 'A copy is also saved on the files of {name}, with a note in its activity.',
+        alsoOpportunity: "A copy is also saved on the files of the opportunity's company, with a note on {name}.",
+        change: 'Change',
+        useDefault: 'Use default',
+        pickTitle: 'Choose a folder for the signed copy',
+        pickDescription:
+          'The signed PDF is saved in this folder when everyone has signed. Only folders you can add files to can be chosen.',
+        pickConfirm: 'Use this folder',
+        saveFailed: 'Could not change where the signed copy goes',
+      },
     },
   },
 
@@ -215,6 +267,18 @@ export const weldsign = {
     voidedReason: 'Reason: {reason}',
     fingerprint: 'SHA-256 of the signed PDF',
     viewDocuments: 'View documents and fields',
+
+    filing: {
+      title: 'Where the signed copy went',
+      drive: 'Saved to WeldDrive',
+      viewFile: 'View file',
+      openFolder: 'Open folder',
+      onRecord: 'Saved on {name}',
+      recordFallback: {
+        company: 'the company',
+        person: 'the person',
+      },
+    },
 
     signNow: 'Sign now',
     signNowFailed: 'Could not open the signing page',
@@ -288,9 +352,124 @@ export const weldsign = {
         expired: 'Request expired',
         completed: 'Everyone signed, request completed',
         downloaded: 'Signed PDF downloaded',
+        filed: 'Signed PDF saved to WeldDrive',
       },
+      filedWithCompany: 'Signed PDF saved to WeldDrive and to the files of the company',
+      filedWithPerson: 'Signed PDF saved to WeldDrive and to the files of the person',
       remindedAutomatically: 'Automatic reminder sent to {name}',
       recipientCorrectedPlain: 'Email of {name} corrected',
+    },
+  },
+
+  templates: {
+    title: 'Templates',
+    noAccess: "You don't have access to templates.",
+    untitled: 'Untitled template',
+    newTemplate: 'New template',
+    searchPlaceholder: 'Search templates',
+    table: {
+      title: 'Template',
+      roles: 'Roles',
+      documents: 'Documents',
+      updated: 'Updated',
+      madeBy: 'Made by',
+    },
+    rolesMore: '+{count}',
+    noRoles: 'No roles yet',
+    useAction: 'Use',
+    useActionLabel: 'Use {name}',
+    cannotUse: 'Add a document and a role to this template before you use it.',
+    emptyTitle: 'No templates yet',
+    emptyDescription:
+      'A template is a signature request you can reuse. Add the documents, place the fields and name the roles, such as "Client" or "Director". When you use it, you only say who fills each role.',
+    noResultsTitle: 'No templates found',
+    noResultsDescription: 'Try another search.',
+    createFailed: 'Could not create the template',
+    delete: {
+      title: 'Delete this template?',
+      description:
+        '"{name}" and its documents will be deleted. Requests already made from it keep their own copies. This cannot be undone.',
+      confirm: 'Delete',
+      done: 'Template deleted',
+      failed: 'Could not delete the template',
+    },
+
+    editor: {
+      loadFailed: 'This template could not be loaded.',
+      notFound: 'This template does not exist or you cannot see it.',
+      readOnly: 'You can look at this template, but you are not allowed to change it.',
+      badge: 'Template',
+      titleLabel: 'Template name',
+    },
+
+    roles: {
+      title: 'Roles',
+      description:
+        'A role stands for a person you do not know yet, such as "Client". When the template is used, you choose who fills each role.',
+      add: 'Add role',
+      empty: 'No roles yet. Add the first one below.',
+      roleName: 'Role name',
+      roleNamePlaceholder: 'Client',
+      type: 'Type',
+      usualName: 'Usual name (optional)',
+      usualEmail: 'Usual email (optional)',
+      defaultsHint: 'If the same person usually fills this role, add them here. They are filled in when the template is used.',
+      accessCodeNote: 'You choose the access code when the template is used.',
+      remove: 'Remove role',
+      removeTitle: 'Remove this role?',
+      removeDescription: 'The fields placed for "{name}" are removed too.',
+      roleNameRequired: 'Enter a role name',
+      duplicateName: 'There is already a role called "{name}"',
+      invalidEmail: 'Enter a valid email address',
+      saveFailed: 'Could not save {name}',
+    },
+
+    settings: {
+      title: 'Settings',
+      description: 'Defaults for every request made from this template. The template name is at the top of the page.',
+      summary: 'Summary',
+      summaryRoles: 'Roles',
+      problems: 'Still missing',
+      noDocuments: 'Add at least one document.',
+      noSigners: 'Add at least one role that signs.',
+      signerWithoutSignature: 'The role "{name}" has no signature field.',
+      ready: 'Complete: a request made from this template can be sent right away.',
+      useTemplate: 'Use template',
+    },
+
+    useTemplate: {
+      title: 'Use template',
+      description: 'Who fills each role of "{name}"? You can still change everything in the draft.',
+      loading: 'Loading the template…',
+      loadFailed: 'The template could not be loaded.',
+      signs: 'Signs',
+      copy: 'Gets a copy',
+      step: 'Step {position}',
+      name: 'Name',
+      email: 'Email',
+      nameRequired: 'Enter a name',
+      invalidEmail: 'Enter a valid email address',
+      duplicateEmail: 'Each role needs a different email address',
+      accessCode: 'Access code',
+      accessCodeRequired: 'Enter an access code of at least 4 characters',
+      details: 'Request details',
+      requestTitle: 'Title',
+      titleRequired: 'Enter a title',
+      message: 'Message to recipients',
+      submit: 'Create draft',
+      submitting: 'Creating…',
+      failed: 'Could not use the template',
+    },
+
+    picker: {
+      action: 'From template',
+      title: 'Start from a template',
+      description: 'Choose a template. Next you say who fills each role.',
+      searchPlaceholder: 'Search templates',
+      loading: 'Loading templates…',
+      loadFailed: 'The templates could not be loaded.',
+      empty: 'No templates found.',
+      loadMore: 'Show more',
     },
   },
 };

@@ -227,6 +227,25 @@ export const welddrive = {
     moveHere: 'Move here',
   },
 
+  /** The pickers other modules open to choose files or a folder from WeldDrive. */
+  picker: {
+    files: {
+      searchPlaceholder: 'Search files',
+      loading: 'Loading files…',
+      loadFailed: 'The files could not be loaded.',
+      empty: 'No files found.',
+      limited: 'Showing the first {count} files. Search to find others.',
+      selected: '{count} selected',
+      selectedOf: '{count} of {max} selected',
+    },
+    folders: {
+      loading: 'Loading folders…',
+      loadFailed: 'The folders could not be loaded.',
+      empty: 'There are no folders yet. Create one in WeldDrive first.',
+      viewOnly: 'View only',
+    },
+  },
+
   fileDetail: {
     you: 'You',
     timeAgo: {

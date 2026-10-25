@@ -67,6 +67,37 @@ describe('describeEvent', () => {
     expect(lineOf({ type: 'recipient_corrected', details: null })?.text).toBe('Email of Ann corrected');
   });
 
+  describe('filed', () => {
+    it('says the signed PDF went to WeldDrive', () => {
+      expect(lineOf({ type: 'filed', recipientName: null })?.text).toBe('Signed PDF saved to WeldDrive');
+      expect(lineOf({ type: 'filed', recipientName: null, details: { driveFileId: 'fil_1', recordType: null } })?.text).toBe(
+        'Signed PDF saved to WeldDrive',
+      );
+    });
+
+    it('adds the CRM record it was also filed on', () => {
+      const details = (recordType: string) => ({ driveFileId: 'fil_1', recordType, recordId: 'rec_1' });
+      expect(lineOf({ type: 'filed', recipientName: null, details: details('company') })?.text).toBe(
+        'Signed PDF saved to WeldDrive and to the files of the company',
+      );
+      expect(lineOf({ type: 'filed', recipientName: null, details: details('person') })?.text).toBe(
+        'Signed PDF saved to WeldDrive and to the files of the person',
+      );
+    });
+
+    it('says the same in Dutch', () => {
+      const nlStrings = nl.weldsign.overview.activity;
+      const line = (details: SignEventDto['details']) => describeEvent(event({ type: 'filed', recipientName: null, details }), nlStrings, interpolate)?.text;
+      expect(line(null)).toBe('Ondertekende pdf opgeslagen in WeldDrive');
+      expect(line({ recordType: 'company' })).toBe('Ondertekende pdf opgeslagen in WeldDrive en bij de bestanden van het bedrijf');
+      expect(line({ recordType: 'person' })).toBe('Ondertekende pdf opgeslagen in WeldDrive en bij de bestanden van de persoon');
+    });
+
+    it('is the system\'s doing, not a member\'s', () => {
+      expect(lineOf({ type: 'filed', recipientName: null, actorName: 'Gert' })?.by).toBeNull();
+    });
+  });
+
   it('credits the member only for what a member does', () => {
     expect(lineOf({ type: 'sent', actorName: 'Gert' })?.by).toBe('by Gert');
     expect(lineOf({ type: 'voided', actorName: null, actorEmail: 'gert@weldsuite.test' })?.by).toBe('by gert@weldsuite.test');

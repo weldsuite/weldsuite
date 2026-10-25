@@ -101,6 +101,7 @@ import { Route as WeldstashStockIndexRouteImport } from './routes/weldstash/stoc
 import { Route as WeldstashProductsIndexRouteImport } from './routes/weldstash/products/index'
 import { Route as WeldstashPickListsIndexRouteImport } from './routes/weldstash/pick-lists/index'
 import { Route as WeldstashPackingIndexRouteImport } from './routes/weldstash/packing/index'
+import { Route as WeldsignTemplatesIndexRouteImport } from './routes/weldsign/templates/index'
 import { Route as WeldsignEnvelopeIdIndexRouteImport } from './routes/weldsign/$envelopeId/index'
 import { Route as WeldsheetsSheetIdIndexRouteImport } from './routes/weldsheets/$sheetId/index'
 import { Route as WeldreachSetupIndexRouteImport } from './routes/weldreach/setup/index'
@@ -280,6 +281,7 @@ import { Route as WeldmailAccountIdLabelSlugRouteRouteImport } from './routes/we
 import { Route as WeldflowProjectProjectIdRouteRouteImport } from './routes/weldflow/project/$projectId/route'
 import { Route as PreviewWeldmailAccountIdRouteRouteImport } from './routes/preview/weldmail/$accountId/route'
 import { Route as PreviewWeldcrmPeopleRouteRouteImport } from './routes/preview/weldcrm/people/route'
+import { Route as WeldsignTemplatesTemplateIdIndexRouteImport } from './routes/weldsign/templates/$templateId/index'
 import { Route as WeldreachCampaignsCampaignIdIndexRouteImport } from './routes/weldreach/campaigns/$campaignId/index'
 import { Route as WeldpassPasswordsVaultsIndexRouteImport } from './routes/weldpass/passwords/vaults/index'
 import { Route as WeldpassPasswordsHealthIndexRouteImport } from './routes/weldpass/passwords/health/index'
@@ -965,6 +967,11 @@ const WeldstashPackingIndexRoute = WeldstashPackingIndexRouteImport.update({
   id: '/packing/',
   path: '/packing/',
   getParentRoute: () => WeldstashRouteRoute,
+} as any)
+const WeldsignTemplatesIndexRoute = WeldsignTemplatesIndexRouteImport.update({
+  id: '/templates/',
+  path: '/templates/',
+  getParentRoute: () => WeldsignRouteRoute,
 } as any)
 const WeldsignEnvelopeIdIndexRoute = WeldsignEnvelopeIdIndexRouteImport.update({
   id: '/$envelopeId/',
@@ -1896,6 +1903,12 @@ const PreviewWeldcrmPeopleRouteRoute =
     id: '/people',
     path: '/people',
     getParentRoute: () => PreviewWeldcrmRouteRoute,
+  } as any)
+const WeldsignTemplatesTemplateIdIndexRoute =
+  WeldsignTemplatesTemplateIdIndexRouteImport.update({
+    id: '/templates/$templateId/',
+    path: '/templates/$templateId/',
+    getParentRoute: () => WeldsignRouteRoute,
   } as any)
 const WeldreachCampaignsCampaignIdIndexRoute =
   WeldreachCampaignsCampaignIdIndexRouteImport.update({
@@ -3478,6 +3491,7 @@ export interface FileRoutesByFullPath {
   '/weldreach/setup/': typeof WeldreachSetupIndexRoute
   '/weldsheets/$sheetId/': typeof WeldsheetsSheetIdIndexRoute
   '/weldsign/$envelopeId/': typeof WeldsignEnvelopeIdIndexRoute
+  '/weldsign/templates/': typeof WeldsignTemplatesIndexRoute
   '/weldstash/packing/': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
@@ -3625,6 +3639,7 @@ export interface FileRoutesByFullPath {
   '/weldpass/passwords/health/': typeof WeldpassPasswordsHealthIndexRoute
   '/weldpass/passwords/vaults/': typeof WeldpassPasswordsVaultsIndexRoute
   '/weldreach/campaigns/$campaignId/': typeof WeldreachCampaignsCampaignIdIndexRoute
+  '/weldsign/templates/$templateId/': typeof WeldsignTemplatesTemplateIdIndexRoute
   '/preview/weldcalendar/scheduling/$id/': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new/': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id/': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -3931,6 +3946,7 @@ export interface FileRoutesByTo {
   '/weldreach/setup': typeof WeldreachSetupIndexRoute
   '/weldsheets/$sheetId': typeof WeldsheetsSheetIdIndexRoute
   '/weldsign/$envelopeId': typeof WeldsignEnvelopeIdIndexRoute
+  '/weldsign/templates': typeof WeldsignTemplatesIndexRoute
   '/weldstash/packing': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists': typeof WeldstashPickListsIndexRoute
   '/weldstash/products': typeof WeldstashProductsIndexRoute
@@ -4076,6 +4092,7 @@ export interface FileRoutesByTo {
   '/weldpass/passwords/health': typeof WeldpassPasswordsHealthIndexRoute
   '/weldpass/passwords/vaults': typeof WeldpassPasswordsVaultsIndexRoute
   '/weldreach/campaigns/$campaignId': typeof WeldreachCampaignsCampaignIdIndexRoute
+  '/weldsign/templates/$templateId': typeof WeldsignTemplatesTemplateIdIndexRoute
   '/preview/weldcalendar/scheduling/$id': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -4426,6 +4443,7 @@ export interface FileRoutesById {
   '/weldreach/setup/': typeof WeldreachSetupIndexRoute
   '/weldsheets/$sheetId/': typeof WeldsheetsSheetIdIndexRoute
   '/weldsign/$envelopeId/': typeof WeldsignEnvelopeIdIndexRoute
+  '/weldsign/templates/': typeof WeldsignTemplatesIndexRoute
   '/weldstash/packing/': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
@@ -4573,6 +4591,7 @@ export interface FileRoutesById {
   '/weldpass/passwords/health/': typeof WeldpassPasswordsHealthIndexRoute
   '/weldpass/passwords/vaults/': typeof WeldpassPasswordsVaultsIndexRoute
   '/weldreach/campaigns/$campaignId/': typeof WeldreachCampaignsCampaignIdIndexRoute
+  '/weldsign/templates/$templateId/': typeof WeldsignTemplatesTemplateIdIndexRoute
   '/preview/weldcalendar/scheduling/$id/': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new/': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id/': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -4924,6 +4943,7 @@ export interface FileRouteTypes {
     | '/weldreach/setup/'
     | '/weldsheets/$sheetId/'
     | '/weldsign/$envelopeId/'
+    | '/weldsign/templates/'
     | '/weldstash/packing/'
     | '/weldstash/pick-lists/'
     | '/weldstash/products/'
@@ -5071,6 +5091,7 @@ export interface FileRouteTypes {
     | '/weldpass/passwords/health/'
     | '/weldpass/passwords/vaults/'
     | '/weldreach/campaigns/$campaignId/'
+    | '/weldsign/templates/$templateId/'
     | '/preview/weldcalendar/scheduling/$id/'
     | '/preview/weldcalendar/scheduling/new/'
     | '/preview/weldcrm/pipeline/$id/'
@@ -5377,6 +5398,7 @@ export interface FileRouteTypes {
     | '/weldreach/setup'
     | '/weldsheets/$sheetId'
     | '/weldsign/$envelopeId'
+    | '/weldsign/templates'
     | '/weldstash/packing'
     | '/weldstash/pick-lists'
     | '/weldstash/products'
@@ -5522,6 +5544,7 @@ export interface FileRouteTypes {
     | '/weldpass/passwords/health'
     | '/weldpass/passwords/vaults'
     | '/weldreach/campaigns/$campaignId'
+    | '/weldsign/templates/$templateId'
     | '/preview/weldcalendar/scheduling/$id'
     | '/preview/weldcalendar/scheduling/new'
     | '/preview/weldcrm/pipeline/$id'
@@ -5871,6 +5894,7 @@ export interface FileRouteTypes {
     | '/weldreach/setup/'
     | '/weldsheets/$sheetId/'
     | '/weldsign/$envelopeId/'
+    | '/weldsign/templates/'
     | '/weldstash/packing/'
     | '/weldstash/pick-lists/'
     | '/weldstash/products/'
@@ -6018,6 +6042,7 @@ export interface FileRouteTypes {
     | '/weldpass/passwords/health/'
     | '/weldpass/passwords/vaults/'
     | '/weldreach/campaigns/$campaignId/'
+    | '/weldsign/templates/$templateId/'
     | '/preview/weldcalendar/scheduling/$id/'
     | '/preview/weldcalendar/scheduling/new/'
     | '/preview/weldcrm/pipeline/$id/'
@@ -6805,6 +6830,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldstash/packing/'
       preLoaderRoute: typeof WeldstashPackingIndexRouteImport
       parentRoute: typeof WeldstashRouteRoute
+    }
+    '/weldsign/templates/': {
+      id: '/weldsign/templates/'
+      path: '/templates'
+      fullPath: '/weldsign/templates/'
+      preLoaderRoute: typeof WeldsignTemplatesIndexRouteImport
+      parentRoute: typeof WeldsignRouteRoute
     }
     '/weldsign/$envelopeId/': {
       id: '/weldsign/$envelopeId/'
@@ -8058,6 +8090,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/preview/weldcrm/people'
       preLoaderRoute: typeof PreviewWeldcrmPeopleRouteRouteImport
       parentRoute: typeof PreviewWeldcrmRouteRoute
+    }
+    '/weldsign/templates/$templateId/': {
+      id: '/weldsign/templates/$templateId/'
+      path: '/templates/$templateId'
+      fullPath: '/weldsign/templates/$templateId/'
+      preLoaderRoute: typeof WeldsignTemplatesTemplateIdIndexRouteImport
+      parentRoute: typeof WeldsignRouteRoute
     }
     '/weldreach/campaigns/$campaignId/': {
       id: '/weldreach/campaigns/$campaignId/'
@@ -10839,11 +10878,15 @@ const WeldsheetsRouteRouteWithChildren = WeldsheetsRouteRoute._addFileChildren(
 interface WeldsignRouteRouteChildren {
   WeldsignIndexRoute: typeof WeldsignIndexRoute
   WeldsignEnvelopeIdIndexRoute: typeof WeldsignEnvelopeIdIndexRoute
+  WeldsignTemplatesIndexRoute: typeof WeldsignTemplatesIndexRoute
+  WeldsignTemplatesTemplateIdIndexRoute: typeof WeldsignTemplatesTemplateIdIndexRoute
 }
 
 const WeldsignRouteRouteChildren: WeldsignRouteRouteChildren = {
   WeldsignIndexRoute: WeldsignIndexRoute,
   WeldsignEnvelopeIdIndexRoute: WeldsignEnvelopeIdIndexRoute,
+  WeldsignTemplatesIndexRoute: WeldsignTemplatesIndexRoute,
+  WeldsignTemplatesTemplateIdIndexRoute: WeldsignTemplatesTemplateIdIndexRoute,
 }
 
 const WeldsignRouteRouteWithChildren = WeldsignRouteRoute._addFileChildren(
