@@ -57,6 +57,7 @@ export const RESERVED_WORKSPACE_SLUGS: readonly string[] = [
   'weldcrm',
   'welddata',
   'welddesk',
+  'welddocs',
   'welddrive',
   'weldflow',
   'weldhost',

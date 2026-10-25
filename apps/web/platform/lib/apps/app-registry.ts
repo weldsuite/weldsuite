@@ -24,6 +24,7 @@ import {
   UsersRound,
   Send,
   FileSpreadsheet,
+  FileText,
   Signature,
   type LucideIcon,
 } from 'lucide-react';
@@ -152,6 +153,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/weldsign/logo-light.svg',
       iconDark: '/assets/images/weldsign/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldDocs. Icon-only logo like WeldPass: a page with lines of text.
+  welddocs: {
+    lucideIcon: FileText,
+    shortName: 'Docs',
+    icon: '/assets/images/welddocs/icon.svg',
+    logo: {
+      iconLight: '/assets/images/welddocs/logo-light.svg',
+      iconDark: '/assets/images/welddocs/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

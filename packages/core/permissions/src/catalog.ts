@@ -277,6 +277,27 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
 
+  // ── Documents (WeldDocs) ──────────────────────────────────────────────
+  // These open the app. Who may edit a given document is its own sharing
+  // (owner, editor, commenter, viewer); `docs:manage` lets an admin see
+  // every document and fix its sharing.
+  {
+    key: 'docs',
+    label: 'Documents (WeldDocs)',
+    permissions: [
+      { key: 'docs:read', label: 'Open documents', description: 'Documents this person owns or that are shared with them.' },
+      { key: 'docs:create', label: 'Create documents' },
+      { key: 'docs:update', label: 'Edit documents' },
+      { key: 'docs:delete', label: 'Delete documents' },
+      { key: 'docs:share', label: 'Share documents' },
+      {
+        key: 'docs:manage',
+        label: 'Administer documents',
+        description: "See every document in the workspace and change who it is shared with.",
+      },
+    ],
+  },
+
   // ── E-signatures (WeldSign) ───────────────────────────────────────────
   // Without `sign_envelopes:manage` a person sees the envelopes they sent and
   // the ones they are a recipient of; with it, every envelope in the
@@ -693,6 +714,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
   // WeldSheets — admins also administer every spreadsheet's sharing (sheets:manage)
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share', 'sheets:manage',
+  // WeldDocs — admins also administer every document's sharing (docs:manage)
+  'docs:read', 'docs:create', 'docs:update', 'docs:delete', 'docs:share', 'docs:manage',
   // WeldSign — admins also see every envelope and edit the settings (sign_envelopes:manage)
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void', 'sign_envelopes:manage',
@@ -819,6 +842,8 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete',
   // WeldSheets — a sheet's own sharing decides who edits it; these open the app.
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share',
+  // WeldDocs — a document's own sharing decides who edits it; these open the app.
+  'docs:read', 'docs:create', 'docs:update', 'docs:delete', 'docs:share',
   // WeldSign — send and track their own signature requests; shared templates are read-only
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void',
@@ -853,6 +878,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'knowledge:read',
   // WeldSheets — read-only
   'sheets:read',
+  // WeldDocs — read-only
+  'docs:read',
   // WeldSign — read-only: only requests they are a recipient of, and templates
   'sign_envelopes:read', 'sign_templates:read',
   // WeldReach — read-only

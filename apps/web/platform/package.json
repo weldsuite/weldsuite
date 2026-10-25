@@ -45,6 +45,7 @@
     "@weldsuite/payroll-domain": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/docs-engine": "workspace:*",
     "@weldsuite/sheets-engine": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "@weldsuite/ui": "workspace:*",

@@ -159,6 +159,14 @@ const FALLBACK_CATALOG = [
     category: 'Productivity',
     path: '/weldsheets',
   },
+  {
+    code: 'welddocs',
+    name: 'WeldDocs',
+    description: 'Documents with rich formatting, pages, headers and footers, tables and live co-editing',
+    icon: 'FileText',
+    category: 'Productivity',
+    path: '/welddocs',
+  },
   // Deliberately not in DEFAULT_WORKSPACE_APPS: a secrets manager is opt-in,
   // not something every new workspace should silently have installed.
   {

@@ -45,7 +45,7 @@ export interface DocLayoutOptions {
 
 export class DocLayout {
   pages: PageLayout[] = [];
-  readonly measurer: TextMeasurer;
+  readonly measurer: CachedMeasurer;
   readonly styles: RunStyles;
   private readonly flows = new Map<string, StoryFlow>();
   private stylesVersion = 0;
@@ -140,6 +140,7 @@ export class DocLayout {
 
   /** Forget every cached layout (fonts loaded, zoom-independent settings changed). */
   invalidateAll(): void {
+    this.measurer.clear();
     this.stylesVersion++;
     this.styles.clear();
   }

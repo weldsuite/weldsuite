@@ -24,6 +24,7 @@ import { Route as WeldhrRouteRouteImport } from './routes/weldhr/route'
 import { Route as WeldhostRouteRouteImport } from './routes/weldhost/route'
 import { Route as WeldflowRouteRouteImport } from './routes/weldflow/route'
 import { Route as WelddriveRouteRouteImport } from './routes/welddrive/route'
+import { Route as WelddocsRouteRouteImport } from './routes/welddocs/route'
 import { Route as WelddeskRouteRouteImport } from './routes/welddesk/route'
 import { Route as WelddataRouteRouteImport } from './routes/welddata/route'
 import { Route as WeldcrmRouteRouteImport } from './routes/weldcrm/route'
@@ -52,6 +53,7 @@ import { Route as WeldhrIndexRouteImport } from './routes/weldhr/index'
 import { Route as WeldhostIndexRouteImport } from './routes/weldhost/index'
 import { Route as WeldflowIndexRouteImport } from './routes/weldflow/index'
 import { Route as WelddriveIndexRouteImport } from './routes/welddrive/index'
+import { Route as WelddocsIndexRouteImport } from './routes/welddocs/index'
 import { Route as WelddeskIndexRouteImport } from './routes/welddesk/index'
 import { Route as WelddataIndexRouteImport } from './routes/welddata/index'
 import { Route as WeldcrmIndexRouteImport } from './routes/weldcrm/index'
@@ -84,6 +86,7 @@ import { Route as PreviewWeldsheetsRouteRouteImport } from './routes/preview/wel
 import { Route as PreviewWeldmailRouteRouteImport } from './routes/preview/weldmail/route'
 import { Route as PreviewWeldhostRouteRouteImport } from './routes/preview/weldhost/route'
 import { Route as PreviewWeldflowRouteRouteImport } from './routes/preview/weldflow/route'
+import { Route as PreviewWelddocsRouteRouteImport } from './routes/preview/welddocs/route'
 import { Route as PreviewWelddeskRouteRouteImport } from './routes/preview/welddesk/route'
 import { Route as PreviewWelddataRouteRouteImport } from './routes/preview/welddata/route'
 import { Route as PreviewWeldcrmRouteRouteImport } from './routes/preview/weldcrm/route'
@@ -145,6 +148,7 @@ import { Route as WelddriveStarredIndexRouteImport } from './routes/welddrive/st
 import { Route as WelddriveSharedIndexRouteImport } from './routes/welddrive/shared/index'
 import { Route as WelddriveRecentIndexRouteImport } from './routes/welddrive/recent/index'
 import { Route as WelddriveAllFilesIndexRouteImport } from './routes/welddrive/all-files/index'
+import { Route as WelddocsDocIdIndexRouteImport } from './routes/welddocs/$docId/index'
 import { Route as WelddeskInboxIndexRouteImport } from './routes/welddesk/inbox/index'
 import { Route as WelddeskHelpCenterIndexRouteImport } from './routes/welddesk/help-center/index'
 import { Route as WelddeskEmailIndexRouteImport } from './routes/welddesk/email/index'
@@ -242,6 +246,7 @@ import { Route as SettingsActivityIndexRouteImport } from './routes/settings/act
 import { Route as PreviewWeldsheetsIndexRouteImport } from './routes/preview/weldsheets/index'
 import { Route as PreviewWeldhostIndexRouteImport } from './routes/preview/weldhost/index'
 import { Route as PreviewWeldflowIndexRouteImport } from './routes/preview/weldflow/index'
+import { Route as PreviewWelddocsIndexRouteImport } from './routes/preview/welddocs/index'
 import { Route as PreviewWelddataIndexRouteImport } from './routes/preview/welddata/index'
 import { Route as PreviewWeldcalendarIndexRouteImport } from './routes/preview/weldcalendar/index'
 import { Route as PreviewHelpDocsIndexRouteImport } from './routes/preview/help-docs/index'
@@ -402,6 +407,7 @@ import { Route as SettingsAppsWelddeskIndexRouteImport } from './routes/settings
 import { Route as SettingsAppsPhoneNumbersIndexRouteImport } from './routes/settings/apps/phone-numbers/index'
 import { Route as PreviewWeldsheetsSheetIdIndexRouteImport } from './routes/preview/weldsheets/$sheetId/index'
 import { Route as PreviewWeldhostDomainsIndexRouteImport } from './routes/preview/weldhost/domains/index'
+import { Route as PreviewWelddocsDocIdIndexRouteImport } from './routes/preview/welddocs/$docId/index'
 import { Route as PreviewWelddeskInboxIndexRouteImport } from './routes/preview/welddesk/inbox/index'
 import { Route as PreviewWeldcrmPeopleIndexRouteImport } from './routes/preview/weldcrm/people/index'
 import { Route as PreviewWeldchatChannelIdIndexRouteImport } from './routes/preview/weldchat/$channelId/index'
@@ -575,6 +581,11 @@ const WelddriveRouteRoute = WelddriveRouteRouteImport.update({
   path: '/welddrive',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WelddocsRouteRoute = WelddocsRouteRouteImport.update({
+  id: '/welddocs',
+  path: '/welddocs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WelddeskRouteRoute = WelddeskRouteRouteImport.update({
   id: '/welddesk',
   path: '/welddesk',
@@ -714,6 +725,11 @@ const WelddriveIndexRoute = WelddriveIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WelddocsIndexRoute = WelddocsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WelddocsRouteRoute,
 } as any)
 const WelddeskIndexRoute = WelddeskIndexRouteImport.update({
   id: '/',
@@ -873,6 +889,11 @@ const PreviewWeldhostRouteRoute = PreviewWeldhostRouteRouteImport.update({
 const PreviewWeldflowRouteRoute = PreviewWeldflowRouteRouteImport.update({
   id: '/preview/weldflow',
   path: '/preview/weldflow',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PreviewWelddocsRouteRoute = PreviewWelddocsRouteRouteImport.update({
+  id: '/preview/welddocs',
+  path: '/preview/welddocs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PreviewWelddeskRouteRoute = PreviewWelddeskRouteRouteImport.update({
@@ -1182,6 +1203,11 @@ const WelddriveAllFilesIndexRoute = WelddriveAllFilesIndexRouteImport.update({
   id: '/all-files/',
   path: '/all-files/',
   getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WelddocsDocIdIndexRoute = WelddocsDocIdIndexRouteImport.update({
+  id: '/$docId/',
+  path: '/$docId/',
+  getParentRoute: () => WelddocsRouteRoute,
 } as any)
 const WelddeskInboxIndexRoute = WelddeskInboxIndexRouteImport.update({
   id: '/inbox/',
@@ -1692,6 +1718,11 @@ const PreviewWeldflowIndexRoute = PreviewWeldflowIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => PreviewWeldflowRouteRoute,
+} as any)
+const PreviewWelddocsIndexRoute = PreviewWelddocsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PreviewWelddocsRouteRoute,
 } as any)
 const PreviewWelddataIndexRoute = PreviewWelddataIndexRouteImport.update({
   id: '/',
@@ -2607,6 +2638,12 @@ const PreviewWeldhostDomainsIndexRoute =
     path: '/domains/',
     getParentRoute: () => PreviewWeldhostRouteRoute,
   } as any)
+const PreviewWelddocsDocIdIndexRoute =
+  PreviewWelddocsDocIdIndexRouteImport.update({
+    id: '/$docId/',
+    path: '/$docId/',
+    getParentRoute: () => PreviewWelddocsRouteRoute,
+  } as any)
 const PreviewWelddeskInboxIndexRoute =
   PreviewWelddeskInboxIndexRouteImport.update({
     id: '/inbox/',
@@ -3205,6 +3242,7 @@ export interface FileRoutesByFullPath {
   '/weldcrm': typeof WeldcrmRouteRouteWithChildren
   '/welddata': typeof WelddataRouteRouteWithChildren
   '/welddesk': typeof WelddeskRouteRouteWithChildren
+  '/welddocs': typeof WelddocsRouteRouteWithChildren
   '/welddrive': typeof WelddriveRouteRouteWithChildren
   '/weldflow': typeof WeldflowRouteRouteWithChildren
   '/weldhost': typeof WeldhostRouteRouteWithChildren
@@ -3228,6 +3266,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldcrm': typeof PreviewWeldcrmRouteRouteWithChildren
   '/preview/welddata': typeof PreviewWelddataRouteRouteWithChildren
   '/preview/welddesk': typeof PreviewWelddeskRouteRouteWithChildren
+  '/preview/welddocs': typeof PreviewWelddocsRouteRouteWithChildren
   '/preview/weldflow': typeof PreviewWeldflowRouteRouteWithChildren
   '/preview/weldhost': typeof PreviewWeldhostRouteRouteWithChildren
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
@@ -3260,6 +3299,7 @@ export interface FileRoutesByFullPath {
   '/weldcrm/': typeof WeldcrmIndexRoute
   '/welddata/': typeof WelddataIndexRoute
   '/welddesk/': typeof WelddeskIndexRoute
+  '/welddocs/': typeof WelddocsIndexRoute
   '/welddrive/': typeof WelddriveIndexRoute
   '/weldflow/': typeof WeldflowIndexRoute
   '/weldhost/': typeof WeldhostIndexRoute
@@ -3306,6 +3346,7 @@ export interface FileRoutesByFullPath {
   '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/preview/weldcalendar/': typeof PreviewWeldcalendarIndexRoute
   '/preview/welddata/': typeof PreviewWelddataIndexRoute
+  '/preview/welddocs/': typeof PreviewWelddocsIndexRoute
   '/preview/weldflow/': typeof PreviewWeldflowIndexRoute
   '/preview/weldhost/': typeof PreviewWeldhostIndexRoute
   '/preview/weldsheets/': typeof PreviewWeldsheetsIndexRoute
@@ -3403,6 +3444,7 @@ export interface FileRoutesByFullPath {
   '/welddesk/email/': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center/': typeof WelddeskHelpCenterIndexRoute
   '/welddesk/inbox/': typeof WelddeskInboxIndexRoute
+  '/welddocs/$docId/': typeof WelddocsDocIdIndexRoute
   '/welddrive/all-files/': typeof WelddriveAllFilesIndexRoute
   '/welddrive/recent/': typeof WelddriveRecentIndexRoute
   '/welddrive/shared/': typeof WelddriveSharedIndexRoute
@@ -3471,6 +3513,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldchat/$channelId/': typeof PreviewWeldchatChannelIdIndexRoute
   '/preview/weldcrm/people/': typeof PreviewWeldcrmPeopleIndexRoute
   '/preview/welddesk/inbox/': typeof PreviewWelddeskInboxIndexRoute
+  '/preview/welddocs/$docId/': typeof PreviewWelddocsDocIdIndexRoute
   '/preview/weldhost/domains/': typeof PreviewWeldhostDomainsIndexRoute
   '/preview/weldsheets/$sheetId/': typeof PreviewWeldsheetsSheetIdIndexRoute
   '/settings/apps/phone-numbers/': typeof SettingsAppsPhoneNumbersIndexRoute
@@ -3715,6 +3758,7 @@ export interface FileRoutesByTo {
   '/weldcrm': typeof WeldcrmIndexRoute
   '/welddata': typeof WelddataIndexRoute
   '/welddesk': typeof WelddeskIndexRoute
+  '/welddocs': typeof WelddocsIndexRoute
   '/welddrive': typeof WelddriveIndexRoute
   '/weldflow': typeof WeldflowIndexRoute
   '/weldhost': typeof WeldhostIndexRoute
@@ -3757,6 +3801,7 @@ export interface FileRoutesByTo {
   '/preview/help-docs': typeof PreviewHelpDocsIndexRoute
   '/preview/weldcalendar': typeof PreviewWeldcalendarIndexRoute
   '/preview/welddata': typeof PreviewWelddataIndexRoute
+  '/preview/welddocs': typeof PreviewWelddocsIndexRoute
   '/preview/weldflow': typeof PreviewWeldflowIndexRoute
   '/preview/weldhost': typeof PreviewWeldhostIndexRoute
   '/preview/weldsheets': typeof PreviewWeldsheetsIndexRoute
@@ -3854,6 +3899,7 @@ export interface FileRoutesByTo {
   '/welddesk/email': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center': typeof WelddeskHelpCenterIndexRoute
   '/welddesk/inbox': typeof WelddeskInboxIndexRoute
+  '/welddocs/$docId': typeof WelddocsDocIdIndexRoute
   '/welddrive/all-files': typeof WelddriveAllFilesIndexRoute
   '/welddrive/recent': typeof WelddriveRecentIndexRoute
   '/welddrive/shared': typeof WelddriveSharedIndexRoute
@@ -3920,6 +3966,7 @@ export interface FileRoutesByTo {
   '/preview/weldchat/$channelId': typeof PreviewWeldchatChannelIdIndexRoute
   '/preview/weldcrm/people': typeof PreviewWeldcrmPeopleIndexRoute
   '/preview/welddesk/inbox': typeof PreviewWelddeskInboxIndexRoute
+  '/preview/welddocs/$docId': typeof PreviewWelddocsDocIdIndexRoute
   '/preview/weldhost/domains': typeof PreviewWeldhostDomainsIndexRoute
   '/preview/weldsheets/$sheetId': typeof PreviewWeldsheetsSheetIdIndexRoute
   '/settings/apps/phone-numbers': typeof SettingsAppsPhoneNumbersIndexRoute
@@ -4147,6 +4194,7 @@ export interface FileRoutesById {
   '/weldcrm': typeof WeldcrmRouteRouteWithChildren
   '/welddata': typeof WelddataRouteRouteWithChildren
   '/welddesk': typeof WelddeskRouteRouteWithChildren
+  '/welddocs': typeof WelddocsRouteRouteWithChildren
   '/welddrive': typeof WelddriveRouteRouteWithChildren
   '/weldflow': typeof WeldflowRouteRouteWithChildren
   '/weldhost': typeof WeldhostRouteRouteWithChildren
@@ -4170,6 +4218,7 @@ export interface FileRoutesById {
   '/preview/weldcrm': typeof PreviewWeldcrmRouteRouteWithChildren
   '/preview/welddata': typeof PreviewWelddataRouteRouteWithChildren
   '/preview/welddesk': typeof PreviewWelddeskRouteRouteWithChildren
+  '/preview/welddocs': typeof PreviewWelddocsRouteRouteWithChildren
   '/preview/weldflow': typeof PreviewWeldflowRouteRouteWithChildren
   '/preview/weldhost': typeof PreviewWeldhostRouteRouteWithChildren
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
@@ -4202,6 +4251,7 @@ export interface FileRoutesById {
   '/weldcrm/': typeof WeldcrmIndexRoute
   '/welddata/': typeof WelddataIndexRoute
   '/welddesk/': typeof WelddeskIndexRoute
+  '/welddocs/': typeof WelddocsIndexRoute
   '/welddrive/': typeof WelddriveIndexRoute
   '/weldflow/': typeof WeldflowIndexRoute
   '/weldhost/': typeof WeldhostIndexRoute
@@ -4248,6 +4298,7 @@ export interface FileRoutesById {
   '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/preview/weldcalendar/': typeof PreviewWeldcalendarIndexRoute
   '/preview/welddata/': typeof PreviewWelddataIndexRoute
+  '/preview/welddocs/': typeof PreviewWelddocsIndexRoute
   '/preview/weldflow/': typeof PreviewWeldflowIndexRoute
   '/preview/weldhost/': typeof PreviewWeldhostIndexRoute
   '/preview/weldsheets/': typeof PreviewWeldsheetsIndexRoute
@@ -4345,6 +4396,7 @@ export interface FileRoutesById {
   '/welddesk/email/': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center/': typeof WelddeskHelpCenterIndexRoute
   '/welddesk/inbox/': typeof WelddeskInboxIndexRoute
+  '/welddocs/$docId/': typeof WelddocsDocIdIndexRoute
   '/welddrive/all-files/': typeof WelddriveAllFilesIndexRoute
   '/welddrive/recent/': typeof WelddriveRecentIndexRoute
   '/welddrive/shared/': typeof WelddriveSharedIndexRoute
@@ -4413,6 +4465,7 @@ export interface FileRoutesById {
   '/preview/weldchat/$channelId/': typeof PreviewWeldchatChannelIdIndexRoute
   '/preview/weldcrm/people/': typeof PreviewWeldcrmPeopleIndexRoute
   '/preview/welddesk/inbox/': typeof PreviewWelddeskInboxIndexRoute
+  '/preview/welddocs/$docId/': typeof PreviewWelddocsDocIdIndexRoute
   '/preview/weldhost/domains/': typeof PreviewWeldhostDomainsIndexRoute
   '/preview/weldsheets/$sheetId/': typeof PreviewWeldsheetsSheetIdIndexRoute
   '/settings/apps/phone-numbers/': typeof SettingsAppsPhoneNumbersIndexRoute
@@ -4641,6 +4694,7 @@ export interface FileRouteTypes {
     | '/weldcrm'
     | '/welddata'
     | '/welddesk'
+    | '/welddocs'
     | '/welddrive'
     | '/weldflow'
     | '/weldhost'
@@ -4664,6 +4718,7 @@ export interface FileRouteTypes {
     | '/preview/weldcrm'
     | '/preview/welddata'
     | '/preview/welddesk'
+    | '/preview/welddocs'
     | '/preview/weldflow'
     | '/preview/weldhost'
     | '/preview/weldmail'
@@ -4696,6 +4751,7 @@ export interface FileRouteTypes {
     | '/weldcrm/'
     | '/welddata/'
     | '/welddesk/'
+    | '/welddocs/'
     | '/welddrive/'
     | '/weldflow/'
     | '/weldhost/'
@@ -4742,6 +4798,7 @@ export interface FileRouteTypes {
     | '/preview/help-docs/'
     | '/preview/weldcalendar/'
     | '/preview/welddata/'
+    | '/preview/welddocs/'
     | '/preview/weldflow/'
     | '/preview/weldhost/'
     | '/preview/weldsheets/'
@@ -4839,6 +4896,7 @@ export interface FileRouteTypes {
     | '/welddesk/email/'
     | '/welddesk/help-center/'
     | '/welddesk/inbox/'
+    | '/welddocs/$docId/'
     | '/welddrive/all-files/'
     | '/welddrive/recent/'
     | '/welddrive/shared/'
@@ -4907,6 +4965,7 @@ export interface FileRouteTypes {
     | '/preview/weldchat/$channelId/'
     | '/preview/weldcrm/people/'
     | '/preview/welddesk/inbox/'
+    | '/preview/welddocs/$docId/'
     | '/preview/weldhost/domains/'
     | '/preview/weldsheets/$sheetId/'
     | '/settings/apps/phone-numbers/'
@@ -5151,6 +5210,7 @@ export interface FileRouteTypes {
     | '/weldcrm'
     | '/welddata'
     | '/welddesk'
+    | '/welddocs'
     | '/welddrive'
     | '/weldflow'
     | '/weldhost'
@@ -5193,6 +5253,7 @@ export interface FileRouteTypes {
     | '/preview/help-docs'
     | '/preview/weldcalendar'
     | '/preview/welddata'
+    | '/preview/welddocs'
     | '/preview/weldflow'
     | '/preview/weldhost'
     | '/preview/weldsheets'
@@ -5290,6 +5351,7 @@ export interface FileRouteTypes {
     | '/welddesk/email'
     | '/welddesk/help-center'
     | '/welddesk/inbox'
+    | '/welddocs/$docId'
     | '/welddrive/all-files'
     | '/welddrive/recent'
     | '/welddrive/shared'
@@ -5356,6 +5418,7 @@ export interface FileRouteTypes {
     | '/preview/weldchat/$channelId'
     | '/preview/weldcrm/people'
     | '/preview/welddesk/inbox'
+    | '/preview/welddocs/$docId'
     | '/preview/weldhost/domains'
     | '/preview/weldsheets/$sheetId'
     | '/settings/apps/phone-numbers'
@@ -5582,6 +5645,7 @@ export interface FileRouteTypes {
     | '/weldcrm'
     | '/welddata'
     | '/welddesk'
+    | '/welddocs'
     | '/welddrive'
     | '/weldflow'
     | '/weldhost'
@@ -5605,6 +5669,7 @@ export interface FileRouteTypes {
     | '/preview/weldcrm'
     | '/preview/welddata'
     | '/preview/welddesk'
+    | '/preview/welddocs'
     | '/preview/weldflow'
     | '/preview/weldhost'
     | '/preview/weldmail'
@@ -5637,6 +5702,7 @@ export interface FileRouteTypes {
     | '/weldcrm/'
     | '/welddata/'
     | '/welddesk/'
+    | '/welddocs/'
     | '/welddrive/'
     | '/weldflow/'
     | '/weldhost/'
@@ -5683,6 +5749,7 @@ export interface FileRouteTypes {
     | '/preview/help-docs/'
     | '/preview/weldcalendar/'
     | '/preview/welddata/'
+    | '/preview/welddocs/'
     | '/preview/weldflow/'
     | '/preview/weldhost/'
     | '/preview/weldsheets/'
@@ -5780,6 +5847,7 @@ export interface FileRouteTypes {
     | '/welddesk/email/'
     | '/welddesk/help-center/'
     | '/welddesk/inbox/'
+    | '/welddocs/$docId/'
     | '/welddrive/all-files/'
     | '/welddrive/recent/'
     | '/welddrive/shared/'
@@ -5848,6 +5916,7 @@ export interface FileRouteTypes {
     | '/preview/weldchat/$channelId/'
     | '/preview/weldcrm/people/'
     | '/preview/welddesk/inbox/'
+    | '/preview/welddocs/$docId/'
     | '/preview/weldhost/domains/'
     | '/preview/weldsheets/$sheetId/'
     | '/settings/apps/phone-numbers/'
@@ -6075,6 +6144,7 @@ export interface RootRouteChildren {
   WeldcrmRouteRoute: typeof WeldcrmRouteRouteWithChildren
   WelddataRouteRoute: typeof WelddataRouteRouteWithChildren
   WelddeskRouteRoute: typeof WelddeskRouteRouteWithChildren
+  WelddocsRouteRoute: typeof WelddocsRouteRouteWithChildren
   WelddriveRouteRoute: typeof WelddriveRouteRouteWithChildren
   WeldflowRouteRoute: typeof WeldflowRouteRouteWithChildren
   WeldhostRouteRoute: typeof WeldhostRouteRouteWithChildren
@@ -6098,6 +6168,7 @@ export interface RootRouteChildren {
   PreviewWeldcrmRouteRoute: typeof PreviewWeldcrmRouteRouteWithChildren
   PreviewWelddataRouteRoute: typeof PreviewWelddataRouteRouteWithChildren
   PreviewWelddeskRouteRoute: typeof PreviewWelddeskRouteRouteWithChildren
+  PreviewWelddocsRouteRoute: typeof PreviewWelddocsRouteRouteWithChildren
   PreviewWeldflowRouteRoute: typeof PreviewWeldflowRouteRouteWithChildren
   PreviewWeldhostRouteRoute: typeof PreviewWeldhostRouteRouteWithChildren
   PreviewWeldmailRouteRoute: typeof PreviewWeldmailRouteRouteWithChildren
@@ -6219,6 +6290,13 @@ declare module '@tanstack/react-router' {
       path: '/welddrive'
       fullPath: '/welddrive'
       preLoaderRoute: typeof WelddriveRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welddocs': {
+      id: '/welddocs'
+      path: '/welddocs'
+      fullPath: '/welddocs'
+      preLoaderRoute: typeof WelddocsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/welddesk': {
@@ -6416,6 +6494,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/welddrive/'
       preLoaderRoute: typeof WelddriveIndexRouteImport
       parentRoute: typeof WelddriveRouteRoute
+    }
+    '/welddocs/': {
+      id: '/welddocs/'
+      path: '/'
+      fullPath: '/welddocs/'
+      preLoaderRoute: typeof WelddocsIndexRouteImport
+      parentRoute: typeof WelddocsRouteRoute
     }
     '/welddesk/': {
       id: '/welddesk/'
@@ -6639,6 +6724,13 @@ declare module '@tanstack/react-router' {
       path: '/preview/weldflow'
       fullPath: '/preview/weldflow'
       preLoaderRoute: typeof PreviewWeldflowRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/preview/welddocs': {
+      id: '/preview/welddocs'
+      path: '/preview/welddocs'
+      fullPath: '/preview/welddocs'
+      preLoaderRoute: typeof PreviewWelddocsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/preview/welddesk': {
@@ -7067,6 +7159,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/welddrive/all-files/'
       preLoaderRoute: typeof WelddriveAllFilesIndexRouteImport
       parentRoute: typeof WelddriveRouteRoute
+    }
+    '/welddocs/$docId/': {
+      id: '/welddocs/$docId/'
+      path: '/$docId'
+      fullPath: '/welddocs/$docId/'
+      preLoaderRoute: typeof WelddocsDocIdIndexRouteImport
+      parentRoute: typeof WelddocsRouteRoute
     }
     '/welddesk/inbox/': {
       id: '/welddesk/inbox/'
@@ -7746,6 +7845,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/preview/weldflow/'
       preLoaderRoute: typeof PreviewWeldflowIndexRouteImport
       parentRoute: typeof PreviewWeldflowRouteRoute
+    }
+    '/preview/welddocs/': {
+      id: '/preview/welddocs/'
+      path: '/'
+      fullPath: '/preview/welddocs/'
+      preLoaderRoute: typeof PreviewWelddocsIndexRouteImport
+      parentRoute: typeof PreviewWelddocsRouteRoute
     }
     '/preview/welddata/': {
       id: '/preview/welddata/'
@@ -8866,6 +8972,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/preview/weldhost/domains/'
       preLoaderRoute: typeof PreviewWeldhostDomainsIndexRouteImport
       parentRoute: typeof PreviewWeldhostRouteRoute
+    }
+    '/preview/welddocs/$docId/': {
+      id: '/preview/welddocs/$docId/'
+      path: '/$docId'
+      fullPath: '/preview/welddocs/$docId/'
+      preLoaderRoute: typeof PreviewWelddocsDocIdIndexRouteImport
+      parentRoute: typeof PreviewWelddocsRouteRoute
     }
     '/preview/welddesk/inbox/': {
       id: '/preview/welddesk/inbox/'
@@ -10295,6 +10408,20 @@ const WelddeskRouteRouteWithChildren = WelddeskRouteRoute._addFileChildren(
   WelddeskRouteRouteChildren,
 )
 
+interface WelddocsRouteRouteChildren {
+  WelddocsIndexRoute: typeof WelddocsIndexRoute
+  WelddocsDocIdIndexRoute: typeof WelddocsDocIdIndexRoute
+}
+
+const WelddocsRouteRouteChildren: WelddocsRouteRouteChildren = {
+  WelddocsIndexRoute: WelddocsIndexRoute,
+  WelddocsDocIdIndexRoute: WelddocsDocIdIndexRoute,
+}
+
+const WelddocsRouteRouteWithChildren = WelddocsRouteRoute._addFileChildren(
+  WelddocsRouteRouteChildren,
+)
+
 interface WelddriveRouteRouteChildren {
   WelddriveIndexRoute: typeof WelddriveIndexRoute
   WelddriveAllFilesIndexRoute: typeof WelddriveAllFilesIndexRoute
@@ -10918,6 +11045,19 @@ const PreviewWelddeskRouteRouteChildren: PreviewWelddeskRouteRouteChildren = {
 const PreviewWelddeskRouteRouteWithChildren =
   PreviewWelddeskRouteRoute._addFileChildren(PreviewWelddeskRouteRouteChildren)
 
+interface PreviewWelddocsRouteRouteChildren {
+  PreviewWelddocsIndexRoute: typeof PreviewWelddocsIndexRoute
+  PreviewWelddocsDocIdIndexRoute: typeof PreviewWelddocsDocIdIndexRoute
+}
+
+const PreviewWelddocsRouteRouteChildren: PreviewWelddocsRouteRouteChildren = {
+  PreviewWelddocsIndexRoute: PreviewWelddocsIndexRoute,
+  PreviewWelddocsDocIdIndexRoute: PreviewWelddocsDocIdIndexRoute,
+}
+
+const PreviewWelddocsRouteRouteWithChildren =
+  PreviewWelddocsRouteRoute._addFileChildren(PreviewWelddocsRouteRouteChildren)
+
 interface PreviewWeldflowProjectProjectIdRouteRouteChildren {
   PreviewWeldflowProjectProjectIdIndexRoute: typeof PreviewWeldflowProjectProjectIdIndexRoute
   PreviewWeldflowProjectProjectIdTasksIndexRoute: typeof PreviewWeldflowProjectProjectIdTasksIndexRoute
@@ -11049,6 +11189,7 @@ const rootRouteChildren: RootRouteChildren = {
   WeldcrmRouteRoute: WeldcrmRouteRouteWithChildren,
   WelddataRouteRoute: WelddataRouteRouteWithChildren,
   WelddeskRouteRoute: WelddeskRouteRouteWithChildren,
+  WelddocsRouteRoute: WelddocsRouteRouteWithChildren,
   WelddriveRouteRoute: WelddriveRouteRouteWithChildren,
   WeldflowRouteRoute: WeldflowRouteRouteWithChildren,
   WeldhostRouteRoute: WeldhostRouteRouteWithChildren,
@@ -11072,6 +11213,7 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewWeldcrmRouteRoute: PreviewWeldcrmRouteRouteWithChildren,
   PreviewWelddataRouteRoute: PreviewWelddataRouteRouteWithChildren,
   PreviewWelddeskRouteRoute: PreviewWelddeskRouteRouteWithChildren,
+  PreviewWelddocsRouteRoute: PreviewWelddocsRouteRouteWithChildren,
   PreviewWeldflowRouteRoute: PreviewWeldflowRouteRouteWithChildren,
   PreviewWeldhostRouteRoute: PreviewWeldhostRouteRouteWithChildren,
   PreviewWeldmailRouteRoute: PreviewWeldmailRouteRouteWithChildren,

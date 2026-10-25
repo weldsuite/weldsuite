@@ -158,6 +158,9 @@ export const navigation = {
         envelopes: 'Ondertekenverzoeken',
         templates: 'Sjablonen',
       },
+      welddocs: {
+        documents: 'Documenten',
+      },
       weldhr: {
         me: {
           overview: 'Overzicht',
