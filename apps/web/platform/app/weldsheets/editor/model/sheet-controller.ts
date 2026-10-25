@@ -71,7 +71,7 @@ interface UndoEntry {
 export type BorderKind = 'all' | 'outer' | 'inner' | 'top' | 'bottom' | 'left' | 'right' | 'none';
 
 /** The side panels of the editor. */
-export type SidePanel = 'formats' | 'validation' | 'chart' | 'pivot' | null;
+export type SidePanel = 'formats' | 'validation' | 'chart' | 'pivot' | 'comments' | 'versions' | 'data' | null;
 
 /** A pivot table on the active sheet, with the number format each of its values shows in. */
 type PivotOutput = PivotTableLayout & { formats: (string | undefined)[] };
@@ -81,6 +81,8 @@ export interface ControllerOptions {
   formulaLocale: FormulaLocale;
   /** Every local op, after it is applied (autosave in the preview). */
   onOp?: (op: Op) => void;
+  /** Who new comments are by (the signed-in person). */
+  author?: { id: string; name: string };
   /** Typed input a strict validation rule refused (the cell keeps its value). */
   onInputRefused?: (rule: DataValidation) => void;
   /**
@@ -110,6 +112,15 @@ export class SheetController {
   panel: SidePanel = null;
   /** The chart picked on the grid: moved, resized and deleted there, edited in the chart panel. */
   selectedChart: string | null = null;
+  /**
+   * May add comments while read-only: a commenter (a viewer with
+   * `sheets:comment`). Editors always may.
+   */
+  canComment = false;
+  /** The thread the comments panel shows first (picked on the grid or from a link). */
+  focusedThread: string | null = null;
+  /** A new comment on the active cell was asked for (Ctrl+Alt+M, the menu); the comments panel opens its box. */
+  commentRequested = false;
   /** Bumped on every change; the React snapshot. */
   version = 0;
   /** Bumped when the workbook changes (not the selection or a panel): what the memos of charts and pivot tables key on. */
@@ -162,6 +173,7 @@ export class SheetController {
   private ruleMemo: { version: number; formats: FormatCache; styles: Map<number, ConditionalStyle | undefined> } | null = null;
   /** Per sheet: chart ids are only unique within one (an imported file numbers them per sheet). */
   private chartMemo: { version: number; sheetId: string; data: Map<string, ChartData> } | null = null;
+  private commentMemo: { version: number; sheetId: string; cells: Map<number, boolean> } | null = null;
   private pivotMemo: { version: number; sheetId: string; tables: PivotOutput[] } | null = null;
 
   openPanel(panel: SidePanel): void {
@@ -194,6 +206,63 @@ export class SheetController {
       memo.data.set(chart.id, data);
     }
     return data;
+  }
+
+  /** May write comments: an editor, or a commenter. */
+  get mayComment(): boolean {
+    return !this.readOnly || this.canComment;
+  }
+
+  setCanComment(canComment: boolean): void {
+    if (this.canComment === canComment) return;
+    this.canComment = canComment;
+    this.emit();
+  }
+
+  /**
+   * Commits a comment op. Comments are not part of undo (as in Google Sheets):
+   * the op goes out like anyone's edit and the undo history moves past it.
+   */
+  commitComments(op: Op): void {
+    if (!this.mayComment) return;
+    const normalized = normalize(op);
+    this.run(normalized);
+    this.rebaseHistory(normalized);
+    this.options.onOp?.(normalized);
+    this.emit();
+  }
+
+  /** Opens the comments panel with a box for a new comment on the active cell. */
+  startComment(): void {
+    if (!this.mayComment) return;
+    this.commentRequested = true;
+    this.panel = 'comments';
+    this.emit();
+  }
+
+  /** Opens the comments panel on a thread (null: just the panel). */
+  openThread(threadId: string | null): void {
+    this.focusedThread = threadId;
+    this.panel = 'comments';
+    this.emit();
+  }
+
+  /** Whether a cell of the active tab has a thread: true for an open one, false for only resolved ones. */
+  commentAt(row: number, col: number): boolean | undefined {
+    const sheet = this.sheet;
+    if (sheet.comments.length === 0) return undefined;
+    let memo = this.commentMemo;
+    if (memo?.version !== this.contentVersion || memo.sheetId !== this.activeSheetId) {
+      const cells = new Map<number, boolean>();
+      for (const c of sheet.comments) {
+        if (c.thread !== c.id || !c.cell) continue;
+        const key = c.cell.row * 16_384 + c.cell.col;
+        cells.set(key, cells.get(key) === true || !c.resolved);
+      }
+      memo = { version: this.contentVersion, sheetId: this.activeSheetId, cells };
+      this.commentMemo = memo;
+    }
+    return memo.cells.get(row * 16_384 + col);
   }
 
   /** The pivot table the active cell holds or shows part of (the pivot editor edits it). */
@@ -385,6 +454,12 @@ export class SheetController {
    * reverses this user's own change where it now is.
    */
   remoteOp(op: Op): void {
+    this.rebaseHistory(op);
+    this.afterOutsideChange();
+  }
+
+  /** Moves the undo and redo entries past an op that is not in them, newest first. */
+  private rebaseHistory(op: Op): void {
     for (const stack of [this.undoStack, this.redoStack]) {
       let against = op;
       for (let i = stack.length - 1; i >= 0; i--) {
@@ -394,7 +469,6 @@ export class SheetController {
         entry.inverse = inverse;
       }
     }
-    this.afterOutsideChange();
   }
 
   /** The room sent a fresh copy of the workbook (first load is the constructor). Undo history no longer applies. */

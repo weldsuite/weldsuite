@@ -67,6 +67,8 @@ export interface SheetSummary {
   fileId: string;
   name: string;
   folderId: string | null;
+  /** The WeldFlow project it belongs to (its access follows the project), or null. */
+  projectId: string | null;
   createdAt: string;
   /** Last change to the name or the content (content as of the room's last checkpoint). */
   updatedAt: string;

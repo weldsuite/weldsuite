@@ -1,42 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client';
 import { useParams, useRouter } from '@/lib/router';
-import { SpreadsheetView } from '../spreadsheet-view';
-import { tablesApi } from '@/app/weldflow/lib/api-client';
+import { PageLoader } from '@/components/page-loader';
+import { useAppApi } from '@/lib/api/use-app-api';
+import { useI18n } from '@/lib/i18n/provider';
+import { LiveSheet } from '@/app/weldsheets/sheet/live-sheet';
+import { MissingSheet } from '@/app/weldsheets/sheet/sheet-chrome';
+import { sheetsQueryKey } from '@/app/weldsheets/store/use-sheet-store';
 
-// Dedicated route for editing one workbook. URL is the source of truth, so
-// refresh keeps the user on the same sheet (instead of bouncing back to the
-// project's table list and losing auto-save context).
+/**
+ * One sheet of a WeldFlow project, in the WeldSheets editor inside the
+ * project. The URL names the drive file, so links from WeldDrive and from
+ * before WeldSheets keep working: a sheet saved by the old project grid (an
+ * .xlsx file) becomes a WeldSheets spreadsheet the first time anyone opens it.
+ */
 export default function ProjectTableEditorPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
   const fileId = params.fileId as string;
+  const sheets = useAppApi().sheets;
+  const { t } = useI18n();
+  const firstTabName = t.weldsheets.home.firstTab;
 
-  const [name, setName] = useState<string>('');
+  // Converting twice is harmless (the second answers with the first's sheet), so this can be a query.
+  const opened = useQuery({
+    queryKey: [...sheetsQueryKey, 'project-file', fileId],
+    queryFn: async () => (await sheets.convertProjectSheet({ fileId, firstTabName })).data,
+    staleTime: Infinity,
+    retry: (count, err) => !(isApiError(err) && (err.status === 404 || err.status === 403)) && count < 2,
+  });
 
-  // Fetch the file row to populate the editor header. We use the list
-  // endpoint since there's no per-file GET on `tablesApi`; the list is
-  // small enough that this is fine, and TanStack Query in `useSpreadsheet`
-  // handles the heavy lifting of the xlsx content itself.
-  useEffect(() => {
-    let cancelled = false;
-    void tablesApi.listTables(projectId).then((res) => {
-      if (cancelled || !res.success || !res.data) return;
-      const match = res.data.find((it: { id: string; name: string }) => it.id === fileId);
-      if (match) setName(match.name);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, fileId]);
-
-  return (
-    <SpreadsheetView
-      key={fileId}
-      projectId={projectId}
-      tableId={fileId}
-      tableName={name}
-      onBack={() => router.push(`/weldflow/project/${projectId}/table`)}
-    />
-  );
+  if (opened.isPending) return <PageLoader fullScreen={false} />;
+  if (!opened.data) return <MissingSheet message={t.weldsheets.home.notFound} />;
+  return <LiveSheet key={opened.data.id} sheetId={opened.data.id} embedded onBack={() => router.push(`/weldflow/project/${projectId}/table`)} />;
 }

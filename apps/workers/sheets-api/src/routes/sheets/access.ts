@@ -74,6 +74,7 @@ export function toSummary(sheet: SheetRecord, role: DriveRole, mayEdit: boolean)
     fileId: sheet.fileId,
     name: sheet.name,
     folderId: sheet.folderId,
+    projectId: sheet.projectId,
     createdAt: sheet.createdAt.toISOString(),
     updatedAt: sheet.updatedAt.toISOString(),
     createdById: sheet.createdById,
