@@ -26,6 +26,7 @@ export function DocEditor({
   onRename,
   headerExtra,
   people = [],
+  versionsPanel,
 }: {
   controller: DocController;
   name: string;
@@ -36,6 +37,8 @@ export function DocEditor({
   headerExtra?: React.ReactNode;
   /** Who can be @mentioned in comments. */
   people?: Person[];
+  /** The version history panel, shown while the controller has it open. */
+  versionsPanel?: React.ReactNode;
 }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -56,7 +59,8 @@ export function DocEditor({
             </div>
             {controller.find && <FindBar controller={controller} />}
           </div>
-          {controller.showComments && (controller.draft || controller.threads().length > 0) && <CommentsPanel controller={controller} people={people} />}
+          {controller.showVersions && versionsPanel}
+          {!controller.showVersions && controller.showComments && (controller.draft || controller.threads().length > 0) && <CommentsPanel controller={controller} people={people} />}
         </div>
         <StatusLine controller={controller} />
       </div>

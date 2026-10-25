@@ -96,7 +96,7 @@ function ThreadCard({ controller, thread, people, active }: { controller: DocCon
     >
       {root.quote && !suggestion && <p className="mb-2 line-clamp-2 border-l-2 border-amber-400 pl-2 text-xs text-muted-foreground">{root.quote}</p>}
       {!thread.at && !suggestion && <p className="mb-2 text-xs italic text-muted-foreground">{tr.textGone}</p>}
-      <CommentItem controller={controller} comment={root} people={people}>
+      <CommentItem controller={controller} comment={root} people={people} deletable={!controller.readOnly || thread.replies.every((r) => r.author.id === controller.reviewer.id)}>
         {suggestion !== null && <p className="mt-1 text-sm">{suggestion}</p>}
       </CommentItem>
       {suggestion !== null && !controller.readOnly && (
@@ -153,7 +153,20 @@ function describeSuggestion(controller: DocController, id: string, tr: ReturnTyp
   return tr.suggestedAdd.replace('{text}', clip(added));
 }
 
-function CommentItem({ controller, comment, people, children }: { controller: DocController; comment: DocComment; people: Person[]; children?: React.ReactNode }) {
+/** `deletable`: a commenter may not delete a discussion others have replied in (it would take their replies too). */
+function CommentItem({
+  controller,
+  comment,
+  people,
+  deletable = true,
+  children,
+}: {
+  controller: DocController;
+  comment: DocComment;
+  people: Person[];
+  deletable?: boolean;
+  children?: React.ReactNode;
+}) {
   const { t, language } = useI18n();
   const tr = t.welddocs.review;
   const [editing, setEditing] = useState(false);
@@ -190,7 +203,7 @@ function CommentItem({ controller, comment, people, children }: { controller: Do
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onSelect={() => setEditing(true)}>{tr.edit}</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => controller.deleteComment(comment.id)}>{tr.delete}</DropdownMenuItem>
+              {deletable && <DropdownMenuItem onSelect={() => controller.deleteComment(comment.id)}>{tr.delete}</DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>
         )}

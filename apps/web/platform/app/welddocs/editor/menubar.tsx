@@ -79,6 +79,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSeparator />
+        {controller.versionsAvailable && <Item onSelect={() => controller.setShowVersions(true)}>{t.welddocs.versions.title}</Item>}
         <Item disabled={ro} onSelect={() => controller.openDialog('pageSetup')}>{tm.pageSetup}</Item>
         <Item shortcut={`${MOD_LABEL}+P`} onSelect={() => controller.setPrinting(true)}>
           {tm.print}

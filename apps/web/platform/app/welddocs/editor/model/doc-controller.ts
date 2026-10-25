@@ -161,6 +161,10 @@ export class DocController {
   /** May add comments even while unable to edit (a commenter). */
   canComment = true;
   showComments = true;
+  /** The version history panel is open (it replaces the comments beside the pages). */
+  showVersions = false;
+  /** The document has a version history (a workspace document, not the preview). */
+  versionsAvailable = false;
   /** The discussion picked in the side panel. */
   activeThread: string | null = null;
   /** A new comment being written, on this range. */
@@ -879,6 +883,7 @@ export class DocController {
     this.draft = this.selection;
     this.activeThread = null;
     this.showComments = true;
+    this.showVersions = false;
     this.emit();
   }
 
@@ -939,6 +944,12 @@ export class DocController {
 
   setShowComments(show: boolean): void {
     this.showComments = show;
+    if (show) this.showVersions = false;
+    this.emit();
+  }
+
+  setShowVersions(show: boolean): void {
+    this.showVersions = show && this.versionsAvailable;
     this.emit();
   }
 
