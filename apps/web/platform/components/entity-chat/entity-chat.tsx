@@ -28,6 +28,7 @@ import {
   type ChatFilters,
 } from '@/app/weldchat/components/chat-context';
 import { EntityChatHeader } from './entity-chat-header';
+import { RecordChatPanelBar } from '@/app/weldchat/components/record-chat-panel-bar';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface EntityChatProps {
@@ -132,6 +133,7 @@ export function EntityChat({ entityType, entityId, fallbackName, hideCallButtons
           <EntityChatHeader name={headerName} channelId={channel?.id ?? null} hideCallButtons={hideCallButtons} />
         )}
         {headerSlot}
+        <RecordChatPanelBar entityType={entityType} entityId={entityId} channelId={channel?.id} />
         <div className="flex min-h-0 flex-1 flex-col">
           {channel ? (
             <EmbeddedChannelChat channelId={channel.id} />

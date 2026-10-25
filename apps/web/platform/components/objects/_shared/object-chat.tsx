@@ -37,6 +37,7 @@ import {
   type ChatFilters,
 } from '@/app/weldchat/components/chat-context';
 import { EntityChatHeader } from '@/components/entity-chat/entity-chat-header';
+import { RecordChatPanelBar } from '@/app/weldchat/components/record-chat-panel-bar';
 
 export interface ObjectChannel {
   id: string;
@@ -144,6 +145,9 @@ export function ObjectChatShell({
           />
         )}
         {headerSlot}
+        {channel && (
+          <RecordChatPanelBar entityType={channel.entityType} entityId={channel.entityId} channelId={channel.id} />
+        )}
         <div className="flex min-h-0 flex-1 flex-col">
           {channel ? (
             <EmbeddedChannelChat channelId={channel.id} />

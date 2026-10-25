@@ -92,7 +92,7 @@ import {
 import { useMuteChannel, useUpdateChannel } from '@/hooks/queries/use-weldchat-queries';
 import type { UpdateChannelRequest } from '@/lib/api/domains/weldchat';
 import {
-  DEFAULT_GROUP_FILTER,
+  getGroupDefaults,
   type ActivityThreshold,
   type ChannelMode,
   type DayOfWeek,
@@ -212,8 +212,10 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
   const allFilters: WeldchatGroupFilters =
     (prefs?.uiPreferences as UiPreferencesWithGroupFilters | undefined)?.weldchatGroupFilters ?? {};
   const saved = target ? allFilters[target.groupKey] : undefined;
+  // Record chat groups (`record:<type>`) start from their own defaults (top 5, 30 days, …).
+  const defaults = getGroupDefaults(target?.groupKey ?? '');
 
-  const [draft, setDraft] = useState<GroupFilterSettings>({ ...DEFAULT_GROUP_FILTER, ...saved });
+  const [draft, setDraft] = useState<GroupFilterSettings>({ ...defaults, ...saved });
   const [search, setSearch] = useState('');
   const [section, setSection] = useState<SectionKey>(isSingleChannel ? 'general' : 'visibility');
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
@@ -268,8 +270,8 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
   );
 
   const baseline = useMemo<GroupFilterSettings>(
-    () => ({ ...DEFAULT_GROUP_FILTER, ...saved }),
-    [saved],
+    () => ({ ...defaults, ...saved }),
+    [defaults, saved],
   );
   const prefsDirty = useMemo(() => {
     return JSON.stringify(normalize(draft)) !== JSON.stringify(normalize(baseline));
@@ -278,12 +280,12 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
 
   useEffect(() => {
     if (open) {
-      setDraft({ ...DEFAULT_GROUP_FILTER, ...saved });
+      setDraft({ ...defaults, ...saved });
       setSearch('');
       setSection(isSingleChannel ? 'general' : 'visibility');
       setChannelDraft(channelBaseline);
     }
-  }, [open, target?.groupKey, isSingleChannel, channelBaseline, saved]);
+  }, [open, target?.groupKey, isSingleChannel, channelBaseline, saved, defaults]);
 
   const update = <K extends keyof GroupFilterSettings>(key: K, value: GroupFilterSettings[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -387,7 +389,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
     if (!target) return;
     const next = { ...allFilters };
     delete next[target.groupKey];
-    setDraft({ ...DEFAULT_GROUP_FILTER });
+    setDraft({ ...defaults });
     updatePrefs(
       {
         uiPreferences: {

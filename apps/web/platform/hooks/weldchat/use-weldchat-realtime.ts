@@ -12,7 +12,7 @@
 import { useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
-import { weldchatKeys, updateClipTranscriptInCache } from '../queries/use-weldchat-queries';
+import { weldchatKeys, updateClipTranscriptInCache, affectsRecordChats } from '../queries/use-weldchat-queries';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { RoomClient } from '@weldsuite/realtime/client';
 
@@ -97,18 +97,29 @@ export function useWeldChatUserEvents() {
   const userId = user?.id;
 
   const handler = useCallback(
-    (event: { event: string }) => {
+    (event: { event: string; data?: { channelId?: string } }) => {
+      // Record chats (companies, people, …) have their own lists and header
+      // counts; refresh them only for events that can be about one.
+      const refreshRecordChats = () => {
+        if (affectsRecordChats(queryClient, event.data?.channelId)) {
+          queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChats() });
+        }
+      };
       switch (event.event) {
         case 'channel_new':
           queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
+          // A record chat the user now follows (they posted, were mentioned or followed it).
+          queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChats() });
           break;
         case 'dm_new':
           queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
           break;
         case 'mention':
+          refreshRecordChats();
           queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
           break;
         case 'unread_update':
+          refreshRecordChats();
           queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
           queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
           break;

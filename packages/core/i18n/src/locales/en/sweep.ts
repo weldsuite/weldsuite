@@ -506,6 +506,42 @@ export const sweep = {
       "deleteTitle": "Delete message?",
       "reactionFailed": "Couldn't add the reaction"
     },
+    "recordChats": {
+      "follow": "Follow",
+      "followFailed": "Couldn't follow this chat",
+      "followHint": "Follow to keep this chat in your WeldChat sidebar",
+      "following": "Following",
+      "groupHidden": "{group} is hidden from your sidebar",
+      "groups": {
+        "company": "Companies",
+        "domain": "Domains",
+        "person": "People",
+        "project": "Projects",
+        "task": "Tasks"
+      },
+      "hideGroup": "Hide this group",
+      "open": {
+        "company": "Open company",
+        "domain": "Open domain",
+        "person": "Open person",
+        "project": "Open project",
+        "task": "Open task"
+      },
+      "openInWeldChat": "Open in WeldChat",
+      "openRecord": "Open record",
+      "showAll": "Show all ({count})",
+      "title": "Record chats",
+      "types": {
+        "company": "Company",
+        "domain": "Domain",
+        "person": "Person",
+        "project": "Project",
+        "task": "Task"
+      },
+      "undo": "Undo",
+      "unfollow": "Unfollow",
+      "unfollowFailed": "Couldn't unfollow this chat"
+    },
     "relativeTime": {
       "daysAgo": "{count}d ago",
       "hoursAgo": "{count}h ago",
