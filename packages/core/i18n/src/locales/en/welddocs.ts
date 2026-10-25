@@ -34,6 +34,7 @@ export const welddocs = {
   },
 
   editor: {
+    share: 'Share',
     saved: 'Saved',
     saving: 'Saving…',
     notSaved: 'Not saved',
