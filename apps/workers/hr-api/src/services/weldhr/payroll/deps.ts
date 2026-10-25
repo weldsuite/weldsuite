@@ -178,7 +178,7 @@ export interface DigipoortGateway {
 }
 
 export interface PayrollNotifier {
-  /** The employee's payslip is ready (portal access or a linked member). Best effort. */
+  /** The employee's payslip is ready (employees linked to a member). Best effort. */
   payslipReady?(args: { employeeId: string; email: string; name: string; payDate: string; employerName: string; lang: 'en' | 'nl' }): Promise<void>;
   /** Bank details changed: tell the employee, because changed bank details are the classic payroll fraud. */
   bankChanged?(args: { employeeId: string; email: string; name: string; employerName: string; byEmployee: boolean; lang: 'en' | 'nl' }): Promise<void>;

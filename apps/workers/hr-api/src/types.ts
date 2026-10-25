@@ -1,5 +1,4 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
-import type { HrPortalSettings } from '@weldsuite/db/schema';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 import type { DigipoortEnv } from './services/weldhr/payroll/digipoort';
 
@@ -23,9 +22,9 @@ export interface Env extends KitEnv, DigipoortEnv {
    */
   BOOKS_INTERNAL?: Fetcher;
 
-  // --- Workforce portal mails (services/weldhr/portal-mail.ts, @weldsuite/emails) -
-  /** Cloudflare Email Service binding for outbound mail (portal invite
-   *  and sign-in code emails). A missing/unconfigured transport is a no-op;
+  // --- Payroll mails (services/weldhr/payroll/notifier.ts, @weldsuite/emails) -
+  /** Cloudflare Email Service binding for outbound mail (payslip ready, bank
+   *  details changed). A missing/unconfigured transport is a no-op;
    *  see `workerTransport`. */
   SEND_EMAIL?: SendEmail;
   /** Migration switch: "resend" sends through Resend instead of Cloudflare.
@@ -39,34 +38,19 @@ export interface Env extends KitEnv, DigipoortEnv {
   SYSTEM_EMAIL_FROM?: string;
 
   /**
-   * Public origin of the WeldHR workforce portal (no trailing slash), used in
-   * invite and sign-in emails when the workspace has no custom domain.
-   * Defaults: production `https://team.weldsuite.org`, test
-   * `https://team-test.weldsuite.org`, otherwise `http://localhost:3022`.
+   * Platform origin the payroll mails link to (no trailing slash). Defaults
+   * per ENVIRONMENT (`app.weldsuite.org`, `app-test.weldsuite.org`,
+   * `localhost:3000`); set it for local runs on a non-default port.
    */
-  HR_PORTAL_URL?: string;
+  APP_URL?: string;
   /**
    * WeldSuite's ODB relatienummer as a software developer (`SWO12345`), written into every Dutch
    * loonaangifte (GS 3.1 RelNr). Without it the builder reports `missing_software_relation_number`.
    */
   NL_SOFTWARE_RELATION_NUMBER?: string;
-  /**
-   * Public origin of the realtime worker (e.g. `wss://realtime.weldsuite.org`),
-   * handed to the workforce portal with its connect ticket. Defaults per
-   * ENVIRONMENT; set it for local runs on a non-default port.
-   */
-  REALTIME_PUBLIC_URL?: string;
 }
 
 export type Variables = KitVariables & {
-  /** WeldHR workforce portal session (public `/public/hr-portal` only). */
-  hrPortalAccessId?: string;
-  hrPortalSettings?: HrPortalSettings;
-  hrPortalKind?: 'employee' | 'client';
-  hrPortalEmployeeId?: string | null;
-  hrPortalCompanyId?: string | null;
-  hrPortalEmail?: string;
-  hrPortalSessionToken?: string;
   /**
    * Test seam for the payroll routes: replaces parts of the dependencies the routes build
    * (engines, PDF, billing meter, WeldBooks bridge…) so route tests do not depend on the

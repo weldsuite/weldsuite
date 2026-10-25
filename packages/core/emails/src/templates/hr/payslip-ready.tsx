@@ -14,7 +14,7 @@ export interface HrPayslipReadyEmailProps {
   employerName: string;
   /** The pay date, `YYYY-MM-DD`. */
   payDate: string;
-  /** Where to read it (My HR or the workforce portal). Omitted: the email only says it is ready. */
+  /** Where to read it (My HR). Omitted: the email only says it is ready. */
   url?: string | null;
 }
 
@@ -55,7 +55,7 @@ export default defineTemplate<HrPayslipReadyEmailProps>({
         recipientName: 'Lisa',
         employerName: 'Acme B.V.',
         payDate: '2026-07-24',
-        url: 'https://team.weldsuite.org/acme',
+        url: 'https://app.weldsuite.org/w/org_acme/weldhr/me/payroll',
       },
     },
     noLinkWhiteLabel: {

@@ -1,12 +1,12 @@
 /**
- * WeldHR routes — /api/weldhr/*, employee operations for the back office.
- * The public workforce portal is `routes/public-hr-portal`.
+ * WeldHR routes — /api/weldhr/*, employee operations for the back office and
+ * My HR (/me). Everyone who uses WeldHR is a workspace member.
  *
  * Permissions (packages/core/permissions/src/catalog.ts):
  *   employees:read|create|update|delete  directory, assignments, onboarding
  *   employees:sensitive                  decrypt/edit the sensitive block (audited)
  *   employees:manage                     settings: departments, templates, forms,
- *                                        KPI definitions, leave types, portal
+ *                                        KPI definitions, leave types, My HR switches
  *   attendance:read|create|update|delete|approve
  *   leave:read|create|update|delete|approve
  *   declarations:read|create|update|delete|approve  expense claims; approve also marks paid
@@ -20,8 +20,8 @@
  *
  * Mutations of HR records publish `hr_*` entity events with ids and status
  * only (see helpers.emit). Configuration objects — departments, templates,
- * leave types, evaluation forms, KPI definitions, portal settings — are not
- * entities on the bus. Sensitive reads and portal access changes go to
+ * leave types, evaluation forms, KPI definitions, settings — are not
+ * entities on the bus. Sensitive reads and settings changes go to
  * `hr_audit_events` instead.
  */
 
@@ -46,7 +46,7 @@ import {
   milestonesRoutes,
 } from './performance';
 import { payrollRoutes } from './payroll';
-import { portalRoutes } from './portal';
+import { settingsRoutes } from './settings';
 import {
   attendanceRoutes,
   leaveAllowancesRoutes,
@@ -98,7 +98,7 @@ app.route('/evaluations', evaluationsRoutes);
 app.route('/kpis', kpisRoutes);
 app.route('/kpi-values', kpiValuesRoutes);
 app.route('/milestones', milestonesRoutes);
-app.route('/portal', portalRoutes);
+app.route('/settings', settingsRoutes);
 // Payroll: gated by the `weldhr-payroll` flag; permissions payroll:read|prepare|approve|manage.
 app.route('/payroll', payrollRoutes);
 app.route('/me', meRoutes);

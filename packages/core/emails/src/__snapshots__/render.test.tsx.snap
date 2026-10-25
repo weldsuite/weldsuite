@@ -541,7 +541,7 @@ Due this week · 1
 
 Prepare Q4 budget review · Finance — Oct 9
 
-View all tasks https://app.weldsuite.org/task
+View all tasks https://app.weldsuite.org/weldflow/my-tasks
 
 You're receiving this as a member of Acme Studio. · Digest settings https://app.weldsuite.org/settings/notifications
 
@@ -573,7 +573,7 @@ Deze week · 1
 
 Prepare Q4 budget review · Finance — 9 okt
 
-Alle taken bekijken https://app.weldsuite.org/task
+Alle taken bekijken https://app.weldsuite.org/weldflow/my-tasks
 
 Je ontvangt deze e-mail als lid van Acme Studio. · Instellingen overzicht https://app.weldsuite.org/settings/notifications
 
@@ -661,11 +661,11 @@ Your payslip is ready
 
 Hi Lisa,
 
-Your payslip from Acme B.V. for the payment on Friday, July 24, 2026 is ready. You can read and download it in My HR or the employee portal.
+Your payslip from Acme B.V. for the payment on Friday, July 24, 2026 is ready. You can read and download it in My HR.
 
-Open my payslip https://team.weldsuite.org/acme
+Open my payslip https://app.weldsuite.org/w/org_acme/weldhr/me/payroll
 
-Or open this link: https://team.weldsuite.org/acme
+Or open this link: https://app.weldsuite.org/w/org_acme/weldhr/me/payroll
 
 For your privacy, pay details are never sent by email.
 
@@ -681,11 +681,11 @@ Je loonstrook staat klaar
 
 Hoi Lisa,
 
-Je loonstrook van Acme B.V. voor de betaling van vrijdag 24 juli 2026 staat klaar. Je kunt hem lezen en downloaden in Mijn HR of het medewerkersportaal.
+Je loonstrook van Acme B.V. voor de betaling van vrijdag 24 juli 2026 staat klaar. Je kunt hem lezen en downloaden in Mijn HR.
 
-Mijn loonstrook openen https://team.weldsuite.org/acme
+Mijn loonstrook openen https://app.weldsuite.org/w/org_acme/weldhr/me/payroll
 
-Of open deze link: https://team.weldsuite.org/acme
+Of open deze link: https://app.weldsuite.org/w/org_acme/weldhr/me/payroll
 
 Uit privacyoverwegingen sturen we nooit loongegevens per e-mail.
 
@@ -703,7 +703,7 @@ Your payslip is ready
 
 Hi,
 
-Your payslip from Acme Staffing B.V. for the payment on Friday, July 24, 2026 is ready. You can read and download it in My HR or the employee portal.
+Your payslip from Acme Staffing B.V. for the payment on Friday, July 24, 2026 is ready. You can read and download it in My HR.
 
 For your privacy, pay details are never sent by email."
 `;
@@ -719,97 +719,9 @@ Je loonstrook staat klaar
 
 Hoi,
 
-Je loonstrook van Acme Staffing B.V. voor de betaling van vrijdag 24 juli 2026 staat klaar. Je kunt hem lezen en downloaden in Mijn HR of het medewerkersportaal.
+Je loonstrook van Acme Staffing B.V. voor de betaling van vrijdag 24 juli 2026 staat klaar. Je kunt hem lezen en downloaden in Mijn HR.
 
 Uit privacyoverwegingen sturen we nooit loongegevens per e-mail."
-`;
-
-exports[`'hr.portal-invite' / 'clientWhiteLabel' / 'en' > matches the text snapshot 1`] = `
-"You're invited to Acme client portal
-
-Acme Staffing
-
-You're invited
-
-Acme client portal
-
-Hi,
-
-You now have access to the client portal, where you can follow your team, their results and milestones, and reach our account team.
-
-Open the portal https://hr.weldsuite.org/acme
-
-Or open this link: https://hr.weldsuite.org/acme
-
-Sign in with buyer@globex.example. We'll email you a one-time code."
-`;
-
-exports[`'hr.portal-invite' / 'clientWhiteLabel' / 'nl' > matches the text snapshot 1`] = `
-"Je bent uitgenodigd voor Acme client portal
-
-Acme Staffing
-
-Je bent uitgenodigd
-
-Acme client portal
-
-Hoi,
-
-Je hebt nu toegang tot het klantportaal, waar je je team, hun resultaten en mijlpalen volgt en ons accountteam bereikt.
-
-Portaal openen https://hr.weldsuite.org/acme
-
-Of open deze link: https://hr.weldsuite.org/acme
-
-Log in met buyer@globex.example. We sturen je een eenmalige code per e-mail."
-`;
-
-exports[`'hr.portal-invite' / 'employee' / 'en' > matches the text snapshot 1`] = `
-"You're invited to Acme employee portal
-
-Acme Staffing
-
-You're invited
-
-Acme employee portal
-
-Hi Lisa,
-
-You now have access to your employee portal: your schedule, attendance, leave, coaching and evaluations in one place.
-
-Welcome to the team! Your first shift schedule is already in the portal.
-
-Open the portal https://hr.weldsuite.org/acme
-
-Or open this link: https://hr.weldsuite.org/acme
-
-Sign in with lisa@example.com. We'll email you a one-time code.
-
-Sent via WeldSuite https://weldsuite.org"
-`;
-
-exports[`'hr.portal-invite' / 'employee' / 'nl' > matches the text snapshot 1`] = `
-"Je bent uitgenodigd voor Acme employee portal
-
-Acme Staffing
-
-Je bent uitgenodigd
-
-Acme employee portal
-
-Hoi Lisa,
-
-Je hebt nu toegang tot je medewerkersportaal: je rooster, aanwezigheid, verlof, coaching en beoordelingen op één plek.
-
-Welcome to the team! Your first shift schedule is already in the portal.
-
-Portaal openen https://hr.weldsuite.org/acme
-
-Of open deze link: https://hr.weldsuite.org/acme
-
-Log in met lisa@example.com. We sturen je een eenmalige code per e-mail.
-
-Verzonden via WeldSuite https://weldsuite.org"
 `;
 
 exports[`'internal.app-access-requested' / 'consentCountriesBoughtList' / 'en' > matches the text snapshot 1`] = `
@@ -1467,7 +1379,7 @@ Overdue: 30 days
 
 Read-only from: November 30, 2026
 
-Open partner portal https://app.weldsuite.org/partner/statements
+Open partner portal https://partner.weldsuite.org/statements
 
 If you have already paid, no action is needed: the status updates when the payment arrives.
 
@@ -1493,7 +1405,7 @@ Te laat: 30 dagen
 
 Alleen-lezen vanaf: 30 november 2026
 
-Partnerportaal openen https://app.weldsuite.org/partner/statements
+Partnerportaal openen https://partner.weldsuite.org/statements
 
 Heb je al betaald, dan hoef je niets te doen: de status wordt bijgewerkt zodra de betaling binnen is.
 
@@ -1509,9 +1421,9 @@ Andes Cloud SAS
 
 You have been added to Andes Cloud SAS in the WeldSuite partner portal as Owner. Sign in with this email address to manage workspaces, licences and statements.
 
-Open partner portal https://app.weldsuite.org/partner
+Open partner portal https://partner.weldsuite.org
 
-Or open this link: https://app.weldsuite.org/partner
+Or open this link: https://partner.weldsuite.org
 
 This invitation was sent to ana@andes.example.
 
@@ -1527,9 +1439,9 @@ Andes Cloud SAS
 
 Je bent als Eigenaar toegevoegd aan Andes Cloud SAS in het WeldSuite-partnerportaal. Log in met dit e-mailadres om workspaces, licenties en afrekeningen te beheren.
 
-Partnerportaal openen https://app.weldsuite.org/partner
+Partnerportaal openen https://partner.weldsuite.org
 
-Of open deze link: https://app.weldsuite.org/partner
+Of open deze link: https://partner.weldsuite.org
 
 Deze uitnodiging is verstuurd naar ana@andes.example.
 

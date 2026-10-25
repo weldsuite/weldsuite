@@ -1,5 +1,5 @@
 /**
- * WeldHR hooks — employees, time, the workforce portal settings and My HR.
+ * WeldHR hooks — employees, time, settings and My HR.
  *
  * Every key sits under ['weldhr'] (the realtime sync map invalidates that
  * root on any hr_* event), and mutations invalidate the same root: HR screens
@@ -36,7 +36,6 @@ import type {
   HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
-  InviteHrPortalAccessInput,
   RecoverHrAbsenceInput,
   ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
@@ -44,7 +43,7 @@ import type {
   UpdateHrAttendanceInput,
   UpdateHrDeclarationInput,
   UpdateHrEmployeeInput,
-  UpdateHrPortalSettingsInput,
+  UpdateHrSettingsInput,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 
 export const weldhrKeys = {
@@ -62,8 +61,7 @@ export const weldhrKeys = {
   leaveRequests: (params: object) => [...weldhrKeys.all, 'leave-requests', params] as const,
   absences: (params: object) => [...weldhrKeys.all, 'absences', params] as const,
   declarations: (params: object) => [...weldhrKeys.all, 'declarations', params] as const,
-  portalSettings: () => [...weldhrKeys.all, 'portal-settings'] as const,
-  portalAccess: (params: object) => [...weldhrKeys.all, 'portal-access', params] as const,
+  settings: () => [...weldhrKeys.all, 'settings'] as const,
   availableMembers: (params: object) => [...weldhrKeys.all, 'available-members', params] as const,
   me: (part: string, params: object = {}) => [...weldhrKeys.all, 'me', part, params] as const,
 };
@@ -465,47 +463,18 @@ export function useOpenHrDeclarationReceipt() {
 }
 
 // ---------------------------------------------------------------------------
-// Portal
+// Settings
 // ---------------------------------------------------------------------------
 
-export function useHrPortalSettings() {
+/** What employees may do for themselves in My HR. */
+export function useHrSettings() {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.portalSettings(), queryFn: () => weldhr.getPortalSettings(), select: (r) => r.data });
+  return useQuery({ queryKey: weldhrKeys.settings(), queryFn: () => weldhr.getSettings(), select: (r) => r.data });
 }
 
-export function useUpdateHrPortalSettings() {
+export function useUpdateHrSettings() {
   const { weldhr } = useAppApi();
-  return useHrMutation((input: UpdateHrPortalSettingsInput) => weldhr.updatePortalSettings(input));
-}
-
-export function useHrPortalAccess(params: { kind?: 'employee' | 'client'; companyId?: string; employeeId?: string } = {}, opts: { enabled?: boolean } = {}) {
-  const { weldhr } = useAppApi();
-  return useQuery({
-    queryKey: weldhrKeys.portalAccess(params),
-    queryFn: () => weldhr.listPortalAccess(params),
-    select: (r) => r.data,
-    enabled: opts.enabled ?? true,
-  });
-}
-
-export function useInviteHrPortalAccess() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((input: InviteHrPortalAccessInput) => weldhr.invitePortalAccess(input));
-}
-
-export function useRevokeHrPortalAccess() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.revokePortalAccess(id));
-}
-
-export function useRestoreHrPortalAccess() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.restorePortalAccess(id));
-}
-
-export function useDeleteHrPortalAccess() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deletePortalAccess(id));
+  return useHrMutation((input: UpdateHrSettingsInput) => weldhr.updateSettings(input));
 }
 
 // ---------------------------------------------------------------------------

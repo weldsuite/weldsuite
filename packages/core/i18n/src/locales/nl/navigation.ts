@@ -92,7 +92,6 @@ export const navigation = {
       tasks: 'Taken',
       timeOff: 'Verlof & ziekte',
       vaults: 'Kluizen',
-      workforcePortal: 'Medewerkersportaal',
     },
     moduleSidebar: {
       groups: {
@@ -177,7 +176,7 @@ export const navigation = {
         absenteeism: 'Verzuim',
         leave: 'Verlof',
         declarations: 'Declaraties',
-        portal: 'Medewerkersportaal',
+        settings: 'Instellingen',
         payroll: 'Overzicht',
         payRuns: 'Loonruns',
         payrollEmployees: 'Medewerkers in loon',

@@ -567,7 +567,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
   objectPermissions('reach_settings', 'Outreach settings', ['read', 'update']),
-  // ── WeldHR (employee operations + workforce portal) ───────────────────
+  // ── WeldHR (employee operations + My HR) ──────────────────────────────
   // HR data is need-to-know: by default MEMBER gets only `employees:self` (My
   // HR, their own record) and VIEWER gets nothing. Approving and the team view
   // are for ADMIN or a custom role.
@@ -589,8 +589,8 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       },
       {
         key: 'employees:manage',
-        label: 'Manage WeldHR settings and the workforce portal',
-        description: 'Departments, checklist templates, evaluation forms, KPI definitions, leave types, portal branding and who can sign in to the portal.',
+        label: 'Manage WeldHR settings',
+        description: 'Departments, checklist templates, evaluation forms, KPI definitions, leave types and what employees may do themselves in My HR.',
       },
       {
         key: 'employees:self',

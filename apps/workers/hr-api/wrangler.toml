@@ -14,8 +14,8 @@
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation; the
 #     employee sensitive block is encrypted with the keyring)
 #
-# HR_PORTAL_URL and REALTIME_PUBLIC_URL are optional [vars]; both default per
-# ENVIRONMENT (app-api sets neither).
+# APP_URL is an optional [var]: the platform origin the payroll mails link to,
+# defaulting per ENVIRONMENT.
 #
 # WeldHR payroll (docs/plans/weldhr-payroll.md), behind the `weldhr-payroll` flag:
 #   STORAGE (R2)        payslip PDFs and filing files under workspaces/<id>/hr/payslips|filings/
@@ -94,8 +94,8 @@ remote = true
 # Until all of that exists, POST /api/weldhr/payroll/filings/:id/submit answers DIGIPOORT_NOT_CONFIGURED and
 # the employer files the generated XML itself ("mark as filed").
 
-# Cloudflare Email Sending binding for the workforce portal invite and sign-in
-# code emails. A missing binding is a no-op (the invite is still recorded).
+# Cloudflare Email Sending binding for the payroll emails (payslip ready, bank
+# details changed). A missing binding is a no-op.
 [[send_email]]
 name = "SEND_EMAIL"
 

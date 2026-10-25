@@ -7,7 +7,7 @@
  * `payroll:prepare`; approve, mark paid, the payment file and the journal
  * retry `payroll:approve`. Every transition publishes an `hr_pay_run` event
  * (ids and status only); approval also publishes `hr_payslip` `published` per
- * employee, which the workforce portal and My HR use to refresh.
+ * employee, which My HR uses to refresh.
  */
 
 import { Hono } from 'hono';
@@ -125,7 +125,7 @@ runsRoutes.post('/:runId/approve', requirePermission('payroll:approve'), async (
     ip: clientIp(c),
   });
   emit(c, 'hr_pay_run', 'approved', result.run.id, { status: result.run.status });
-  // One signal per employee: the portal and My HR refresh their payslip lists from it.
+  // One event per employee: My HR refreshes the payslip list from it.
   for (const slip of result.payslips) emit(c, 'hr_payslip', 'published', slip.id, { employeeId: slip.employeeId, status: 'final' });
   for (const filing of result.filings) emit(c, 'hr_payroll_filing', filing.created ? 'created' : 'updated', filing.id, { status: 'open' });
   return success(c, await detail(c, result.run.id));

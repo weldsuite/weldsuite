@@ -92,7 +92,6 @@ export const navigation = {
       tasks: 'Tasks',
       timeOff: 'Time off',
       vaults: 'Vaults',
-      workforcePortal: 'Workforce portal',
     },
     moduleSidebar: {
       groups: {
@@ -177,7 +176,7 @@ export const navigation = {
         absenteeism: 'Absenteeism',
         leave: 'Leave',
         declarations: 'Declarations',
-        portal: 'Workforce portal',
+        settings: 'Settings',
         payroll: 'Overview',
         payRuns: 'Pay runs',
         payrollEmployees: 'Payroll employees',

@@ -38,7 +38,6 @@ const OTHER_TABLES = [
   'hr_leave_allowances',
   'hr_leave_types',
   'hr_attendance_records',
-  'hr_portal_access',
   'hr_employees',
   'workspace_members',
   'payroll_imports',

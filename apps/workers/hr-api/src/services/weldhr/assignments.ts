@@ -1,9 +1,9 @@
 /**
  * Employee ↔ client account assignments. A client account is a CRM company.
  *
- * Assignments are ended, not deleted, when someone rolls off an account — the
- * workforce portal's "team over time" and every historical KPI are read
- * through them. Delete exists only to fix a mistake.
+ * Assignments are ended, not deleted, when someone rolls off an account — a
+ * client's "team over time" and every historical KPI are read through them.
+ * Delete exists only to fix a mistake.
  */
 
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';

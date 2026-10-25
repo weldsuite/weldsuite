@@ -1,10 +1,11 @@
 /**
  * Workspace account card on the employee detail page.
  *
- * New employees are always created from a workspace member, so this card only
- * has work to do for employees from before that rule: link them to an
- * existing member, or invite them (as an Employee member by default, which
- * gives them My HR and WeldChat only) and link them once they've accepted.
+ * New employees are created from a workspace member or together with their
+ * invitation, so an unlinked employee is either still to accept (hr-api links
+ * them by email once they do) or from before every employee had to be a
+ * member. For the latter: link them to an existing member, or invite them (as
+ * an Employee member by default, which gives them My HR and WeldChat only).
  */
 
 import { useMemo, useState } from 'react';
@@ -68,6 +69,16 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
   const { data: membersResponse } = useTeamMembers(
     canReadTeam && employee.userId ? { limit: 100, status: 'ACTIVE', memberType: 'all' } : undefined,
   );
+  // An invitation still waiting for this employee's email: they are linked on acceptance.
+  const { data: pendingResponse, refetch: refetchPending } = useTeamMembers(
+    canReadTeam && !employee.userId
+      ? { limit: 10, status: 'PENDING', memberType: 'all', search: employee.email }
+      : undefined,
+  );
+  const pendingInvite = useMemo(() => {
+    const email = employee.email.trim().toLowerCase();
+    return (pendingResponse?.data ?? []).some((m) => (memberEmail(m) ?? '').toLowerCase() === email);
+  }, [pendingResponse, employee.email]);
   // Members who are free to link: active INTERNAL / EMPLOYEE, not an employee yet.
   const { data: availableMembers } = useHrAvailableMembers({ limit: 200 }, { enabled: canLink && !employee.userId });
   const { data: rolesResponse } = useWorkspaceRoles(canInvite);
@@ -118,6 +129,7 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
       });
       toast.success(t('weldhr.employees.workspace.inviteSent'));
       setDialog(null);
+      if (canReadTeam) void refetchPending();
     } catch (err) {
       setFailure(errorMessage(err, t('weldhr.employees.workspace.inviteFailed')));
     } finally {
@@ -156,6 +168,12 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
           <p className="text-xs text-muted-foreground">{memberEmail(linkedMember)}</p>
         )}
       </div>
+    );
+  } else if (pendingInvite) {
+    body = (
+      <p className="text-sm text-muted-foreground">
+        {t('weldhr.employees.workspace.invitePending', { email: employee.email })}
+      </p>
     );
   } else {
     body = (

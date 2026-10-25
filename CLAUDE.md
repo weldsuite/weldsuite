@@ -430,8 +430,8 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 `deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
 **Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
 (path-gated) → **Pages** (`weldsuite-test` / `weldsuite`) + **Vercel** (only changed
-apps: admin, api-docs, booking-portal, docs, helpdesk-widget, hr-portal,
-meeting-portal, partner; map in `.github/scripts/vercel-apps.mjs`) + **Workers**
+apps: admin, api-docs, booking-portal, docs, helpdesk-widget, meeting-portal,
+partner; map in `.github/scripts/vercel-apps.mjs`) + **Workers**
 for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`).
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.

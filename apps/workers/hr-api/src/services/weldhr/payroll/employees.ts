@@ -903,7 +903,7 @@ export async function setPaymentDetails(
 }
 
 // ---------------------------------------------------------------------------
-// What the employee still has to provide (My HR and the portal)
+// What the employee still has to provide (My HR)
 // ---------------------------------------------------------------------------
 
 export type MyPayrollDetails = HrMyPayrollDetails;
@@ -927,7 +927,7 @@ export function stateCertificateDefinition(state: string): HrStateCertificateDef
 }
 
 /**
- * What the signed-in employee sees under My HR / the portal: the masked
+ * What the signed-in employee sees under My HR: the masked
  * details, the elections in force, and what is still to be provided or signed.
  */
 export async function myPayrollDetails(

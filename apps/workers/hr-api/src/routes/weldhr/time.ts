@@ -47,7 +47,7 @@ import {
   updateShift,
 } from '../../services/weldhr/time';
 import { addDays, todayIso } from '../../services/weldhr/shared';
-import { actor, hrJson, db, emit, emitPortalConfig, param } from './helpers';
+import { actor, hrJson, db, emit, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -162,20 +162,16 @@ leaveTypesRoutes.get('/', requirePermission('leave:read', 'employees:read'), asy
 
 leaveTypesRoutes.post('/', requirePermission('employees:manage'), hrJson(createHrLeaveTypeSchema), async (c) => {
   const row = await createLeaveType(db(c), c.req.valid('json'));
-  emitPortalConfig(c, 'hr_leave_type', row.id);
   return success(c, row, 201);
 });
 
 leaveTypesRoutes.patch('/:leaveTypeId', requirePermission('employees:manage'), hrJson(updateHrLeaveTypeSchema), async (c) => {
   const row = await updateLeaveType(db(c), param(c, 'leaveTypeId'), c.req.valid('json'));
-  emitPortalConfig(c, 'hr_leave_type', row.id);
   return success(c, row);
 });
 
 leaveTypesRoutes.delete('/:leaveTypeId', requirePermission('employees:manage'), async (c) => {
-  const id = param(c, 'leaveTypeId');
-  const result = await deleteLeaveType(db(c), id);
-  emitPortalConfig(c, 'hr_leave_type', id);
+  const result = await deleteLeaveType(db(c), param(c, 'leaveTypeId'));
   return success(c, result);
 });
 

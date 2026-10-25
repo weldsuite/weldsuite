@@ -46,7 +46,6 @@ export {
   type DigestTask,
   type EnterpriseInquiryEmailProps,
   type FlowDigestEmailProps,
-  type HrPortalInviteEmailProps,
   type MeetInvitationEmailProps,
   type NotificationEmailProps,
   type PartnerDunningEmailProps,

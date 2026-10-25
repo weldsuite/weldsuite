@@ -6,8 +6,8 @@
  * later template edit never rewrites a checklist that is already running.
  *
  * Finishing the last task closes the checklist and moves the employee along:
- * onboarding → `active`; offboarding → `terminated`, open client assignments
- * ended, portal access revoked.
+ * onboarding → `active`; offboarding → `terminated` and open client
+ * assignments ended. The workspace seat is removed in Settings → Team.
  */
 
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
@@ -396,10 +396,6 @@ export async function settleChecklist(db: Database, checklistId: string): Promis
         .set({ status: 'terminated', endDate, updatedAt: now })
         .where(eq(schema.hrEmployees.id, employee.id));
       await endAssignmentsFor(db, employee.id, endDate);
-      await db
-        .update(schema.hrPortalAccess)
-        .set({ status: 'revoked', updatedAt: now })
-        .where(eq(schema.hrPortalAccess.employeeId, employee.id));
       outcome.employeeStatus = 'terminated';
     }
   } else if (open > 0 && checklist.status === 'completed') {

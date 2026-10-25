@@ -22,7 +22,6 @@ import { useHrPayrollFlag } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { EmployeeAttendanceTab } from '../../components/employee-tabs/attendance-tab';
 import { EmployeeLeaveTab } from '../../components/employee-tabs/leave-tab';
 import { EmployeePayrollTab } from '../../components/employee-tabs/payroll-tab';
-import { EmployeePortalAccessCard } from '../../components/portal/employee-portal-card';
 import { DetailHeader, DetailPage, DetailTabs, FieldGrid, SectionCard, EmptyText, useHrBreadcrumbs } from '../../components/page-kit';
 import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage, formatDate } from '../../components/shared';
 import { EditEmployeeDialog } from '../components/edit-employee-dialog';
@@ -51,7 +50,6 @@ export default function WeldHrEmployeeDetailPage() {
   const canUpdate = can('employees:update') || can('employees:manage');
   const canDelete = can('employees:delete') || can('employees:manage');
   const canSensitive = can('employees:sensitive');
-  const canManagePortal = can('employees:manage');
   // The Payroll tab needs the weldhr-payroll flag and payroll:read.
   const payrollFlag = useHrPayrollFlag();
   const canSeePayroll = payrollFlag.enabled && can('payroll:read');
@@ -143,7 +141,6 @@ export default function WeldHrEmployeeDetailPage() {
       {activeTab === 'overview' && (
         <OverviewTab
           employee={employee}
-          canManagePortal={canManagePortal}
           canUpdate={canUpdate}
           showWorkspaceCard={canUpdate || can('team:create') || can('team:read')}
         />
@@ -178,12 +175,10 @@ type EmployeeDetail = NonNullable<ReturnType<typeof useHrEmployee>['data']>;
 
 function OverviewTab({
   employee,
-  canManagePortal,
   canUpdate,
   showWorkspaceCard,
 }: Readonly<{
   employee: EmployeeDetail;
-  canManagePortal: boolean;
   canUpdate: boolean;
   showWorkspaceCard: boolean;
 }>) {
@@ -233,7 +228,6 @@ function OverviewTab({
       <EmployeeCustomFieldsCard employee={employee} canUpdate={canUpdate} />
 
       {showWorkspaceCard && <EmployeeWorkspaceMemberCard employee={employee} />}
-      {canManagePortal && <EmployeePortalAccessCard employeeId={employee.id} employeeStatus={employee.status} />}
     </div>
   );
 }

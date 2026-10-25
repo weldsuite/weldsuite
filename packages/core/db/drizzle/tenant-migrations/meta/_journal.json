@@ -1597,6 +1597,20 @@
       "when": 1792927606208,
       "tag": "0227_weldsheets_versions_data_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "7",
+      "when": 1792954290211,
+      "tag": "0228_weldhr_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 229,
+      "version": "7",
+      "when": 1792954337112,
+      "tag": "0229_weldhr_drop_workforce_portal",
+      "breakpoints": true
     }
   ]
 }

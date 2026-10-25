@@ -421,7 +421,7 @@ export function approveAttendance(
     .execute();
 }
 
-/** Resolve import/portal employee references: email (case-insensitive) or employee number. */
+/** Resolve imported employee references: email (case-insensitive) or employee number. */
 export async function resolveEmployeeRefs(db: Database, refs: string[]) {
   const unique = [...new Set(refs.map((r) => r.trim()).filter(Boolean))];
   const out = new Map<string, string>();
@@ -515,16 +515,15 @@ export async function importAttendance(
 }
 
 /**
- * Self-service clock in/out (workforce portal and My HR). One open record per
- * day; clocking in twice is a conflict. `createdBy` defaults to the portal
- * principal; My HR passes the member's user id.
+ * Self-service clock in/out (My HR). One open record per day; clocking in
+ * twice is a conflict. `createdBy` is the member's Clerk user id.
  */
 export async function clock(
   db: Database,
   employeeId: string,
   action: 'in' | 'out',
-  now: Date = new Date(),
-  createdBy: string = `portal:${employeeId}`,
+  now: Date,
+  createdBy: string,
 ) {
   const today = todayIso(now);
   const [open] = await db

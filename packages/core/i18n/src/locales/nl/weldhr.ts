@@ -1,5 +1,5 @@
 /**
- * WeldHR — personeelsbeheer en het medewerkersportaal.
+ * WeldHR — personeelsbeheer en Mijn HR.
  *
  * Per onderdeel opgesplitst, zie en/weldhr.ts voor de indeling.
  */
@@ -136,11 +136,6 @@ export const weldhr = {
       it: 'IT',
       employee: 'Medewerker',
       other: 'Overig',
-    },
-    portalAccess: {
-      invited: 'Uitgenodigd',
-      active: 'Actief',
-      revoked: 'Ingetrokken',
     },
     kpiUnit: {
       number: 'Getal',

@@ -22,6 +22,9 @@ vi.mock('@/app/weldhr/settings/components/departments-tab', () => ({
 vi.mock('@/app/weldhr/settings/components/leave-types-tab', () => ({
   LeaveTypesTab: () => <div>leave types panel</div>,
 }));
+vi.mock('@/app/weldhr/settings/components/self-service-tab', () => ({
+  SelfServiceTab: () => <div>self-service panel</div>,
+}));
 
 describe('WeldHR settings page', () => {
   beforeEach(() => {
@@ -45,6 +48,14 @@ describe('WeldHR settings page', () => {
 
     expect(screen.getByText('leave types panel')).toBeTruthy();
     expect(screen.queryByText('departments panel')).toBeNull();
+  });
+
+  it('opens the My HR self-service switches', () => {
+    tab = 'self-service';
+    render(<WeldHrSettingsPage />);
+
+    expect(screen.getByText('self-service panel')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: en.weldhr.settings.tabs.selfService })).toBeTruthy();
   });
 
   it('writes the selected tab into the settings URL', () => {

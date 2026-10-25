@@ -51,7 +51,7 @@ export const weldhrDeclarations = {
     editLocked: 'Only a declaration that is still pending can be edited.',
     empty: {
       title: 'No declarations',
-      description: 'Expenses filed for an employee, or submitted from My HR or the portal, show up here.',
+      description: 'Expenses filed for an employee, or submitted from My HR, show up here.',
     },
     form: {
       title: 'New declaration',
