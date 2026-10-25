@@ -255,7 +255,8 @@ class Paginator {
       const k = Math.max(1, fit.count);
       const area = this.area();
       this.register(this.cursor.page, area, { kind: 'rows', story: BODY, entry, block: bi, repeat, from: ri, to: ri + k, x: area.x, y: this.cursor.y, width: area.width });
-      this.cursor.y += fit.height;
+      // A forced row is not in fit.height (only the repeated header rows are).
+      this.cursor.y += fit.count ? fit.height : fit.height + table.rows[ri]!.height;
       this.cursor.empty = false;
       ri += k;
       if (ri < table.rows.length) {

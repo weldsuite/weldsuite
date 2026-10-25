@@ -311,6 +311,19 @@ describe('review fixes', () => {
     expect(Number.isFinite(dl.pages[0]!.height)).toBe(true);
   });
 
+  it('moves what follows a table row taller than a page below that row', () => {
+    const b = new ContentBuilder();
+    b.addTable([[{ content: { text: `${Array.from({ length: 40 }, () => LOREM).join(' ')}${PARA}` } }]], { widths: [200] });
+    b.endParagraph();
+    b.addText('After').endParagraph();
+    const dl = layoutOf(docOf(b.build()));
+    const placed = dl.pages.flatMap((p) => p.columns[0]!.items.map((item) => ({ page: p.index, item })));
+    const row = placed.find((x) => x.item.kind === 'rows')!;
+    const after = placed[placed.length - 1]!;
+    expect(after.item.kind).toBe('lines');
+    expect(after.page).toBeGreaterThan(row.page);
+  });
+
   it('keeps carets in step in all caps when a capital is longer (ß)', () => {
     const doc = docOf({ text: `Straße Weg${PARA}`, runs: [[10, { allCaps: true }]] });
     const dl = layoutOf(doc);
