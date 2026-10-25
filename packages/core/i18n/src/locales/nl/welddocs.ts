@@ -31,6 +31,8 @@ export const welddocs = {
     import: 'Importeren',
     importing: '{name} importeren…',
     importFailed: '{name} kon niet worden geïmporteerd.',
+    loadFailed: 'Je documenten konden niet worden geladen.',
+    retry: 'Opnieuw proberen',
   },
 
   editor: {
