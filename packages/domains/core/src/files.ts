@@ -376,8 +376,7 @@ export async function restoreFile(db: Database, id: string) {
  */
 export async function listDocumentSnapshotKeys(db: Database, fileIds: string[] | SQLWrapper): Promise<string[]> {
   if (Array.isArray(fileIds) && fileIds.length === 0) return [];
-  const among = (column: AnyColumn) =>
-    Array.isArray(fileIds) ? inArray(column, fileIds) : inArray(column, fileIds);
+  const among = (column: AnyColumn) => inArray(column, fileIds);
   const [sheetRows, docRows, versionRows] = await Promise.all([
     db.select({ key: sheets.snapshotKey }).from(sheets).where(among(sheets.fileId)),
     db.select({ key: docs.snapshotKey }).from(docs).where(among(docs.fileId)),
