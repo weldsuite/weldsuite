@@ -1,27 +1,35 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
-import { registerEntityProvider, type EntityChannelProvider } from '../registry';
+import {
+  canAccessViaFilter,
+  registerEntityProvider,
+  type EntityChannelProvider,
+} from '../registry';
+import { personDisplayName, personEntityProvider } from './person';
 
-function contactDisplayName(c: {
-  fullName: string | null;
-  firstName: string | null;
-  lastName: string | null;
-  email: string | null;
-}): string {
-  const fromParts = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  return c.fullName || fromParts || c.email || 'Contact';
-}
-
+/**
+ * LEGACY name for a person's chat. The canonical type is `person`
+ * (./person.ts); `contact` stays registered only so channels already created
+ * under it remain readable, and the WeldMail customer panel
+ * (`components/customer-detail/customer-detail-view.tsx`) still posts with it.
+ * Retire it once those rows are renamed to `person` (ask before writing that
+ * data migration) and the panel sends `person`.
+ *
+ * Same record (`people`) and the same visibility as `person`. Left out of the
+ * record chat lists.
+ */
 export const contactEntityProvider: EntityChannelProvider = {
   type: 'contact',
   label: 'Contacts',
-  requiredPermission: 'messages:read',
+  requiredPermission: personEntityProvider.requiredPermission,
+  legacy: true,
 
   async resolve({ db, entityId, actingUserId }) {
     const { people: contacts } = schema;
 
     const [contact] = await db
       .select({
+        displayName: contacts.displayName,
         firstName: contacts.firstName,
         lastName: contacts.lastName,
         fullName: contacts.fullName,
@@ -33,11 +41,8 @@ export const contactEntityProvider: EntityChannelProvider = {
 
     if (!contact) return null;
 
-    // Contacts have no ownerId / accountManagerId on the table — only the
-    // creator is auto-added. Workspace-level `contacts:read` (enforced at the
-    // route layer) controls who else can open the channel.
     return {
-      displayName: contactDisplayName(contact),
+      displayName: personDisplayName(contact),
       defaultMemberIds: [actingUserId],
     };
   },
@@ -64,17 +69,12 @@ export const contactEntityProvider: EntityChannelProvider = {
     return contact ?? null;
   },
 
-  async canAccess({ db, entityId }) {
-    // Workspace-level permission is enforced at the route layer; here we only
-    // verify the contact exists and isn't soft-deleted, so we don't create
-    // channels for ghost entities.
-    const { people: contacts } = schema;
-    const [contact] = await db
-      .select({ id: contacts.id })
-      .from(contacts)
-      .where(and(eq(contacts.id, entityId), isNull(contacts.deletedAt)))
-      .limit(1);
-    return !!contact;
+  filterVisible(ctx, entityIds) {
+    return personEntityProvider.filterVisible(ctx, entityIds);
+  },
+
+  canAccess(ctx) {
+    return canAccessViaFilter(contactEntityProvider, ctx);
   },
 };
 

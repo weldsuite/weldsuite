@@ -13,6 +13,9 @@ export interface Env extends KitEnv {
   REALTIME?: Fetcher;
   /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
   REALTIME_INTERNAL_SECRET?: string;
+  /** chat-api service binding: company and person chats are forwarded there
+   *  (lib/record-chat-forward.ts). */
+  CHAT_API?: Fetcher;
 
   /** R2 bucket used for customer/contact avatars (lib/logo-fetch.ts). */
   STORAGE?: R2Bucket;

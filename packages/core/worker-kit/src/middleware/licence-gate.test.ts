@@ -50,6 +50,21 @@ describe('licenceGate', () => {
     }
   });
 
+  it("opens a record's chat to the record's app, and only that record type's", async () => {
+    // A CRM-only workspace: company and person chats (crm-api forwards them
+    // to chat-api) pass; another type's chat and the WeldChat lists do not.
+    const crmOnly = buildApp(['weldcrm']);
+    for (const path of ['/api/chat-entity-channels/company/cmp_1/messages', '/api/chat-entity-channels/person/per_1/channel']) {
+      expect((await crmOnly.request(path, { method: 'POST' })).status, path).toBe(200);
+    }
+    for (const path of ['/api/chat-entity-channels/domain/dom_1/channel', '/api/chat-entity-channels/summary', '/api/chat-entity-channels?type=company', '/api/channels']) {
+      expect((await crmOnly.request(path)).status, path).toBe(403);
+    }
+    const hostOnly = buildApp(['weldhost']);
+    expect((await hostOnly.request('/api/chat-entity-channels/domain/dom_1/channel')).status).toBe(200);
+    expect((await hostOnly.request('/api/chat-entity-channels/company/cmp_1/channel')).status).toBe(403);
+  });
+
   it('rejects an unlicensed module with APP_NOT_LICENSED naming its app', async () => {
     const res = await buildApp(['welddesk']).request('/api/invoices/inv_1', { method: 'POST' });
     expect(res.status).toBe(403);
