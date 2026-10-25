@@ -169,7 +169,8 @@ export function insertText(doc: DocModel, sel: DocSelection, text: string, pendi
   if (!isEmptyObject(style)) content.runs = [[clean.length, style]];
   if (clean.includes(PARA)) {
     // A heading's link target stays with the original paragraph.
-    const { anchorId: _anchor, ...props } = paragraphProps(doc, sel.story, from);
+    const props: ParaProps = { ...paragraphProps(doc, sel.story, from) };
+    delete props.anchorId;
     if (!isEmptyObject(props)) {
       const paras: [number, ParaProps][] = [];
       for (let i = clean.indexOf(PARA); i >= 0; i = clean.indexOf(PARA, i + 1)) paras.push([i, props]);
@@ -252,7 +253,8 @@ export function deleteForward(doc: DocModel, sel: DocSelection, unit: DeleteUnit
  */
 export function splitParagraph(doc: DocModel, sel: DocSelection): Edit {
   const story = storyOf(doc, sel);
-  const { start, end } = paragraphAt(story, selectionRange(sel).from);
+  const range = selectionRange(sel);
+  const { start, end } = paragraphAt(story, range.from);
   const props = (story.attrAt(end) as ParaProps | undefined) ?? {};
   if (isCollapsed(sel) && props.list && start === end) {
     return { op: { type: 'formatParagraphs', story: sel.story, at: end, runs: [[1, { list: null, checked: null }]] }, selection: sel };
@@ -260,25 +262,38 @@ export function splitParagraph(doc: DocModel, sel: DocSelection): Edit {
   const del = deleteSelection(doc, sel);
   const at = del.selection.head;
   // Position of the (old) mark after the deletion.
-  const markAfterDelete = end - (selectionRange(sel).to > end ? 0 : selectionRange(sel).to - selectionRange(sel).from);
-  const atEnd = at === markAfterDelete;
+  const markAfterDelete = end - (range.to > end ? 0 : range.to - range.from);
+  const ops: Op[] = [del.op, { type: 'insert', story: sel.story, at, content: firstHalfMark(doc, story, end, props) }];
+  // The second half (the old mark, now one further on).
+  const second = secondHalfPatch(doc, props, at === markAfterDelete);
+  if (!isEmptyObject(second)) ops.push({ type: 'formatParagraphs', story: sel.story, at: markAfterDelete + 1, runs: [[1, second]] });
+  return { op: batch(ops), selection: caretAt(sel.story, at + 1) };
+}
+
+/** The new mark ending the first half: the paragraph's properties and its mark's character style. */
+function firstHalfMark(doc: DocModel, story: Story, end: number, props: ParaProps): Content {
   const markStyle = doc.textStyles.get(story.styleAt(end));
   const first: ParaProps = { ...props };
   const content: Content = { text: PARA };
   if (!isEmptyObject(first)) content.paras = [[0, first]];
   if (!isEmptyObject(markStyle)) content.runs = [[1, markStyle]];
-  const ops: Op[] = [del.op, { type: 'insert', story: sel.story, at, content }];
-  // The second half (the old mark, now one further on).
+  return content;
+}
+
+/**
+ * What the second half drops: the heading's link target and the tick; split
+ * at its end, a heading's style gives way to its `next` style, and a page
+ * break before it stays with the first half.
+ */
+function secondHalfPatch(doc: DocModel, props: ParaProps, atEnd: boolean): ParaPatch {
   const second: ParaPatch = {};
   if (props.anchorId) second.anchorId = null;
   if (props.checked) second.checked = null;
-  if (atEnd) {
-    const named = props.style ? doc.styles.get(props.style) : undefined;
-    if (named?.next && named.next !== props.style) second.style = named.next === 'normal' ? null : named.next;
-    if (props.pageBreakBefore) second.pageBreakBefore = null;
-  }
-  if (!isEmptyObject(second)) ops.push({ type: 'formatParagraphs', story: sel.story, at: markAfterDelete + 1, runs: [[1, second]] });
-  return { op: batch(ops), selection: caretAt(sel.story, at + 1) };
+  if (!atEnd) return second;
+  const named = props.style ? doc.styles.get(props.style) : undefined;
+  if (named?.next && named.next !== props.style) second.style = named.next === 'normal' ? null : named.next;
+  if (props.pageBreakBefore) second.pageBreakBefore = null;
+  return second;
 }
 
 export function insertLineBreak(doc: DocModel, sel: DocSelection): Edit {
@@ -323,7 +338,8 @@ function listKindOf(doc: DocModel, id: string): ListKind | null {
   const def = doc.lists.get(id);
   const f = def?.levels[0]?.format;
   if (!f) return null;
-  return f === 'bullet' ? 'bullet' : f === 'check' ? 'check' : 'numbered';
+  if (f === 'bullet' || f === 'check') return f;
+  return 'numbered';
 }
 
 /**
@@ -478,30 +494,12 @@ export function insertObject(doc: DocModel, sel: DocSelection, data: ObjectData,
  * so copying a few words does not split the paragraph pasted into.
  */
 export function insertFragment(doc: DocModel, sel: DocSelection, fragment: Fragment, makeId: () => string = newId): Edit {
-  let content = freshIds(fragment.content, makeId);
-  const paraCount = content.text.split(PARA).length - 1;
-  const lastProps = content.paras?.find(([o]) => o === content.text.length - 1)?.[1];
-  if (content.text.endsWith(PARA) && paraCount === 1 && (!lastProps || isEmptyObject(lastProps)) && !content.text.includes(OBJECT)) {
-    content = { ...content, text: content.text.slice(0, -1), paras: undefined };
-    if (content.runs) content.runs = trimRuns(content.runs, content.text.length);
-    if (!content.paras) delete content.paras;
-  }
+  let content = inlineIfOneParagraph(freshIds(fragment.content, makeId));
   if (!content.text) return { op: NOOP, selection: sel };
   // Lists get new ids too, so pasting twice makes two lists.
   const ops: Op[] = [];
-  const renamed = new Map<string, string>();
-  const lists: Record<string, ListDef> = {};
-  for (const [id, def] of Object.entries(fragment.lists ?? {})) {
-    const fresh = doc.lists.has(id) ? makeId() : id;
-    renamed.set(id, fresh);
-    lists[fresh] = def;
-  }
-  if (content.paras && renamed.size) {
-    content = {
-      ...content,
-      paras: content.paras.map(([o, p]) => [o, p.list && renamed.has(p.list.id) ? { ...p, list: { ...p.list, id: renamed.get(p.list.id)! } } : p]),
-    };
-  }
+  const { lists, renamed } = freshLists(doc, fragment, makeId);
+  content = renameLists(content, renamed);
   if (Object.keys(lists).length) ops.push({ type: 'patchLists', set: lists });
   const del = deleteSelection(doc, sel);
   ops.push(del.op);
@@ -513,6 +511,39 @@ export function insertFragment(doc: DocModel, sel: DocSelection, fragment: Fragm
   }
   ops.push({ type: 'insert', story: sel.story, at, content });
   return { op: batch(ops), selection: caretAt(sel.story, at + content.text.length) };
+}
+
+/** Content that is one plain paragraph loses its mark, so it pastes inline. */
+function inlineIfOneParagraph(content: Content): Content {
+  const paraCount = content.text.split(PARA).length - 1;
+  const lastProps = content.paras?.find(([o]) => o === content.text.length - 1)?.[1];
+  const plainMark = !lastProps || isEmptyObject(lastProps);
+  if (!content.text.endsWith(PARA) || paraCount !== 1 || !plainMark || content.text.includes(OBJECT)) return content;
+  const inline: Content = { ...content, text: content.text.slice(0, -1) };
+  delete inline.paras;
+  if (inline.runs) inline.runs = trimRuns(inline.runs, inline.text.length);
+  return inline;
+}
+
+/** The fragment's lists under ids not yet used in `doc`, and which id became which. */
+function freshLists(doc: DocModel, fragment: Fragment, makeId: () => string): { lists: Record<string, ListDef>; renamed: Map<string, string> } {
+  const renamed = new Map<string, string>();
+  const lists: Record<string, ListDef> = {};
+  for (const [id, def] of Object.entries(fragment.lists ?? {})) {
+    const fresh = doc.lists.has(id) ? makeId() : id;
+    renamed.set(id, fresh);
+    lists[fresh] = def;
+  }
+  return { lists, renamed };
+}
+
+/** Points the content's list paragraphs at their lists' new ids. */
+function renameLists(content: Content, renamed: Map<string, string>): Content {
+  if (!content.paras || !renamed.size) return content;
+  return {
+    ...content,
+    paras: content.paras.map(([o, p]) => [o, p.list && renamed.has(p.list.id) ? { ...p, list: { ...p.list, id: renamed.get(p.list.id)! } } : p]),
+  };
 }
 
 function trimRuns(runs: [number, TextStyle][], length: number): [number, TextStyle][] {

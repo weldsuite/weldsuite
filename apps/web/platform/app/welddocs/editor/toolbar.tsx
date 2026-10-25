@@ -216,7 +216,9 @@ function listKind(controller: DocController): string | null {
   const list = controller.paragraph().list;
   if (!list) return null;
   const f = controller.doc.lists.get(list.id)?.levels[0]?.format;
-  return f === 'bullet' ? 'bullet' : f === 'check' ? 'check' : f ? 'numbered' : null;
+  if (!f) return null;
+  if (f === 'bullet' || f === 'check') return f;
+  return 'numbered';
 }
 
 function alignIcon(align: string) {

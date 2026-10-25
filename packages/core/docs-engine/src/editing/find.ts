@@ -91,9 +91,17 @@ export function replacementFor(doc: DocModel, query: string, options: FindOption
   const pattern = queryPattern(query, options);
   const story = doc.stories.get(match.story);
   if (!pattern || !story) return replacement;
-  const sticky = new RegExp(pattern.source, `${pattern.flags.replace('g', '')}y`);
-  const text = story.text();
-  sticky.lastIndex = match.from;
+  return expandAt(stickyPattern(pattern), story.text(), match.from, replacement);
+}
+
+/** The find pattern made sticky, to match again exactly where a match was found. */
+function stickyPattern(pattern: RegExp): RegExp {
+  return new RegExp(pattern.source, `${pattern.flags.replace('g', '')}y`);
+}
+
+/** The replacement for the match at `from` of a story's full `text`, its `$` patterns expanded. */
+function expandAt(sticky: RegExp, text: string, from: number, replacement: string): string {
+  sticky.lastIndex = from;
   const m = sticky.exec(text);
   return m ? expandReplacement(replacement, m, text) : replacement;
 }
@@ -118,10 +126,20 @@ function expandReplacement(replacement: string, m: RegExpExecArray, input: strin
  */
 export function replaceAll(doc: DocModel, query: string, replacement: string, options: FindOptions = {}): { op: Op; count: number } {
   const matches = findAll(doc, query, options);
+  // Compiled once, and each story's text read once: per match, both would make this quadratic.
+  const pattern = options.regex ? queryPattern(query, options) : null;
+  const sticky = pattern ? stickyPattern(pattern) : null;
+  const texts = new Map<string, string | null>();
+  const textOf = (id: string): string | null => {
+    if (!texts.has(id)) texts.set(id, doc.stories.get(id)?.text() ?? null);
+    return texts.get(id)!;
+  };
   const ops: Op[] = [];
   for (let i = matches.length - 1; i >= 0; i--) {
     const m = matches[i]!;
-    ops.push(replaceRange(doc, m.story, m.from, m.to, replacementFor(doc, query, options, m, replacement)));
+    const text = sticky ? textOf(m.story) : null;
+    const replaced = sticky && text !== null ? expandAt(sticky, text, m.from, replacement) : replacement;
+    ops.push(replaceRange(doc, m.story, m.from, m.to, replaced));
   }
   return { op: batch(ops), count: matches.length };
 }

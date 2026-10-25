@@ -67,6 +67,7 @@ import {
   type ParaPatch,
   type ParaProps,
   type SectionProps,
+  type Story,
   type TextStyle,
   type TextMeasurer,
   type TextStylePatch,
@@ -142,7 +143,7 @@ export class DocController {
     source: DocSnapshot | DocModel | null,
     readonly options: ControllerOptions = {},
   ) {
-    this.doc = source instanceof DocModel ? source : source ? DocModel.fromSnapshot(source) : DocModel.create();
+    this.doc = toModel(source);
     this.layout = new DocLayout(this.doc, { measurer: options.measurer ?? browserMeasurer() });
     this.pages = this.layout.update();
   }
@@ -313,55 +314,52 @@ export class DocController {
   /** Moves the caret (or extends the selection) by a unit in a direction. */
   move(dir: 1 | -1, unit: Movement, extend: boolean): void {
     const sel = this.selection;
-    const story = this.doc.stories.get(sel.story)!;
-    const max = story.length - 1;
-    const { from, to } = selectionRange(sel);
-    let head = sel.head;
-    let affinity: Affinity = 'forward';
-    let keepGoal = false;
+    const max = this.doc.stories.get(sel.story)!.length - 1;
+    let target: MoveTarget;
     if (!extend && !isCollapsed(sel) && (unit === 'char' || unit === 'word')) {
-      head = dir < 0 ? from : to;
+      // Left or right with a selection: to its start or end.
+      const { from, to } = selectionRange(sel);
+      target = { head: dir < 0 ? from : to, affinity: 'forward' };
     } else {
-      switch (unit) {
-        case 'char':
-          head = nextGrapheme(story, head, dir);
-          break;
-        case 'word':
-          head = nextWord(story, head, dir);
-          break;
-        case 'lineEdge': {
-          const bounds = lineBounds(this.layout, sel.story, head, this.affinity);
-          if (bounds) {
-            head = dir < 0 ? bounds.start : bounds.end;
-            // The end of a soft-wrapped line is drawn on that line.
-            if (dir > 0 && bounds.end > bounds.start && story.charAt(bounds.end) !== PARA) affinity = 'backward';
-          }
-          break;
-        }
-        case 'line':
-        case 'page': {
-          const next = this.vertical(dir, unit === 'page');
-          if (next) {
-            head = next.pos;
-            affinity = next.affinity;
-          }
-          keepGoal = true;
-          break;
-        }
-        case 'paragraph': {
-          const p = paragraphAt(story, head);
-          head = dir < 0 ? (head > p.start ? p.start : paragraphAt(story, Math.max(0, p.start - 1)).start) : p.end < max ? p.end + 1 : p.end;
-          break;
-        }
-        case 'document':
-          head = dir < 0 ? 0 : max;
-          break;
-      }
+      target = this.moveTarget(dir, unit);
     }
-    head = Math.max(0, Math.min(head, max));
+    const head = Math.max(0, Math.min(target.head, max));
     const goal = this.goalX;
-    this.setSelection(extend ? { story: sel.story, anchor: sel.anchor, head } : caretAt(sel.story, head), affinity);
-    if (keepGoal) this.goalX = goal ?? this.goalX;
+    this.setSelection(extend ? { story: sel.story, anchor: sel.anchor, head } : caretAt(sel.story, head), target.affinity);
+    if (target.keepGoal) this.goalX = goal ?? this.goalX;
+  }
+
+  /** Where the caret goes moving by `unit` from the head (not yet clamped). */
+  private moveTarget(dir: 1 | -1, unit: Movement): MoveTarget {
+    const sel = this.selection;
+    const story = this.doc.stories.get(sel.story)!;
+    switch (unit) {
+      case 'char':
+        return { head: nextGrapheme(story, sel.head, dir), affinity: 'forward' };
+      case 'word':
+        return { head: nextWord(story, sel.head, dir), affinity: 'forward' };
+      case 'lineEdge':
+        return this.lineEdgeTarget(story, dir);
+      case 'line':
+      case 'page': {
+        const next = this.vertical(dir, unit === 'page');
+        return { head: next?.pos ?? sel.head, affinity: next?.affinity ?? 'forward', keepGoal: true };
+      }
+      case 'paragraph':
+        return { head: paragraphTarget(story, sel.head, dir), affinity: 'forward' };
+      case 'document':
+        return { head: dir < 0 ? 0 : story.length - 1, affinity: 'forward' };
+    }
+  }
+
+  /** The start or end of the caret's line. */
+  private lineEdgeTarget(story: Story, dir: 1 | -1): MoveTarget {
+    const sel = this.selection;
+    const bounds = lineBounds(this.layout, sel.story, sel.head, this.affinity);
+    if (!bounds) return { head: sel.head, affinity: 'forward' };
+    // The end of a soft-wrapped line is drawn on that line.
+    const softEnd = dir > 0 && bounds.end > bounds.start && story.charAt(bounds.end) !== PARA;
+    return { head: dir < 0 ? bounds.start : bounds.end, affinity: softEnd ? 'backward' : 'forward' };
   }
 
   /** The position a line (or a page) above or below the caret, at the same x. */
@@ -770,6 +768,26 @@ export class DocController {
 }
 
 const LINE_BREAK_OR_OBJECT = new RegExp(`[${LINE_BREAK}${OBJECT}]`, 'g');
+
+/** Where a caret move lands, and whether it keeps aiming for the same x (up and down). */
+interface MoveTarget {
+  head: number;
+  affinity: Affinity;
+  keepGoal?: boolean;
+}
+
+/** Ctrl+Up / Ctrl+Down: to the start of this (or the previous) paragraph, or the start of the next. */
+function paragraphTarget(story: Story, head: number, dir: 1 | -1): number {
+  const p = paragraphAt(story, head);
+  if (dir > 0) return p.end < story.length - 1 ? p.end + 1 : p.end;
+  return head > p.start ? p.start : paragraphAt(story, Math.max(0, p.start - 1)).start;
+}
+
+/** The model for a snapshot (a new, empty document for none). */
+function toModel(source: DocSnapshot | DocModel | null): DocModel {
+  if (source instanceof DocModel) return source;
+  return source ? DocModel.fromSnapshot(source) : DocModel.create();
+}
 
 function sameStory(a: DocSelection, b: DocSelection): boolean {
   return a.story === b.story;
