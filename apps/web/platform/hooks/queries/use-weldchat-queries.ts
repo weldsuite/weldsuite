@@ -412,14 +412,39 @@ export function removeMessageFromCache(
  * `enabled` lets always-mounted callers (the shell sidebar) skip the request
  * while WeldChat is not installed or licensed for the workspace.
  */
+/** Most pages `fetchChannelList` follows, so a cursor that never ends cannot loop forever. */
+const MAX_CHANNEL_PAGES = 20;
+
+/**
+ * Every public and private channel the caller can see: the sidebar, sections
+ * and channel pickers all read this list. DMs (`/chat-dm`) and record chats are
+ * listed elsewhere, so the server leaves them out and they cannot use up a
+ * page. Follows the cursor, so nothing drops off for a user in many channels.
+ * Shared with the WeldChat prefetch, which fills the same cache entry.
+ */
+export async function fetchChannelList(client: {
+  get: <T>(url: string) => Promise<T>;
+}): Promise<ListEnvelope<ChatChannel>> {
+  const data: ChatChannel[] = [];
+  let cursor: string | null = null;
+  let totalCount = 0;
+  for (let page = 0; page < MAX_CHANNEL_PAGES; page++) {
+    const qs = new URLSearchParams({ types: 'public,private', limit: String(MAX_PAGE) });
+    if (cursor) qs.set('cursor', cursor);
+    const res = await client.get<ListEnvelope<ChatChannel>>(`/channels?${qs.toString()}`);
+    data.push(...(res?.data ?? []));
+    totalCount = res?.pagination?.totalCount ?? data.length;
+    cursor = res?.pagination?.hasMore ? res.pagination.cursor : null;
+    if (!cursor) break;
+  }
+  return { data, pagination: { totalCount, hasMore: cursor !== null, cursor } };
+}
+
 export function useChannels(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: weldchatKeys.channels(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<ListEnvelope<ChatChannel>>('/channels');
-    },
+    queryFn: async () => fetchChannelList(await getClient()),
     enabled,
   });
 }

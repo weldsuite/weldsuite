@@ -175,13 +175,15 @@ export default function HomeTab() {
   const loadData = useCallback(async () => {
     try {
       const [chRes, secRes] = await Promise.all([
-        // limit 100 (the endpoint cap) so channels aren't paginated out
-        // by the default page size of 25.
-        appApi.channels.list({ limit: 100 }),
+        // limit 100 (the endpoint cap) so channels aren't paginated out by the
+        // default page size of 25, and only public/private channels, so DMs
+        // and record chats can't use up that page.
+        appApi.channels.list({ limit: 100, types: ['public', 'private'] }),
         appApi.chatSections.list(),
       ]);
       // Match platform WeldChat: DMs have their own tab, and entity/object
       // channels stay on their object panels — Home lists people channels only.
+      // The server already filters by type; this also covers an older API.
       const nextChannels = (chRes.data || []).filter(
         (c: any) => c.type !== 'dm' && c.type !== 'entity',
       ) as Channel[];

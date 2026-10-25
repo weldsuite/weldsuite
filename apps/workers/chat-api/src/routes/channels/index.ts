@@ -7,7 +7,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
 import { agentViewerFor, inaccessibleAgentIds } from '@weldsuite/agent-domain/access';
 import { updateChannelMembershipSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
@@ -186,11 +186,33 @@ async function callerChannelState(
   );
 }
 
+const CHANNEL_TYPES: ReadonlySet<string> = new Set(['public', 'private', 'dm', 'entity']);
+
+/**
+ * `?types=public,private` → the listed channel types, or null when the filter
+ * is absent or empty. Unknown names are returned too, so the caller can refuse
+ * them instead of silently returning an emptier (or wider) list.
+ */
+function parseTypesFilter(raw: string | undefined): string[] | null {
+  const types = [...new Set((raw ?? '').split(',').map((s) => s.trim()).filter(Boolean))];
+  return types.length > 0 ? types : null;
+}
+
+/**
+ * GET / — channels the caller can see, newest first, cursor paginated.
+ *
+ * `?types=public,private` narrows the list to those channel types. The WeldChat
+ * sidebar asks for exactly that: DMs come from `/chat-dm` and record (entity)
+ * channels have their own list, so neither may use up the sidebar's page.
+ */
 app.get('/', requirePermission('channels:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const types = parseTypesFilter(q.types);
+  const unknownType = types?.find((type) => !CHANNEL_TYPES.has(type));
+  if (unknownType) return error.badRequest(c, `Unknown channel type: ${unknownType}`);
 
   // Membership boundary: only list channels the caller may actually see —
   // public channels plus any (private/dm) channel the caller has joined.
@@ -208,22 +230,22 @@ app.get('/', requirePermission('channels:read'), async (c) => {
     )!,
   ];
   if (q.type !== undefined && q.type !== '') conditions.push(eq(t.type, q.type));
+  if (types) conditions.push(inArray(t.type, types));
   if (q.search) {
     conditions.push(like(t.name, `%${q.search}%`));
   }
+  let cursorCondition: SQL | undefined;
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
       .from(t).where(eq(t.id, q.cursor)).limit(1);
     if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
+      cursorCondition = sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
     }
   }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  // The total counts the whole filtered list, so it ignores the cursor.
+  const countWhere = and(...conditions);
+  const where = cursorCondition ? and(...conditions, cursorCondition) : countWhere;
 
   try {
     const [rows, countRes] = await Promise.all([
