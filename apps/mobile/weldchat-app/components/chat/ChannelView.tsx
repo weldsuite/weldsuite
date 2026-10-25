@@ -32,6 +32,7 @@ import * as Haptics from 'expo-haptics';
 import { getRandomBytes, randomUUID } from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { File as ExpoFile } from 'expo-file-system';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -49,7 +50,7 @@ import { ReactionBar } from './ReactionBar';
 import { MessageActions } from './MessageActions';
 import { EmojiPicker } from './EmojiPicker';
 import { MentionPicker } from './MentionPicker';
-import { renderMessageText } from './MessageText';
+import { mentionBadgeColors, renderMessageText } from './MessageText';
 import { AudioPlayer } from './AudioPlayer';
 import { ImageViewer } from './ImageViewer';
 import { appApi, appApiClient } from '@/services/app-api';
@@ -77,18 +78,30 @@ interface ChatAttachment {
 type RNFile = { name: string; uri: string; mimeType: string };
 
 /**
+ * A picked file as a multipart part. The global `fetch` is Expo's (SDK 57),
+ * which rejects React Native's `{ uri, type, name }` descriptor with
+ * "Unsupported FormDataPart implementation"; it sends any part that has
+ * `bytes()`, using its `name` and `type` as the part's filename and
+ * Content-Type. The bytes come from expo-file-system so the picker's file name
+ * survives (an `ExpoFile` alone would be named after its cache path).
+ */
+function multipartFilePart(file: RNFile) {
+  const source = new ExpoFile(file.uri);
+  return { name: file.name, type: file.mimeType, bytes: () => source.bytes() };
+}
+
+/**
  * Upload a picked RN file to app-api and map the response to a ChatAttachment.
- * The shared `upload` domain types its argument as `File`; React Native's
- * FormData accepts the `{ uri, type, name }` descriptor at runtime, so the
- * descriptor is cast through `unknown`. Returns null on failure.
+ * The shared `upload` domain types its argument as a DOM `File`, so the part
+ * is cast through `unknown`. Returns null on failure.
  */
 async function uploadChatAttachment(
   channelId: string,
   file: RNFile,
 ): Promise<ChatAttachment | null> {
   try {
-    const rnFile = { uri: file.uri, type: file.mimeType, name: file.name };
-    const res = await appApi.chatMessages.upload(rnFile as unknown as File, channelId);
+    const part = multipartFilePart(file);
+    const res = await appApi.chatMessages.upload(part as unknown as File, channelId);
     // The server returns `{ id, fileName, fileSize, mimeType, url, fileKey }`
     // (the upload service result); the shared response type omits `id`.
     return res.data as unknown as ChatAttachment;
@@ -266,7 +279,7 @@ function renderInputWithBadges(text: string, members: Map<string, string>, color
     }
     const name = mentionLabel(match[1], members);
     parts.push(
-      <Text key={`m${match.index}`} style={{ fontSize: 15, fontWeight: '700', color: '#dee0fc', backgroundColor: 'rgba(88, 101, 242, 0.3)', borderRadius: 4, paddingHorizontal: 3, overflow: 'hidden' }}>@{name}</Text>
+      <Text key={`m${match.index}`} style={{ fontSize: 15, fontWeight: '700', borderRadius: 4, paddingHorizontal: 3, overflow: 'hidden', ...mentionBadgeColors(colors) }}>@{name}</Text>
     );
     lastIndex = match.index + match[0].length;
   }
@@ -1116,13 +1129,28 @@ function RecordingPill({
   onCancel: () => void;
   onSend: () => void;
 }>) {
+  const { t } = useI18n();
   return (
     <View style={styles.recordingPill}>
-      <TouchableOpacity style={styles.stopBtnInline} onPress={onCancel} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={styles.stopBtnInline}
+        onPress={onCancel}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={t.composer.cancelRecording}
+        testID="composer-recording-cancel"
+      >
         <View style={styles.stopSquare} />
       </TouchableOpacity>
       <Waveform active color={colors.mutedForeground} level={meteringDb} />
-      <TouchableOpacity style={styles.sendBtn} onPress={onSend} activeOpacity={0.85}>
+      <TouchableOpacity
+        style={styles.sendBtn}
+        onPress={onSend}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={t.composer.sendVoice}
+        testID="composer-recording-send"
+      >
         <ArrowUp size={17} color={colors.background} strokeWidth={2.5} />
       </TouchableOpacity>
     </View>
@@ -1778,17 +1806,21 @@ export function ChannelView({
 
   const handleSendRecording = useCallback(async () => {
     const result = await stopRecording();
-    if (!result) return;
+    if (!result) {
+      toast.error(t.composer.sendFailed);
+      return;
+    }
     try {
       const uploaded = await uploadChatAttachment(channelId, result);
-      if (!uploaded) return;
+      if (!uploaded) throw new Error('Voice message upload failed');
       await appApi.chatMessages.create({ channelId, body: '', attachments: [uploaded] });
       void loadMessages();
       onSend();
     } catch (err) {
       console.error('[WeldChat] Voice message send failed:', err);
+      toast.error(t.composer.sendFailed);
     }
-  }, [stopRecording, channelId, onSend]);
+  }, [stopRecording, channelId, onSend, toast, t]);
 
   useEffect(() => {
     setMessages([]);
@@ -2037,9 +2069,9 @@ export function ChannelView({
       setInput((current) => current || trimmed);
       if (reply) setReplyTo((current) => current ?? reply);
       if (files.length > 0) setPendingFiles((current) => (current.length > 0 ? current : files));
-      toast.error('Message failed to send');
+      toast.error(t.composer.sendFailed);
     }
-  }, [editingMessage, handleEditSubmit, input, channelId, uploading, onSend, userId, user, membersMap, messages, replyTo, replyMention, pendingFiles, clearDraft, toast]);
+  }, [editingMessage, handleEditSubmit, input, channelId, uploading, onSend, userId, user, membersMap, messages, replyTo, replyMention, pendingFiles, clearDraft, toast, t]);
 
   const handleReaction = useCallback(async (emoji: string) => {
     if (!selectedMessage) return;

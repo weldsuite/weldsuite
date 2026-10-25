@@ -28,7 +28,7 @@ import type { Env, Variables } from '../../types';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { success, error } from '@weldsuite/worker-kit/response';
+import { success, error, list, cursorPagination } from '@weldsuite/worker-kit/response';
 import {
   publishChatCallStarted,
   publishChatCallParticipantJoined,
@@ -58,6 +58,7 @@ import { leaveOtherLiveCalls } from '../../services/chat/leave-other-live-calls'
 import { consumePreparedJoin, readPreparedJoin, storePreparedJoin } from '../../services/chat/prepared-join';
 import { declineRingingCall } from '../../services/chat/decline-call';
 import { cancelRingOnAnswer } from '../../services/chat/call-ring';
+import { listCallHistory } from '../../services/chat/call-history';
 
 // ============================================================================
 // Schemas
@@ -66,6 +67,12 @@ import { cancelRingOnAnswer } from '../../services/chat/call-ring';
 const startCallSchema = z.object({
   channelId: z.string().min(1),
   callType: z.enum(['voice', 'video']).default('voice'),
+});
+
+/** Over-large limits are capped by listCallHistory rather than rejected. */
+const callHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).optional(),
+  cursor: z.string().min(1).optional(),
 });
 
 type CallType = z.infer<typeof startCallSchema>['callType'];
@@ -1229,10 +1236,36 @@ app.get('/active/:channelId', requirePermission('channels:read'), async (c) => {
 });
 
 /**
+ * GET /history - The caller's call history (phone-style recents), newest first
+ *
+ * Calls in the DMs and group DMs they belong to, plus calls in other channels
+ * they started or joined. Each row carries its direction and outcome for the
+ * caller, so an incoming call they never joined reads `missed` even when
+ * someone else in a group picked up. See services/chat/call-history.ts.
+ *
+ * Cursor-paginated: `cursor` is the previous page's `pagination.cursor`.
+ * Registered before `/:callId` so the literal path wins over the parametric one.
+ */
+app.get('/history', requirePermission('channels:read'), zValidator('query', callHistoryQuerySchema), async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const { limit, cursor } = c.req.valid('query');
+
+  try {
+    const page = await listCallHistory(c.get('tenantDb'), c.get('userId'), { limit, cursor });
+    return list(c, page.items, cursorPagination(page.totalCount, page.hasMore, page.cursor));
+  } catch (err) {
+    console.error('[Chat:Calls] Failed to list call history:', err);
+    return error.internal(c, 'Failed to list call history');
+  }
+});
+
+/**
  * GET /:callId - Get call details
  *
- * Registered after `/active` and `/active/:channelId` so those literal paths
- * win over the parametric one.
+ * Registered after `/active`, `/active/:channelId` and `/history` so those
+ * literal paths win over the parametric one.
  */
 app.get('/:callId', requirePermission('channels:read'), async (c) => {
   const orgId = c.get('orgId');

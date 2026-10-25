@@ -65,8 +65,29 @@ export const en = {
 
   calls: {
     join: 'Join',
-    emptyTitle: 'No active calls',
-    emptyHint: 'Voice and video calls happening in your conversations will appear here.',
+    emptyTitle: 'No calls yet',
+    emptyHint: 'Voice and video calls you make and receive will appear here.',
+    // Section headers, and the status of a call that is still going.
+    ongoing: 'Ongoing',
+    recent: 'Recent',
+    ongoingVoiceCall: 'Ongoing voice call',
+    ongoingVideoCall: 'Ongoing video call',
+    participantCount: {
+      one: '{count} participant',
+      other: '{count} participants',
+    },
+    voiceCall: 'Voice call',
+    videoCall: 'Video call',
+    // How a call went, as the first half of a row's subtitle ("Missed · Voice call").
+    incoming: 'Incoming',
+    outgoing: 'Outgoing',
+    missed: 'Missed',
+    // Your own call that nobody picked up.
+    noAnswer: 'No answer',
+    declined: 'Declined',
+    yesterday: 'Yesterday',
+    callBack: 'Call back',
+    unknown: 'Unknown',
   },
 
   channel: {
@@ -93,6 +114,9 @@ export const en = {
     send: 'Send',
     recordVoice: 'Record voice message',
     attach: 'Add attachment',
+    sendFailed: 'Message failed to send',
+    cancelRecording: 'Discard voice message',
+    sendVoice: 'Send voice message',
   },
 
   messageActions: {

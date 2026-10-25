@@ -24,6 +24,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { Env } from '../../types';
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import { parseAgentRoomPolicy } from '@weldsuite/chat-domain/agent-room-policy';
+import { buildMessagePreview } from '@weldsuite/chat-domain/message-preview';
 import {
   checkSlowMode,
   getChannelFeatureFlags,
@@ -262,19 +263,39 @@ function classifyMentionToken(body: string): string {
   return entId ? `entity:${prefix}:${entId}` : prefix;
 }
 
-/** `<@file:attachmentId>` places one of the message's attachments in its text; it mentions nobody. */
-const FILE_TOKEN = /<@file:[^>]*>/g;
-
 function extractContentMentions(content: string): string[] {
   const contentMentions: string[] = [];
   const mentionRegex = /<@([^>]+)>/g;
   let match: RegExpExecArray | null;
   while ((match = mentionRegex.exec(content)) !== null) {
+    // `<@file:attachmentId>` places one of the message's attachments in its text; it mentions nobody.
     if (match[1].startsWith('file:')) continue;
     const mentionId = classifyMentionToken(match[1]);
     if (!contentMentions.includes(mentionId)) contentMentions.push(mentionId);
   }
   return contentMentions;
+}
+
+type RealtimeAttachment = { id: string; name: string; url: string; type: string; size: number };
+
+/**
+ * A message's attachments in the realtime event's `{ id, name, url, type, size }`
+ * shape. They are stored as the upload returned them (`fileName`, `mimeType`,
+ * `fileSize`); without them in the event, an image or voice message reached
+ * other clients as an empty row until they refetched.
+ */
+function toRealtimeAttachments(
+  attachments: Array<Record<string, unknown>> | undefined,
+): RealtimeAttachment[] | undefined {
+  if (!attachments?.length) return undefined;
+  const text = (...values: unknown[]) => values.find((v): v is string => typeof v === 'string') ?? '';
+  return attachments.map((a) => ({
+    id: text(a.id),
+    name: text(a.fileName, a.name),
+    url: text(a.url),
+    type: text(a.mimeType, a.type),
+    size: [a.fileSize, a.size].find((v): v is number => typeof v === 'number') ?? 0,
+  }));
 }
 
 /** What the post-insert notification / realtime steps of a send share. */
@@ -566,9 +587,9 @@ export async function postChatMessage(
     updatedAt: now,
   });
 
-  // Inline images show nothing in a one-line preview (sidebar, notifications).
-  const previewText = input.content.replace(FILE_TOKEN, '').replace(/[ \t]{2,}/g, ' ').trim();
-  const preview = previewText.length > 100 ? previewText.slice(0, 100) + '...' : previewText;
+  // Sidebar, notification and realtime preview: mentions read "@Name", not the
+  // raw `<@userId>` token, and inline images show nothing.
+  const preview = await buildMessagePreview(db, input.content);
   const [channelRef] = await db
     .update(chatChannels)
     .set({
@@ -636,11 +657,13 @@ export async function postChatMessage(
       await rt.chatMessage(channelId, {
         id,
         content: input.content,
+        htmlContent: input.htmlContent,
         senderId: authorUserId,
         senderName: authorName,
         senderAvatar: author?.picture ?? undefined,
         authorType: 'user',
         threadId: input.parentId ?? undefined,
+        attachments: toRealtimeAttachments(input.attachments),
         replyTo: readReplyReference(metadata) ?? undefined,
       });
     } catch (e) {

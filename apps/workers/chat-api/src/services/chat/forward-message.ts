@@ -17,6 +17,7 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { buildMessagePreview } from '@weldsuite/chat-domain/message-preview';
 import { canAccessChannel, unreadableRecordChatIds } from './channel-access';
 
 const { chatMessages, chatChannels, chatChannelMembers, workspaceMembers } = schema;
@@ -194,6 +195,10 @@ export async function forwardMessage(
   const forwardedContent = input.comment?.trim() ?? '';
   const forwarded: ForwardedMessage[] = [];
   const now = new Date();
+  const preview = await buildMessagePreview(
+    db,
+    forwardedContent || `Forwarded: ${forwardedFrom.content}`,
+  );
 
   for (const targetChannelId of uniqueTargets) {
     const id = generateId('msg');
@@ -213,9 +218,6 @@ export async function forwardMessage(
       updatedAt: now,
     });
 
-    const previewSource = forwardedContent || `Forwarded: ${forwardedFrom.content}`;
-    const preview =
-      previewSource.length > 100 ? previewSource.slice(0, 100) + '...' : previewSource;
     await db
       .update(chatChannels)
       .set({

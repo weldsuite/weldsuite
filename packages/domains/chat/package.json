@@ -14,6 +14,7 @@
     "./create-channel": "./src/create-channel.ts",
     "./dm-call-room": "./src/dm-call-room.ts",
     "./entity-channels": "./src/entity-channels/index.ts",
+    "./message-preview": "./src/message-preview.ts",
     "./post-agent-message": "./src/post-agent-message.ts",
     "./post-system-message": "./src/post-system-message.ts",
     "./realtime/weldchat-call-publisher": "./src/realtime/weldchat-call-publisher.ts",
