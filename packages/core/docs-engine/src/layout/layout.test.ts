@@ -265,7 +265,7 @@ describe('geometry', () => {
     const first = bodyLines(dl)[0]!.line;
     expect(lineBounds(dl, BODY, 3)).toEqual({ start: 0, end: first.end });
     const rects = selectionRects(dl, BODY, 5, doc.body.length - 5);
-    expect(rects.length).toBe(bodyLines(dl).filter((l) => l.start === 0).length);
+    expect(rects).toHaveLength(bodyLines(dl).filter((l) => l.start === 0).length);
   });
 });
 
