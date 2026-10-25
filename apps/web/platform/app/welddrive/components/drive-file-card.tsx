@@ -39,6 +39,7 @@ import { getLocale } from '@weldsuite/i18n';
 import { WELDSHEET_MIME_TYPE } from '@weldsuite/app-api-client/schemas/sheets';
 import { isImportable } from '@/app/weldsheets/files';
 import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
+import { canOpenInWeldDocs, useOpenInWeldDocs } from '@/app/welddocs/use-doc-files';
 import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { apiUrl } from '@/lib/api/public-env';
 import { isPrivateStorageUrl } from '@/lib/storage/private-url';
@@ -241,6 +242,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
   // A viewer opens and downloads; changing the file is for its owner and editors.
   const canChange = file.accessRole !== 'viewer';
   const openInSheets = useOpenInWeldSheets();
+  const openInDocs = useOpenInWeldDocs();
 
   return (
     <Button
@@ -297,6 +299,12 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
                 <DropdownMenuItem onClick={() => void openInSheets(file)}>
                   <FileSpreadsheet className="h-4 w-4 mr-0.5" />
                   {t.welddrive.page.actions.openInWeldSheets}
+                </DropdownMenuItem>
+              )}
+              {openInDocs && canOpenInWeldDocs(file) && (
+                <DropdownMenuItem onClick={() => void openInDocs(file)}>
+                  <FileText className="h-4 w-4 mr-0.5" />
+                  {t.welddrive.page.actions.openInWeldDocs}
                 </DropdownMenuItem>
               )}
               {(file.source === 'drive' || file.url) && (

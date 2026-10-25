@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApi } from '@/lib/api/use-app-api';
-import type { DocSnapshot } from '@weldsuite/docs-engine';
+import type { DocSnapshot, DocxImportWarning } from '@weldsuite/docs-engine';
+import { readImport, type StoreImage } from '../files';
 import { ApiDocDirectory } from './api-doc-directory';
 import { LocalDocStore, type DocDirectory, type DocMeta } from './doc-store';
 
@@ -69,8 +70,12 @@ export function useDocMutations() {
     mutationFn: (id: string) => directory!.remove(id),
     onSuccess: invalidate,
   });
+  // Read in the browser (a .docx's pictures stored first), then made like any new document.
   const importFile = useMutation({
-    mutationFn: (file: File) => directory!.importFile(file),
+    mutationFn: async ({ fileName, bytes, storeImage }: { fileName: string; bytes: Uint8Array; storeImage?: StoreImage }): Promise<{ meta: DocMeta; warnings: DocxImportWarning[] }> => {
+      const read = await readImport(fileName, bytes, storeImage);
+      return { meta: await directory!.create(read.name, read.snapshot), warnings: read.warnings };
+    },
     onSuccess: invalidate,
   });
   return { create, rename, remove, importFile };

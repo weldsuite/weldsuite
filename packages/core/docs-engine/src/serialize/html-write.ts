@@ -141,6 +141,8 @@ class HtmlWriter {
         return wrapText('<span style="white-space:pre">\t</span>', inline.style);
       case 'object':
         return this.object(inline.data, inline.style);
+      case 'bookmark':
+        return '';
     }
   }
 

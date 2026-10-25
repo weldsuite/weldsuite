@@ -9,14 +9,14 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/page-loader';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useI18n } from '@/lib/i18n/provider';
-import { IMPORT_ACCEPT } from './store/doc-store';
+import { IMPORT_ACCEPT, IMPORT_MAX_BYTES } from './files';
 import { useDocList, useDocMutations, type DocMeta } from './store/use-doc-store';
-
-/** Max size of a file imported in the browser. */
-const IMPORT_MAX_BYTES = 10 * 1024 * 1024;
+import { announceImport, announceImportFailure, useStoreImage } from './use-doc-files';
 
 export default function WeldDocsHome() {
-  const { t, format, language } = useI18n();
+  const i18n = useI18n();
+  const { t, format, language } = i18n;
+  const storeImage = useStoreImage();
   const th = t.welddocs.home;
   const navigate = useNavigate();
   const preview = usePreviewMode();
@@ -46,12 +46,13 @@ export default function WeldDocsHome() {
     }
     const pending = toast.loading(format(th.importing, { name: file.name }));
     try {
-      const meta = await importFile.mutateAsync(file);
+      const { meta, warnings } = await importFile.mutateAsync({ fileName: file.name, bytes: new Uint8Array(await file.arrayBuffer()), storeImage });
       toast.dismiss(pending);
+      announceImport(meta.name, warnings, i18n);
       open(meta.id);
-    } catch {
+    } catch (err) {
       toast.dismiss(pending);
-      toast.error(format(th.importFailed, { name: file.name }));
+      announceImportFailure(err, file.name, i18n);
     }
   };
 

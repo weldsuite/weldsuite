@@ -16,12 +16,7 @@ export interface DocDirectory {
   create(name: string, snapshot?: DocSnapshot): Promise<DocMeta>;
   rename(id: string, name: string): Promise<void>;
   remove(id: string): Promise<void>;
-  /** A new document from a .md, .txt or .html file. */
-  importFile(file: File): Promise<DocMeta>;
 }
-
-/** Files the browser can turn into a document. */
-export const IMPORT_ACCEPT = '.md,.markdown,.txt,.html,.htm,text/markdown,text/plain,text/html';
 
 const META = 'meta';
 const SNAPSHOTS = 'snapshots';
@@ -113,11 +108,6 @@ export class LocalDocStore implements DocDirectory {
       tx.oncomplete = () => resolve();
       rejectOnFailure(tx, reject);
     });
-  }
-
-  async importFile(file: File): Promise<DocMeta> {
-    const snapshot = documentFromText(file.name, await file.text());
-    return this.create(file.name.replace(/\.[^.]+$/, '').trim() || file.name, snapshot);
   }
 }
 

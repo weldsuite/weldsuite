@@ -1,7 +1,7 @@
 import type { createDocsApi } from '@weldsuite/app-api-client/domains/docs';
 import type { DocSummary } from '@weldsuite/app-api-client/schemas/docs';
 import type { DocSnapshot } from '@weldsuite/docs-engine';
-import { documentFromText, type DocDirectory, type DocMeta } from './doc-store';
+import type { DocDirectory, DocMeta } from './doc-store';
 
 type DocsApi = ReturnType<typeof createDocsApi>;
 
@@ -28,12 +28,6 @@ export class ApiDocDirectory implements DocDirectory {
 
   async remove(id: string): Promise<void> {
     await this.api.remove(id);
-  }
-
-  /** Markdown, HTML and text are read here in the browser; the document starts from what they hold. */
-  async importFile(file: File): Promise<DocMeta> {
-    const snapshot = documentFromText(file.name, await file.text());
-    return this.create(file.name.replace(/\.[^.]+$/, '').trim() || file.name, snapshot);
   }
 }
 
