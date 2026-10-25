@@ -138,7 +138,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
     <>
       <div className="flex items-center justify-between px-4 py-2.5 border-b flex-shrink-0 max-md:gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {isDm ? (
+          {isDm && (
             <button
               type="button"
               className={nameButtonClass}
@@ -156,9 +156,11 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
                 {dmOther?.name || dmOther?.email || channel.name}
               </span>
             </button>
-          ) : isRecordChat ? (
+          )}
+          {isRecordChat && (
             <RecordChatTitle channel={channel} className={nameButtonClass} onClick={openChannelPanel} />
-          ) : (
+          )}
+          {!isDm && !isRecordChat && (
             <button
               type="button"
               className={nameButtonClass}
