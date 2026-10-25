@@ -101,7 +101,7 @@ import type { GroupSettingsTarget } from '../components/group-settings-dialog';
 // Delete" and "confirmation appears" is exactly where a mis-click lands.
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useChatSections } from './use-chat-sections';
-import { useUpdateUserPreferences, useUserPreferences } from '@/hooks/queries/use-settings-queries';
+import { preferencesKey, useUpdateUserPreferences, useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import { useWeldchatSidebarOrder } from '@/hooks/queries/use-ui-preference';
 import {
@@ -586,14 +586,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     ...getGroupDefaults(key),
     ...groupFilters[key],
   });
-  /**
-   * "Hide this group" and its undo. Sends only `weldchatGroupFilters`: the
-   * server merges `uiPreferences` keys, so the others are left as they are.
-   */
-  const setGroupHidden = (groupKey: string, hidden: boolean) => {
-    const weldchatGroupFilters = { ...groupFilters, [groupKey]: { ...groupFilters[groupKey], hidden } };
-    updateUserPreferences({ uiPreferences: { weldchatGroupFilters } as UiPreferencesWithGroupFilters });
-  };
   const isCollapsed = (groupKey: string): boolean => {
     if (collapseToggles.has(groupKey)) return !!collapseToggles.get(groupKey);
     return !!getFilter(groupKey).collapsedByDefault;
@@ -641,6 +633,30 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const joinCall = callCtx?.joinCall;
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
+
+  /**
+   * "Hide this group" and its undo. Builds on the preferences in the cache at
+   * click time, not on this render's: the server replaces
+   * `weldchatGroupFilters` as a whole, so an Undo clicked after another hide
+   * (or a settings save) must not bring back what changed since. The cache is
+   * written first, so a second click right away sees the first.
+   */
+  const setGroupHidden = (groupKey: string, hidden: boolean) => {
+    const current = queryClient.getQueryData<UserPreferences>(preferencesKey);
+    const filters =
+      (current?.uiPreferences as UiPreferencesWithGroupFilters | undefined)?.weldchatGroupFilters ?? {};
+    const weldchatGroupFilters = { ...filters, [groupKey]: { ...filters[groupKey], hidden } };
+    if (current) {
+      queryClient.setQueryData<UserPreferences>(preferencesKey, {
+        ...current,
+        uiPreferences: { ...current.uiPreferences, weldchatGroupFilters } as UiPreferencesWithGroupFilters,
+      });
+    }
+    updateUserPreferences(
+      { uiPreferences: { weldchatGroupFilters } as UiPreferencesWithGroupFilters },
+      { onError: () => queryClient.invalidateQueries({ queryKey: preferencesKey }) },
+    );
+  };
   const { user } = useUser();
   const self: SelfIdentity = {
     id: user?.id ?? null,
