@@ -1,10 +1,28 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   canAccessViaFilter,
   registerEntityProvider,
   type EntityChannelProvider,
 } from '../registry';
+
+/** Of `projectIds`, the ones `userId` is an active member of. */
+async function activeMemberProjectIds(db: Database, userId: string, projectIds: string[]): Promise<Set<string>> {
+  const { projectMembers } = schema;
+  const memberOf = await db
+    .select({ projectId: projectMembers.projectId })
+    .from(projectMembers)
+    .where(
+      and(
+        inArray(projectMembers.projectId, projectIds),
+        eq(projectMembers.userId, userId),
+        // Removing someone from a project only deactivates their row.
+        eq(projectMembers.isActive, true),
+        isNull(projectMembers.deletedAt),
+      ),
+    );
+  return new Set(memberOf.map((m) => m.projectId));
+}
 
 export const taskEntityProvider: EntityChannelProvider = {
   type: 'task',
@@ -64,10 +82,13 @@ export const taskEntityProvider: EntityChannelProvider = {
     return task ?? null;
   },
 
-  /** Assignees, the reporter and watchers, plus members of the task's project. */
-  async filterVisible({ db, actingUserId }, entityIds) {
+  /**
+   * Assignees, the reporter and watchers, plus active members of the task's
+   * project (every project with `projects:scope:all`, as in WeldFlow).
+   */
+  async filterVisible({ db, actingUserId, can }, entityIds) {
     if (entityIds.length === 0) return new Set();
-    const { tasks, projectMembers } = schema;
+    const { tasks } = schema;
     const rows = await db
       .select({
         id: tasks.id,
@@ -93,17 +114,11 @@ export const taskEntityProvider: EntityChannelProvider = {
     }
 
     if (viaProject.length > 0) {
-      const memberOf = await db
-        .select({ projectId: projectMembers.projectId })
-        .from(projectMembers)
-        .where(
-          and(
-            inArray(projectMembers.projectId, [...new Set(viaProject.map((t) => t.projectId))]),
-            eq(projectMembers.userId, actingUserId),
-          ),
-        );
-      const projectIds = new Set(memberOf.map((m) => m.projectId));
-      for (const task of viaProject) if (projectIds.has(task.projectId)) visible.add(task.id);
+      const projectIds = [...new Set(viaProject.map((t) => t.projectId))];
+      const open = (await can('projects:scope:all'))
+        ? new Set(projectIds)
+        : await activeMemberProjectIds(db, actingUserId, projectIds);
+      for (const task of viaProject) if (open.has(task.projectId)) visible.add(task.id);
     }
     return visible;
   },
