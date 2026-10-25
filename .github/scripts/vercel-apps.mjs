@@ -30,7 +30,6 @@ const VERCEL_APPS = {
   'api-docs': 'weldsuite-api-docs',
   'booking-portal': 'booking-portal',
   docs: 'weldsuite-docs',
-  helpcenter: 'weldsuite-helpcenter',
   'helpdesk-widget': 'weldsuite-helpdesk-widget',
   'hr-portal': 'weldsuite-hr-portal',
   'meeting-portal': 'meeting-portal',

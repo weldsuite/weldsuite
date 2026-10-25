@@ -1,0 +1,50 @@
+# Public help center (WeldDesk knowledge base): TanStack Start on Workers.
+#
+# Built with @cloudflare/vite-plugin. The environment is picked at BUILD time
+# (`CLOUDFLARE_ENV=test pnpm build`), and the plugin writes the resolved config
+# next to the output, so the deploy is a plain `wrangler deploy` (no `--env`).
+#
+# Data comes from desk-api's public mount (/public/helpcenter/*) over the
+# DESK_API service binding. Without the binding (local `pnpm dev`) it falls back
+# to HELPCENTER_API_URL: app-api on 8789 (`pnpm dev:api`) forwards the mount.
+#
+# Routes are not attached yet. Customer domains and *.welddesk.org move here in
+# the cutover (docs/plans/helpcenter-tanstack-start.md, Phase 5); until then the
+# deployed Worker is reachable on workers.dev only, where FALLBACK_DOMAIN picks
+# which help center it shows.
+
+# Local `vite dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-helpcenter-dev"
+main = "@tanstack/react-start/server-entry"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+HELPCENTER_API_URL = "http://localhost:8789"
+FALLBACK_DOMAIN = "test.welddesk.org"
+
+# ── Test (develop) ──────────────────────────────────────────────────────────
+[env.test]
+name = "weldsuite-helpcenter-test"
+workers_dev = true
+
+[env.test.vars]
+FALLBACK_DOMAIN = "test.welddesk.org"
+
+[[env.test.services]]
+binding = "DESK_API"
+service = "weldsuite-desk-api-test"
+
+# ── Production (main) ───────────────────────────────────────────────────────
+# No workers.dev host and no fallback: production only ever serves the help
+# center its hostname names, once routes are attached at the cutover.
+[env.production]
+name = "weldsuite-helpcenter"
+workers_dev = false
+
+[env.production.vars]
+FALLBACK_DOMAIN = ""
+
+[[env.production.services]]
+binding = "DESK_API"
+service = "weldsuite-desk-api"

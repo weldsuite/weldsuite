@@ -64,7 +64,6 @@
       ],
       "port": 3011,
       "autoPort": true
-
     },
     {
       "name": "admin",
@@ -157,6 +156,16 @@
         "web"
       ],
       "port": 3202
+    },
+    {
+      "name": "helpcenter",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "helpcenter",
+        "dev"
+      ],
+      "port": 3008
     }
   ]
 }

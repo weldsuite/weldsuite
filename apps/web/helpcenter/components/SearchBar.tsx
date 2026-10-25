@@ -1,7 +1,5 @@
-'use client'
-
 import { Suspense, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useNavigate } from '@tanstack/react-router'
 import clsx from 'clsx'
 import { useTranslations } from '@weldsuite/i18n/lazy-provider'
 
@@ -13,7 +11,7 @@ interface SearchBarProps {
 }
 
 function SearchBarInner({ defaultValue, autoFocus, size = 'default' }: Readonly<SearchBarProps>) {
-  const router = useRouter()
+  const navigate = useNavigate()
   const [query, setQuery] = useState(defaultValue?.trim() || '')
   const t = useTranslations('common')
   const hero = size === 'hero'
@@ -27,7 +25,7 @@ function SearchBarInner({ defaultValue, autoFocus, size = 'default' }: Readonly<
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const q = query.trim()
-    if (q) router.push(`/search?q=${encodeURIComponent(q)}`)
+    if (q) void navigate({ to: '/search', search: { q } })
   }
 
   return (

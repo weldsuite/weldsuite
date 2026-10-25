@@ -1,7 +1,4 @@
-'use client'
-
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { Link, useLocation } from '@tanstack/react-router'
 import clsx from 'clsx'
 import type { Folder } from '@/lib/api-client'
 import { CategoryIcon } from '@/components/CategoryIcon'
@@ -11,7 +8,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ folders }: Readonly<SidebarProps>) {
-  const pathname = usePathname()
+  const pathname = useLocation({ select: (l) => l.pathname })
   const rootFolders = folders.filter((f) => !f.parentId)
   const childrenOf = (parentId: string) => folders.filter((f) => f.parentId === parentId)
   const isActive = (id: string) => pathname.endsWith(`/category/${id}`)
@@ -20,7 +17,7 @@ export function Sidebar({ folders }: Readonly<SidebarProps>) {
     <nav className="text-sm">
       {/* Search trigger (full search lives on /search) */}
       <Link
-        href="/search"
+        to="/search"
         className="mb-7 flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-zinc-400 transition-colors hover:border-zinc-300 hover:text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:text-zinc-300"
       >
         <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -39,7 +36,8 @@ export function Sidebar({ folders }: Readonly<SidebarProps>) {
           return (
             <div key={root.id}>
               <Link
-                href={`/category/${root.id}`}
+                to="/category/$id"
+                params={{ id: root.id }}
                 className={clsx(
                   'flex items-center gap-2 text-xs font-semibold tracking-wide uppercase transition-colors',
                   isActive(root.id)
@@ -56,7 +54,8 @@ export function Sidebar({ folders }: Readonly<SidebarProps>) {
                   {kids.map((child) => (
                     <li key={child.id}>
                       <Link
-                        href={`/category/${child.id}`}
+                        to="/category/$id"
+                        params={{ id: child.id }}
                         className={clsx(
                           'block rounded-md py-1 transition-colors',
                           isActive(child.id)

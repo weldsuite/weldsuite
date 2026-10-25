@@ -2,7 +2,8 @@
  * WeldChat search routes — flat /api/chat-search/* surface.
  *
  * Full-text search across chat messages in channels the caller can see
- * (their channel memberships + all public channels). Read-only.
+ * (their channel memberships + all public channels; a followed record chat
+ * only while the caller may see its record). Read-only.
  *
  * WeldChat streams over its own ChatRoom DO, not the entity-event bus — no
  * entity events are published here.
@@ -14,10 +15,11 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, ilike, inArray, isNull, lte } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import { unreadableRecordChatIds } from '../../services/chat/channel-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,7 +47,15 @@ app.get('/', requirePermission('messages:read'), zValidator('query', searchQuery
       .select({ channelId: chatChannelMembers.channelId })
       .from(chatChannelMembers)
       .where(eq(chatChannelMembers.userId, userId));
-    const memberChannelIds = memberChannels.map((r) => r.channelId);
+    // A followed record chat whose record the user can no longer see is not
+    // theirs to search.
+    const unreadable = await unreadableRecordChatIds(
+      db,
+      userId,
+      memberChannels.map((r) => r.channelId),
+      { can: (permission) => hasContextPermission(c, permission) },
+    );
+    const memberChannelIds = memberChannels.map((r) => r.channelId).filter((id) => !unreadable.has(id));
 
     // Plus all public channels
     const publicChannels = await db

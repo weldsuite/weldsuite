@@ -429,6 +429,16 @@ live inside the document; named versions in a `doc_versions` table.
   Word keeps author names only, so author ids come back as names.
 - Sharing: the WeldDrive share dialog opens from the document's header.
 
+**Deploying.** The deploy pushes code and migrations, not worker secrets:
+docs-api needs its five secrets (Clerk and tenant database, see
+`scripts/secrets/manifest.ts`) from Doppler with
+`pnpm secrets:sync <env> docs-api`. Without them every call is a 401.
+Synced to test on 2026-10-25 (end-to-end test on app-test passed: documents,
+co-editing, tables, images, table of contents, comments, suggestions,
+versions, sharing, .docx and PDF export, .docx import, Open in WeldDocs);
+production still needs it before `main` deploys docs-api. WeldDocs must
+also be installed in a workspace from the App Store before its pages open.
+
 Known gaps, to pick up in later phases:
 
 - Table rows never split across pages, so a row taller than a page

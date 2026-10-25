@@ -1,8 +1,48 @@
 # Help center: Next.js on Vercel → TanStack Start on Cloudflare Workers (pilot)
 
-Status: Draft, not started. Pilot for ADR FE-015 (Proposed) in
-`weldsuite-documentation`, which amends FE-007. Next: Phase 0 (count custom
-domains, enable Cloudflare for SaaS on the test zone).
+Status: Phases 1–3 implemented (app rebuilt on TanStack Start, Worker config,
+CI deploy job); verified locally against a mock of the public API, not yet
+deployed. Pilot for ADR FE-015 (Proposed) in `weldsuite-documentation`, which
+amends FE-007. Next: Phase 0 (count custom domains, enable Cloudflare for SaaS,
+pick the test hostname), then Phase 4.
+
+## Progress
+
+- **Done (Phases 1–3):** `apps/web/helpcenter` is TanStack Start on Vite 8 +
+  `@cloudflare/vite-plugin`. Worker names follow the repo convention:
+  `weldsuite-helpcenter-dev` / `-test` / `weldsuite-helpcenter`. The
+  `frontend-helpcenter` job in `deploy.yml` replaces the Vercel deploy, and
+  helpcenter is out of `vercel-apps.mjs`. A stub `vercel.json` with
+  `git.deploymentEnabled: false` stays in the app until the Vercel project is
+  archived (Phase 5). Without it, Vercel's Git integration keeps building PR
+  previews of the app as Next.js, and those builds fail.
+- **No routes are attached yet.** Test is reachable on workers.dev only, where
+  `FALLBACK_DOMAIN` picks the help center shown. Production has workers.dev off
+  and no fallback, so it serves nothing until the Phase 5 cutover. The Vercel
+  project keeps serving its last deployment until then.
+- **Deploy mechanics differ from the original sketch.** The Vite plugin
+  resolves the wrangler environment at build time (`CLOUDFLARE_ENV=test pnpm
+  build`) and writes the resolved config next to the output. The deploy is
+  therefore a plain `wrangler deploy`, without `--env`.
+- **Workspace side effect:** vite 8 in the workspace made pnpm resolve every
+  package's vitest peer onto vite 8. The root `package.json` now declares
+  `vite ^6.4.5`, so missing peers resolve from the root again and the other
+  apps and tests stay on vite 6. Start's router generator also lifts the
+  transitive `zod` 4.x from 4.3.6 to 4.6.7. App code still imports zod v3.
+- **Changes in behaviour, on purpose:**
+  - Article HTML is sanitized inside the server function, so `sanitize-html`
+    never reaches the browser.
+  - List results drop `content`, keeping raw article HTML out of the
+    serialized page data.
+  - The feedback route takes the help center from the host, not from the
+    request body.
+- **Measured:** the Worker uploads 1.73 MB gzipped. Most of that is
+  `@weldsuite/i18n` namespaces this app never uses, which can be trimmed later.
+  A warm article render makes one upstream call (live config); folders and the
+  article come from the edge cache.
+- **Known, unchanged from the Next app:** "On this page" links point at ids
+  derived from heading text, but the article HTML only carries ids the editor
+  wrote, so those links don't jump.
 
 ## Goal
 
@@ -17,7 +57,7 @@ portal, so it measures as it goes (see "Exit criteria").
 | Topic | Decision |
 |---|---|
 | Framework | TanStack Start (React 19, file-based TanStack Router routes, server functions, server routes). Pin the current 1.x when Phase 1 starts. |
-| Build / host | `@cloudflare/vite-plugin`, one Worker with static assets. Names: `helpcenter-dev` at the top level, `helpcenter-test` / `helpcenter` under `[env.test]` / `[env.production]`. |
+| Build / host | `@cloudflare/vite-plugin`, one Worker with static assets. Names: `weldsuite-helpcenter-dev` at the top level, `weldsuite-helpcenter-test` / `weldsuite-helpcenter` under `[env.test]` / `[env.production]`. |
 | Where | In place, in `apps/web/helpcenter` (same package name, same port 3008). There is no parallel app. Vercel keeps serving its last deployment until DNS moves. |
 | Data | Same `/public/helpcenter/*` mount on desk-api. The transport changes to a `DESK_API` service binding; `HELPCENTER_API_URL` stays as the local-dev fallback. |
 | Caching | `caches.default` with a TTL per call, keyed by upstream URL. Same TTLs as today: content 60 s, config uncached, sitemap 3600 s. |
@@ -118,8 +158,9 @@ tenant: title, description, OG, favicon, `lang`, brand CSS variable, custom CSS.
     `workers`, so desk-api deploys first.
   - Gate it on a `release_helpcenter` output from `prepare`, using the same
     change detection the Vercel apps get today (folder plus workspace deps).
-- Remove `helpcenter` from `.github/scripts/vercel-apps.mjs`; delete
-  `vercel.json` and `next.config.mjs`.
+- Remove `helpcenter` from `.github/scripts/vercel-apps.mjs` and delete
+  `next.config.mjs`. Reduce `vercel.json` to `git.deploymentEnabled: false`,
+  so Vercel stops building PR previews; delete it with the project in Phase 5.
 - `ci.yml`: confirm the type-check and lint jobs pick the app up. It isn't
   named in `.github/scripts/typecheck-targets.mjs` today, so check how that
   script finds apps.

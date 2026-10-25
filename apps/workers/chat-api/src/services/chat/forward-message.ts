@@ -17,6 +17,7 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { canAccessChannel, unreadableRecordChatIds } from './channel-access';
 
 const { chatMessages, chatChannels, chatChannelMembers, workspaceMembers } = schema;
 
@@ -100,7 +101,9 @@ export async function forwardMessage(
       and(eq(chatChannelMembers.channelId, sourceChannelId), eq(chatChannelMembers.userId, userId)),
     )
     .limit(1);
-  if (!sourceMembership) {
+  // Membership alone does not open a record chat: the record has to be
+  // visible to the forwarder too (ADR CHAT-003).
+  if (!sourceMembership || !(await canAccessChannel(db, sourceChannelId, userId))) {
     return { ok: false, status: 403, message: 'You do not have access to this message' };
   }
 
@@ -171,6 +174,15 @@ export async function forwardMessage(
       ok: false,
       status: 403,
       message: `You are not a member of ${inaccessible.length} target channel(s)`,
+    };
+  }
+  const recordTargets = uniqueTargets.filter((id) => channelById.get(id)!.type === 'entity');
+  const unreadableTargets = await unreadableRecordChatIds(db, userId, recordTargets);
+  if (unreadableTargets.size > 0) {
+    return {
+      ok: false,
+      status: 403,
+      message: `You do not have access to ${unreadableTargets.size} target channel(s)`,
     };
   }
 

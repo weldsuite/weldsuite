@@ -1,5 +1,3 @@
-'use client'
-
 import { useLazyI18n } from '@weldsuite/i18n/lazy-provider'
 import { languageNames, stableLanguages, type Language } from '@weldsuite/i18n/locales'
 import clsx from 'clsx'
