@@ -1,38 +1,58 @@
 /**
- * WeldChat entity channel routes — flat /api/chat-entity-channels/* surface.
+ * WeldChat entity channel routes ("record chats") — flat /api/chat-entity-channels/* surface.
  *
- * Lets any business entity (a task, project, contact, …) have its own chat
- * channel that appears in WeldChat like a normal channel. The channel is
- * created lazily on the first message via POST /:entityType/:entityId/messages.
+ * Lets any business record (a company, person, task, project, domain) have its
+ * own chat channel that appears in WeldChat for the people who follow it. The
+ * channel is created lazily on the first message (or the first follow).
  *
- *   GET  /:entityType/:entityId/channel   — linked channel or null (no create)
- *   POST /:entityType/:entityId/messages  — get-or-create channel + post a message
- *   GET  /:entityType/:entityId/detail    — provider-specific entity details
- *   GET  /:entityType                     — list visible channels of a type
+ *   GET    /                                    — record chats, cursor paginated (?type=&filter=&search=)
+ *   GET    /summary                             — per type: followed / unread / mention counts
+ *   GET    /:entityType/:entityId/channel       — linked channel or null (no create)
+ *   POST   /:entityType/:entityId/messages      — get-or-create channel + post a message
+ *   POST   /:entityType/:entityId/follow        — follow (get-or-create channel)
+ *   DELETE /:entityType/:entityId/follow        — unfollow
+ *   GET    /:entityType/:entityId/detail        — provider-specific entity details
  *
- * WeldChat streams over its own ChatRoom DO / realtime path, not the
- * entity-event bus — no entity events are published here. Message fan-out
- * happens via postChatMessage (REALTIME binding).
+ * crm-api forwards `/api/companies/:id/chat/*` and `/api/people/:id/chat/*`
+ * here (types `company` and `person`).
  *
- * Permissions: channels:read (read) | messages:create (post).
+ * Following a chat is a `chat_channel_members` row. New followers get a
+ * `channel_new` push on their user topic so the chat appears in their sidebar
+ * live. WeldChat streams over its own ChatRoom DO / realtime path, not the
+ * entity-event bus — no entity events are published here.
+ *
+ * Permissions: channels:read (read, follow) | messages:create (post), plus the
+ * record type's own permission (provider `requiredPermission`, e.g.
+ * `companies:read`) and the provider's record check.
  */
 
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
-import { sendEntityMessageSchema } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
-import type { Env, Variables } from '../../types';
-import { error, success } from '@weldsuite/worker-kit/response';
-import { schema } from '@weldsuite/worker-kit/db';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import {
+  listEntityChannelsQuerySchema,
+  sendEntityMessageSchema,
+} from '@weldsuite/app-api-client/schemas/chat-entity-channels';
+import { publishChatMemberLeft } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
+import type { Env, Variables } from '../../types';
+import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
+import {
+  addFollowers,
+  announceNewFollowers,
+  canAccessEntity,
   findEntityChannel,
   getEntityProvider,
   getOrCreateEntityChannel,
+  listRecordChatProviders,
+  removeFollower,
+  type EntityChannelProvider,
+  type PermissionCheck,
 } from '../../services/chat/entity-channels';
-import { postChatMessage } from '../../services/chat/post-message';
+import { listRecordChats, summarizeRecordChats } from '../../services/chat/entity-channels/record-chat-list';
+import { ChatFeatureError, postChatMessage } from '../../services/chat/post-message';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
+type AppContext = Context<AppEnv>;
 
 const app = new Hono<AppEnv>();
 
@@ -42,82 +62,209 @@ const app = new Hono<AppEnv>();
 const readPerm = requirePermission('channels:read') as unknown as MiddlewareHandler<AppEnv>;
 const writePerm = requirePermission('messages:create') as unknown as MiddlewareHandler<AppEnv>;
 
+/** The caller's permission check, app- and deny-aware like requirePermission. */
+function callerCan(c: AppContext): PermissionCheck {
+  return (permission) => hasContextPermission(c, permission);
+}
+
+function waitUntilFor(c: AppContext): (p: Promise<unknown>) => void {
+  return (p) => {
+    try {
+      c.executionCtx.waitUntil(p);
+    } catch {
+      void p.catch(() => undefined);
+    }
+  };
+}
+
+/** The provider for `:entityType`, and whether the caller may see `:entityId`. */
+async function resolveAccess(
+  c: AppContext,
+): Promise<{ provider: EntityChannelProvider; entityType: string; entityId: string } | Response> {
+  const entityType = c.req.param('entityType') ?? '';
+  const entityId = c.req.param('entityId') ?? '';
+  const provider = getEntityProvider(entityType);
+  if (!provider) return error.badRequest(c, `Unknown entity type: ${entityType}`);
+  const allowed = await canAccessEntity(provider, {
+    db: c.get('tenantDb'),
+    actingUserId: c.get('userId'),
+    entityId,
+    can: callerCan(c),
+  });
+  if (!allowed) return error.forbidden(c, 'You do not have access to this entity');
+  return { provider, entityType, entityId };
+}
+
+/**
+ * GET / — record chats of the types the caller may read, most recent activity
+ * first. `filter=following` (default) is the sidebar; `unread`, `mentions` and
+ * `all` (every record chat the caller may read) are for the record chats page.
+ */
+app.get('/', readPerm, zValidator('query', listEntityChannelsQuerySchema), async (c) => {
+  const q = c.req.valid('query');
+  let providers = listRecordChatProviders();
+  if (q.type) {
+    const provider = getEntityProvider(q.type);
+    if (!provider || provider.legacy) return error.badRequest(c, `Unknown entity type: ${q.type}`);
+    providers = [provider];
+  }
+
+  try {
+    const result = await listRecordChats({
+      db: c.get('tenantDb'),
+      userId: c.get('userId'),
+      can: callerCan(c),
+      providers,
+      filter: q.filter,
+      search: q.search || undefined,
+      cursor: q.cursor,
+      limit: q.limit,
+    });
+    return list(c, result.items, cursorPagination(result.totalCount, result.hasMore, result.cursor));
+  } catch (err) {
+    console.error('[chat-api/chat-entity-channels] list failed:', err);
+    return error.internal(c, 'Failed to list entity channels');
+  }
+});
+
+/**
+ * GET /summary — per record type the caller may read: followed, unread and
+ * mention counts, for the sidebar group headers. Mounted before the
+ * `/:entityType/...` routes.
+ */
+app.get('/summary', readPerm, async (c) => {
+  try {
+    const summary = await summarizeRecordChats({
+      db: c.get('tenantDb'),
+      userId: c.get('userId'),
+      can: callerCan(c),
+      providers: listRecordChatProviders(),
+    });
+    return success(c, summary);
+  } catch (err) {
+    console.error('[chat-api/chat-entity-channels] summary failed:', err);
+    return error.internal(c, 'Failed to summarise entity channels');
+  }
+});
+
 /**
  * GET /:entityType/:entityId/channel — channel linked to an entity, or null.
  * Never creates the channel; use POST /messages for lazy creation.
  */
 app.get('/:entityType/:entityId/channel', readPerm, async (c) => {
-  const userId = c.get('userId');
-  const entityType = c.req.param('entityType');
-  const entityId = c.req.param('entityId');
-
-  const provider = getEntityProvider(entityType);
-  if (!provider) return error.badRequest(c, `Unknown entity type: ${entityType}`);
-
-  const db = c.get('tenantDb');
   try {
-    if (!(await provider.canAccess({ db, actingUserId: userId, entityId }))) {
-      return error.forbidden(c, 'You do not have access to this entity');
-    }
-    const channel = await findEntityChannel(db, entityType, entityId);
+    const access = await resolveAccess(c);
+    if (access instanceof Response) return access;
+    const channel = await findEntityChannel(c.get('tenantDb'), access.entityType, access.entityId);
     // A missing channel isn't an error — entity channels are lazily created on
     // first message. Return null so the client can render an empty state.
     return success(c, channel ?? null);
   } catch (err) {
-    console.error('[app-api/chat-entity-channels] fetch channel failed:', err);
+    console.error('[chat-api/chat-entity-channels] fetch channel failed:', err);
     return error.internal(c, 'Failed to fetch entity channel');
   }
 });
 
 /**
  * POST /:entityType/:entityId/messages — get-or-create the channel and post.
+ * Posting follows the chat (postChatMessage), and a new channel's default
+ * members follow it from the start.
  */
 app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEntityMessageSchema), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
   const userId = c.get('userId');
-  const entityType = c.req.param('entityType');
-  const entityId = c.req.param('entityId');
   const input = c.req.valid('json');
-
-  const provider = getEntityProvider(entityType);
-  if (!provider) return error.badRequest(c, `Unknown entity type: ${entityType}`);
-
   const db = c.get('tenantDb');
-  try {
-    if (!(await provider.canAccess({ db, actingUserId: userId, entityId }))) {
-      return error.forbidden(c, 'You do not have access to this entity');
-    }
 
-    const { channel, created } = await getOrCreateEntityChannel({
+  let channelId: string | undefined;
+  try {
+    const access = await resolveAccess(c);
+    if (access instanceof Response) return access;
+
+    const { channel, created, newFollowerIds } = await getOrCreateEntityChannel({
       db,
-      entityType,
-      entityId,
+      entityType: access.entityType,
+      entityId: access.entityId,
       actingUserId: userId,
+      can: callerCan(c),
     });
+    channelId = channel.id;
 
     const message = await postChatMessage(
-      {
-        db,
-        env: c.env,
-        orgId,
-        channelId: channel.id,
-        authorUserId: userId,
-        waitUntil: (p) => {
-          try {
-            c.executionCtx.waitUntil(p);
-          } catch {
-            void p.catch(() => undefined);
-          }
-        },
-      },
+      { db, env: c.env, orgId, channelId: channel.id, authorUserId: userId, waitUntil: waitUntilFor(c) },
       input,
     );
+    await announceNewFollowers(c.env, orgId, channel, newFollowerIds);
 
     return success(c, { channel, message, createdChannel: created }, 201);
   } catch (err) {
-    console.error('[app-api/chat-entity-channels] post message failed:', err);
+    if (err instanceof ChatFeatureError) {
+      if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+      return error.badRequest(c, err.message);
+    }
+    console.error('[chat-api/chat-entity-channels] post message failed:', err);
     return error.internal(c, 'Failed to post entity message');
+  }
+});
+
+/**
+ * POST /:entityType/:entityId/follow — follow a record's chat, creating the
+ * channel when nobody has written in it yet (its default members then follow
+ * it too).
+ */
+app.post('/:entityType/:entityId/follow', readPerm, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+  const userId = c.get('userId');
+  const db = c.get('tenantDb');
+  try {
+    const access = await resolveAccess(c);
+    if (access instanceof Response) return access;
+
+    const { channel, created, newFollowerIds } = await getOrCreateEntityChannel({
+      db,
+      entityType: access.entityType,
+      entityId: access.entityId,
+      actingUserId: userId,
+      can: callerCan(c),
+    });
+    const added = await addFollowers(db, channel.id, [userId]);
+    await announceNewFollowers(c.env, orgId, channel, [...new Set([...newFollowerIds, ...added])]);
+
+    return success(c, { channel, following: true, createdChannel: created });
+  } catch (err) {
+    console.error('[chat-api/chat-entity-channels] follow failed:', err);
+    return error.internal(c, 'Failed to follow entity channel');
+  }
+});
+
+/**
+ * DELETE /:entityType/:entityId/follow — stop following. Takes the chat out of
+ * the caller's sidebar; it stays on the record. Allowed without access to the
+ * record, so a user who lost access can still clear it. 204 whether or not
+ * the chat exists or was followed.
+ */
+app.delete('/:entityType/:entityId/follow', readPerm, async (c) => {
+  const entityType = c.req.param('entityType');
+  const entityId = c.req.param('entityId');
+  if (!getEntityProvider(entityType)) return error.badRequest(c, `Unknown entity type: ${entityType}`);
+
+  const userId = c.get('userId');
+  const db = c.get('tenantDb');
+  try {
+    const channel = await findEntityChannel(db, entityType, entityId);
+    if (channel && (await removeFollower(db, channel.id, userId))) {
+      try {
+        await publishChatMemberLeft(c.env, channel.id, { channelId: channel.id, userId });
+      } catch (e) {
+        console.error('[chat-api/chat-entity-channels] member-left publish failed:', e);
+      }
+    }
+    return noContent(c);
+  } catch (err) {
+    console.error('[chat-api/chat-entity-channels] unfollow failed:', err);
+    return error.internal(c, 'Failed to unfollow entity channel');
   }
 });
 
@@ -125,61 +272,24 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
  * GET /:entityType/:entityId/detail — provider-specific entity details.
  */
 app.get('/:entityType/:entityId/detail', readPerm, async (c) => {
-  const userId = c.get('userId');
-  const entityType = c.req.param('entityType');
-  const entityId = c.req.param('entityId');
-
-  const provider = getEntityProvider(entityType);
-  if (!provider) return error.badRequest(c, `Unknown entity type: ${entityType}`);
-  if (!provider.resolveDetail) {
-    return error.badRequest(c, `Provider ${entityType} does not expose detail data`);
+  const provider = getEntityProvider(c.req.param('entityType'));
+  if (provider && !provider.resolveDetail) {
+    return error.badRequest(c, `Provider ${provider.type} does not expose detail data`);
   }
 
-  const db = c.get('tenantDb');
   try {
-    if (!(await provider.canAccess({ db, actingUserId: userId, entityId }))) {
-      return error.forbidden(c, 'You do not have access to this entity');
-    }
-    const detail = await provider.resolveDetail({ db, actingUserId: userId, entityId });
+    const access = await resolveAccess(c);
+    if (access instanceof Response) return access;
+    const detail = await access.provider.resolveDetail!({
+      db: c.get('tenantDb'),
+      actingUserId: c.get('userId'),
+      entityId: access.entityId,
+      can: callerCan(c),
+    });
     return success(c, detail ?? null);
   } catch (err) {
-    console.error('[app-api/chat-entity-channels] fetch detail failed:', err);
+    console.error('[chat-api/chat-entity-channels] fetch detail failed:', err);
     return error.internal(c, 'Failed to fetch entity detail');
-  }
-});
-
-/**
- * GET /:entityType — list channels of a given entity type the caller can see.
- */
-app.get('/:entityType', readPerm, async (c) => {
-  const userId = c.get('userId');
-  const entityType = c.req.param('entityType');
-
-  const provider = getEntityProvider(entityType);
-  if (!provider) return error.badRequest(c, `Unknown entity type: ${entityType}`);
-
-  const db = c.get('tenantDb');
-  const { chatChannels, chatChannelMembers } = schema;
-
-  try {
-    const memberships = await db
-      .select({ channelId: chatChannelMembers.channelId })
-      .from(chatChannelMembers)
-      .where(eq(chatChannelMembers.userId, userId));
-    const memberChannelIds = new Set(memberships.map((m) => m.channelId));
-
-    const rows = await db
-      .select()
-      .from(chatChannels)
-      .where(and(eq(chatChannels.entityType, entityType), isNull(chatChannels.deletedAt)))
-      .orderBy(desc(chatChannels.lastMessageAt));
-
-    // Entity channels are private by default — only show ones the caller joined.
-    const visible = rows.filter((row) => memberChannelIds.has(row.id));
-    return success(c, visible);
-  } catch (err) {
-    console.error('[app-api/chat-entity-channels] list failed:', err);
-    return error.internal(c, 'Failed to list entity channels');
   }
 });
 

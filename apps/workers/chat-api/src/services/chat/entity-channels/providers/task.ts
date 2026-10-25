@@ -1,11 +1,15 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
-import { registerEntityProvider, type EntityChannelProvider } from '../registry';
+import {
+  canAccessViaFilter,
+  registerEntityProvider,
+  type EntityChannelProvider,
+} from '../registry';
 
 export const taskEntityProvider: EntityChannelProvider = {
   type: 'task',
   label: 'Tasks',
-  requiredPermission: 'messages:read',
+  requiredPermission: 'tasks:read',
 
   async resolve({ db, entityId }) {
     const { tasks } = schema;
@@ -60,9 +64,11 @@ export const taskEntityProvider: EntityChannelProvider = {
     return task ?? null;
   },
 
-  async canAccess({ db, actingUserId, entityId }) {
-    const { tasks } = schema;
-    const [task] = await db
+  /** Assignees, the reporter and watchers, plus members of the task's project. */
+  async filterVisible({ db, actingUserId }, entityIds) {
+    if (entityIds.length === 0) return new Set();
+    const { tasks, projectMembers } = schema;
+    const rows = await db
       .select({
         id: tasks.id,
         assigneeId: tasks.assigneeId,
@@ -72,27 +78,38 @@ export const taskEntityProvider: EntityChannelProvider = {
         projectId: tasks.projectId,
       })
       .from(tasks)
-      .where(and(eq(tasks.id, entityId), isNull(tasks.deletedAt)))
-      .limit(1);
+      .where(and(inArray(tasks.id, entityIds), isNull(tasks.deletedAt)));
 
-    if (!task) return false;
-
-    if (task.assigneeId === actingUserId) return true;
-    if (task.reporterId === actingUserId) return true;
-    if ((task.assigneeIds ?? []).includes(actingUserId)) return true;
-    if ((task.watchers ?? []).includes(actingUserId)) return true;
-
-    if (task.projectId) {
-      const { projectMembers } = schema;
-      const [member] = await db
-        .select({ userId: projectMembers.userId })
-        .from(projectMembers)
-        .where(and(eq(projectMembers.projectId, task.projectId), eq(projectMembers.userId, actingUserId)))
-        .limit(1);
-      if (member) return true;
+    const visible = new Set<string>();
+    const viaProject: Array<{ id: string; projectId: string }> = [];
+    for (const task of rows) {
+      const involved =
+        task.assigneeId === actingUserId ||
+        task.reporterId === actingUserId ||
+        (task.assigneeIds ?? []).includes(actingUserId) ||
+        (task.watchers ?? []).includes(actingUserId);
+      if (involved) visible.add(task.id);
+      else if (task.projectId) viaProject.push({ id: task.id, projectId: task.projectId });
     }
 
-    return false;
+    if (viaProject.length > 0) {
+      const memberOf = await db
+        .select({ projectId: projectMembers.projectId })
+        .from(projectMembers)
+        .where(
+          and(
+            inArray(projectMembers.projectId, [...new Set(viaProject.map((t) => t.projectId))]),
+            eq(projectMembers.userId, actingUserId),
+          ),
+        );
+      const projectIds = new Set(memberOf.map((m) => m.projectId));
+      for (const task of viaProject) if (projectIds.has(task.projectId)) visible.add(task.id);
+    }
+    return visible;
+  },
+
+  canAccess(ctx) {
+    return canAccessViaFilter(taskEntityProvider, ctx);
   },
 };
 

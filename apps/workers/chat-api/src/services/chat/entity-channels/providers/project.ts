@@ -1,12 +1,16 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import { getProjectStats, EMPTY_PROJECT_STATS } from '@weldsuite/flow-domain/project-stats';
-import { registerEntityProvider, type EntityChannelProvider } from '../registry';
+import {
+  canAccessViaFilter,
+  registerEntityProvider,
+  type EntityChannelProvider,
+} from '../registry';
 
 export const projectEntityProvider: EntityChannelProvider = {
   type: 'project',
   label: 'Projects',
-  requiredPermission: 'messages:read',
+  requiredPermission: 'projects:read',
 
   async resolve({ db, entityId }) {
     const { projects, projectMembers } = schema;
@@ -97,32 +101,42 @@ export const projectEntityProvider: EntityChannelProvider = {
     return { ...project, ...(stats.get(entityId) ?? EMPTY_PROJECT_STATS), members };
   },
 
-  async canAccess({ db, actingUserId, entityId }) {
+  /** The project manager and active members of live projects. */
+  async filterVisible({ db, actingUserId }, entityIds) {
+    if (entityIds.length === 0) return new Set();
     const { projects, projectMembers } = schema;
 
-    const [project] = await db
-      .select({ projectManagerId: projects.projectManagerId })
+    const live = await db
+      .select({ id: projects.id, projectManagerId: projects.projectManagerId })
       .from(projects)
-      .where(and(eq(projects.id, entityId), isNull(projects.deletedAt)))
-      .limit(1);
+      .where(and(inArray(projects.id, entityIds), isNull(projects.deletedAt)));
 
-    if (!project) return false;
-    if (project.projectManagerId === actingUserId) return true;
+    const visible = new Set<string>();
+    const others: string[] = [];
+    for (const project of live) {
+      if (project.projectManagerId === actingUserId) visible.add(project.id);
+      else others.push(project.id);
+    }
 
-    const [member] = await db
-      .select({ userId: projectMembers.userId })
-      .from(projectMembers)
-      .where(
-        and(
-          eq(projectMembers.projectId, entityId),
-          eq(projectMembers.userId, actingUserId),
-          eq(projectMembers.isActive, true),
-          isNull(projectMembers.deletedAt),
-        ),
-      )
-      .limit(1);
+    if (others.length > 0) {
+      const memberOf = await db
+        .select({ projectId: projectMembers.projectId })
+        .from(projectMembers)
+        .where(
+          and(
+            inArray(projectMembers.projectId, others),
+            eq(projectMembers.userId, actingUserId),
+            eq(projectMembers.isActive, true),
+            isNull(projectMembers.deletedAt),
+          ),
+        );
+      for (const m of memberOf) visible.add(m.projectId);
+    }
+    return visible;
+  },
 
-    return !!member;
+  canAccess(ctx) {
+    return canAccessViaFilter(projectEntityProvider, ctx);
   },
 };
 

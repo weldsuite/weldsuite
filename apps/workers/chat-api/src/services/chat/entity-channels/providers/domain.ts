@@ -1,6 +1,10 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
-import { registerEntityProvider, type EntityChannelProvider } from '../registry';
+import {
+  canAccessViaFilter,
+  registerEntityProvider,
+  type EntityChannelProvider,
+} from '../registry';
 import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 
 /**
@@ -10,14 +14,13 @@ import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domain
  * the task and project panels do; without this provider the channel lookup
  * 400s with "Unknown entity type: domain" and the sidebar stays empty.
  *
- * Domains have no membership table — the acting user is the only default
- * member, and workspace-level `messages:read` (enforced in the route layer)
- * governs who else can open the channel. Same shape as the contact provider.
+ * Domains have no membership table: anyone with `domains:read` may see a live
+ * domain, and only the acting user follows a new chat.
  */
 export const domainEntityProvider: EntityChannelProvider = {
   type: 'domain',
   label: 'Domains',
-  requiredPermission: 'messages:read',
+  requiredPermission: 'domains:read',
 
   async resolve({ db, entityId, actingUserId }) {
     const { hostDomains } = schema;
@@ -58,17 +61,18 @@ export const domainEntityProvider: EntityChannelProvider = {
       : null;
   },
 
-  async canAccess({ db, entityId }) {
-    // Workspace-level permission is enforced at the route layer; here we only
-    // verify the domain exists and isn't soft-deleted, so we never create a
-    // channel for a ghost entity.
+  async filterVisible({ db }, entityIds) {
+    if (entityIds.length === 0) return new Set();
     const { hostDomains } = schema;
-    const [domain] = await db
+    const rows = await db
       .select({ id: hostDomains.id })
       .from(hostDomains)
-      .where(and(eq(hostDomains.id, entityId), isNull(hostDomains.deletedAt)))
-      .limit(1);
-    return !!domain;
+      .where(and(inArray(hostDomains.id, entityIds), isNull(hostDomains.deletedAt)));
+    return new Set(rows.map((r) => r.id));
+  },
+
+  canAccess(ctx) {
+    return canAccessViaFilter(domainEntityProvider, ctx);
   },
 };
 
