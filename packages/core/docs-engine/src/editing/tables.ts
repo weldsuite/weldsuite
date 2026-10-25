@@ -124,7 +124,9 @@ export function insertRows(doc: DocModel, tableId: string, at: number, count = 1
     for (const c of t.cols) {
       const p = t.cells?.[cellKey(source.id, c.id)];
       if (!p) continue;
-      const { rowSpan: _r, colSpan: _c, ...format } = p;
+      const format = { ...p };
+      delete format.rowSpan;
+      delete format.colSpan;
       if (!isEmptyObject(format)) for (const it of items) cells[cellKey(it.id, c.id)] = format;
     }
   }
@@ -188,38 +190,65 @@ export function mergeCells(doc: DocModel, tableId: string, r1: number, c1: numbe
   const bottom = Math.max(r1, r2);
   const right = Math.max(c1, c2);
   if (top === bottom && left === right) return NOOP;
+  const rect = { top, left, bottom, right };
   const anchorId = cellStoryId(tableId, t.rows[top]!.id, t.cols[left]!.id);
-  const anchor = doc.stories.get(anchorId);
-  if (!anchor) return NOOP;
-  const ops: Op[] = [];
-  let end = anchor.length - 1;
-  const anchorEmpty = anchor.length === 1;
-  for (let r = top; r <= bottom; r++) {
-    for (let c = left; c <= right; c++) {
-      if (r === top && c === left) continue;
-      const sid = cellStoryId(tableId, t.rows[r]!.id, t.cols[c]!.id);
-      const s = doc.stories.get(sid);
-      if (!s || s.length <= 1) continue;
-      const moved = doc.extract(sid, 0, s.length - 1);
-      // Each cell's text joins as its own paragraph(s).
-      const piece: Content = anchorEmpty && end === 0 ? moved : { ...moved, text: PARA + moved.text, runs: moved.runs ? [[1, {}], ...moved.runs] : undefined, paras: shiftParas(moved, 1), objects: moved.objects?.map(([o, d]) => [o + 1, d]) };
-      if (!piece.runs) delete piece.runs;
-      ops.push({ type: 'delete', story: sid, from: 0, to: s.length - 1 });
-      ops.push({ type: 'insert', story: anchorId, at: end, content: piece });
-      end += piece.text.length;
-    }
-  }
-  // Merges inside the rectangle are absorbed into the new one.
-  const cells: [string, Patch<CellProps>][] = [];
-  for (let r = top; r <= bottom; r++) {
-    for (let c = left; c <= right; c++) {
-      const key = cellKey(t.rows[r]!.id, t.cols[c]!.id);
-      if (r === top && c === left) cells.push([key, { rowSpan: bottom - top + 1 > 1 ? bottom - top + 1 : null, colSpan: right - left + 1 > 1 ? right - left + 1 : null }]);
-      else if (t.cells?.[key]?.rowSpan || t.cells?.[key]?.colSpan) cells.push([key, { rowSpan: null, colSpan: null }]);
-    }
-  }
-  ops.push({ type: 'setTableCells', table: tableId, cells });
+  if (!doc.stories.has(anchorId)) return NOOP;
+  const ops = moveCellText(doc, t, tableId, rect, anchorId);
+  ops.push({ type: 'setTableCells', table: tableId, cells: mergePatches(t, rect) });
   return batch(ops);
+}
+
+interface CellRect {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
+/** The cells of a rectangle other than its top-left one, in reading order. */
+function otherCells(t: TableData, rect: CellRect): { row: string; col: string }[] {
+  const out: { row: string; col: string }[] = [];
+  for (let r = rect.top; r <= rect.bottom; r++) {
+    for (let c = rect.left; c <= rect.right; c++) if (r !== rect.top || c !== rect.left) out.push({ row: t.rows[r]!.id, col: t.cols[c]!.id });
+  }
+  return out;
+}
+
+/** Ops moving the text of the other cells into the top-left one, each cell's as paragraphs of its own. */
+function moveCellText(doc: DocModel, t: TableData, tableId: string, rect: CellRect, anchorId: string): Op[] {
+  const ops: Op[] = [];
+  let end = doc.stories.get(anchorId)!.length - 1;
+  for (const cell of otherCells(t, rect)) {
+    const sid = cellStoryId(tableId, cell.row, cell.col);
+    const s = doc.stories.get(sid);
+    if (!s || s.length <= 1) continue;
+    const moved = doc.extract(sid, 0, s.length - 1);
+    const piece = end === 0 ? moved : asNewParagraph(moved);
+    ops.push({ type: 'delete', story: sid, from: 0, to: s.length - 1 });
+    ops.push({ type: 'insert', story: anchorId, at: end, content: piece });
+    end += piece.text.length;
+  }
+  return ops;
+}
+
+/** Content behind a paragraph mark of its own (joined after existing text). */
+function asNewParagraph(moved: Content): Content {
+  const piece: Content = { ...moved, text: PARA + moved.text, paras: shiftParas(moved, 1), objects: moved.objects?.map(([o, d]) => [o + 1, d]) };
+  if (moved.runs) piece.runs = [[1, {}], ...moved.runs];
+  else delete piece.runs;
+  return piece;
+}
+
+/** Spans for the top-left cell; merges inside the rectangle are absorbed into it. */
+function mergePatches(t: TableData, rect: CellRect): [string, Patch<CellProps>][] {
+  const rows = rect.bottom - rect.top + 1;
+  const cols = rect.right - rect.left + 1;
+  const cells: [string, Patch<CellProps>][] = [[cellKey(t.rows[rect.top]!.id, t.cols[rect.left]!.id), { rowSpan: rows > 1 ? rows : null, colSpan: cols > 1 ? cols : null }]];
+  for (const cell of otherCells(t, rect)) {
+    const key = cellKey(cell.row, cell.col);
+    if (t.cells?.[key]?.rowSpan || t.cells?.[key]?.colSpan) cells.push([key, { rowSpan: null, colSpan: null }]);
+  }
+  return cells;
 }
 
 function shiftParas(content: Content, by: number): Content['paras'] {

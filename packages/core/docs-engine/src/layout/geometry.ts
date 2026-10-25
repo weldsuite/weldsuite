@@ -426,3 +426,29 @@ export function selectionRects(dl: DocLayout, story: string, from: number, to: n
   }
   return out;
 }
+
+/** The right edge of a table column on a page, for dragging it wider or narrower. */
+export interface ColumnEdge {
+  tableId: string;
+  col: number;
+  x: number;
+  y: number;
+  height: number;
+}
+
+/** Column edges of the body tables placed on a page (tables inside cells are left out). */
+export function tableColumnEdges(dl: DocLayout, pageIndex: number): ColumnEdge[] {
+  const page = dl.pages[pageIndex];
+  if (!page) return [];
+  const out: ColumnEdge[] = [];
+  for (const area of page.columns) {
+    for (const item of area.items) {
+      const b = item.entry.layout?.blocks[item.block];
+      if (item.kind !== 'rows' || b?.kind !== 'table') continue;
+      const t = b.table;
+      const height = itemHeight(item);
+      for (let c = 0; c < t.colX.length; c++) out.push({ tableId: t.id, col: c, x: item.x + t.x + t.colX[c]! + t.colWidths[c]!, y: item.y, height });
+    }
+  }
+  return out;
+}

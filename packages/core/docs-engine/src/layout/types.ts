@@ -5,7 +5,7 @@
  * it moves (only its entry's `start` changes).
  */
 
-import type { ObjectData, SectionProps, TableData } from '../model/objects';
+import type { ImageObject, ObjectData, SectionProps, TableData } from '../model/objects';
 import type { ParaProps, TabStop } from '../model/styles';
 import type { FontSpec } from './measure';
 
@@ -112,10 +112,26 @@ export interface TableLayout {
 
 export type BlockLayout = { kind: 'lines'; lines: LineLayout[] } | { kind: 'table'; table: TableLayout; offset: number };
 
+/** A floating image of a paragraph, placed from the paragraph box's left edge and its first line's top. */
+export interface FloatLayout {
+  /** Offset of its object character from the paragraph start. */
+  offset: number;
+  image: ImageObject;
+  wrap: 'square' | 'topBottom' | 'behind' | 'front';
+  /** The side the float sits at (`square` only); text wraps on the other. */
+  side?: 'left' | 'right';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ParagraphLayout {
   /** Paragraph properties with the named style resolved. */
   props: ParaProps;
   blocks: BlockLayout[];
+  /** Floating images, drawn with the paragraph's first lines. */
+  floats?: FloatLayout[];
   spaceBefore: number;
   spaceAfter: number;
   /** Width it was laid out at. */

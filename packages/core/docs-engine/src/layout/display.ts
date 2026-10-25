@@ -8,9 +8,11 @@
 
 import { DEFAULT_CELL_PADDING, cellHeight, cellContentOffset } from './table';
 import type { DocLayout } from './document-layout';
-import type { CellLayout, LineLayout, PageArea, PageLayout, ParagraphLayout, PlacedItem, RunLayout, RunStyle, TableLayout } from './types';
+import { isFloating } from './floats';
+import { caretRect } from './geometry';
+import type { CellLayout, FloatLayout, LineLayout, PageArea, PageLayout, ParagraphLayout, PlacedItem, RunLayout, RunStyle, TableLayout } from './types';
 import type { BorderLine } from '../model/styles';
-import type { ImageObject } from '../model/objects';
+import type { FieldObject, ImageObject } from '../model/objects';
 
 export type DisplayItem =
   | {
@@ -31,7 +33,17 @@ export type DisplayItem =
     }
   | { kind: 'rect'; x: number; y: number; width: number; height: number; fill: string; radius?: number }
   | { kind: 'line'; x1: number; y1: number; x2: number; y2: number; width: number; color: string; style?: BorderLine['style'] }
-  | { kind: 'image'; x: number; y: number; width: number; height: number; image: ImageObject }
+  | {
+      kind: 'image';
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      image: ImageObject;
+      /** Where its object character is (to select it by clicking). */
+      story: string;
+      pos: number;
+    }
   | { kind: 'checkbox'; x: number; y: number; size: number; checked: boolean; color: string };
 
 export interface DisplayOptions {
@@ -97,25 +109,37 @@ function drawLines(
   y: number,
   width: number,
 ): void {
-  const props = layout.props;
   let height = 0;
   for (let i = from; i < to; i++) height += lines[i]!.height;
-  // Paragraph shading and borders span its indents.
-  const left = x + (props.indentLeft ?? 0);
-  const right = x + width - (props.indentRight ?? 0);
-  if (props.shading) ctx.out.push({ kind: 'rect', x: left, y, width: right - left, height, fill: props.shading });
-  const b = props.borders;
-  if (b?.top && from === 0) border(ctx, b.top, left, y, right, y);
-  if (b?.bottom && to === lines.length) border(ctx, b.bottom, left, y + height, right, y + height);
-  if (b?.left) border(ctx, b.left, left, y, left, y + height);
-  if (b?.right) border(ctx, b.right, right, y, right, y + height);
+  drawParagraphBox(ctx, layout.props, { x, y, width, height }, from === 0, to === lines.length);
 
+  // Floats go with the paragraph's first lines: behind the text, or over it.
+  const floats = from === 0 ? (layout.floats ?? []) : [];
+  for (const f of floats) if (f.wrap === 'behind') drawFloat(ctx, story, paraStart, f, x, y);
   let ly = y;
   for (let i = from; i < to; i++) {
     const line = lines[i]!;
     drawLine(ctx, story, paraStart, line, x, ly, width);
     ly += line.height;
   }
+  for (const f of floats) if (f.wrap !== 'behind') drawFloat(ctx, story, paraStart, f, x, y);
+}
+
+/** Paragraph shading and borders, spanning its indents; the top and bottom borders only where it starts and ends. */
+function drawParagraphBox(ctx: Ctx, props: ParagraphLayout['props'], box: { x: number; y: number; width: number; height: number }, first: boolean, last: boolean): void {
+  const { y, height } = box;
+  const left = box.x + (props.indentLeft ?? 0);
+  const right = box.x + box.width - (props.indentRight ?? 0);
+  if (props.shading) ctx.out.push({ kind: 'rect', x: left, y, width: right - left, height, fill: props.shading });
+  const b = props.borders;
+  if (b?.top && first) border(ctx, b.top, left, y, right, y);
+  if (b?.bottom && last) border(ctx, b.bottom, left, y + height, right, y + height);
+  if (b?.left) border(ctx, b.left, left, y, left, y + height);
+  if (b?.right) border(ctx, b.right, right, y, right, y + height);
+}
+
+function drawFloat(ctx: Ctx, story: string, paraStart: number, f: FloatLayout, x: number, y: number): void {
+  ctx.out.push({ kind: 'image', x: x + f.x, y: y + f.y, width: f.width, height: f.height, image: f.image, story, pos: paraStart + f.offset });
 }
 
 function drawLine(ctx: Ctx, story: string, paraStart: number, line: LineLayout, x: number, top: number, areaWidth: number): void {
@@ -182,13 +206,13 @@ function drawLeader(ctx: Ctx, run: RunLayout, ch: string, rx: number, bl: number
 /** An inline object: an image, or a field or chip drawn as text (a chip on its grey pill). */
 function drawObject(ctx: Ctx, run: RunLayout, obj: NonNullable<RunLayout['object']>, rx: number, baseline: number, bl: number, place: RunPlace): void {
   if (obj.kind === 'image') {
-    ctx.out.push({ kind: 'image', x: rx, y: baseline - obj.height, width: obj.width, height: obj.height, image: obj });
+    if (!isFloating(obj)) ctx.out.push({ kind: 'image', x: rx, y: baseline - obj.height, width: obj.width, height: obj.height, image: obj, story: place.story, pos: place.start });
     return;
   }
   if (run.text === undefined) return;
   const style = run.style;
   const metrics = ctx.dl.measurer.metrics(style.font);
-  const text = obj.kind === 'field' ? fieldText(ctx, obj.field, obj.format) : run.text;
+  const text = obj.kind === 'field' ? fieldText(ctx, obj) : run.text;
   const chip = obj.kind === 'chip';
   if (chip) {
     ctx.out.push({ kind: 'rect', x: rx, y: bl - metrics.ascent - 1, width: run.width, height: metrics.ascent + metrics.descent + 2, fill: '#e8eaed', radius: (metrics.ascent + metrics.descent) / 2 });
@@ -197,8 +221,8 @@ function drawObject(ctx: Ctx, run: RunLayout, obj: NonNullable<RunLayout['object
   ctx.out.push({ kind: 'text', x: rx + pad, baseline: bl, text, style, width: run.width - 2 * pad, ascent: metrics.ascent, descent: metrics.descent, ...place });
 }
 
-function fieldText(ctx: Ctx, field: string, format: string | undefined): string {
-  switch (field) {
+function fieldText(ctx: Ctx, field: FieldObject): string {
+  switch (field.field) {
     case 'page':
       return ctx.page.label;
     case 'pages':
@@ -207,11 +231,21 @@ function fieldText(ctx: Ctx, field: string, format: string | undefined): string 
       return ctx.options.title ?? '';
     case 'date': {
       const date = ctx.options.date ?? new Date();
-      return new Intl.DateTimeFormat(ctx.options.locale ?? 'en', format === 'long' ? { dateStyle: 'long' } : { dateStyle: 'medium' }).format(date);
+      return new Intl.DateTimeFormat(ctx.options.locale ?? 'en', field.format === 'long' ? { dateStyle: 'long' } : { dateStyle: 'medium' }).format(date);
     }
+    case 'pageRef':
+      return pageOfAnchor(ctx, field.ref);
     default:
       return '';
   }
+}
+
+/** The page label of a bookmark's start ('?' when it is gone). */
+function pageOfAnchor(ctx: Ctx, ref: string | undefined): string {
+  const anchor = ref ? ctx.dl.doc.anchors.get(ref) : undefined;
+  if (!anchor) return '?';
+  const rect = caretRect(ctx.dl, anchor.story, anchor.from);
+  return rect ? (ctx.dl.pages[rect.page]?.label ?? '?') : '?';
 }
 
 function border(ctx: Ctx, line: BorderLine, x1: number, y1: number, x2: number, y2: number): void {

@@ -60,8 +60,9 @@ export { DocLayout } from './layout/document-layout';
 export type { DocLayoutOptions } from './layout/document-layout';
 export { CachedMeasurer, CanvasMeasurer, MetricsMeasurer, cssFont, fontKey, isWide } from './layout/measure';
 export type { FontMetrics, FontSpec, TextMeasurer } from './layout/measure';
-export { caretRect, hitTest, lineBounds, selectionRects, xOfOffset } from './layout/geometry';
-export type { Affinity, CaretRect, HitResult, SelectionRect } from './layout/geometry';
+export { caretRect, hitTest, lineBounds, selectionRects, tableColumnEdges, xOfOffset } from './layout/geometry';
+export type { Affinity, CaretRect, ColumnEdge, HitResult, SelectionRect } from './layout/geometry';
+export { FLOAT_GAP, isFloating } from './layout/floats';
 export { cellContentOffset, cellHeight } from './layout/table';
 export { pageDisplay } from './layout/display';
 export type { DisplayItem, DisplayOptions } from './layout/display';
@@ -70,6 +71,7 @@ export { displayText } from './layout/run-style';
 export type {
   BlockLayout,
   CellLayout,
+  FloatLayout,
   LineLayout,
   PageArea,
   PageLayout,
@@ -141,4 +143,8 @@ export {
   unmergeCell,
 } from './editing/tables';
 export type { CellRef } from './editing/tables';
+export { TOC_PREFIX, insertToc, tocAt, tocHeadings, tocIds, updateToc } from './editing/toc';
+export type { TocHeading } from './editing/toc';
+export { insertSectionBreak, sectionAt, setSectionAt } from './editing/sections';
+export type { SectionAt } from './editing/sections';
 export { isWellFormedSnapshot } from './ops/snapshot-shape';

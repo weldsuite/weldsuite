@@ -99,10 +99,12 @@ export interface RuleObject {
   kind: 'hr';
 }
 
-/** Text worked out at layout: page number, page count, date. */
+/** Text worked out at layout: page number, page count, date, the page a bookmark is on. */
 export interface FieldObject {
   kind: 'field';
-  field: 'page' | 'pages' | 'date' | 'title';
+  field: 'page' | 'pages' | 'date' | 'title' | 'pageRef';
+  /** The bookmark (anchor id) whose page a `pageRef` shows. */
+  ref?: string;
   /** Date format for `date`, e.g. `d MMMM yyyy`. */
   format?: string;
 }

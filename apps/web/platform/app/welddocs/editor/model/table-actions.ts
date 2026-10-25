@@ -19,6 +19,7 @@ import {
   type CellRef,
   type DocSelection,
   type Op,
+  type TableData,
 } from '@weldsuite/docs-engine';
 import type { DocController } from './doc-controller';
 
@@ -152,39 +153,38 @@ export function insertTableAtCaret(ctl: DocController, rows: number, cols: numbe
 export function moveToCell(ctl: DocController, dir: 1 | -1): boolean {
   const ctx = tableContext(ctl);
   if (!ctx) return false;
-  const t = ctl.doc.tables.get(ctx.tableId)!;
-  // Walk cells in reading order, skipping cells covered by a merge.
-  let { row, col } = ctx;
-  const here = mergeAnchor(t, row, col);
-  row = here.row;
-  col = here.col;
-  for (;;) {
-    col += dir;
-    if (col >= ctx.cols) {
-      col = 0;
-      row++;
-    } else if (col < 0) {
-      col = ctx.cols - 1;
-      row--;
+  const next = nextCell(ctl.doc.tables.get(ctx.tableId)!, ctx, dir);
+  if (next === 'before') return true;
+  if (next === 'after') {
+    if (!ctl.readOnly) {
+      ctl.apply(insertRows(ctl.doc, ctx.tableId, ctx.rows));
+      const story = cellStoryAt(ctl.doc, ctx.tableId, ctx.rows, 0);
+      if (story) ctl.setSelection(caretAt(story, 0));
     }
-    if (row < 0) return true;
-    if (row >= ctx.rows) {
-      if (!ctl.readOnly) {
-        ctl.apply(insertRows(ctl.doc, ctx.tableId, ctx.rows));
-        const story = cellStoryAt(ctl.doc, ctx.tableId, ctx.rows, 0);
-        if (story) ctl.setSelection(caretAt(story, 0));
-      }
-      return true;
-    }
-    const a = mergeAnchor(t, row, col);
-    if (a.row === row && a.col === col) break;
+    return true;
   }
-  const story = cellStoryAt(ctl.doc, ctx.tableId, row, col);
+  const story = cellStoryAt(ctl.doc, ctx.tableId, next.row, next.col);
   if (!story) return true;
   const end = ctl.doc.stories.get(story)!.length - 1;
   const sel: DocSelection = { story, anchor: 0, head: end };
   ctl.setSelection(sel);
   return true;
+}
+
+/** The next (or previous) cell in reading order, skipping cells covered by a merge; or past the table's start or end. */
+function nextCell(t: TableData, ctx: TableContext, dir: 1 | -1): { row: number; col: number } | 'before' | 'after' {
+  let { row, col } = mergeAnchor(t, ctx.row, ctx.col);
+  for (;;) {
+    col += dir;
+    if (col >= ctx.cols || col < 0) {
+      row += dir;
+      col = dir > 0 ? 0 : ctx.cols - 1;
+    }
+    if (row < 0) return 'before';
+    if (row >= ctx.rows) return 'after';
+    const a = mergeAnchor(t, row, col);
+    if (a.row === row && a.col === col) return { row, col };
+  }
 }
 
 /**
