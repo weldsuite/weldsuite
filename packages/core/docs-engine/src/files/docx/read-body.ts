@@ -2,7 +2,11 @@
  * Reading story content: the paragraphs, runs and tables of the body, a
  * header or footer, a footnote or a table cell, into engine content.
  *
- * Revisions are taken as accepted (insertions kept, deletions dropped).
+ * Revisions become suggestions: inserted text (`w:ins`, `w:moveTo`) is
+ * marked as a suggested insertion, deleted text (`w:del`, `w:moveFrom`) as a
+ * suggested deletion, one suggestion per Word revision id, whose thread holds
+ * the revision's author and date. Formatting changes are taken as accepted.
+ * Comment ranges are noted by Word comment id, for `read-review.ts`.
  * Fields the engine has (page, page count, date, title) become field objects;
  * any other field keeps the text Word last showed for it. A table is its own
  * paragraph in the engine, so the empty paragraph Word needs after a table at
@@ -19,6 +23,7 @@ import {
   cellStoryId,
   type Anchor,
   footnoteStoryId,
+  type DocComment,
   type CellBorders,
   type CellProps,
   type FieldObject,
@@ -30,9 +35,12 @@ import {
 } from '../../model/objects';
 import { resolveParagraph } from '../../model/resolve';
 import { isEmptyObject, type BorderLine, type ParaProps, type TextStyle } from '../../model/styles';
-import { EMU_PER_POINT, fromHex, fromTwips, num, onOff, readBorder, round2 } from './convert';
+import { EMU_PER_POINT, fromHex, fromTwips, num, onOff, readBorder, readWordDate, round2 } from './convert';
 import { readParaProps, readRunProps, relativeTabs, tableBorder, type Numbering, type ParaInfo, type StyleSheet, type Theme } from './read-format';
+import { authorOf, type CommentRange } from './read-review';
 import { DocxImportError, type DocxImportWarning } from './types';
+
+type Suggestion = NonNullable<TextStyle['suggestion']>;
 
 /** Paragraphs read at most (every story together); a file with more is refused. */
 export const MAX_PARAGRAPHS = 200_000;
@@ -71,6 +79,32 @@ export interface ReadContext {
   /** Turns a paragraph's `w:sectPr` into the section-break object that ends that section. */
   sectionBreak(sectPr: XmlElement): SectionBreakObject;
   paragraphs: number;
+  /** The suggestion id for each Word revision id met so far. */
+  revisions: Map<string, string>;
+  /** Each suggestion's thread entry: the revision's author and date. */
+  suggestionThreads: DocComment[];
+  /** Where each comment is, by Word comment id (the first place met). */
+  commentRanges: Map<string, CommentRange>;
+}
+
+/** Word's revision elements: what they mark their content as. */
+const REVISION_KIND = new Map<string, Suggestion['kind']>([
+  ['ins', 'insert'],
+  ['moveTo', 'insert'],
+  ['del', 'delete'],
+  ['moveFrom', 'delete'],
+]);
+
+/** The suggestion a Word revision marks its content with: one per Word revision id, its thread made when first met. */
+function revisionSuggestion(ctx: ReadContext, el: XmlElement): Suggestion {
+  const kind = REVISION_KIND.get(el.name) ?? 'insert';
+  const word = el.attrs.id;
+  const known = word === undefined ? undefined : ctx.revisions.get(word);
+  if (known) return { id: known, kind };
+  const id = ctx.makeId();
+  if (word !== undefined) ctx.revisions.set(word, id);
+  ctx.suggestionThreads.push({ id, thread: id, author: authorOf(el.attrs.author), createdAt: readWordDate(el.attrs.date), body: '', suggestion: id });
+  return { id, kind };
 }
 
 interface FieldFrame {
@@ -84,6 +118,7 @@ interface FieldFrame {
 /** Run children that show something, and so are skipped inside a field code or a replaced field result. */
 const RUN_CONTENT = new Set([
   't',
+  'delText',
   'tab',
   'ptab',
   'br',
@@ -115,6 +150,13 @@ export class StoryReader {
   /** Bookmarks started and not yet ended, by Word's id. */
   private readonly openMarks = new Map<string, { name: string; from: number }>();
   private readonly marks: { name: string; from: number; to: number }[] = [];
+  /** The suggestion of the revision being read, if any. */
+  private revision: Suggestion | undefined;
+  /** Revisions around block-level elements (paragraphs or tables inside a `w:ins` / `w:del`). */
+  private readonly blockRevisions = new Map<XmlElement, Suggestion>();
+  /** Comment ranges started and not yet ended, and those read, by Word's id. */
+  private readonly openComments = new Map<string, number>();
+  private readonly comments = new Map<string, { from: number; to: number }>();
 
   constructor(
     private readonly ctx: ReadContext,
@@ -124,7 +166,7 @@ export class StoryReader {
     this.b = new ContentBuilder(ctx.makeId);
   }
 
-  /** Reads a story and keeps it, with its bookmarks, under `storyId`. */
+  /** Reads a story and keeps it, with its bookmarks and comment ranges, under `storyId`. */
   readStory(storyId: string, children: XmlElement[]): void {
     const content = this.read(children);
     this.ctx.stories[storyId] = content;
@@ -132,6 +174,10 @@ export class StoryReader {
     for (const m of this.marks) {
       const from = Math.min(m.from, last);
       this.ctx.anchors.push({ id: m.name, kind: 'bookmark', story: storyId, from, to: Math.max(from, Math.min(m.to, last)) });
+    }
+    for (const [word, m] of this.comments) {
+      const from = Math.min(m.from, last);
+      if (!this.ctx.commentRanges.has(word)) this.ctx.commentRanges.set(word, { story: storyId, from, to: Math.max(from, Math.min(m.to, last)) });
     }
   }
 
@@ -152,15 +198,23 @@ export class StoryReader {
   private blocks(children: XmlElement[]): void {
     const flat = this.flattenBlocks(children);
     flat.forEach((el, i) => {
-      if (el.name === 'bookmarkStart' || el.name === 'bookmarkEnd') this.bookmark(el);
-      else if (el.name === 'tbl') this.table(el);
-      else if (el.name === 'oMathPara' || el.name === 'oMath') {
-        this.ctx.warnings.add('equations');
-        this.addText(mathText(el), {});
-        this.endParagraph({});
-      } else if (i === flat.length - 1 && i > 0 && flat[i - 1]!.name === 'tbl' && isBareParagraph(el)) return;
-      else this.paragraph(el);
+      const outer = this.revision;
+      this.revision = this.blockRevisions.get(el) ?? outer;
+      this.block(el, i === flat.length - 1 && i > 0 && flat[i - 1]!.name === 'tbl');
+      this.revision = outer;
     });
+  }
+
+  /** One block-level element; `afterLastTable` when it ends the story right after a table. */
+  private block(el: XmlElement, afterLastTable: boolean): void {
+    if (el.name === 'bookmarkStart' || el.name === 'bookmarkEnd') this.bookmark(el);
+    else if (el.name === 'commentRangeStart' || el.name === 'commentRangeEnd') this.commentRange(el);
+    else if (el.name === 'tbl') this.table(el);
+    else if (el.name === 'oMathPara' || el.name === 'oMath') {
+      this.ctx.warnings.add('equations');
+      this.addText(mathText(el), {});
+      this.endParagraph({});
+    } else if (!afterLastTable || !isBareParagraph(el)) this.paragraph(el);
   }
 
   private flattenBlocks(children: XmlElement[]): XmlElement[] {
@@ -171,6 +225,8 @@ export class StoryReader {
         case 'tbl':
         case 'bookmarkStart':
         case 'bookmarkEnd':
+        case 'commentRangeStart':
+        case 'commentRangeEnd':
           out.push(el);
           break;
         case 'sdt':
@@ -182,13 +238,16 @@ export class StoryReader {
           break;
         case 'ins':
         case 'moveTo':
-          this.ctx.warnings.add('trackedChanges');
-          out.push(...this.flattenBlocks(el.children));
-          break;
         case 'del':
-        case 'moveFrom':
-          this.ctx.warnings.add('trackedChanges');
+        case 'moveFrom': {
+          // What a revision holds is marked with it, unless a revision inside it marks it first.
+          const rev = revisionSuggestion(this.ctx, el);
+          for (const inner of this.flattenBlocks(el.children)) {
+            if (!this.blockRevisions.has(inner)) this.blockRevisions.set(inner, rev);
+            out.push(inner);
+          }
           break;
+        }
         case 'altChunk':
           this.ctx.warnings.add('embeddedDocuments');
           break;
@@ -203,13 +262,15 @@ export class StoryReader {
     return out;
   }
 
-  private endParagraph(props: ParaProps): void {
+  private endParagraph(props: ParaProps, mark?: Suggestion): void {
     if (++this.ctx.paragraphs > MAX_PARAGRAPHS) throw new DocxImportError('The document has too many paragraphs to open', 'too_large');
-    this.b.endParagraph(props);
+    this.b.endParagraph(props, mark ? { suggestion: mark } : {});
   }
 
   private paragraph(p: XmlElement): void {
-    const info = readParaProps(child(p, 'pPr'));
+    const pPr = child(p, 'pPr');
+    if (child(pPr, 'pPrChange')) this.ctx.warnings.add('trackedChanges');
+    const info = readParaProps(pPr);
     const props = info.props;
     const styleId = info.styleId ? this.ctx.sheet.paraIds.get(info.styleId) : undefined;
     if (styleId && styleId !== NORMAL) props.style = styleId;
@@ -226,7 +287,9 @@ export class StoryReader {
       const tabs = relativeTabs(info.tabs, this.tabBase(props));
       if (tabs.length) props.tabs = tabs;
     }
-    this.endParagraph(props);
+    // A paragraph mark Word marks inserted or deleted is a suggested paragraph break.
+    const markRev = child(pPr, 'rPr')?.children.find((c) => REVISION_KIND.has(c.name));
+    this.endParagraph(props, markRev ? revisionSuggestion(this.ctx, markRev) : this.revision);
   }
 
   /** Puts the paragraph in the list its numbering (own or from its style) points at, when that list exists. */
@@ -262,13 +325,14 @@ export class StoryReader {
           break;
         case 'ins':
         case 'moveTo':
-          this.ctx.warnings.add('trackedChanges');
-          this.inlines(el.children, link);
-          break;
         case 'del':
-        case 'moveFrom':
-          this.ctx.warnings.add('trackedChanges');
+        case 'moveFrom': {
+          const outer = this.revision;
+          this.revision = revisionSuggestion(this.ctx, el);
+          this.inlines(el.children, link);
+          this.revision = outer;
           break;
+        }
         case 'smartTag':
         case 'customXml':
         case 'dir':
@@ -285,7 +349,7 @@ export class StoryReader {
           break;
         case 'commentRangeStart':
         case 'commentRangeEnd':
-          this.ctx.warnings.add('comments');
+          this.commentRange(el);
           break;
         case 'bookmarkStart':
         case 'bookmarkEnd':
@@ -309,6 +373,7 @@ export class StoryReader {
   }
 
   private runStyle(rPr: XmlElement | undefined, link: string | undefined): TextStyle {
+    if (child(rPr, 'rPrChange')) this.ctx.warnings.add('trackedChanges');
     const charStyle = rPr ? this.ctx.sheet.charStyles.get(child(rPr, 'rStyle')?.attrs.val ?? '') : undefined;
     const style: TextStyle = { ...charStyle, ...readRunProps(rPr, this.ctx.theme) };
     const target = this.fieldLink() ?? link;
@@ -332,6 +397,7 @@ export class StoryReader {
   private runContent(el: XmlElement, style: TextStyle): void {
     switch (el.name) {
       case 't':
+      case 'delText':
         this.addText(el.text, style);
         break;
       case 'tab':
@@ -388,7 +454,8 @@ export class StoryReader {
   /** The other run children: field codes, note marks, and what only warns or wraps. */
   private runControl(el: XmlElement, style: TextStyle): void {
     switch (el.name) {
-      case 'instrText': {
+      case 'instrText':
+      case 'delInstrText': {
         const top = this.fields[this.fields.length - 1];
         if (top?.phase === 'code') top.instr += el.text;
         break;
@@ -404,7 +471,7 @@ export class StoryReader {
         this.afterNoteMark = true;
         break;
       case 'commentReference':
-        this.ctx.warnings.add('comments');
+        this.commentReference(el.attrs.id);
         break;
       case 'AlternateContent':
         this.runChildren(alternative(el), style);
@@ -430,23 +497,51 @@ export class StoryReader {
     this.marks.push({ ...open, to: this.b.length });
   }
 
+  private commentRange(el: XmlElement): void {
+    const id = el.attrs.id;
+    if (id === undefined) return;
+    if (el.name === 'commentRangeStart') {
+      if (!this.comments.has(id)) this.openComments.set(id, this.b.length);
+      return;
+    }
+    const from = this.openComments.get(id);
+    if (from === undefined) return;
+    this.openComments.delete(id);
+    this.comments.set(id, { from, to: this.b.length });
+  }
+
+  /** A comment's mark: it ends a range left open, or is the comment's place when it has no range. */
+  private commentReference(id: string | undefined): void {
+    if (id === undefined || this.comments.has(id)) return;
+    const from = this.openComments.get(id) ?? this.b.length;
+    this.openComments.delete(id);
+    this.comments.set(id, { from, to: this.b.length });
+  }
+
   private addText(raw: string, style: TextStyle): void {
     let text = cleanStoryText(raw.replace(/[\r\n]/g, ' '));
     if (this.afterNoteMark && text) {
       text = text.replace(/^ /, '');
       this.afterNoteMark = false;
     }
-    if (text) this.b.addText(text, tidy(style));
+    if (text) this.b.addText(text, this.marked(style));
   }
 
   private addRaw(ch: string, style: TextStyle): void {
     this.afterNoteMark = false;
-    this.b.addText(ch, tidy(style));
+    this.b.addText(ch, this.marked(style));
   }
 
   private addObject(data: ObjectData, style: TextStyle): void {
     this.afterNoteMark = false;
-    this.b.addObject(data, tidy(style));
+    this.b.addObject(data, this.marked(style));
+  }
+
+  /** The style text is added with: as read, marked with the revision being read. */
+  private marked(style: TextStyle): TextStyle {
+    const out = tidy(style);
+    if (this.revision) out.suggestion = { ...this.revision };
+    return out;
   }
 
   // ---------------------------------------------------------------- fields

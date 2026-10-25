@@ -8,8 +8,9 @@ import type { DocSnapshot } from '../../model/document';
  * translate).
  */
 export type DocxImportWarning =
+  /** Comments whose place in the text the file does not give were left out. */
   | 'comments'
-  /** Tracked insertions were kept and deletions dropped, without their authors. */
+  /** Tracked formatting changes were taken as accepted (tracked insertions and deletions become suggestions). */
   | 'trackedChanges'
   /** Text boxes and drawn shapes. */
   | 'textBoxes'

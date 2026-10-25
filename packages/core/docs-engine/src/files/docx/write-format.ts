@@ -142,6 +142,8 @@ export interface PPrExtras {
   sectPr?: string;
   /** Replaces the paragraph's borders (a horizontal rule is a bottom border). */
   borders?: ParaBorders;
+  /** The paragraph mark's `w:rPr` (a suggested paragraph break). */
+  markRPr?: string;
 }
 
 export function pPrXml(props: ParaProps, ctx: FormatContext, extras: PPrExtras = {}): string {
@@ -159,6 +161,7 @@ export function pPrXml(props: ParaProps, ctx: FormatContext, extras: PPrExtras =
     }
   }
   out += paraBody(props, props.tabs?.length ? tabBase(ctx, props) : 0, extras.borders ?? props.borders);
+  out += extras.markRPr ?? '';
   out += extras.sectPr ?? '';
   return out ? `<w:pPr>${out}</w:pPr>` : '';
 }
