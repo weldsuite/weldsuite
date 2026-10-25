@@ -57,27 +57,12 @@ function applySimple(doc: DocModel, op: SimpleOp): Op {
       return applySetDims(doc, op);
     case 'setTableCells':
       return applySetCells(doc, op);
-    case 'setTable': {
-      const table = doc.tables.get(op.table);
-      if (!table) return NOOP;
-      const before = table.props ?? {};
-      table.props = applyPatch(before, op.patch);
-      return { type: 'setTable', table: op.table, patch: inversePatch(before, op.patch) };
-    }
-    case 'createStory': {
-      if (doc.stories.has(op.story)) return NOOP;
-      const content: Content = op.content ?? { text: PARA };
-      doc.addOwned({ stories: { ...content.stories, [op.story]: content }, tables: content.tables });
-      return { type: 'deleteStory', story: op.story };
-    }
-    case 'deleteStory': {
-      const story = doc.stories.get(op.story);
-      if (!story) return NOOP;
-      const content = doc.extract(op.story, 0, story.length);
-      doc.removeOwned(op.story, 0, story.length);
-      doc.stories.delete(op.story);
-      return { type: 'createStory', story: op.story, content };
-    }
+    case 'setTable':
+      return applySetTable(doc, op);
+    case 'createStory':
+      return applyCreateStory(doc, op);
+    case 'deleteStory':
+      return applyDeleteStory(doc, op);
     case 'setDocProps': {
       const before = doc.props;
       doc.props = applyPatch(before, op.patch);
@@ -87,24 +72,51 @@ function applySimple(doc: DocModel, op: SimpleOp): Op {
       return patchMap(doc.styles, op.set, op.remove, (set, remove) => ({ type: 'patchStyles', set, remove }));
     case 'patchLists':
       return patchMap(doc.lists, op.set, op.remove, (set, remove) => ({ type: 'patchLists', set, remove }));
-    case 'patchAnchors': {
-      const restore: Anchor[] = [];
-      const drop: string[] = [];
-      for (const a of op.set ?? []) {
-        const old = doc.anchors.get(a.id);
-        if (old) restore.push({ ...old });
-        else drop.push(a.id);
-        doc.anchors.set(a.id, { ...a });
-      }
-      for (const id of op.remove ?? []) {
-        const old = doc.anchors.get(id);
-        if (!old) continue;
-        restore.push({ ...old });
-        doc.anchors.delete(id);
-      }
-      return { type: 'patchAnchors', set: restore, remove: drop };
-    }
+    case 'patchAnchors':
+      return applyPatchAnchors(doc, op);
   }
+}
+
+function applySetTable(doc: DocModel, op: OpOf<'setTable'>): Op {
+  const table = doc.tables.get(op.table);
+  if (!table) return NOOP;
+  const before = table.props ?? {};
+  table.props = applyPatch(before, op.patch);
+  return { type: 'setTable', table: op.table, patch: inversePatch(before, op.patch) };
+}
+
+function applyCreateStory(doc: DocModel, op: OpOf<'createStory'>): Op {
+  if (doc.stories.has(op.story)) return NOOP;
+  const content: Content = op.content ?? { text: PARA };
+  doc.addOwned({ stories: { ...content.stories, [op.story]: content }, tables: content.tables });
+  return { type: 'deleteStory', story: op.story };
+}
+
+function applyDeleteStory(doc: DocModel, op: OpOf<'deleteStory'>): Op {
+  const story = doc.stories.get(op.story);
+  if (!story) return NOOP;
+  const content = doc.extract(op.story, 0, story.length);
+  doc.removeOwned(op.story, 0, story.length);
+  doc.stories.delete(op.story);
+  return { type: 'createStory', story: op.story, content };
+}
+
+function applyPatchAnchors(doc: DocModel, op: OpOf<'patchAnchors'>): Op {
+  const restore: Anchor[] = [];
+  const drop: string[] = [];
+  for (const a of op.set ?? []) {
+    const old = doc.anchors.get(a.id);
+    if (old) restore.push({ ...old });
+    else drop.push(a.id);
+    doc.anchors.set(a.id, { ...a });
+  }
+  for (const id of op.remove ?? []) {
+    const old = doc.anchors.get(id);
+    if (!old) continue;
+    restore.push({ ...old });
+    doc.anchors.delete(id);
+  }
+  return { type: 'patchAnchors', set: restore, remove: drop };
 }
 
 // ---------------------------------------------------------------- text
@@ -149,7 +161,9 @@ function applyDelete(doc: DocModel, op: OpOf<'delete'>): Op {
 }
 
 function mapDeleted(p: number, from: number, to: number, len: number): number {
-  return p <= from ? p : p >= to ? p - len : from;
+  if (p <= from) return p;
+  if (p >= to) return p - len;
+  return from;
 }
 
 function applyFormatText(doc: DocModel, op: OpOf<'formatText'>): Op {
@@ -274,19 +288,28 @@ function applyInsertDims(doc: DocModel, op: OpOf<'insertTableDims'>): Op {
   for (const s of spans(table, op.axis)) if (s.index < op.at && op.at < s.index + s.span) setSpan(table, op.axis, s.key, s.span + count);
   dimsOf(table, op.axis).splice(op.at, 0, ...op.items.map((d) => ({ ...d })));
 
-  const newIds = new Set(op.items.map((d) => d.id));
-  const newCellStories: string[] = [];
-  for (const r of table.rows) {
-    for (const c of table.cols) {
-      if (!newIds.has(op.axis === 'row' ? r.id : c.id)) continue;
-      newCellStories.push(cellStoryId(op.table, r.id, c.id));
-      const props = op.cells?.[cellKey(r.id, c.id)];
-      if (props) (table.cells ??= {})[cellKey(r.id, c.id)] = { ...props };
-    }
-  }
+  const newCellStories = addNewCells(table, op);
   if (op.content) doc.addOwned(reachable(op.content, newCellStories));
   doc.ensureCells(op.table, table);
   return { type: 'deleteTableDims', table: op.table, axis: op.axis, at: op.at, count };
+}
+
+/** Gives the cells of the inserted rows/columns the properties the op carries; returns their story ids. */
+function addNewCells(table: TableData, op: OpOf<'insertTableDims'>): string[] {
+  const newIds = new Set(op.items.map((d) => d.id));
+  const stories: string[] = [];
+  for (const r of table.rows) {
+    for (const c of table.cols) {
+      if (!newIds.has(op.axis === 'row' ? r.id : c.id)) continue;
+      stories.push(cellStoryId(op.table, r.id, c.id));
+      const key = cellKey(r.id, c.id);
+      const props = op.cells?.[key];
+      if (!props) continue;
+      table.cells ??= {};
+      table.cells[key] = { ...props };
+    }
+  }
+  return stories;
 }
 
 function applyDeleteDims(doc: DocModel, op: OpOf<'deleteTableDims'>): Op {
@@ -298,39 +321,9 @@ function applyDeleteDims(doc: DocModel, op: OpOf<'deleteTableDims'>): Op {
   if (count <= 0) return NOOP;
   const end = at + count;
 
-  // Merges the delete cuts into shrink; ones anchored in it go with it.
-  const restoreSpans: [string, Patch<CellProps>][] = [];
-  for (const s of spans(table, op.axis)) {
-    if (s.index >= at && s.index < end) continue;
-    const overlap = Math.max(0, Math.min(end, s.index + s.span) - Math.max(at, s.index));
-    if (overlap === 0) continue;
-    restoreSpans.push([s.key, { [op.axis === 'row' ? 'rowSpan' : 'colSpan']: s.span }]);
-    setSpan(table, op.axis, s.key, s.span - overlap);
-  }
-
+  const restoreSpans = shrinkSpans(table, op.axis, at, end);
   const removed = dims.slice(at, end);
-  const removedIds = new Set(removed.map((d) => d.id));
-  const cells: Record<string, CellProps> = {};
-  const content: Required<Pick<Content, 'tables' | 'stories'>> = { tables: {}, stories: {} };
-  for (const r of table.rows) {
-    for (const c of table.cols) {
-      if (!removedIds.has(op.axis === 'row' ? r.id : c.id)) continue;
-      const key = cellKey(r.id, c.id);
-      if (table.cells?.[key]) {
-        cells[key] = table.cells[key]!;
-        delete table.cells[key];
-      }
-      const sid = cellStoryId(op.table, r.id, c.id);
-      const story = doc.stories.get(sid);
-      if (!story) continue;
-      const extracted = doc.extract(sid, 0, story.length);
-      content.stories[sid] = storyPart(extracted);
-      Object.assign(content.tables, extracted.tables);
-      Object.assign(content.stories, extracted.stories);
-      doc.removeOwned(sid, 0, story.length);
-      doc.stories.delete(sid);
-    }
-  }
+  const { cells, content } = takeCells(doc, op.table, table, op.axis, new Set(removed.map((d) => d.id)));
   dims.splice(at, count);
 
   const insert: Op = {
@@ -343,6 +336,61 @@ function applyDeleteDims(doc: DocModel, op: OpOf<'deleteTableDims'>): Op {
     content,
   };
   return restoreSpans.length ? { type: 'batch', ops: [insert, { type: 'setTableCells', table: op.table, cells: restoreSpans }] } : insert;
+}
+
+/**
+ * Shrinks the merges a delete of [at, end) cuts into (ones anchored in it go
+ * with it); returns the patches that give them their old spans back.
+ */
+function shrinkSpans(table: TableData, axis: TableAxis, at: number, end: number): [string, Patch<CellProps>][] {
+  const restore: [string, Patch<CellProps>][] = [];
+  for (const s of spans(table, axis)) {
+    if (s.index >= at && s.index < end) continue;
+    const overlap = Math.max(0, Math.min(end, s.index + s.span) - Math.max(at, s.index));
+    if (overlap === 0) continue;
+    restore.push([s.key, { [axis === 'row' ? 'rowSpan' : 'colSpan']: s.span }]);
+    setSpan(table, axis, s.key, s.span - overlap);
+  }
+  return restore;
+}
+
+/**
+ * Takes the cells of the rows/columns being deleted out of the table and the
+ * document: their properties, and their stories with everything those own.
+ */
+function takeCells(
+  doc: DocModel,
+  tableId: string,
+  table: TableData,
+  axis: TableAxis,
+  removedIds: Set<string>,
+): { cells: Record<string, CellProps>; content: Required<Pick<Content, 'tables' | 'stories'>> } {
+  const cells: Record<string, CellProps> = {};
+  const content: Required<Pick<Content, 'tables' | 'stories'>> = { tables: {}, stories: {} };
+  for (const r of table.rows) {
+    for (const c of table.cols) {
+      if (!removedIds.has(axis === 'row' ? r.id : c.id)) continue;
+      const key = cellKey(r.id, c.id);
+      if (table.cells?.[key]) {
+        cells[key] = table.cells[key]!;
+        delete table.cells[key];
+      }
+      takeCellStory(doc, cellStoryId(tableId, r.id, c.id), content);
+    }
+  }
+  return { cells, content };
+}
+
+/** Moves one cell's story (and what it owns) out of the document into `content`. */
+function takeCellStory(doc: DocModel, sid: string, content: Required<Pick<Content, 'tables' | 'stories'>>): void {
+  const story = doc.stories.get(sid);
+  if (!story) return;
+  const extracted = doc.extract(sid, 0, story.length);
+  content.stories[sid] = storyPart(extracted);
+  Object.assign(content.tables, extracted.tables);
+  Object.assign(content.stories, extracted.stories);
+  doc.removeOwned(sid, 0, story.length);
+  doc.stories.delete(sid);
 }
 
 function applySetDims(doc: DocModel, op: OpOf<'setTableDims'>): Op {
@@ -390,14 +438,22 @@ function reachable(content: Pick<Content, 'tables' | 'stories'>, roots: string[]
     if (out.stories[id]) continue;
     const story = content.stories![id]!;
     out.stories[id] = story;
-    for (const [, obj] of story.objects ?? []) {
-      for (const sid of ownedIdsInContent(obj, content)) {
-        if (content.stories?.[sid] && !out.stories[sid]) queue.push(sid);
-      }
-      if (obj.kind === 'table' && content.tables?.[obj.id]) out.tables[obj.id] = content.tables[obj.id]!;
-    }
+    for (const [, obj] of story.objects ?? []) visitOwner(obj, content, out, queue);
   }
   return out;
+}
+
+/** Queues the stories an object owns that are not taken yet, and takes its table. */
+function visitOwner(
+  obj: ObjectData,
+  content: Pick<Content, 'tables' | 'stories'>,
+  out: Required<Pick<Content, 'tables' | 'stories'>>,
+  queue: string[],
+): void {
+  for (const sid of ownedIdsInContent(obj, content)) {
+    if (content.stories?.[sid] && !out.stories[sid]) queue.push(sid);
+  }
+  if (obj.kind === 'table' && content.tables?.[obj.id]) out.tables[obj.id] = content.tables[obj.id]!;
 }
 
 function ownedIdsInContent(obj: ObjectData, content: Pick<Content, 'tables' | 'stories'>): string[] {
@@ -411,9 +467,12 @@ function ownedIdsInContent(obj: ObjectData, content: Pick<Content, 'tables' | 's
   return [];
 }
 
+/** The story's own part of `content`, without the tables and stories its objects own. */
 function storyPart(content: Content): StoryContent {
-  const { tables: _t, stories: _s, ...rest } = content;
-  return rest;
+  const part: Content = { ...content };
+  delete part.tables;
+  delete part.stories;
+  return part;
 }
 
 function patchMap<T>(

@@ -39,50 +39,53 @@ function Item({ item }: { item: DisplayItem }) {
       return <ImageItem item={item} />;
     case 'checkbox':
       return (
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            left: `${item.x}pt`,
-            top: `${item.y}pt`,
-            width: `${item.size}pt`,
-            height: `${item.size}pt`,
-            border: `1pt solid ${item.color}`,
-            borderRadius: '2pt',
-            background: item.checked ? item.color : 'transparent',
-            color: '#ffffff',
-            fontSize: `${item.size * 0.8}pt`,
-            lineHeight: `${item.size}pt`,
-            textAlign: 'center',
-            cursor: 'pointer',
-          }}
-        >
+        <div aria-hidden style={checkboxStyle(item)}>
           {item.checked ? '✓' : ''}
         </div>
       );
-    case 'text': {
-      const s = item.style;
-      const decorations = [s.underline ? 'underline' : '', s.strike ? 'line-through' : ''].filter(Boolean).join(' ');
-      const style: CSSProperties = {
-        position: 'absolute',
-        left: `${item.x}pt`,
-        top: `${item.baseline - item.ascent}pt`,
-        height: `${item.ascent + item.descent}pt`,
-        lineHeight: `${item.ascent + item.descent}pt`,
-        fontFamily: fontFamily(s.font.family),
-        fontSize: `${s.font.size}pt`,
-        fontWeight: s.font.bold ? 700 : 400,
-        fontStyle: s.font.italic ? 'italic' : 'normal',
-        color: s.suggestion?.kind === 'insert' ? '#188038' : s.color,
-        whiteSpace: 'pre',
-        textDecoration: decorations || undefined,
-        wordSpacing: item.wordSpacing ? `${item.wordSpacing}pt` : undefined,
-        letterSpacing: s.spacing ? `${s.spacing}pt` : undefined,
-        fontKerning: 'normal',
-      };
-      return <span style={style}>{item.text}</span>;
-    }
+    case 'text':
+      return <span style={textStyle(item)}>{item.text}</span>;
   }
+}
+
+function checkboxStyle(item: Extract<DisplayItem, { kind: 'checkbox' }>): CSSProperties {
+  return {
+    position: 'absolute',
+    left: `${item.x}pt`,
+    top: `${item.y}pt`,
+    width: `${item.size}pt`,
+    height: `${item.size}pt`,
+    border: `1pt solid ${item.color}`,
+    borderRadius: '2pt',
+    background: item.checked ? item.color : 'transparent',
+    color: '#ffffff',
+    fontSize: `${item.size * 0.8}pt`,
+    lineHeight: `${item.size}pt`,
+    textAlign: 'center',
+    cursor: 'pointer',
+  };
+}
+
+function textStyle(item: Extract<DisplayItem, { kind: 'text' }>): CSSProperties {
+  const s = item.style;
+  const decorations = [s.underline ? 'underline' : '', s.strike ? 'line-through' : ''].filter(Boolean).join(' ');
+  return {
+    position: 'absolute',
+    left: `${item.x}pt`,
+    top: `${item.baseline - item.ascent}pt`,
+    height: `${item.ascent + item.descent}pt`,
+    lineHeight: `${item.ascent + item.descent}pt`,
+    fontFamily: fontFamily(s.font.family),
+    fontSize: `${s.font.size}pt`,
+    fontWeight: s.font.bold ? 700 : 400,
+    fontStyle: s.font.italic ? 'italic' : 'normal',
+    color: s.suggestion?.kind === 'insert' ? '#188038' : s.color,
+    whiteSpace: 'pre',
+    textDecoration: decorations || undefined,
+    wordSpacing: item.wordSpacing ? `${item.wordSpacing}pt` : undefined,
+    letterSpacing: s.spacing ? `${s.spacing}pt` : undefined,
+    fontKerning: 'normal',
+  };
 }
 
 function ImageItem({ item }: { item: Extract<DisplayItem, { kind: 'image' }> }) {
@@ -124,6 +127,8 @@ function lineStyle(item: Extract<DisplayItem, { kind: 'line' }>): CSSProperties 
   };
 }
 
+/** A CSS font-family list: the family (quoted unless it is one plain word), then sans-serif. */
 function fontFamily(family: string): string {
-  return `${/^[a-z-]+$/i.test(family) ? family : `"${family.replace(/["\\]/g, '')}"`}, sans-serif`;
+  if (/^[a-z-]+$/i.test(family)) return `${family}, sans-serif`;
+  return `"${family.replace(/["\\]/g, '')}", sans-serif`;
 }

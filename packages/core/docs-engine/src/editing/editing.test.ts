@@ -158,9 +158,9 @@ describe('paste', () => {
 describe('find and replace', () => {
   it('finds whole words without crossing paragraphs, and replaces them all', () => {
     const d = doc(`cat catalog Cat${PARA}cat`);
-    expect(findAll(d, 'cat').length).toBe(4);
-    expect(findAll(d, 'cat', { wholeWord: true }).length).toBe(3);
-    expect(findAll(d, 'cat', { wholeWord: true, matchCase: true }).length).toBe(2);
+    expect(findAll(d, 'cat')).toHaveLength(4);
+    expect(findAll(d, 'cat', { wholeWord: true })).toHaveLength(3);
+    expect(findAll(d, 'cat', { wholeWord: true, matchCase: true })).toHaveLength(2);
     const { op, count } = replaceAll(d, 'cat', 'dog', { wholeWord: true });
     applyOp(d, op);
     expect(count).toBe(3);
@@ -195,5 +195,14 @@ describe('regex replace', () => {
     expect(d.body.text()).toBe(`jan@new and X EUR${PARA}`);
     const [m] = findAll(d, '(?<name>jan)@new', { regex: true });
     expect(replacementFor(d, '(?<name>jan)@new', { regex: true }, m!, '$<name>!$$')).toBe('jan!$');
+  });
+
+  it('replaces thousands of matches in one op, groups expanded', () => {
+    const words = Array.from({ length: 5000 }, (_, i) => `w${i}`);
+    const d = doc(words.join('  '));
+    const all = replaceAll(d, String.raw`\s+(\w)`, '_$1', { regex: true });
+    expect(all.count).toBe(4999);
+    applyOp(d, all.op);
+    expect(d.body.text()).toBe(`${words.join('_')}${PARA}`);
   });
 });

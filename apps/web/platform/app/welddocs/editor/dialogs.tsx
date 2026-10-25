@@ -235,10 +235,25 @@ export function normalizeLink(input: string): string | null {
   if (!v) return null;
   if (/^(https?:|mailto:|tel:)/i.test(v)) return v;
   if (v.startsWith('#')) return v;
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return `mailto:${v}`;
+  if (isEmailAddress(v)) return `mailto:${v}`;
   if (/^\+?[\d\s()-]{6,}$/.test(v)) return `tel:${v.replace(/\s/g, '')}`;
-  if (/^[^\s]+\.[^\s]{2,}/.test(v)) return `https://${v}`;
+  if (looksLikeDomain(v)) return `https://${v}`;
   return null;
+}
+
+/** name@host.tld: one @, no spaces, and a dot inside the host. Plain string checks (no backtracking regex). */
+function isEmailAddress(v: string): boolean {
+  const at = v.indexOf('@');
+  if (at <= 0 || v.includes('@', at + 1) || /\s/.test(v)) return false;
+  const host = v.slice(at + 1);
+  // A dot with at least one character on each side.
+  return host.lastIndexOf('.', host.length - 2) >= 1;
+}
+
+/** Text that starts with something like example.com: a dot inside the first word, with two or more characters after it. */
+function looksLikeDomain(v: string): boolean {
+  const firstWord = v.split(/\s/, 1)[0] ?? '';
+  return firstWord.lastIndexOf('.', firstWord.length - 3) >= 1;
 }
 
 function LinkDialog({ controller, onClose }: { controller: DocController; onClose: () => void }) {

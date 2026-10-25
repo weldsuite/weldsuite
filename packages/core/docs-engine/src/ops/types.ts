@@ -19,7 +19,6 @@ import type {
   ObjectPatch,
   RowPatch,
   TableAxis,
-  TableData,
   TableProps,
 } from '../model/objects';
 import type { ListDef, NamedStyle, ParaPatch, Patch, TextStylePatch } from '../model/styles';

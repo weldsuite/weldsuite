@@ -11,7 +11,7 @@
 
 import { LINE_BREAK, OBJECT, PARA, TAB } from '../model/chars';
 import type { DocModel } from '../model/document';
-import type { ObjectData } from '../model/objects';
+import type { BreakObject, FieldObject, ObjectData, SectionBreakObject } from '../model/objects';
 import { resolveParagraph } from '../model/resolve';
 import type { Story } from '../model/story';
 import type { ListLevel, ParaProps, TabStop } from '../model/styles';
@@ -57,131 +57,220 @@ type Item =
   | { kind: 'object'; start: number; end: number; style: RunStyle; object: ObjectData; width: number; ascent: number; descent: number; glue: boolean; text?: string }
   | { kind: 'break' | 'mark'; start: number; end: number; style: RunStyle; width: 0; glue: true };
 
+type TextItem = Extract<Item, { kind: 'text' }>;
+type ObjectItem = Extract<Item, { kind: 'object' }>;
+type LineEnd = 'wrap' | 'last' | 'forced';
+
 export function layoutParagraph(ctx: ParagraphContext, story: Story, start: number, end: number, width: number, marker: Marker | null): ParagraphLayout {
   const markStyleId = story.styleAt(end);
   const rawProps = (story.attrAt(end) as ParaProps | undefined) ?? {};
   const props = resolveParagraph(ctx.doc, rawProps);
   const items = buildItems(ctx, story, start, end, props);
-
-  const blocks: BlockLayout[] = [];
-  let lines: LineLayout[] = [];
-  let lineItems: Item[] = [];
-  let x = 0;
-  let firstLine = true;
-  let ignoreGlue = false;
-
-  const listLevel = marker?.level;
-  const left = listLevel ? listLevel.indent : (props.indentLeft ?? 0);
-  const right = props.indentRight ?? 0;
-  const markerStyle = marker ? ctx.styles.fromStyle(props, { ...ctx.doc.textStyles.get(markStyleId), ...listLevel?.style }) : null;
-  const markerWidth = marker && markerStyle ? ctx.measurer.measure(marker.text, markerStyle.font) : 0;
-  const markerX = listLevel ? listLevel.indent - listLevel.hanging : 0;
-  const firstX = marker ? Math.max(left, markerX + markerWidth + 4) : left + (props.indentFirst ?? 0);
-
-  const lineLeft = () => (firstLine ? firstX : left);
-  const avail = () => Math.max(MIN_SIZE, width - right - lineLeft());
-
-  const flush = (reason: 'wrap' | 'last' | 'forced', extra: Partial<LineLayout> = {}) => {
-    lines.push(buildLine(ctx, lineItems, reason, props, lineLeft(), avail(), firstLine && marker && markerStyle ? { text: marker.text, x: markerX, width: markerWidth, style: markerStyle } : undefined, extra));
-    lineItems = [];
-    x = 0;
-    firstLine = false;
-  };
-  const closeBlock = () => {
-    if (lines.length) blocks.push({ kind: 'lines', lines });
-    lines = [];
-  };
-
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i]!;
-    if (it.kind === 'object' && it.object.kind === 'table') {
-      if (lineItems.length) flush('forced');
-      closeBlock();
-      const table = ctx.layoutTable(it.object.id, Math.max(MIN_SIZE, width - left - right));
-      if (table) {
-        table.x += left;
-        blocks.push({ kind: 'table', table, offset: it.start });
-      }
-      continue;
-    }
-    if (it.kind === 'mark') {
-      lineItems.push(it);
-      flush('last');
-      continue;
-    }
-    if (it.kind === 'break') {
-      lineItems.push(it);
-      flush('forced');
-      continue;
-    }
-    if (it.kind === 'object') {
-      const k = it.object.kind;
-      if (k === 'pageBreak' || k === 'columnBreak' || k === 'sectionBreak') {
-        lineItems.push(it);
-        flush('forced', {
-          breakAfter: k === 'pageBreak' ? 'page' : k === 'columnBreak' ? 'column' : 'section',
-          ...(it.object.kind === 'sectionBreak' ? { sectionBreak: { id: it.object.id, start: it.object.start, section: it.object.section } } : {}),
-        });
-        continue;
-      }
-      if (k === 'hr') {
-        if (lineItems.length) flush('forced');
-        lineItems.push(it);
-        flush('forced', { rule: true });
-        continue;
-      }
-    }
-    if (it.kind === 'tab') it.width = tabWidth(ctx, items, i, x, props, lineLeft(), left, avail());
-
-    // Width of this piece and any glued to it (the last one's trailing spaces hang).
-    let chunk = it.width - (it.kind === 'text' ? it.trail : 0);
-    if (!it.glue || ignoreGlue) {
-      ignoreGlue = false;
-      let acc = it.width;
-      for (let j = i + 1; j < items.length; j++) {
-        const next = items[j]!;
-        if (!next.glue || next.kind === 'mark' || next.kind === 'break') break;
-        chunk = acc + next.width - (next.kind === 'text' ? next.trail : 0);
-        acc += next.width;
-      }
-      if (lineItems.length && x + chunk > avail() + EPS) flush('wrap');
-      if (!lineItems.length && chunk > avail() + EPS) ignoreGlue = true;
-    } else if (ignoreGlue && lineItems.length && x + chunk > avail() + EPS) {
-      flush('wrap');
-    }
-
-    if (it.kind === 'text' && !lineItems.length && it.width - it.trail > avail() + EPS && it.text.trim().length > 1) {
-      // A word wider than the line: break it between characters.
-      const fit = fitChars(ctx.measurer, it.text, it.style, avail());
-      if (fit < it.text.length) {
-        const head = splitText(ctx, it, 0, fit);
-        const tail = splitText(ctx, it, fit, it.text.length);
-        lineItems.push(head);
-        flush('wrap');
-        items.splice(i + 1, 0, { ...tail, glue: true });
-        ignoreGlue = true;
-        continue;
-      }
-    }
-    lineItems.push(it);
-    x += it.width;
-  }
-  if (lineItems.length) flush('last');
-  closeBlock();
-
-  let height = 0;
-  for (const b of blocks) {
-    if (b.kind === 'lines') for (const l of b.lines) height += l.height;
-    else for (const r of b.table.rows) height += r.height;
-  }
+  const blocks = new LineBreaker(ctx, props, width, marker, markStyleId).run(items);
   return {
     props,
     blocks,
     spaceBefore: props.spaceBefore ?? 0,
     spaceAfter: props.spaceAfter ?? 0,
     width,
-    height,
+    height: blocksHeight(blocks),
   };
+}
+
+function blocksHeight(blocks: BlockLayout[]): number {
+  let height = 0;
+  for (const b of blocks) {
+    if (b.kind === 'lines') for (const l of b.lines) height += l.height;
+    else for (const r of b.table.rows) height += r.height;
+  }
+  return height;
+}
+
+// ---------------------------------------------------------------- filling lines
+
+/**
+ * Fills lines greedily from a paragraph's items. Its state is the line being
+ * filled (its items and width so far) and the blocks finished so far: runs
+ * of lines, split by the tables the paragraph holds.
+ */
+class LineBreaker {
+  private readonly blocks: BlockLayout[] = [];
+  private lines: LineLayout[] = [];
+  private lineItems: Item[] = [];
+  /** Width of the line being filled. */
+  private x = 0;
+  private firstLine = true;
+  /**
+   * Set when a piece with the pieces glued to it is wider than a line: the
+   * glue no longer holds, so the next pieces may wrap one by one.
+   */
+  private ignoreGlue = false;
+  private readonly left: number;
+  private readonly right: number;
+  /** Left edge of the first line (first-line indent, or past the list marker). */
+  private readonly firstX: number;
+  private readonly marker: LineLayout['marker'];
+
+  constructor(
+    private readonly ctx: ParagraphContext,
+    private readonly props: ParaProps,
+    private readonly width: number,
+    marker: Marker | null,
+    markStyleId: number,
+  ) {
+    const listLevel = marker?.level;
+    this.left = listLevel ? listLevel.indent : (props.indentLeft ?? 0);
+    this.right = props.indentRight ?? 0;
+    if (!marker) {
+      this.firstX = this.left + (props.indentFirst ?? 0);
+      return;
+    }
+    const style = ctx.styles.fromStyle(props, { ...ctx.doc.textStyles.get(markStyleId), ...listLevel?.style });
+    const markerWidth = ctx.measurer.measure(marker.text, style.font);
+    const markerX = marker.level.indent - marker.level.hanging;
+    this.firstX = Math.max(this.left, markerX + markerWidth + 4);
+    this.marker = { text: marker.text, x: markerX, width: markerWidth, style };
+  }
+
+  run(items: Item[]): BlockLayout[] {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]!;
+      if (this.placeLineEnding(it)) continue;
+      if (it.kind === 'tab') it.width = tabWidth(this.ctx, items, i, this.x, this.props, this.lineLeft(), this.left, this.avail());
+      this.wrapBefore(items, i);
+      if (this.breakLongWord(items, i)) continue;
+      this.lineItems.push(it);
+      this.x += it.width;
+    }
+    if (this.lineItems.length) this.flush('last');
+    this.closeBlock();
+    return this.blocks;
+  }
+
+  private lineLeft(): number {
+    return this.firstLine ? this.firstX : this.left;
+  }
+
+  /** Width available to the line being filled. */
+  private avail(): number {
+    return Math.max(MIN_SIZE, this.width - this.right - this.lineLeft());
+  }
+
+  private flush(reason: LineEnd, extra: Partial<LineLayout> = {}): void {
+    this.lines.push(buildLine(this.ctx, this.lineItems, reason, this.props, this.lineLeft(), this.avail(), this.firstLine ? this.marker : undefined, extra));
+    this.lineItems = [];
+    this.x = 0;
+    this.firstLine = false;
+  }
+
+  private closeBlock(): void {
+    if (this.lines.length) this.blocks.push({ kind: 'lines', lines: this.lines });
+    this.lines = [];
+  }
+
+  /** Paragraph marks, line breaks, page and section breaks, rules and tables end the line themselves; true when `it` was one. */
+  private placeLineEnding(it: Item): boolean {
+    switch (it.kind) {
+      case 'mark':
+        this.lineItems.push(it);
+        this.flush('last');
+        return true;
+      case 'break':
+        this.lineItems.push(it);
+        this.flush('forced');
+        return true;
+      case 'object':
+        return this.placeBlockObject(it);
+      default:
+        return false;
+    }
+  }
+
+  private placeBlockObject(it: ObjectItem): boolean {
+    const obj = it.object;
+    switch (obj.kind) {
+      case 'table':
+        this.placeTable(obj.id, it.start);
+        return true;
+      case 'pageBreak':
+      case 'columnBreak':
+      case 'sectionBreak':
+        this.lineItems.push(it);
+        this.flush('forced', breakAfter(obj));
+        return true;
+      case 'hr':
+        if (this.lineItems.length) this.flush('forced');
+        this.lineItems.push(it);
+        this.flush('forced', { rule: true });
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private placeTable(tableId: string, offset: number): void {
+    if (this.lineItems.length) this.flush('forced');
+    this.closeBlock();
+    const table = this.ctx.layoutTable(tableId, Math.max(MIN_SIZE, this.width - this.left - this.right));
+    if (table) {
+      table.x += this.left;
+      this.blocks.push({ kind: 'table', table, offset });
+    }
+  }
+
+  /** Starts a new line when the piece at `i`, with any glued to it, does not fit on this one. */
+  private wrapBefore(items: Item[], i: number): void {
+    if (items[i]!.glue && !this.ignoreGlue) return;
+    this.ignoreGlue = false;
+    const chunk = chunkWidth(items, i);
+    if (this.lineItems.length && this.x + chunk > this.avail() + EPS) this.flush('wrap');
+    if (!this.lineItems.length && chunk > this.avail() + EPS) this.ignoreGlue = true;
+  }
+
+  /** A word wider than the line: breaks it between characters. True when it did. */
+  private breakLongWord(items: Item[], i: number): boolean {
+    const it = items[i]!;
+    if (!this.isOverlong(it)) return false;
+    const fit = fitChars(this.ctx.measurer, it.text, it.style, this.avail());
+    if (fit >= it.text.length) return false;
+    const head = splitText(this.ctx, it, 0, fit);
+    const tail = splitText(this.ctx, it, fit, it.text.length);
+    this.lineItems.push(head);
+    this.flush('wrap');
+    items.splice(i + 1, 0, { ...tail, glue: true });
+    this.ignoreGlue = true;
+    return true;
+  }
+
+  /** A word (not a single character) starting a line it is too wide for. */
+  private isOverlong(it: Item): it is TextItem {
+    return it.kind === 'text' && !this.lineItems.length && it.width - it.trail > this.avail() + EPS && it.text.trim().length > 1;
+  }
+}
+
+/** What a line ending in a page, column or section break records about it. */
+function breakAfter(obj: BreakObject | SectionBreakObject): Partial<LineLayout> {
+  if (obj.kind === 'sectionBreak') return { breakAfter: 'section', sectionBreak: { id: obj.id, start: obj.start, section: obj.section } };
+  return { breakAfter: obj.kind === 'pageBreak' ? 'page' : 'column' };
+}
+
+/** Width of trailing spaces that hang past the line end. */
+function trailOf(it: Item): number {
+  return it.kind === 'text' ? it.trail : 0;
+}
+
+/** Width of the piece at `i` and any glued after it (the last one's trailing spaces hang). */
+function chunkWidth(items: Item[], i: number): number {
+  const it = items[i]!;
+  let chunk = it.width - trailOf(it);
+  let acc = it.width;
+  for (let j = i + 1; j < items.length; j++) {
+    const next = items[j]!;
+    if (!next.glue || next.kind === 'mark' || next.kind === 'break') break;
+    chunk = acc + next.width - trailOf(next);
+    acc += next.width;
+  }
+  return chunk;
 }
 
 // ---------------------------------------------------------------- items
@@ -191,40 +280,74 @@ function buildItems(ctx: ParagraphContext, story: Story, start: number, end: num
   const items: Item[] = [];
   story.forEachRun(start, end + 1, (runStart, runEnd, styleId) => {
     const style = ctx.styles.get(props, styleId);
-    let pieceStart = -1;
-    const flushPiece = (to: number) => {
-      if (pieceStart < 0) return;
-      items.push(textItem(ctx, text, pieceStart, to, style));
-      pieceStart = -1;
-    };
-    for (let p = runStart - start; p < runEnd - start; p++) {
-      const ch = text[p]!;
-      if (ch === PARA || ch === LINE_BREAK || ch === TAB || ch === OBJECT) {
-        flushPiece(p);
-        if (ch === PARA) items.push({ kind: 'mark', start: p, end: p + 1, style, width: 0, glue: true });
-        else if (ch === LINE_BREAK) items.push({ kind: 'break', start: p, end: p + 1, style, width: 0, glue: true });
-        else if (ch === TAB) items.push({ kind: 'tab', start: p, end: p + 1, style, width: 0, glue: false });
-        else {
-          const obj = story.attrAt(start + p) as ObjectData | undefined;
-          if (obj) items.push(objectItem(ctx, obj, p, style));
-        }
-        continue;
-      }
-      if (pieceStart >= 0 && canBreakBefore(text, p)) flushPiece(p);
-      if (pieceStart < 0) pieceStart = p;
-    }
-    flushPiece(runEnd - start);
+    splitRun({ ctx, story, text, paraStart: start, style, items }, runStart - start, runEnd - start);
   });
-  // A piece right after a run boundary is glued unless a break is allowed there.
-  for (let i = 1; i < items.length; i++) {
-    const it = items[i]!;
-    const prev = items[i - 1]!;
-    if (it.kind === 'text') it.glue = !(prev.kind === 'tab' || (prev.kind === 'object' && !isInlineGlued(prev.object)) || canBreakBefore(text, it.start));
-  }
+  glueAcrossRuns(text, items);
   return items;
 }
 
-function textItem(ctx: ParagraphContext, text: string, from: number, to: number, style: RunStyle): Extract<Item, { kind: 'text' }> {
+interface RunSplit {
+  ctx: ParagraphContext;
+  story: Story;
+  /** The paragraph's text. */
+  text: string;
+  paraStart: number;
+  style: RunStyle;
+  items: Item[];
+}
+
+/** Cuts the run at paragraph offsets [from, to) into items: unbreakable text pieces and control characters. */
+function splitRun(run: RunSplit, from: number, to: number): void {
+  const { ctx, text, style, items } = run;
+  let pieceStart = -1;
+  for (let p = from; p < to; p++) {
+    const ch = text[p]!;
+    if (ch === PARA || ch === LINE_BREAK || ch === TAB || ch === OBJECT) {
+      if (pieceStart >= 0) items.push(textItem(ctx, text, pieceStart, p, style));
+      pieceStart = -1;
+      const item = controlItem(run, ch, p);
+      if (item) items.push(item);
+    } else if (pieceStart < 0) {
+      pieceStart = p;
+    } else if (canBreakBefore(text, p)) {
+      items.push(textItem(ctx, text, pieceStart, p, style));
+      pieceStart = p;
+    }
+  }
+  if (pieceStart >= 0) items.push(textItem(ctx, text, pieceStart, to, style));
+}
+
+/** The item for a paragraph mark, line break, tab or object at offset `p` (null for an object without data). */
+function controlItem(run: RunSplit, ch: string, p: number): Item | null {
+  const style = run.style;
+  switch (ch) {
+    case PARA:
+      return { kind: 'mark', start: p, end: p + 1, style, width: 0, glue: true };
+    case LINE_BREAK:
+      return { kind: 'break', start: p, end: p + 1, style, width: 0, glue: true };
+    case TAB:
+      return { kind: 'tab', start: p, end: p + 1, style, width: 0, glue: false };
+    default: {
+      const obj = run.story.attrAt(run.paraStart + p) as ObjectData | undefined;
+      return obj ? objectItem(run.ctx, obj, p, style) : null;
+    }
+  }
+}
+
+/** A text piece is glued to the item before it unless a break is allowed between them. */
+function glueAcrossRuns(text: string, items: Item[]): void {
+  for (let i = 1; i < items.length; i++) {
+    const it = items[i]!;
+    if (it.kind === 'text') it.glue = !breaksAfter(items[i - 1]!) && !canBreakBefore(text, it.start);
+  }
+}
+
+/** A line may always break after a tab or an object (footnote references excepted). */
+function breaksAfter(it: Item): boolean {
+  return it.kind === 'tab' || (it.kind === 'object' && !isInlineGlued(it.object));
+}
+
+function textItem(ctx: ParagraphContext, text: string, from: number, to: number, style: RunStyle): TextItem {
   const raw = text.slice(from, to);
   let trailSpaces = 0;
   while (trailSpaces < raw.length && isSpaceChar(raw[raw.length - 1 - trailSpaces]!)) trailSpaces++;
@@ -235,7 +358,7 @@ function textItem(ctx: ParagraphContext, text: string, from: number, to: number,
   return { kind: 'text', start: from, end: to, text: shown, style, width, trail, trailSpaces, glue: false };
 }
 
-function splitText(ctx: ParagraphContext, it: Extract<Item, { kind: 'text' }>, from: number, to: number): Extract<Item, { kind: 'text' }> {
+function splitText(ctx: ParagraphContext, it: TextItem, from: number, to: number): TextItem {
   const piece = it.text.slice(from, to);
   const tail = to === it.text.length ? it.trailSpaces : 0;
   const spacing = it.style.spacing ?? 0;
@@ -255,6 +378,13 @@ function isInlineGlued(obj: ObjectData): boolean {
   return obj.kind === 'footnote';
 }
 
+/** Stand-in text a field is measured with; drawing fills in the real value. */
+function fieldPlaceholder(field: FieldObject['field']): string {
+  if (field === 'date') return '00/00/0000';
+  if (field === 'title') return 'Title';
+  return '00';
+}
+
 function objectItem(ctx: ParagraphContext, obj: ObjectData, p: number, style: RunStyle): Item {
   const m = ctx.measurer.metrics(style.font);
   const base = { kind: 'object' as const, start: p, end: p + 1, style, object: obj, glue: isInlineGlued(obj) };
@@ -267,7 +397,7 @@ function objectItem(ctx: ParagraphContext, obj: ObjectData, p: number, style: Ru
       return { ...base, style: { ...style, font, baselineShift: style.font.size * 0.33 }, text, width: ctx.measurer.measure(text, font), ascent: m.ascent, descent: m.descent };
     }
     case 'field': {
-      const text = obj.field === 'date' ? '00/00/0000' : obj.field === 'title' ? 'Title' : '00';
+      const text = fieldPlaceholder(obj.field);
       return { ...base, text, width: ctx.measurer.measure(text, style.font), ascent: m.ascent, descent: m.descent };
     }
     case 'chip':
@@ -296,6 +426,8 @@ function fitChars(measurer: TextMeasurer, text: string, style: RunStyle, width: 
   return lo;
 }
 
+// ---------------------------------------------------------------- tabs
+
 /** Width of the tab at `items[i]` when the line so far is `x` wide. */
 function tabWidth(ctx: ParagraphContext, items: Item[], i: number, x: number, props: ParaProps, lineLeft: number, left: number, avail: number): number {
   // Stops are measured from the paragraph's left indent; x is from the line's left.
@@ -305,32 +437,64 @@ function tabWidth(ctx: ParagraphContext, items: Item[], i: number, x: number, pr
   const item = items[i]!;
   if (item.kind === 'tab' && stop.leader && stop.leader !== 'none') item.leader = stop.leader;
   let w = stop.pos - pos;
-  if (stop.align !== 'left') {
-    // Width of what follows up to the next tab or line end.
-    let seg = 0;
-    let beforeDecimal = 0;
-    for (let j = i + 1; j < items.length; j++) {
-      const next = items[j]!;
-      if (next.kind === 'tab' || next.kind === 'break' || next.kind === 'mark') break;
-      if (stop.align === 'decimal' && next.kind === 'text' && beforeDecimal === 0) {
-        const dot = next.text.search(/[.,]/);
-        if (dot >= 0) beforeDecimal = seg + ctx.measurer.measure(next.text.slice(0, dot), next.style.font);
-      }
-      seg += next.width - (next.kind === 'text' ? next.trail : 0);
-    }
-    const shift = stop.align === 'right' ? seg : stop.align === 'center' ? seg / 2 : beforeDecimal || seg;
-    w -= shift;
-  }
+  if (stop.align !== 'left') w -= alignShift(ctx, items, i, stop.align);
   if (x + w > avail) w = Math.max(0, avail - x);
   return Math.max(0, w);
 }
 
+/** How far text after a right, center or decimal tab sits back from the stop. */
+function alignShift(ctx: ParagraphContext, items: Item[], i: number, align: TabStop['align']): number {
+  // Width of what follows up to the next tab or line end.
+  let seg = 0;
+  let beforeDecimal = 0;
+  for (let j = i + 1; j < items.length; j++) {
+    const next = items[j]!;
+    if (next.kind === 'tab' || next.kind === 'break' || next.kind === 'mark') break;
+    if (align === 'decimal' && next.kind === 'text' && beforeDecimal === 0) beforeDecimal = decimalOffset(ctx, next, seg);
+    seg += next.width - trailOf(next);
+  }
+  if (align === 'right') return seg;
+  if (align === 'center') return seg / 2;
+  return beforeDecimal || seg;
+}
+
+/** Offset of the first decimal separator in a piece that starts `seg` after the tab, or 0 when it has none. */
+function decimalOffset(ctx: ParagraphContext, it: TextItem, seg: number): number {
+  const dot = it.text.search(/[.,]/);
+  return dot >= 0 ? seg + ctx.measurer.measure(it.text.slice(0, dot), it.style.font) : 0;
+}
+
 // ---------------------------------------------------------------- lines
+
+/** The tallest ascent and descent on a line. */
+class LineExtent {
+  ascent = 0;
+  descent = 0;
+
+  constructor(private readonly measurer: TextMeasurer) {}
+
+  addStyle(style: RunStyle): void {
+    const m = this.measurer.metrics(style.font);
+    const shift = style.baselineShift ?? 0;
+    this.addBox(m.ascent + Math.max(0, shift), m.descent - Math.min(0, shift));
+  }
+
+  addBox(ascent: number, descent: number): void {
+    this.ascent = Math.max(this.ascent, ascent);
+    this.descent = Math.max(this.descent, descent);
+  }
+
+  addItem(it: Item): void {
+    // Images stand on the baseline at their own height; everything else takes its font's.
+    if (it.kind === 'object' && it.object.kind === 'image') this.addBox(it.ascent, it.descent);
+    else this.addStyle(it.style);
+  }
+}
 
 function buildLine(
   ctx: ParagraphContext,
   items: Item[],
-  reason: 'wrap' | 'last' | 'forced',
+  reason: LineEnd,
   props: ParaProps,
   lineLeft: number,
   avail: number,
@@ -339,94 +503,25 @@ function buildLine(
 ): LineLayout {
   // Visible width: without the hanging trailing spaces of the last text piece.
   let width = 0;
-  let lastText = -1;
-  for (let i = 0; i < items.length; i++) {
-    width += items[i]!.width;
-    if (items[i]!.kind === 'text') lastText = i;
-  }
-  const trailingItem = lastText >= 0 && items.slice(lastText + 1).every((it) => (it.kind === 'mark' || it.kind === 'break') || (it.kind === 'object' && it.width === 0)) ? (items[lastText] as Extract<Item, { kind: 'text' }>) : null;
-  const visible = width - (trailingItem?.trail ?? 0);
+  for (const it of items) width += it.width;
+  const trailing = trailingText(items);
+  const visible = width - (trailing?.trail ?? 0);
 
   // Justified lines stretch their spaces (not on the last line or before a forced break).
-  let wordSpacing = 0;
   const align = props.align ?? 'left';
-  if (align === 'justify' && reason === 'wrap') {
-    let spaces = 0;
-    for (const it of items) if (it.kind === 'text') spaces += countSpaces(it.text);
-    if (trailingItem) spaces -= trailingItem.trailSpaces;
-    if (spaces > 0) wordSpacing = Math.max(0, (avail - visible) / spaces);
-  }
+  const wordSpacing = align === 'justify' && reason === 'wrap' ? justifySpacing(items, trailing, avail - visible) : 0;
 
-  // Runs: neighbouring text pieces of one style become one run.
-  const runs: RunLayout[] = [];
-  let rx = 0;
-  let maxAscent = 0;
-  let maxDescent = 0;
-  const measure = (style: RunStyle) => {
-    const m = ctx.measurer.metrics(style.font);
-    const shift = style.baselineShift ?? 0;
-    maxAscent = Math.max(maxAscent, m.ascent + Math.max(0, shift));
-    maxDescent = Math.max(maxDescent, m.descent - Math.min(0, shift));
-  };
-  for (const it of items) {
-    if (it.kind === 'text') {
-      const last = runs[runs.length - 1];
-      const stretch = wordSpacing * countSpaces(it.text);
-      if (last && last.kind === 'text' && last.style === it.style && last.end === it.start) {
-        last.text += it.text;
-        last.end = it.end;
-        last.width += it.width + stretch;
-      } else {
-        const run: RunLayout = { kind: 'text', start: it.start, end: it.end, x: rx, width: it.width + stretch, style: it.style, text: it.text };
-        if (wordSpacing) run.wordSpacing = wordSpacing;
-        runs.push(run);
-      }
-      rx += it.width + stretch;
-      measure(it.style);
-    } else if (it.kind === 'object') {
-      const run: RunLayout = { kind: 'object', start: it.start, end: it.end, x: rx, width: it.width, style: it.style, object: it.object, objectAscent: it.ascent };
-      if (it.text !== undefined) run.text = it.text;
-      runs.push(run);
-      rx += it.width;
-      if (it.object.kind === 'image') {
-        maxAscent = Math.max(maxAscent, it.ascent);
-        maxDescent = Math.max(maxDescent, it.descent);
-      } else measure(it.style);
-    } else {
-      const run: RunLayout = { kind: it.kind === 'tab' ? 'tab' : it.kind, start: it.start, end: it.end, x: rx, width: it.width, style: it.style };
-      if (it.kind === 'tab' && it.leader) run.leader = it.leader;
-      runs.push(run);
-      rx += it.width;
-      measure(it.style);
-    }
-  }
-  if (marker) measure(marker.style);
-  if (maxAscent === 0 && maxDescent === 0 && items[0]) measure(items[0].style);
+  const extent = new LineExtent(ctx.measurer);
+  const runs = buildRuns(items, wordSpacing, extent);
+  if (marker) extent.addStyle(marker.style);
+  if (extent.ascent === 0 && extent.descent === 0 && items[0]) extent.addStyle(items[0].style);
+  const { height, ascent } = lineHeight(props, extent, !!extra.rule);
 
-  const natural = maxAscent + maxDescent;
-  let height: number;
-  let ascent: number;
-  if (props.lineHeightExact) {
-    height = props.lineHeightExact;
-    ascent = maxAscent + (height - natural) / 2;
-  } else {
-    height = natural * (props.lineHeight ?? 1);
-    ascent = maxAscent + (height - natural) / 2;
-  }
-  if (extra.rule) {
-    height = Math.max(height, RULE_HEIGHT);
-    ascent = height / 2;
-  }
-
-  let x = lineLeft;
-  if (align === 'center') x += Math.max(0, (avail - visible) / 2);
-  else if (align === 'right') x += Math.max(0, avail - visible);
-
-  const footnotes = items.filter((it): it is Extract<Item, { kind: 'object' }> => it.kind === 'object' && it.object.kind === 'footnote').map((it) => (it.object as { id: string }).id);
+  const footnotes = items.filter((it): it is ObjectItem => it.kind === 'object' && it.object.kind === 'footnote').map((it) => (it.object as { id: string }).id);
   const line: LineLayout = {
     start: items[0]?.start ?? 0,
     end: items[items.length - 1]?.end ?? 0,
-    x,
+    x: lineLeft + alignOffset(align, avail - visible),
     width: visible,
     height,
     ascent,
@@ -436,6 +531,83 @@ function buildLine(
   if (marker) line.marker = marker;
   if (footnotes.length) line.footnotes = footnotes;
   return line;
+}
+
+/** The last text piece, when nothing but the line's end follows it (its trailing spaces then hang). */
+function trailingText(items: Item[]): TextItem | null {
+  let lastText = -1;
+  for (let i = 0; i < items.length; i++) if (items[i]!.kind === 'text') lastText = i;
+  if (lastText < 0) return null;
+  const endsLine = items.slice(lastText + 1).every((it) => it.kind === 'mark' || it.kind === 'break' || (it.kind === 'object' && it.width === 0));
+  return endsLine ? (items[lastText] as TextItem) : null;
+}
+
+/** Extra width per space that stretches a justified line by `free`. */
+function justifySpacing(items: Item[], trailing: TextItem | null, free: number): number {
+  let spaces = 0;
+  for (const it of items) if (it.kind === 'text') spaces += countSpaces(it.text);
+  if (trailing) spaces -= trailing.trailSpaces;
+  return spaces > 0 ? Math.max(0, free / spaces) : 0;
+}
+
+/** Runs: neighbouring text pieces of one style become one run. */
+function buildRuns(items: Item[], wordSpacing: number, extent: LineExtent): RunLayout[] {
+  const runs: RunLayout[] = [];
+  let rx = 0;
+  for (const it of items) {
+    if (it.kind === 'text') rx += addTextRun(runs, it, rx, wordSpacing);
+    else {
+      runs.push(otherRun(it, rx));
+      rx += it.width;
+    }
+    extent.addItem(it);
+  }
+  return runs;
+}
+
+/** Appends a text piece at `rx`, merged into the previous run when it continues it; returns its width. */
+function addTextRun(runs: RunLayout[], it: TextItem, rx: number, wordSpacing: number): number {
+  const advance = it.width + wordSpacing * countSpaces(it.text);
+  const last = runs[runs.length - 1];
+  if (last && last.kind === 'text' && last.style === it.style && last.end === it.start) {
+    last.text += it.text;
+    last.end = it.end;
+    last.width += advance;
+  } else {
+    const run: RunLayout = { kind: 'text', start: it.start, end: it.end, x: rx, width: advance, style: it.style, text: it.text };
+    if (wordSpacing) run.wordSpacing = wordSpacing;
+    runs.push(run);
+  }
+  return advance;
+}
+
+function otherRun(it: Exclude<Item, TextItem>, rx: number): RunLayout {
+  if (it.kind === 'object') {
+    const run: RunLayout = { kind: 'object', start: it.start, end: it.end, x: rx, width: it.width, style: it.style, object: it.object, objectAscent: it.ascent };
+    if (it.text !== undefined) run.text = it.text;
+    return run;
+  }
+  const run: RunLayout = { kind: it.kind, start: it.start, end: it.end, x: rx, width: it.width, style: it.style };
+  if (it.kind === 'tab' && it.leader) run.leader = it.leader;
+  return run;
+}
+
+/** Line height and baseline: exact or a multiple of the natural height, the extra split above and below; a rule line is centred. */
+function lineHeight(props: ParaProps, extent: LineExtent, rule: boolean): { height: number; ascent: number } {
+  const natural = extent.ascent + extent.descent;
+  const height = props.lineHeightExact || natural * (props.lineHeight ?? 1);
+  if (rule) {
+    const ruled = Math.max(height, RULE_HEIGHT);
+    return { height: ruled, ascent: ruled / 2 };
+  }
+  return { height, ascent: extent.ascent + (height - natural) / 2 };
+}
+
+/** Where a line's content starts within the space `free` it leaves over. */
+function alignOffset(align: NonNullable<ParaProps['align']>, free: number): number {
+  if (align === 'center') return Math.max(0, free / 2);
+  if (align === 'right') return Math.max(0, free);
+  return 0;
 }
 
 function countSpaces(text: string): number {

@@ -63,7 +63,7 @@ describe('Story', () => {
         ref.insert(pos, text, style, attrs);
       }
       if (step % 50 === 0) {
-        expect(story.length).toBe(ref.text.length);
+        expect(story).toHaveLength(ref.text.length);
         expect(story.text()).toBe(ref.text);
       }
     }

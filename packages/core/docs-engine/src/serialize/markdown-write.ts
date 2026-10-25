@@ -33,32 +33,27 @@ class MarkdownWriter {
   blocks(blocks: Block[]): string {
     const parts: string[] = [];
     let prevList = false;
-    for (let i = 0; i < blocks.length; i++) {
+    let i = 0;
+    while (i < blocks.length) {
       const b = blocks[i]!;
       if (b.type === 'table') {
         parts.push(this.table(b));
         prevList = false;
-        continue;
-      }
-      if (b.props.style === 'code') {
-        // Consecutive code paragraphs make one fenced block.
-        const lines: string[] = [];
-        while (i < blocks.length && blocks[i]!.type === 'paragraph' && (blocks[i] as ParagraphBlock).props.style === 'code') {
-          lines.push(inlineText((blocks[i] as ParagraphBlock).inlines));
-          i++;
-        }
-        i--;
-        const fence = lines.some((l) => l.includes('```')) ? '~~~' : '```';
-        parts.push(`${fence}\n${lines.join('\n')}\n${fence}`);
+        i++;
+      } else if (b.props.style === 'code') {
+        const fenced = codeBlock(blocks, i);
+        parts.push(fenced.text);
         prevList = false;
-        continue;
+        i = fenced.next;
+      } else {
+        const line = this.paragraph(b);
+        const isList = !!b.props.list;
+        // List items stay together; everything else is separated by a blank line.
+        if (isList && prevList) parts[parts.length - 1] += `\n${line}`;
+        else parts.push(line);
+        prevList = isList;
+        i++;
       }
-      const line = this.paragraph(b);
-      const isList = !!b.props.list;
-      // List items stay together; everything else is separated by a blank line.
-      if (isList && prevList) parts[parts.length - 1] += `\n${line}`;
-      else parts.push(line);
-      prevList = isList;
     }
     return parts.join('\n\n');
   }
@@ -71,13 +66,19 @@ class MarkdownWriter {
     if (style === 'title') return `# ${text}`;
     if (style === 'quote') return text.split('\n').map((l) => `> ${l}`).join('\n');
     if (b.props.list) {
-      const list = this.counter.next(b.props);
       const indent = '    '.repeat(b.props.list.level);
-      const marker =
-        list?.level.format === 'check' ? `- [${b.props.checked ? 'x' : ' '}]` : isOrdered(list?.level) ? `${/\d+/.exec(list!.marker)?.[0] ?? '1'}.` : '-';
-      return `${indent}${marker} ${text}`;
+      return `${indent}${this.listMarker(b)} ${text}`;
     }
     return escapeBlockStart(text);
+  }
+
+  /** `- [x]` for a checklist item, `3.` for a numbered one (its number as counted), else `-`. */
+  private listMarker(b: ParagraphBlock): string {
+    const list = this.counter.next(b.props);
+    if (list?.level.format === 'check') return b.props.checked ? '- [x]' : '- [ ]';
+    if (!isOrdered(list?.level)) return '-';
+    const number = /\d+/.exec(list!.marker)?.[0] ?? '1';
+    return `${number}.`;
   }
 
   inlines(inlines: Inline[]): string {
@@ -109,8 +110,9 @@ class MarkdownWriter {
 
   private text(text: string, style: TextStyle): string {
     if (!text) return '';
-    const lead = /^\s*/.exec(text)![0];
-    const trail = /\s*$/.exec(text)![0];
+    // Markup goes around the text without its outer whitespace (`**word** `, never `**word **`).
+    const lead = text.slice(0, text.length - text.trimStart().length);
+    const trail = text.slice(text.trimEnd().length);
     const core = text.slice(lead.length, text.length - trail.length);
     if (!core) return text;
     let out = style.font && MONO.test(style.font) ? codeSpan(core) : escapeInline(core);
@@ -138,6 +140,18 @@ class MarkdownWriter {
     const line = (cells: string[]) => `| ${Array.from({ length: width }, (_, i) => cells[i] ?? '').join(' | ')} |`;
     return [line(rows[0]!), `|${' --- |'.repeat(width)}`, ...rows.slice(1).map(line)].join('\n');
   }
+}
+
+/** Consecutive code paragraphs from index `start` make one fenced block; returns it and the index after them. */
+function codeBlock(blocks: Block[], start: number): { text: string; next: number } {
+  const lines: string[] = [];
+  let i = start;
+  while (i < blocks.length && blocks[i]!.type === 'paragraph' && (blocks[i] as ParagraphBlock).props.style === 'code') {
+    lines.push(inlineText((blocks[i] as ParagraphBlock).inlines));
+    i++;
+  }
+  const fence = lines.some((l) => l.includes('```')) ? '~~~' : '```';
+  return { text: `${fence}\n${lines.join('\n')}\n${fence}`, next: i };
 }
 
 function codeSpan(text: string): string {
