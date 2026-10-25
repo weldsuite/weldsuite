@@ -6,6 +6,7 @@ import {
   getGroupDefaults,
   selectGroupRows,
   selectPeekRows,
+  withGroupHidden,
 } from './group-filter';
 
 const NOW = Date.UTC(2026, 9, 25, 12, 0);
@@ -131,5 +132,43 @@ describe('selectPeekRows (collapsed group)', () => {
     const chats = [unread('unread', 2)];
     const settings = { ...RECORD_GROUP_FILTER, peekActiveWhenCollapsed: false };
     expect(selectPeekRows(rowsFor(chats), chats, settings, noCalls, NOW)).toEqual([]);
+  });
+});
+
+describe('withGroupHidden', () => {
+  it('hides a group and keeps its other settings', () => {
+    const filters = { 'record:company': { topN: 10 }, dm: { hideMuted: true } };
+    expect(withGroupHidden(filters, 'record:company', true)).toEqual({
+      'record:company': { topN: 10, hidden: true },
+      dm: { hideMuted: true },
+    });
+  });
+
+  it('hides a group that has no settings yet', () => {
+    expect(withGroupHidden({}, 'record:task', true)).toEqual({ 'record:task': { hidden: true } });
+  });
+
+  it('shows a group again by clearing the setting, keeping the others', () => {
+    const filters = { 'record:company': { topN: 10, hidden: true }, dm: { hideMuted: true } };
+    expect(withGroupHidden(filters, 'record:company', false)).toEqual({
+      'record:company': { topN: 10 },
+      dm: { hideMuted: true },
+    });
+  });
+
+  it('drops the entry of a group that has nothing else set', () => {
+    const filters = { 'record:person': { hidden: true }, dm: { hideMuted: true } };
+    expect(withGroupHidden(filters, 'record:person', false)).toEqual({ dm: { hideMuted: true } });
+  });
+
+  it('leaves the settings as they were when showing a group that was not hidden', () => {
+    const filters = { dm: { hideMuted: true } };
+    expect(withGroupHidden(filters, 'record:domain', false)).toEqual(filters);
+  });
+
+  it('does not change the settings it was given', () => {
+    const filters = { 'record:company': { hidden: true } };
+    withGroupHidden(filters, 'record:company', false);
+    expect(filters).toEqual({ 'record:company': { hidden: true } });
   });
 });

@@ -176,6 +176,25 @@ export function getGroupDefaults(groupKey: string): GroupFilterSettings {
 
 export type WeldchatGroupFilters = Record<string, GroupFilterSettings>;
 
+/**
+ * The group settings with one group hidden from the sidebar, or shown again.
+ * Showing clears the setting rather than storing `hidden: false`, and drops
+ * the group's entry when nothing else is set on it.
+ */
+export function withGroupHidden(
+  filters: WeldchatGroupFilters,
+  groupKey: string,
+  hidden: boolean,
+): WeldchatGroupFilters {
+  if (hidden) return { ...filters, [groupKey]: { ...filters[groupKey], hidden: true } };
+  const next = { ...filters };
+  const rest = { ...next[groupKey] };
+  delete rest.hidden;
+  if (Object.keys(rest).length > 0) next[groupKey] = rest;
+  else delete next[groupKey];
+  return next;
+}
+
 const THRESHOLD_MS: Record<Exclude<ActivityThreshold, 'any' | 'older1y'>, number> = {
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000,

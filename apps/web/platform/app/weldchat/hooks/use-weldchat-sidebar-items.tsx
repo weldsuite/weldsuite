@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Bookmark, ExternalLink, UserMinus, EyeOff, MoreHorizontal } from 'lucide-react';
+import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Bookmark, ExternalLink, UserMinus, EyeOff, MoreHorizontal, MessagesSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
 /** Hook point for decorating a sidebar group label; currently the identity. */
@@ -59,7 +59,6 @@ import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { usePathname } from '@/lib/router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from '@tanstack/react-router';
 import { useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { findDmChannelIdForUser, resolveOneToOneDmTarget } from '../lib/dm-links';
@@ -73,11 +72,13 @@ import {
   recordChatsPageHref,
   recordGroupKey,
   RECORD_CHAT_TYPES,
+  RECORD_CHATS_PAGE_PATH,
   type RecordChatType,
   type RecordChatTypeInfo,
 } from '../lib/record-chat-types';
 import { needsShowAll, recordGroupTypes } from '../lib/record-chat-groups';
 import { useRecordChatGroups } from './use-record-chat-groups';
+import { useGroupHidden } from './use-group-hidden';
 // Sidebar dialogs are lazy-loaded — they're only rendered when the user
 // opens them, so there's no reason to ship them in the main chunk.
 const ChannelCreateDialog = React.lazy(() =>
@@ -101,7 +102,7 @@ import type { GroupSettingsTarget } from '../components/group-settings-dialog';
 // Delete" and "confirmation appears" is exactly where a mis-click lands.
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useChatSections } from './use-chat-sections';
-import { preferencesKey, useUpdateUserPreferences, useUserPreferences } from '@/hooks/queries/use-settings-queries';
+import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import { useWeldchatSidebarOrder } from '@/hooks/queries/use-ui-preference';
 import {
@@ -116,9 +117,6 @@ import {
 type UiPreferencesWithGroupFilters = NonNullable<UserPreferences['uiPreferences']> & {
   weldchatGroupFilters?: WeldchatGroupFilters;
 };
-
-/** Route of the record chats page ("Show all"). Until it exists the URL would open the channel page. */
-const RECORD_CHATS_PAGE_PATH = '/weldchat/records';
 
 const EMPTY_SIDEBAR: { menuGroups: MenuGroupProps[]; dialogs: React.ReactNode } = {
   menuGroups: [],
@@ -579,7 +577,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const { order: manualOrder, setGroupOrder } = useWeldchatSidebarOrder();
 
   const { data: userPrefs } = useUserPreferences();
-  const { mutate: updateUserPreferences } = useUpdateUserPreferences();
   const groupFilters: WeldchatGroupFilters =
     (userPrefs?.uiPreferences as UiPreferencesWithGroupFilters | undefined)?.weldchatGroupFilters ?? {};
   const getFilter = (key: string): GroupFilterSettings => ({
@@ -625,7 +622,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const recordChats = useRecordChatGroups(recordSummary, isActive && chatEnabled);
   const { mutate: unfollowRecordChat } = useUnfollowRecordChat();
   const { open: openObjectPanel } = useObjectPanel();
-  const hasRecordChatsPage = RECORD_CHATS_PAGE_PATH in useRouter().routesByPath;
+  // "Hide this group" and its Undo; the record chats page shows the group again.
+  const { setGroupHidden } = useGroupHidden();
 
   const callCtx = useWeldChatCallOptional();
   const activeCallChannelId = callCtx?.channelId ?? null;
@@ -633,30 +631,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const joinCall = callCtx?.joinCall;
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
-
-  /**
-   * "Hide this group" and its undo. Builds on the preferences in the cache at
-   * click time, not on this render's: the server replaces
-   * `weldchatGroupFilters` as a whole, so an Undo clicked after another hide
-   * (or a settings save) must not bring back what changed since. The cache is
-   * written first, so a second click right away sees the first.
-   */
-  const setGroupHidden = (groupKey: string, hidden: boolean) => {
-    const current = queryClient.getQueryData<UserPreferences>(preferencesKey);
-    const filters =
-      (current?.uiPreferences as UiPreferencesWithGroupFilters | undefined)?.weldchatGroupFilters ?? {};
-    const weldchatGroupFilters = { ...filters, [groupKey]: { ...filters[groupKey], hidden } };
-    if (current) {
-      queryClient.setQueryData<UserPreferences>(preferencesKey, {
-        ...current,
-        uiPreferences: { ...current.uiPreferences, weldchatGroupFilters } as UiPreferencesWithGroupFilters,
-      });
-    }
-    updateUserPreferences(
-      { uiPreferences: { weldchatGroupFilters } as UiPreferencesWithGroupFilters },
-      { onError: () => queryClient.invalidateQueries({ queryKey: preferencesKey }) },
-    );
-  };
   const { user } = useUser();
   const self: SelfIdentity = {
     id: user?.id ?? null,
@@ -885,7 +859,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   // Build menu groups
   const menuGroups: MenuGroupProps[] = [];
 
-  // Top navigation group (Activity / Drafts / Directories / Saved items) — no label header.
+  // Top navigation group (Activity / Drafts / Directories / Record chats / Saved items) — no label header.
   menuGroups.push({
     group: '',
     groupKey: 'weldchat:top-nav',
@@ -909,6 +883,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         title: t.directories ?? 'Directories',
         href: '/weldchat/directories',
         icon: BookUser,
+      },
+      {
+        title: st('sweep.weldchat.recordChats.title'),
+        href: RECORD_CHATS_PAGE_PATH,
+        icon: MessagesSquare,
       },
       {
         title: st('sweep.weldchat.sidebar.savedItems'),
@@ -1029,7 +1008,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       group: decorateLabel(label),
       groupKey: key,
       items:
-        hasRecordChatsPage && needsShowAll(filtered.length, followed, collapsed)
+        needsShowAll(filtered.length, followed, collapsed)
           ? [...shown, showAllRow]
           : shown,
       collapsed,
