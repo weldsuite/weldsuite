@@ -12,7 +12,9 @@
  * - a checklist is a bullet list with ☐, and ticked items use a second
  *   numbering instance whose bullet is ☑;
  * - a cell (and the body) must end with a paragraph, so one follows a table
- *   that would otherwise come last.
+ *   that would otherwise come last;
+ * - suggestions are revisions and comment threads are comments (see
+ *   `write-review.ts`).
  */
 
 import { XML_HEADER, attrs, esc, writeZip } from '@weldsuite/zip-xml';
@@ -36,7 +38,8 @@ import type { ParaProps } from '../../model/styles';
 import { toBlocks, type Block, type BookmarkRange, type Inline, type ParagraphBlock, type TableBlock } from '../../serialize/blocks';
 import { EMU_PER_POINT, NS, REL, hex, imageExtension, pageFmt, twips } from './convert';
 import type { WriteDocxOptions } from './types';
-import { bordersXml, numberingIds, numberingXml, pPrXml, rPrXml, stylesXml, wordStyleIds, type FormatContext } from './write-format';
+import { bordersXml, numberingIds, numberingXml, pPrXml, rPrXml, stylesXml, wordStyleIds, type FormatContext, type PPrExtras } from './write-format';
+import { ReviewWriter, type Revision } from './write-review';
 
 const SAFE_LINK = /^(https?:|mailto:|tel:)/i;
 const DEFAULT_TABLE_BORDER = { width: 0.75, color: '#000000' };
@@ -130,6 +133,7 @@ class DocxWriter {
   /** Bookmarks by story, and Word's numeric id for each. */
   private readonly bookmarks = new Map<string, BookmarkRange[]>();
   private readonly bookmarkIds = new Map<string, number>();
+  private readonly review: ReviewWriter;
 
   constructor(
     private readonly snapshot: DocSnapshot,
@@ -156,6 +160,7 @@ class DocxWriter {
       if (list) list.push(a);
       else this.bookmarks.set(a.story, [a]);
     }
+    this.review = new ReviewWriter(snapshot.comments ?? [], snapshot.anchors);
   }
 
   write(title: string | undefined, date: Date): { name: string; data: Uint8Array | string }[] {
@@ -170,6 +175,10 @@ class DocxWriter {
     this.document.rel(REL.numbering, 'numbering.xml');
     this.document.rel(REL.settings, 'settings.xml');
     if (this.footnotes.length) this.document.rel(REL.footnotes, 'footnotes.xml');
+    if (this.review.hasComments) {
+      this.document.rel(REL.comments, 'comments.xml');
+      this.document.rel(REL.commentsExtended, 'commentsExtended.xml');
+    }
 
     const files: { name: string; data: Uint8Array | string }[] = [
       { name: '[Content_Types].xml', data: this.contentTypes() },
@@ -186,6 +195,10 @@ class DocxWriter {
       files.push({ name: 'word/footnotes.xml', data: this.footnotesXml() });
       if (this.footnotesPart.rels.length) files.push({ name: this.footnotesPart.relsPath, data: this.footnotesPart.relsXml() });
     }
+    if (this.review.hasComments) {
+      const parts = this.review.parts();
+      files.push({ name: 'word/comments.xml', data: parts.comments }, { name: 'word/commentsExtended.xml', data: parts.extended });
+    }
     for (const h of this.headerParts) {
       files.push({ name: h.part.path, data: h.xml });
       if (h.part.rels.length) files.push({ name: h.part.relsPath, data: h.part.relsXml() });
@@ -200,7 +213,10 @@ class DocxWriter {
   private storyBlocks(storyId: string): Block[] {
     const story = this.snapshot.stories[storyId];
     if (!story) return [];
-    return toBlocks({ ...story, ...this.all }, { story: storyId, bookmarks: (id) => this.bookmarks.get(id) ?? [] }).blocks;
+    return toBlocks(
+      { ...story, ...this.all },
+      { story: storyId, bookmarks: (id) => this.bookmarks.get(id) ?? [], comments: (id) => this.review.commentRanges(id), markStyles: true },
+    ).blocks;
   }
 
   // ---------------------------------------------------------------- blocks
@@ -229,7 +245,7 @@ class DocxWriter {
    * falls inside it.
    */
   private paragraphXml(block: ParagraphBlock, part: Part, sections: boolean, lead: string): string {
-    const p = new ParagraphXml(block.props, lead, this.ctx, (inlines) => this.runsXml(inlines, part));
+    const p = new ParagraphXml(block.props, lead, this.ctx, (inlines) => this.runsXml(inlines, part), this.review.markRPr(block.markStyle));
     for (const inline of block.inlines) {
       if (isObjectOf(inline, 'hr')) p.rule();
       else if (isObjectOf(inline, 'sectionBreak')) {
@@ -239,45 +255,53 @@ class DocxWriter {
     return p.finish();
   }
 
+  /** Runs, in hyperlinks and (inside those) in the revisions of suggested text. */
   private runsXml(inlines: Inline[], part: Part): string {
     let out = '';
     let link: string | undefined;
+    let rev: Revision | null = null;
     for (const inline of inlines) {
       const target = inline.style.link;
       if (target !== link) {
-        if (link !== undefined) out += '</w:hyperlink>';
-        link = undefined;
-        const open = target ? this.hyperlinkOpen(target, part) : '';
-        if (open) {
-          out += open;
-          link = target;
-        }
+        const open = this.hyperlinkOpen(target, part);
+        out += closeRevision(rev) + closeLink(link) + open;
+        rev = null;
+        link = open ? target : undefined;
       }
-      out += this.inlineXml(inline, part);
+      const next = this.revisionOf(inline, rev);
+      if (next !== rev) out += closeRevision(rev) + openRevision(next);
+      rev = next;
+      out += this.inlineXml(inline, part, rev);
     }
-    if (link !== undefined) out += '</w:hyperlink>';
-    return out;
+    return out + closeRevision(rev) + closeLink(link);
   }
 
-  private hyperlinkOpen(target: string, part: Part): string {
+  /** The revision an inline is written in: its suggestion's; a bookmark stays in the open one, a comment mark in none. */
+  private revisionOf(inline: Inline, open: Revision | null): Revision | null {
+    if (inline.type !== 'bookmark') return this.review.revision(inline.style);
+    return inline.kind === 'comment' ? null : open;
+  }
+
+  private hyperlinkOpen(target: string | undefined, part: Part): string {
+    if (!target) return '';
     if (target.startsWith('#')) return target.length > 1 ? `<w:hyperlink w:anchor="${esc(bookmarkName(target.slice(1)))}" w:history="1">` : '';
     if (!SAFE_LINK.test(target)) return '';
     return `<w:hyperlink r:id="${part.rel(REL.hyperlink, target, true)}" w:history="1">`;
   }
 
-  private inlineXml(inline: Inline, part: Part): string {
+  private inlineXml(inline: Inline, part: Part, rev: Revision | null): string {
     const rPr = rPrXml(inline.style);
     switch (inline.type) {
       case 'text':
-        return textRun(rPr, inline.text);
+        return textRun(rPr, inline.text, rev);
       case 'tab':
         return `<w:r>${rPr}<w:tab/></w:r>`;
       case 'break':
         return `<w:r>${rPr}<w:br/></w:r>`;
       case 'object':
-        return this.objectXml(inline.data, rPr, part);
+        return this.objectXml(inline.data, rPr, part, rev);
       case 'bookmark':
-        return this.bookmarkXml(inline.id, inline.edge);
+        return inline.kind === 'comment' ? this.review.commentMark(inline.id, inline.edge) : this.bookmarkXml(inline.id, inline.edge);
     }
   }
 
@@ -290,7 +314,7 @@ class DocxWriter {
     return edge === 'start' ? `<w:bookmarkStart w:id="${n}" w:name="${esc(bookmarkName(id))}"/>` : `<w:bookmarkEnd w:id="${n}"/>`;
   }
 
-  private objectXml(data: ObjectData, rPr: string, part: Part): string {
+  private objectXml(data: ObjectData, rPr: string, part: Part, rev: Revision | null): string {
     switch (data.kind) {
       case 'image':
         return this.imageXml(data, rPr, part);
@@ -303,12 +327,14 @@ class DocxWriter {
       case 'field': {
         const instr = fieldInstr(data.field, data.format, data.ref);
         const shown = data.field === 'page' || data.field === 'pages' || data.field === 'pageRef' ? '1' : '';
-        return `<w:fldSimple w:instr="${esc(instr)}">${textRun(rPr, shown)}</w:fldSimple>`;
+        // A simple field cannot sit in a revision; the run form of a field can.
+        if (rev) return complexField(instr, rPr, shown, rev);
+        return `<w:fldSimple w:instr="${esc(instr)}">${textRun(rPr, shown, null)}</w:fldSimple>`;
       }
       case 'chip':
-        return textRun(rPr, data.label);
+        return textRun(rPr, data.label, rev);
       case 'equation':
-        return textRun(rPr, data.latex);
+        return textRun(rPr, data.latex, rev);
       default:
         return '';
     }
@@ -446,7 +472,11 @@ class DocxWriter {
     // Reserve the slot before writing, so nested parts number in order.
     const entry = { part, xml: '', kind };
     this.headerParts.push(entry);
+    // Word has no comments in headers and footers.
+    const commentsOn = this.review.commentsOn;
+    this.review.commentsOn = false;
     entry.xml = `${XML_HEADER}<w:${tag} ${ROOT_NS}>${this.blocksXml(this.storyBlocks(storyId), part)}</w:${tag}>`;
+    this.review.commentsOn = commentsOn;
     return this.document.rel(REL[kind], `${kind}${n}.xml`);
   }
 
@@ -484,6 +514,10 @@ class DocxWriter {
     out += override('word/numbering.xml', `${main}.numbering+xml`);
     out += override('word/settings.xml', `${main}.settings+xml`);
     if (this.footnotes.length) out += override('word/footnotes.xml', `${main}.footnotes+xml`);
+    if (this.review.hasComments) {
+      out += override('word/comments.xml', `${main}.comments+xml`);
+      out += override('word/commentsExtended.xml', `${main}.commentsExtended+xml`);
+    }
     for (const h of this.headerParts) out += override(h.part.path, `${main}.${h.kind}+xml`);
     out += override('docProps/core.xml', 'application/vnd.openxmlformats-package.core-properties+xml');
     out += override('docProps/app.xml', 'application/vnd.openxmlformats-officedocument.extended-properties+xml');
@@ -527,10 +561,12 @@ function ruleParaProps(props: ParaProps): ParaProps {
 /**
  * Writes one engine paragraph as Word paragraphs: split where a horizontal
  * rule (its own bordered paragraph) or a section end falls inside it. The
- * `lead` (a footnote's own number mark) goes into the first one written.
+ * `lead` (a footnote's own number mark) goes into the first one written, the
+ * paragraph mark's properties (`mark`) into the last.
  */
 class ParagraphXml {
-  private out = '';
+  /** The paragraphs written: properties, and the runs (rendered in order as they come). */
+  private readonly paras: { props: ParaProps; extras: PPrExtras; body: string }[] = [];
   private current: Inline[] = [];
   private emitted = false;
 
@@ -539,6 +575,7 @@ class ParagraphXml {
     private readonly lead: string,
     private readonly ctx: FormatContext,
     private readonly runs: (inlines: Inline[]) => string,
+    private readonly mark = '',
   ) {}
 
   add(inline: Inline): void {
@@ -547,19 +584,27 @@ class ParagraphXml {
 
   /** Writes the runs collected so far as a paragraph, ending a section when `sectPr` is given. */
   flush(sectPr?: string): void {
-    this.out += `<w:p>${pPrXml(this.props, this.ctx, { sectPr })}${this.takeLead()}${this.runs(this.current)}</w:p>`;
+    this.paras.push({ props: this.props, extras: { sectPr }, body: this.takeLead() + this.runs(this.current) });
     this.current = [];
   }
 
   /** A horizontal rule: an empty paragraph with a bottom border, after the runs before it. */
   rule(): void {
     if (this.current.length) this.flush();
-    this.out += `<w:p>${pPrXml(ruleParaProps(this.props), this.ctx, { borders: { bottom: DEFAULT_TABLE_BORDER } })}${this.takeLead()}</w:p>`;
+    this.paras.push({ props: ruleParaProps(this.props), extras: { borders: { bottom: DEFAULT_TABLE_BORDER } }, body: this.takeLead() });
   }
 
   finish(): string {
+    const last = this.paras[this.paras.length - 1];
+    // Range edges after a rule or a section end close in that paragraph rather than open another.
+    if (last && this.current.length && this.current.every((i) => i.type === 'bookmark')) {
+      last.body += this.runs(this.current);
+      this.current = [];
+    }
     if (this.current.length || !this.emitted) this.flush();
-    return this.out;
+    const end = this.paras[this.paras.length - 1]!;
+    if (this.mark) end.extras = { ...end.extras, markRPr: this.mark };
+    return this.paras.map((p) => `<w:p>${pPrXml(p.props, this.ctx, p.extras)}${p.body}</w:p>`).join('');
   }
 
   private takeLead(): string {
@@ -569,8 +614,29 @@ class ParagraphXml {
   }
 }
 
-function textRun(rPr: string, text: string): string {
-  return `<w:r>${rPr}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
+/** A run of text; deleted text (in a `w:del`) is `w:delText`. */
+function textRun(rPr: string, text: string, rev: Revision | null): string {
+  const tag = rev?.tag === 'del' ? 'w:delText' : 'w:t';
+  return `<w:r>${rPr}<${tag} xml:space="preserve">${esc(text)}</${tag}></w:r>`;
+}
+
+function openRevision(rev: Revision | null): string {
+  return rev ? `<w:${rev.tag}${rev.attrs}>` : '';
+}
+
+function closeRevision(rev: Revision | null): string {
+  return rev ? `</w:${rev.tag}>` : '';
+}
+
+function closeLink(link: string | undefined): string {
+  return link === undefined ? '' : '</w:hyperlink>';
+}
+
+/** A field as runs (begin, code, separator, shown result, end), the form that can sit in a revision. */
+function complexField(instr: string, rPr: string, shown: string, rev: Revision): string {
+  const code = rev.tag === 'del' ? 'w:delInstrText' : 'w:instrText';
+  const char = (type: string) => `<w:r>${rPr}<w:fldChar w:fldCharType="${type}"/></w:r>`;
+  return `${char('begin')}<w:r>${rPr}<${code} xml:space="preserve">${esc(instr)}</${code}></w:r>${char('separate')}${textRun(rPr, shown, rev)}${char('end')}`;
 }
 
 /** Word's name for a bookmark: the id itself when Word allows it, else a safe form of it. */
