@@ -6,6 +6,7 @@
  */
 
 import { DocxImportError, readDocx, type DocSnapshot, type DocxImportErrorCode, type DocxImportWarning, type ImageObject } from '@weldsuite/docs-engine';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { documentFromText } from './store/doc-store';
 
 /** Files that can become a document. */
@@ -75,16 +76,17 @@ function dataUrl(bytes: Uint8Array, mime: string): string {
 const PRIVATE_PATH = '/api/storage/private/';
 
 /**
- * Fetches a picture's bytes for an export. Private WeldDrive files take the
- * member's session token (an `<img>` uses the files cookie instead); other
- * addresses are fetched as they are, and give nothing when the site does
- * not allow it.
+ * Fetches a picture's bytes for an export. Private WeldDrive files on
+ * app-api (`apiOrigin`) take the member's session token (an `<img>` uses the
+ * files cookie instead); the token never goes to any other host, whatever
+ * its path. Other addresses are fetched as they are, and give nothing when
+ * the site does not allow it.
  */
-export function imageFetcher(getToken: () => Promise<string | null>) {
+export function imageFetcher(getToken: () => Promise<string | null>, apiOrigin: string = getAppApiUrl()) {
   return async (src: string): Promise<{ bytes: Uint8Array; mime: string } | null> => {
     try {
       const headers: Record<string, string> = {};
-      if (isPrivateFile(src)) {
+      if (isPrivateFile(src, apiOrigin)) {
         const token = await getToken();
         if (token) headers.Authorization = `Bearer ${token}`;
       }
@@ -98,9 +100,11 @@ export function imageFetcher(getToken: () => Promise<string | null>) {
   };
 }
 
-function isPrivateFile(src: string): boolean {
+/** A private WeldDrive address on app-api itself: same origin and the private path. */
+function isPrivateFile(src: string, apiOrigin: string): boolean {
   try {
-    return new URL(src, window.location.href).pathname.startsWith(PRIVATE_PATH);
+    const url = new URL(src, window.location.href);
+    return url.origin === new URL(apiOrigin).origin && url.pathname.startsWith(PRIVATE_PATH);
   } catch {
     return false;
   }

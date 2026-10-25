@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BODY, ContentBuilder, DocModel, applyOp, writeDocx, type ImageObject } from '@weldsuite/docs-engine';
-import { canImportName, importFailure, readImport } from './files';
+import { canImportName, imageFetcher, importFailure, readImport } from './files';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
@@ -15,6 +15,26 @@ async function docxWithPicture(): Promise<Uint8Array> {
 function images(snapshot: { stories: Record<string, { objects?: [number, unknown][] }> }): ImageObject[] {
   return (snapshot.stories[BODY]?.objects ?? []).map(([, o]) => o as ImageObject).filter((o) => o.kind === 'image');
 }
+
+describe('fetching pictures for an export', () => {
+  it('sends the session token to app-api only, whatever the path', async () => {
+    const seen: [string, string | undefined][] = [];
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      seen.push([String(input), (init?.headers as Record<string, string> | undefined)?.Authorization]);
+      return new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } });
+    });
+    const fetchImage = imageFetcher(async () => 'secret', 'https://app-api.example');
+    await fetchImage('https://app-api.example/api/storage/private/workspaces/w/a.png');
+    await fetchImage('https://attacker.example/api/storage/private/x');
+    await fetchImage('https://app-api.example/public/logo.png');
+    fetchMock.mockRestore();
+    expect(seen).toEqual([
+      ['https://app-api.example/api/storage/private/workspaces/w/a.png', 'Bearer secret'],
+      ['https://attacker.example/api/storage/private/x', undefined],
+      ['https://app-api.example/public/logo.png', undefined],
+    ]);
+  });
+});
 
 describe('reading a file into a document', () => {
   it('stores the pictures of a .docx and points the document at them', async () => {
