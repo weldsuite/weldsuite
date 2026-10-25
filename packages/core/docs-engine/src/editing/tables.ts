@@ -185,12 +185,14 @@ export function deleteTable(doc: DocModel, tableId: string): Op {
 export function mergeCells(doc: DocModel, tableId: string, r1: number, c1: number, r2: number, c2: number): Op {
   const t = doc.tables.get(tableId);
   if (!t) return NOOP;
-  const top = Math.min(r1, r2);
-  const left = Math.min(c1, c2);
-  const bottom = Math.max(r1, r2);
-  const right = Math.max(c1, c2);
-  if (top === bottom && left === right) return NOOP;
-  const rect = { top, left, bottom, right };
+  const rect = coverMerges(t, {
+    top: Math.max(0, Math.min(r1, r2)),
+    left: Math.max(0, Math.min(c1, c2)),
+    bottom: Math.min(t.rows.length - 1, Math.max(r1, r2)),
+    right: Math.min(t.cols.length - 1, Math.max(c1, c2)),
+  });
+  const { top, left } = rect;
+  if (top === rect.bottom && left === rect.right) return NOOP;
   const anchorId = cellStoryId(tableId, t.rows[top]!.id, t.cols[left]!.id);
   if (!doc.stories.has(anchorId)) return NOOP;
   const ops = moveCellText(doc, t, tableId, rect, anchorId);
@@ -198,11 +200,39 @@ export function mergeCells(doc: DocModel, tableId: string, r1: number, c1: numbe
   return batch(ops);
 }
 
-interface CellRect {
+export interface CellRect {
   top: number;
   left: number;
   bottom: number;
   right: number;
+}
+
+/** The cells a merged cell covers (a single cell's own position when it is not merged). */
+export function mergedBlock(t: TableData, row: number, col: number): CellRect {
+  const a = mergeAnchor(t, row, col);
+  const p = t.cells?.[cellKey(t.rows[a.row]!.id, t.cols[a.col]!.id)];
+  return { top: a.row, left: a.col, bottom: Math.min(t.rows.length - 1, a.row + (p?.rowSpan ?? 1) - 1), right: Math.min(t.cols.length - 1, a.col + (p?.colSpan ?? 1) - 1) };
+}
+
+/** The rectangle grown until every merge it touches lies wholly inside it, so merging never cuts one in two. */
+function coverMerges(t: TableData, rect: CellRect): CellRect {
+  const out = { ...rect };
+  for (let grown = true; grown; ) {
+    grown = false;
+    for (let r = out.top; r <= out.bottom; r++) {
+      for (let c = out.left; c <= out.right; c++) {
+        const b = mergedBlock(t, r, c);
+        if (b.top < out.top || b.left < out.left || b.bottom > out.bottom || b.right > out.right) {
+          out.top = Math.min(out.top, b.top);
+          out.left = Math.min(out.left, b.left);
+          out.bottom = Math.max(out.bottom, b.bottom);
+          out.right = Math.max(out.right, b.right);
+          grown = true;
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /** The cells of a rectangle other than its top-left one, in reading order. */

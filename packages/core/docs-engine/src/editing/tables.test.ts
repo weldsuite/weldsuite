@@ -20,6 +20,7 @@ import {
   insertRows,
   insertTable,
   mergeCells,
+  mergedBlock,
   resizeColumn,
   unmergeCell,
 } from './tables';
@@ -77,6 +78,31 @@ describe('table commands', () => {
     expect(cellStoryAt(d, id, 1, 1)).toBe(a);
     run(d, unmergeCell(d, id, 1, 1));
     expect(d.tables.get(id)!.cells?.[`${t.rows[0]!.id}:${t.cols[0]!.id}`]).toBeUndefined();
+  });
+
+  it('never cuts an existing merge in two: the merged area grows to hold it', () => {
+    const { d, id } = withTable();
+    const t = d.tables.get(id)!;
+    const span = (r: number, c: number) => d.tables.get(id)!.cells?.[`${t.rows[r]!.id}:${t.cols[c]!.id}`];
+    // A1 merged down with A2, then merged right: both rows stay merged.
+    run(d, mergeCells(d, id, 0, 0, 1, 0));
+    run(d, mergeCells(d, id, 0, 0, 0, 1));
+    expect(span(0, 0)).toEqual({ rowSpan: 2, colSpan: 2 });
+    // Merging right again from the merged block reaches the third column.
+    const block = mergedBlock(d.tables.get(id)!, 1, 1);
+    expect(block).toEqual({ top: 0, left: 0, bottom: 1, right: 1 });
+    run(d, mergeCells(d, id, block.top, block.left, block.bottom, block.right + 1));
+    expect(span(0, 0)).toEqual({ rowSpan: 2, colSpan: 3 });
+  });
+
+  it('takes in a merge from the row above when merging into a cell it covers', () => {
+    const { d, id } = withTable();
+    const t = d.tables.get(id)!;
+    run(d, mergeCells(d, id, 0, 1, 1, 1));
+    // B2 is covered by B1's merge: merging A2 right takes the whole of it.
+    run(d, mergeCells(d, id, 1, 0, 1, 1));
+    expect(d.tables.get(id)!.cells?.[`${t.rows[0]!.id}:${t.cols[0]!.id}`]).toEqual({ rowSpan: 2, colSpan: 2 });
+    expect(d.tables.get(id)!.cells?.[`${t.rows[0]!.id}:${t.cols[1]!.id}`]?.rowSpan).toBeUndefined();
   });
 
   it('resizes a column against its neighbour and distributes widths', () => {

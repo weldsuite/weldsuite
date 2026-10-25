@@ -27,8 +27,8 @@ export function TableMenuItems({ controller }: { controller: DocController }) {
       {item('deleteCol', tt.deleteCol)}
       {item('deleteTable', tt.deleteTable)}
       <DropdownMenuSeparator />
-      {item('mergeRight', tt.mergeRight, ctx.col >= ctx.cols - 1)}
-      {item('mergeDown', tt.mergeDown, ctx.row >= ctx.rows - 1)}
+      {item('mergeRight', tt.mergeRight, ctx.block.right >= ctx.cols - 1)}
+      {item('mergeDown', tt.mergeDown, ctx.block.bottom >= ctx.rows - 1)}
       {item('unmerge', tt.unmerge, !ctx.merged)}
       {item('distribute', tt.distribute)}
       {item('headerRow', ctx.headerRows > 0 ? tt.unpinHeader : tt.pinHeader)}
