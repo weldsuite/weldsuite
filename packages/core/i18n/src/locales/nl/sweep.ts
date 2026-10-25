@@ -506,6 +506,82 @@ export const sweep = {
       "deleteTitle": "Bericht verwijderen?",
       "reactionFailed": "De reactie kon niet worden toegevoegd"
     },
+    "recordChats": {
+      "follow": "Volgen",
+      "followFailed": "Deze chat kon niet worden gevolgd",
+      "followHint": "Volg deze chat om hem in je WeldChat-zijbalk te houden",
+      "following": "Gevolgd",
+      "groupHidden": "{group} is verborgen in je zijbalk",
+      "groups": {
+        "company": "Bedrijven",
+        "domain": "Domeinen",
+        "person": "Personen",
+        "project": "Projecten",
+        "task": "Taken"
+      },
+      "hideGroup": "Deze groep verbergen",
+      "open": {
+        "company": "Bedrijf openen",
+        "domain": "Domein openen",
+        "person": "Persoon openen",
+        "project": "Project openen",
+        "task": "Taak openen"
+      },
+      "openInWeldChat": "Openen in WeldChat",
+      "openRecord": "Record openen",
+      "page": {
+        "allTab": "Alle",
+        "empty": {
+          "all": {
+            "description": "Chats over de bedrijven, personen, taken, projecten en domeinen die je kunt zien verschijnen hier zodra iemand er een begint.",
+            "title": "Nog geen recordchats"
+          },
+          "following": {
+            "description": "Volg een chat bij een bedrijf, persoon, taak, project of domein om hem hier en in je zijbalk te houden.",
+            "title": "Je volgt geen recordchats"
+          },
+          "mentions": {
+            "description": "Als iemand je @vermeldt in een recordchat die je volgt, zie je dat hier.",
+            "title": "Geen ongelezen vermeldingen"
+          },
+          "unread": {
+            "description": "Er zijn geen ongelezen berichten in de recordchats die je volgt.",
+            "title": "Je bent helemaal bij"
+          }
+        },
+        "filterLabel": "Tonen",
+        "filters": {
+          "all": "Alles wat ik kan zien",
+          "following": "Gevolgd",
+          "mentions": "Vermeldingen",
+          "unread": "Ongelezen"
+        },
+        "lastActivityHeader": "Laatste activiteit",
+        "mentionCount": "{count} ongelezen vermeldingen",
+        "muted": "Gedempt",
+        "nameHeader": "Naam",
+        "noMatches": "Geen recordchats gevonden",
+        "noMatchesHint": "Geen recordchat komt overeen met je zoekopdracht.",
+        "noMessages": "Nog geen berichten",
+        "rowActions": "Acties voor {name}",
+        "searchPlaceholder": "Recordchats zoeken...",
+        "showAllICanSee": "Alles tonen wat ik kan zien",
+        "showInSidebar": "Tonen in zijbalk",
+        "typeHeader": "Type"
+      },
+      "showAll": "Alles tonen ({count})",
+      "title": "Recordchats",
+      "types": {
+        "company": "Bedrijf",
+        "domain": "Domein",
+        "person": "Persoon",
+        "project": "Project",
+        "task": "Taak"
+      },
+      "undo": "Ongedaan maken",
+      "unfollow": "Niet meer volgen",
+      "unfollowFailed": "Kon deze chat niet ontvolgen"
+    },
     "relativeTime": {
       "daysAgo": "{count}d geleden",
       "hoursAgo": "{count}u geleden",

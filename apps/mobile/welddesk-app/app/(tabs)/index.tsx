@@ -3,7 +3,7 @@
  * List-first layout matching WeldBooks' full-bleed rows + floating pill nav.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,12 @@ import {
   StyleSheet,
   RefreshControl,
   Pressable,
+  TextInput,
 } from 'react-native';
 import { useObserve } from 'expo-observe';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Inbox as InboxIcon, Mail, MessageSquare } from 'lucide-react-native';
+import { Inbox as InboxIcon, Mail, MessageSquare, Search, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
@@ -31,13 +32,17 @@ import { ChannelBadge } from '@/components/status-badge';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type {
   DeskConversation,
+  DeskConversationFilters,
   DeskConversationSort,
   DeskConversationState,
 } from '@/types/desk';
 
 type AssigneeFilter = 'all' | 'mine' | 'unassigned';
+
+const SEARCH_DEBOUNCE_MS = 300;
 type Translations = ReturnType<typeof useI18n>['t'];
 
 const NEXT_SORT: Record<DeskConversationSort, DeskConversationSort> = {
@@ -77,18 +82,20 @@ export default function InboxScreen() {
   const [state, setState] = useState<DeskConversationState>('open');
   const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>('all');
   const [sort, setSort] = useState<DeskConversationSort>('newest');
+  const [search, setSearch] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  const debouncedSearch = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS);
+
   const filters = useMemo(() => {
-    const base: { state: DeskConversationState; assigneeId?: string; unassigned?: boolean } = {
-      state,
-    };
+    const base: DeskConversationFilters = { state };
     if (assigneeFilter === 'mine' && user?.id) base.assigneeId = user.id;
     if (assigneeFilter === 'unassigned') base.unassigned = true;
+    if (debouncedSearch) base.q = debouncedSearch;
     return base;
-  }, [state, assigneeFilter, user]);
+  }, [state, assigneeFilter, user, debouncedSearch]);
 
   const fetchPage = useCallback(
     async (pageCursor?: string, append = false) => {
@@ -125,6 +132,18 @@ export default function InboxScreen() {
       markInteractive();
     }
   }, [loading, markInteractive]);
+
+  // Coming back from a thread: refresh silently so assignee/state changes show up.
+  const skipFirstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (skipFirstFocus.current) {
+        skipFirstFocus.current = false;
+        return;
+      }
+      void fetchPage();
+    }, [fetchPage]),
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -167,11 +186,38 @@ export default function InboxScreen() {
     { key: 'unassigned', label: t.inbox.unassigned },
   ];
 
+  let emptyTitle = state === 'open' ? t.inbox.emptyOpen : t.inbox.emptyClosed;
+  if (debouncedSearch) emptyTitle = t.inbox.noResults;
+
   const header = (
     <ScreenHeader
       title={t.inbox.title}
       below={
         <View style={styles.filters}>
+          <View style={[styles.searchBox, { backgroundColor: colors.secondary }]}>
+            <Search size={16} color={colors.mutedForeground} />
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder={t.inbox.searchPlaceholder}
+              placeholderTextColor={colors.mutedForeground}
+              returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
+              clearButtonMode="never"
+              style={[styles.searchInput, { color: colors.text }]}
+            />
+            {search ? (
+              <Pressable
+                onPress={() => setSearch('')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t.inbox.searchClear}
+              >
+                <X size={16} color={colors.mutedForeground} />
+              </Pressable>
+            ) : null}
+          </View>
           <View style={styles.chipRow}>
             {stateChips.map((chip) => {
               const active = state === chip.key;
@@ -264,8 +310,8 @@ export default function InboxScreen() {
           ListEmptyComponent={
             <EmptyState
               icon={<InboxIcon size={40} color={colors.muted} />}
-              title={state === 'open' ? t.inbox.emptyOpen : t.inbox.emptyClosed}
-              description={t.inbox.emptyHint}
+              title={emptyTitle}
+              description={debouncedSearch ? t.inbox.noResultsHint : t.inbox.emptyHint}
             />
           }
           renderItem={({ item }) => {
@@ -303,6 +349,15 @@ function BRAND_TINT_SAFE(_colors: { secondary: string }): string {
 
 const styles = StyleSheet.create({
   filters: { gap: 8 },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 12,

@@ -721,14 +721,15 @@ export function MyTasksClient({
   const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
 
   const handleSaveTask = (data: SaveTaskFormData) => {
-    // No project picked = a personal task (POST /tasks takes `projectId: null`).
-    // It used to fall back to the first project, so personal tasks could not be
-    // created at all.
+    // A task created here must belong to a project: the dialog marks the project
+    // as required. POST /tasks itself still takes `projectId: null`, because
+    // WeldCRM tasks share that endpoint.
     const selectedProject = data.linkedCompanyId ? projectById[data.linkedCompanyId] : undefined;
+    if (!selectedProject) return;
 
     startTransition(async () => {
       const result = await tasksApi.createGlobal({
-        projectId: selectedProject?.id,
+        projectId: selectedProject.id,
         title: data.title,
         description: data.description,
         status: data.status,
@@ -1807,6 +1808,8 @@ export function MyTasksClient({
         onCreateLabel={handleCreateLabel}
         defaultAssignee={userId || undefined}
         defaultStatus={dialogDefaultStatus}
+        // Only on create: an existing task without a project can still be edited.
+        recordRequired={!editingCrmTask}
         recordLabel={t.projects.myTasks.selectProject}
         recordSearchPlaceholder={t.projects.project.searchProjects}
         recordEmptyLabel={t.projects.project.noProjects}

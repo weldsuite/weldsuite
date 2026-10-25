@@ -20,6 +20,7 @@ export type NotificationCategory =
   | 'weldchat'
   | 'weldagent'
   | 'weldbooks'
+  | 'weldsheets'
   | 'system'
   | 'security';
 
@@ -56,6 +57,7 @@ export type NotificationType =
   | 'agent_run_completed'
   | 'agent_run_failed'
   | 'weldagent_reply'
+  | 'weldagent_approval'
   | 'security_alert'
   | 'system_update'
   | 'access_request'

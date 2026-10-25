@@ -179,6 +179,8 @@ export const SSO_ERRORS = {
   /** The domain cannot change while a connection uses it. */
   DOMAIN_LOCKED: 'SSO_DOMAIN_LOCKED',
   DNS_LOOKUP_FAILED: 'SSO_DNS_LOOKUP_FAILED',
+  /** Another request changed the domain or the connection while this one was running. */
+  CHANGED_MEANWHILE: 'SSO_CHANGED_MEANWHILE',
   CONNECTION_MISSING: 'SSO_CONNECTION_MISSING',
   /** Activating needs the IdP's metadata (URL or XML) or its entity id, SSO URL and certificate. */
   IDP_INCOMPLETE: 'SSO_IDP_INCOMPLETE',

@@ -40,6 +40,7 @@ import {
 import { getConnectionById } from '@weldsuite/connect-domain/connectors/connections';
 import { syncConnection } from '@weldsuite/connect-domain/connectors/sync';
 import { processConnectorWebhook } from '@weldsuite/connect-domain/connectors/webhooks';
+import { pushAllMoneybirdConnections } from '@weldsuite/connect-domain/connectors/moneybird-push';
 import { completeWooCommerceAppAuth } from '@weldsuite/connect-domain/connectors/auth';
 import { touchConnectorIndexIngested } from '@weldsuite/connect-domain/connector-sync-index';
 import { decryptAccessToken, syncSelectedAccounts } from '@weldsuite/ads-domain/sync';
@@ -191,6 +192,7 @@ app.post('/connections/:id/connector-event', async (c, next: Next) => {
       workspaceId,
       rawBody,
       headers: c.req.raw.headers,
+      waitUntil: (promise) => c.executionCtx.waitUntil(promise),
     });
     return c.json({ data: { message: result.message } }, result.status as 200 | 400 | 401 | 500);
   } catch (err) {
@@ -229,6 +231,28 @@ app.post('/connections/:id/catch-up', async (c, next: Next) => {
   } catch (err) {
     console.error('[app-api/integrations-internal] connector catch-up failed:', err);
     return error.internal(c, 'Failed to catch up connector');
+  }
+});
+
+// ============================================================================
+// POST /moneybird-push — D1 `moneybird_push` work row: another push pass
+// ============================================================================
+
+app.post('/moneybird-push', async (c, next: Next) => {
+  const resolved = await resolveInternal(c);
+  if (resolved.kind === 'passthrough') return next();
+  if (resolved.kind === 'response') return resolved.response;
+
+  try {
+    const result = await pushAllMoneybirdConnections({
+      db: resolved.ctx.db,
+      env: c.env,
+      trigger: 'schedule',
+    });
+    return success(c, result);
+  } catch (err) {
+    console.error('[app-api/integrations-internal] moneybird push failed:', err);
+    return error.internal(c, 'Failed to push to Moneybird');
   }
 });
 

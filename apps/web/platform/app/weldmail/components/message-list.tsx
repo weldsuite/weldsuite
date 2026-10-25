@@ -1,8 +1,9 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle, Loader2 } from 'lucide-react';
+import { Star, Pin, Archive, Trash2, Tag, Clock, Calendar as CalendarIcon, X, Reply, ReplyAll, Forward, Paperclip, Search, ExternalLink, FolderInput, BellOff, ListChecks, Eye, EyeOff, Inbox, AlertCircle, Loader2, CheckCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Input } from '@weldsuite/ui/components/input';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Separator } from '@weldsuite/ui/components/separator';
@@ -44,6 +45,7 @@ import {
   type RowRecipient,
 } from '../lib/row-display';
 import { AddMailTaskDialog, type MailTaskDraft } from './add-mail-task-dialog';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import type { ThreadSummary } from '../lib/thread-utils';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';
@@ -56,6 +58,7 @@ import {
   useArchiveMailMessage,
   useMoveToTrash,
   useMarkMailRead,
+  useMarkFolderAsRead,
   useMarkAsSpam,
   useSnoozeEmail,
   useUnsnoozeEmail,
@@ -71,6 +74,25 @@ import { useI18n } from '@/lib/i18n/provider';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
 
 type EmailMessage = MailTypes.Email;
+
+/** The sidebar's name for each system folder slug that can be marked read. */
+const SYSTEM_FOLDER_NAME_KEYS = {
+  inbox: 'inbox',
+  promotions: 'promotions',
+  starred: 'starred',
+  sent: 'sent',
+  snoozed: 'snoozed',
+  important: 'important',
+  all: 'allMail',
+  archive: 'archive',
+  spam: 'spam',
+  trash: 'trash',
+} as const;
+
+/** Drafts and Scheduled hold mail still being written or sent: nothing to read. */
+function canMarkFolderRead(folder: string): boolean {
+  return !['drafts', 'scheduled'].includes(folder.toLowerCase());
+}
 
 function scheduledPreview(scheduledFor: string | number | Date, scheduledLabel?: (date: string) => string): string {
   const formatted = format(new Date(scheduledFor), 'PPp');
@@ -391,6 +413,8 @@ export function MessageList({
   const archiveMessage = useArchiveMailMessage();
   const trashMessage = useMoveToTrash();
   const markMailRead = useMarkMailRead();
+  const markFolderAsRead = useMarkFolderAsRead();
+  const [markAllReadOpen, setMarkAllReadOpen] = useState(false);
   const markAsSpam = useMarkAsSpam();
   const snoozeEmail = useSnoozeEmail();
   const unsnoozeEmail = useUnsnoozeEmail();
@@ -1241,6 +1265,45 @@ export function MessageList({
     </Popover>
   );
 
+  // "Mark all as read" acts on the whole folder, not just the loaded page: the
+  // confirm dialog names the folder so that is clear before anything changes.
+  const folderSlug = folder.toLowerCase();
+  const systemFolderKey = SYSTEM_FOLDER_NAME_KEYS[folderSlug as keyof typeof SYSTEM_FOLDER_NAME_KEYS];
+  const folderName = systemFolderKey
+    ? t.mail.sidebar[systemFolderKey]
+    : (mailLabels.find((l) => l.name.toLowerCase() === folderSlug)?.name ?? folder);
+  const markAllRead = async () => {
+    try {
+      const result = await markFolderAsRead.mutateAsync({
+        labelSlug: folder,
+        accountId: isUnified ? undefined : accountId,
+      });
+      const message = result.updatedCount > 0
+        ? t.mail.messageList.markedAllAsRead
+        : t.mail.messageList.nothingToMarkAsRead;
+      toast.success(message.replace('{folder}', folderName));
+      setMarkAllReadOpen(false);
+    } catch {
+      toast.error(t.mail.messageList.failedToMarkAllAsRead);
+    }
+  };
+  const markAllReadButton = canMarkFolderRead(folder) ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 w-8 p-0 flex-shrink-0 shadow-none text-muted-foreground"
+          aria-label={t.mail.messageList.markAllAsRead}
+          onClick={() => setMarkAllReadOpen(true)}
+        >
+          <CheckCheck className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{t.mail.messageList.markAllAsRead}</TooltipContent>
+    </Tooltip>
+  ) : null;
+
   // Handle label drag-and-drop from sidebar onto a thread row
   const handleThreadLabelDrop = (item: ConversationItem, labelData: { name: string; accountIds?: string[] }) => {
     const thread = threadMap.get(item.id);
@@ -1298,7 +1361,12 @@ export function MessageList({
       items={items}
       selectedId={getSelectedId()}
       getItemUrl={getItemUrl}
-      filterContent={filterPopover}
+      filterContent={
+        <>
+          {filterPopover}
+          {markAllReadButton}
+        </>
+      }
       actionLabel={t.mail.messageList.compose}
       onAction={() => {
         // Pass the current URL as returnUrl so the compose X button takes the
@@ -1353,6 +1421,18 @@ export function MessageList({
       emptyMessage={displayMode === 'threads' ? t.mail.messageList.noConversationsFound : t.mail.messageList.noMessagesFound}
     />
     <AddMailTaskDialog draft={taskDraft} onClose={() => setTaskDraft(null)} />
+    <ConfirmDialog
+      open={markAllReadOpen}
+      onOpenChange={setMarkAllReadOpen}
+      title={t.mail.messageList.markAllAsReadTitle}
+      description={(isUnified
+        ? t.mail.messageList.markAllAsReadUnifiedDescription
+        : t.mail.messageList.markAllAsReadDescription
+      ).replace('{folder}', folderName)}
+      confirmLabel={t.mail.messageList.markAllAsRead}
+      cancelLabel={t.common.actions.cancel}
+      onConfirm={markAllRead}
+    />
     </>
   );
 }

@@ -13,9 +13,10 @@ import { ActivityTab } from './activity-tab';
 import { GeneralTab } from './general-tab';
 import { KnowledgeTab } from './knowledge-tab';
 import { RoutinesTab } from './routines-tab';
+import { TeamTab } from './team-tab';
 import { useAgentForm } from './use-agent-form';
 
-export const SETTINGS_TABS = ['general', 'access', 'routines', 'knowledge', 'activity'] as const;
+export const SETTINGS_TABS = ['general', 'access', 'team', 'routines', 'knowledge', 'activity'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 interface AgentSettingsSheetProps {
@@ -77,6 +78,9 @@ export function AgentSettingsSheet({ agent, open, onOpenChange, tab, onTabChange
             </TabsContent>
             <TabsContent value="access" className="mt-0">
               <AccessTab form={form} />
+            </TabsContent>
+            <TabsContent value="team" className="mt-0">
+              <TeamTab agent={agent} />
             </TabsContent>
             <TabsContent value="routines" className="mt-0">
               <RoutinesTab agent={agent} />

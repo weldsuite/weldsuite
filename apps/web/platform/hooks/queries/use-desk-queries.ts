@@ -10,7 +10,7 @@ export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' |
 export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned';
+export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated';
 
 export interface DeskConversation {
   id: string;
@@ -28,6 +28,10 @@ export interface DeskConversation {
   waitingSince: string | null;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
+  /** The visitor's CSAT answer (1–5) once they rated the closed conversation. */
+  rating?: number | null;
+  ratingComment?: string | null;
+  ratedAt?: string | null;
 }
 
 export interface DeskMessageAttachment {
@@ -51,6 +55,8 @@ export interface DeskMessage {
   metadata: {
     eventType?: DeskEventType;
     assigneeId?: string | null;
+    rating?: number;
+    ratingComment?: string | null;
     event?: string;
     callId?: string;
     turnIndex?: number;
@@ -69,6 +75,15 @@ export interface DeskWidgetBranding {
   position?: 'right' | 'left';
 }
 
+export type DeskWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export type DeskExpectedReplyTime = 'few_minutes' | 'hour' | 'few_hours' | 'day';
+
+/** Weekly office hours; a missing or null weekday is closed. Times are `HH:MM` in the widget timezone. */
+export interface DeskOfficeHours {
+  enabled: boolean;
+  days: Partial<Record<DeskWeekday, { start: string; end: string } | null>>;
+}
+
 export interface DeskWidgetSettings {
   id: string;
   createdAt: string;
@@ -79,6 +94,10 @@ export interface DeskWidgetSettings {
   greeting: string | null;
   branding: DeskWidgetBranding | null;
   allowedDomains: string[] | null;
+  officeHours: DeskOfficeHours | null;
+  timezone: string | null;
+  awayMessage: string | null;
+  expectedReplyTime: DeskExpectedReplyTime | null;
 }
 
 export interface DeskListPagination {
@@ -95,13 +114,73 @@ export const deskKeys = {
   conversationDetail: (id: string) => [...deskKeys.conversations(), 'detail', id] as const,
   widget: () => [...deskKeys.all, 'widget'] as const,
   widgetDetail: (widgetId: string) => [...deskKeys.widget(), widgetId] as const,
+  assignment: () => [...deskKeys.all, 'assignment'] as const,
 };
+
+export type DeskAssignmentMode = 'off' | 'round_robin' | 'balanced';
+
+export interface DeskAssignmentSettings {
+  mode: DeskAssignmentMode;
+  memberIds: string[];
+  awayMemberIds: string[];
+  maxOpenPerMember: number | null;
+  /** The signed-in teammate's own place in the rotation. */
+  me: { inRotation: boolean; away: boolean };
+}
+
+export type DeskAssignmentUpdate = Pick<DeskAssignmentSettings, 'mode' | 'memberIds' | 'maxOpenPerMember'>;
+
+/** Auto-assignment rules (`/api/desk/assignment`). */
+export function useDeskAssignment() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: deskKeys.assignment(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: DeskAssignmentSettings }>('/desk/assignment');
+      return res.data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateDeskAssignment() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: DeskAssignmentUpdate) => {
+      const client = await getClient();
+      const res = await client.put<{ data: DeskAssignmentSettings }>('/desk/assignment', data);
+      return res.data;
+    },
+    onSuccess: (settings) => qc.setQueryData(deskKeys.assignment(), settings),
+  });
+}
+
+/** The signed-in teammate stops (or resumes) taking new conversations. */
+export function useSetDeskAway() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (away: boolean) => {
+      const client = await getClient();
+      const res = await client.post<{ data: DeskAssignmentSettings }>('/desk/assignment/away', { away });
+      return res.data;
+    },
+    onSuccess: (settings) => qc.setQueryData(deskKeys.assignment(), settings),
+  });
+}
 
 export interface DeskConversationFilters {
   state?: DeskConversationState;
   assigneeId?: string;
   unassigned?: boolean;
   channel?: DeskChannel;
+  /** Server-side search over customer, subject, number and message text. */
+  q?: string;
+  /** A customer's conversations: by email, else by widget visitor. */
+  email?: string;
+  visitorId?: string;
 }
 
 function buildConversationQuery(
@@ -114,6 +193,9 @@ function buildConversationQuery(
   if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
   if (filters.unassigned) params.set('unassigned', 'true');
   if (filters.channel) params.set('channel', filters.channel);
+  if (filters.q?.trim()) params.set('q', filters.q.trim());
+  if (filters.email) params.set('email', filters.email);
+  if (filters.visitorId) params.set('visitorId', filters.visitorId);
   if (sort) params.set('sort', sort);
   if (cursor) params.set('cursor', cursor);
   const qs = params.toString();
@@ -147,6 +229,83 @@ export function useDeskConversation(id: string, enabled = true) {
       );
     },
     enabled: !!id && enabled,
+  });
+}
+
+/**
+ * The customer's other conversations (any state), for the details panel.
+ * Matched by email when known, else by the widget visitor.
+ */
+export function useDeskCustomerConversations(conversation: DeskConversation | undefined) {
+  const { getClient } = useAppApiClient();
+  const filters: DeskConversationFilters = conversation?.email
+    ? { email: conversation.email }
+    : { visitorId: conversation?.visitorId ?? undefined };
+  return useQuery({
+    queryKey: [...deskKeys.conversations(), 'customer', filters] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const query = buildConversationQuery(filters, 'newest');
+      const res = await client.get<{ data: DeskConversation[]; pagination: DeskListPagination }>(
+        `/desk/conversations${query}${query ? '&' : '?'}limit=10`,
+      );
+      return res.data;
+    },
+    enabled: Boolean(filters.email || filters.visitorId),
+  });
+}
+
+/** Upload one file to a conversation; attach the result to the next reply. */
+export function useUploadDeskAttachment() {
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ conversationId, file }: { conversationId: string; file: File }) => {
+      const client = await getClient();
+      const form = new FormData();
+      form.append('file', file);
+      const res = await client.postForm<{ data: DeskMessageAttachment }>(
+        `/desk/conversations/${conversationId}/attachments`,
+        form,
+      );
+      return res.data;
+    },
+  });
+}
+
+export interface DeskSavedReply {
+  id: string;
+  name: string;
+  content: string;
+  shortcut: string | null;
+  category: string | null;
+}
+
+/** Saved replies the agent may use (active; others' personal ones hidden). */
+export function useDeskSavedReplies(search: string, enabled = true) {
+  const { getClient } = useAppApiClient();
+  const q = search.trim();
+  return useQuery({
+    queryKey: [...deskKeys.all, 'saved-replies', q] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const params = new URLSearchParams({ q, limit: '20' });
+      const res = await client.get<{ data: DeskSavedReply[] }>(`/canned-responses/search?${params.toString()}`);
+      return res.data;
+    },
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/** Render a saved reply with the conversation's variables; counts the use. */
+export function useApplyDeskSavedReply() {
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ id, variables }: { id: string; variables: Record<string, unknown> }) => {
+      const client = await getClient();
+      const res = await client.post<{ data: { content: string } }>(`/canned-responses/${id}/use`, { variables });
+      return res.data.content;
+    },
   });
 }
 
@@ -309,6 +468,10 @@ export function useUpdateDeskWidget() {
         greeting?: string | null;
         branding?: DeskWidgetBranding;
         allowedDomains?: string[];
+        officeHours?: DeskOfficeHours | null;
+        timezone?: string | null;
+        awayMessage?: string | null;
+        expectedReplyTime?: DeskExpectedReplyTime | null;
       };
     }) => {
       const client = await getClient();

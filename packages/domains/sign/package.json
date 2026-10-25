@@ -1,0 +1,61 @@
+{
+  "name": "@weldsuite/sign-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./code-attempts": "./src/code-attempts.ts",
+    "./code-attempts.memory": "./src/code-attempts.memory.ts",
+    "./codes": "./src/codes.ts",
+    "./documents": "./src/documents.ts",
+    "./env": "./src/env.ts",
+    "./envelopes": "./src/envelopes.ts",
+    "./errors": "./src/errors.ts",
+    "./events": "./src/events.ts",
+    "./fields": "./src/fields.ts",
+    "./filing": "./src/filing.ts",
+    "./finalize": "./src/finalize.ts",
+    "./finalize-envelope": "./src/finalize-envelope.ts",
+    "./hash": "./src/hash.ts",
+    "./lifecycle": "./src/lifecycle.ts",
+    "./links": "./src/links.ts",
+    "./mail": "./src/mail.ts",
+    "./pdf-render": "./src/pdf-render.ts",
+    "./portal": "./src/portal.ts",
+    "./recipients": "./src/recipients.ts",
+    "./schedule": "./src/schedule.ts",
+    "./sending": "./src/sending.ts",
+    "./session": "./src/session.ts",
+    "./settings": "./src/settings.ts",
+    "./signing": "./src/signing.ts",
+    "./sources": "./src/sources.ts",
+    "./templates": "./src/templates.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/crm-domain": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/mail-domain": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "pdf-lib": "^1.17.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.12"
+  }
+}

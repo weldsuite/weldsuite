@@ -1,0 +1,20 @@
+appId: com.weldsuite.weldhr
+name: Switching to Dutch translates the app, and back
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-me
+- scrollUntilVisible:
+    element: "Nederlands"
+- tapOn: "Nederlands"
+- assertVisible: "Instellingen"
+- tapOn:
+    id: tab-home
+- assertVisible: "Verlof over|Te doen|Nog geen medewerkersdossier|Mijn HR is niet beschikbaar"
+- tapOn:
+    id: tab-me
+- scrollUntilVisible:
+    element: "English"
+- tapOn: "English"
+- assertVisible: "Settings"

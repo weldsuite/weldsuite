@@ -7,7 +7,9 @@ import {
   findModuleForExternalPath,
   findModuleForPath,
   getApiModule,
+  licenceAppsForPath,
   missingLicensedApp,
+  missingLicensedAppForPath,
   MODULE_WORKERS,
   moduleOriginFrom,
   coreOriginFrom,
@@ -235,6 +237,24 @@ describe('licence gate lookups', () => {
     expect(missingLicensedApp(findModuleForPath('/api/invoices'), deskOnly)).toBe('weldbooks');
     expect(missingLicensedApp(findModuleForPath('/api/weldpass/vaults'), deskOnly)).toBe('weldpass');
     expect(missingLicensedApp(findModuleForPath('/api/tickets'), licensed())).toBe('welddesk');
+  });
+
+  it("opens a record's chat to the apps of the module that owns the record", () => {
+    const crm = getApiModule('crm').apps!;
+    const chat = getApiModule('chat').apps!;
+    expect(licenceAppsForPath('/api/chat-entity-channels/company/cmp_1/messages')).toEqual([
+      ...new Set([...chat, ...crm]),
+    ]);
+    expect(licenceAppsForPath('/api/chat-entity-channels/domain/dom_1')).toContain('weldhost');
+    expect(licenceAppsForPath('/api/chat-entity-channels/task/t_1/follow')).toContain('weldcrm');
+    // The WeldChat lists, unknown types and other chat paths keep chat's apps.
+    for (const path of ['/api/chat-entity-channels', '/api/chat-entity-channels/summary', '/api/chat-entity-channels?type=company', '/api/chat-entity-channels/customer/c_1', '/api/channels/ch_1']) {
+      expect(licenceAppsForPath(path), path).toEqual(chat);
+    }
+    expect(licenceAppsForPath('/api/me')).toBeNull();
+    expect(missingLicensedAppForPath('/api/chat-entity-channels/person/p_1/channel', licensed('weldcrm'))).toBeNull();
+    expect(missingLicensedAppForPath('/api/chat-entity-channels/domain/d_1/channel', licensed('weldcrm'))).toBe('weldchat');
+    expect(missingLicensedAppForPath('/api/invoices', licensed('welddesk'))).toBe('weldbooks');
   });
 
   it('maps external-api paths onto the first-party module', () => {

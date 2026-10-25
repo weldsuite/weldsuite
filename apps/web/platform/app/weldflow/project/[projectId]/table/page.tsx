@@ -24,15 +24,24 @@ import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfi
 import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { tablesApi } from '@/app/weldflow/lib/api-client';
+import { useAppApi } from '@/lib/api/use-app-api';
+import type { SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
 import { PageLoader } from '@/components/page-loader';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 
 interface TableItem {
+  /** The drive file (what the editor's URL names). */
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
+  /** The WeldSheets spreadsheet; null for a sheet of the old grid not opened since (an .xlsx file). */
+  weldsheetId: string | null;
+}
+
+function itemOf(sheet: SheetSummary): TableItem {
+  return { id: sheet.fileId, name: sheet.name, createdAt: sheet.createdAt, updatedAt: sheet.updatedAt, weldsheetId: sheet.id };
 }
 
 function formatDate(date: string) {
@@ -45,6 +54,7 @@ export default function ProjectTablePage() {
   const projectId = params.projectId as string;
   const { canWrite } = useProjectPermissions();
   const { t } = useI18n();
+  const sheets = useAppApi().sheets;
 
   const [items, setItems] = useState<TableItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -129,30 +139,38 @@ export default function ProjectTablePage() {
   // Deleting has no undo, so the menu only sets the target; the confirm dialog deletes.
   const [deleteTarget, setDeleteTarget] = useState<TableItem | null>(null);
 
+  // A copy is made in WeldSheets: an old .xlsx sheet becomes a spreadsheet first (as opening it would).
   const handleDuplicateTable = useCallback(async (item: TableItem) => {
-    const result = await tablesApi.createTable(projectId, {
-      name: t.projects.table.tableCopyName.replace('{name}', item.name),
-      copyFromFileId: item.id,
-    });
-    if (result.success && result.data) {
-      const created = result.data;
-      setItems(prev => [created, ...prev]);
+    try {
+      const sourceId = item.weldsheetId ?? (await sheets.convertProjectSheet({ fileId: item.id, firstTabName: t.weldsheets.home.firstTab })).data.id;
+      const { data } = await sheets.create({ name: t.projects.table.tableCopyName.replace('{name}', item.name), projectId, copyFromSheetId: sourceId });
+      setItems(prev => [itemOf(data), ...prev.map(it => (it.id === item.id ? { ...it, weldsheetId: sourceId } : it))]);
       toast.success(t.projects.table.tableDuplicated);
-    } else {
+    } catch {
       toast.error(t.projects.table.failedToDuplicateTable);
     }
-  }, [projectId, t.projects.table.tableCopyName, t.projects.table.tableDuplicated, t.projects.table.failedToDuplicateTable]);
+  }, [projectId, sheets, t.projects.table.tableCopyName, t.projects.table.tableDuplicated, t.projects.table.failedToDuplicateTable, t.weldsheets.home.firstTab]);
 
-  const handleDeleteTable = useCallback(async (tableId: string) => {
-    const result = await tablesApi.deleteTable(projectId, tableId);
+  const deleteSheet = useCallback(async (item: TableItem): Promise<boolean> => {
+    if (!item.weldsheetId) return (await tablesApi.deleteTable(projectId, item.id)).success;
+    try {
+      await sheets.remove(item.weldsheetId);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [projectId, sheets]);
+
+  const handleDeleteTable = useCallback(async (item: TableItem) => {
+    const deleted = await deleteSheet(item);
     setDeleteTarget(null);
-    if (result.success) {
-      setItems(prev => prev.filter(t => t.id !== tableId));
+    if (deleted) {
+      setItems(prev => prev.filter(it => it.id !== item.id));
       toast.success(t.projects.table.tableDeleted);
     } else {
       toast.error(t.projects.table.failedToDeleteTable);
     }
-  }, [projectId, t.projects.table.failedToDeleteTable, t.projects.table.tableDeleted]);
+  }, [deleteSheet, t.projects.table.failedToDeleteTable, t.projects.table.tableDeleted]);
 
   const openRenameDialog = useCallback((item: TableItem) => {
     setRenameTableId(item.id);
@@ -161,19 +179,30 @@ export default function ProjectTablePage() {
     setTimeout(() => renameInputRef.current?.focus(), 0);
   }, []);
 
+  const renameSheet = useCallback(async (item: TableItem, name: string): Promise<boolean> => {
+    if (!item.weldsheetId) return (await tablesApi.updateTable(projectId, item.id, { name })).success;
+    try {
+      await sheets.update(item.weldsheetId, { name });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [projectId, sheets]);
+
   const handleRenameTable = useCallback(async () => {
-    if (!renameTableId || !renameValue.trim()) return;
+    const item = items.find(it => it.id === renameTableId);
+    if (!item || !renameValue.trim()) return;
     setIsRenaming(true);
-    const result = await tablesApi.updateTable(projectId, renameTableId, { name: renameValue.trim() });
+    const renamed = await renameSheet(item, renameValue.trim());
     setIsRenaming(false);
-    if (result.success) {
+    if (renamed) {
       setItems(prev => prev.map(t => t.id === renameTableId ? { ...t, name: renameValue.trim() } : t));
       setRenameDialogOpen(false);
       toast.success(t.projects.table.tableRenamed);
     } else {
       toast.error(t.projects.table.failedToRenameTable);
     }
-  }, [projectId, renameTableId, renameValue, t.projects.table.failedToRenameTable, t.projects.table.tableRenamed]);
+  }, [items, renameSheet, renameTableId, renameValue, t.projects.table.failedToRenameTable, t.projects.table.tableRenamed]);
 
   const renderRow = useCallback((item: TableItem) => {
     return (
@@ -247,13 +276,14 @@ export default function ProjectTablePage() {
   const handleCreateTable = async () => {
     const name = newTableName.trim() || t.projects.table.untitled;
     setIsCreating(true);
-    const result = await tablesApi.createTable(projectId, { name });
-    setIsCreating(false);
-    if (result.success && result.data) {
+    try {
+      const { data } = await sheets.create({ name, projectId, firstTabName: t.weldsheets.home.firstTab });
       setCreateDialogOpen(false);
-      openTable(result.data.id);
-    } else {
+      openTable(data.fileId);
+    } catch {
       toast.error(t.projects.table.failedToCreateTable);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -356,7 +386,7 @@ export default function ProjectTablePage() {
         confirmLabel={t.projects.table.deleteTable}
         cancelLabel={t.projects.table.cancelBtn}
         variant="destructive"
-        onConfirm={() => (deleteTarget ? handleDeleteTable(deleteTarget.id) : undefined)}
+        onConfirm={() => (deleteTarget ? handleDeleteTable(deleteTarget) : undefined)}
       />
 
       {/* Rename dialog */}

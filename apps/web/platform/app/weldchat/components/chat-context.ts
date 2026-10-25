@@ -33,6 +33,8 @@ export interface EditingMessage {
    * composer that owns that thread loads it. Omit for a channel-level message.
    */
   parentId?: string | null;
+  /** The message's attachments, so images placed in its text show while editing. */
+  attachments?: ReadonlyArray<{ id: string; url?: string; fileName?: string }>;
 }
 
 export interface ChatContextValue {

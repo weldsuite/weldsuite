@@ -70,8 +70,12 @@ export interface CreateChannelInput {
 
 export type UpdateChannelInput = Partial<CreateChannelInput>;
 
+export type ChannelType = 'public' | 'private' | 'dm' | 'entity';
+
 export interface ListChannelsQuery {
   type?: string;
+  /** Only these channel types (sent as `?types=public,private`). */
+  types?: ChannelType[];
   search?: string;
   cursor?: string;
   limit?: number;
@@ -90,8 +94,9 @@ export interface UpdateChannelMembershipInput {
 export function createChannelsApi(api: ClientApi) {
   return {
     list(params: ListChannelsQuery = {}): Promise<ListResponse<ChannelRow>> {
+      const { types, ...rest } = params;
       return api.get<ListResponse<ChannelRow>>(
-        `/channels${buildQueryString(params as Record<string, unknown>)}`,
+        `/channels${buildQueryString({ ...rest, types: types?.join(',') })}`,
       );
     },
 

@@ -32,7 +32,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 **`apps/web/`**, browser frontends:
 - `platform`, **Main Vite + React 19 SPA.** All web modules live here.
 - `sites`, Next.js customer-website renderer (port 3007)
-- `helpcenter`, Next.js knowledge base, Flexsearch (port 3008)
+- `helpcenter`, WeldDesk knowledge base: TanStack Start on a Cloudflare Worker (port 3008; FE-015 pilot, `docs/plans/helpcenter-tanstack-start.md`)
 - `admin`, Next.js internal admin console
 - `api-docs`, Next.js public API documentation site
 - `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
@@ -41,6 +41,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `helpdesk-widget`, Embeddable Vite chat widget (port 3100)
 - `weldpass-extension`, WeldPass browser extension (MV3, Chrome/Edge); built and loaded manually, not deployed by CI
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
+- `sign-portal`, WeldSign signer portal: TanStack Start on a Cloudflare Worker (port 3023, `sign.weldsuite.org` / `sign-test.weldsuite.org`). Runs the signer side itself on `@weldsuite/sign-domain/portal` against the tenant DB, with no API in between (ADR FE-016)
 
 **`apps/workers/`**, Cloudflare Workers (Hono):
 - `app-api`, **The core first-party API** (`app-api.weldsuite.org`): workspaces, members, roles, settings, files/drive, search, billing, credits, notifications, App Store / WeldApps, custom objects, `/api/internal`. It also **forwards** every module's paths to that module's worker (below), so clients that call it for anything keep working. Successor to the now-deleted `api-worker`/`core-api`/`mobile-api-worker`.
@@ -429,8 +430,9 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 `deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
 **Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
 (path-gated) → **Pages** (`weldsuite-test` / `weldsuite`) + **Vercel** (only changed
-apps: admin, api-docs, booking-portal, docs, helpcenter, helpdesk-widget, hr-portal,
-meeting-portal, partner; map in `.github/scripts/vercel-apps.mjs`).
+apps: admin, api-docs, booking-portal, docs, helpdesk-widget, hr-portal,
+meeting-portal, partner; map in `.github/scripts/vercel-apps.mjs`) + **Workers**
+for the TanStack Start apps (`frontend-helpcenter`, `frontend-sign-portal`).
 
 Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
 Each app's `vercel.json` sets `git.deploymentEnabled` off for `develop`/`main`, so

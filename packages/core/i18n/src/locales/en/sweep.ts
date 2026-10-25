@@ -506,6 +506,82 @@ export const sweep = {
       "deleteTitle": "Delete message?",
       "reactionFailed": "Couldn't add the reaction"
     },
+    "recordChats": {
+      "follow": "Follow",
+      "followFailed": "Couldn't follow this chat",
+      "followHint": "Follow to keep this chat in your WeldChat sidebar",
+      "following": "Following",
+      "groupHidden": "{group} is hidden from your sidebar",
+      "groups": {
+        "company": "Companies",
+        "domain": "Domains",
+        "person": "People",
+        "project": "Projects",
+        "task": "Tasks"
+      },
+      "hideGroup": "Hide this group",
+      "open": {
+        "company": "Open company",
+        "domain": "Open domain",
+        "person": "Open person",
+        "project": "Open project",
+        "task": "Open task"
+      },
+      "openInWeldChat": "Open in WeldChat",
+      "openRecord": "Open record",
+      "page": {
+        "allTab": "All",
+        "empty": {
+          "all": {
+            "description": "Chats on the companies, people, tasks, projects and domains you can see show up here once someone starts one.",
+            "title": "No record chats yet"
+          },
+          "following": {
+            "description": "Follow a chat on a company, person, task, project or domain to keep it here and in your sidebar.",
+            "title": "You don't follow any record chats"
+          },
+          "mentions": {
+            "description": "When someone @mentions you in a record chat you follow, it shows up here.",
+            "title": "No unread mentions"
+          },
+          "unread": {
+            "description": "There are no unread messages in the record chats you follow.",
+            "title": "You're all caught up"
+          }
+        },
+        "filterLabel": "Show",
+        "filters": {
+          "all": "All I can see",
+          "following": "Following",
+          "mentions": "Mentions",
+          "unread": "Unread"
+        },
+        "lastActivityHeader": "Last activity",
+        "mentionCount": "{count} unread mentions",
+        "muted": "Muted",
+        "nameHeader": "Name",
+        "noMatches": "No record chats found",
+        "noMatchesHint": "No record chat matches your search.",
+        "noMessages": "No messages yet",
+        "rowActions": "Actions for {name}",
+        "searchPlaceholder": "Search record chats...",
+        "showAllICanSee": "Show all I can see",
+        "showInSidebar": "Show in sidebar",
+        "typeHeader": "Type"
+      },
+      "showAll": "Show all ({count})",
+      "title": "Record chats",
+      "types": {
+        "company": "Company",
+        "domain": "Domain",
+        "person": "Person",
+        "project": "Project",
+        "task": "Task"
+      },
+      "undo": "Undo",
+      "unfollow": "Unfollow",
+      "unfollowFailed": "Couldn't unfollow this chat"
+    },
     "relativeTime": {
       "daysAgo": "{count}d ago",
       "hoursAgo": "{count}h ago",

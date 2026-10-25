@@ -1,0 +1,22 @@
+appId: com.weldsuite.weldhr
+name: Fresh install opens on the WeldHR sign-in screen
+tags: [smoke, signed-out]
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: login-email
+    timeout: 30000
+- assertVisible:
+    id: login-password
+- assertVisible:
+    id: login-submit
+- assertVisible: "Your work life, in your pocket|Je werk en HR, altijd bij de hand"
+# Signing in without credentials stays on the sign-in screen.
+- tapOn:
+    id: login-submit
+- assertVisible:
+    id: login-email
+- assertNotVisible:
+    id: tab-home

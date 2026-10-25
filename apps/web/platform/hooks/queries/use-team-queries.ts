@@ -7,7 +7,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
-import type { ListMembersQuery } from '@weldsuite/core-api-client/schemas/members';
+import type { ListMembersQuery, Member } from '@weldsuite/core-api-client/schemas/members';
 import type {
   UpdateMemberProfileInput,
   MemberNoteInput,
@@ -35,6 +35,31 @@ export function useTeamMembers(params?: ListMembersQuery | undefined) {
     queryKey: teamKeys.memberList(params),
     queryFn: () => team.listMembers(params!),
     enabled: params !== undefined,
+  });
+}
+
+/** Most members app-api returns per page. */
+const MEMBER_PAGE_SIZE = 100;
+
+/**
+ * Every member matching the filter, for pickers that must resolve any user id:
+ * pages through the cursor, since app-api caps a page at 100.
+ */
+export function useAllTeamMembers(params: Pick<ListMembersQuery, 'status' | 'memberType'> = {}) {
+  const { teamMembers: team } = useAppApi();
+
+  return useQuery({
+    queryKey: [...teamKeys.members(), 'all', params] as const,
+    queryFn: async () => {
+      const members: Member[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await team.listMembers({ ...params, limit: MEMBER_PAGE_SIZE, cursor });
+        members.push(...page.data);
+        cursor = page.pagination.hasMore ? (page.pagination.cursor ?? undefined) : undefined;
+      } while (cursor);
+      return members;
+    },
   });
 }
 

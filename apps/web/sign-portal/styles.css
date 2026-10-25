@@ -1,0 +1,6 @@
+@import "@weldsuite/ui/globals.css";
+@import "@fontsource-variable/inter";
+
+body {
+  font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+}

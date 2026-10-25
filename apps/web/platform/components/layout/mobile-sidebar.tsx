@@ -29,9 +29,9 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useClerk, useOrganization, useOrganizationList } from '@clerk/clerk-react';
 import { useSettings } from '@/providers/settings-provider';
-import { useSidebarBadges } from '@/hooks/use-sidebar-badges';
+import { useAppRailBadges } from '@/hooks/use-sidebar-badges';
 import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
-import { BetaBadge } from '@/components/layout/beta-badge';
+import { RailIconCorner } from '@/components/layout/app-rail-badge';
 import { useTheme } from '@/hooks/use-theme';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
@@ -56,12 +56,6 @@ function appHref(appCode: string, appType?: 'system' | 'user' | 'object'): strin
   if (appType === 'user') return `/apps/${appCode}`;
   if (appType === 'object') return `/objects/${appCode}`;
   return `/${appCode}`;
-}
-
-function railBadgeSizeClass(badgeCount: number): string {
-  if (badgeCount > 99) return 'min-w-[32px] px-[5px] indent-[1.5px]';
-  if (badgeCount >= 10) return 'min-w-[26px] px-[4px] indent-[1.5px]';
-  return 'w-[22px] indent-[0.5px]';
 }
 
 interface RailIconProps {
@@ -126,7 +120,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
   const { organization } = useOrganization();
   const { userMemberships, setActive } = useOrganizationList({ userMemberships: true });
   const { openSettings } = useSettings();
-  const { counts: badgeCounts } = useSidebarBadges();
+  const getBadgeCount = useAppRailBadges();
   // App Store is owner/admin-only (install/uninstall surface) — hide otherwise.
   const { data: canManageApps } = useCanManageApps();
   const { data: betaAppCodes } = useBetaAppCodes();
@@ -181,19 +175,6 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
     router.push(href);
   };
 
-  const getBadgeCount = (appCode: string): number | undefined => {
-    switch (appCode) {
-      case 'weldmail':
-        return badgeCounts.mail;
-      case 'welddesk':
-        return badgeCounts.helpdesk;
-      case 'weldconnect':
-        return badgeCounts.calendar;
-      default:
-        return undefined;
-    }
-  };
-
   const renderRailButton = (params: {
     isActive: boolean;
     onClick: () => void;
@@ -237,17 +218,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
         >
           {children}
         </span>
-        {typeof badgeCount === 'number' && badgeCount > 0 ? (
-          <span
-            className={cn(
-              'absolute -top-[4px] -right-[3px] z-10 text-[12px] font-mono font-medium leading-none text-white bg-red-500 border border-red-600 h-[22px] flex items-center justify-center rounded-[8px] pointer-events-none',
-              railBadgeSizeClass(badgeCount)
-            )}
-          >
-            {badgeCount > 99 ? '99+' : badgeCount}
-          </span>
-        ) : null}
-        {showBeta ? <BetaBadge /> : null}
+        <RailIconCorner badgeCount={badgeCount} showBeta={showBeta} />
       </Button>
     );
   };

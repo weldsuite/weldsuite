@@ -91,6 +91,10 @@ import {
   SquareChartGantt,
   HandCoins,
   WalletCards,
+  MessageSquareText,
+  Signature,
+  LayoutTemplate,
+  Shuffle,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -214,6 +218,42 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
+  weldsheets: {
+    appName: 'WeldSheets',
+    appIcon: FileSpreadsheet,
+    appLogo: getAppLogoConfig('weldsheets'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [{ title: t.navigation.moduleSidebar.weldsheets.spreadsheets, href: '/weldsheets', icon: FileSpreadsheet, permission: 'sheets:read' }],
+      },
+    ],
+  },
+  weldsign: {
+    appName: 'WeldSign',
+    appIcon: Signature,
+    appLogo: getAppLogoConfig('weldsign'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldsign.envelopes, href: '/weldsign', icon: Signature, permission: 'sign_envelopes:read' },
+          { title: t.navigation.moduleSidebar.weldsign.templates, href: '/weldsign/templates', icon: LayoutTemplate, permission: 'sign_templates:read' },
+        ],
+      },
+    ],
+  },
+  welddocs: {
+    appName: 'WeldDocs',
+    appIcon: FileText,
+    appLogo: getAppLogoConfig('welddocs'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [{ title: t.navigation.moduleSidebar.welddocs.documents, href: '/welddocs', icon: FileText, permission: 'docs:read' }],
+      },
+    ],
+  },
   // WeldReach (cold email outreach, on request only). Section pages are built
   // by the campaign/prospect/inbox pages and the mailbox/settings pages; each is
   // gated on its own object so a VIEWER only sees what they can read.
@@ -334,6 +374,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.welddesk.email, href: '/welddesk/email', icon: Mail },
           { title: t.navigation.moduleSidebar.welddesk.helpCenter, href: '/welddesk/help-center', icon: BookOpen },
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
+          { title: t.navigation.moduleSidebar.welddesk.savedReplies, href: '/welddesk/settings/saved-replies', icon: MessageSquareText },
+          { title: t.navigation.moduleSidebar.welddesk.assignment, href: '/welddesk/settings/assignment', icon: Shuffle },
           { title: t.navigation.moduleSidebar.welddesk.phoneSettings, href: '/welddesk/settings/phone', icon: Settings },
         ],
       },

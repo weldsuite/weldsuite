@@ -56,10 +56,25 @@ export interface SatisfactionSettings {
   thankYouMessage?: string;
 }
 
+/** How the WeldDesk inbox (desk_conversations) hands out new conversations. */
+export type DeskAssignmentMode = 'off' | 'round_robin' | 'balanced';
+
+export interface DeskAssignmentSettings {
+  mode: DeskAssignmentMode;
+  /** Teammates (Clerk user ids) who take new conversations. */
+  memberIds: string[];
+  /** Teammates who set themselves away; skipped until they come back. */
+  awayMemberIds: string[];
+  /** Most open conversations one teammate is given; null = no cap. */
+  maxOpenPerMember: number | null;
+}
+
 export interface AutomationSettings {
   enabled: boolean;
   slaBreachAction?: 'escalate_and_notify' | 'notify_only' | 'none';
   priorityAlertThreshold?: ('urgent' | 'high')[];
+  /** Kept beside the legacy keys: `PUT /automation` merges, never drops it. */
+  deskAssignment?: DeskAssignmentSettings;
 }
 
 export interface IntegrationSettings {

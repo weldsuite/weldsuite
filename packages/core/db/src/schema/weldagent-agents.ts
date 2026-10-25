@@ -5,7 +5,9 @@ import {
   timestamp,
   jsonb,
   integer,
+  boolean,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -55,6 +57,29 @@ export const weldagentAgents = pgTable(
     createdBy: varchar('created_by', { length: 255 }),
 
     /**
+     * The member responsible for the agent, like a teammate's manager: decides
+     * who can use it, can edit it, and receives its approvals. Starts as the
+     * creator; null only for agents created before ownership existed.
+     */
+    ownerId: varchar('owner_id', { length: 255 }),
+
+    /**
+     * Who can see and chat with the agent: `private` (owner only), `members`
+     * (owner plus the rows in weldagent_agent_members) or `workspace` (every
+     * member with weldagent:use). Holders of weldagent:manage see every agent.
+     */
+    visibility: varchar('visibility', { length: 20 }).notNull().default('workspace'),
+
+    /**
+     * Agents this agent may hand work to (its sub-agents, by WeldAgent id).
+     * Delegation is one level deep: working as a sub-agent, an agent does not
+     * delegate further.
+     */
+    subagentIds: jsonb('subagent_ids').$type<string[]>().notNull().default([]),
+    /** Whether the agent may also hand work to copies of itself. */
+    delegateToSelf: boolean('delegate_to_self').notNull().default(false),
+
+    /**
      * The Claude Managed Agents agent object this agent runs as (`agent_…`),
      * its latest synced version, and a hash of the config last pushed to it.
      * Synced lazily before a session starts; a changed hash publishes a new
@@ -63,6 +88,16 @@ export const weldagentAgents = pgTable(
     anthropicAgentId: varchar('anthropic_agent_id', { length: 100 }),
     anthropicAgentVersion: integer('anthropic_agent_version'),
     anthropicConfigHash: varchar('anthropic_config_hash', { length: 64 }),
+
+    /**
+     * The agent object this agent runs as when another agent delegates to it
+     * (a sub-agent): no sub-agents of its own, and sandbox / web calls ask the
+     * driver first, so a sub-agent never does more than the person chatting.
+     * Synced lazily like the main object.
+     */
+    anthropicWorkerAgentId: varchar('anthropic_worker_agent_id', { length: 100 }),
+    anthropicWorkerAgentVersion: integer('anthropic_worker_agent_version'),
+    anthropicWorkerConfigHash: varchar('anthropic_worker_config_hash', { length: 64 }),
 
     totalRuns: integer('total_runs').notNull().default(0),
     successfulRuns: integer('successful_runs').notNull().default(0),
@@ -82,3 +117,21 @@ export const weldagentAgents = pgTable(
 
 export type WeldagentAgent = typeof weldagentAgents.$inferSelect;
 export type NewWeldagentAgent = typeof weldagentAgents.$inferInsert;
+
+/** Members given access to an agent whose visibility is `members`. */
+export const weldagentAgentMembers = pgTable(
+  'weldagent_agent_members',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    agentId: varchar('agent_id', { length: 30 }).notNull(),
+    userId: varchar('user_id', { length: 255 }).notNull(),
+    createdBy: varchar('created_by', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('weldagent_agent_members_agent_user_idx').on(table.agentId, table.userId),
+    index('weldagent_agent_members_user_idx').on(table.userId),
+  ],
+);
+
+export type WeldagentAgentMember = typeof weldagentAgentMembers.$inferSelect;

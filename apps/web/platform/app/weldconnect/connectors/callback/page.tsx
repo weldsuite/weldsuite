@@ -32,6 +32,10 @@ function safeReturnPath(returnUrl: string | undefined): string {
   return '/weldconnect/connectors';
 }
 
+function providerFromState(state: string): 'stripe' | 'moneybird' {
+  return state.startsWith('stripe_') ? 'stripe' : 'moneybird';
+}
+
 export default function ConnectorsCallbackPage({ code, state, error }: Readonly<CallbackPageProps>) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
@@ -44,6 +48,7 @@ export default function ConnectorsCallbackPage({ code, state, error }: Readonly<
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [returnPath, setReturnPath] = useState('/weldconnect/connectors');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [provider, setProvider] = useState<'stripe' | 'moneybird'>('moneybird');
 
   useEffect(() => {
     if (calledRef.current) return;
@@ -56,12 +61,15 @@ export default function ConnectorsCallbackPage({ code, state, error }: Readonly<
     }
     if (!code || !state) {
       setStatus('error');
-      setErrorMessage(tc.callbackMissingParams);
+      setErrorMessage(tc.callbackMissingParamsGeneric);
       return;
     }
 
+    const resolvedProvider = providerFromState(state);
+    setProvider(resolvedProvider);
+
     callback.mutate(
-      { provider: 'moneybird', code, state },
+      { provider: resolvedProvider, code, state },
       {
         onSuccess: (result) => {
           const data = result.data;
@@ -112,8 +120,12 @@ export default function ConnectorsCallbackPage({ code, state, error }: Readonly<
         {status === 'loading' && (
           <>
             <Loader2 className="h-12 w-12 animate-spin text-muted-foreground mx-auto mb-4" />
-            <h1 className="text-lg font-semibold">{tc.callbackConnecting}</h1>
-            <p className="text-sm text-muted-foreground mt-2">{tc.callbackConnectingHint}</p>
+            <h1 className="text-lg font-semibold">
+              {provider === 'stripe' ? tc.callbackConnectingStripe : tc.callbackConnecting}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-2">
+              {provider === 'stripe' ? tc.callbackConnectingHintStripe : tc.callbackConnectingHint}
+            </p>
           </>
         )}
 

@@ -54,6 +54,14 @@ import {
 import { selectNotifyMembers } from './notify-recipients';
 import { accountingAttachmentType } from './accounting-attachment';
 import {
+  autoAssignDeskEmailConversation,
+  deskNotificationContent,
+  findPriorDeskState,
+  notifyDeskOfEmail,
+  planDeskNotification,
+  storeDeskAttachments,
+} from './desk-inbound';
+import {
   buildMailAutoLabelQuestions,
   buildMailAutoLabelState,
   matchedLabelsFromJevAnswers,
@@ -1061,9 +1069,10 @@ async function finishWorkspaceDelivery(
   account: RecipientAccount,
   email: ParsedEmail,
   attachments: ParsedAttachment[] | undefined,
-  result: StoreEmailResult,
+  stored: StoreEmailResult,
   preview: string,
 ): Promise<number> {
+  let result = stored;
   const workspaceId = account.workspaceId;
   const clerkOrgId = account.clerkOrgId;
   if (!workspaceId || !clerkOrgId) {
@@ -1073,9 +1082,12 @@ async function finishWorkspaceDelivery(
 
   await storeWorkspaceAttachments(env, workspaceId, email, attachments, result);
 
-  // Run Jev multi-label auto-labeling + mail rules (non-blocking)
+  // Run Jev multi-label auto-labeling + mail rules (non-blocking). A rule
+  // that sends the message to Spam (e.g. a blocked sender) makes it spam for
+  // the notifications below too, so no bell row or push goes out.
   try {
-    await classifyAndRunRules(env, account, workspaceId, result.messageId, email);
+    const markedSpam = await classifyAndRunRules(env, account, workspaceId, result.messageId, email);
+    if (markedSpam) result = { ...result, isSpam: true, isPromotion: false };
   } catch (classifyErr) {
     console.error(`[Store] AI classify/rules failed for ${result.messageId}:`, classifyErr);
   }
@@ -1527,31 +1539,38 @@ function inboundRuleMatches(
     : conditions.some((c) => evalRuleCondition(message, c));
 }
 
-/** Execute a rule's actions, returning how many were applied. */
+/** Execute a rule's actions: how many were applied, and whether one sent the message to Spam. */
 async function executeRuleActions(
   tenantDb: TenantDbHandle,
   messageId: string,
   actions: RuleAction[],
-): Promise<number> {
+): Promise<{ actionsApplied: number; markedSpam: boolean }> {
   let actionsApplied = 0;
+  let markedSpam = false;
   for (const action of actions) {
     try {
       const applied = await executeRuleAction(tenantDb, messageId, action);
-      if (applied) actionsApplied++;
+      if (!applied) continue;
+      actionsApplied++;
+      if (action.type === 'mark_as_spam') markedSpam = true;
     } catch (actionErr) {
       console.error(`[Rules] Action ${action.type} failed:`, actionErr);
     }
   }
-  return actionsApplied;
+  return { actionsApplied, markedSpam };
 }
 
-/** Phase 2: run the account's active mail rules against the stored message. */
+/**
+ * Phase 2: run the account's active mail rules against the stored message.
+ * Returns true when a `mark_as_spam` action moved it to Spam.
+ */
 async function runMailRules(
   tenantDb: TenantDbHandle,
   accountId: string,
   messageId: string,
-): Promise<void> {
+): Promise<boolean> {
   const { mailMessages, mailRules } = tenantSchema;
+  let markedSpam = false;
 
   try {
     // Re-read message with latest labels
@@ -1561,7 +1580,7 @@ async function runMailRules(
       .where(eq(mailMessages.id, messageId))
       .limit(1);
 
-    if (!updatedMessage) return;
+    if (!updatedMessage) return false;
 
     const rules = await tenantDb
       .select()
@@ -1578,12 +1597,14 @@ async function runMailRules(
     for (const rule of rules) {
       if (!inboundRuleMatches(rule, updatedMessage)) continue;
 
-      const actionsApplied = await executeRuleActions(
+      const outcome = await executeRuleActions(
         tenantDb,
         messageId,
         (rule.actions || []) as RuleAction[],
       );
+      const { actionsApplied } = outcome;
       if (actionsApplied === 0) continue;
+      if (outcome.markedSpam) markedSpam = true;
 
       await tenantDb
         .update(mailRules)
@@ -1601,6 +1622,7 @@ async function runMailRules(
   } catch (ruleErr) {
     console.error(`[Rules] Rule execution failed for ${messageId}:`, ruleErr);
   }
+  return markedSpam;
 }
 
 /**
@@ -1610,6 +1632,8 @@ async function runMailRules(
  * is evaluated as a noul question via TypeSafe Jev (`typesafe/jev`) through
  * the Cloudflare AI Gateway. Ops infra cost is recorded; customer credits
  * are not charged for this path.
+ *
+ * Returns true when a rule moved the message to Spam.
  */
 async function classifyAndRunRules(
   env: Env,
@@ -1617,16 +1641,16 @@ async function classifyAndRunRules(
   workspaceId: string,
   messageId: string,
   email: ParsedEmail,
-): Promise<void> {
+): Promise<boolean> {
   const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
 
   // ---- Phase 1: Jev multi-label classification ----
   const candidates = await loadAiLabelCandidates(tenantDb, account.accountId, messageId);
-  if (!candidates) return;
+  if (!candidates) return false;
   await applyJevAutoLabels(env, tenantDb, workspaceId, messageId, email, candidates);
 
   // ---- Phase 2: Mail Rules ----
-  await runMailRules(tenantDb, account.accountId, messageId);
+  return runMailRules(tenantDb, account.accountId, messageId);
 }
 
 /** Evaluate a single rule condition against a message */
@@ -1731,6 +1755,22 @@ const LABEL_RULE_ACTIONS = new Map<
   ['archive', { needsLabel: false, apply: (cur) => [...new Set([...cur.filter((l) => l !== 'INBOX'), 'ARCHIVE'])] }],
 ]);
 
+/** Folder labels a message leaves when a rule sends it to Spam. */
+const SPAM_DISPLACED_LABELS = new Set(['INBOX', 'ARCHIVE', 'PROMOTIONS']);
+
+/** `mark_as_spam`: move to the Spam folder and set `isSpam`, as storing a scored spam message does. */
+async function markMessageAsSpam(tenantDb: TenantDbHandle, messageId: string): Promise<boolean> {
+  const { mailMessages } = tenantSchema;
+  const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
+  if (!msg) return false;
+  const labels = ((msg.labels as string[]) || []).filter((l) => !SPAM_DISPLACED_LABELS.has(l));
+  await tenantDb
+    .update(mailMessages)
+    .set({ labels: [...new Set([...labels, 'SPAM'])], isSpam: true, updatedAt: new Date() })
+    .where(eq(mailMessages.id, messageId));
+  return true;
+}
+
 /** Read a message's labels, apply a label rule, and persist the result. */
 async function applyLabelRule(
   tenantDb: TenantDbHandle,
@@ -1755,6 +1795,8 @@ async function executeRuleAction(
   action: { type: string; labelId?: string; value?: string },
 ): Promise<boolean> {
   const { mailMessages } = tenantSchema;
+
+  if (action.type === 'mark_as_spam') return markMessageAsSpam(tenantDb, messageId);
 
   const simple = SIMPLE_RULE_ACTIONS.get(action.type);
   if (simple) {
@@ -1943,6 +1985,7 @@ function generateId(prefix: string): string {
 export async function processHelpdeskInboxEmail(
   env: Env,
   email: ParsedEmail,
+  attachments: ParsedAttachment[] = [],
 ): Promise<{ processed: boolean; conversationIds: string[] }> {
   const recipientEmails = collectRecipientEmails(email);
 
@@ -1994,7 +2037,7 @@ export async function processHelpdeskInboxEmail(
   const conversationIds: string[] = [];
 
   for (const inbox of helpdeskInboxes) {
-    const conversationId = await ingestHelpdeskInboxEmail(env, email, inbox);
+    const conversationId = await ingestHelpdeskInboxEmail(env, email, inbox, attachments);
     if (conversationId) conversationIds.push(conversationId);
   }
 
@@ -2059,12 +2102,23 @@ async function ingestHelpdeskInboxEmail(
   env: Env,
   email: ParsedEmail,
   inbox: HelpdeskInbox,
+  rawAttachments: ParsedAttachment[] = [],
 ): Promise<string | null> {
   try {
     const tenantDb = await getTenantDbForWorkspaceById(env, inbox.workspaceId);
     const body = email.textBody || email.htmlBody || email.subject || '';
+    const attachments = await storeDeskAttachments(
+      env,
+      inbox.workspaceId,
+      email.emailId,
+      rawAttachments,
+      email.htmlBody,
+    );
+    // Read before ingest moves the conversation: tells whether the team was
+    // already waiting on this customer (and so already notified).
+    const prior = await findPriorDeskState(tenantDb, email);
 
-    const { conversation, message, created } = await ingestDeskEmail(tenantDb, {
+    const ingested = await ingestDeskEmail(tenantDb, {
       generateId,
       fromName: email.from.name || null,
       fromEmail: email.from.email,
@@ -2076,15 +2130,40 @@ async function ingestHelpdeskInboxEmail(
       references: email.references,
       toEmails: email.to.map((t) => t.email),
       ccEmails: email.cc.map((t) => t.email),
+      attachments: attachments.length > 0 ? attachments : undefined,
     });
+    const { message, created } = ingested;
 
     console.log(
-      `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${conversation.id} from email`,
+      `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${ingested.conversation.id} from email`,
     );
 
-    await publishHelpdeskRealtime(env, email, inbox, { conversation, message, created, body });
-    // A customer reply on a conversation a teammate owns pings that teammate.
-    if (!created && conversation.assigneeId && inbox.clerkOrgId) {
+    await publishHelpdeskRealtime(env, email, inbox, { conversation: ingested.conversation, message, created, body });
+    // An unowned conversation gets an owner (auto-assignment) before anyone is
+    // notified, so the planner below pings that person instead of the team.
+    const conversation = inbox.clerkOrgId
+      ? await autoAssignDeskEmailConversation(env, tenantDb, inbox.clerkOrgId, ingested.conversation, generateId)
+      : ingested.conversation;
+    const customerName = email.from.name || email.from.email;
+    const plan = planDeskNotification({ created, assigneeId: conversation.assigneeId, prior });
+    if (plan === 'notify' && inbox.clerkOrgId) {
+      // New conversation, or the ball is back with the team: assignee, else everyone.
+      const content = deskNotificationContent({
+        isNew: created,
+        customerName,
+        body: email.textBody,
+        subject: conversation.title,
+        attachmentNames: attachments.map((a) => a.name),
+      });
+      await notifyDeskOfEmail({
+        db: tenantDb,
+        env,
+        orgId: inbox.clerkOrgId,
+        conversation,
+        ...content,
+      });
+    } else if (plan === 'assignee_reply' && inbox.clerkOrgId) {
+      // A customer reply on a conversation a teammate owns pings that teammate.
       try {
         await sendTicketReplyNotification({
           db: tenantDb,
@@ -2093,7 +2172,7 @@ async function ingestHelpdeskInboxEmail(
           assigneeId: conversation.assigneeId,
           kind: 'conversation',
           entityId: conversation.id,
-          customerName: email.from.name || email.from.email,
+          customerName,
           customerContactId: conversation.contactId,
           messageBody: body,
           subject: conversation.title,

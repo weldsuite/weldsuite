@@ -13,6 +13,7 @@ import { logger } from 'hono/logger';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getMasterDb, getTenantDbForWorkspaceById, getTenantDbForWorkspace, tenantSchema, masterSchema, type TenantDatabase } from './db';
 import { fetchConnectInternal, hasConnectInternal } from './lib/connect-internal';
+import { handleStripeConnectWebhook, runMoneybirdPushSweep } from './stripe-connect';
 import { getProvider } from './lib/integrations/registry';
 import type {
   ExternalRecord,
@@ -103,6 +104,8 @@ export interface Env extends BankFeedEnv {
   BOOKS_INTERNAL?: Fetcher;
   /** Stripe Financial Connections webhook signing secret (its own endpoint, not billing's). */
   STRIPE_FC_WEBHOOK_SECRET?: string;
+  /** Signing secret of the Stripe platform's Connect webhook (`/webhooks/stripe-connect`, Stripe connector). */
+  STRIPE_CONNECT_WEBHOOK_SECRET?: string;
   /** Meta Marketing API — WeldAds webhook verification + signature checks. */
   FACEBOOK_APP_SECRET?: string;
   FACEBOOK_WEBHOOK_VERIFY_TOKEN?: string;
@@ -256,6 +259,7 @@ app.post('/webhooks/connectors/:connectionId', async (c) => {
     'x-shopify-hmac-sha256',
     'moneybird-signature',
     'x-picqer-signature',
+    'stripe-signature',
     'idempotency-key',
   ]) {
     const value = c.req.header(name);
@@ -273,6 +277,15 @@ app.post('/webhooks/connectors/:connectionId', async (c) => {
     status: res.status,
     headers: { 'Content-Type': res.headers.get('content-type') || 'application/json' },
   });
+});
+
+/**
+ * Stripe Connect platform webhook: events from every connected Stripe account
+ * (the `stripe` connector's OAuth connections). See ./stripe-connect.ts.
+ */
+app.post('/webhooks/stripe-connect', async (c) => {
+  const rawBody = await c.req.text();
+  return handleStripeConnectWebhook(c.env, rawBody, c.req.header('stripe-signature') ?? null);
 });
 
 /**
@@ -1957,6 +1970,7 @@ export default {
     if (controller.cron === INTEGRATION_POLL_CRON) {
       ctx.waitUntil(runIntegrationPolls(env));
       ctx.waitUntil(runWebhookRetrySweep(env));
+      ctx.waitUntil(runMoneybirdPushSweep(env));
     } else {
       console.log(`[Cron] Ignoring unused schedule ${controller.cron}`);
     }

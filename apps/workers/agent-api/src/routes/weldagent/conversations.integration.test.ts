@@ -3,13 +3,17 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { weldagentRoutes } from './index';
 import {
+  acceptConversationTurn,
   completeConversationTurn,
   ConversationNotFoundError,
+  loadAcceptedTurn,
+  persistAssistantMessage,
+  toAcceptedTurnRef,
 } from '@weldsuite/agent-domain/complete-turn';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
@@ -162,6 +166,52 @@ describe('weldagent conversations', () => {
       .where(eq(schema.weldagentMessages.conversationId, id));
     expect(rows).toHaveLength(2);
     expect(rows.some((r) => r.role === 'assistant')).toBe(true);
+  });
+
+  it('a reloaded background turn ends with the user message just sent', async () => {
+    const id = `conv_reload_${Date.now().toString(36)}`;
+    await db.insert(schema.weldagentConversations).values({
+      id,
+      userId: 'user_test_default',
+      name: 'Reload test',
+      messageCount: 0,
+    });
+    const turn = (content: string) =>
+      acceptConversationTurn({
+        db,
+        env: {} as Env,
+        workspaceId: 'org_test_default',
+        userId: 'user_test_default',
+        conversationId: id,
+        content,
+      });
+
+    // An earlier exchange, then the turn the background job reloads.
+    const first = await turn('Which day is it?');
+    await persistAssistantMessage({ db, conversationId: id, content: 'Saturday.' });
+    const second = await turn('And tomorrow?');
+    // Postgres keeps microseconds; a JS Date only milliseconds. Pin them so
+    // the reload can't drop the user's own message by rounding.
+    const stamps = ['2026-10-24 13:41:01.100111+00', '2026-10-24 13:41:02.200222+00', '2026-10-24 13:41:05.682789+00'];
+    const rows = await db
+      .select({ id: schema.weldagentMessages.id })
+      .from(schema.weldagentMessages)
+      .where(eq(schema.weldagentMessages.conversationId, id))
+      .orderBy(schema.weldagentMessages.createdAt);
+    for (const [i, row] of rows.entries()) {
+      await db.execute(sql`update weldagent_messages set created_at = ${stamps[i]}::timestamptz where id = ${row.id}`);
+    }
+
+    const loaded = await loadAcceptedTurn(db, toAcceptedTurnRef(second));
+    expect(loaded?.chatMessages.map((m) => m.content)).toEqual(['Which day is it?', 'Saturday.', 'And tomorrow?']);
+    expect(loaded?.historyOffset).toBe(0);
+    expect(first.chatMessages.at(-1)?.content).toBe('Which day is it?');
+
+    // Paging back from the latest message returns exactly the older ones.
+    const { request } = app();
+    const page = await request(`/api/weldagent/conversations/${id}/messages?before=${second.userMessage.id}`);
+    const older = (await page.json()) as { data: Array<{ content: string }> };
+    expect(older.data.map((m) => m.content)).toEqual(['Which day is it?', 'Saturday.']);
   });
 
   it('throws ConversationNotFoundError for a missing thread', async () => {

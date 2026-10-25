@@ -18,6 +18,8 @@ export const PLATFORM_SYNC_MAP_INTENTIONAL_OMITS = {
     'WeldChat calls use the chat room path, not hub entity invalidation',
   mail_subscription:
     'Unsubscribe telemetry only — no platform list/detail query cache',
+  desk_attachment:
+    'Agent upload before it is sent: no query cache; the reply lands as desk_message, which syncs',
   project_pipeline_stage:
     'WeldFlow kanban stage page fetches imperatively (no useQuery); CRM pipeline_stage covers CRM',
 } as const satisfies Record<string, string>;

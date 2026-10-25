@@ -739,6 +739,44 @@ describe('runSsoSweep', () => {
     );
     expect(state.clerk.deletes).toContain(deletedConnection);
     expect(calls.some((c) => c.method === 'DELETE' && c.path === '/v1/subscriptions/sub_orphan')).toBe(true);
-    expect(await ssoRow(deleted.id)).toMatchObject({ clerkConnectionId: null, subscriptionStatus: 'canceled' });
+    expect(await ssoRow(deleted.id)).toMatchObject({
+      clerkConnectionId: null,
+      subscriptionStatus: 'canceled',
+      domain: null,
+      domainVerificationToken: null,
+      domainVerifiedAt: null,
+    });
+  });
+
+  it('releases the verified domain of a deleted workspace that has nothing else left', async () => {
+    const deleted = await seedWorkspace({ planId: ENTERPRISE, deletedAt: new Date(), isActive: false });
+    await seedConnection(deleted, { clerkConnectionId: null, provider: null, enabled: false });
+    stubStripe({});
+
+    const result = await runSsoSweep(env, db);
+
+    expect(result.failed).toBe(0);
+    expect(await ssoRow(deleted.id)).toMatchObject({ domain: null, domainVerifiedAt: null });
+  });
+
+  it('ends the paid add-on at period end once the plan includes SSO', async () => {
+    const ws = await seedWorkspace({ planId: ENTERPRISE });
+    await seedConnection(ws, { clerkActive: true, stripeSubscriptionId: 'sub_upgraded', subscriptionStatus: 'active' });
+    const calls = stubStripe({
+      'GET /v1/subscriptions/sub_upgraded': ssoSubscription('sub_upgraded', ws),
+      'POST /v1/subscriptions/sub_upgraded': { ...ssoSubscription('sub_upgraded', ws), cancel_at_period_end: true },
+    });
+
+    const result = await runSsoSweep(env, db);
+
+    expect(result.failed).toBe(0);
+    const cancels = writes(calls).filter((call) => call.path === '/v1/subscriptions/sub_upgraded');
+    expect(cancels.map((call) => call.form.get('cancel_at_period_end'))).toEqual(['true']);
+    expect(await ssoRow(ws.id)).toMatchObject({ subscriptionStatus: 'active', subscriptionCancelAtPeriodEnd: true, clerkActive: true });
+
+    // Already scheduled: the next run leaves Stripe alone.
+    const again = stubStripe({});
+    await runSsoSweep(env, db);
+    expect(writes(again).filter((call) => call.path === '/v1/subscriptions/sub_upgraded')).toEqual([]);
   });
 });

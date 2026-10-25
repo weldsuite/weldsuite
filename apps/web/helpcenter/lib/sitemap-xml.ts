@@ -1,4 +1,9 @@
-import type { MetadataRoute } from 'next';
+export interface SitemapEntry {
+  url: string;
+  lastModified?: string | Date;
+  changeFrequency?: 'always' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'never';
+  priority?: number;
+}
 
 const escapeXml = (value: string) =>
   value
@@ -8,8 +13,8 @@ const escapeXml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-/** Serializes sitemap entries to the XML a `sitemap.ts` route would return. */
-export function sitemapXml(entries: MetadataRoute.Sitemap): string {
+/** Serializes sitemap entries to sitemaps.org XML. */
+export function sitemapXml(entries: SitemapEntry[]): string {
   const urls = entries.map((entry) => {
     const lastModified =
       entry.lastModified instanceof Date ? entry.lastModified.toISOString() : entry.lastModified;

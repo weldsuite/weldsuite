@@ -83,7 +83,8 @@ export interface QuickExpenseLinesInput {
   accountId?: string;
   /**
    * The receipt's own lines, kept when they carry more than one VAT rate: one
-   * rate on the whole total would book the wrong VAT.
+   * rate on the whole total would book the wrong VAT. Used only while they add
+   * up to `total`.
    */
   receiptLines?: BillPrefill['items'];
 }
@@ -93,20 +94,28 @@ function roundingLine(cents: number, description: string): LineItemInput[] {
   return [{ description, quantity: 1, unitPrice: cents / 100, taxRate: 0 }];
 }
 
+/**
+ * The receipt's lines plus the rounding left to `total`, or null when they
+ * miss it by more than rounding: OCR left a line out (a discount, a deposit),
+ * and booking them would charge another amount than the one confirmed.
+ */
+function receiptBillLines(input: QuickExpenseLinesInput, items: BillPrefill['items']): LineItemInput[] | null {
+  const gap = toCents(input.total) - toCents(prefillLinesTotal({ items } as BillPrefill));
+  if (Math.abs(gap) > toCents(MAX_ROUNDING)) return null;
+  const lines: LineItemInput[] = items.map((item) => ({
+    description: item.description || input.description,
+    quantity: item.quantity || '1',
+    unitPrice: item.unitPrice || '0',
+    taxRate: item.taxRate ?? 0,
+    accountId: input.accountId,
+  }));
+  return [...lines, ...roundingLine(gap, input.roundingDescription)];
+}
+
 /** The bill lines of a quick expense, adding up to `total`. */
 export function quickExpenseLines(input: QuickExpenseLinesInput): LineItemInput[] {
-  if (input.receiptLines && input.receiptLines.length > 0) {
-    const lines: LineItemInput[] = input.receiptLines.map((item) => ({
-      description: item.description || input.description,
-      quantity: item.quantity || '1',
-      unitPrice: item.unitPrice || '0',
-      taxRate: item.taxRate ?? 0,
-      accountId: input.accountId,
-    }));
-    const gap =
-      toCents(input.total) - toCents(prefillLinesTotal({ items: input.receiptLines } as BillPrefill));
-    return [...lines, ...roundingLine(gap, input.roundingDescription)];
-  }
+  const fromReceipt = input.receiptLines?.length ? receiptBillLines(input, input.receiptLines) : null;
+  if (fromReceipt) return fromReceipt;
 
   const { net, rounding } = splitInclusiveTotal(input.total, input.taxRate);
   return [

@@ -23,6 +23,9 @@ import {
   KeyRound,
   UsersRound,
   Send,
+  FileSpreadsheet,
+  FileText,
+  Signature,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -128,6 +131,39 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/weldpass/logo-light.svg',
       iconDark: '/assets/images/weldpass/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldSheets. Icon-only logo like WeldPass: a header row over a grid of cells.
+  weldsheets: {
+    lucideIcon: FileSpreadsheet,
+    shortName: 'Sheets',
+    icon: '/assets/images/weldsheets/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldsheets/logo-light.svg',
+      iconDark: '/assets/images/weldsheets/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldSign. Icon-only logo like WeldPass: a signature over a signing line.
+  weldsign: {
+    lucideIcon: Signature,
+    shortName: 'Signatures',
+    icon: '/assets/images/weldsign/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldsign/logo-light.svg',
+      iconDark: '/assets/images/weldsign/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldDocs. Icon-only logo like WeldPass: a page with lines of text.
+  welddocs: {
+    lucideIcon: FileText,
+    shortName: 'Docs',
+    icon: '/assets/images/welddocs/icon.svg',
+    logo: {
+      iconLight: '/assets/images/welddocs/logo-light.svg',
+      iconDark: '/assets/images/welddocs/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

@@ -593,6 +593,8 @@ const HIGH_RISK_TOOLS = new Set([
   'create_person',
   'create_ticket',
   'create_task',
+  'create_spreadsheet',
+  'write_spreadsheet_range',
   'message_agent',
   'create_agent_group_chat',
 ]);
@@ -685,6 +687,15 @@ export async function listApprovals(db: AgentDb, opts?: { agentId?: string; stat
   return rows.map(serializeApproval);
 }
 
+export async function getApproval(db: AgentDb, id: string) {
+  const [row] = await db
+    .select()
+    .from(schema.weldagentApprovals)
+    .where(eq(schema.weldagentApprovals.id, id))
+    .limit(1);
+  return row ? serializeApproval(row) : null;
+}
+
 export async function decideApproval(
   db: AgentDb,
   id: string,
@@ -763,6 +774,15 @@ export async function listMemories(db: AgentDb, agentId: string) {
     .orderBy(desc(schema.weldagentMemories.updatedAt))
     .limit(100);
   return rows.map(serializeMemory);
+}
+
+export async function getMemory(db: AgentDb, id: string) {
+  const [row] = await db
+    .select()
+    .from(schema.weldagentMemories)
+    .where(and(eq(schema.weldagentMemories.id, id), isNull(schema.weldagentMemories.deletedAt)))
+    .limit(1);
+  return row ? serializeMemory(row) : null;
 }
 
 export async function createMemory(
@@ -1028,6 +1048,16 @@ export async function startTeachSession(
     createdBy: input.createdBy ?? null,
   });
   return { id, agentId: input.agentId, title: input.title, status: 'recording' as const, steps: [] as Array<Record<string, unknown>> };
+}
+
+/** The teach session's agent, so routes can check who may change it; null when it does not exist. */
+export async function getTeachSessionAgentId(db: AgentDb, id: string): Promise<string | null> {
+  const [row] = await db
+    .select({ agentId: schema.weldagentTeachSessions.agentId })
+    .from(schema.weldagentTeachSessions)
+    .where(eq(schema.weldagentTeachSessions.id, id))
+    .limit(1);
+  return row?.agentId ?? null;
 }
 
 export async function appendTeachStep(db: AgentDb, id: string, step: Record<string, unknown>) {

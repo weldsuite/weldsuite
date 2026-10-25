@@ -9,7 +9,10 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 
-import { aggregateAllFiles, aggregateStats, normalizeGenericFiles } from './drive-aggregation';
+import { aggregateAllFiles, aggregateStats, listPurgedFileKeys, normalizeGenericFiles, purgeTrashed } from './drive-aggregation';
+import { purgeFolder } from './folders';
+import { listDocumentSnapshotKeys, purgeFile } from '@weldsuite/core-domain/files';
+import { eq } from 'drizzle-orm';
 import { isPlatformRoute } from '../test/platform-routes';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -86,6 +89,174 @@ beforeAll(async () => {
   await seedMailbox('removed.pdf', { isShared: true }, { deletedAt: new Date() });
   await seedMailbox('closed-account.pdf', { isShared: true, deletedAt: new Date() });
 }, 60_000);
+
+/** A trashed WeldSheets spreadsheet: its file plus the `sheets` row that references it. */
+async function seedTrashedSheet(): Promise<string> {
+  const fileId = generateId('fil');
+  await db.insert(schema.files).values({
+    id: fileId,
+    fileName: 'Budget',
+    mimeType: 'application/vnd.weldsuite.spreadsheet',
+    fileSize: 1,
+    fileType: 'spreadsheet',
+    storagePath: `workspaces/w/sheets/${fileId}/workbook.json.gz`,
+    deletedAt: new Date(),
+  });
+  await db.insert(schema.sheets).values({ id: generateId('sht'), fileId });
+  return fileId;
+}
+
+describe('purging a WeldSheets spreadsheet', () => {
+  it.each([
+    ['from the trash list', (fileId: string) => purgeTrashed(db, { fileIds: [fileId], folderIds: [] })],
+    ['one file', (fileId: string) => purgeFile(db, fileId)],
+  ])('removes its sheet row with the file (%s)', async (_label, purge) => {
+    const fileId = await seedTrashedSheet();
+    await purge(fileId);
+    expect(await db.select().from(schema.files).where(eq(schema.files.id, fileId))).toEqual([]);
+    expect(await db.select().from(schema.sheets).where(eq(schema.sheets.fileId, fileId))).toEqual([]);
+  });
+});
+
+/** A trashed WeldDocs document: its file, a version of an older document, and the `docs` row that references them. */
+async function seedTrashedDoc(): Promise<string> {
+  const fileId = generateId('fil');
+  await db.insert(schema.files).values({
+    id: fileId,
+    fileName: 'Plan',
+    mimeType: 'application/vnd.weldsuite.doc+json',
+    fileSize: 1,
+    fileType: 'document',
+    storagePath: `workspaces/w/docs/${fileId}/document.json.gz`,
+    deletedAt: new Date(),
+  });
+  await db.insert(schema.docs).values({ id: generateId('doc'), fileId, content: null, snapshotKey: 'k' });
+  await db.insert(schema.documentVersions).values({ id: generateId('docver'), fileId, content: [] });
+  return fileId;
+}
+
+describe('purging a WeldDocs document', () => {
+  it.each([
+    ['from the trash list', (fileId: string) => purgeTrashed(db, { fileIds: [fileId], folderIds: [] })],
+    ['one file', (fileId: string) => purgeFile(db, fileId)],
+  ])('removes its docs row with the file (%s)', async (_label, purge) => {
+    const fileId = await seedTrashedDoc();
+    await purge(fileId);
+    expect(await db.select().from(schema.files).where(eq(schema.files.id, fileId))).toEqual([]);
+    expect(await db.select().from(schema.docs).where(eq(schema.docs.fileId, fileId))).toEqual([]);
+    expect(await db.select().from(schema.documentVersions).where(eq(schema.documentVersions.fileId, fileId))).toEqual([]);
+  });
+});
+
+/**
+ * A trashed document and spreadsheet, each with a checkpoint snapshot and
+ * saved versions (two and one); the spreadsheet was an old project sheet, so
+ * it keeps the .xlsx it was converted from.
+ */
+async function seedTrashedSnapshots(tag: string, folderId: string | null = null) {
+  const docFile = generateId('fil');
+  const sheetFile = generateId('fil');
+  for (const [id, mime, type] of [
+    [docFile, 'application/vnd.weldsuite.doc+json', 'document'],
+    [sheetFile, 'application/vnd.weldsuite.spreadsheet', 'spreadsheet'],
+  ] as const) {
+    await db.insert(schema.files).values({
+      id,
+      fileName: `${tag}-${type}`,
+      mimeType: mime,
+      fileSize: 1,
+      fileType: type,
+      storagePath: `workspaces/w/${tag}/${id}`,
+      folderId,
+      deletedAt: new Date(),
+    });
+  }
+  const docId = generateId('doc');
+  await db.insert(schema.docs).values({ id: docId, fileId: docFile, content: null, snapshotKey: `${tag}/doc/document.json.gz` });
+  await db.insert(schema.docVersions).values([
+    { id: generateId('docv'), docId, revision: 1, snapshotKey: `${tag}/doc/versions/a.json.gz` },
+    { id: generateId('docv'), docId, revision: 2, snapshotKey: `${tag}/doc/versions/b.json.gz` },
+  ]);
+  const sheetId = generateId('sht');
+  await db.insert(schema.sheets).values({ id: sheetId, fileId: sheetFile, snapshotKey: `${tag}/sheet/workbook.json.gz` });
+  await db.insert(schema.sheetVersions).values({ id: generateId('shv'), sheetId, revision: 3, snapshotKey: `${tag}/sheet/versions/a.json.gz` });
+  await db
+    .update(schema.files)
+    .set({ metadata: { weldsheetId: sheetId, convertedFrom: { key: `${tag}/old-grid.xlsx`, at: '2026-10-25T00:00:00.000Z' } } })
+    .where(eq(schema.files.id, sheetFile));
+  return { docFile, sheetFile };
+}
+
+describe('purging a document or spreadsheet removes its R2 snapshots too', () => {
+  it('lists the file, checkpoint and version keys of what the trash purge removes', async () => {
+    const { docFile, sheetFile } = await seedTrashedSnapshots('trash-list');
+    const keys = await listPurgedFileKeys(db, { fileIds: [docFile, sheetFile], folderIds: [] });
+    expect(keys.sort()).toEqual(
+      [
+        `workspaces/w/trash-list/${docFile}`,
+        `workspaces/w/trash-list/${sheetFile}`,
+        'trash-list/doc/document.json.gz',
+        'trash-list/doc/versions/a.json.gz',
+        'trash-list/doc/versions/b.json.gz',
+        'trash-list/sheet/workbook.json.gz',
+        'trash-list/sheet/versions/a.json.gz',
+        'trash-list/old-grid.xlsx',
+      ].sort(),
+    );
+  });
+
+  it('leaves out the snapshots of a file that is not being purged', async () => {
+    const kept = await seedTrashedSnapshots('trash-kept');
+    const purged = await seedTrashedSnapshots('trash-purged');
+    const keys = await listPurgedFileKeys(db, { fileIds: [purged.docFile], folderIds: [] });
+    expect(keys).toContain('trash-purged/doc/versions/a.json.gz');
+    expect(keys.some((k) => k.includes('trash-kept') || k.includes(kept.docFile))).toBe(false);
+    expect(keys.some((k) => k.includes('sheet'))).toBe(false);
+  });
+
+  it('lists the snapshots of every file in a purged folder', async () => {
+    const folderId = generateId('fld');
+    await db.insert(schema.folders).values({ id: folderId, name: 'Old', deletedAt: new Date() });
+    await seedTrashedSnapshots('trash-folder', folderId);
+    const keys = await listPurgedFileKeys(db, { fileIds: [], folderIds: [folderId] });
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'trash-folder/doc/document.json.gz',
+        'trash-folder/doc/versions/b.json.gz',
+        'trash-folder/sheet/workbook.json.gz',
+        'trash-folder/sheet/versions/a.json.gz',
+        'trash-folder/old-grid.xlsx',
+      ]),
+    );
+  });
+
+  it('lists them for one file by id, and nothing for a plain file or no ids', async () => {
+    const { docFile, sheetFile } = await seedTrashedSnapshots('trash-one');
+    expect((await listDocumentSnapshotKeys(db, [docFile])).sort()).toEqual([
+      'trash-one/doc/document.json.gz',
+      'trash-one/doc/versions/a.json.gz',
+      'trash-one/doc/versions/b.json.gz',
+    ]);
+    // A spreadsheet's saved versions, and the .xlsx an old project sheet was converted from.
+    expect((await listDocumentSnapshotKeys(db, [sheetFile])).sort()).toEqual([
+      'trash-one/old-grid.xlsx',
+      'trash-one/sheet/versions/a.json.gz',
+      'trash-one/sheet/workbook.json.gz',
+    ]);
+    expect(await listDocumentSnapshotKeys(db, [])).toEqual([]);
+    expect(await listDocumentSnapshotKeys(db, ['fil_unknown'])).toEqual([]);
+  });
+
+  it('purgeFolder removes the documents and spreadsheets in the folder along with their files', async () => {
+    const folderId = generateId('fld');
+    await db.insert(schema.folders).values({ id: folderId, name: 'Gone', deletedAt: new Date() });
+    const { docFile, sheetFile } = await seedTrashedSnapshots('folder-purge', folderId);
+    await purgeFolder(db, folderId);
+    expect(await db.select().from(schema.files).where(eq(schema.files.folderId, folderId))).toEqual([]);
+    expect(await db.select().from(schema.docs).where(eq(schema.docs.fileId, docFile))).toEqual([]);
+    expect(await db.select().from(schema.sheets).where(eq(schema.sheets.fileId, sheetFile))).toEqual([]);
+  });
+});
 
 describe('aggregateAllFiles · mail attachments', () => {
   it('lists only shared-mailbox attachments for an unassigned member', async () => {
@@ -183,6 +354,41 @@ describe('normalizeGenericFiles · navigateTo', () => {
     expect(navigateTo('project_document', 'doc_1', { metadata: { projectId: 'prj_1' } })).toBe(
       '/weldflow/project/prj_1/documents',
     );
+  });
+
+  it('opens a WeldSheets spreadsheet (a plain drive file) in its editor', () => {
+    const [file] = normalizeGenericFiles([
+      {
+        id: 'file_1',
+        fileName: 'Budget',
+        fileType: 'spreadsheet',
+        entityType: null,
+        entityId: null,
+        metadata: { weldsheetId: 'sht_1' },
+        createdAt: new Date(),
+        updatedAt: null,
+      } as unknown as typeof schema.files.$inferSelect,
+    ]);
+    expect(file!.navigateTo).toBe('/weldsheets/sht_1');
+    expect(isPlatformRoute(file!.navigateTo!)).toBe(true);
+  });
+
+  it('opens a WeldDocs document in its editor, not the BlockNote one', () => {
+    const [file] = normalizeGenericFiles([
+      {
+        id: 'file_2',
+        fileName: 'Plan',
+        fileType: 'document',
+        entityType: null,
+        entityId: null,
+        metadata: { weldDocId: 'doc_1' },
+        createdAt: new Date(),
+        updatedAt: null,
+      } as unknown as typeof schema.files.$inferSelect,
+    ]);
+    expect(file!.navigateTo).toBe('/welddocs/doc_1');
+    expect(file!.isWeldDoc).toBe(false);
+    expect(isPlatformRoute(file!.navigateTo!)).toBe(true);
   });
 
   it.each([

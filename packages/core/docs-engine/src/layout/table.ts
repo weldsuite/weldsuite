@@ -1,0 +1,170 @@
+/**
+ * Lays out a table: column widths (scaled down to fit), each cell's story at
+ * its width, and row heights that fit the tallest cell. A merged cell spans
+ * several rows; when it is taller than those rows, the last of them grows.
+ */
+
+import type { DocModel } from '../model/document';
+import { cellKey, cellStoryId, type TableData, type TableProps } from '../model/objects';
+import type { CellLayout, ParaEntry, ParagraphLayout, RowLayout, TableLayout } from './types';
+
+export interface StoryBlockLayout {
+  paragraphs: { entry: ParaEntry; layout: ParagraphLayout; y: number }[];
+  height: number;
+}
+
+export interface CellLayouter {
+  layoutStory(storyId: string, width: number): StoryBlockLayout;
+}
+
+export const DEFAULT_CELL_PADDING = 5;
+const MIN_ROW = 6;
+
+interface Span {
+  rowSpan: number;
+  colSpan: number;
+}
+
+export function layoutTable(doc: DocModel, tableId: string, width: number, cells: CellLayouter): TableLayout | null {
+  const data = doc.tables.get(tableId);
+  if (!data || !data.rows.length || !data.cols.length) return null;
+  const props = data.props ?? {};
+
+  // Columns keep their proportions and shrink to fit the space.
+  const total = data.cols.reduce((n, c) => n + c.width, 0);
+  const scale = total > width ? width / total : 1;
+  const colWidths = data.cols.map((c) => c.width * scale);
+  const colX: number[] = [];
+  let acc = 0;
+  for (const w of colWidths) {
+    colX.push(acc);
+    acc += w;
+  }
+  const tableWidth = acc;
+  const x = tableX(props, width, tableWidth);
+
+  const spans = mergeSpans(data);
+  const rows: RowLayout[] = data.rows.map((r, ri) => ({
+    index: ri,
+    height: Math.max(MIN_ROW, r.height ?? 0),
+    header: !!r.header,
+    cantSplit: !!r.cantSplit,
+    cells: [],
+  }));
+
+  data.rows.forEach((r, ri) =>
+    data.cols.forEach((c, ci) => {
+      const span = spans.get(cellKey(r.id, c.id));
+      if (!span) return;
+      const cell = layoutCell({ data, tableId, colX, colWidths, cells }, ri, ci, span);
+      rows[ri]!.cells.push(cell);
+      if (span.rowSpan === 1) rows[ri]!.height = Math.max(rows[ri]!.height, cell.contentHeight + 2 * cell.padding);
+    }),
+  );
+  growMergedRows(rows);
+
+  let headerRows = 0;
+  while (headerRows < rows.length - 1 && rows[headerRows]!.header) headerRows++;
+
+  return { id: tableId, data, x, width: tableWidth, colX, colWidths, rows, headerRows };
+}
+
+/** The table's left edge within `width`: centred, right-aligned, or at its indent (kept on the page). */
+function tableX(props: TableProps, width: number, tableWidth: number): number {
+  if (props.align === 'center') return (width - tableWidth) / 2;
+  if (props.align === 'right') return width - tableWidth;
+  return Math.min(props.indent ?? 0, Math.max(0, width - tableWidth));
+}
+
+/**
+ * The span of every cell that is drawn, by cell key; cells covered by a
+ * merge are left out (the first merge to claim a cell wins).
+ */
+function mergeSpans(data: TableData): Map<string, Span> {
+  const covered = new Set<string>();
+  const spans = new Map<string, Span>();
+  data.rows.forEach((r, ri) =>
+    data.cols.forEach((c, ci) => {
+      const key = cellKey(r.id, c.id);
+      if (covered.has(key)) return;
+      const p = data.cells?.[key];
+      const rowSpan = Math.max(1, Math.min(p?.rowSpan ?? 1, data.rows.length - ri));
+      const colSpan = Math.max(1, Math.min(p?.colSpan ?? 1, data.cols.length - ci));
+      spans.set(key, { rowSpan, colSpan });
+      coverSpan(data, ri, ci, { rowSpan, colSpan }, covered);
+    }),
+  );
+  return spans;
+}
+
+/** Marks the cells a merged cell at (ri, ci) covers, itself excluded. */
+function coverSpan(data: TableData, ri: number, ci: number, span: Span, covered: Set<string>): void {
+  for (let dr = 0; dr < span.rowSpan; dr++) {
+    for (let dc = 0; dc < span.colSpan; dc++) {
+      if (dr || dc) covered.add(cellKey(data.rows[ri + dr]!.id, data.cols[ci + dc]!.id));
+    }
+  }
+}
+
+interface TableGrid {
+  data: TableData;
+  tableId: string;
+  colX: number[];
+  colWidths: number[];
+  cells: CellLayouter;
+}
+
+/** Lays out the cell anchored at (ri, ci): its story at the width of the columns it spans. */
+function layoutCell(grid: TableGrid, ri: number, ci: number, span: Span): CellLayout {
+  const { data, colWidths } = grid;
+  const r = data.rows[ri]!;
+  const c = data.cols[ci]!;
+  const p = data.cells?.[cellKey(r.id, c.id)] ?? {};
+  const padding = p.padding ?? data.props?.padding ?? DEFAULT_CELL_PADDING;
+  let w = 0;
+  for (let k = 0; k < span.colSpan; k++) w += colWidths[ci + k]!;
+  const story = cellStoryId(grid.tableId, r.id, c.id);
+  const content = grid.cells.layoutStory(story, Math.max(1, w - 2 * padding));
+  const cell: CellLayout = {
+    rowIndex: ri,
+    colIndex: ci,
+    rowSpan: span.rowSpan,
+    colSpan: span.colSpan,
+    story,
+    x: grid.colX[ci]!,
+    width: w,
+    contentHeight: content.height,
+    padding,
+    paragraphs: content.paragraphs,
+    vAlign: p.vAlign ?? 'top',
+  };
+  if (p.background) cell.background = p.background;
+  return cell;
+}
+
+/** Merged cells taller than their rows make the last row taller. */
+function growMergedRows(rows: RowLayout[]): void {
+  for (const row of rows) {
+    for (const cell of row.cells) {
+      if (cell.rowSpan === 1) continue;
+      let h = 0;
+      for (let k = 0; k < cell.rowSpan; k++) h += rows[row.index + k]!.height;
+      const need = cell.contentHeight + 2 * cell.padding;
+      if (need > h) rows[row.index + cell.rowSpan - 1]!.height += need - h;
+    }
+  }
+}
+
+/** Height of the cell box (its spanned rows). */
+export function cellHeight(table: TableLayout, cell: CellLayout): number {
+  let h = 0;
+  for (let k = 0; k < cell.rowSpan; k++) h += table.rows[cell.rowIndex + k]?.height ?? 0;
+  return h;
+}
+
+/** Offset of the cell's content from the cell box's top (vertical alignment). */
+export function cellContentOffset(table: TableLayout, cell: CellLayout): number {
+  const free = cellHeight(table, cell) - 2 * cell.padding - cell.contentHeight;
+  if (free <= 0 || cell.vAlign === 'top') return cell.padding;
+  return cell.padding + (cell.vAlign === 'middle' ? free / 2 : free);
+}

@@ -15,6 +15,8 @@ describe('WeldBooks sidebar', () => {
 describe('getModuleKey', () => {
   it('maps module paths to their module', () => {
     expect(getModuleKey('/weldcrm/companies')).toBe('weldcrm');
+    expect(getModuleKey('/weldsheets/sh_123')).toBe('weldsheets');
+    expect(getModuleKey('/welddocs/doc_123')).toBe('welddocs');
     expect(getModuleKey('/')).toBe('home');
   });
 

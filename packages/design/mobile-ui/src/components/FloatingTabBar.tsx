@@ -15,6 +15,8 @@ import {
   StyleSheet,
   Platform,
   type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -54,6 +56,11 @@ export const floatingTabBarScreenOptions = {
   },
 };
 
+/** A tab hidden with Expo Router's `href: null` (or an explicit display: none). */
+function isHiddenTab(itemStyle: StyleProp<ViewStyle>): boolean {
+  return StyleSheet.flatten(itemStyle)?.display === 'none';
+}
+
 const SPRING = { damping: 22, stiffness: 280, mass: 0.6 };
 
 type TabBarIconProps = { focused: boolean; color: string; size: number };
@@ -71,6 +78,10 @@ export interface FloatingTabBarProps {
         tabBarAccessibilityLabel?: string;
         tabBarBadge?: string | number;
         tabBarIcon?: (props: TabBarIconProps) => ReactNode;
+        /** Forwarded to the tab button (e2e selectors). */
+        tabBarButtonTestID?: string;
+        /** Expo Router sets `{ display: 'none' }` for a tab with `href: null`. */
+        tabBarItemStyle?: StyleProp<ViewStyle>;
       };
     }
   >;
@@ -191,6 +202,7 @@ export function FloatingTabBar({
 
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
+          if (isHiddenTab(options.tabBarItemStyle)) return null;
           const isFocused = state.index === index;
           const isAccent = accentRouteName != null && route.name === accentRouteName;
           const badge = options.tabBarBadge;
@@ -232,6 +244,7 @@ export function FloatingTabBar({
               accessibilityRole="button"
               accessibilityState={isFocused ? { selected: true } : {}}
               accessibilityLabel={options.tabBarAccessibilityLabel ?? options.title}
+              testID={options.tabBarButtonTestID}
               onPress={onPress}
               onLongPress={onLongPress}
               onLayout={onTabLayout(index)}

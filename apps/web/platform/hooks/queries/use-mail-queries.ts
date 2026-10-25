@@ -14,6 +14,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { useAppApi } from '@/lib/api/use-app-api';
 import { appSettingsKeys } from '@/hooks/queries/use-app-settings-queries';
 import { patchCachedImportant } from '@/app/weldmail/lib/important-cache';
+import { refreshSidebarBadges } from '@/hooks/use-sidebar-badges';
 import type {
   AssignMailAccountUsersInput,
   CreateMailAccountInput,
@@ -230,6 +231,8 @@ export function useMailThread(_accountId: string, messageId: string, enabled = t
       mailMessages.update(id, { isRead }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
+      // The unread count on the WeldMail rail icon.
+      refreshSidebarBadges(qc);
     },
   });
 }
@@ -333,6 +336,8 @@ export function useBulkMailAction() {
     mutationFn: (data: BulkMailMessageActionInput) => mailMessages.bulk(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
+      // Read, unread, trash and spam all move the rail's unread count.
+      refreshSidebarBadges(qc);
     },
   });
 }
@@ -354,6 +359,20 @@ export function useMarkThreadAsRead() {
       threadId: string;
       isRead: boolean;
     }) => mailThreads.markRead(threadId, accountId, { isRead }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+      refreshSidebarBadges(qc);
+    },
+  });
+}
+
+/** "Mark all as read" for a folder; no `accountId` for the unified folder. */
+export function useMarkFolderAsRead() {
+  const { mailThreads } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { labelSlug: string; accountId?: string }) =>
+      (await mailThreads.markAllRead(vars)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });
     },
@@ -453,6 +472,57 @@ export function useMarkThreadAsSpam() {
         labelName: vars.isSpam === false ? 'INBOX' : 'SPAM',
         action: 'add',
       });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+    },
+  });
+}
+
+/** A rule is the block rule for `email` when it sends exactly that From address to Spam. */
+function isBlockRuleFor(
+  rule: { conditions: { field: string; operator: string; value: string | string[] }[]; actions: { type: string }[] },
+  email: string,
+): boolean {
+  return (
+    rule.actions.some((a) => a.type === 'mark_as_spam') &&
+    rule.conditions.some(
+      (c) => c.field === 'from' && c.operator === 'equals' && typeof c.value === 'string' && c.value.toLowerCase() === email,
+    )
+  );
+}
+
+/**
+ * Block a sender: a mail rule sends every future message from the address to
+ * Spam (the inbound worker marks it as spam, so no push goes out), and the
+ * open thread moves to Spam now. Blocking an already-blocked address adds no
+ * second rule.
+ */
+export function useBlockSender() {
+  const { mailRules, mailLabels } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { accountId: string; email: string; threadId?: string }) => {
+      const email = vars.email.trim().toLowerCase();
+      const existing = await mailRules.list({ accountId: vars.accountId });
+      if (!existing.data.some((rule) => rule.isActive && isBlockRuleFor(rule, email))) {
+        await mailRules.create({
+          accountId: vars.accountId,
+          name: `Block ${email}`,
+          conditions: [{ field: 'from', operator: 'equals', value: email }],
+          actions: [{ type: 'mark_as_spam' }],
+          stopProcessing: true,
+          scope: 'incoming',
+        });
+      }
+      if (vars.threadId) {
+        await mailLabels.applyToThread({
+          accountId: vars.accountId,
+          threadId: vars.threadId,
+          labelName: 'SPAM',
+          action: 'add',
+        });
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: mailKeys.all });

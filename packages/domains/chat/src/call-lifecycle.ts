@@ -59,6 +59,31 @@ export interface CallLifecycleEnv
  */
 export const RING_TIMEOUT_MS = 25_000;
 
+/**
+ * How a call ended, as its notice records it. `missed` is any unanswered call:
+ * clients word it per viewer ("No answer" for the caller, "Missed call" for the
+ * people it rang).
+ */
+export type CallNoticeOutcome = 'answered' | 'missed' | 'declined';
+
+/**
+ * `metadata.call` on a call's "started" and "ended" system messages, so clients
+ * can pair the two and render the call (outcome, duration) without parsing the
+ * English notice text. The text stays for older clients and previews.
+ */
+export interface CallNoticeMetadata {
+  callId: string;
+  callType: string;
+  event: 'started' | 'ended';
+  outcome?: CallNoticeOutcome;
+  /** Seconds; on `ended` only. */
+  duration?: number;
+}
+
+export function callNoticeMetadata(call: CallNoticeMetadata): { call: CallNoticeMetadata } {
+  return { call };
+}
+
 /** True once anyone other than the initiator has joined the call. */
 export function wasAnswered(call: {
   initiatorId: string;
@@ -201,6 +226,13 @@ export async function endChatCall(
     authorName: call.initiatorName,
     content,
     type: 'system',
+    metadata: callNoticeMetadata({
+      callId,
+      callType: call.callType ?? 'voice',
+      event: 'ended',
+      outcome: unanswered ? 'missed' : 'answered',
+      duration: unanswered ? 0 : duration,
+    }),
     createdAt: now,
     updatedAt: now,
   });

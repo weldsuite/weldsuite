@@ -13,7 +13,8 @@ import {
  * kind:
  *   message — public chat (visitor, agent, or bot)
  *   note    — internal, never shown to the visitor
- *   event   — state change (closed, reopened, assigned, …)
+ *   event   — state change (closed, reopened, assigned, …), or the
+ *             visitor's rating (rated: metadata.rating + ratingComment)
  *
  * Rows are ONLY written through appendDeskMessage in @weldsuite/db/lib,
  * which also updates desk_conversations.state / waitingSince / lastMessage*.
@@ -23,7 +24,7 @@ export type DeskMessageKind = 'message' | 'note' | 'event';
 
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
 
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned';
+export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated';
 
 export interface DeskMessageAttachment {
   name: string;
@@ -37,6 +38,8 @@ export interface DeskMessageAttachment {
 export interface DeskMessageMetadata {
   eventType?: DeskEventType;
   assigneeId?: string | null;
+  rating?: number;
+  ratingComment?: string | null;
   [key: string]: unknown;
 }
 

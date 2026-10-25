@@ -1,0 +1,175 @@
+# WeldSuite sheets-api worker — WeldSheets' API and spreadsheet rooms.
+#
+# A module worker (docs/plans/app-api-module-split.md); app-api forwards
+# /api/sheets here for clients that still call it. Hosts:
+#   sheets-api.weldsuite.org        production
+#   sheets-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Bindings beyond the kit: PRIVATE_STORAGE (checkpoints), STORAGE (imports of
+# older drive files), SHEET_ROOM (rooms).
+#
+# Secrets (scripts/secrets/manifest.ts → "sheets-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, REALTIME_INTERNAL_SECRET (live in-app
+#   notifications of comment @mentions)
+#
+# Entrypoints: the default fetch (REST + room sockets) and SheetsInternal,
+# bound as SHEETS_INTERNAL by agent-api, chat-api and app-api for the WeldAgent
+# spreadsheet tools.
+
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-sheets-api-dev"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+# No "react" alias here (unlike most other API workers): comment mentions are
+# delivered through @weldsuite/notifications, whose email templates
+# (@weldsuite/emails) render with the real react package, as in app-api.
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# Workbook checkpoints, one object per sheet (src/room/snapshot.ts), in the
+# private bucket. STORAGE (the public bucket) is read only, for WeldDrive files
+# uploaded before private storage that are imported as spreadsheets. Dev uses
+# the TEST buckets: `wrangler dev` must never read or write customer files.
+#
+# One SheetRoom Durable Object per spreadsheet orders its edits, keeps the op
+# log since the last checkpoint and holds the sockets (ADR SHEETS-003).
+# R2, Durable Object bindings and migrations are NOT inherited by [env.*].
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[durable_objects.bindings]]
+name = "SHEET_ROOM"
+class_name = "SheetRoom"
+
+[[migrations]]
+tag = "sheet-room-v1"
+new_sqlite_classes = ["SheetRoom"]
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-sheets-api-test"
+routes = [
+  { pattern = "sheets-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.durable_objects.bindings]]
+name = "SHEET_ROOM"
+class_name = "SheetRoom"
+
+[[env.test.migrations]]
+tag = "sheet-room-v1"
+new_sqlite_classes = ["SheetRoom"]
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-sheets-api"
+routes = [
+  { pattern = "sheets-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.durable_objects.bindings]]
+name = "SHEET_ROOM"
+class_name = "SheetRoom"
+
+[[env.production.migrations]]
+tag = "sheet-room-v1"
+new_sqlite_classes = ["SheetRoom"]
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

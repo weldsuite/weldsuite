@@ -15,17 +15,25 @@ import {
   createDeskConversation,
   getDeskConversation,
   listDeskConversationsForVisitor,
+  rateDeskConversation,
   upsertDeskVisitor,
+  DESK_RATING_MAX,
+  DESK_RATING_MIN,
   DeskConversationNotFoundError,
+  DeskRatingRejectedError,
   type DeskConversation,
 } from '@weldsuite/db/lib/desk';
+import type { DeskMessageAttachment } from '@weldsuite/db/schema/desk-messages';
+import { MAX_MESSAGE_ATTACHMENTS, resolveVisitorAttachments } from '../lib/attachments';
 import type { Env, Variables } from '../index';
 import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
 import {
+  autoAssignConversation,
   isPublicMessage,
   notifyTeamOfVisitorMessage,
   publishConversationUpdated,
+  publishVisitorEvent,
   publishVisitorMessage,
   resolveAuthors,
   toPublicConversation,
@@ -53,13 +61,34 @@ const startSchema = z.object({
   clientId: clientIdSchema,
 });
 
-const sendSchema = z.object({
-  visitorId: visitorIdSchema,
-  body: z.string().trim().min(1).max(10_000),
-  clientId: clientIdSchema,
+const attachmentSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  url: z.string().max(2048),
+  contentType: z.string().max(255),
+  filesize: z.number().int().nonnegative(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
 });
 
+const sendSchema = z
+  .object({
+    visitorId: visitorIdSchema,
+    body: z.string().trim().max(10_000).optional(),
+    attachments: z.array(attachmentSchema).max(MAX_MESSAGE_ATTACHMENTS).optional(),
+    clientId: clientIdSchema,
+  })
+  .refine((data) => Boolean(data.body) || (data.attachments?.length ?? 0) > 0, {
+    message: 'A message needs text or at least one attachment',
+    path: ['body'],
+  });
+
 const visitorQuerySchema = z.object({ visitorId: visitorIdSchema });
+
+const rateSchema = z.object({
+  visitorId: visitorIdSchema,
+  rating: z.number().int().min(DESK_RATING_MIN).max(DESK_RATING_MAX),
+  comment: z.string().trim().max(2000).optional(),
+});
 
 function ownedBy(conversation: DeskConversation, visitorId: string): boolean {
   return conversation.visitorId === visitorId;
@@ -137,15 +166,18 @@ conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
     c.executionCtx.waitUntil(
       Promise.all([
         publishVisitorMessage(c.env, orgId, conversation, message, visitorName, 'created'),
-        notifyTeamOfVisitorMessage({
-          env: c.env,
-          db,
-          orgId,
-          conversation,
-          message,
-          visitorName,
-          isNewConversation: true,
-        }),
+        // Assign first, so the notification goes to the new owner, not the whole team.
+        autoAssignConversation(c.env, db, orgId, conversation).then((current) =>
+          notifyTeamOfVisitorMessage({
+            env: c.env,
+            db,
+            orgId,
+            conversation: current,
+            message,
+            visitorName,
+            isNewConversation: true,
+          }),
+        ),
       ]),
     );
 
@@ -200,13 +232,22 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
       return error.notFound(c, 'Conversation', id);
     }
 
+    // Files must be ones this worker stored for this very conversation.
+    let attachments: DeskMessageAttachment[] | undefined;
+    if (data.attachments?.length) {
+      const resolved = await resolveVisitorAttachments(c.env, orgId, id, data.attachments);
+      if (!resolved.ok) return error.badRequest(c, resolved.message);
+      attachments = resolved.attachments;
+    }
+
     const { conversation, message } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: 'message',
       authorType: 'visitor',
       authorId: data.visitorId,
-      body: data.body,
+      body: data.body || null,
+      attachments,
       metadata: data.clientId ? { clientId: data.clientId } : undefined,
     });
 
@@ -218,17 +259,21 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
     c.executionCtx.waitUntil(
       Promise.all([
         publishVisitorMessage(c.env, orgId, conversation, message, visitorName, 'updated'),
-        teamAlreadyWaiting
-          ? Promise.resolve()
-          : notifyTeamOfVisitorMessage({
-              env: c.env,
-              db,
-              orgId,
-              conversation,
-              message,
-              visitorName,
-              isNewConversation: false,
-            }),
+        // An unowned thread the customer writes into (new, reopened, or nobody
+        // was free last time) gets an owner before anyone is told.
+        autoAssignConversation(c.env, db, orgId, conversation).then((current) =>
+          teamAlreadyWaiting
+            ? undefined
+            : notifyTeamOfVisitorMessage({
+                env: c.env,
+                db,
+                orgId,
+                conversation: current,
+                message,
+                visitorName,
+                isNewConversation: false,
+              }),
+        ),
       ]),
     );
 
@@ -245,5 +290,44 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
     console.error('[widget-api] send message failed:', err);
     return error.internal(c, 'Failed to send message');
+  }
+});
+
+/** The visitor's CSAT answer for a conversation the team closed. */
+conversationsRoutes.post('/:id/rating', zValidator('json', rateSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const orgId = c.get('workspaceId');
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+  try {
+    const existing = await getDeskConversation(db, id);
+    if (!existing || !ownedBy(existing.conversation, data.visitorId)) {
+      return error.notFound(c, 'Conversation', id);
+    }
+
+    const { conversation, message } = await rateDeskConversation(db, {
+      generateId,
+      conversationId: id,
+      authorId: data.visitorId,
+      rating: data.rating,
+      comment: data.comment,
+    });
+
+    const authors = await resolveAuthors(db, [conversation.assigneeId]);
+    c.executionCtx.waitUntil(publishVisitorEvent(c.env, orgId, conversation, message, authors));
+
+    return success(
+      c,
+      {
+        conversation: toPublicConversation(conversation, authors),
+        message: toPublicMessage(message, authors),
+      },
+      201,
+    );
+  } catch (err) {
+    if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
+    if (err instanceof DeskRatingRejectedError) return error.conflict(c, err.message);
+    console.error('[widget-api] rate conversation failed:', err);
+    return error.internal(c, 'Failed to save rating');
   }
 });

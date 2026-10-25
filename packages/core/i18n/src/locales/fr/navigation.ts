@@ -14,6 +14,7 @@ export const navigation = {
   "social": "[TRANSLATE] Social",
   "appStore": "[TRANSLATE] App Store",
   "aiAgents": "[TRANSLATE] AI Agents",
+  "unreadBadge": "{count} non lu(s)",
   "dashboard": "[TRANSLATE] Dashboard",
   "bookkeeping": "[TRANSLATE] Bookkeeping",
   "sales": "[TRANSLATE] Sales",

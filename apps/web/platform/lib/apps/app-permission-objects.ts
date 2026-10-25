@@ -45,6 +45,9 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   social: ['posts', 'campaigns', 'analytics', 'accounts'],
   weldpass: ['secrets', 'passwords'],
   weldreach: ['reach_campaigns', 'reach_prospects', 'reach_inbox', 'reach_mailboxes', 'reach_settings'],
+  weldsheets: ['sheets'],
+  weldsign: ['sign_envelopes', 'sign_templates'],
+  welddocs: ['docs'],
 };
 
 /**

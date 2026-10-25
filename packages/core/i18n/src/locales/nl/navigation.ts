@@ -14,6 +14,7 @@ export const navigation = {
     social: 'Social',
     appStore: 'App Store',
     aiAgents: 'AI Agents',
+    unreadBadge: '{count} ongelezen',
     dashboard: 'Dashboard',
     bookkeeping: 'Boekhouding',
     sales: 'Verkoop',
@@ -150,6 +151,16 @@ export const navigation = {
         passwordHealth: 'Wachtwoordgezondheid',
         projects: 'Projecten',
       },
+      weldsheets: {
+        spreadsheets: 'Spreadsheets',
+      },
+      weldsign: {
+        envelopes: 'Ondertekenverzoeken',
+        templates: 'Sjablonen',
+      },
+      welddocs: {
+        documents: 'Documenten',
+      },
       weldhr: {
         me: {
           overview: 'Overzicht',
@@ -207,6 +218,8 @@ export const navigation = {
         phoneSettings: 'Telefooninstellingen',
         helpCenter: 'Helpcentrum',
         articles: 'Artikelen',
+        savedReplies: 'Opgeslagen antwoorden',
+        assignment: 'Toewijzing',
       },
       weldmeet: {
         newMeeting: 'Nieuwe vergadering',

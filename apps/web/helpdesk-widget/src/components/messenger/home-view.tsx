@@ -1,7 +1,10 @@
 import { ChevronRight, Send, X } from 'lucide-react';
 import type { WidgetConfigResponse } from '@/lib/api/types';
 import type { Messenger } from '@/hooks/use-messenger';
+import { useAvailability } from '@/hooks/use-availability';
 import { Avatar, AvatarStack, readableOn, timeAgo } from './parts';
+import { AwayNotice, replyTimeText } from './away-notice';
+import { EmailCapture } from './email-capture';
 
 interface HomeViewProps {
   config: WidgetConfigResponse;
@@ -16,6 +19,7 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
   const onColor = readableOn(color);
   const recent = messenger.conversations.find((c) => c.state === 'open') ?? null;
   const firstName = messenger.profile.name.split(/\s+/)[0];
+  const { away, nextOpenAt } = useAvailability(config);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto" data-testid="home-view">
@@ -44,6 +48,15 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
       </div>
 
       <div className="-mt-10 px-4 pb-4 space-y-3">
+        {away && (
+          <AwayNotice
+            config={config}
+            nextOpenAt={nextOpenAt}
+            className="rounded-2xl bg-white shadow-[0_2px_12px_rgba(0,0,0,0.08)]"
+          />
+        )}
+        {away && !messenger.profile.email && <EmailCapture messenger={messenger} color={color} away className="m-0" />}
+
         {recent && (
           <button
             type="button"
@@ -80,7 +93,9 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
         >
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gray-900">Send us a message</p>
-            <p className="text-xs text-gray-500 mt-0.5">We&apos;ll get back to you as soon as we can</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {replyTimeText(config) ?? "We'll get back to you as soon as we can"}
+            </p>
           </div>
           <Send className="h-4 w-4 flex-shrink-0 transition-transform group-hover:translate-x-0.5" style={{ color }} />
         </button>

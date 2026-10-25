@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Bookmark } from 'lucide-react';
+import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Bookmark, ExternalLink, UserMinus, EyeOff, MoreHorizontal, MessagesSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
 /** Hook point for decorating a sidebar group label; currently the identity. */
@@ -49,8 +49,8 @@ function createGroupDmAvatarIcon(
   };
 }
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
-import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useUnarchiveChannel, useCreateSection as useCreateSectionMutation } from '@/hooks/queries/use-weldchat-queries';
-import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
+import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useUnarchiveChannel, useCreateSection as useCreateSectionMutation, useRecordChatSummary, useUnfollowRecordChat } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannel, ChatChannelMember, RecordChatListItem } from '@/hooks/queries/use-weldchat-queries';
 import { useChatActivityUnread, useChatDrafts } from '@/hooks/queries/use-weldchat-extras-queries';
 import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
 import { getTranslations } from '@/lib/i18n';
@@ -60,9 +60,25 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { usePathname } from '@/lib/router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
+import { toast } from 'sonner';
 import { findDmChannelIdForUser, resolveOneToOneDmTarget } from '../lib/dm-links';
 import { parseWeldChatPath } from '../lib/route-segments';
 import { useTopic } from '@weldsuite/realtime/react';
+import { useObjectPanel } from '@/components/object-panel';
+import {
+  getRecordChatTypeInfo,
+  openRecordPanel,
+  recordChatHref,
+  recordChatsPageHref,
+  recordGroupKey,
+  RECORD_CHAT_TYPES,
+  RECORD_CHATS_PAGE_PATH,
+  type RecordChatType,
+  type RecordChatTypeInfo,
+} from '../lib/record-chat-types';
+import { needsShowAll, recordGroupTypes } from '../lib/record-chat-groups';
+import { useRecordChatGroups } from './use-record-chat-groups';
+import { useGroupHidden } from './use-group-hidden';
 // Sidebar dialogs are lazy-loaded — they're only rendered when the user
 // opens them, so there's no reason to ship them in the main chunk.
 const ChannelCreateDialog = React.lazy(() =>
@@ -90,13 +106,17 @@ import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import { useWeldchatSidebarOrder } from '@/hooks/queries/use-ui-preference';
 import {
-  applyTopN,
-  DEFAULT_GROUP_FILTER,
-  filterChannels,
-  sortChannels,
+  getGroupDefaults,
+  selectGroupRows,
+  selectPeekRows,
   type GroupFilterSettings,
   type WeldchatGroupFilters,
 } from '../lib/group-filter';
+
+/** `uiPreferences` with the WeldChat group settings, which the shared type leaves out. */
+type UiPreferencesWithGroupFilters = NonNullable<UserPreferences['uiPreferences']> & {
+  weldchatGroupFilters?: WeldchatGroupFilters;
+};
 
 const EMPTY_SIDEBAR: { menuGroups: MenuGroupProps[]; dialogs: React.ReactNode } = {
   menuGroups: [],
@@ -109,13 +129,29 @@ export interface DmChannel extends ChatChannel {
   otherMembers?: ChatChannelMember[];
 }
 
+/** Followed record chats per type, as the sidebar groups hold them. */
+type RecordChatsByType = Record<RecordChatType, RecordChatListItem[]>;
+
+/** A record chat's name: the record's display name, kept in step with the record. */
+function recordChatLabel(chat: Pick<RecordChatListItem, 'entityDisplayName' | 'name'>): string {
+  return chat.entityDisplayName || chat.name || '';
+}
+
+/** Record chats as the group settings dialog lists them (by the record's name). */
+function recordChatsForSettings(chats: RecordChatListItem[]): ChatChannel[] {
+  return chats.map((chat) => ({ ...chat, name: recordChatLabel(chat) }));
+}
+
 function resolveLiveGroupChannels(
   groupKey: string,
   dms: DmChannel[],
   channels: ChatChannel[],
   channelSectionMap: Record<string, string | null | undefined>,
+  recordChats: RecordChatsByType,
 ): ChatChannel[] {
   if (groupKey === 'dm') return dms;
+  const recordType = RECORD_CHAT_TYPES.find((type) => recordGroupKey(type) === groupKey);
+  if (recordType) return recordChatsForSettings(recordChats[recordType]);
   if (groupKey.startsWith('section:')) {
     const sectionId = groupKey.slice('section:'.length);
     return channels.filter((ch) => {
@@ -451,12 +487,70 @@ function withLiveChannels(
   dms: DmChannel[],
   channels: ChatChannel[],
   channelSectionMap: Record<string, string | null | undefined>,
+  recordChats: RecordChatsByType,
 ): GroupSettingsTarget | null {
   if (!target) return null;
   return {
     ...target,
-    channels: resolveLiveGroupChannels(target.groupKey, dms, channels, channelSectionMap),
+    channels: resolveLiveGroupChannels(target.groupKey, dms, channels, channelSectionMap, recordChats),
   };
+}
+
+/** Row-level handlers shared by every record chat row's actions. */
+interface RecordChatRowHandlers {
+  st: Translate;
+  muteChannel: MuteChannelFn;
+  unfollow: (chat: RecordChatListItem) => void;
+  openRecord: (chat: RecordChatListItem) => void;
+  /** Opens the settings of the row's group (record chats have no per-chat settings here). */
+  openGroupSettings: () => void;
+  activeCallChannels: ActiveCallChannels;
+  joinCall: ((callId: string) => void | Promise<void>) | undefined;
+  inCallChannelId: string | null;
+}
+
+/**
+ * Sidebar rows of one record type. Record chats belong to their record: no
+ * "Move to section" (sections are workspace-wide) and no Delete (that stays on
+ * the record panel).
+ */
+function buildRecordChatItems(
+  chats: RecordChatListItem[],
+  info: RecordChatTypeInfo,
+  handlers: RecordChatRowHandlers,
+): MenuItemProps[] {
+  const { st, muteChannel } = handlers;
+  return chats.map((chat) => ({
+    id: chat.id,
+    title: recordChatLabel(chat),
+    href: recordChatHref(chat.id),
+    icon: withStatusBadge(info.icon, chat.isMuted ? 'muted' : null),
+    bold: hasUnreadMessages(chat),
+    badge: toBadge(chat.unreadMentionCount || 0),
+    ...activeCallRowProps(chat.id, handlers.activeCallChannels, handlers.joinCall, handlers.inCallChannelId),
+    actions: [
+      {
+        label: chat.isMuted ? st('sweep.weldchat.sidebar.unmute') : st('sweep.weldchat.sidebar.mute'),
+        icon: chat.isMuted ? Bell : BellOff,
+        onClick: () => muteChannel({ channelId: chat.id, mute: !chat.isMuted }),
+      },
+      {
+        label: st(info.openLabelKey),
+        icon: ExternalLink,
+        onClick: () => handlers.openRecord(chat),
+      },
+      {
+        label: st('sweep.weldchat.recordChats.unfollow'),
+        icon: UserMinus,
+        onClick: () => handlers.unfollow(chat),
+      },
+      {
+        label: st('sweep.weldchat.sidebar.settings'),
+        icon: Settings,
+        onClick: handlers.openGroupSettings,
+      },
+    ],
+  }));
 }
 
 export function useWeldchatSidebarItems(isActive: boolean): {
@@ -484,10 +578,9 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 
   const { data: userPrefs } = useUserPreferences();
   const groupFilters: WeldchatGroupFilters =
-    (userPrefs?.uiPreferences as (NonNullable<UserPreferences['uiPreferences']> & { weldchatGroupFilters?: WeldchatGroupFilters }) | undefined)
-      ?.weldchatGroupFilters ?? {};
+    (userPrefs?.uiPreferences as UiPreferencesWithGroupFilters | undefined)?.weldchatGroupFilters ?? {};
   const getFilter = (key: string): GroupFilterSettings => ({
-    ...DEFAULT_GROUP_FILTER,
+    ...getGroupDefaults(key),
     ...groupFilters[key],
   });
   const isCollapsed = (groupKey: string): boolean => {
@@ -522,6 +615,15 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     moveChannelToSection,
   } = useChatSections(chatEnabled);
   const createSectionMutation = useCreateSectionMutation();
+  // Record chats (companies, people, …): the summary drives which groups show
+  // and their header counts; each followed type then loads its own chats.
+  const { data: recordSummaryData } = useRecordChatSummary(chatEnabled);
+  const recordSummary = recordSummaryData?.data;
+  const recordChats = useRecordChatGroups(recordSummary, isActive && chatEnabled);
+  const { mutate: unfollowRecordChat } = useUnfollowRecordChat();
+  const { open: openObjectPanel } = useObjectPanel();
+  // "Hide this group" and its Undo; the record chats page shows the group again.
+  const { setGroupHidden } = useGroupHidden();
 
   const callCtx = useWeldChatCallOptional();
   const activeCallChannelId = callCtx?.channelId ?? null;
@@ -705,11 +807,9 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     inCallChannelId,
   });
 
-  // Entity-linked channels (tasks, projects, companies, …) are intentionally
-  // NOT surfaced here. WeldChat's sidebar lists direct messages, group DMs and
-  // regular channels only; object-attached conversations stay on their object
-  // panels. The `ch.type !== 'entity'` filters above/below keep them from
-  // leaking into the channel sections.
+  // Record chats (companies, people, …) never go into the channel sections: the
+  // `ch.type !== 'entity'` filters above/below keep them out. They get their
+  // own per-type groups below, from the record chat lists.
 
   // Helper: apply per-group filter + sort + topN to a list of items, given the
   // underlying source channels (so we can filter on rich metadata like
@@ -720,36 +820,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     sourceChannels: ChatChannel[],
     key: string,
   ): MenuItemProps[] {
-    const settings = getFilter(key);
-    const enriched = sourceChannels.map((ch) => ({
-      ...ch,
-      hasActiveCall: activeCallChannelIdSet.has(ch.id),
-    }));
-    const filtered = filterChannels(enriched, settings, activeCallChannelIdSet);
-    const sorted = sortChannels(filtered, settings);
-    const itemsById = new Map<string, MenuItemProps>(
-      items.filter((i) => !!i.id).map((i) => [i.id as string, i]),
-    );
-    let ordered = sorted
-      .map((ch) => itemsById.get(ch.id))
-      .filter((i): i is MenuItemProps => Boolean(i));
-
-    // Apply manual drag-and-drop order if the user has reordered this group.
-    const manual = manualOrder[key];
-    if (manual && manual.length > 0) {
-      const present = new Map(ordered.map((i) => [i.id as string, i]));
-      const head: MenuItemProps[] = [];
-      for (const id of manual) {
-        const item = present.get(id);
-        if (item) {
-          head.push(item);
-          present.delete(id);
-        }
-      }
-      // New / unordered channels keep their sort-position at the end.
-      ordered = [...head, ...present.values()];
-    }
-    return applyTopN(ordered, settings.topN);
+    return selectGroupRows(items, sourceChannels, getFilter(key), manualOrder[key], activeCallChannelIdSet);
   }
 
   function applyPeekFilter(
@@ -757,29 +828,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     sourceChannels: ChatChannel[],
     key: string,
   ): MenuItemProps[] {
-    const settings = getFilter(key);
-    if (!settings.peekActiveWhenCollapsed) return [];
-    const now = Date.now();
-    const recentMs = (settings.peekRecentMinutes ?? 60) * 60 * 1000;
-    const peekIds = new Set<string>();
-    for (const ch of sourceChannels) {
-      const active = activeCallChannelIdSet.has(ch.id);
-      const hasUnread =
-        !!ch.lastMessageAt &&
-        (!ch.lastReadAt || new Date(ch.lastMessageAt).getTime() > new Date(ch.lastReadAt).getTime());
-      const recently =
-        !!ch.lastMessageAt && now - new Date(ch.lastMessageAt).getTime() < recentMs;
-      const matched =
-        (settings.peekMentions && (ch.unreadMentionCount ?? 0) > 0) ||
-        (settings.peekUnread && hasUnread) ||
-        (settings.peekActiveCalls && active) ||
-        (settings.peekPinned && ch.isPinned) ||
-        (settings.peekFavorited && ch.isFavorite) ||
-        (settings.peekRecentlyActive && recently);
-      if (matched) peekIds.add(ch.id);
-    }
-    const subset = items.filter((i) => i.id && peekIds.has(i.id));
-    return applyTopN(subset, settings.peekMaxItems ?? null);
+    return selectPeekRows(items, sourceChannels, getFilter(key), activeCallChannelIdSet);
   }
 
   function shouldShowGroup(items: MenuItemProps[], key: string): boolean {
@@ -810,7 +859,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   // Build menu groups
   const menuGroups: MenuGroupProps[] = [];
 
-  // Top navigation group (Activity / Drafts / Directories / Saved items) — no label header.
+  // Top navigation group (Activity / Drafts / Directories / Record chats / Saved items) — no label header.
   menuGroups.push({
     group: '',
     groupKey: 'weldchat:top-nav',
@@ -834,6 +883,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         title: t.directories ?? 'Directories',
         href: '/weldchat/directories',
         icon: BookUser,
+      },
+      {
+        title: st('sweep.weldchat.recordChats.title'),
+        href: RECORD_CHATS_PAGE_PATH,
+        icon: MessagesSquare,
       },
       {
         title: st('sweep.weldchat.sidebar.savedItems'),
@@ -903,6 +957,98 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         makeSettingsAction(dmKey, st('sweep.weldchat.sidebar.directMessagesGroup'), dms),
       ],
     });
+  }
+
+  // One group per record type the user follows chats of, in the fixed order
+  // company, person, task, project, domain. Top 5 by latest activity, quiet
+  // chats left out, unread chats and mentions still peek when collapsed.
+  const muteEach = (chats: RecordChatListItem[], mute: boolean) => {
+    for (const chat of chats) {
+      if (!!chat.isMuted !== mute) muteChannel({ channelId: chat.id, mute });
+    }
+  };
+
+  const buildRecordGroup = (type: RecordChatType): MenuGroupProps | null => {
+    const info = getRecordChatTypeInfo(type);
+    if (!info) return null;
+    const key = recordGroupKey(type);
+    const label = st(info.groupLabelKey);
+    const chats = recordChats[type];
+    const summary = recordSummary?.find((s) => s.type === type);
+    const openGroupSettings = () =>
+      setSettingsTarget({ groupKey: key, groupLabel: label, channels: recordChatsForSettings(chats) });
+
+    const items = buildRecordChatItems(chats, info, {
+      st,
+      muteChannel,
+      unfollow: (chat) =>
+        unfollowRecordChat(
+          { entityType: type, entityId: chat.entityId, channelId: chat.id },
+          { onError: () => toast.error(st('sweep.weldchat.recordChats.unfollowFailed')) },
+        ),
+      openRecord: (chat) => openRecordPanel(openObjectPanel, type, chat.entityId),
+      openGroupSettings,
+      activeCallChannels,
+      joinCall,
+      inCallChannelId,
+    });
+    const filtered = applyFilterAndSort(items, chats, key);
+    if (!shouldShowGroup(filtered, key)) return null;
+
+    const collapsed = isCollapsed(key);
+    const shown = collapsed ? applyPeekFilter(filtered, chats, key) : filtered;
+    const followed = summary?.followed ?? chats.length;
+    const showAllRow: MenuItemProps = {
+      title: st('sweep.weldchat.recordChats.showAll', { count: followed }),
+      href: recordChatsPageHref(type),
+      icon: MoreHorizontal,
+    };
+
+    return {
+      group: decorateLabel(label),
+      groupKey: key,
+      items:
+        needsShowAll(filtered.length, followed, collapsed)
+          ? [...shown, showAllRow]
+          : shown,
+      collapsed,
+      onToggleCollapse: () => toggleGroupCollapse(key),
+      draggable: true,
+      onReorder: makeReorderHandler(key),
+      unreadCount: summary?.unread,
+      mentionCount: summary?.mentions,
+      groupContextMenu: [
+        {
+          label: st('sweep.weldchat.sidebar.muteAll'),
+          icon: BellOff,
+          onClick: () => muteEach(chats, true),
+        },
+        {
+          label: st('sweep.weldchat.sidebar.unmuteAll'),
+          icon: Bell,
+          onClick: () => muteEach(chats, false),
+        },
+        makeSettingsAction(key, label, recordChatsForSettings(chats)),
+        {
+          label: st('sweep.weldchat.recordChats.hideGroup'),
+          icon: EyeOff,
+          onClick: () => {
+            setGroupHidden(key, true);
+            toast(st('sweep.weldchat.recordChats.groupHidden', { group: label }), {
+              action: {
+                label: st('sweep.weldchat.recordChats.undo'),
+                onClick: () => setGroupHidden(key, false),
+              },
+            });
+          },
+        },
+      ],
+    };
+  };
+
+  for (const type of recordGroupTypes(recordSummary, (key) => !!getFilter(key).hidden)) {
+    const group = buildRecordGroup(type);
+    if (group) menuGroups.push(group);
   }
 
   // Build all channel sections — default "Channels" is treated as id=null.
@@ -1148,7 +1294,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         <GroupSettingsDialog
           open={!!settingsTarget}
           onOpenChange={(open) => { if (!open) setSettingsTarget(null); }}
-          target={withLiveChannels(settingsTarget, dms, channels, channelSectionMap)}
+          target={withLiveChannels(settingsTarget, dms, channels, channelSectionMap, recordChats)}
         />
       )}
     </React.Suspense>

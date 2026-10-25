@@ -1,0 +1,313 @@
+# WeldSuite sign-api worker — the sign module's API.
+#
+# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# /api/<object> paths app-api served for this module; only the host differs:
+#   sign-api.weldsuite.org        production
+#   sign-api-test.weldsuite.org   test
+# The path prefixes it owns live in packages/core/api-modules.
+#
+# Secrets (scripts/secrets/manifest.ts → "sign-api"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, SIGN_SESSION_SECRET
+#
+# Bindings beyond the kit: PRIVATE_STORAGE (WeldSign files), SEND_EMAIL and the
+# outbound guard (signing emails), FINALIZE_ENVELOPE (the Workflow that builds
+# the signed PDF), SCHEDULE_INDEX (the lifecycle sweep's due index), and the
+# vars SIGN_PORTAL_URL (signing links) and EMAIL_TRANSPORT.
+#   SIGN_SESSION_SECRET keys the stored hash of access and email codes and
+#   signs signer sessions (HMAC); any long random string. apps/web/sign-portal
+#   checks those codes and issues the sessions, so it holds the same value.
+#   Rotating it signs every signer out and voids the access codes of requests
+#   still open.
+#
+# apps/web/sign-portal (a Worker of its own, ADR FE-016) binds this worker's
+# FinalizeEnvelopeWorkflow by script_name: keep the workflow names stable.
+#
+# Signing emails carry the sender's title and message to any address, so every
+# batch goes through the outbound mail guard (source `sign`), like calendar
+# invitations (ADR CAL-004). OUTBOUND_LEDGER / OUTBOUND_PLATFORM are mail-api's
+# Durable Objects bound by name; OUTBOUND_BACKSTOP is the shared burst limit.
+#
+# SIGN_CODE_ATTEMPTS is sign-api's own Durable Object (SignCodeAttempts): the
+# wrong-code count per signing link.
+
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-sign-api-dev"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+# No "react" alias (unlike most API workers): the WeldSign emails render real
+# React Email templates through @weldsuite/emails, which needs the react package.
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+# Signing links point here.
+SIGN_PORTAL_URL = "http://localhost:3023"
+# Under `wrangler dev` the SEND_EMAIL binding is simulated and writes mail to disk.
+EMAIL_TRANSPORT = "cloudflare"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# Remote binding so local dev reaches the deployed test realtime worker.
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# WeldSign files (originals, signatures, final PDFs) live only in the private
+# bucket (ADR SIGN-004). Dev uses the TEST bucket: `wrangler dev` must never
+# read or write customer files. R2 bindings are NOT inherited by [env.*].
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+# The public bucket, read only: WeldDrive files uploaded before the private
+# bucket existed still live there (getStoredObject looks in both). WeldSign
+# never writes to it.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[send_email]]
+name = "SEND_EMAIL"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-dev"
+
+# Wrong access/email code counts, one per signing link (src/durable-objects/
+# code-attempts.ts). A Durable Object, not KV, so the 5-try lock is atomic.
+[[durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+
+[[migrations]]
+tag = "sign-code-attempts-v1"
+new_sqlite_classes = ["SignCodeAttempts"]
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Builds the signed PDF and certificate once the last signer has signed.
+[[workflows]]
+name = "sign-finalize-dev"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
+
+# Due index (kind `sign_lifecycle`): which workspaces have a reminder or an
+# expiry coming due, so the lifecycle sweep never opens idle tenant DBs
+# (DATA-008). Migrations: workflow-worker. Dev uses the test index.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Lifecycle sweep (src/cron/lifecycle-sweep.ts): due reminders and expiry.
+# Keep in step with LIFECYCLE_SWEEP_CRONS. A quiet tick reads only the D1
+# due index, so every environment runs it.
+[triggers]
+crons = ["*/15 * * * *"]
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-sign-api-test"
+routes = [
+  { pattern = "sign-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+SIGN_PORTAL_URL = "https://sign-test.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+# Wrong access/email code counts, one per signing link (src/durable-objects/
+# code-attempts.ts). A Durable Object, not KV, so the 5-try lock is atomic.
+[[env.test.durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+
+[[env.test.migrations]]
+tag = "sign-code-attempts-v1"
+new_sqlite_classes = ["SignCodeAttempts"]
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Builds the signed PDF and certificate once the last signer has signed.
+[[env.test.workflows]]
+name = "sign-finalize-test"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# Lifecycle sweep (see [triggers] above).
+[env.test.triggers]
+crons = ["*/15 * * * *"]
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-sign-api"
+routes = [
+  { pattern = "sign-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+SIGN_PORTAL_URL = "https://sign.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+# Wrong access/email code counts, one per signing link (src/durable-objects/
+# code-attempts.ts). A Durable Object, not KV, so the 5-try lock is atomic.
+[[env.production.durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+
+[[env.production.migrations]]
+tag = "sign-code-attempts-v1"
+new_sqlite_classes = ["SignCodeAttempts"]
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Builds the signed PDF and certificate once the last signer has signed.
+[[env.production.workflows]]
+name = "sign-finalize"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+# Lifecycle sweep (see [triggers] above).
+[env.production.triggers]
+crons = ["*/15 * * * *"]
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

@@ -165,7 +165,12 @@ app.put('/automation', requirePermission('settings:update'), zValidator('json', 
   try {
     const [existing] = await db.select().from(helpdeskSettings).where(isNull(helpdeskSettings.deletedAt)).limit(1);
     if (existing) {
-      await db.update(helpdeskSettings).set({ automation: data, updatedAt: new Date() }).where(eq(helpdeskSettings.id, existing.id));
+      // Merge: the WeldDesk inbox keeps its auto-assignment (`deskAssignment`,
+      // /api/desk/assignment) in this same blob, which this form doesn't send.
+      await db
+        .update(helpdeskSettings)
+        .set({ automation: { ...existing.automation, ...data }, updatedAt: new Date() })
+        .where(eq(helpdeskSettings.id, existing.id));
       publishEntityEvent({ c, entityType: 'helpdesk_settings', entityId: existing.id, action: 'updated', data: { automation: data } });
     } else {
       const id = generateId('hds');

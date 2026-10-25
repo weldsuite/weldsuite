@@ -70,7 +70,9 @@ export type MailRuleActionType =
   | 'forward_to'
   | 'auto_reply'
   | 'flag'
-  | 'archive';
+  | 'archive'
+  /** Move to Spam and flag the message as spam (no push notification). */
+  | 'mark_as_spam';
 
 // Rule action interface (stored as JSONB)
 export interface MailRuleAction {

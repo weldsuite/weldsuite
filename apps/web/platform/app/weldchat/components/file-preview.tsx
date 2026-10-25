@@ -78,7 +78,7 @@ export function FilePreview({ attachment, channelId, messageId }: Readonly<FileP
           type="button"
           variant="ghost"
           onClick={() => setLightboxOpen(true)}
-          className="block max-w-[300px] rounded-lg overflow-hidden border hover:opacity-90 transition cursor-zoom-in p-0"
+          className="block h-auto max-w-[300px] rounded-lg overflow-hidden border hover:opacity-90 transition cursor-zoom-in p-0"
         >
           <img
             src={attachment.thumbnailUrl || attachment.url}

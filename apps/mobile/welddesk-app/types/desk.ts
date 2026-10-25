@@ -5,7 +5,7 @@ export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' |
 export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned';
+export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated';
 
 export interface DeskConversation {
   id: string;
@@ -43,7 +43,7 @@ export interface DeskMessage {
   authorType: DeskAuthorType;
   authorId: string | null;
   attachments: DeskMessageAttachment[] | null;
-  metadata: { eventType?: DeskEventType; assigneeId?: string | null } | null;
+  metadata: { eventType?: DeskEventType; assigneeId?: string | null; rating?: number; ratingComment?: string | null } | null;
 }
 
 export interface DeskListPagination {
@@ -57,6 +57,17 @@ export interface DeskConversationFilters {
   assigneeId?: string;
   unassigned?: boolean;
   channel?: DeskChannel;
+  /** Free-text search: customer, subject, "#42" number, message text. */
+  q?: string;
+}
+
+/** Workspace member as shown in the assignee picker. */
+export interface DeskMember {
+  /** Clerk user id, the value `assigneeId` takes. */
+  userId: string;
+  name: string;
+  email: string;
+  picture: string | null;
 }
 
 export type DeskConversationWithMessages = DeskConversation & {

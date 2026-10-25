@@ -4,7 +4,7 @@ import { useUser } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { crmTasksKeys, type RawTask } from '@/hooks/use-crm-tasks';
 import { mailKeys } from '@/hooks/queries/use-mail-queries';
-import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
+import { fetchChannelList, weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 import {
   calendarKeys,
@@ -79,10 +79,7 @@ const PREFETCHERS: Record<string, Prefetcher> = {
   weldchat: ({ queryClient, appClient }) =>
     queryClient.prefetchQuery({
       queryKey: weldchatKeys.channels(),
-      queryFn: async () => {
-        const client = await appClient();
-        return client.get<unknown>('/channels');
-      },
+      queryFn: async () => fetchChannelList(await appClient()),
       staleTime: PREFETCH_STALE_TIME_MS,
     }),
 

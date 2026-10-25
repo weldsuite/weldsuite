@@ -105,6 +105,8 @@ export interface Env extends KitEnv {
    * fallback while the binding is unbound or the entrypoint is not deployed.
    */
   AGENT_RUNTIME?: Fetcher;
+  /** sheets-api SheetsInternal entrypoint: the WeldAgent spreadsheet tools. */
+  SHEETS_INTERNAL?: Fetcher;
   /**
    * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
    * Fallback path only. Example: http://localhost:8795 or

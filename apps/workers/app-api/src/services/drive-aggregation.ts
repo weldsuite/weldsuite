@@ -17,7 +17,7 @@ import { and, eq, getTableColumns, inArray, isNotNull, isNull, ne, or, sql, type
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
 import { asText } from '@weldsuite/text';
-import { fileDescription } from '@weldsuite/core-domain/files';
+import { fileDescription, listDocumentSnapshotKeys } from '@weldsuite/core-domain/files';
 import {
   isWorkspaceAdmin,
   loadDriveAccess,
@@ -90,9 +90,9 @@ function buildNavigateUrl(
     case 'crm_contact': return buildResultUrl('contact', entityId);
     case 'crm_customer': return buildResultUrl('customer', entityId);
     case 'project':
-      // WeldFlow project sheets are stored as xlsx files. Clicking one in
-      // WeldDrive should land back in the spreadsheet editor, not the
-      // generic project files page.
+      // A WeldFlow project sheet opens in its project (where an .xlsx one
+      // saved by the old project grid becomes a WeldSheets spreadsheet on
+      // first open), not on the generic project files page.
       if (fileType === 'spreadsheet' && fileId) {
         return `/weldflow/project/${entityId}/table/${fileId}`;
       }
@@ -109,6 +109,18 @@ function buildNavigateUrl(
     case 'social_post': return '/social';
     default: return null;
   }
+}
+
+/**
+ * A WeldSheets spreadsheet or WeldDocs document (a drive file whose metadata
+ * names its sheet or document) opens in its editor. A WeldDocs document is not
+ * `isWeldDoc` (that flag is the BlockNote editor's, at `/documents/:fileId`).
+ */
+function weldModuleUrl(metadata: Record<string, unknown> | null | undefined): string | null {
+  const sheetId = metadata?.weldsheetId;
+  if (typeof sheetId === 'string') return `/weldsheets/${sheetId}`;
+  const docId = metadata?.weldDocId;
+  return typeof docId === 'string' ? `/welddocs/${docId}` : null;
 }
 
 function guessFileType(mimeType: string | null, fileName: string | null): string {
@@ -160,7 +172,7 @@ export function normalizeGenericFiles(
     // action), but a WeldFlow sheet or document is labelled as the project's.
     source: 'drive',
     sourceLabel: r.entityType && PROJECT_ENTITY_TYPES.has(r.entityType) ? 'Projects' : 'My Drive',
-    navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id),
+    navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id) ?? weldModuleUrl(r.metadata),
     folderId: r.folderId,
     isStarred: r.isStarred,
     createdAt: r.createdAt.toISOString(),
@@ -591,12 +603,18 @@ function purgedFilesWhere(ids: TrashedIds): SQL | undefined {
   return conditions.length > 0 ? or(...conditions) : undefined;
 }
 
-/** The R2 keys of what `purgeTrashed` removes, so the route deletes the objects first. */
+/**
+ * The R2 keys of what `purgeTrashed` removes, so the route deletes the objects
+ * first: the files themselves, and the checkpoint and version snapshots of the
+ * spreadsheets and documents among them.
+ */
 export async function listPurgedFileKeys(db: Database, ids: TrashedIds): Promise<string[]> {
   const where = purgedFilesWhere(ids);
   if (!where) return [];
   const rows = await db.select({ fileKey: files.fileKey, storagePath: files.storagePath }).from(files).where(where);
-  return rows.map((f) => f.fileKey || f.storagePath).filter(Boolean) as string[];
+  const fileKeys = rows.map((f) => f.fileKey || f.storagePath).filter(Boolean) as string[];
+  const snapshotKeys = await listDocumentSnapshotKeys(db, db.select({ id: files.id }).from(files).where(where));
+  return [...fileKeys, ...snapshotKeys];
 }
 
 /**
@@ -606,8 +624,14 @@ export async function listPurgedFileKeys(db: Database, ids: TrashedIds): Promise
  */
 export async function purgeTrashed(db: Database, ids: TrashedIds): Promise<void> {
   const where = purgedFilesWhere(ids);
-  // Files first: they reference their folder.
-  if (where) await db.delete(files).where(where);
+  if (where) {
+    // A WeldSheets spreadsheet's or WeldDocs document's row references its file; files reference their folder.
+    const purged = db.select({ id: files.id }).from(files).where(where);
+    await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, purged));
+    await db.delete(schema.documentVersions).where(inArray(schema.documentVersions.fileId, purged));
+    await db.delete(schema.docs).where(inArray(schema.docs.fileId, purged));
+    await db.delete(files).where(where);
+  }
   if (ids.folderIds.length > 0) {
     await db.delete(folders).where(and(inArray(folders.id, ids.folderIds), isNotNull(folders.deletedAt)));
   }

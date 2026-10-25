@@ -112,6 +112,7 @@ export const navigation = [
       { title: 'WeldSuite steps', href: '/weldconnect/weldsuite-steps' },
       { title: 'AI steps', href: '/weldconnect/ai-steps' },
       { title: 'Connect Slack, Google and GitHub', href: '/weldconnect/connect-apps' },
+      { title: 'Send Stripe sales to Moneybird', href: '/weldconnect/stripe-to-moneybird' },
       { title: 'Runs and history', href: '/weldconnect/runs-and-history' },
     ],
   },

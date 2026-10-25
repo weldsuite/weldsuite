@@ -19,6 +19,15 @@ export class WorkerEntrypoint<Env = unknown> {
   }
 }
 
+export class DurableObject<Env = unknown> {
+  readonly ctx: DurableObjectState;
+  readonly env: Env;
+  constructor(ctx: DurableObjectState, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+}
+
 export class WorkflowEntrypoint<Env = unknown, Params = unknown> {
   readonly ctx: unknown;
   readonly env: Env;

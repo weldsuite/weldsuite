@@ -124,6 +124,22 @@ export async function publishChatCallSuperseded(
   await rt.chatCallSuperseded(workspaceId, userId, data);
 }
 
+/**
+ * The user joined a call: `call_answered` on `chat.user.${userId}` stops the
+ * ring in their other tabs, windows and devices (a phone's native ring stops
+ * through the cancel push instead).
+ */
+export async function publishChatCallAnswered(
+  env: WeldChatCallPublisherEnv,
+  workspaceId: string,
+  userId: string,
+  data: { callId: string; channelId: string },
+): Promise<void> {
+  const rt = getPublisher(env);
+  if (!rt) return;
+  await rt.chatCallAnswered(workspaceId, userId, data);
+}
+
 export async function publishChatCallIncoming(
   env: WeldChatCallPublisherEnv,
   workspaceId: string,

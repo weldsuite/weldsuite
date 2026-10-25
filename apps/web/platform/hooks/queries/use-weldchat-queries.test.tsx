@@ -3,6 +3,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, type InfiniteData } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import {
+  fetchChannelList,
   mergeMessageIntoCache,
   resetThreadReplyCountTracking,
   useSendMessage,
@@ -67,6 +68,47 @@ const reply: ChatMessage = {
 function newClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
+
+describe('fetchChannelList', () => {
+  type Page = { data: { id: string }[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } };
+
+  function fakeClient(pages: Page[]) {
+    const urls: string[] = [];
+    let call = 0;
+    const client = {
+      get: async <T,>(url: string): Promise<T> => {
+        urls.push(url);
+        return pages[call++] as T;
+      },
+    };
+    return { client, urls };
+  }
+
+  it('asks only for public and private channels, a full page at a time', async () => {
+    const { client, urls } = fakeClient([
+      { data: [{ id: 'ch_a' }], pagination: { totalCount: 1, hasMore: false, cursor: null } },
+    ]);
+    const result = await fetchChannelList(client);
+    expect(urls).toHaveLength(1);
+    const params = new URL(urls[0]!, 'http://x').searchParams;
+    expect(params.get('types')).toBe('public,private');
+    expect(params.get('limit')).toBe('100');
+    expect(params.has('cursor')).toBe(false);
+    expect(result.data.map((c) => c.id)).toEqual(['ch_a']);
+  });
+
+  it('follows the cursor so no channel drops off after the first page', async () => {
+    const { client, urls } = fakeClient([
+      { data: [{ id: 'ch_1' }, { id: 'ch_2' }], pagination: { totalCount: 3, hasMore: true, cursor: 'ch_2' } },
+      { data: [{ id: 'ch_3' }], pagination: { totalCount: 3, hasMore: false, cursor: null } },
+    ]);
+    const result = await fetchChannelList(client);
+    expect(urls).toHaveLength(2);
+    expect(new URL(urls[1]!, 'http://x').searchParams.get('cursor')).toBe('ch_2');
+    expect(result.data.map((c) => c.id)).toEqual(['ch_1', 'ch_2', 'ch_3']);
+    expect(result.pagination).toEqual({ totalCount: 3, hasMore: false, cursor: null });
+  });
+});
 
 describe('mergeMessageIntoCache', () => {
   beforeEach(() => {

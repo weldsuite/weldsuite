@@ -189,7 +189,8 @@ vi.mock('@/lib/api/public-env', () => ({
   getRealtimeWsOrigin: () => 'wss://realtime.test',
 }));
 
-import { RECONNECT_TOAST_DELAY_MS, WeldChatCallProvider, useWeldChatCall } from './weldchat-call-context';
+import { ApiError } from '@weldsuite/api-client';
+import { RECONNECT_TOAST_DELAY_MS, REJOIN_DELAYS_MS, WeldChatCallProvider, useWeldChatCall } from './weldchat-call-context';
 import { ActiveCallProvider, useCallSwitchDialog, useRegisterActiveCall } from './active-call-context';
 
 const RECONNECT_TOAST = 'weldchat-reconnecting';
@@ -370,23 +371,128 @@ describe('WeldChatCallProvider · a dropped connection', () => {
     expect(sounds.playCallJoinSound).toHaveBeenCalledTimes(1);
   });
 
-  it('tears the call down and tells the backend when the SDK gives up ("failed")', async () => {
+  /** Let the rejoin's waits run out and its async steps settle. */
+  async function runRejoin(ms = 0) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  const totalRejoinWait = REJOIN_DELAYS_MS.reduce((sum, delay) => sum + delay, 0);
+
+  it('rejoins the call with a new client when the SDK gives up ("failed")', async () => {
     await startConnectedCall();
+    const { default: RTK } = await import('@cloudflare/realtimekit');
     vi.useFakeTimers();
     emit('roomLeft', { state: 'disconnected' });
 
     emit('roomLeft', { state: 'failed' });
-    expect(call.status).toBe('ended');
-    waitOutToastDelay();
+    // Still in the call: "reconnecting" right away, no leave anywhere.
+    expect(call.status).toBe('connected');
+    expect(call.callId).toBe('call_1');
+    expect(toast.loading).toHaveBeenCalledWith(
+      'Connection lost. Reconnecting…',
+      expect.objectContaining({ id: RECONNECT_TOAST }),
+    );
+    await runRejoin();
 
-    // The toast delay outlasts the "call ended" card too.
-    expect(call.status).toBe('idle');
+    // A second client, with the token the call already had: no new participant.
+    expect(RTK.init).toHaveBeenCalledTimes(2);
+    expect(RTK.init).toHaveBeenLastCalledWith(expect.objectContaining({ authToken: 'tok_1' }));
+    expect(api.post).not.toHaveBeenCalledWith('/chat-calls/call_1/join', expect.anything());
+    emit('roomJoined', {});
+
+    expect(call.status).toBe('connected');
+    expect(call.callId).toBe('call_1');
+    expect(toast.success).toHaveBeenCalledWith(
+      'You are back in the call',
+      expect.objectContaining({ id: RECONNECT_TOAST }),
+    );
+    expect(sounds.playCallJoinSound).toHaveBeenCalledTimes(1);
+    expect(leaveBeacons()).toHaveLength(0);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('rejoins as a fresh participant when the old token does not get back in', async () => {
+    await startConnectedCall();
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    vi.useFakeTimers();
+    let joins = 0;
+    rtk.join = async () => {
+      joins += 1;
+      if (joins === 1) throw new Error('Could not connect to media server');
+    };
+    api.post.mockImplementation(async (path: string) => ({
+      data: { callId: 'call_1', authToken: path === '/chat-calls/call_1/join' ? 'tok_fresh' : 'tok_1', callType: 'video' },
+    }));
+
+    emit('roomLeft', { state: 'failed' });
+    await runRejoin(REJOIN_DELAYS_MS[1]);
+
+    expect(api.post).toHaveBeenCalledWith('/chat-calls/call_1/join', {});
+    expect(RTK.init).toHaveBeenLastCalledWith(expect.objectContaining({ authToken: 'tok_fresh' }));
+    emit('roomJoined', {});
+    expect(call.status).toBe('connected');
+    expect(leaveBeacons()).toHaveLength(0);
+  });
+
+  it('ends the call for this user once every rejoin failed', async () => {
+    await startConnectedCall();
+    vi.useFakeTimers();
+    rtk.join = async () => {
+      throw new Error('Could not connect to media server');
+    };
+
+    emit('roomLeft', { state: 'failed' });
+    await runRejoin(totalRejoinWait);
+
+    expect(call.status).not.toBe('connected');
     expect(call.callId).toBeNull();
     expect(leaveBeacons()).toHaveLength(1);
     expect(toast.error).toHaveBeenCalledWith("Couldn't reconnect to the call. Call again to continue.");
     expect(toast.dismiss).toHaveBeenCalledWith(RECONNECT_TOAST);
-    // The pending "reconnecting" never shows up after the call is gone.
-    expect(toast.loading).not.toHaveBeenCalled();
+  });
+
+  it('says goodbye without an error when the call ended while rejoining', async () => {
+    await startConnectedCall();
+    vi.useFakeTimers();
+    rtk.join = async () => {
+      throw new Error('Could not connect to media server');
+    };
+    api.post.mockImplementation(async (path: string) => {
+      if (path === '/chat-calls/call_1/join') throw new ApiError('Call is not joinable', 400);
+      return { data: { callId: 'call_1', authToken: 'tok_1', callType: 'video' } };
+    });
+
+    emit('roomLeft', { state: 'failed' });
+    await runRejoin(REJOIN_DELAYS_MS[1]);
+
+    expect(call.status).toBe('ended');
+    expect(call.callId).toBeNull();
+    expect(leaveBeacons()).toHaveLength(0);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('stops rejoining when the user hangs up meanwhile', async () => {
+    await startConnectedCall();
+    const { default: RTK } = await import('@cloudflare/realtimekit');
+    vi.useFakeTimers();
+    rtk.join = async () => {
+      throw new Error('Could not connect to media server');
+    };
+
+    emit('roomLeft', { state: 'failed' });
+    await runRejoin();
+    await act(async () => {
+      await call.leaveCall();
+    });
+    expect(call.endReason).toBe('left');
+    const clients = vi.mocked(RTK.init).mock.calls.length;
+    await runRejoin(totalRejoinWait);
+
+    expect(RTK.init).toHaveBeenCalledTimes(clients);
+    expect(call.callId).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it.each(['ended', 'kicked'])('tears the call down on roomLeft "%s" without an error toast', async (state) => {
@@ -1067,6 +1173,48 @@ describe('WeldChatCallProvider · the incoming call ringtone', () => {
     act(() => vi.advanceTimersByTime(60_000));
     expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(ringsAt30s);
     expect(call.status).toBe('ringing-incoming');
+  });
+
+  it('stops ringing when the call is answered in another tab or on another device', () => {
+    vi.useFakeTimers();
+    ringIncoming();
+
+    publish('call_answered', { callId: 'call_9', channelId: 'ch_9' });
+
+    expect(call.incomingCall).toBeNull();
+    expect(call.status).toBe('idle');
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops ringing when the caller hangs up first', () => {
+    ringIncoming();
+
+    publish('call_ended', { callId: 'call_9', channelId: 'ch_9' });
+
+    expect(call.incomingCall).toBeNull();
+    expect(call.status).toBe('idle');
+  });
+
+  it('keeps ringing when another call is answered or ends', () => {
+    ringIncoming();
+
+    publish('call_answered', { callId: 'call_other', channelId: 'ch_other' });
+    publish('call_ended', { callId: 'call_other', channelId: 'ch_other' });
+
+    expect(call.incomingCall).toMatchObject({ callId: 'call_9' });
+    expect(call.status).toBe('ringing-incoming');
+  });
+
+  it('an answer elsewhere during a call ends only the ring', async () => {
+    await startConnectedCall();
+    publish('call_incoming', { callId: 'call_9', channelId: 'ch_9', callType: 'voice', callerName: 'Sam' });
+
+    publish('call_answered', { callId: 'call_9', channelId: 'ch_9' });
+
+    expect(call.incomingCall).toBeNull();
+    expect(call.status).toBe('connected');
+    expect(call.callId).toBe('call_1');
   });
 
   it('stops ringing as soon as the call is declined', async () => {

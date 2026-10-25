@@ -7,8 +7,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import { requirePermission, ensurePermissionsResolved, hasContextPermission } from '@weldsuite/permissions/server';
+import { agentViewerFor, inaccessibleAgentIds } from '@weldsuite/agent-domain/access';
 import { updateChannelMembershipSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -16,7 +17,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { postChatMessage, ChatFeatureError } from '../../services/chat/post-message';
 import { setChannelMuted } from '../../services/chat/dm-membership';
-import { canAccessChannel, isChannelModerator } from '../../services/chat/channel-access';
+import { canAccessChannel, isChannelModerator, unreadableRecordChatIds } from '../../services/chat/channel-access';
 import { consumeChatRateLimit } from '../../services/chat/rate-limit';
 import { createChannel, resolveChannelSlug } from '@weldsuite/chat-domain/create-channel';
 import {
@@ -132,17 +133,38 @@ async function channelNameTaken(
   return Boolean(clash);
 }
 
-/** The caller's own `isMuted` flag per channel id (absent row = not muted). */
-async function callerMuteFlags(
+interface CallerChannelState {
+  isMuted: boolean;
+  lastReadAt: Date | null;
+  lastReadMessageId: string | null;
+  unreadMentionCount: number;
+}
+
+const NO_MEMBERSHIP: CallerChannelState = {
+  isMuted: false,
+  lastReadAt: null,
+  lastReadMessageId: null,
+  unreadMentionCount: 0,
+};
+
+/**
+ * The caller's own membership state per channel id: mute flag plus the read
+ * cursor the sidebar compares against `lastMessageAt` to bold unread channels.
+ * An absent row means not muted and never read.
+ */
+async function callerChannelState(
   db: Database,
   userId: string,
   channelIds: string[],
-): Promise<Map<string, boolean>> {
+): Promise<Map<string, CallerChannelState>> {
   if (channelIds.length === 0) return new Map();
   const rows = await db
     .select({
       channelId: schema.chatChannelMembers.channelId,
       isMuted: schema.chatChannelMembers.isMuted,
+      lastReadAt: schema.chatChannelMembers.lastReadAt,
+      lastReadMessageId: schema.chatChannelMembers.lastReadMessageId,
+      unreadMentionCount: schema.chatChannelMembers.unreadMentionCount,
     })
     .from(schema.chatChannelMembers)
     .where(
@@ -151,14 +173,46 @@ async function callerMuteFlags(
         inArray(schema.chatChannelMembers.channelId, channelIds),
       ),
     );
-  return new Map(rows.map((r) => [r.channelId, r.isMuted === true]));
+  return new Map(
+    rows.map((r) => [
+      r.channelId,
+      {
+        isMuted: r.isMuted === true,
+        lastReadAt: r.lastReadAt ?? null,
+        lastReadMessageId: r.lastReadMessageId ?? null,
+        unreadMentionCount: r.unreadMentionCount ?? 0,
+      },
+    ]),
+  );
 }
 
+const CHANNEL_TYPES: ReadonlySet<string> = new Set(['public', 'private', 'dm', 'entity']);
+
+/**
+ * `?types=public,private` → the listed channel types, or null when the filter
+ * is absent or empty. Unknown names are returned too, so the caller can refuse
+ * them instead of silently returning an emptier (or wider) list.
+ */
+function parseTypesFilter(raw: string | undefined): string[] | null {
+  const types = [...new Set((raw ?? '').split(',').map((s) => s.trim()).filter(Boolean))];
+  return types.length > 0 ? types : null;
+}
+
+/**
+ * GET / — channels the caller can see, newest first, cursor paginated.
+ *
+ * `?types=public,private` narrows the list to those channel types. The WeldChat
+ * sidebar asks for exactly that: DMs come from `/chat-dm` and record (entity)
+ * channels have their own list, so neither may use up the sidebar's page.
+ */
 app.get('/', requirePermission('channels:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const types = parseTypesFilter(q.types);
+  const unknownType = types?.find((type) => !CHANNEL_TYPES.has(type));
+  if (unknownType) return error.badRequest(c, `Unknown channel type: ${unknownType}`);
 
   // Membership boundary: only list channels the caller may actually see —
   // public channels plus any (private/dm) channel the caller has joined.
@@ -176,22 +230,22 @@ app.get('/', requirePermission('channels:read'), async (c) => {
     )!,
   ];
   if (q.type !== undefined && q.type !== '') conditions.push(eq(t.type, q.type));
+  if (types) conditions.push(inArray(t.type, types));
   if (q.search) {
     conditions.push(like(t.name, `%${q.search}%`));
   }
+  let cursorCondition: SQL | undefined;
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
       .from(t).where(eq(t.id, q.cursor)).limit(1);
     if (cur?.createdAt) {
-      conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
-      );
+      cursorCondition = sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
     }
   }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  // The total counts the whole filtered list, so it ignores the cursor.
+  const countWhere = and(...conditions);
+  const where = cursorCondition ? and(...conditions, cursorCondition) : countWhere;
 
   try {
     const [rows, countRes] = await Promise.all([
@@ -202,8 +256,17 @@ app.get('/', requirePermission('channels:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    const muted = await callerMuteFlags(db, userId, data.map((r) => r.id));
-    const items = data.map((r) => ({ ...r, isMuted: muted.get(r.id) ?? false }));
+    // A followed record chat whose record the caller can no longer see drops
+    // out: its name and last-message preview are the record's.
+    const unreadable = await unreadableRecordChatIds(
+      db,
+      userId,
+      data.filter((r) => r.type === 'entity').map((r) => r.id),
+      { can: (permission) => hasContextPermission(c, permission) },
+    );
+    const visible = data.filter((r) => !unreadable.has(r.id));
+    const state = await callerChannelState(db, userId, visible.map((r) => r.id));
+    const items = visible.map((r) => ({ ...r, ...(state.get(r.id) ?? NO_MEMBERSHIP) }));
     return list(c, items, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/channels] list failed:', err);
@@ -725,6 +788,13 @@ app.post(
     // private channel you are not in.
     if (!(await canAccessChannel(db, channelId, c.get('userId')))) {
       return error.forbidden(c, 'You do not have access to this channel');
+    }
+    // Like bringing colleagues into a room: only agents you may work with.
+    if (memberType === 'agent') {
+      const viewer = agentViewerFor(c.get('userId'), await ensurePermissionsResolved(c));
+      if ((await inaccessibleAgentIds(db, userIds, viewer)).length > 0) {
+        return error.forbidden(c, 'You do not have access to one of these agents');
+      }
     }
 
     try {

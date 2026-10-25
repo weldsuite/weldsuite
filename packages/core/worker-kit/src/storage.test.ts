@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cookieValues,
   deleteStoredObject,
+  deleteStoredObjects,
   filesCookiePath,
   getStoredObject,
   isInlineSafeContentType,
@@ -105,6 +106,21 @@ describe('bucket resolution', () => {
     const env = { PRIVATE_STORAGE: memoryBucket({ [KEY]: 'a' }), STORAGE: memoryBucket({ [KEY]: 'b' }) };
     await deleteStoredObject(env, KEY);
     expect(env.PRIVATE_STORAGE.objects.size + env.STORAGE.objects.size).toBe(0);
+  });
+
+  it('deletes many keys from both buckets in batches of at most 1000, without duplicates', async () => {
+    const batches: string[][] = [];
+    const recording = () =>
+      ({ delete: async (keys: string[]) => void batches.push(keys) }) as unknown as R2Bucket;
+    const keys = Array.from({ length: 2500 }, (_, n) => `workspaces/org_a/docs/d/versions/${n}.json.gz`);
+    await deleteStoredObjects({ PRIVATE_STORAGE: recording(), STORAGE: recording() }, [...keys, keys[0]!, '']);
+    // 3 batches per bucket, every key once per bucket.
+    expect(batches.map((b) => b.length).sort((a, b) => a - b)).toEqual([500, 500, 1000, 1000, 1000, 1000]);
+    expect(new Set(batches.flat()).size).toBe(2500);
+
+    batches.length = 0;
+    await deleteStoredObjects({ PRIVATE_STORAGE: recording() }, []);
+    expect(batches).toEqual([]);
   });
 });
 

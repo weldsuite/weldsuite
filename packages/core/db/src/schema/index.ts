@@ -44,7 +44,10 @@ export * from './files';
 export * from './folders';
 export * from './drive-shares';
 export * from './sheets';
+export * from './sheet-versions';
+export * from './sheet-data-sources';
 export * from './docs';
+export * from './doc-versions';
 export * from './document-versions';
 export * from './whiteboards';
 
@@ -403,6 +406,9 @@ export * from './weldhr-payroll';
 
 // WeldReach (cold email outreach on Mailpool)
 export * from './reach';
+
+// WeldSign (electronic signatures)
+export * from './weldsign';
 
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

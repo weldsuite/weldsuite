@@ -29,6 +29,7 @@ import {
   getChannelFeatureFlags,
 } from './channel-features';
 import { isCrmEntityChannel, logEntityChannelMessageActivity } from './entity-activity';
+import { announceNewFollowers, followRecordChatOnPost } from './entity-channels';
 
 /** Thrown when a channel feature flag / slow-mode check rejects the send. */
 export class ChatFeatureError extends Error {
@@ -261,11 +262,15 @@ function classifyMentionToken(body: string): string {
   return entId ? `entity:${prefix}:${entId}` : prefix;
 }
 
+/** `<@file:attachmentId>` places one of the message's attachments in its text; it mentions nobody. */
+const FILE_TOKEN = /<@file:[^>]*>/g;
+
 function extractContentMentions(content: string): string[] {
   const contentMentions: string[] = [];
   const mentionRegex = /<@([^>]+)>/g;
   let match: RegExpExecArray | null;
   while ((match = mentionRegex.exec(content)) !== null) {
+    if (match[1].startsWith('file:')) continue;
     const mentionId = classifyMentionToken(match[1]);
     if (!contentMentions.includes(mentionId)) contentMentions.push(mentionId);
   }
@@ -561,7 +566,9 @@ export async function postChatMessage(
     updatedAt: now,
   });
 
-  const preview = input.content.length > 100 ? input.content.slice(0, 100) + '...' : input.content;
+  // Inline images show nothing in a one-line preview (sidebar, notifications).
+  const previewText = input.content.replace(FILE_TOKEN, '').replace(/[ \t]{2,}/g, ' ').trim();
+  const preview = previewText.length > 100 ? previewText.slice(0, 100) + '...' : previewText;
   const [channelRef] = await db
     .update(chatChannels)
     .set({
@@ -572,6 +579,8 @@ export async function postChatMessage(
     })
     .where(eq(chatChannels.id, channelId))
     .returning({
+      type: chatChannels.type,
+      name: chatChannels.name,
       entityType: chatChannels.entityType,
       entityId: chatChannels.entityId,
       entityDisplayName: chatChannels.entityDisplayName,
@@ -587,6 +596,23 @@ export async function postChatMessage(
       createdAt: now,
     }).catch((e) => console.error('[app-api/chat] entity activity log failed:', e));
   }
+
+  // A record chat: posting follows it, and so does being @mentioned in it.
+  // Before the read-marker and mention-count updates below, which only touch
+  // membership rows. Best-effort: never block the send.
+  const newFollowerIds =
+    channelRef?.type === 'entity' && channelRef.entityType && channelRef.entityId
+      ? await followRecordChatOnPost(db, {
+          channelId,
+          entityType: channelRef.entityType,
+          entityId: channelRef.entityId,
+          authorUserId,
+          mentionedUserIds: allMentions.filter((m) => isNotifiableMention(m, authorUserId)),
+        }).catch((e) => {
+          console.error('[app-api/chat] record chat follow failed:', e);
+          return [] as string[];
+        })
+      : [];
 
   // Advance the author's own read marker to their just-sent message. Without
   // this, lastMessageAt jumps past the author's lastReadAt and their own DM/
@@ -620,6 +646,10 @@ export async function postChatMessage(
     } catch (e) {
       console.error('[app-api/chat] message realtime publish failed:', e);
     }
+  }
+
+  if (newFollowerIds.length > 0 && channelRef) {
+    await announceNewFollowers(env, ctx.orgId, { id: channelId, name: channelRef.name }, newFollowerIds);
   }
 
   if (!input.parentId) {

@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, like, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -24,7 +24,8 @@ const t = schema.helpdeskCannedResponses;
 
 /** Picker search — ported from api-worker `GET /helpdesk/canned-responses/search`. */
 const searchQuerySchema = z.object({
-  q: z.string().min(1),
+  /** Empty lists every visible active response (the picker before typing). */
+  q: z.string().trim().max(200).default(''),
   limit: z.coerce.number().min(1).max(50).default(10),
 });
 
@@ -129,7 +130,7 @@ app.get('/search', requirePermission('tickets:read'), zValidator('query', search
         and(
           isNull(t.deletedAt),
           eq(t.isActive, true),
-          or(like(t.name, term), like(t.content, term), like(t.shortcut, term))!,
+          q ? or(ilike(t.name, term), ilike(t.content, term), ilike(t.shortcut, term)) : undefined,
           // Personal responses are visible only to their author; team /
           // department / global are visible to everyone.
           or(and(eq(t.scope, 'personal'), eq(t.agentId, userId)), sql`${t.scope} != 'personal'`)!,

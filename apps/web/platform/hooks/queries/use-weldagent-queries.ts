@@ -125,6 +125,18 @@ export function useWeldAgentConversationMessages(
   });
 }
 
+/**
+ * Fetch the page of messages just older than `beforeId`, for scrolling back
+ * through a long continuous chat. Returns them oldest first.
+ */
+export function useLoadOlderMessages() {
+  const { weldAgent } = useAppApi();
+  return async (conversationId: string, beforeId: string, limit = 100): Promise<WeldAgentMessage[]> => {
+    const result = await weldAgent.listMessages(conversationId, { limit, before: beforeId });
+    return (result.data || []) as unknown as WeldAgentMessage[];
+  };
+}
+
 export function useCreateConversation() {
   const { weldAgent } = useAppApi();
   const qc = useQueryClient();

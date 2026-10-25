@@ -2,22 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, CalendarClock, History, Pause, Play, Settings2, SquarePen } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Pause, Play, Settings2 } from 'lucide-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useParams, useRouter, useSearchParams } from '@/lib/router';
 import { getLocale, getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { useActivateAgent, useAgent, usePauseAgent } from '@/hooks/queries/use-agent-queries';
-import { useWeldAgentConversations } from '@/hooks/queries/use-weldagent-queries';
+import { useActivateAgent, useAgent, useAgentMainChat, usePauseAgent } from '@/hooks/queries/use-agent-queries';
 import { useAgentRoutines } from '@/hooks/queries/use-agent-parity-queries';
 import { AgentAvatar } from '../components/agent-avatar';
 import { agentNeedsSetup } from '../components/agent-state';
@@ -25,14 +17,6 @@ import { AgentChat } from '../components/chat/agent-chat';
 import { errorMessage } from '../components/chat/labels';
 import { AgentSettingsSheet, SETTINGS_TABS, type SettingsTab } from '../components/settings/agent-settings-sheet';
 import { formatNextRun } from '../components/routine-schedule';
-
-/** `'new'` = a fresh chat, created on its first message. */
-type Selection = string | 'new' | null;
-
-function relativeDay(iso: string | null): string {
-  if (!iso) return '';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
-}
 
 function StatusButton({ agentId, status }: Readonly<{ agentId: string; status: string }>) {
   const t = getTranslations('common').agents;
@@ -97,24 +81,22 @@ export default function AgentDetailPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
   const search = useSearchParams();
-  // Links from notifications: ?conversation=<id> opens that thread, ?settings=<tab> the sheet.
-  const linkedConversation = search.get('conversation');
+  // Links from notifications: ?settings=<tab> opens the sheet. (Chat links all
+  // land here: each person has one continuous chat with an agent.)
   const linkedTab = search.get('settings');
   const { data: agent, isLoading } = useAgent(id);
-  const { data: conversations = [] } = useWeldAgentConversations(50, id);
+  const { data: mainChat } = useAgentMainChat(agent ? id : '');
 
-  const [selection, setSelection] = useState<Selection>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
 
   useBreadcrumbs([{ label: t.pageTitle, href: '/agents' }, { label: agent?.name ?? t.detail.untitledAgent }]);
 
-  // Each agent opens on its latest chat (or the linked one), with the sheet closed unless linked.
+  // Each agent opens on its chat, with the sheet closed unless linked.
   useEffect(() => {
-    setSelection(linkedConversation);
     setSettingsOpen(isSettingsTab(linkedTab));
     if (isSettingsTab(linkedTab)) setSettingsTab(linkedTab);
-  }, [id, linkedConversation, linkedTab]);
+  }, [id, linkedTab]);
 
   if (isLoading) {
     return (
@@ -140,9 +122,6 @@ export default function AgentDetailPage() {
   }
 
   const setup = agentNeedsSetup(agent);
-  let conversationId: string | null = null;
-  if (selection && selection !== 'new') conversationId = selection;
-  else if (selection === null) conversationId = conversations[0]?.id ?? null;
 
   const openSettings = (tab: SettingsTab = 'general') => {
     setSettingsTab(tab);
@@ -181,40 +160,6 @@ export default function AgentDetailPage() {
 
         <div className="flex shrink-0 items-center gap-1">
           <ScheduledButton agentId={agent.id} onOpen={() => openSettings('routines')} />
-          {conversations.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t.detail.header.history} title={t.detail.header.history}>
-                  <History className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-80 w-72 overflow-y-auto">
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {t.detail.header.history}
-                </DropdownMenuLabel>
-                {conversations.map((c) => (
-                  <DropdownMenuItem
-                    key={c.id}
-                    className={cn('flex flex-col items-start gap-0.5', c.id === conversationId && 'bg-accent')}
-                    onSelect={() => setSelection(c.id)}
-                  >
-                    <span className="w-full truncate text-[13px]">{c.name}</span>
-                    <span className="text-[11px] text-muted-foreground">{relativeDay(c.lastMessageAt ?? c.createdAt)}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setSelection('new')}
-            aria-label={t.detail.chat.newChat}
-            title={t.detail.chat.newChat}
-          >
-            <SquarePen className="h-4 w-4" />
-          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -235,8 +180,7 @@ export default function AgentDetailPage() {
           agentId={agent.id}
           agentName={agent.name}
           needsSetup={setup}
-          conversationId={conversationId}
-          onConversationCreated={setSelection}
+          conversationId={mainChat?.id ?? null}
           onOpenRoutines={() => openSettings('routines')}
         />
       </div>

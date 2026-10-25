@@ -442,6 +442,18 @@ export class RealtimePublisher {
   }
 
   /**
+   * The user answered a call in one of their sessions: their other tabs,
+   * windows and devices stop ringing for it.
+   */
+  async chatCallAnswered(
+    workspaceId: string,
+    userId: string,
+    data: { callId: string; channelId: string },
+  ) {
+    return this.publishPersonal(workspaceId, `chat.user.${userId}`, 'call_answered', data, userId);
+  }
+
+  /**
    * The user was dropped from a live call (meeting session or chat call)
    * because they joined another one, or joined the same one again elsewhere.
    * Sent before the RealtimeKit kick so the evicted tab can say why it left.

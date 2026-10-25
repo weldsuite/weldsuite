@@ -243,36 +243,7 @@ describe('/api/people · pglite integration', () => {
     expect(cleared.status).toBe(200);
   });
 
-  it('POST /:id/chat/messages mirrors the message into the person Activity feed', async () => {
-    const { request } = createTestApp('/api/people', peopleRoutes, {
-      context: {
-        permissions: permissions('people:create', 'people:read', 'channels:create'),
-        tenantDb: db,
-      },
-    });
-    const json = { 'Content-Type': 'application/json' };
-    const person = (await (
-      await request('/api/people', { method: 'POST', headers: json, body: JSON.stringify({ firstName: 'Chatty' }) })
-    ).json()) as { data: { id: string } };
-
-    const res = await request(`/api/people/${person.data.id}/chat/messages`, {
-      method: 'POST',
-      headers: json,
-      body: JSON.stringify({ content: 'Called them, will follow up Monday' }),
-    });
-    expect(res.status).toBe(201);
-
-    const rows = await db
-      .select()
-      .from(schema.crmActivities)
-      .where(eq(schema.crmActivities.personId, person.data.id));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      type: 'comment',
-      subject: 'Called them, will follow up Monday',
-      status: 'completed',
-      personId: person.data.id,
-    });
-    expect(rows[0]!.customerId).toBeNull();
-  });
+  // `/:id/chat/*` is forwarded to chat-api (lib/record-chat-forward.test.ts);
+  // mirroring a chat message into the person's Activity feed is tested there
+  // (chat-api routes/chat-entity-channels/integration.test.ts).
 });

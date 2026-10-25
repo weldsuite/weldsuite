@@ -22,7 +22,18 @@ export interface WidgetConfigResponse {
   /** wss:// origin of realtime-worker; null when the API doesn't advertise one. */
   realtimeUrl: string | null;
   team: TeamMember[];
+  /** Office hours, computed by the API in the widget's timezone. Missing on older APIs. */
+  availability?: {
+    isOpen: boolean;
+    /** When the team is next in (ISO), while they're away. */
+    nextOpenAt: string | null;
+  };
+  /** The team's own away text; the widget has a default. */
+  awayMessage?: string | null;
+  expectedReplyTime?: ExpectedReplyTime | null;
 }
+
+export type ExpectedReplyTime = 'few_minutes' | 'hour' | 'few_hours' | 'day';
 
 export type AuthorType = 'visitor' | 'agent' | 'bot' | 'system';
 
@@ -31,6 +42,8 @@ export interface MessageAttachment {
   url: string;
   contentType: string;
   filesize: number;
+  width?: number;
+  height?: number;
 }
 
 export interface PublicMessage {
@@ -57,6 +70,8 @@ export interface PublicConversation {
   lastMessagePreview: string | null;
   lastMessageFromTeam: boolean;
   assignee: TeamMember | null;
+  /** The visitor's 1–5 rating once given; only a closed conversation can be rated. */
+  rating: number | null;
 }
 
 /** A message as the widget holds it: server copy or optimistic local send. */

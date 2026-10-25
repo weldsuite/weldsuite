@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@clerk/clerk-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -8,14 +8,72 @@ import { MessageContextMenu } from './message-context-menu';
 import { FilePreview } from './file-preview';
 import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
-import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot, Workflow, type LucideIcon } from 'lucide-react';
+import {
+  MessageSquare,
+  Pin,
+  Phone,
+  PhoneIncoming,
+  PhoneMissed,
+  PhoneOff,
+  PhoneOutgoing,
+  Video,
+  VideoOff,
+  CornerUpRight,
+  Hash,
+  Lock,
+  Bot,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
-import { messagePreviewText, renderMessageContent } from '../lib/render-message-content';
+import { messagePreviewText, renderMessageContent, type InlineFileRenderer } from '../lib/render-message-content';
+import { fileTokenIds } from '../lib/render-tokens';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
+import { formatCallDuration, type CallSummary } from '../lib/call-history';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
+
+type MessageFile = ChatAttachment | ChatClipAttachment;
+/** The attachment shape `FilePreview` reads (real rows always carry the full upload shape). */
+type PreviewAttachment = { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string };
+
+const NO_FILES: MessageFile[] = [];
+
+/**
+ * A message body rendered with the files its text places inline
+ * (`<@file:id>`, an image pasted mid-sentence), plus the files it doesn't
+ * place, for the gallery under the text. Memoised: parsing is not free, so it
+ * runs once per content/attachments/member-map change, not on every row render.
+ */
+function useMessageBody(
+  content: string | null | undefined,
+  attachments: MessageFile[],
+  membersMap: Map<string, string> | undefined,
+  channelId: string,
+  messageId: string,
+): { body: ReactNode; gallery: MessageFile[] } {
+  return useMemo(() => {
+    const byId = new Map(attachments.map((att) => [att.id, att]));
+    const files: InlineFileRenderer = {
+      render: (attachmentId, key) => {
+        const att = byId.get(attachmentId);
+        if (!att) return null;
+        return (
+          <span key={key} className="inline-block align-bottom max-w-full my-1 mr-1">
+            <FilePreview attachment={att as unknown as PreviewAttachment} channelId={channelId} messageId={messageId} />
+          </span>
+        );
+      },
+    };
+    const placed = new Set(content ? fileTokenIds(content) : []);
+    return {
+      body: content ? renderMessageContent(content, membersMap, files) : null,
+      gallery: attachments.filter((att) => !placed.has(att.id)),
+    };
+  }, [content, attachments, membersMap, channelId, messageId]);
+}
 
 /** Live timer that counts up from a start time */
 function LiveCallTimer({ startedAt }: Readonly<{ startedAt: string }>) {
@@ -77,9 +135,12 @@ function ForwardedMessage({
 }>) {
   const { t } = useI18n();
   const ChannelIcon = forwardedChannelIcon(forwardedFrom.channelType);
-  const renderedForwarded = useMemo(
-    () => renderMessageContent(forwardedFrom.content, membersMap),
-    [forwardedFrom.content, membersMap],
+  const { body: renderedForwarded, gallery: forwardedGallery } = useMessageBody(
+    forwardedFrom.content,
+    forwardedFrom.attachments ?? NO_FILES,
+    membersMap,
+    channelId,
+    parentMessageId,
   );
   const sourceTime = new Date(forwardedFrom.createdAt).toLocaleString();
 
@@ -112,12 +173,12 @@ function ForwardedMessage({
           <div className="text-sm whitespace-pre-wrap break-words">
             {renderedForwarded}
           </div>
-          {forwardedFrom.attachments && forwardedFrom.attachments.length > 0 && (
+          {forwardedGallery.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
-              {forwardedFrom.attachments.map((att) => (
+              {forwardedGallery.map((att) => (
                 <FilePreview
                   key={att.id}
-                  attachment={att as unknown as { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string }}
+                  attachment={att as unknown as PreviewAttachment}
                   channelId={channelId}
                   messageId={parentMessageId}
                 />
@@ -161,32 +222,163 @@ interface MessageItemProps {
   readBy?: ReadByUser[];
   /** Whether this is a DM conversation */
   isDm?: boolean;
-  /** Whether there's an active call on this channel */
+  /** Whether this message is the start of the call that is live in this channel */
   hasActiveCall?: boolean;
+  /** The call this notice stands for (its start and end folded into one row), when it is a call notice */
+  call?: CallSummary;
 }
 
-/** Derives the icon and call state of a system message from its text. */
-function classifySystemText(lowerText: string): { icon: LucideIcon | null; isCallStarted: boolean } {
-  const isPinMessage = lowerText.includes('pinned');
-  const isVoiceCall = lowerText.includes('voice call') || lowerText.includes('audio call');
-  const isVideoCall = lowerText.includes('video call');
-  const isCall = isVoiceCall || isVideoCall || lowerText.includes('started a call') || lowerText.includes('ended a call');
-  const isCallStarted = isCall && lowerText.includes('started');
+function shortTime(iso?: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
-  if (isPinMessage) return { icon: Pin, isCallStarted };
-  if (isVideoCall) return { icon: Video, isCallStarted };
-  if (isCall) return { icon: Phone, isCallStarted };
-  return { icon: null, isCallStarted };
+function formatFullTime(iso?: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+}
+
+/** Derives the icon of a non-call system message from its text. */
+function systemIcon(lowerText: string): LucideIcon | null {
+  if (lowerText.includes('pinned')) return Pin;
+  if (lowerText.includes('video call')) return Video;
+  if (lowerText.includes('call')) return Phone;
+  return null;
+}
+
+type CallRowState = 'live' | 'started' | 'answered' | 'noAnswer' | 'missed' | 'declined';
+
+function callRowState(call: CallSummary, isLive: boolean, isMine: boolean): CallRowState {
+  if (isLive) return 'live';
+  if (!call.outcome) return 'started';
+  if (call.outcome === 'answered') return 'answered';
+  if (call.outcome === 'declined') return 'declined';
+  // An unanswered call is only "missed" for the people it rang.
+  return isMine ? 'noAnswer' : 'missed';
+}
+
+const CALL_ROW_STYLE: Record<CallRowState, { icon: string; status: string; chip?: string }> = {
+  live: {
+    icon: 'bg-green-500/15 text-green-600 dark:text-green-400',
+    status: 'text-green-700 dark:text-green-400',
+    chip: 'text-green-700 dark:text-green-400 bg-green-500/10 dark:bg-green-500/5',
+  },
+  started: { icon: 'bg-muted-foreground/10 text-muted-foreground', status: 'text-muted-foreground' },
+  answered: { icon: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', status: 'text-emerald-700 dark:text-emerald-400' },
+  noAnswer: { icon: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', status: 'text-amber-700 dark:text-amber-400' },
+  declined: { icon: 'bg-red-500/15 text-red-600 dark:text-red-400', status: 'text-red-600 dark:text-red-400' },
+  missed: {
+    icon: 'bg-red-500/15 text-red-600 dark:text-red-400',
+    status: 'text-red-600 dark:text-red-400',
+    chip: 'text-red-700 dark:text-red-400 bg-red-500/10 dark:bg-red-500/10',
+  },
+};
+
+function callRowIcon(state: CallRowState, isVideo: boolean, isMine: boolean): LucideIcon {
+  if (state === 'missed') return isVideo ? VideoOff : PhoneMissed;
+  if (state === 'declined') return isVideo ? VideoOff : PhoneOff;
+  if (isVideo) return Video;
+  if (state === 'answered' || state === 'noAnswer') return isMine ? PhoneOutgoing : PhoneIncoming;
+  return Phone;
+}
+
+type CallHistoryStrings = ReturnType<typeof useI18n>['t']['weldchat']['callHistory'];
+type FormatFn = ReturnType<typeof useI18n>['format'];
+
+function callRowTitle(
+  tc: CallHistoryStrings,
+  format: FormatFn,
+  call: CallSummary,
+  state: CallRowState,
+  isMine: boolean,
+): string {
+  const isVideo = call.callType === 'video';
+  const name = call.initiatorName ?? '';
+  if (state === 'missed') {
+    if (call.endOnly) return tc.missedCall;
+    return format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name });
+  }
+  if (call.endOnly) return tc.callEnded;
+  if (isMine) return isVideo ? tc.youStartedVideo : tc.youStartedVoice;
+  return format(isVideo ? tc.startedVideo : tc.startedVoice, { name });
+}
+
+function callRowStatus(tc: CallHistoryStrings, call: CallSummary, state: CallRowState): string | null {
+  if (state === 'answered') return call.duration ? formatCallDuration(call.duration) : tc.ended;
+  if (state === 'noAnswer') return tc.noAnswer;
+  if (state === 'declined') return tc.declined;
+  return null;
+}
+
+function callRowTooltip(tc: CallHistoryStrings, format: FormatFn, call: CallSummary): string {
+  const lines: string[] = [];
+  if (call.startedAt && !call.endOnly) lines.push(format(tc.startedAt, { time: formatFullTime(call.startedAt) }));
+  if (call.endedAt) lines.push(format(tc.endedAt, { time: formatFullTime(call.endedAt) }));
+  return lines.join('\n');
+}
+
+/** One call in the conversation: who started it, how it went, how long it took, and when. */
+function CallNoticeRow({
+  message,
+  call,
+  isLive,
+}: Readonly<{ message: MessageItemMessage; call: CallSummary; isLive: boolean }>) {
+  const { t, format } = useI18n();
+  const { userId } = useAuth();
+  const tc = t.weldchat.callHistory;
+  const isMine = !!userId && call.initiatorId === userId;
+  const state = callRowState(call, isLive, isMine);
+  const style = CALL_ROW_STYLE[state];
+  const Icon = callRowIcon(state, call.callType === 'video', isMine);
+  const title = callRowTitle(tc, format, call, state, isMine);
+  const status = callRowStatus(tc, call, state);
+  const tooltip = callRowTooltip(tc, format, call);
+
+  return (
+    <div data-message-id={message.id} data-testid="chat-call-notice" data-call-state={state} className="flex justify-center py-1.5 px-2 md:px-4">
+      <span
+        title={tooltip || undefined}
+        className={cn(
+          'inline-flex items-center gap-2 text-xs rounded-md pl-1.5 pr-3 py-1',
+          style.chip ?? 'text-muted-foreground bg-muted/70 dark:bg-muted/50',
+        )}
+      >
+        <span className={cn('flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full', style.icon)}>
+          <Icon className="h-3 w-3" {...(state === 'live' ? { fill: 'currentColor' } : {})} />
+        </span>
+        <span className={cn('font-medium', !style.chip && 'text-foreground/80')}>{title}</span>
+        {state === 'live' && (
+          <span className={cn('inline-flex items-center gap-1', style.status)}>
+            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden />
+            {tc.live}
+            <LiveCallTimer startedAt={call.startedAt ?? message.createdAt ?? ''} />
+          </span>
+        )}
+        {status && (
+          <>
+            <span aria-hidden className="text-muted-foreground/50">·</span>
+            <span className={cn('font-medium tabular-nums', style.status)}>{status}</span>
+          </>
+        )}
+        {call.startedAt && (
+          <>
+            <span aria-hidden className="text-muted-foreground/50">·</span>
+            <time dateTime={call.startedAt} className="tabular-nums text-muted-foreground">{shortTime(call.startedAt)}</time>
+          </>
+        )}
+      </span>
+    </div>
+  );
 }
 
 function SystemMessage({
   message,
   systemMatch,
-  hasActiveCall,
 }: Readonly<{
   message: MessageItemMessage;
   systemMatch: RegExpMatchArray | null;
-  hasActiveCall?: boolean;
 }>) {
   const linkedMessageId = systemMatch?.[1];
   const labelText = systemMatch
@@ -203,26 +395,28 @@ function SystemMessage({
     }
   };
 
-  const { icon: SystemIcon, isCallStarted } = classifySystemText(labelText?.toLowerCase() || '');
-  const isCallLive = isCallStarted && !!hasActiveCall;
+  const SystemIcon = systemIcon(labelText?.toLowerCase() || '');
 
   const chipClassName = cn(
-    'inline-flex items-center gap-1.5 text-xs rounded-md px-3 py-1',
-    isCallLive
-      ? 'text-green-700 dark:text-green-400 bg-green-500/10 dark:bg-green-500/5'
-      : 'text-muted-foreground bg-muted/70 dark:bg-muted/50',
+    'inline-flex items-center gap-1.5 text-xs rounded-md px-3 py-1 text-muted-foreground bg-muted/70 dark:bg-muted/50',
     linkedMessageId && 'cursor-pointer hover:bg-muted',
   );
+  const time = shortTime(message.createdAt ?? undefined);
   const chipContent = (
     <>
-      {SystemIcon && <SystemIcon className={cn("h-3 w-3 flex-shrink-0", isCallLive && "text-green-600 dark:text-green-400")} {...(isCallLive ? { fill: 'currentColor' } : {})} />}
+      {SystemIcon && <SystemIcon className="h-3 w-3 flex-shrink-0" />}
       {labelText}
-      {isCallLive && <LiveCallTimer startedAt={message.createdAt ?? ''} />}
+      {time && (
+        <>
+          <span aria-hidden className="text-muted-foreground/50">·</span>
+          <time dateTime={message.createdAt ?? undefined} title={formatFullTime(message.createdAt ?? undefined)} className="tabular-nums">{time}</time>
+        </>
+      )}
     </>
   );
 
   return (
-    <div className="flex justify-center py-1.5 px-2 md:px-4">
+    <div data-message-id={message.id} className="flex justify-center py-1.5 px-2 md:px-4">
       {linkedMessageId ? (
         <button type="button" onClick={handleSystemClick} className={chipClassName}>
           {chipContent}
@@ -320,16 +514,23 @@ export function MessageItem({
   replyToMessage,
   readBy,
   hasActiveCall,
+  call,
 }: Readonly<MessageItemProps>) {
   const [isHovered, setIsHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { userId } = useAuth();
   const { t, format } = useI18n();
   const { openUserProfile, openAgentProfile } = useChatContext();
-  // Parsing is not free: render each body once per content/member-map change, not on every row render (hover, menu, …).
-  const renderedContent = useMemo(
-    () => (message.content ? renderMessageContent(message.content, membersMap) : null),
-    [message.content, membersMap],
+  const resolvedChannelId = channelId || message.channelId || '';
+  // The cache-side `ChatAttachment` models only the fields cache-merge helpers
+  // touch (all optional); real rows always carry the full upload shape.
+  const messageFiles = (message.attachments as unknown as MessageFile[] | undefined) ?? NO_FILES;
+  const { body: renderedContent, gallery } = useMessageBody(
+    message.content,
+    messageFiles,
+    membersMap,
+    resolvedChannelId,
+    message.id,
   );
   const isMentioned =
     userId &&
@@ -352,12 +553,12 @@ export function MessageItem({
   // The `[system…]` prefix is only honoured on real system messages (and the
   // legacy pin notice), so a member can't type a fake notice.
   if (isSystemNotice(message)) {
-    return <SystemMessage message={message} systemMatch={matchSystemNotice(message)} hasActiveCall={hasActiveCall} />;
+    if (call) return <CallNoticeRow message={message} call={call} isLive={!!hasActiveCall} />;
+    return <SystemMessage message={message} systemMatch={matchSystemNotice(message)} />;
   }
 
   const timeStr = new Date(message.createdAt ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const fullTime = new Date(message.createdAt ?? '').toLocaleString();
-  const resolvedChannelId = channelId || message.channelId || '';
 
   return (
     <MessageContextMenu message={message} channelId={resolvedChannelId} readBy={readBy}>
@@ -468,14 +669,11 @@ export function MessageItem({
           />
         )}
 
-        {/* Attachments */}
-        {(message.attachments?.length ?? 0) > 0 && (
+        {/* Attachments the text doesn't place inline */}
+        {gallery.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
-            {/* The cache-side `ChatAttachment` models only the fields cache-merge
-                helpers touch (all optional); real rows always carry the full
-                upload shape `FilePreview` expects. */}
-            {(message.attachments as unknown as Array<ChatAttachment | ChatClipAttachment>).map((att) => (
-              <FilePreview key={att.id} attachment={att as unknown as { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string }} channelId={resolvedChannelId} messageId={message.id} />
+            {gallery.map((att) => (
+              <FilePreview key={att.id} attachment={att as unknown as PreviewAttachment} channelId={resolvedChannelId} messageId={message.id} />
             ))}
           </div>
         )}

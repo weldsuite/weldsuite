@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import {
   useDeskConversation,
   useReplyToDeskConversation,
   type DeskMessage,
+  type DeskMessageAttachment,
 } from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
 import { useDeskConversationRoom } from '@/hooks/welddesk/use-desk-live';
@@ -16,6 +17,7 @@ import { useUnifiedNotifications } from '@/contexts/unified-notification-context
 import { ConversationHeader } from './conversation-header';
 import { MessagesTimeline } from './messages-timeline';
 import { Composer } from './composer';
+import { CustomerPanel } from './customer-panel';
 
 interface ConversationPaneProps {
   conversationId: string;
@@ -66,10 +68,15 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
   }, [notifications, conversationId, markAsRead]);
 
   const send = useCallback(
-    (kind: 'message' | 'note', body: string, clientId: string = newClientId()) => {
+    (
+      kind: 'message' | 'note',
+      body: string,
+      attachments?: DeskMessageAttachment[],
+      clientId: string = newClientId(),
+    ) => {
       room.stopTyping();
       reply.mutate(
-        { id: conversationId, data: { kind, body }, authorId: user?.id, clientId },
+        { id: conversationId, data: { kind, body, attachments }, authorId: user?.id, clientId },
         { onError: () => toast.error(t.composer.replyError) },
       );
     },
@@ -78,10 +85,23 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
 
   const retry = useCallback(
     (message: DeskMessage) => {
-      if (!message.body || message.kind === 'event') return;
-      send(message.kind, message.body, message.clientId);
+      if (message.kind === 'event' || (!message.body && !message.attachments?.length)) return;
+      send(message.kind, message.body ?? '', message.attachments ?? undefined, message.clientId);
     },
     [send],
+  );
+
+  const savedReplyVariables = useMemo(
+    () => ({
+      customer: {
+        name: conversation?.name ?? '',
+        firstName: conversation?.name?.split(/\s+/)[0] ?? '',
+        email: conversation?.email ?? '',
+      },
+      conversation: { number: conversation?.conversationNumber ?? '' },
+      agent: { name: user?.fullName ?? '', firstName: user?.firstName ?? '' },
+    }),
+    [conversation?.name, conversation?.email, conversation?.conversationNumber, user?.fullName, user?.firstName],
   );
 
   if (isLoading) {
@@ -101,25 +121,29 @@ export function ConversationPane({ conversationId }: Readonly<ConversationPanePr
   }
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-background overflow-hidden">
-      <ConversationHeader
-        conversation={conversation}
-        liveCall={Boolean(liveCall)}
-        visitorOnline={room.visitorOnline}
-      />
-      <MessagesTimeline
-        conversation={conversation}
-        messages={messages}
-        members={membersData ?? []}
-        typing={room.typing}
-        onRetry={retry}
-      />
-      <Composer
-        conversationId={conversationId}
-        onSend={send}
-        onTyping={room.notifyTyping}
-        onStopTyping={room.stopTyping}
-      />
+    <div className="h-full flex bg-white dark:bg-background overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col">
+        <ConversationHeader
+          conversation={conversation}
+          liveCall={Boolean(liveCall)}
+          visitorOnline={room.visitorOnline}
+        />
+        <MessagesTimeline
+          conversation={conversation}
+          messages={messages}
+          members={membersData ?? []}
+          typing={room.typing}
+          onRetry={retry}
+        />
+        <Composer
+          conversationId={conversationId}
+          savedReplyVariables={savedReplyVariables}
+          onSend={send}
+          onTyping={room.notifyTyping}
+          onStopTyping={room.stopTyping}
+        />
+      </div>
+      <CustomerPanel conversation={conversation} members={membersData ?? []} />
     </div>
   );
 }

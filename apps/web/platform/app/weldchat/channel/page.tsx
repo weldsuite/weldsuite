@@ -9,7 +9,7 @@ import { useMessageDeepLink } from '../lib/message-search';
 import { dmRedirectTarget } from '../lib/dm-redirect';
 import { useQueryClient } from '@tanstack/react-query';
 import { useChannel, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
-import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannel, ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
 import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
@@ -18,6 +18,7 @@ import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { useMarkReadOnOpen } from '@/hooks/weldchat/use-mark-read-on-open';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { ChannelHeader } from '../components/channel-header';
+import { getRecordChatTypeInfo } from '../lib/record-chat-types';
 import { PinnedMessagesBar } from '../components/pinned-messages-bar';
 import { MessageList } from '../components/message-list';
 import { MessageInput } from '../components/message-input';
@@ -39,6 +40,20 @@ import {
   isDesktopChannelEnabled,
   showOsNotification,
 } from '@/lib/desktop-notifications';
+
+/** Breadcrumbs after "Chat": "Companies › Acme" for a record chat, "#general" for a channel. */
+function channelCrumbs(
+  channel: ChatChannel | undefined,
+  st: (path: string) => string,
+): Array<{ label: string }> {
+  if (!channel) return [];
+  if (channel.type === 'entity') {
+    const info = getRecordChatTypeInfo(channel.entityType);
+    const name = { label: channel.entityDisplayName || channel.name || '' };
+    return info ? [{ label: st(info.groupLabelKey) }, name] : [name];
+  }
+  return [{ label: `${channel.type === 'private' ? '' : '#'}${channel.name}` }];
+}
 
 export default function ChannelPage() {
   const { t } = useI18n();
@@ -134,7 +149,7 @@ export default function ChannelPage() {
 
   useBreadcrumbs([
     { label: st('sweep.weldchat.breadcrumb.chat'), href: '/weldchat' },
-    ...(channel ? [{ label: `${channel.type === 'private' ? '' : '#'}${channel.name}` }] : []),
+    ...channelCrumbs(channel, st),
   ]);
 
   if (isLoading || isDmChannel) return <ChatPageSkeleton />;
@@ -159,9 +174,13 @@ export default function ChannelPage() {
         <ChatDropZone channelId={channelId}>
           <PinnedMessagesBar channelId={channelId} />
           {/* Keyed by channel: the list's scroll/jump state and the composer's
-              text and draft belong to one channel, never carried to the next. */}
-          <MessageList key={channelId} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
-          <MessageInput key={channelId} channelId={channelId} client={client} />
+              text and draft belong to one channel, never carried to the next.
+              The two keys must differ: siblings sharing a key leave the old
+              channel's list behind in the DOM on a switch (React drops it from
+              its tree without removing it), stacked above the next channel
+              and above a call started there. */}
+          <MessageList key={`list:${channelId}`} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
+          <MessageInput key={`input:${channelId}`} channelId={channelId} client={client} />
         </ChatDropZone>
       )}
     </div>

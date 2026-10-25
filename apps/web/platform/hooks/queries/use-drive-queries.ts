@@ -76,12 +76,14 @@ export function useDriveFolders(parentId?: string | null) {
   });
 }
 
-export function useAllDriveFolders() {
+/** Every folder the caller can see. `enabled` keeps it quiet for a caller who may not read folders. */
+export function useAllDriveFolders(enabled = true) {
   const { folders } = useAppApi();
   return useQuery({
     queryKey: [...driveKeys.all, 'all-folders'] as const,
     queryFn: () =>
       folders.listAll() as unknown as Promise<{ success: boolean; data: DriveFolder[] }>,
+    enabled,
   });
 }
 

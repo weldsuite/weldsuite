@@ -12,9 +12,14 @@
  * the backfill route's job) and a handful per run, so a zone at Cloudflare's
  * 30-domain cap logs a few failures an hour instead of hammering the API.
  * Never throws.
+ *
+ * A workspace provisioned within the last hour is left alone: the provisioning
+ * workflow sets `databaseProvisionedAt` several steps before it provisions
+ * mail, and `ensureWorkspaceMail` is select-then-insert, so running both at
+ * once would create a second primary domain and `team@` mailbox.
  */
 
-import { and, eq, gte, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
 import { workspaces } from '@weldsuite/db/schema/master';
 import type { Env } from '../index';
 import { getMasterDb, getTenantDbForWorkspace } from '../db';
@@ -22,6 +27,7 @@ import { listProvisionedMailDomains, workspaceMailDomain } from './mail-provisio
 import { ensureWorkspaceMail } from './workspace-mail';
 
 const REPAIR_WINDOW_DAYS = 7;
+const PROVISIONING_GRACE_MS = 60 * 60 * 1000;
 const MAX_REPAIRS_PER_RUN = 5;
 
 export async function repairWorkspaceMailDomains(env: Env): Promise<void> {
@@ -31,6 +37,7 @@ export async function repairWorkspaceMailDomains(env: Env): Promise<void> {
 
     const masterDb = getMasterDb(env);
     const since = new Date(Date.now() - REPAIR_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const settled = new Date(Date.now() - PROVISIONING_GRACE_MS);
     const recent = await masterDb
       .select({
         id: workspaces.id,
@@ -43,6 +50,7 @@ export async function repairWorkspaceMailDomains(env: Env): Promise<void> {
         eq(workspaces.isActive, true),
         isNull(workspaces.deletedAt),
         isNotNull(workspaces.databaseProvisionedAt),
+        lte(workspaces.databaseProvisionedAt, settled),
         gte(workspaces.createdAt, since),
       ));
 

@@ -1,44 +1,24 @@
 /**
- * Help Center API Client
+ * Help Center data for routes.
  *
- * Server-side data fetching with ISR (60s revalidation).
- * All endpoints call app-api's public helpcenter routes (/public/helpcenter/*),
- * resolved to a tenant by the `?domain=` query param.
+ * Each export below is a TanStack Start server function: it runs in the
+ * Worker, and a call from the browser (client-side navigation) becomes an RPC
+ * to this app's own origin. The tenant always comes from the request's host
+ * (`requestDomain`), never from the caller, so a page can only read the help
+ * center it is served on.
  */
-
-const API_URL = process.env.HELPCENTER_API_URL || 'http://localhost:8789';
-
-async function fetchApi<T>(
-  path: string,
-  domain: string,
-  params?: Record<string, string>,
-  // Seconds to cache. 0 = always live (used for branding/config so settings
-  // changes show up immediately instead of after the ISR window).
-  revalidate = 60,
-): Promise<T> {
-  const url = new URL(`/public/helpcenter${path}`, API_URL);
-  url.searchParams.set('domain', domain);
-  if (params) {
-    for (const [key, value] of Object.entries(params)) {
-      if (value) url.searchParams.set(key, value);
-    }
-  }
-
-  const res = await fetch(url.toString(), {
-    cache: revalidate === 0 ? 'no-store' : undefined,
-    next: revalidate === 0 ? undefined : { revalidate },
-  });
-
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
-  }
-
-  const json = await res.json();
-  return json.data ?? json;
-}
+import { notFound } from '@tanstack/react-router'
+import { createServerFn } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { createHeaderAdapter } from '@weldsuite/i18n/adapters/header'
+import { defaultLanguage, type Language } from '@weldsuite/i18n/locales'
+import { extractHeadings, type Heading } from '@/lib/headings'
+import * as helpcenter from '@/lib/server/helpcenter'
+import { sanitizeArticleHtml } from '@/lib/server/sanitize-article'
+import { requestDomain } from '@/lib/server/upstream'
 
 // ============================================================================
-// Config
+// Types (shapes of desk-api's /public/helpcenter responses)
 // ============================================================================
 
 export interface HelpcenterConfig {
@@ -61,20 +41,6 @@ export interface HelpcenterConfig {
   googleAnalyticsId?: string;
 }
 
-export async function getHelpcenterConfig(domain: string): Promise<HelpcenterConfig | null> {
-  try {
-    // Always live: branding (site name, title, colors, logo) must reflect a
-    // settings change right away, not after the ISR window.
-    return await fetchApi<HelpcenterConfig>('/config', domain, undefined, 0);
-  } catch {
-    return null;
-  }
-}
-
-// ============================================================================
-// Folders
-// ============================================================================
-
 export interface Folder {
   id: string;
   name: string;
@@ -84,18 +50,6 @@ export interface Folder {
   description?: string | null;
   articleCount?: number;
 }
-
-export async function getFolders(domain: string): Promise<Folder[]> {
-  try {
-    return await fetchApi<Folder[]>('/folders', domain);
-  } catch {
-    return [];
-  }
-}
-
-// ============================================================================
-// Articles
-// ============================================================================
 
 export interface Article {
   id: string;
@@ -123,56 +77,88 @@ export interface PaginatedArticles {
   };
 }
 
-export async function getArticles(
-  domain: string,
-  opts?: { folderId?: string; search?: string; page?: string; pageSize?: string }
-): Promise<PaginatedArticles> {
-  try {
-    const url = new URL(`/public/helpcenter/articles`, API_URL);
-    url.searchParams.set('domain', domain);
-    if (opts?.folderId) url.searchParams.set('folderId', opts.folderId);
-    if (opts?.search) url.searchParams.set('search', opts.search);
-    if (opts?.page) url.searchParams.set('page', opts.page);
-    if (opts?.pageSize) url.searchParams.set('pageSize', opts.pageSize);
-
-    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-    if (!res.ok) throw new Error(`API error: ${res.status}`);
-    return await res.json();
-  } catch {
-    return { data: [], pagination: { page: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasMore: false } };
-  }
-}
-
-export async function getArticle(domain: string, slug: string): Promise<Article | null> {
-  try {
-    return await fetchApi<Article>(`/articles/${slug}`, domain);
-  } catch {
-    return null;
-  }
+export interface SiteData {
+  domain: string
+  config: HelpcenterConfig
+  folders: Folder[]
+  /** Request locale: cookie first, then Accept-Language. */
+  language: Language
 }
 
 // ============================================================================
-// Search
+// Server functions
 // ============================================================================
 
-export async function searchArticles(
-  domain: string,
-  query: string,
-  page = '1'
-): Promise<PaginatedArticles> {
-  try {
-    const url = new URL(`/public/helpcenter/search`, API_URL);
-    url.searchParams.set('domain', domain);
-    url.searchParams.set('q', query);
-    url.searchParams.set('page', page);
+/**
+ * Lists only need what a link shows. Dropping `content` keeps raw (unsanitized)
+ * article HTML out of the page's serialized loader data.
+ */
+const summary = ({ content: _content, ...rest }: Article): Article => rest
 
-    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
-    if (!res.ok) throw new Error(`API error: ${res.status}`);
-    return await res.json();
-  } catch {
-    return { data: [], pagination: { page: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasMore: false } };
-  }
-}
+const summaries = (page: PaginatedArticles): PaginatedArticles => ({
+  ...page,
+  data: page.data.map(summary),
+})
 
-// Feedback submission is handled by the app/api/feedback route handler (keeps
-// the API base server-side); see components/ArticleFeedback.tsx.
+/** Branding, navigation and locale for the whole site. 404 when the host has no help center. */
+export const getSite = createServerFn({ method: 'GET' }).handler(async (): Promise<SiteData> => {
+  const domain = requestDomain()
+  if (!domain) throw notFound()
+
+  const [config, folders] = await Promise.all([
+    helpcenter.getHelpcenterConfig(domain),
+    helpcenter.getFolders(domain),
+  ])
+  if (!config) throw notFound()
+
+  const headers = getRequest().headers
+  const language =
+    createHeaderAdapter({
+      cookie: headers.get('cookie') ?? '',
+      acceptLanguage: headers.get('accept-language'),
+    }).read?.() ?? defaultLanguage
+
+  return { domain, config, folders, language }
+})
+
+/** The six newest articles for the landing page. */
+export const getRecentArticles = createServerFn({ method: 'GET' }).handler(async () => {
+  const recent = await helpcenter.getArticles(requestDomain(), { pageSize: '6' })
+  return recent.data.map(summary)
+})
+
+/** One article with its HTML sanitized and its outline extracted. */
+export const getArticlePage = createServerFn({ method: 'GET' })
+  .validator((input: { slug: string }) => input)
+  .handler(async ({ data }): Promise<{ article: Article; headings: Heading[] }> => {
+    const article = await helpcenter.getArticle(requestDomain(), data.slug)
+    if (!article) throw notFound()
+
+    const content = sanitizeArticleHtml(article.content || '')
+    return { article: { ...article, content }, headings: extractHeadings(content) }
+  })
+
+/** A folder and one page of its articles. */
+export const getCategoryPage = createServerFn({ method: 'GET' })
+  .validator((input: { id: string; page?: number }) => input)
+  .handler(async ({ data }) => {
+    const domain = requestDomain()
+    const [folders, articles] = await Promise.all([
+      helpcenter.getFolders(domain),
+      helpcenter.getArticles(domain, { folderId: data.id, page: String(data.page ?? 1) }),
+    ])
+
+    const folder = folders.find((f) => f.id === data.id)
+    if (!folder) throw notFound()
+
+    return { folder, articles: summaries(articles) }
+  })
+
+/** Full-text search; `null` when there is no query. */
+export const searchArticles = createServerFn({ method: 'GET' })
+  .validator((input: { q?: string; page?: number }) => input)
+  .handler(async ({ data }) => {
+    const query = data.q?.trim()
+    if (!query) return null
+    return summaries(await helpcenter.searchArticles(requestDomain(), query, String(data.page ?? 1)))
+  })

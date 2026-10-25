@@ -23,6 +23,12 @@ export function renderContentWithMentions(
       parts.push(text.substring(lastIndex, match.index));
     }
     const userId = match[1];
+    // `<@file:id>` places one of the message's attachments inline; a text-only
+    // preview has nothing to show for it.
+    if (userId.startsWith('file:')) {
+      lastIndex = match.index + match[0].length;
+      continue;
+    }
     const name = userId.includes(':')
       ? userId.split(':')[1]
       : members?.get(userId) ?? userId;

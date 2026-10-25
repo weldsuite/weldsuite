@@ -58,7 +58,12 @@ import { driveItemLink, isDriveUpload } from './drive-utils';
 /** What the Share dialog is open for. */
 export type DriveShareTarget =
   | { kind: 'file'; file: UnifiedFile }
-  | { kind: 'folder'; folder: DriveFolder };
+  | { kind: 'folder'; folder: DriveFolder }
+  /**
+   * A drive file shared from the module that opens it (a WeldDocs document): its id, name and in-app link.
+   * `recordFile`: the module keeps it for one of its records (a WeldFlow project sheet), whose access it follows.
+   */
+  | { kind: 'item'; fileId: string; name: string; link: string; recordFile?: boolean };
 
 interface ShareDialogProps {
   target: DriveShareTarget | null;
@@ -67,11 +72,13 @@ interface ShareDialogProps {
 
 function targetName(target: DriveShareTarget | null): string {
   if (!target) return '';
+  if (target.kind === 'item') return target.name;
   return target.kind === 'file' ? target.file.name : target.folder.name;
 }
 
 function targetLink(target: DriveShareTarget | null): string | null {
   if (!target) return null;
+  if (target.kind === 'item') return target.link;
   if (target.kind === 'file') return driveItemLink(target.file);
   return `${window.location.origin}/welddrive?folderId=${encodeURIComponent(target.folder.id)}`;
 }
@@ -80,6 +87,7 @@ function targetLink(target: DriveShareTarget | null): string | null {
 function sharingItem(target: DriveShareTarget | null): DriveItemRef | null {
   if (!target) return null;
   if (target.kind === 'folder') return { kind: 'folder', id: target.folder.id };
+  if (target.kind === 'item') return target.recordFile ? null : { kind: 'file', id: target.fileId };
   return isDriveUpload(target.file) ? { kind: 'file', id: target.file.id } : null;
 }
 

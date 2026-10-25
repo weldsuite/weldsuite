@@ -6,7 +6,9 @@ name: Deploy
 #   workflow_dispatch → full deploy (all workers, migrations, mobile, frontends)
 #
 # Frontends: the platform, WeldMail, WeldCalendar and the developer portal go
-# to Cloudflare Pages; the Next.js apps, the helpdesk widget and the partner
+# to Cloudflare Pages; the help center and the WeldSign signer portal (TanStack
+# Start) are Cloudflare Workers (`frontend-helpcenter`, `frontend-sign-portal`);
+# the Next.js apps, the helpdesk widget and the partner
 # portal go to Vercel (`vercel` job). Vercel's Git integration does not build develop/main.
 #
 # Secrets live on the GitHub Environments `test` and `production`.
@@ -20,12 +22,13 @@ on:
       - 'apps/web/weldmail/**'
       - 'apps/web/weldcalendar/**'
       - 'apps/web/developer/**'
+      - 'apps/web/helpcenter/**'
+      - 'apps/web/sign-portal/**'
       # Vercel-hosted apps (vercel job, .github/scripts/vercel-apps.mjs)
       - 'apps/web/admin/**'
       - 'apps/web/api-docs/**'
       - 'apps/web/booking-portal/**'
       - 'apps/web/docs/**'
-      - 'apps/web/helpcenter/**'
       - 'apps/web/helpdesk-widget/**'
       - 'apps/web/hr-portal/**'
       - 'apps/web/meeting-portal/**'
@@ -76,6 +79,8 @@ jobs:
       release_weldmail_web: ${{ steps.changes.outputs.weldmail-web }}
       release_weldcalendar_web: ${{ steps.changes.outputs.weldcalendar-web }}
       release_developer_web: ${{ steps.changes.outputs.developer-web }}
+      release_helpcenter: ${{ steps.changes.outputs.helpcenter }}
+      release_sign_portal: ${{ steps.changes.outputs.sign-portal }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
@@ -188,6 +193,22 @@ jobs:
               - 'packages/clients/api-client/**'
               - 'packages/core/i18n/**'
               - 'packages/core/permissions/**'
+            helpcenter:
+              - 'apps/web/helpcenter/**'
+              - 'packages/core/i18n/**'
+            # The signer portal runs WeldSign's domain code, so it ships with it.
+            sign-portal:
+              - 'apps/web/sign-portal/**'
+              - 'packages/domains/sign/**'
+              - 'packages/domains/core/**'
+              - 'packages/domains/crm/**'
+              - 'packages/domains/mail/**'
+              - 'packages/core/worker-kit/**'
+              - 'packages/core/db/src/**'
+              - 'packages/core/emails/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/design/ui/**'
             weldchat:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
@@ -264,6 +285,10 @@ jobs:
             entity-events-worker:
               - 'apps/workers/entity-events-worker/**'
               - 'packages/core/entity-events/**'
+            analytics-worker:
+              - 'apps/workers/analytics-worker/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/core/text/**'
             external-api:
               - 'apps/workers/external-api/**'
               - 'packages/clients/core-api-client/**'
@@ -360,6 +385,8 @@ jobs:
           WELDMAIL_WEB: ${{ steps.filter.outputs.weldmail-web }}
           WELDCALENDAR_WEB: ${{ steps.filter.outputs.weldcalendar-web }}
           DEVELOPER_WEB: ${{ steps.filter.outputs.developer-web }}
+          HELPCENTER: ${{ steps.filter.outputs.helpcenter }}
+          SIGN_PORTAL: ${{ steps.filter.outputs.sign-portal }}
           WELDCHAT: ${{ steps.filter.outputs.weldchat }}
           WELDBOOKS: ${{ steps.filter.outputs.weldbooks }}
           WELDFLOW: ${{ steps.filter.outputs.weldflow }}
@@ -370,6 +397,7 @@ jobs:
           W_BILLING: ${{ steps.filter.outputs.billing-worker }}
           W_AUDIT: ${{ steps.filter.outputs.audit-log-worker }}
           W_ENTITY_EVENTS: ${{ steps.filter.outputs.entity-events-worker }}
+          W_ANALYTICS: ${{ steps.filter.outputs.analytics-worker }}
           W_EXTERNAL: ${{ steps.filter.outputs.external-api }}
           W_WEBHOOK: ${{ steps.filter.outputs.integration-webhook-worker }}
           W_SYNC: ${{ steps.filter.outputs.integration-sync-worker }}
@@ -396,6 +424,8 @@ jobs:
               echo "weldmail-web=true"
               echo "weldcalendar-web=true"
               echo "developer-web=true"
+              echo "helpcenter=true"
+              echo "sign-portal=true"
               echo "weldchat=true"
               echo "weldbooks=true"
               echo "weldflow=true"
@@ -406,6 +436,7 @@ jobs:
               echo "billing-worker=true"
               echo "audit-log-worker=true"
               echo "entity-events-worker=true"
+              echo "analytics-worker=true"
               echo "external-api=true"
               echo "integration-webhook-worker=true"
               echo "integration-sync-worker=true"
@@ -431,6 +462,8 @@ jobs:
             echo "weldmail-web=$WELDMAIL_WEB"
             echo "weldcalendar-web=$WELDCALENDAR_WEB"
             echo "developer-web=$DEVELOPER_WEB"
+            echo "helpcenter=$HELPCENTER"
+            echo "sign-portal=$SIGN_PORTAL"
             echo "weldchat=$WELDCHAT"
             echo "weldbooks=$WELDBOOKS"
             echo "weldflow=$WELDFLOW"
@@ -441,6 +474,7 @@ jobs:
             echo "billing-worker=$W_BILLING"
             echo "audit-log-worker=$W_AUDIT"
             echo "entity-events-worker=$W_ENTITY_EVENTS"
+            echo "analytics-worker=$W_ANALYTICS"
             echo "external-api=$W_EXTERNAL"
             echo "integration-webhook-worker=$W_WEBHOOK"
             echo "integration-sync-worker=$W_SYNC"
@@ -465,6 +499,7 @@ jobs:
           W_BILLING: ${{ steps.changes.outputs.billing-worker }}
           W_AUDIT: ${{ steps.changes.outputs.audit-log-worker }}
           W_ENTITY_EVENTS: ${{ steps.changes.outputs.entity-events-worker }}
+          W_ANALYTICS: ${{ steps.changes.outputs.analytics-worker }}
           W_EXTERNAL: ${{ steps.changes.outputs.external-api }}
           W_WEBHOOK: ${{ steps.changes.outputs.integration-webhook-worker }}
           W_SYNC: ${{ steps.changes.outputs.integration-sync-worker }}
@@ -481,10 +516,10 @@ jobs:
           W_REACH_WARMUP: ${{ steps.changes.outputs.reach-warmup-worker }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","entity-events-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker","reach-warmup-worker"]'
+          ALL='["app-api","billing-worker","audit-log-worker","entity-events-worker","analytics-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker","reach-warmup-worker"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 18 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
+            echo "Deploying all 19 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
             exit 0
           fi
 
@@ -494,6 +529,7 @@ jobs:
           add billing-worker "$W_BILLING"
           add audit-log-worker "$W_AUDIT"
           add entity-events-worker "$W_ENTITY_EVENTS"
+          add analytics-worker "$W_ANALYTICS"
           add external-api "$W_EXTERNAL"
           add integration-webhook-worker "$W_WEBHOOK"
           add integration-sync-worker "$W_SYNC"
@@ -1100,6 +1136,64 @@ jobs:
             --project-name "$PROJECT" \
             --branch "$BRANCH" \
             --commit-dirty=true
+
+  # Public help center: TanStack Start on a Worker (FE-015 pilot). The
+  # Cloudflare Vite plugin picks the wrangler.toml environment at build time
+  # (CLOUDFLARE_ENV) and writes the resolved config next to the output, so the
+  # deploy step is a plain `wrangler deploy`. Runs after the workers job, so
+  # desk-api (its DESK_API binding) is already out.
+  frontend-helpcenter:
+    name: Deploy Help center (${{ needs.prepare.outputs.cf_env }} Worker)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_helpcenter == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build Help center
+        working-directory: apps/web/helpcenter
+        env:
+          CLOUDFLARE_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: pnpm build
+      - name: Deploy Help center Worker
+        working-directory: apps/web/helpcenter
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
+
+  # WeldSign signer portal: TanStack Start on a Worker that runs WeldSign's
+  # domain code against the tenant DB itself (ADR FE-016). It binds sign-api's
+  # FinalizeEnvelopeWorkflow by script_name, so it deploys after the workers
+  # (sign-api is a module worker, which `workers` waits for). Same build-time
+  # environment as the help center.
+  frontend-sign-portal:
+    name: Deploy Sign portal (${{ needs.prepare.outputs.cf_env }} Worker)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_sign_portal == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build Sign portal
+        working-directory: apps/web/sign-portal
+        env:
+          CLOUDFLARE_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: pnpm build
+      - name: Deploy Sign portal Worker
+        working-directory: apps/web/sign-portal
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
 
   # Next.js apps, the helpdesk widget and the partner portal on Vercel (one Vercel project per app,
   # team weldsuite). Vercel's Git integration is off for develop/main

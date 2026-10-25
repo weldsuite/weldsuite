@@ -69,6 +69,9 @@ export function moduleForwarder(options: { from: string }): MiddlewareHandler<{ 
         { status: 503, headers: { 'X-Request-Id': headers.get('X-Request-Id') ?? '' } },
       );
     }
+    // A WebSocket upgrade (a sheet's room socket) goes back as it came: the
+    // socket lives on the response object, and nothing after us edits a 101.
+    if (upstream.status === 101) return upstream;
     // Re-wrap so the headers are mutable for anything that runs after us.
     return new Response(upstream.body, upstream);
   };

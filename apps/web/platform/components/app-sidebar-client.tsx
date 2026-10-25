@@ -11,6 +11,8 @@ import { useAppPrefetch } from '@/hooks/use-app-prefetch';
 import { preloadWeldApp } from '@/app/weldapps/host/frame-store';
 import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
 import { BetaBadge } from '@/components/layout/beta-badge';
+import { RailIconCorner } from '@/components/layout/app-rail-badge';
+import { useAppRailBadges } from '@/hooks/use-sidebar-badges';
 import {
   DndContext,
   DragEndEvent,
@@ -114,9 +116,10 @@ interface SortableAppItemProps {
   onHoverEnd?: () => void;
   isHomePage?: boolean;
   showBeta?: boolean;
+  badgeCount?: number;
 }
 
-function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverEnd, isHomePage, showBeta }: Readonly<SortableAppItemProps>) {
+function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverEnd, isHomePage, showBeta, badgeCount }: Readonly<SortableAppItemProps>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: app.appCode
   });
@@ -152,7 +155,7 @@ function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverE
           <span className={cn('transition-all', !isActive && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
             {icon}
           </span>
-          {showBeta ? <BetaBadge /> : null}
+          <RailIconCorner badgeCount={badgeCount} showBeta={showBeta} />
         </a>
       </TooltipTrigger>
       <TooltipContent side="right">
@@ -181,6 +184,7 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
   // apps, so hide the rail button entirely for everyone else.
   const { data: canManageApps } = useCanManageApps();
   const { data: betaAppCodes } = useBetaAppCodes();
+  const badgeCountFor = useAppRailBadges();
 
   // Track if component is mounted (client-side only)
   const [mounted, setMounted] = useState(false);
@@ -348,6 +352,7 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
                       onHoverEnd={() => cancelPrefetch(app.appCode)}
                       isHomePage={isHomePage}
                       showBeta={betaAppCodes?.has(app.appCode) ?? false}
+                      badgeCount={badgeCountFor(app.appCode)}
                     />
                   );
                 })}
@@ -391,7 +396,10 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
                         <span className={cn('transition-all', !isActive(appPath) && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
                           {icon}
                         </span>
-                        {betaAppCodes?.has(app.appCode) ? <BetaBadge /> : null}
+                        <RailIconCorner
+                          badgeCount={badgeCountFor(app.appCode)}
+                          showBeta={betaAppCodes?.has(app.appCode) ?? false}
+                        />
                       </Link>
                     </TooltipTrigger>
                     <TooltipContent side="right">

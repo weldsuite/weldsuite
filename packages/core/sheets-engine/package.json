@@ -1,0 +1,27 @@
+{
+  "name": "@weldsuite/sheets-engine",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "node --expose-gc --max-old-space-size=8192 --import tsx bench/scale.ts"
+  },
+  "dependencies": {
+    "@weldsuite/collab": "workspace:*",
+    "@weldsuite/zip-xml": "workspace:*"
+  },
+  "devDependencies": {
+    "@weldsuite/typescript-config": "workspace:*",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.12"
+  }
+}

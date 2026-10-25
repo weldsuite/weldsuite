@@ -18,7 +18,12 @@ import {
   type ConnectorObjectSyncDirections,
   type ConnectorSyncDirection,
 } from '@weldsuite/connectors';
-import type { ConnectorSyncRunStatus, ConnectorSyncTrigger, ConnectorWebhookRegistration } from '@weldsuite/db/schema';
+import type {
+  ConnectorConnectionSettings,
+  ConnectorSyncRunStatus,
+  ConnectorSyncTrigger,
+  ConnectorWebhookRegistration,
+} from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
@@ -95,6 +100,8 @@ export function sanitizeConnection(
     externalAccountId: row.externalAccountId,
     entityId: options?.entityId ?? null,
     enabledSyncs: row.enabledSyncs ?? connector?.syncs.map((s) => s.settingKey) ?? [],
+    /** Non-secret by construction (secrets live in `credentials`). */
+    settings: row.settings ?? {},
     direction: row.direction ?? 'inbound',
     objectSyncDirections: row.objectSyncDirections ?? {},
     authFields: connector?.auth.fields.map((f) => ({
@@ -296,11 +303,14 @@ export async function updateConnectionSettings(args: {
   externalAccountId?: string | null;
   webhookSecret?: string | null;
   webhookRegistrations?: ConnectorWebhookRegistration[] | null;
+  /** Replaces the whole settings object; merge with the current one first. */
+  settings?: ConnectorConnectionSettings | null;
 }): Promise<void> {
   const now = new Date();
   await args.db
     .update(schema.connectorConnections)
     .set({
+      ...(args.settings !== undefined ? { settings: args.settings } : {}),
       ...(args.enabledSyncs ? { enabledSyncs: args.enabledSyncs } : {}),
       ...(args.direction ? { direction: args.direction } : {}),
       ...(args.objectSyncDirections !== undefined

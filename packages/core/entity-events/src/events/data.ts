@@ -491,11 +491,73 @@ export interface FolderEventData {
   previousRole?: string | null;
 }
 
+/** A WeldSheets spreadsheet (the `sheets` table); its name lives on the drive file. */
+export interface SheetEventData {
+  id: string;
+  /** The drive file (files.id) this spreadsheet is backed by. */
+  fileId: string;
+  name?: string;
+  /** Latest committed revision (content updates). */
+  revision?: number;
+  updatedById?: string | null;
+}
+
+export interface SheetVersionEventData {
+  id: string;
+  /** The spreadsheet (sheets.id) this is a version of. */
+  sheetId: string;
+  /** Null for an automatic version (saved before a restore). */
+  name: string | null;
+  revision: number;
+  createdById: string | null;
+}
+
+/** What a connected table lists; never the records themselves. */
+export interface SheetDataSourceEventData {
+  id: string;
+  sheetId: string;
+  objectType: string;
+  refresh: string;
+  createdById: string;
+}
+
+/**
+ * A WeldSign envelope (signing request). Ids, title and status only: field
+ * values, signature images and access codes stay off the bus (EVT-005).
+ */
+export interface SignEnvelopeEventData {
+  id: string;
+  title?: string;
+  status?: string;
+  senderUserId?: string;
+  /** The template a request was made from. */
+  templateId?: string | null;
+}
+
+/** A WeldSign template: id and title only. */
+export interface SignTemplateEventData {
+  id: string;
+  title?: string;
+}
+
 export interface DocEventData {
   id: string;
   /** The drive file (files.id) this document is backed by. */
   fileId: string;
+  name?: string;
+  /** Latest committed revision (WeldDocs content updates). */
+  revision?: number;
   updatedById?: string | null;
+}
+
+export interface DocVersionEventData {
+  id: string;
+  /** The document (docs.id) this is a version of. */
+  docId: string;
+  /** Null for an automatic version (saved before a restore). */
+  name: string | null;
+  revision: number;
+  createdById: string | null;
 }
 
 // ===========================================================================
@@ -630,6 +692,16 @@ export interface EntityEventData {
   file: FileEventData;
   folder: FolderEventData;
   doc: DocEventData;
+  doc_version: DocVersionEventData;
+
+  // WeldSheets
+  sheet: SheetEventData;
+  sheet_version: SheetVersionEventData;
+  sheet_data_source: SheetDataSourceEventData;
+
+  // WeldSign
+  sign_envelope: SignEnvelopeEventData;
+  sign_template: SignTemplateEventData;
 
   // Calendar + meetings
   calendar_event: CalendarEventEventData;

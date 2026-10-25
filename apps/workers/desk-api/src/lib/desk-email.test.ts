@@ -12,7 +12,7 @@ import type { DeskConversation, DeskMessage } from '@weldsuite/db/lib/desk';
 import { OutboundDeniedError, guardedSend } from '@weldsuite/mail-domain/outbound';
 import { sendEmail } from '@weldsuite/worker-email';
 import { getDeskEmailReplyContext, stampDeskMessageEmailId, type DeskEmailReplyContext } from '@weldsuite/db/lib/desk';
-import { sendDeskEmailReply } from './desk-email';
+import { MAX_EMAIL_ATTACHMENT_BYTES, sendDeskEmailReply } from './desk-email';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
 
@@ -127,5 +127,123 @@ describe('sendDeskEmailReply', () => {
     replyContext.mockResolvedValueOnce({ ...thread, helpdeskAddress: null });
     await sendDeskEmailReply(env, db, conversation, message, outbound);
     expect(guard).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendDeskEmailReply attachments', () => {
+  const publicUrl = 'https://files.test';
+  const file = (name: string, size = 100) => ({
+    name,
+    url: `${publicUrl}/desk/ws_1/dconv_1/${name}`,
+    contentType: 'application/pdf',
+    filesize: size,
+  });
+  const bucket = (objects: Record<string, number>) =>
+    ({
+      get: vi.fn(async (key: string) =>
+        key in objects ? { size: objects[key], arrayBuffer: async () => new ArrayBuffer(objects[key]!) } : null,
+      ),
+    }) as unknown as R2Bucket;
+  const withFiles = (attachments: unknown[]) => ({ ...message, attachments }) as unknown as DeskMessage;
+  const envWith = (extra: Record<string, unknown>) => ({ ...env, ...extra }) as unknown as Env;
+
+  it('attaches files read from STORAGE as real MIME attachments', async () => {
+    const storage = bucket({ 'desk/ws_1/dconv_1/invoice.pdf': 2000 });
+
+    await sendDeskEmailReply(
+      envWith({ STORAGE: storage, R2_PUBLIC_URL: `${publicUrl}/` }),
+      db,
+      conversation,
+      withFiles([file('invoice.pdf', 2000)]),
+      outbound,
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const params = send.mock.calls[0]![1];
+    expect(params.attachments).toHaveLength(1);
+    expect(params.attachments![0]).toMatchObject({ filename: 'invoice.pdf', contentType: 'application/pdf' });
+    expect(params.text).toBe('Have you tried turning it off?');
+    // The guard screens the file names and types, not the bytes.
+    expect(guard.mock.calls[0]![2].attachments).toEqual([{ filename: 'invoice.pdf', contentType: 'application/pdf' }]);
+  });
+
+  it('falls back to links over the size cap and when the object is not in the bucket', async () => {
+    const files = [file('big.pdf', MAX_EMAIL_ATTACHMENT_BYTES + 1), file('gone.pdf', 10), file('ok.pdf', 10)];
+    const storage = bucket({ 'desk/ws_1/dconv_1/ok.pdf': 10 });
+
+    await sendDeskEmailReply(
+      envWith({ STORAGE: storage, R2_PUBLIC_URL: publicUrl }),
+      db,
+      conversation,
+      withFiles(files),
+      outbound,
+    );
+
+    const params = send.mock.calls[0]![1];
+    expect(params.attachments?.map((a) => a.filename)).toEqual(['ok.pdf']);
+    expect(params.text).toContain('Attachments:');
+    expect(params.text).toContain(`- big.pdf: ${publicUrl}/desk/ws_1/dconv_1/big.pdf`);
+    expect(params.text).toContain(`- gone.pdf: ${publicUrl}/desk/ws_1/dconv_1/gone.pdf`);
+    expect(params.text).not.toContain('ok.pdf:');
+    // The big file is never read.
+    expect(storage.get).not.toHaveBeenCalledWith('desk/ws_1/dconv_1/big.pdf');
+  });
+
+  it('keeps total attached size under the cap, linking the file that would overflow it', async () => {
+    const half = MAX_EMAIL_ATTACHMENT_BYTES / 2 + 1;
+    const storage = bucket({ 'desk/ws_1/dconv_1/a.pdf': half, 'desk/ws_1/dconv_1/b.pdf': half });
+
+    await sendDeskEmailReply(
+      envWith({ STORAGE: storage, R2_PUBLIC_URL: publicUrl }),
+      db,
+      conversation,
+      withFiles([file('a.pdf', half), file('b.pdf', half)]),
+      outbound,
+    );
+
+    const params = send.mock.calls[0]![1];
+    expect(params.attachments?.map((a) => a.filename)).toEqual(['a.pdf']);
+    expect(params.text).toContain('- b.pdf:');
+  });
+
+  it('links a file that is not under our bucket instead of reading it', async () => {
+    const stray = { name: 'x.pdf', url: 'https://evil.test/x.pdf', contentType: 'application/pdf', filesize: 1 };
+    const storage = bucket({});
+
+    await sendDeskEmailReply(
+      envWith({ STORAGE: storage, R2_PUBLIC_URL: publicUrl }),
+      db,
+      conversation,
+      withFiles([stray]),
+      outbound,
+    );
+
+    expect(storage.get).not.toHaveBeenCalled();
+    expect(send.mock.calls[0]![1].text).toContain('- x.pdf: https://evil.test/x.pdf');
+  });
+
+  it('sends an attachment-only reply, and links without STORAGE', async () => {
+    const onlyFile = { ...message, body: null, attachments: [file('scan.pdf')] } as unknown as DeskMessage;
+
+    await sendDeskEmailReply(envWith({ R2_PUBLIC_URL: publicUrl }), db, conversation, onlyFile, outbound);
+
+    const params = send.mock.calls[0]![1];
+    expect(params.attachments).toBeUndefined();
+    expect(params.text).toBe(`Attachments:\n- scan.pdf: ${publicUrl}/desk/ws_1/dconv_1/scan.pdf`);
+  });
+
+  it('names attached files when a reply has no text at all', async () => {
+    const onlyFile = { ...message, body: '', attachments: [file('scan.pdf', 5)] } as unknown as DeskMessage;
+    const storage = bucket({ 'desk/ws_1/dconv_1/scan.pdf': 5 });
+
+    await sendDeskEmailReply(
+      envWith({ STORAGE: storage, R2_PUBLIC_URL: publicUrl }),
+      db,
+      conversation,
+      onlyFile,
+      outbound,
+    );
+
+    expect(send.mock.calls[0]![1].text).toBe('Attachments: scan.pdf');
   });
 });

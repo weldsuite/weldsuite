@@ -488,9 +488,25 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   file: inv(['drive']),
   folder: inv(['drive']),
-  // Native doc content (`docs` table). Create also publishes `file`; list
-  // refresh is drive-root. Open editor (useHtmlDoc) is local — not CRDT.
-  doc: inv(['drive']),
+  // Documents (`docs` table). Create also publishes `file`. The old editor
+  // (useHtmlDoc) is local; an open WeldDocs document is live over its own room
+  // socket, so this only refreshes the lists.
+  doc: inv(['welddocs'], ['drive']),
+  // A version named, renamed or saved by a restore: the version history panels.
+  doc_version: inv(['welddocs', 'versions']),
+  // WeldSheets spreadsheets (create/rename/trash also publish `file`). An
+  // open sheet is live over its own room socket; this only refreshes lists.
+  sheet: inv(['weldsheets'], ['drive']),
+  // A version named, renamed or saved by a restore: the version history panel.
+  sheet_version: inv(['weldsheets', 'versions']),
+  // A connected table added, changed or removed: the data sources panel.
+  sheet_data_source: inv(['weldsheets', 'data-sources']),
+
+  // WeldSign — weldsignKeys.all in use-weldsign-queries.ts. The payload has
+  // ids and status only, so any change refetches the mounted WeldSign queries.
+  sign_envelope: inv(['weldsign']),
+  // Templates share the root: the template list and detail keys sit under it.
+  sign_template: inv(['weldsign']),
 
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki
