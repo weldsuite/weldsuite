@@ -68,7 +68,9 @@ function checkboxStyle(item: Extract<DisplayItem, { kind: 'checkbox' }>): CSSPro
 
 function textStyle(item: Extract<DisplayItem, { kind: 'text' }>): CSSProperties {
   const s = item.style;
-  const decorations = [s.underline ? 'underline' : '', s.strike ? 'line-through' : ''].filter(Boolean).join(' ');
+  // Suggested insertions are underlined in green, suggested deletions struck through in red.
+  const kind = s.suggestion?.kind;
+  const decorations = [s.underline || kind === 'insert' ? 'underline' : '', s.strike || kind === 'delete' ? 'line-through' : ''].filter(Boolean).join(' ');
   return {
     position: 'absolute',
     left: `${item.x}pt`,
@@ -79,7 +81,7 @@ function textStyle(item: Extract<DisplayItem, { kind: 'text' }>): CSSProperties 
     fontSize: `${s.font.size}pt`,
     fontWeight: s.font.bold ? 700 : 400,
     fontStyle: s.font.italic ? 'italic' : 'normal',
-    color: s.suggestion?.kind === 'insert' ? '#188038' : s.color,
+    color: SUGGESTION_COLORS[kind ?? ''] ?? s.color,
     whiteSpace: 'pre',
     textDecoration: decorations || undefined,
     wordSpacing: item.wordSpacing ? `${item.wordSpacing}pt` : undefined,
@@ -87,6 +89,8 @@ function textStyle(item: Extract<DisplayItem, { kind: 'text' }>): CSSProperties 
     fontKerning: 'normal',
   };
 }
+
+const SUGGESTION_COLORS: Record<string, string> = { insert: '#188038', delete: '#c5221f' };
 
 function ImageItem({ item }: { item: Extract<DisplayItem, { kind: 'image' }> }) {
   const img = item.image;

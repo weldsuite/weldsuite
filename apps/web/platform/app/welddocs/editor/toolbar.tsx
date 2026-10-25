@@ -2,6 +2,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   Baseline,
   Bold,
+  Eye,
+  FilePen,
   Highlighter,
   ImagePlus,
   IndentDecrease,
@@ -11,7 +13,9 @@ import {
   List,
   ListChecks,
   ListOrdered,
+  MessageSquarePlus,
   Minus,
+  Pencil,
   Plus,
   Printer,
   Redo2,
@@ -26,7 +30,8 @@ import {
   UnfoldVertical,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
-import type { DocController } from './model/doc-controller';
+import type { DocController, EditMode } from './model/doc-controller';
+import { MOD_LABEL } from './model/keyboard';
 import { TableButton } from './table-picker';
 import { ColorButton, Divider, IconButton, Menu, Toggle } from './ui';
 
@@ -35,6 +40,8 @@ const SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72, 96];
 export const ZOOMS = [0.5, 0.75, 0.9, 1, 1.25, 1.5, 2];
 export const PARAGRAPH_STYLES = ['normal', 'title', 'subtitle', 'heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'heading6', 'quote', 'code'] as const;
 const LINE_HEIGHTS = [1, 1.15, 1.5, 2];
+const MODES: EditMode[] = ['editing', 'suggesting', 'viewing'];
+const MODE_ICONS: Record<EditMode, React.ReactNode> = { editing: <Pencil />, suggesting: <FilePen />, viewing: <Eye /> };
 
 /** The row of formatting controls under the menus, as in Google Docs. */
 export function Toolbar({ controller }: { controller: DocController }) {
@@ -42,6 +49,7 @@ export function Toolbar({ controller }: { controller: DocController }) {
   const { t } = useI18n();
   const tt = t.welddocs.toolbar;
   const ts = t.welddocs.styles;
+  const tr = t.welddocs.review;
   const ro = controller.readOnly;
   const style = controller.textStyle();
   const para = controller.paragraph();
@@ -118,6 +126,9 @@ export function Toolbar({ controller }: { controller: DocController }) {
         <ImagePlus />
       </IconButton>
       <TableButton controller={controller} label={tt.table} disabled={ro} />
+      <IconButton label={`${tr.addComment} (${MOD_LABEL}+Alt+M)`} onClick={() => controller.startComment()} disabled={ro && !controller.canComment}>
+        <MessageSquarePlus />
+      </IconButton>
       <Divider />
       <Menu
         label={tt.align}
@@ -173,6 +184,26 @@ export function Toolbar({ controller }: { controller: DocController }) {
       <IconButton label={tt.clearFormatting} onClick={() => controller.clearFormatting()} disabled={ro}>
         <RemoveFormatting />
       </IconButton>
+      <div className="min-w-2 flex-1" />
+      <Menu
+        label={tr.mode}
+        className="gap-1 px-2"
+        trigger={
+          <>
+            {MODE_ICONS[controller.editMode]}
+            <span className="text-xs">{tr.modes[controller.editMode]}</span>
+          </>
+        }
+        items={MODES.map((mode) => ({
+          key: mode,
+          label: tr.modes[mode],
+          hint: tr.modeHints[mode],
+          checked: controller.editMode === mode,
+          // Someone who may not edit stays in viewing.
+          disabled: mode !== 'viewing' && !controller.mayEdit,
+          onSelect: () => controller.setEditMode(mode),
+        }))}
+      />
     </div>
   );
 }

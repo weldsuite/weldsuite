@@ -2,6 +2,7 @@ import { useMemo, useRef, useSyncExternalStore } from 'react';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
 import { useI18n } from '@/lib/i18n/provider';
 import { DocHeader, type DocStatus } from '../doc/doc-chrome';
+import { CommentsPanel, type Person } from './comments-panel';
 import { DocDialogs } from './dialogs';
 import { FindBar } from './find-bar';
 import { Menubar } from './menubar';
@@ -24,6 +25,7 @@ export function DocEditor({
   canRename,
   onRename,
   headerExtra,
+  people = [],
 }: {
   controller: DocController;
   name: string;
@@ -32,6 +34,8 @@ export function DocEditor({
   onRename: (name: string) => void;
   /** Right side of the header (peers, share). */
   headerExtra?: React.ReactNode;
+  /** Who can be @mentioned in comments. */
+  people?: Person[];
 }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -52,6 +56,7 @@ export function DocEditor({
             </div>
             {controller.find && <FindBar controller={controller} />}
           </div>
+          {controller.showComments && (controller.draft || controller.threads().length > 0) && <CommentsPanel controller={controller} people={people} />}
         </div>
         <StatusLine controller={controller} />
       </div>

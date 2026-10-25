@@ -144,6 +144,12 @@ function run(command: Command | undefined, ctl: DocController, e: KeyEvent): boo
 export function handleKey(ctl: DocController, e: KeyEvent): boolean {
   const command = NAVIGATION.get(e.key) ?? viewCommand(e);
   if (command) return run(command, ctl, e);
+  // Ctrl+Alt+M: a comment (commenters too).
+  if (modKey(e) && e.altKey && e.code === 'KeyM') {
+    ctl.startComment();
+    return true;
+  }
+
   if (ctl.readOnly) return false;
   return run(editCommand(e), ctl, e);
 }

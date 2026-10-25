@@ -1,4 +1,5 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
@@ -6,6 +7,7 @@ import { isApiError } from '@weldsuite/api-client';
 import { DOC_CONNECT_PATH } from '@weldsuite/app-api-client/schemas/docs';
 import type { DocPeer } from '@weldsuite/docs-engine';
 import { PageLoader } from '@/components/page-loader';
+import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { getApiOriginForPath } from '@/lib/api/public-env';
@@ -50,6 +52,11 @@ export function LiveDoc({ docId }: { docId: string }) {
   strings.current = tw;
   const languageRef = useRef(language);
   languageRef.current = language;
+  const { user } = useUser();
+  const reviewer = useRef({ id: '', name: '' });
+  reviewer.current = { id: user?.id ?? '', name: user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || '' };
+  const members = useWorkspaceMemberDirectory();
+  const people = useMemo(() => (members.data?.data ?? []).map((m) => ({ id: m.userId, name: m.name || m.email || m.userId })), [members.data]);
 
   const recordKey = [...docsQueryKey, 'doc', docId] as const;
   const record = useQuery({
@@ -75,7 +82,7 @@ export function LiveDoc({ docId }: { docId: string }) {
             if (lostEdits) toast.warning(strings.current.editor.resynced);
             return;
           }
-          current = new DocController(doc, { applyOp: (op) => conn.apply(op), title: nameRef.current, locale: languageRef.current });
+          current = new DocController(doc, { applyOp: (op) => conn.apply(op), title: nameRef.current, locale: languageRef.current, reviewer: reviewer.current });
           current.setPeers(latestPeers);
           setController(current);
         },
@@ -177,6 +184,7 @@ export function LiveDoc({ docId }: { docId: string }) {
       canRename={canEdit && !!record.data?.canEdit}
       onRename={onRename}
       headerExtra={<PeerAvatars peers={peers} onSelect={(peer) => controller.goToPeer(peer)} />}
+      people={people}
     />
   );
 }

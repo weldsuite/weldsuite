@@ -17,6 +17,7 @@ import {
   suggestText,
   suggestionIds,
   suggestionRanges,
+  suggestSplit,
   threadsOf,
 } from './review';
 
@@ -129,6 +130,16 @@ describe('suggestions', () => {
     run(d, suggestDeleteChar(d, typed.selection, BOB, -1, counterIds('b')).op);
     expect(d.body.text()).toBe('Hi!\n');
     expect(kinds(d)).toBe('..d.');
+  });
+
+  it('suggests a new paragraph; rejecting it joins them again', () => {
+    const d = docWith('Hello world');
+    const e = suggestSplit(d, caretAt(BODY, 5), ANN, counterIds('s'));
+    run(d, e.op);
+    expect(d.body.text()).toBe('Hello\n world\n');
+    expect(kinds(d)).toBe('.....i.......');
+    run(d, resolveSuggestion(d, suggestionIds(d)[0]!, false));
+    expect(d.body.text()).toBe('Hello world\n');
   });
 
   it('accepts and rejects, and undoes either', () => {

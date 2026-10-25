@@ -19,7 +19,7 @@ import type { DocComment } from '../model/objects';
 import type { TextStyle } from '../model/styles';
 import { batch, NOOP, type Op } from '../ops/types';
 import { nextGrapheme, wordAt } from './boundaries';
-import { caretAt, insertText, isCollapsed, selectionRange, type DocSelection, type Edit } from './commands';
+import { caretAt, insertText, isCollapsed, selectionRange, splitParagraph, type DocSelection, type Edit } from './commands';
 import { storiesInOrder } from './find';
 
 export interface Reviewer {
@@ -291,4 +291,26 @@ export function suggestionIds(doc: DocModel): string[] {
 function laterFirst(a: SuggestionRange, b: SuggestionRange): number {
   if (a.story !== b.story) return a.story < b.story ? -1 : 1;
   return b.from - a.from;
+}
+
+/** Enter in suggesting mode: the paragraph splits, and the new paragraph mark is a suggested insertion. */
+export function suggestSplit(doc: DocModel, sel: DocSelection, author: Reviewer, makeId: () => string = newId, now = Date.now()): Edit {
+  const split = splitParagraph(doc, caretAt(sel.story, selectionRange(sel).from));
+  // Enter in an empty list item ends the list: nothing is inserted to suggest.
+  if (split.op.type === 'formatParagraphs') return split;
+  return { op: batch([split.op, markInserted(doc, sel.story, split.selection.head - 1, split.selection.head, author, makeId, now)]), selection: split.selection };
+}
+
+/**
+ * Marks text just inserted at [from, to) of a story (after a paste) as a
+ * suggested insertion. Positions are those after the insertion; the
+ * neighbour checked to carry on a suggestion is the character before `from`.
+ */
+export function markInserted(doc: DocModel, storyId: string, from: number, to: number, author: Reviewer, makeId: () => string = newId, now = Date.now()): Op {
+  if (to <= from) return NOOP;
+  const own = ownNeighbour(doc, storyId, [from - 1], 'insert', author);
+  const id = own ?? makeId();
+  const ops: Op[] = own ? [] : [newSuggestionThread(id, author, now)];
+  ops.push({ type: 'formatText', story: storyId, at: from, runs: [[to - from, { suggestion: { id, kind: 'insert' } }]] });
+  return batch(ops);
 }
