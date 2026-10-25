@@ -269,6 +269,8 @@ export const common = {
       expandGroup: 'Groep uitklappen',
       collapseGroup: 'Groep inklappen',
       addToGroup: '{group} toevoegen',
+      unreadInGroup: '{count} ongelezen',
+      mentionsInGroup: '{count} vermeldingen',
     },
     /** Display names for the colour and icon pickers (keys are the lowercase identifiers). */
     coloredSquare: {

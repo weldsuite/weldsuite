@@ -176,6 +176,13 @@ export interface MenuGroupProps {
   /** Override the label shown on the empty-state "+ Add ..." dashed button. Defaults to a singularized form of `group`. */
   addLabel?: string;
   /**
+   * Unread conversations in the group: the label turns bold and shows the
+   * count, so a collapsed group still signals.
+   */
+  unreadCount?: number;
+  /** Unread @mentions in the group, shown as a red badge next to the label. */
+  mentionCount?: number;
+  /**
    * The group's items are still being fetched. While true and there are no
    * items yet, skeleton rows show instead of the empty-state "+ Add ..." button,
    * which would otherwise flash before the real items arrive.
@@ -440,6 +447,34 @@ function menuEntryKeys(menu: readonly { label: string }[]): string[] {
   });
 }
 
+/** The group label, bold with its unread count and mention badge when the group has any. */
+function GroupLabelText({ group }: Readonly<{ group: MenuGroupProps }>) {
+  const { t, format } = useI18n();
+  const unread = group.unreadCount ?? 0;
+  const mentions = group.mentionCount ?? 0;
+  return (
+    <>
+      <span className={cn(unread > 0 && 'font-semibold text-foreground')}>{group.group}</span>
+      {unread > 0 && (
+        <span
+          className="text-[11px] tabular-nums text-muted-foreground"
+          title={format(t.common.sidebarItemMenu.unreadInGroup, { count: unread })}
+        >
+          {unread}
+        </span>
+      )}
+      {mentions > 0 && (
+        <span
+          className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-[5px] border border-red-600 bg-red-500 px-1 font-mono text-[10px] font-medium leading-none text-white"
+          title={format(t.common.sidebarItemMenu.mentionsInGroup, { count: mentions })}
+        >
+          {mentions}
+        </span>
+      )}
+    </>
+  );
+}
+
 function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
   const { t } = useI18n();
   const menu = group.groupContextMenu ?? [];
@@ -452,7 +487,7 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
             className={cn('flex items-center gap-1 flex-1', group.onToggleCollapse && 'cursor-pointer select-none')}
             onClick={group.onToggleCollapse}
           >
-            <span>{group.group}</span>
+            <GroupLabelText group={group} />
             {group.onToggleCollapse && (
               <span
                 className="inline-flex items-center justify-center w-4 h-4 rounded text-muted-foreground"
@@ -547,10 +582,10 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
         </Button>
       )}
       <SidebarGroupLabel
-        className={cn('flex-1', group.onToggleCollapse && 'cursor-pointer select-none')}
+        className={cn('flex flex-1 items-center gap-1', group.onToggleCollapse && 'cursor-pointer select-none')}
         onClick={group.onToggleCollapse}
       >
-        {group.group}
+        <GroupLabelText group={group} />
       </SidebarGroupLabel>
       {addButton}
     </div>
