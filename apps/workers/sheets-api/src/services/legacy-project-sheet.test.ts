@@ -92,10 +92,12 @@ describe('old WeldFlow project sheets', () => {
     engine.setContent('s2', 0, 0, { v: JSON.stringify({ v: 1, model: MODEL }) });
     engine.recalc();
     const bytes = await writeXlsx(engine);
-    expect(await readLegacyModel('Plan.xlsx', bytes)).toEqual(MODEL);
+    expect(await readLegacyModel('Plan.xlsx', bytes, 1000)).toEqual(MODEL);
     const plain = new Workbook();
     plain.sheets.push(new Sheet('s1', 'Plan'));
-    expect(await readLegacyModel('Plan.xlsx', await writeXlsx(new Engine(plain)))).toBeNull();
+    expect(await readLegacyModel('Plan.xlsx', await writeXlsx(new Engine(plain)), 1000)).toBeNull();
+    // Too big to open: refused like an import, not read as an empty sheet.
+    await expect(readLegacyModel('Plan.xlsx', bytes, 0)).rejects.toMatchObject({ name: 'ImportError', code: 'too_large' });
   });
 
   it('tells plain numbers from other text', () => {

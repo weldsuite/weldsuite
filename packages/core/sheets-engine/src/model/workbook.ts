@@ -6,6 +6,7 @@
  */
 
 import type { Range } from '../address';
+import type { Scalar } from '../values';
 import { AxisDims, type AxisSnapshot } from './axis';
 import { CellStore, type Cell } from './cell-store';
 import { StyleTable, type CellStyle } from './styles';
@@ -181,10 +182,22 @@ export interface SheetSnapshot {
   charts?: Chart[];
   comments?: SheetComment[];
   dataTables?: DataTable[];
+  /**
+   * The arrays the sheet's formulas spill, as [row, col, values] of each
+   * formula that spills: written with `calculated`, so a load need not
+   * evaluate every formula to put them back.
+   */
+  spills?: [number, number, Scalar[][]][];
 }
 
 export interface WorkbookSnapshot {
   version: 1;
   sheets: SheetSnapshot[];
   names?: DefinedName[];
+  /**
+   * Every formula's stored value is its current result and `spills` holds
+   * every spilled array (the engine wrote it with no calculation pending).
+   * Loading it evaluates only volatile formulas; without it, every formula.
+   */
+  calculated?: true;
 }

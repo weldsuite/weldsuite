@@ -4,7 +4,8 @@
  * Formula cells and positions are numeric keys (see `globalKey`). Precedents
  * come in two kinds:
  *
- * - single cells, kept in a point index (cell → formulas);
+ * - single cells, kept in a point index (cell → formulas; a cell one formula
+ *   reads holds that formula's key, a Set only once a second one reads it);
  * - ranges, deduplicated by shape (ten thousand =COUNTIF(A:A, …) formulas
  *   share one A:A entry) and bucketed spatially. A range that would span too
  *   many buckets (whole columns, big blocks) goes to a short per-sheet list
@@ -118,31 +119,44 @@ class SheetRangeIndex {
   }
 }
 
+/** No precedents (a formula of constants, or one that does not parse): shared, never written. */
+const NO_POINTS: readonly number[] = Object.freeze([]);
+const NO_RANGES: readonly Precedent[] = Object.freeze([]);
+
+/**
+ * Most cells are read by one formula, so a cell's readers are that formula's
+ * key until a second one reads it too.
+ */
+type Readers = number | Set<number>;
+
 export class DependencyGraph {
-  private readonly precedents = new Map<number, Precedent[]>();
-  private readonly points = new Map<number, Set<number>>();
+  /** Per formula, the cells it reads, as global keys (an array of doubles, no object per cell). */
+  private readonly pointPrecedents = new Map<number, readonly number[]>();
+  /** Per formula that reads ranges, those ranges. */
+  private readonly rangePrecedents = new Map<number, Precedent[]>();
+  private readonly points = new Map<number, Readers>();
   private readonly ranges = new Map<number, SheetRangeIndex>();
   readonly volatile = new Set<number>();
 
   get formulaCount(): number {
-    return this.precedents.size;
+    return this.pointPrecedents.size;
   }
 
   /** Replaces the precedents of formula `key`. */
   setFormula(key: number, precedents: Precedent[], volatile: boolean): void {
     this.removeFormula(key);
-    this.precedents.set(key, precedents);
     if (volatile) this.volatile.add(key);
+    let cells: number[] | null = null;
+    let areas: Precedent[] | null = null;
     for (const p of precedents) {
       if (p.r1 === p.r2 && p.c1 === p.c2) {
         const pk = globalKey(p.sheet, p.r1, p.c1);
-        let set = this.points.get(pk);
-        if (!set) {
-          set = new Set();
-          this.points.set(pk, set);
-        }
-        set.add(key);
+        cells ??= [];
+        cells.push(pk);
+        this.addReader(pk, key);
       } else {
+        areas ??= [];
+        areas.push(p);
         let idx = this.ranges.get(p.sheet);
         if (!idx) {
           idx = new SheetRangeIndex();
@@ -151,36 +165,62 @@ export class DependencyGraph {
         idx.add(p, key);
       }
     }
+    this.pointPrecedents.set(key, cells ?? NO_POINTS);
+    if (areas) this.rangePrecedents.set(key, areas);
   }
 
   removeFormula(key: number): void {
-    const prev = this.precedents.get(key);
-    if (!prev) return;
-    this.precedents.delete(key);
+    const cells = this.pointPrecedents.get(key);
+    if (!cells) return;
+    this.pointPrecedents.delete(key);
     this.volatile.delete(key);
-    for (const p of prev) {
-      if (p.r1 === p.r2 && p.c1 === p.c2) {
-        const pk = globalKey(p.sheet, p.r1, p.c1);
-        const set = this.points.get(pk);
-        set?.delete(key);
-        if (set?.size === 0) this.points.delete(pk);
-      } else {
-        this.ranges.get(p.sheet)?.remove(p, key);
-      }
+    for (const pk of cells) this.removeReader(pk, key);
+    const areas = this.rangePrecedents.get(key);
+    if (!areas) return;
+    this.rangePrecedents.delete(key);
+    for (const p of areas) this.ranges.get(p.sheet)?.remove(p, key);
+  }
+
+  private addReader(pk: number, key: number): void {
+    const readers = this.points.get(pk);
+    if (readers === undefined) this.points.set(pk, key);
+    else if (typeof readers === 'number') {
+      if (readers !== key) this.points.set(pk, new Set([readers, key]));
+    } else readers.add(key);
+  }
+
+  private removeReader(pk: number, key: number): void {
+    const readers = this.points.get(pk);
+    if (readers === undefined) return;
+    if (typeof readers === 'number') {
+      if (readers === key) this.points.delete(pk);
+      return;
     }
+    readers.delete(key);
+    if (readers.size === 1) this.points.set(pk, readers.values().next().value!);
+  }
+
+  /** The cells formula `key` reads, as global keys. */
+  pointsOf(key: number): readonly number[] {
+    return this.pointPrecedents.get(key) ?? NO_POINTS;
+  }
+
+  /** The ranges formula `key` reads. */
+  rangesOf(key: number): readonly Precedent[] {
+    return this.rangePrecedents.get(key) ?? NO_RANGES;
   }
 
   hasFormula(key: number): boolean {
-    return this.precedents.has(key);
+    return this.pointPrecedents.has(key);
   }
 
   formulaKeys(): IterableIterator<number> {
-    return this.precedents.keys();
+    return this.pointPrecedents.keys();
   }
 
   /** Formulas that read cell (sheet, row, col) directly. */
   dependentsOf(sheet: number, row: number, col: number, out: (key: number) => void): void {
-    this.points.get(globalKey(sheet, row, col))?.forEach(out);
+    emit(this.points.get(globalKey(sheet, row, col)), out);
     this.ranges.get(sheet)?.queryPoint(row, col, out);
   }
 
@@ -189,7 +229,7 @@ export class DependencyGraph {
     const cells = (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1);
     if (cells <= 64) {
       for (let row = r.r1; row <= r.r2; row++) {
-        for (let col = r.c1; col <= r.c2; col++) this.points.get(globalKey(sheet, row, col))?.forEach(out);
+        for (let col = r.c1; col <= r.c2; col++) emit(this.points.get(globalKey(sheet, row, col)), out);
       }
     } else {
       this.scanPoints(sheet, r, out);
@@ -201,17 +241,24 @@ export class DependencyGraph {
   private scanPoints(sheet: number, r: Range, out: (key: number) => void): void {
     const lo = globalKey(sheet, 0, 0);
     const hi = lo + SHEET_STRIDE;
-    for (const [pk, set] of this.points) {
+    for (const [pk, readers] of this.points) {
       if (pk < lo || pk >= hi) continue;
       const { row, col } = splitKey(pk);
-      if (row >= r.r1 && row <= r.r2 && col >= r.c1 && col <= r.c2) set.forEach(out);
+      if (row >= r.r1 && row <= r.r2 && col >= r.c1 && col <= r.c2) emit(readers, out);
     }
   }
 
   clear(): void {
-    this.precedents.clear();
+    this.pointPrecedents.clear();
+    this.rangePrecedents.clear();
     this.points.clear();
     this.ranges.clear();
     this.volatile.clear();
   }
+}
+
+function emit(readers: Readers | undefined, out: (key: number) => void): void {
+  if (readers === undefined) return;
+  if (typeof readers === 'number') out(readers);
+  else readers.forEach(out);
 }

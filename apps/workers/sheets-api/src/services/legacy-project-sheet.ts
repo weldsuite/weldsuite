@@ -61,9 +61,13 @@ interface LegacyFormat {
   textWrap?: 'overflow' | 'wrap' | 'clip';
 }
 
-/** The model inside an old project sheet file, or null when the file has none (never saved, or not one of these). */
-export async function readLegacyModel(fileName: string, bytes: Uint8Array): Promise<LegacyModel | null> {
-  const { workbook } = await readSpreadsheet(fileName, bytes, { locale: EN_LOCALE, maxCells: 1_000_000 });
+/**
+ * The model inside an old project sheet file, or null when the file has none
+ * (never saved, or not one of these). A file with more than `maxCells` cells
+ * is refused (an ImportError, `too_large`), as an import would be.
+ */
+export async function readLegacyModel(fileName: string, bytes: Uint8Array, maxCells: number): Promise<LegacyModel | null> {
+  const { workbook } = await readSpreadsheet(fileName, bytes, { locale: EN_LOCALE, maxCells });
   const meta = workbook.sheets.find((s) => s.name === META_SHEET);
   const cell = meta?.cells.find(([r, c]) => r === 0 && c === 0)?.[2];
   if (typeof cell?.v !== 'string') return null;

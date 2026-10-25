@@ -154,7 +154,8 @@ export class SheetController {
       workbook.sheets.push(new Sheet(newSheetId(), 'Sheet1'));
     }
     if (workbook.sheets.length === 0) workbook.sheets.push(new Sheet(newSheetId(), 'Sheet1'));
-    this.engine = new Engine(workbook);
+    // A snapshot saved with its results loads without evaluating every formula.
+    this.engine = new Engine(workbook, undefined, snapshot ?? undefined);
     this.activeSheetId = workbook.sheets[0]!.id;
   }
 

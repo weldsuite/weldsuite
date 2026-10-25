@@ -184,7 +184,11 @@ app.post('/', requirePermission('sheets:create'), zValidator('json', createSheet
 // Files: import and export
 // ---------------------------------------------------------------------------
 
-/** Most cells an imported workbook may have, until sheets load in parts (plan phase 9). */
+/**
+ * Most cells an imported (or converted) workbook may have. Its room holds the
+ * whole workbook in memory, and a Durable Object has 128 MB: about 110 bytes a
+ * cell, and some 300 more for each formula (bench/scale.ts in sheets-engine).
+ */
 const MAX_IMPORT_CELLS = 250_000;
 /** Room for the multipart envelope around the largest file. */
 const MULTIPART_SLACK = 64 * 1024;
@@ -303,7 +307,13 @@ async function legacyWorkbook(
   // A row's key came from a client: never let it reach another workspace's objects.
   const object = file.key && isWorkspaceObjectKey(file.key, params.workspaceId) ? await getStoredObject(c.env, file.key) : null;
   const bytes = object ? new Uint8Array(await object.arrayBuffer()) : null;
-  const model = bytes ? await readLegacyModel(file.name, bytes).catch(() => null) : null;
+  // An unreadable file opens empty (its bytes stay in storage); one too big to open is refused.
+  const model = bytes
+    ? await readLegacyModel(file.name, bytes, MAX_IMPORT_CELLS).catch((err: unknown) => {
+        if (err instanceof ImportError && err.code === 'too_large') throw err;
+        return null;
+      })
+    : null;
   const owner = file.file.uploadedById ?? params.userId;
   return convertLegacyModel(model ?? { sheets: [], columnsBySheet: {}, rowsBySheet: {} }, {
     newTabId,
@@ -337,7 +347,13 @@ app.post('/convert', requirePermission('sheets:read'), zValidator('json', conver
     return existing ? success(c, toSummary(existing, role, mayEdit)) : error.notFound(c, 'Project sheet', fileId);
   }
 
-  const workbook = await legacyWorkbook(c, file, { workspaceId, userId, firstTabName: firstTabName ?? 'Sheet1' });
+  let workbook: WorkbookSnapshot;
+  try {
+    workbook = await legacyWorkbook(c, file, { workspaceId, userId, firstTabName: firstTabName ?? 'Sheet1' });
+  } catch (err) {
+    if (!(err instanceof ImportError)) throw err;
+    return error.badRequest(c, err.message, { reason: err.code satisfies SheetImportFailure });
+  }
   const sheetId = generateId('sht');
   const size = await writeSnapshot(c.env.PRIVATE_STORAGE, snapshotKeyFor(workspaceId, sheetId), { revision: 0, workbook });
   const name = file.name.replace(/\.xlsx$/i, '').trim().slice(0, 255) || 'Untitled spreadsheet';

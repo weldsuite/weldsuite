@@ -49,6 +49,10 @@ interface FunctionSpecBase {
   maxArgs: number;
   /** Recalculated on every pass (NOW, RAND, INDIRECT, OFFSET, …). */
   volatile?: boolean;
+  /** Reads whether rows are hidden or filtered (SUBTOTAL, AGGREGATE): recalculated when that changes. */
+  readsRowVisibility?: boolean;
+  /** Its result is a position (ROW, COLUMN): recalculated when rows or columns are inserted, deleted or moved. */
+  readsPosition?: boolean;
   /**
    * Argument positions that take a single value. When such an argument is a
    * multi-cell range or an array the function is applied element-wise and
