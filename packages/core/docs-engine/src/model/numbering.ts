@@ -61,6 +61,12 @@ export function isOrdered(level: ListLevel | undefined): boolean {
   return !!level && level.format !== 'bullet' && level.format !== 'check' && level.format !== 'none';
 }
 
+/** A bullet's own text; a checklist item shows its box, ticked or not. */
+function unorderedMarker(level: ListLevel, props: ParaProps): string {
+  if (level.format !== 'check') return level.text;
+  return props.checked ? '☑' : '☐';
+}
+
 /**
  * Feed it every paragraph in document order; it returns the marker text of
  * list paragraphs (and '' for others). A deeper level restarts when a
@@ -84,7 +90,7 @@ export class ListCounter {
     }
     counts[lvl] = (counts[lvl] ?? (level.start ?? 1) - 1) + 1;
     counts.length = lvl + 1;
-    if (!isOrdered(level)) return { marker: level.format === 'check' ? (props.checked ? '☑' : '☐') : level.text, level };
+    if (!isOrdered(level)) return { marker: unorderedMarker(level, props), level };
     const marker = level.text.replace(/%([1-9])/g, (_, d: string) => {
       const i = Number(d) - 1;
       const l = def.levels[i];
