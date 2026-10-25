@@ -525,6 +525,9 @@ export interface DocEventData {
   id: string;
   /** The drive file (files.id) this document is backed by. */
   fileId: string;
+  name?: string;
+  /** Latest committed revision (WeldDocs content updates). */
+  revision?: number;
   updatedById?: string | null;
 }
 

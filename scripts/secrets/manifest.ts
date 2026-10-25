@@ -815,6 +815,17 @@ export const manifest: Record<string, SecretEntry[]> = {
     "REALTIME_INTERNAL_SECRET",
   ],
 
+  // docs-api: WeldDocs' API worker. The base secrets every API worker needs
+  // for Clerk auth and tenant DB resolution; rooms and checkpoints need no
+  // secret of their own.
+  "docs-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
   // sheets-api: the sheets module's API worker (split from app-api). Base
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.

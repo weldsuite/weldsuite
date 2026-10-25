@@ -14,7 +14,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@weldsuite/collab": "workspace:*"
+    "@weldsuite/collab": "workspace:*",
+    "@weldsuite/zip-xml": "workspace:*"
   },
   "devDependencies": {
     "@weldsuite/typescript-config": "workspace:*",

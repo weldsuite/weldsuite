@@ -66,6 +66,7 @@ import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/we
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
 import { createReachApi } from '@weldsuite/app-api-client/domains/reach';
 import { createSheetsApi } from '@weldsuite/app-api-client/domains/sheets';
+import { createDocsApi } from '@weldsuite/app-api-client/domains/docs';
 import { createWeldSignApi } from '@weldsuite/app-api-client/domains/weldsign';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
 import { createSsoApi } from '@weldsuite/app-api-client/domains/sso';
@@ -203,6 +204,8 @@ export function useAppApi() {
       reach: createReachApi(lazyClient),
       // WeldSheets records (sheets-api); a sheet's content goes over its room socket.
       sheets: createSheetsApi(lazyClient),
+      // WeldDocs records (docs-api); a document's content goes over its room socket.
+      docs: createDocsApi(lazyClient),
       weldsign: createWeldSignApi(lazyClient),
       appAccess: createAppAccessApi(lazyClient),
       // Enterprise single sign-on: domain proof, SAML connection, on/off and

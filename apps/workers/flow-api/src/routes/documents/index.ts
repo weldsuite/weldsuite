@@ -1,9 +1,14 @@
 /**
  * Document routes — /api/documents/*.
  *
- * Native rich-text documents whose canonical content is BlockNote block JSON
- * (the source of truth), stored in the `docs` table and paired 1:1 with a
- * drive `files` row. Addressed by the backing file id (`:fileId`).
+ * Documents from before WeldDocs: their canonical content is BlockNote block
+ * JSON (the source of truth), stored in the `docs` table and paired 1:1 with
+ * a drive `files` row. Addressed by the backing file id (`:fileId`).
+ *
+ * A WeldDocs document (docs-api, `isWeldDocsRow`) shares the table but keeps
+ * its content in a DocRoom: reading one returns `content: []`, and every write
+ * to one is refused with a 409. Phase 8 of docs/plans/welddocs.md retires
+ * this route.
  *
  *   GET    /api/documents/:fileId                          → doc row (or null)
  *   POST   /api/documents                                  → create (drive doc)
@@ -99,7 +104,8 @@ app.get('/:fileId', requirePermission('files:read'), async (c) => {
   if (denied) return denied;
   try {
     const row = await documentsService.getDocByFileId(c.get('tenantDb'), fileId);
-    return success(c, row);
+    // A WeldDocs document has no BlockNote content; callers expect an array.
+    return success(c, row && documentsService.isWeldDocsRow(row) ? { ...row, content: [] } : row);
   } catch (err) {
     console.error('[app-api/documents] get failed:', err);
     return error.internal(c, 'Failed to load document');
@@ -198,6 +204,8 @@ app.put(
       // in this workspace's tenant DB) before writing.
       const file = await filesService.getFile(db, fileId);
       if (!file) return error.notFound(c, 'Document', fileId);
+      const current = await documentsService.getDocByFileId(db, fileId);
+      if (current && documentsService.isWeldDocsRow(current)) return error.conflict(c, documentsService.WELDDOCS_ROW_MESSAGE);
 
       const row = await documentsService.upsertDocContent(
         db,
@@ -258,6 +266,7 @@ app.post(
     try {
       const doc = await documentsService.getDocByFileId(db, fileId);
       if (!doc) return error.notFound(c, 'Document', fileId);
+      if (documentsService.isWeldDocsRow(doc)) return error.conflict(c, documentsService.WELDDOCS_ROW_MESSAGE);
       const row = await documentVersionsService.createVersion(
         db,
         fileId,
@@ -306,6 +315,7 @@ app.post(
 
       // Snapshot what is about to be overwritten, so a restore can be undone.
       const current = await documentsService.getDocByFileId(db, fileId);
+      if (current && documentsService.isWeldDocsRow(current)) return error.conflict(c, documentsService.WELDDOCS_ROW_MESSAGE);
       if (current) {
         await documentVersionsService.createVersion(
           db,

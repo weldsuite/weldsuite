@@ -488,9 +488,10 @@ export const platformSyncMap: EntitySyncMap = {
   // =========================================================================
   file: inv(['drive']),
   folder: inv(['drive']),
-  // Native doc content (`docs` table). Create also publishes `file`; list
-  // refresh is drive-root. Open editor (useHtmlDoc) is local — not CRDT.
-  doc: inv(['drive']),
+  // Documents (`docs` table). Create also publishes `file`. The old editor
+  // (useHtmlDoc) is local; an open WeldDocs document is live over its own room
+  // socket, so this only refreshes the lists.
+  doc: inv(['welddocs'], ['drive']),
   // WeldSheets spreadsheets (create/rename/trash also publish `file`). An
   // open sheet is live over its own room socket; this only refreshes lists.
   sheet: inv(['weldsheets'], ['drive']),

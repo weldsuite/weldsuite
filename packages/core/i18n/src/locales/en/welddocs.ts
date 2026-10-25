@@ -22,7 +22,8 @@ export const welddocs = {
     delete: 'Delete',
     deleteTitle: 'Delete document?',
     deletePermanently: '"{name}" will be deleted. This cannot be undone.',
-    localNotice: 'Documents are kept in this browser until live co-editing arrives.',
+    localNotice: 'This preview keeps documents in your browser.',
+    deleteDescription: '"{name}" moves to the WeldDrive trash, where it can be restored for 30 days.',
     notFound: 'This document could not be found.',
     backHome: 'Back to WeldDocs',
     importFile: 'Import a file',
@@ -50,6 +51,12 @@ export const welddocs = {
     openLink: 'Open link',
     editLink: 'Edit link',
     removeLink: 'Remove link',
+    reconnecting: 'Reconnecting…',
+    offlinePending: 'Offline — changes not saved yet',
+    removed: 'This document was deleted or you no longer have access to it.',
+    resynced: 'Someone else changed the document at the same time; your last change could not be kept.',
+    collaborators: 'People in this document',
+    viewing: '{name} (viewing)',
   },
 
   menu: {

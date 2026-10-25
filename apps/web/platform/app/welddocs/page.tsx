@@ -116,7 +116,7 @@ export default function WeldDocsHome() {
             </div>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">{th.localNotice}</p>
+        {preview && <p className="text-xs text-muted-foreground">{th.localNotice}</p>}
 
         {!docs?.length ? (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
@@ -159,7 +159,7 @@ export default function WeldDocsHome() {
         open={!!deleting}
         onOpenChange={(o) => !o && setDeleting(null)}
         title={th.deleteTitle}
-        description={format(th.deletePermanently, { name: deleting?.name ?? '' })}
+        description={format(preview ? th.deletePermanently : th.deleteDescription, { name: deleting?.name ?? '' })}
         confirmLabel={th.delete}
         variant="destructive"
         onConfirm={() => {

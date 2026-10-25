@@ -290,6 +290,8 @@ app.route('/api/workspaces', workspacesRoutes);
 // WeldSheets (/api/sheets) lives in sheets-api; the kit's forwarder hands those
 // paths to it over the SHEETS_API binding, the room socket (/api/sheets/connect,
 // a WebSocket upgrade) included.
+// WeldDocs (/api/docs) lives in docs-api, forwarded over the DOCS_API binding the
+// same way (its room socket is /api/docs/connect).
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The module workflows that drained here after the split (welddata-enrich,

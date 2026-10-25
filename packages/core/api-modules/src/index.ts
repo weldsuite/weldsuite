@@ -427,8 +427,7 @@ export const API_MODULES: readonly ApiModule[] = [
   // the signer portal's mount: signers have no Clerk session, so its routes
   // check the link token or the signer session themselves.
   mod('sign', 8823, ['weldsign'], ['/api/sign', '/public/sign-portal']),
-  // WeldDocs. Its worker (docs-api, with the DocRoom Durable Object) arrives
-  // with live co-editing; until then nothing calls these paths.
+  // WeldDocs. Its worker is docs-api (with the DocRoom Durable Object).
   mod('docs', 8824, ['welddocs'], ['/api/docs']),
 ];
 

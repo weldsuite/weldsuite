@@ -117,6 +117,36 @@ describe('purging a WeldSheets spreadsheet', () => {
   });
 });
 
+/** A trashed WeldDocs document: its file, a version of an older document, and the `docs` row that references them. */
+async function seedTrashedDoc(): Promise<string> {
+  const fileId = generateId('fil');
+  await db.insert(schema.files).values({
+    id: fileId,
+    fileName: 'Plan',
+    mimeType: 'application/vnd.weldsuite.doc+json',
+    fileSize: 1,
+    fileType: 'document',
+    storagePath: `workspaces/w/docs/${fileId}/document.json.gz`,
+    deletedAt: new Date(),
+  });
+  await db.insert(schema.docs).values({ id: generateId('doc'), fileId, content: null, snapshotKey: 'k' });
+  await db.insert(schema.documentVersions).values({ id: generateId('docver'), fileId, content: [] });
+  return fileId;
+}
+
+describe('purging a WeldDocs document', () => {
+  it.each([
+    ['from the trash list', (fileId: string) => purgeTrashed(db, { fileIds: [fileId], folderIds: [] })],
+    ['one file', (fileId: string) => purgeFile(db, fileId)],
+  ])('removes its docs row with the file (%s)', async (_label, purge) => {
+    const fileId = await seedTrashedDoc();
+    await purge(fileId);
+    expect(await db.select().from(schema.files).where(eq(schema.files.id, fileId))).toEqual([]);
+    expect(await db.select().from(schema.docs).where(eq(schema.docs.fileId, fileId))).toEqual([]);
+    expect(await db.select().from(schema.documentVersions).where(eq(schema.documentVersions.fileId, fileId))).toEqual([]);
+  });
+});
+
 describe('aggregateAllFiles · mail attachments', () => {
   it('lists only shared-mailbox attachments for an unassigned member', async () => {
     expect(await mailFileNames(MEMBER)).toEqual(['shared.pdf']);
@@ -229,6 +259,24 @@ describe('normalizeGenericFiles · navigateTo', () => {
       } as unknown as typeof schema.files.$inferSelect,
     ]);
     expect(file!.navigateTo).toBe('/weldsheets/sht_1');
+    expect(isPlatformRoute(file!.navigateTo!)).toBe(true);
+  });
+
+  it('opens a WeldDocs document in its editor, not the BlockNote one', () => {
+    const [file] = normalizeGenericFiles([
+      {
+        id: 'file_2',
+        fileName: 'Plan',
+        fileType: 'document',
+        entityType: null,
+        entityId: null,
+        metadata: { weldDocId: 'doc_1' },
+        createdAt: new Date(),
+        updatedAt: null,
+      } as unknown as typeof schema.files.$inferSelect,
+    ]);
+    expect(file!.navigateTo).toBe('/welddocs/doc_1');
+    expect(file!.isWeldDoc).toBe(false);
     expect(isPlatformRoute(file!.navigateTo!)).toBe(true);
   });
 

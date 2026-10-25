@@ -3,7 +3,7 @@
  * state, a document snapshot the snapshot, and the ops are the engine's own.
  */
 
-import { CollabClient, RoomCore, type CollabClientOptions, type CommittedOp, type OtAdapter, type RoomOptions } from '@weldsuite/collab';
+import { CollabClient, RoomCore, type ClientMessage, type CollabClientOptions, type CommittedOp, type OtAdapter, type Peer, type RoomOptions, type ServerMessage } from '@weldsuite/collab';
 import { DocModel, type DocSnapshot } from '../model/document';
 import { applyOp } from '../ops/apply';
 import { isWellFormedOp } from '../ops/shape';
@@ -77,3 +77,8 @@ function isPresence(v: unknown): v is DocPresence {
     Object.keys(p).every((k) => k === 'story' || k === 'anchor' || k === 'head' || k === 'typing')
   );
 }
+
+export type DocPeer = Peer<DocPresence>;
+export type DocClientMessage = ClientMessage<Op, DocPresence>;
+export type DocServerMessage = ServerMessage<Op, DocSnapshot, DocPresence>;
+export type DocCommittedOp = CommittedOp<Op>;
