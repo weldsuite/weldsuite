@@ -5682,6 +5682,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/entity-events':
+        specifier: workspace:*
+        version: link:../../../packages/core/entity-events
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications

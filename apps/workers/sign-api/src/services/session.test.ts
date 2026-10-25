@@ -5,7 +5,7 @@ import { checkCode, emailCodeHash, emailHint, isLocked, issueEmailCode, MAX_TRIE
 import { codeHash, sha256Hex } from './hash';
 
 const SECRET = 'test-secret-that-is-long-enough';
-const who = { orgId: 'org_1', envelopeId: 'sgn_1', recipientId: 'sgr_1' };
+const who = { orgId: 'org_1', envelopeId: 'sgn_1', recipientId: 'sgr_1', tokenHash: 'h'.repeat(64) };
 
 describe('signer sessions', () => {
   it('round-trips and expires', async () => {

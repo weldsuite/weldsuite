@@ -28,9 +28,10 @@ import type {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import envelopesRoutes from '../envelopes';
 import { createSignPortalRoutes } from './index';
-import { sendEnvelope } from '../../services/sending';
+import { advanceAfterSigning, sendEnvelope } from '../../services/sending';
 import { buildFinalPdf, notifyCompleted } from '../../services/finalize';
 import { sha256Hex } from '../../services/hash';
+import { completeSigning, loadSigner } from '../../services/signing';
 import type { Env } from '../../types';
 
 const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
@@ -423,6 +424,54 @@ describe('signing flow', () => {
     expect(workflow.instances.get(id)).toEqual({ status: 'running', restarted: 1 });
   });
 
+  it('lets only one of two simultaneous submissions sign', async () => {
+    const { envelope, ann } = await draftWithTwoSigners();
+    const p = portal();
+    const session = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
+    const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, session));
+    const jobTitle = view.fields.find((f) => f.type === 'text')!;
+    const input = { values: [{ fieldId: jobTitle.id, value: 'Director' }], signature, initials: null, timeZone: 'UTC' };
+
+    // Both submissions loaded the recipient before either wrote: only one may flip it to signed.
+    const ref = await loadSigner(db, envelope.id, ann.id);
+    const ctx = { db, bucket: storage.bucket, workspaceId: ORG, meta: { ip: null, userAgent: null } };
+    const results = await Promise.allSettled([completeSigning(ctx, ref, input), completeSigning(ctx, ref, input)]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ kind: 'conflict' });
+    const events = await db.select().from(schema.signEvents).where(and(eq(schema.signEvents.envelopeId, envelope.id), eq(schema.signEvents.type, 'signed')));
+    expect(events.filter((e) => e.recipientId === ann.id)).toHaveLength(1);
+  });
+
+  it('mails the next signing group once when the last signers of a group finish together', async () => {
+    const { envelope, ann, bob } = await draftWithTwoSigners();
+    await db.update(schema.signRecipients).set({ status: 'signed', signedAt: new Date() }).where(eq(schema.signRecipients.id, ann.id));
+    const [row] = await db.select().from(schema.signEnvelopes).where(eq(schema.signEnvelopes.id, envelope.id));
+    const ctx = { env: env(), db, master, clerkOrgId: ORG, workspaceId: WS };
+    mail.transport = memoryTransport();
+
+    const results = await Promise.all([advanceAfterSigning(ctx, row!), advanceAfterSigning(ctx, row!)]);
+    expect([...results].sort()).toEqual(['next_group', 'waiting']);
+    expect(mail.transport.sent.map(to)).toEqual(['bob@example.com']);
+    const links = await master.select().from(masterSchema.signLinkRegistry).where(eq(masterSchema.signLinkRegistry.recipientId, bob.id));
+    expect(links).toHaveLength(1);
+    const sentEvents = await db.select().from(schema.signEvents).where(and(eq(schema.signEvents.recipientId, bob.id), eq(schema.signEvents.type, 'sent')));
+    expect(sentEvents).toHaveLength(1);
+  });
+
+  it('gives a copy recipient the link auth mode and no code', async () => {
+    const app = member();
+    const draft = await data<SignEnvelopeDetail>(await app.request(BASE, json({ title: 'Copies' })));
+    const add = (body: Record<string, unknown>) => app.request(`${BASE}/${draft.id}/recipients`, json(body));
+    const cc = await data<SignRecipientDto>(await add({ name: 'Cc', email: 'cc@example.com', role: 'cc', authMode: 'access_code', accessCode: '1234' }));
+    expect(cc).toMatchObject({ role: 'cc', authMode: 'link', hasAccessCode: false });
+
+    // A signer with a code who becomes a copy recipient loses both.
+    const signerWithCode = await data<SignRecipientDto>(await add({ name: 'S', email: 's@example.com', authMode: 'access_code', accessCode: '1234' }));
+    expect(signerWithCode).toMatchObject({ authMode: 'access_code', hasAccessCode: true });
+    const patched = await app.request(`${BASE}/${draft.id}/recipients/${signerWithCode.id}`, json({ role: 'cc' }, 'PATCH'));
+    expect(await data<SignRecipientDto>(patched)).toMatchObject({ role: 'cc', authMode: 'link', hasAccessCode: false });
+  });
+
   it('refuses to send a draft that is not complete', async () => {
     const app = member();
     const draft = await data<SignEnvelopeDetail>(await app.request(BASE, json({ title: 'Empty' })));
@@ -499,7 +548,7 @@ describe('a sent request', () => {
     const oldToken = linksByRecipient().get('ann@example.com')!;
     const p = portal();
     // Whoever holds the wrong address already agreed to sign electronically.
-    await openAndConsent(p, oldToken);
+    const oldSession = await openAndConsent(p, oldToken);
     const app = member();
     mail.transport = memoryTransport();
 
@@ -510,6 +559,10 @@ describe('a sent request', () => {
     expect(res.status).toBe(200);
     expect(await data<SignRecipientDto>(res)).toMatchObject({ name: 'Ann de Vries', email: 'ann.devries@example.com', status: 'sent', openedAt: null });
     expect((await p.request('/session', json({ token: oldToken }))).status).toBe(404);
+    // The session the wrong address already holds ends with its link: it reads nothing and signs nothing.
+    expect((await p.request('/envelope', {}, oldSession)).status).toBe(401);
+    expect((await p.request('/consent', json({ disclosureVersion: '2026-10-24' }), oldSession)).status).toBe(401);
+    expect((await p.request('/complete', json({ values: [], signature }), oldSession)).status).toBe(401);
     const opened = await data<{ session: string }>(await p.request('/session', json({ token: lastLinkFor('ann.devries@example.com') })));
     const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, opened.session));
     expect(view.recipient.consented).toBe(false);

@@ -36,9 +36,29 @@ export interface ToolContext {
   userTimezone?: string | null;
   /** The chatting user's permissions: setup may grant the agent only what they hold. */
   actorPermissions?: string[] | null;
+  /**
+   * False when the person driving this turn may not change the agent (not its
+   * owner or a manager): the setup, routine, skill and memory tools refuse.
+   * Unset for unattended runs, which keep maintaining their own agent.
+   */
+  actorCanEdit?: boolean;
   agentHop?: number;
   maxAgentHops?: number;
 }
+
+/**
+ * Tools that change the agent itself. Its routes are owner-only
+ * (`canEditAgent`), so a teammate chatting with it gets none of these.
+ */
+export const AGENT_EDIT_TOOL_IDS: ReadonlySet<string> = new Set([
+  'agent.save_setup',
+  'agent.save_skill',
+  'agent.remember',
+  'agent.create_routine',
+  'agent.update_routine',
+]);
+
+const NOT_EDITOR = { error: "Only this agent's owner can change it." };
 
 export interface PlatformToolDefinition {
   id: string;
@@ -230,6 +250,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     requiredPermissions: [],
     parameters: saveAgentSetupParams,
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = saveAgentSetupParams.parse(raw);
       const { updateAgent, getAgent } = await import('./agents');
       const { extractEventSubscriptions } = await import('./subscriptions');
@@ -340,6 +361,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     requiredPermissions: [],
     parameters: updateRoutineParams,
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const { routineId, ...changes } = updateRoutineParams.parse(raw);
       const { getRoutine, updateRoutine, routineScheduleError } = await import('./parity');
       const existing = await getRoutine(ctx.db, routineId);
@@ -378,6 +400,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       activate: z.boolean().optional(),
     }),
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = z
         .object({
           name: z.string().min(2).max(255),
@@ -409,6 +432,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       content: z.string().min(1).max(5000),
     }),
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = z
         .object({
           kind: z.enum(['preference', 'fact', 'summary', 'correction']).default('preference'),
@@ -448,6 +472,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       connectorRepo: z.string().max(200).optional(),
     }),
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = z
         .object({
           name: z.string().min(2).max(255),
@@ -984,6 +1009,8 @@ export function effectiveAgentPermissions(
 export function resolveAgentTools(
   agentPermissions: string[],
   enabledTools: string[] = [],
+  /** False drops the tools that change the agent (see AGENT_EDIT_TOOL_IDS). */
+  canEdit = true,
 ): PlatformToolDefinition[] {
   const alwaysOn = new Set([
     'agent.ask_user',
@@ -996,6 +1023,7 @@ export function resolveAgentTools(
   ]);
   const allowList = explicitToolAllowList(enabledTools);
   return PLATFORM_TOOLS.filter((tool) => {
+    if (!canEdit && AGENT_EDIT_TOOL_IDS.has(tool.id)) return false;
     if (alwaysOn.has(tool.id)) return true;
     if (allowList.length > 0 && !allowList.includes(tool.id)) return false;
     return agentHasGrants(agentPermissions, tool.requiredPermissions);

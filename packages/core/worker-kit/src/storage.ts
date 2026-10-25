@@ -193,6 +193,22 @@ export async function deleteStoredObject(env: StorageBindings, key: string): Pro
   await Promise.all([env.PRIVATE_STORAGE?.delete(key), env.STORAGE?.delete(key)]);
 }
 
+/** R2 accepts at most this many keys in one `delete([...])`. */
+const R2_DELETE_BATCH = 1000;
+
+/**
+ * Delete many keys from both buckets, in batches of 1000 (idempotent; missing
+ * objects are fine). Rejects when a batch fails, so callers that treat the
+ * cleanup as best effort add their own `.catch`.
+ */
+export async function deleteStoredObjects(env: StorageBindings, keys: readonly string[]): Promise<void> {
+  const unique = [...new Set(keys.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += R2_DELETE_BATCH) {
+    const batch = unique.slice(i, i + R2_DELETE_BATCH);
+    await Promise.all([env.PRIVATE_STORAGE?.delete(batch), env.STORAGE?.delete(batch)]);
+  }
+}
+
 // ============================================================================
 // Signing (HMAC-SHA256 under STORAGE_SIGNING_KEY)
 // ============================================================================

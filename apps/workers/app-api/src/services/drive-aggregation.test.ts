@@ -9,8 +9,9 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 
-import { aggregateAllFiles, aggregateStats, normalizeGenericFiles, purgeTrashed } from './drive-aggregation';
-import { purgeFile } from '@weldsuite/core-domain/files';
+import { aggregateAllFiles, aggregateStats, listPurgedFileKeys, normalizeGenericFiles, purgeTrashed } from './drive-aggregation';
+import { purgeFolder } from './folders';
+import { listDocumentSnapshotKeys, purgeFile } from '@weldsuite/core-domain/files';
 import { eq } from 'drizzle-orm';
 import { isPlatformRoute } from '../test/platform-routes';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -144,6 +145,90 @@ describe('purging a WeldDocs document', () => {
     expect(await db.select().from(schema.files).where(eq(schema.files.id, fileId))).toEqual([]);
     expect(await db.select().from(schema.docs).where(eq(schema.docs.fileId, fileId))).toEqual([]);
     expect(await db.select().from(schema.documentVersions).where(eq(schema.documentVersions.fileId, fileId))).toEqual([]);
+  });
+});
+
+/** A trashed document and spreadsheet, each with a checkpoint snapshot, the document also with two saved versions. */
+async function seedTrashedSnapshots(tag: string, folderId: string | null = null) {
+  const docFile = generateId('fil');
+  const sheetFile = generateId('fil');
+  for (const [id, mime, type] of [
+    [docFile, 'application/vnd.weldsuite.doc+json', 'document'],
+    [sheetFile, 'application/vnd.weldsuite.spreadsheet', 'spreadsheet'],
+  ] as const) {
+    await db.insert(schema.files).values({
+      id,
+      fileName: `${tag}-${type}`,
+      mimeType: mime,
+      fileSize: 1,
+      fileType: type,
+      storagePath: `workspaces/w/${tag}/${id}`,
+      folderId,
+      deletedAt: new Date(),
+    });
+  }
+  const docId = generateId('doc');
+  await db.insert(schema.docs).values({ id: docId, fileId: docFile, content: null, snapshotKey: `${tag}/doc/document.json.gz` });
+  await db.insert(schema.docVersions).values([
+    { id: generateId('docv'), docId, revision: 1, snapshotKey: `${tag}/doc/versions/a.json.gz` },
+    { id: generateId('docv'), docId, revision: 2, snapshotKey: `${tag}/doc/versions/b.json.gz` },
+  ]);
+  await db.insert(schema.sheets).values({ id: generateId('sht'), fileId: sheetFile, snapshotKey: `${tag}/sheet/workbook.json.gz` });
+  return { docFile, sheetFile };
+}
+
+describe('purging a document or spreadsheet removes its R2 snapshots too', () => {
+  it('lists the file, checkpoint and version keys of what the trash purge removes', async () => {
+    const { docFile, sheetFile } = await seedTrashedSnapshots('trash-list');
+    const keys = await listPurgedFileKeys(db, { fileIds: [docFile, sheetFile], folderIds: [] });
+    expect(keys.sort()).toEqual(
+      [
+        `workspaces/w/trash-list/${docFile}`,
+        `workspaces/w/trash-list/${sheetFile}`,
+        'trash-list/doc/document.json.gz',
+        'trash-list/doc/versions/a.json.gz',
+        'trash-list/doc/versions/b.json.gz',
+        'trash-list/sheet/workbook.json.gz',
+      ].sort(),
+    );
+  });
+
+  it('leaves out the snapshots of a file that is not being purged', async () => {
+    const kept = await seedTrashedSnapshots('trash-kept');
+    const purged = await seedTrashedSnapshots('trash-purged');
+    const keys = await listPurgedFileKeys(db, { fileIds: [purged.docFile], folderIds: [] });
+    expect(keys).toContain('trash-purged/doc/versions/a.json.gz');
+    expect(keys.some((k) => k.includes('trash-kept') || k.includes(kept.docFile))).toBe(false);
+    expect(keys.some((k) => k.includes('sheet'))).toBe(false);
+  });
+
+  it('lists the snapshots of every file in a purged folder', async () => {
+    const folderId = generateId('fld');
+    await db.insert(schema.folders).values({ id: folderId, name: 'Old', deletedAt: new Date() });
+    await seedTrashedSnapshots('trash-folder', folderId);
+    const keys = await listPurgedFileKeys(db, { fileIds: [], folderIds: [folderId] });
+    expect(keys).toEqual(expect.arrayContaining(['trash-folder/doc/document.json.gz', 'trash-folder/doc/versions/b.json.gz', 'trash-folder/sheet/workbook.json.gz']));
+  });
+
+  it('lists them for one file by id, and nothing for a plain file or no ids', async () => {
+    const { docFile } = await seedTrashedSnapshots('trash-one');
+    expect((await listDocumentSnapshotKeys(db, [docFile])).sort()).toEqual([
+      'trash-one/doc/document.json.gz',
+      'trash-one/doc/versions/a.json.gz',
+      'trash-one/doc/versions/b.json.gz',
+    ]);
+    expect(await listDocumentSnapshotKeys(db, [])).toEqual([]);
+    expect(await listDocumentSnapshotKeys(db, ['fil_unknown'])).toEqual([]);
+  });
+
+  it('purgeFolder removes the documents and spreadsheets in the folder along with their files', async () => {
+    const folderId = generateId('fld');
+    await db.insert(schema.folders).values({ id: folderId, name: 'Gone', deletedAt: new Date() });
+    const { docFile, sheetFile } = await seedTrashedSnapshots('folder-purge', folderId);
+    await purgeFolder(db, folderId);
+    expect(await db.select().from(schema.files).where(eq(schema.files.folderId, folderId))).toEqual([]);
+    expect(await db.select().from(schema.docs).where(eq(schema.docs.fileId, docFile))).toEqual([]);
+    expect(await db.select().from(schema.sheets).where(eq(schema.sheets.fileId, sheetFile))).toEqual([]);
   });
 });
 

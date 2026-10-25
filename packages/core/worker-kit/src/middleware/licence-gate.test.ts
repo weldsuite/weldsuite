@@ -126,6 +126,22 @@ describe('licenceGate · read-only workspaces', () => {
     }
   });
 
+  it('lets a read-only workspace open a document or spreadsheet (the session POST), but not write to one', async () => {
+    const app = buildApp(null, { reason: 'licence_inactive' });
+    for (const path of ['/api/docs/doc_1/session', '/api/sheets/sht_1/session']) {
+      expect((await app.request(path, { method: 'POST' })).status, path).toBe(200);
+    }
+    for (const [method, path] of [
+      ['POST', '/api/docs'],
+      ['POST', '/api/docs/doc_1/versions'],
+      ['PATCH', '/api/docs/doc_1'],
+      ['DELETE', '/api/sheets/sht_1'],
+      ['POST', '/api/sheets/sht_1/restore'],
+    ]) {
+      expect((await app.request(path!, { method })).status, `${method} ${path}`).toBe(403);
+    }
+  });
+
   it('checks the app licence first', async () => {
     const res = await readOnlyApp().request('/api/invoices', { method: 'POST' });
     expect(await res.json()).toMatchObject({ error: { code: 'APP_NOT_LICENSED' } });

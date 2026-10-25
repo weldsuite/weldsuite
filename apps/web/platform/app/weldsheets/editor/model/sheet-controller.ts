@@ -41,12 +41,14 @@ import {
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
 import {
+  cellAfter,
   cellSelection,
   clampToGrid,
   extendTo,
   isWholeColumns,
   isWholeRows,
   primaryRange,
+  selectionAfter,
   type CellPos,
   type Selection,
 } from './selection';
@@ -394,7 +396,23 @@ export class SheetController {
         entry.inverse = inverse;
       }
     }
+    this.followRemote(op);
     this.afterOutsideChange();
+  }
+
+  /**
+   * Moves what the user points at through rows and columns the other person
+   * inserted, deleted or moved, so a cell being edited is still that cell
+   * (Enter must not write into whatever now sits at its old address). An edit
+   * whose cell was deleted is dropped.
+   */
+  private followRemote(op: Op): void {
+    this.selection = selectionAfter(op, this.activeSheetId, this.selection);
+    for (const [id, sel] of this.selections) this.selections.set(id, selectionAfter(op, id, sel));
+    const edit = this.editing;
+    if (!edit) return;
+    const cell = cellAfter(op, this.activeSheetId, edit);
+    this.editing = cell ? { ...edit, row: cell.row, col: cell.col } : null;
   }
 
   /** The room sent a fresh copy of the workbook (first load is the constructor). Undo history no longer applies. */

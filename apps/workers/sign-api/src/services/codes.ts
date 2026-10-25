@@ -9,6 +9,11 @@
  *
  * Five wrong answers lock the link for 15 minutes. Both kinds of code are
  * compared in their stored form, `codeHash` (./hash.ts).
+ *
+ * Known limit: KV has no atomic increment, so the count is read, then written.
+ * Parallel `/verify` calls can each read the same count and all be tried before
+ * the lock lands. Closing that needs an atomic counter (a Durable Object, or a
+ * tries column on `sign_link_registry`), neither of which sign-api has yet.
  */
 
 /** Turns a code into its stored form (`codeHash`, bound to the recipient). */

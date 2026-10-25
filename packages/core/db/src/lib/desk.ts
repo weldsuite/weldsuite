@@ -302,6 +302,12 @@ export async function appendDeskMessage(
 
   const now = new Date();
   const next = nextConversationProgress(current, input, now);
+  // The owner is written back only by an event that changes it. Every other
+  // append would put the value read above back over a claim another request
+  // (auto-assignment runs right after a visitor message) made in between.
+  const eventType = input.kind === 'event' ? input.metadata?.eventType : undefined;
+  const ownerPatch =
+    eventType === 'assigned' || eventType === 'unassigned' ? { assigneeId: next.assigneeId } : {};
 
   const messageId = input.generateId('dmsg');
   const assigneePatch = input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : null;
@@ -330,7 +336,7 @@ export async function appendDeskMessage(
       updatedAt: now,
       state: next.state,
       waitingSince: next.waitingSince,
-      assigneeId: next.assigneeId,
+      ...ownerPatch,
       lastMessageAt: next.lastMessageAt,
       lastMessagePreview: next.lastMessagePreview,
     })

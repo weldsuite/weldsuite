@@ -204,7 +204,8 @@ describe('record chat providers', () => {
 describe('POST /:entityType/:entityId/messages · company and person', () => {
   it('creates a company chat followed by owner, account manager and poster, logs CRM activity and pushes channel_new', async () => {
     await seedMember('u_co_owner');
-    await seedMember('u_co_am');
+    // An admin: they see every company, so being the account manager makes them follow.
+    await seedMember('u_co_am', { role: 'OWNER' });
     await seedMember('u_co_poster', { name: 'Poster' });
     const companyId = await seedCompany('Acme Rockets', { ownerId: 'u_co_owner', accountManagerId: 'u_co_am' });
     const { json, realtime } = api('u_co_poster', CRM);
@@ -232,6 +233,29 @@ describe('POST /:entityType/:entityId/messages · company and person', () => {
     expect(activities[0]?.subject).toBe('Renewal is due next month');
 
     expect(realtime.channelNewFor(data.channel.id)).toEqual(['u_co_am', 'u_co_owner', 'u_co_poster']);
+  });
+
+  it('leaves a default member who may not open the record out of the followers, and sends them no push', async () => {
+    await seedMember('u_dm_owner');
+    // A plain member who is not the owner: outside the company's owner scope.
+    await seedMember('u_dm_am');
+    await seedMember('u_dm_poster');
+    const companyId = await seedCompany('Scoped Rockets', { ownerId: 'u_dm_owner', accountManagerId: 'u_dm_am' });
+    const { json, realtime } = api('u_dm_poster', CRM);
+
+    const res = await json(`/company/${companyId}/messages`, 'POST', { content: 'Pricing sent' });
+    expect(res.status).toBe(201);
+    const channelId = ((await res.json()) as { data: { channel: { id: string } } }).data.channel.id;
+    expect(await followerIds(channelId)).toEqual(['u_dm_owner', 'u_dm_poster']);
+    expect(await memberCount(channelId)).toBe(2);
+    expect(realtime.channelNewFor(channelId)).toEqual(['u_dm_owner', 'u_dm_poster']);
+
+    // The same rule applies when a deleted chat is revived.
+    await db.update(schema.chatChannels).set({ deletedAt: new Date() }).where(eq(schema.chatChannels.id, channelId));
+    await db.delete(schema.chatChannelMembers).where(eq(schema.chatChannelMembers.channelId, channelId));
+    const revived = await api('u_dm_poster', CRM).json(`/company/${companyId}/follow`, 'POST');
+    expect(revived.status).toBe(200);
+    expect(await followerIds(channelId)).toEqual(['u_dm_owner', 'u_dm_poster']);
   });
 
   it('creates a person chat and logs the message on the person', async () => {
@@ -356,6 +380,62 @@ describe('task and project visibility', () => {
     expect(await sees('project', () => projectId, 'u_tp_admin', ['projects:scope:all'])).toBe(true);
     expect(await sees('task', () => taskId, 'u_tp_admin', ['projects:scope:all'])).toBe(true);
     expect(await sees('project', () => projectId, 'u_tp_pm')).toBe(true);
+  });
+
+  it('opens a project task to the project manager without a member row', async () => {
+    expect(await sees('task', () => taskId, 'u_tp_pm')).toBe(true);
+  });
+
+  it('follows the project, not the task, for a project task: involved people removed from the project are out', async () => {
+    const now = new Date();
+    const watchedId = generateId('tsk');
+    await db.insert(schema.tasks).values({
+      id: watchedId,
+      title: 'Watched',
+      projectId,
+      assigneeId: 'u_tp_removed',
+      reporterId: 'u_tp_removed',
+      assigneeIds: ['u_tp_removed'],
+      watchers: ['u_tp_removed'],
+      createdAt: now,
+      updatedAt: now,
+    } as typeof schema.tasks.$inferInsert);
+    expect(await sees('task', () => watchedId, 'u_tp_removed')).toBe(false);
+    expect(await sees('task', () => watchedId, 'u_tp_member')).toBe(true);
+  });
+
+  it('closes the tasks of a soft-deleted project to everyone, scope:all and the manager included', async () => {
+    const now = new Date();
+    const deletedProjectId = generateId('prj');
+    const deletedTaskId = generateId('tsk');
+    await db.insert(schema.projects).values({
+      id: deletedProjectId,
+      name: 'Gone',
+      projectManagerId: 'u_tp_pm',
+      deletedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.projectMembers).values({
+      id: generateId('pm'), projectId: deletedProjectId, userId: 'u_tp_member', role: 'member', isActive: true, createdAt: now, updatedAt: now, joinedAt: now,
+    });
+    await db.insert(schema.tasks).values({
+      id: deletedTaskId, title: 'Orphaned', projectId: deletedProjectId, assigneeId: 'u_tp_member', createdAt: now, updatedAt: now,
+    } as typeof schema.tasks.$inferInsert);
+    expect(await sees('task', () => deletedTaskId, 'u_tp_member')).toBe(false);
+    expect(await sees('task', () => deletedTaskId, 'u_tp_pm')).toBe(false);
+    expect(await sees('task', () => deletedTaskId, 'u_tp_admin', ['projects:scope:all'])).toBe(false);
+  });
+
+  it('opens a task without a project to the people involved in it only', async () => {
+    const now = new Date();
+    const personalId = generateId('tsk');
+    await db.insert(schema.tasks).values({
+      id: personalId, title: 'Personal', assigneeId: 'u_tp_assignee', watchers: ['u_tp_watcher'], createdAt: now, updatedAt: now,
+    } as typeof schema.tasks.$inferInsert);
+    expect(await sees('task', () => personalId, 'u_tp_assignee')).toBe(true);
+    expect(await sees('task', () => personalId, 'u_tp_watcher')).toBe(true);
+    expect(await sees('task', () => personalId, 'u_tp_member')).toBe(false);
   });
 });
 

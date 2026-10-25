@@ -36,7 +36,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
 import { SignError } from '../../services/errors';
-import { resolveLink, revokeEnvelopeLinks, type ResolvedLink } from '../../services/links';
+import { resolveLink, resolveLinkByHash, revokeEnvelopeLinks, type ResolvedLink } from '../../services/links';
 import { signSession, verifySession, type SignerSession } from '../../services/session';
 import { checkCode, emailCodeHash, emailHint, isLocked, issueEmailCode, newEmailCode, CODE_TTL_SECONDS } from '../../services/codes';
 import {
@@ -176,6 +176,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
       orgId: opened.link.clerkOrgId,
       envelopeId: opened.link.envelopeId,
       recipientId: opened.link.recipientId,
+      tokenHash: opened.link.tokenHash,
     });
     const body: SignPortalSessionResponse = { state: 'ready', session: token, expiresAt: expiresAt.toISOString() };
     return success(c, body);
@@ -257,6 +258,11 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
     const session = token ? await verifySession(c.env.SIGN_SESSION_SECRET!, token) : null;
     if (!session) return error.unauthorized(c, 'Your session has expired. Open the link again.');
+    // A session lasts only as long as its link: a corrected email, void or decline revokes the link.
+    const link = await resolveLinkByHash(deps.master(c.env), session.tokenHash);
+    if (!link || link.envelopeId !== session.envelopeId || link.recipientId !== session.recipientId || link.clerkOrgId !== session.orgId) {
+      return error.unauthorized(c, 'Your session has expired. Open the link again.');
+    }
     let workspace: PortalWorkspace;
     try {
       workspace = await deps.workspace(c.env, session.orgId);
