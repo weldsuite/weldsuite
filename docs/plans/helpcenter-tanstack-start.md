@@ -132,15 +132,29 @@ tenant: title, description, OG, favicon, `lang`, brand CSS variable, custom CSS.
   `getCustomHostname` and `deleteCustomHostname` with the tree-shakable
   `customHostnames` resource. Follow CLAUDE.md: `createClient({ resources })`,
   never `new Cloudflare()`.
-- `apps/workers/desk-api/src/lib/vercel.ts` → `lib/custom-hostnames.ts`.
-  `HELPCENTER_CNAME_TARGET` becomes the fallback-origin hostname, from config
-  (`HELPCENTER_CNAME_TARGET` var per env).
-- `routes/helpcenter-settings/index.ts`:
+- Add `lib/custom-hostnames.ts` next to `apps/workers/desk-api/src/lib/vercel.ts`,
+  which stays until Phase 5 is done.
+- **Gate by environment.** A `HELPCENTER_HOSTING` var (`vercel` | `cloudflare`)
+  in each `wrangler.toml` env picks the path. `HELPCENTER_CNAME_TARGET` (the
+  fallback-origin hostname) is read only when it is `cloudflare`.
+  - Test is set to `cloudflare` when this phase ships. The test Worker and its
+    route have been live since Phase 3.
+  - Production stays on `vercel` through this phase. It switches in Phase 5,
+    step 2, once the production Worker serves the fallback origin.
+  - Shipping this phase therefore changes nothing in production. Without the
+    gate, a domain added before the cutover would CNAME to an origin no Worker
+    serves yet, and re-verifying a domain still on Vercel would fail.
+- `routes/helpcenter-settings/index.ts`, on the `cloudflare` path:
   - Add domain: create the custom hostname, then the CNAME (WeldHost zones).
     Roll back on failure, as today.
-  - Verify: read the custom hostname's `status` and `ssl.status` into `dnsStatus` / `sslStatus` / `verificationError`.
-    This replaces the DNS-over-HTTPS check.
-  - Delete: remove the custom hostname.
+  - Verify: read the custom hostname's `status` and `ssl.status` into
+    `dnsStatus` / `sslStatus` / `verificationError`. This replaces the
+    DNS-over-HTTPS check.
+    - A domain with **no custom hostname** has not been migrated yet. It is not
+      a failure: fall back to the existing CNAME check and leave the stored
+      status alone.
+  - Delete: remove the custom hostname if one exists, and the Vercel
+    registration if one exists.
 - Pass the zone id and API token as worker config. Add the token to
   `scripts/secrets/manifest.ts`; remove `VERCEL_*` from the manifest and
   `wrangler.toml` only after Phase 5.
@@ -153,21 +167,26 @@ tenant: title, description, OG, favicon, `lang`, brand CSS variable, custom CSS.
 
 1. Deploy `helpcenter` to production on the `*/*` route of `welddesk.org`.
    Before DNS moves it serves nothing.
-2. `*.welddesk.org`: repoint the wildcard record from Vercel to the Worker.
+2. Set `HELPCENTER_HOSTING = "cloudflare"` and `HELPCENTER_CNAME_TARGET` for
+   production desk-api and deploy it. From here, new domains get a custom
+   hostname that the Worker from step 1 serves.
+3. `*.welddesk.org`: repoint the wildcard record from Vercel to the Worker.
    Spot-check five tenants.
-3. Back-fill a Cloudflare custom hostname for every active registry domain,
+4. Back-fill a Cloudflare custom hostname for every active registry domain,
    with a one-off script in `apps/tools`.
    - WeldHost-zone domains: rewrite their CNAME to the new target in the same script.
    - Customer-managed domains: email the workspace owner, and show "action
      required" in settings.
    - Vercel keeps serving those domains from the last deployment, against the
      live API, until each one switches.
-4. After four weeks, or once no customer-managed domains are left:
+5. After four weeks, or once no customer-managed domains are left:
    - remove the domains from the Vercel project and archive the project
    - drop `lib/vercel.ts` and the `VERCEL_*` secrets from desk-api
 
 **Rollback:**
 - Repoint the `*.welddesk.org` wildcard to Vercel. Its last deployment still works.
+- Set production `HELPCENTER_HOSTING` back to `vercel`, so new domains are
+  registered on Vercel again.
 - WeldHost-zone CNAMEs can be rewritten back by the same script.
 - Keep the Vercel project until the exit criteria are met.
 
