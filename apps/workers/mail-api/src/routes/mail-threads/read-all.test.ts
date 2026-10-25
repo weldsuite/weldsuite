@@ -84,7 +84,7 @@ describe('POST /api/mail-threads/read-all', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { updatedCount: 2 } });
-    expect(markFolderRead).toHaveBeenCalledWith(expect.anything(), USER, { labelSlug: 'inbox', accountId: 'acc_1' });
+    expect(markFolderRead).toHaveBeenCalledWith(expect.anything(), USER, { labelSlug: 'inbox', accountId: 'acc_1' }, { updatedPerAccount: 200 });
     expect(queueMailReadPush).toHaveBeenCalledWith(expect.anything(), 'acc_1', ['m2', 'm1']);
   });
 
@@ -95,7 +95,7 @@ describe('POST /api/mail-threads/read-all', () => {
 
     expect(res.status).toBe(200);
     expect(checkAccountAccess).not.toHaveBeenCalled();
-    expect(markFolderRead).toHaveBeenCalledWith(expect.anything(), USER, { labelSlug: 'inbox', accountId: undefined });
+    expect(markFolderRead).toHaveBeenCalledWith(expect.anything(), USER, { labelSlug: 'inbox', accountId: undefined }, { updatedPerAccount: 200 });
     expect(queueMailReadPush).not.toHaveBeenCalled();
   });
 

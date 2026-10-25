@@ -108,10 +108,19 @@ const READ_ONLY_ALLOWED_PREFIXES = [
 ] as const;
 
 /**
+ * Opening a document or spreadsheet is a POST that writes nothing: it only
+ * mints a ticket for the room socket, and the handler itself downgrades a
+ * read-only workspace to view mode (`canEdit` false). Without this the gate
+ * would refuse it and a read-only workspace could not open a file at all.
+ * Exactly `POST /api/docs/:id/session` and `POST /api/sheets/:id/session`.
+ */
+const READ_ONLY_ALLOWED_POST_PATHS = [/^\/api\/(?:docs|sheets)\/[^/]+\/session\/?$/] as const;
+
+/**
  * May this request run in a read-only workspace? Reads always (GET, HEAD,
  * OPTIONS); a write method only on the explicit side-effect-free paths below
- * (search, the user-level core paths). Prefixes match on a path-segment
- * boundary, so `/api/me` does not open `/api/members`.
+ * (search, the user-level core paths, the doc/sheet session ticket). Prefixes
+ * match on a path-segment boundary, so `/api/me` does not open `/api/members`.
  *
  * There is deliberately no rule for "export": every export endpoint in the
  * repo is a GET (books `accounting-exports`, tax-return export, WeldPass
@@ -122,7 +131,8 @@ const READ_ONLY_ALLOWED_PREFIXES = [
  */
 export function isReadOnlyRequestAllowed(method: string, path: string): boolean {
   if (READ_METHODS.has(method.toUpperCase())) return true;
-  return READ_ONLY_ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+  if (READ_ONLY_ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) return true;
+  return method.toUpperCase() === 'POST' && READ_ONLY_ALLOWED_POST_PATHS.some((re) => re.test(path));
 }
 
 /** The 403 body every read-only gate returns, so all workers answer alike. */

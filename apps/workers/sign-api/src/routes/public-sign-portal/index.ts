@@ -36,9 +36,10 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
 import { SignError } from '../../services/errors';
-import { resolveLink, revokeEnvelopeLinks, type ResolvedLink } from '../../services/links';
+import { resolveLink, resolveLinkByHash, revokeEnvelopeLinks, type ResolvedLink } from '../../services/links';
 import { signSession, verifySession, type SignerSession } from '../../services/session';
 import { checkCode, emailCodeHash, emailHint, isLocked, issueEmailCode, newEmailCode, CODE_TTL_SECONDS } from '../../services/codes';
+import { codeAttemptsFor } from '../../durable-objects/code-attempts';
 import {
   closedReason,
   completeSigning,
@@ -176,6 +177,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
       orgId: opened.link.clerkOrgId,
       envelopeId: opened.link.envelopeId,
       recipientId: opened.link.recipientId,
+      tokenHash: opened.link.tokenHash,
     });
     const body: SignPortalSessionResponse = { state: 'ready', session: token, expiresAt: expiresAt.toISOString() };
     return success(c, body);
@@ -196,7 +198,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     if (recipient.authMode === 'link' || recipient.role === 'cc') return ready(c, opened);
 
     const kv = c.env.WORKSPACE_CACHE;
-    if (await isLocked(kv, opened.link.tokenHash)) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
+    if (await isLocked(codeAttemptsFor(c.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash))) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
     if (recipient.authMode === 'email_code') {
       const code = newEmailCode();
       if (await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(c.env, recipient.id))) {
@@ -225,7 +227,14 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     if (recipient.authMode === 'link') return ready(c, opened);
     const kv = c.env.WORKSPACE_CACHE;
     const expected = recipient.authMode === 'email_code' ? await emailCodeHash(kv, opened.link.tokenHash) : recipient.accessCodeHash;
-    const result = await checkCode(kv, opened.link.tokenHash, expected, code, hasherFor(c.env, recipient.id));
+    const result = await checkCode(
+      kv,
+      codeAttemptsFor(c.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash),
+      opened.link.tokenHash,
+      expected,
+      code,
+      hasherFor(c.env, recipient.id),
+    );
     await recordCodeCheck(opened.workspace.db, opened.ref, result.ok, meta(c));
     if (!result.ok) {
       return result.locked
@@ -241,7 +250,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     const { recipient, envelope } = opened.ref;
     if (recipient.authMode !== 'email_code' || closedReason(envelope)) return error.conflict(c, 'No code to send');
     const kv = c.env.WORKSPACE_CACHE;
-    if (await isLocked(kv, opened.link.tokenHash)) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
+    if (await isLocked(codeAttemptsFor(c.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash))) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
     const code = newEmailCode();
     if (!(await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(c.env, recipient.id)))) {
       return codeError(c, 429, 'TOO_SOON', 'A code was sent a moment ago');
@@ -257,6 +266,11 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
     const session = token ? await verifySession(c.env.SIGN_SESSION_SECRET!, token) : null;
     if (!session) return error.unauthorized(c, 'Your session has expired. Open the link again.');
+    // A session lasts only as long as its link: a corrected email, void or decline revokes the link.
+    const link = await resolveLinkByHash(deps.master(c.env), session.tokenHash);
+    if (!link || link.envelopeId !== session.envelopeId || link.recipientId !== session.recipientId || link.clerkOrgId !== session.orgId) {
+      return error.unauthorized(c, 'Your session has expired. Open the link again.');
+    }
     let workspace: PortalWorkspace;
     try {
       workspace = await deps.workspace(c.env, session.orgId);

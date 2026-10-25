@@ -50,11 +50,16 @@ id = "748b8f38937f4807b3978cacb17e1880"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Cloudflare Queues — analytics only (orphan ENTITY_EVENTS producer removed).
+# Cloudflare Queues — analytics, plus the entity-events hub (consumed by
+# entity-events-worker) for the desk_conversation events this worker publishes.
 
 [[queues.producers]]
 binding = "ANALYTICS_EVENTS"
 queue = "analytics-events-dev"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
 
 # Service binding to centralized workflow worker (direct DO calls, no queue delay)
 [[services]]
@@ -89,6 +94,10 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 [[env.test.queues.producers]]
 binding = "ANALYTICS_EVENTS"
 queue = "analytics-events-test"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
 
 [[env.test.services]]
 binding = "WORKFLOW_WORKER"
@@ -135,6 +144,10 @@ id = "99689831a815455ba7f836175e5e17c9"
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"
 queue = "analytics-events"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
 [[env.production.services]]
 binding = "WORKFLOW_WORKER"

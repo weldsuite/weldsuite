@@ -2,7 +2,7 @@ import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { addFollowers } from './followers';
+import { addFollowers, defaultFollowersWhoMayOpen } from './followers';
 import {
   getEntityProvider,
   type PermissionCheck,
@@ -21,7 +21,7 @@ export interface GetOrCreateParams {
 export interface GetOrCreateResult {
   channel: typeof schema.chatChannels.$inferSelect;
   created: boolean;
-  /** Users this call made follow the channel: its default members and the acting user. */
+  /** Users this call made follow the channel: the acting user and the default members who may open the record. */
   newFollowerIds: string[];
 }
 
@@ -94,6 +94,27 @@ async function loadChannel(db: Database, channelId: string): Promise<typeof sche
 }
 
 /**
+ * The users a new or revived record chat starts with: the acting user (who
+ * passed the route's read check) and those default members who may open the
+ * record. A default member who may not is not made to follow.
+ */
+async function initialFollowerIds(
+  db: Database,
+  entityType: string,
+  entityId: string,
+  resolved: ResolvedEntityInfo,
+  actingUserId: string,
+): Promise<string[]> {
+  const defaults = await defaultFollowersWhoMayOpen(db, {
+    entityType,
+    entityId,
+    actingUserId,
+    userIds: resolved.defaultMemberIds,
+  });
+  return [...defaults, actingUserId];
+}
+
+/**
  * Revive a soft-deleted entity channel: clear `deletedAt`, refresh the
  * entity-derived fields, and ensure the default members + acting user follow
  * it. Preserves the channel's id and message history.
@@ -101,6 +122,8 @@ async function loadChannel(db: Database, channelId: string): Promise<typeof sche
 async function resurrectEntityChannel(
   db: Database,
   channelId: string,
+  entityType: string,
+  entityId: string,
   resolved: ResolvedEntityInfo,
   actingUserId: string,
 ): Promise<GetOrCreateResult> {
@@ -108,9 +131,12 @@ async function resurrectEntityChannel(
 
   // Members rows survive the channel soft-delete, but re-assert the expected
   // set so a reused channel always has its default members + the acting user.
-  const newFollowerIds = await addFollowers(db, channelId, [...resolved.defaultMemberIds, actingUserId], {
-    ownerId: actingUserId,
-  });
+  const newFollowerIds = await addFollowers(
+    db,
+    channelId,
+    await initialFollowerIds(db, entityType, entityId, resolved, actingUserId),
+    { ownerId: actingUserId },
+  );
 
   await db
     .update(chatChannels)
@@ -148,7 +174,7 @@ export async function getOrCreateEntityChannel(params: GetOrCreateParams): Promi
   // channel, and on tenants where the partial unique index is enforced the
   // insert below would instead fail with a constraint violation.
   const deleted = await findDeletedEntityChannel(db, entityType, entityId);
-  if (deleted) return resurrectEntityChannel(db, deleted.id, resolved, actingUserId);
+  if (deleted) return resurrectEntityChannel(db, deleted.id, entityType, entityId, resolved, actingUserId);
 
   const { chatChannels } = schema;
   const channelId = generateId('ch');
@@ -175,14 +201,20 @@ export async function getOrCreateEntityChannel(params: GetOrCreateParams): Promi
     const retry = await findEntityChannel(db, entityType, entityId);
     if (retry) return { channel: retry, created: false, newFollowerIds: [] };
     const retryDeleted = await findDeletedEntityChannel(db, entityType, entityId);
-    if (retryDeleted) return resurrectEntityChannel(db, retryDeleted.id, resolved, actingUserId);
+    if (retryDeleted) {
+      return resurrectEntityChannel(db, retryDeleted.id, entityType, entityId, resolved, actingUserId);
+    }
     throw err;
   }
 
-  // The creator follows the chat, with the owner role.
-  const newFollowerIds = await addFollowers(db, channelId, [...resolved.defaultMemberIds, actingUserId], {
-    ownerId: actingUserId,
-  });
+  // The creator follows the chat, with the owner role, and so do the default
+  // members who may open the record.
+  const newFollowerIds = await addFollowers(
+    db,
+    channelId,
+    await initialFollowerIds(db, entityType, entityId, resolved, actingUserId),
+    { ownerId: actingUserId },
+  );
 
   return { channel: await loadChannel(db, channelId), created: true, newFollowerIds };
 }

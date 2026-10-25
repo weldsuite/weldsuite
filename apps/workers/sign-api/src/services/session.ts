@@ -1,8 +1,8 @@
 /**
  * Signer sessions: what the portal sends as a bearer token after a link (and
  * its code, when one is required) was checked. HMAC-SHA-256 over a small JSON
- * payload, bound to one recipient of one envelope in one workspace, valid two
- * hours. The portal keeps it in an httpOnly cookie.
+ * payload, bound to one recipient of one envelope in one workspace and to the
+ * link that opened it, valid two hours. The portal keeps it in an httpOnly cookie.
  */
 
 import { base64Url } from './hash';
@@ -14,6 +14,12 @@ export interface SignerSession {
   orgId: string;
   envelopeId: string;
   recipientId: string;
+  /**
+   * SHA-256 of the signing link that opened this session. Each request checks
+   * the link is still live, so revoking it (a corrected email, a void, a
+   * decline) ends the session too instead of letting it run out its two hours.
+   */
+  tokenHash: string;
   /** Expiry, epoch milliseconds. */
   exp: number;
 }
@@ -50,7 +56,7 @@ export async function verifySession(secret: string, token: string, now = Date.no
   try {
     const session = JSON.parse(new TextDecoder().decode(fromB64url(body))) as SignerSession;
     if (typeof session.exp !== 'number' || session.exp < now) return null;
-    if (!session.orgId || !session.envelopeId || !session.recipientId) return null;
+    if (!session.orgId || !session.envelopeId || !session.recipientId || !session.tokenHash) return null;
     return session;
   } catch {
     return null;

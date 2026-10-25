@@ -15,7 +15,7 @@ import {
   useUpdateAgentSubagents,
   type AgentWithRuns,
 } from '@/hooks/queries/use-agent-queries';
-import { useTeamMembers } from '@/hooks/queries/use-team-queries';
+import { useAllTeamMembers } from '@/hooks/queries/use-team-queries';
 import { errorMessage } from '../chat/labels';
 import { SettingsSection } from './general-tab';
 
@@ -69,18 +69,18 @@ function VisibilityOption({
 export function TeamTab({ agent }: Readonly<{ agent: AgentWithRuns }>) {
   const t = getTranslations('common').agents.detail.settings.team;
   const canEdit = agent.capabilities?.canEdit ?? false;
-  const { data: membersResponse } = useTeamMembers({ limit: 200, status: 'ACTIVE' });
+  const { data: members } = useAllTeamMembers({ status: 'ACTIVE' });
   const { data: agents = [] } = useAgents();
   const updateAccess = useUpdateAgentAccess(agent.id);
   const updateSubagents = useUpdateAgentSubagents(agent.id);
 
   const people = useMemo(
     () =>
-      (membersResponse?.data ?? []).map((m) => ({
+      (members ?? []).map((m) => ({
         value: m.userId,
         label: m.name || m.userId,
       })),
-    [membersResponse],
+    [members],
   );
   const nameOf = (userId: string | null) => people.find((p) => p.value === userId)?.label ?? t.unknownPerson;
 

@@ -1,4 +1,4 @@
-import { MAX_COLS, MAX_ROWS, normalizeRange, type Range } from '@weldsuite/sheets-engine';
+import { MAX_COLS, MAX_ROWS, normalizeRange, transform, type Op, type Range } from '@weldsuite/sheets-engine';
 
 export interface CellPos {
   row: number;
@@ -70,4 +70,46 @@ export function clampToGrid(r: Range, rowCount: number, colCount: number): Range
     r2: Math.min(r.r2, rowCount - 1),
     c2: Math.min(r.c2, colCount - 1),
   };
+}
+
+/**
+ * Where a cell of sheet `sheetId` is once `op` (someone else's, already
+ * applied) has run: rows and columns inserted, deleted or moved before it shift
+ * it, an op on another sheet leaves it. Null when its row or column was deleted.
+ * Rides on `transform`, which moves a cell write the same way, so the
+ * selection follows the data exactly as pending ops do.
+ */
+export function cellAfter(op: Op, sheetId: string, pos: CellPos): CellPos | null {
+  const moved = transform({ type: 'setCells', sheetId, cells: [[pos.row, pos.col, null]] }, op, true);
+  if (moved.type !== 'setCells' || moved.cells.length === 0) return null;
+  const [row, col] = moved.cells[0]!;
+  return { row, col };
+}
+
+/**
+ * Where a selection is once `op` has run, by the same rule as `cellAfter`:
+ * ranges widen over rows inserted inside them, shrink over rows deleted from
+ * them and follow a move. A selection whose active or anchor cell was deleted,
+ * or that lost all its cells, collapses to the active cell's old position (now
+ * the row or column that followed the deleted ones). Returns `sel` itself when
+ * nothing moved.
+ */
+export function selectionAfter(op: Op, sheetId: string, sel: Selection): Selection {
+  const active = cellAfter(op, sheetId, sel.active);
+  const anchor = cellAfter(op, sheetId, sel.anchor);
+  // `unmerge` carries ranges through the same structural change without splitting around an insert.
+  const moved = transform({ type: 'unmerge', sheetId, ranges: sel.ranges }, op, true);
+  const ranges = moved.type === 'unmerge' ? moved.ranges : [];
+  if (!active || !anchor || ranges.length === 0) return cellSelection(sel.active.row, sel.active.col);
+  const same =
+    active.row === sel.active.row &&
+    active.col === sel.active.col &&
+    anchor.row === sel.anchor.row &&
+    anchor.col === sel.anchor.col &&
+    ranges.length === sel.ranges.length &&
+    ranges.every((r, i) => {
+      const o = sel.ranges[i]!;
+      return r.r1 === o.r1 && r.c1 === o.c1 && r.r2 === o.r2 && r.c2 === o.c2;
+    });
+  return same ? sel : { ranges, active, anchor };
 }

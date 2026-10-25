@@ -17,6 +17,7 @@ import signPortalRoutes from './routes/public-sign-portal';
 import { isLifecycleSweepCron, runLifecycleSweep } from './cron/lifecycle-sweep';
 
 export { FinalizeEnvelopeWorkflow } from './workflows/finalize-envelope';
+export { SignCodeAttempts } from './durable-objects/code-attempts';
 
 const app = createModuleApi<Env, Variables>({ service: 'sign-api' });
 

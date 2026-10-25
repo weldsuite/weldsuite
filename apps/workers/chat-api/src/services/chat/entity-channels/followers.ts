@@ -86,6 +86,30 @@ export async function removeFollower(db: Database, channelId: string, userId: st
 }
 
 /**
+ * Of a new record chat's default members (owner, account manager, assignees…),
+ * the ones who may open the record. A default member who may not (an account
+ * manager outside a company's owner scope, say) is left out: following would
+ * push a chat with the record's name to someone who cannot open it. The acting
+ * user is kept as is, they passed the read check of the route they came through.
+ */
+export async function defaultFollowersWhoMayOpen(
+  db: Database,
+  params: { entityType: string; entityId: string; actingUserId: string; userIds: string[] },
+): Promise<string[]> {
+  const { entityType, entityId, actingUserId } = params;
+  const provider = getEntityProvider(entityType);
+  const candidates = [...new Set(params.userIds)].filter((id) => id && id !== actingUserId);
+  if (!provider || candidates.length === 0) return [];
+  const allowed = await Promise.all(
+    candidates.map(async (userId) => {
+      const ctx = { db, actingUserId: userId, entityId, can: userPermissionCheck(db, userId) };
+      return (await canAccessEntity(provider, ctx)) ? userId : null;
+    }),
+  );
+  return allowed.filter((id): id is string => id !== null);
+}
+
+/**
  * A message in a record chat makes its author follow the chat, and every
  * @mentioned user who may see the record. A mentioned user who may not see it
  * is left out: following would put a chat in their sidebar that they cannot

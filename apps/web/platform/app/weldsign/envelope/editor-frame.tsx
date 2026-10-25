@@ -4,7 +4,7 @@
  * it; each passes its own steps (and the step's content as children).
  */
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -106,8 +106,15 @@ function TitleInput({ target, title, label, disabled }: Readonly<{ target: SignT
   const update = useUpdateSignEnvelope(target);
   const [value, setValue] = useState(title);
   useEffect(() => setValue(title), [title]);
+  // Escape blurs before setValue(title) re-renders, so commit would still see
+  // the edited value; this tells it to drop the edit instead.
+  const cancelled = useRef(false);
 
   const commit = () => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
     const next = value.trim();
     if (!next) setValue(title);
     else if (next !== title) update.mutate({ title: next });
@@ -124,6 +131,7 @@ function TitleInput({ target, title, label, disabled }: Readonly<{ target: SignT
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur();
         if (e.key === 'Escape') {
+          cancelled.current = true;
           setValue(title);
           e.currentTarget.blur();
         }

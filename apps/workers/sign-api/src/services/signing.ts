@@ -302,14 +302,27 @@ export async function completeSigning(ctx: CompleteContext, ref: SignerRef, inpu
   const keys = { signature: await store('signature', input.signature), initials: await store('initials', input.initials) };
   const resolved = resolveSubmission(fields, recipient, input, keys);
 
+  // Claim the signature before writing anything: a double-submitted /complete (or
+  // two tabs) races here, and only the one that flips the recipient goes on.
   const now = new Date();
-  for (const [id, v] of resolved) {
-    await db.update(signFields).set({ value: v.value, signatureKey: v.signatureKey, filledAt: now, updatedAt: now }).where(eq(signFields.id, id));
-  }
-  await db
+  const claimed = await db
     .update(signRecipients)
     .set({ status: 'signed', signedAt: now, signedIp: ctx.meta.ip, signedUserAgent: ctx.meta.userAgent, updatedAt: now })
-    .where(eq(signRecipients.id, recipient.id));
+    .where(and(eq(signRecipients.id, recipient.id), inArray(signRecipients.status, ['sent', 'opened'])))
+    .returning({ id: signRecipients.id });
+  if (claimed.length === 0) throw new SignError('conflict', 'This request has already been signed');
+  try {
+    for (const [id, v] of resolved) {
+      await db.update(signFields).set({ value: v.value, signatureKey: v.signatureKey, filledAt: now, updatedAt: now }).where(eq(signFields.id, id));
+    }
+  } catch (err) {
+    // The values did not all land: give the turn back so the signer can submit again.
+    await db
+      .update(signRecipients)
+      .set({ status: recipient.status, signedAt: null, signedIp: null, signedUserAgent: null, updatedAt: new Date() })
+      .where(and(eq(signRecipients.id, recipient.id), eq(signRecipients.status, 'signed')));
+    throw err;
+  }
   await recordSignEvent(db, {
     envelopeId: envelope.id,
     recipientId: recipient.id,
