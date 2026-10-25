@@ -309,12 +309,45 @@ Decisions above agreed 2026-10-24.
 - Every edit goes through `DocController.apply`. Documents are kept in
   IndexedDB per workspace until phase 4.
 
+**Phase 4 (backend and live co-editing): done**, in `apps/workers/docs-api`
+and `apps/web/platform/app/welddocs`.
+
+- `/api/docs` (list, create, get, rename and move, trash, session, live
+  snapshot), `DocRoom` (Durable Object per document, `createDocRoom` /
+  `restoreDocRoom`, checkpoints to R2), built file for file on sheets-api.
+  A document is a drive file (`fileType: 'document'`, mime
+  `application/vnd.weldsuite.doc+json`, `metadata.weldDocId`) plus a `docs`
+  row. Create takes an optional initial snapshot (an imported file), checked by
+  loading it.
+- Migration 0225 (`docs`): `revision`, `snapshot_key`, `snapshot_revision`;
+  `content` nullable. **A WeldDocs row is the one with `content` null** (and
+  a checkpoint key); flow-api `/api/documents` reads it as `content: []` and
+  refuses every write to it with a 409 (`isWeldDocsRow`), so BlockNote JSON
+  never lands in it. Phase 8 converts the old rows and retires that route.
+- app-api forwards `/api/docs*` (the room socket included) over `DOCS_API`;
+  WeldDrive opens a file with `metadata.weldDocId` at `/welddocs/<id>`; a
+  drive purge deletes the `docs` row (and the document's version rows).
+- `doc` entity events: created, updated (rename, move, and at each checkpoint
+  with the revision), deleted.
+- Platform: in a workspace the home page lists documents from docs-api and an
+  open document is edited through `DocConnection` (the engine's collab client
+  over the room socket: reconnects, re-sends unconfirmed edits, warns before
+  leaving with any); undo entries move past other people's ops; each person's
+  caret and selection are drawn in their colour with a name flag while they
+  move or type, with avatars in the header (click to jump to them). Files
+  imported on the home page (.md, .html, .txt) are read in the browser and
+  sent as the new document's first snapshot. Only the signed-out preview
+  still keeps documents in IndexedDB.
+
 Known gaps, to pick up in later phases:
 
 - Floating (wrapped) images lay out inline until phase 5. Table rows never
   split across pages, so a row taller than a page overflows it.
 - Right-to-left and bidirectional text lay out left to right (phase 9).
-- An editor undo that re-creates a deleted table, footnote or section
-  re-uses its ids; a concurrent edit aimed at the old one can then land in
-  the new one. The editor should undo with fresh ids (phase 3).
+- An undo that re-creates a deleted table, footnote or section re-uses its
+  ids (exact undo needs them); a concurrent edit aimed at the old one can
+  land in the restored one, or be refused by the room (the client then
+  reloads from the room).
+- A remote op makes the layout re-scan the stories (reusing every unchanged
+  paragraph's lines); fine at today's sizes, incremental in phase 9.
 - No state checksums between replicas yet (as WeldSheets).

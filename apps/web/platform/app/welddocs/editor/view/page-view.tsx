@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { pageDisplay, selectionRects, type PageLayout } from '@weldsuite/docs-engine';
+import { caretRect, pageDisplay, selectionRects, type PageLayout } from '@weldsuite/docs-engine';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from '../model/doc-controller';
 import { FRAGMENT_TYPE } from '../model/clipboard';
@@ -380,11 +380,55 @@ function PageBox({
         </div>
         {editingHeader && page.header && <AreaRule y={page.header.y + page.header.height + 2} label={labels.header} />}
         {editingHeader && page.footer && <AreaRule y={page.footer.y - 4} label={labels.footer} />}
+        <PeerMarks controller={controller} pageIndex={index} />
         {selection.map((r, i) => (
           <div key={`s${i}`} className="pointer-events-none absolute" style={{ left: `${r.x}pt`, top: `${r.y}pt`, width: `${r.width}pt`, height: `${r.height}pt`, background: 'rgba(66,133,244,0.3)' }} />
         ))}
       </div>
     </div>
+  );
+}
+
+/** How long someone's name stays on their caret after they move. */
+const NAME_MS = 3000;
+
+/** Other people's selections and carets on this page, in their colours. */
+function PeerMarks({ controller, pageIndex }: { controller: DocController; pageIndex: number }) {
+  const [, tick] = useState(0);
+  // Re-render once names should hide.
+  useEffect(() => {
+    const timer = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const now = Date.now();
+  return (
+    <>
+      {controller.peers.map((peer) => {
+        const p = peer.presence;
+        if (!p || !controller.doc.stories.has(p.story)) return null;
+        const from = Math.min(p.anchor, p.head);
+        const to = Math.max(p.anchor, p.head);
+        const rects = to > from ? selectionRects(controller.layout, p.story, from, to).filter((r) => r.page === pageIndex) : [];
+        const caret = caretRect(controller.layout, p.story, p.head, { page: pageIndex });
+        const showName = p.typing || now - (controller.peerMovedAt(peer.clientId) ?? 0) < NAME_MS;
+        return (
+          <div key={peer.clientId} className="pointer-events-none">
+            {rects.map((r, i) => (
+              <div key={i} className="absolute opacity-25" style={{ left: `${r.x}pt`, top: `${r.y}pt`, width: `${r.width}pt`, height: `${r.height}pt`, background: peer.color }} />
+            ))}
+            {caret && caret.page === pageIndex && (
+              <div className="absolute" style={{ left: `${caret.x}pt`, top: `${caret.y}pt`, height: `${caret.height}pt`, width: '1.5pt', background: peer.color }}>
+                {showName && (
+                  <span className="absolute bottom-full left-0 whitespace-nowrap rounded-sm px-1 py-px text-[7.5pt] font-medium leading-tight text-white" style={{ background: peer.color }}>
+                    {peer.name}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }
 

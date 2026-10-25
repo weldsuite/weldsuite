@@ -68,8 +68,10 @@ export class TrashCleanupWorkflow extends WorkflowEntrypoint<Env, TrashCleanupPa
         });
       }
 
-      // Delete from database (a WeldSheets spreadsheet's row references its file)
+      // Delete from database (a spreadsheet's or WeldDocs document's row references its file)
       await db.delete(schema.sheets).where(eq(schema.sheets.fileId, fileId));
+      await db.delete(schema.documentVersions).where(eq(schema.documentVersions.fileId, fileId));
+      await db.delete(schema.docs).where(eq(schema.docs.fileId, fileId));
       await db.delete(files).where(eq(files.id, fileId));
 
       console.log(`[TrashCleanup] Permanently deleted file ${fileId} (R2: ${fileKey})`);

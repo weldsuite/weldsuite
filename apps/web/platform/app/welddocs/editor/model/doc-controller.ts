@@ -52,6 +52,8 @@ import {
   transform,
   wordAt,
   type Affinity,
+  type DocPeer,
+  type DocPresence,
   type DocSelection,
   type DocSnapshot,
   type DocumentStats,
@@ -130,6 +132,12 @@ export class DocController {
   find: { query: string; options: FindOptions; matches: Match[]; index: number } | null = null;
   dialog: 'pageSetup' | 'wordCount' | 'link' | 'shortcuts' | null = null;
   printing = false;
+  /** Other people in a co-edited document, with where they are (drawn on the pages). */
+  peers: DocPeer[] = [];
+  /** When each of them last moved (epoch ms): their name shows for a moment after. */
+  private readonly peerMoves = new Map<string, number>();
+  /** Last local keystroke (epoch ms), for the "typing" flag others see. */
+  private lastTyped = 0;
 
   /** x the caret aims for when moving up and down through lines of different lengths. */
   private goalX: number | null = null;
@@ -281,6 +289,38 @@ export class DocController {
     this.contentVersion++;
     if (this.find) this.refreshFind();
     this.emit();
+  }
+
+  // ---------------------------------------------------------------- people
+
+  setPeers(peers: DocPeer[], now = Date.now()): void {
+    const before = new Map(this.peers.map((p) => [p.clientId, p.presence]));
+    for (const p of peers) {
+      const was = before.get(p.clientId);
+      if (p.presence && (was?.head !== p.presence.head || was?.story !== p.presence.story || was?.typing !== p.presence.typing)) this.peerMoves.set(p.clientId, now);
+    }
+    for (const id of this.peerMoves.keys()) if (!peers.some((p) => p.clientId === id)) this.peerMoves.delete(id);
+    this.peers = peers;
+    this.emit();
+  }
+
+  /** When this person last moved or typed; undefined if never seen moving. */
+  peerMovedAt(clientId: string): number | undefined {
+    return this.peerMoves.get(clientId);
+  }
+
+  /** Where this person is, for everyone else. */
+  presence(now = Date.now()): DocPresence {
+    const p: DocPresence = { story: this.selection.story, anchor: this.selection.anchor, head: this.selection.head };
+    if (now - this.lastTyped < 1500) p.typing = true;
+    return p;
+  }
+
+  /** Jumps to where someone is (following them from their avatar). */
+  goToPeer(peer: DocPeer): void {
+    const p = peer.presence;
+    if (!p || !this.doc.stories.has(p.story)) return;
+    this.setSelection(caretAt(p.story, p.head));
   }
 
   // ---------------------------------------------------------------- selection
@@ -452,6 +492,7 @@ export class DocController {
   // ---------------------------------------------------------------- typing
 
   type(text: string): void {
+    this.lastTyped = Date.now();
     this.apply(insertText(this.doc, this.selection, text, this.pending), { typing: true });
   }
 

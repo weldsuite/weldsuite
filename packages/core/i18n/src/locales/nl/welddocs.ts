@@ -22,7 +22,8 @@ export const welddocs = {
     delete: 'Verwijderen',
     deleteTitle: 'Document verwijderen?',
     deletePermanently: '"{name}" wordt verwijderd. Dit kan niet ongedaan worden gemaakt.',
-    localNotice: 'Documenten worden in deze browser bewaard tot live samenwerken beschikbaar is.',
+    localNotice: 'Deze preview bewaart documenten in je browser.',
+    deleteDescription: '"{name}" gaat naar de prullenbak van WeldDrive, waar het 30 dagen kan worden teruggezet.',
     notFound: 'Dit document kon niet worden gevonden.',
     backHome: 'Terug naar WeldDocs',
     importFile: 'Een bestand importeren',
@@ -50,6 +51,12 @@ export const welddocs = {
     openLink: 'Link openen',
     editLink: 'Link bewerken',
     removeLink: 'Link verwijderen',
+    reconnecting: 'Opnieuw verbinden…',
+    offlinePending: 'Offline — wijzigingen nog niet opgeslagen',
+    removed: 'Dit document is verwijderd of je hebt er geen toegang meer toe.',
+    resynced: 'Iemand anders wijzigde het document tegelijk; je laatste wijziging kon niet worden bewaard.',
+    collaborators: 'Mensen in dit document',
+    viewing: '{name} (bekijkt)',
   },
 
   menu: {

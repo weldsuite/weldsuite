@@ -111,10 +111,16 @@ function buildNavigateUrl(
   }
 }
 
-/** A WeldSheets spreadsheet (a drive file whose metadata names its sheet) opens in the editor. */
-function weldsheetUrl(metadata: Record<string, unknown> | null | undefined): string | null {
+/**
+ * A WeldSheets spreadsheet or WeldDocs document (a drive file whose metadata
+ * names its sheet or document) opens in its editor. A WeldDocs document is not
+ * `isWeldDoc` (that flag is the BlockNote editor's, at `/documents/:fileId`).
+ */
+function weldModuleUrl(metadata: Record<string, unknown> | null | undefined): string | null {
   const sheetId = metadata?.weldsheetId;
-  return typeof sheetId === 'string' ? `/weldsheets/${sheetId}` : null;
+  if (typeof sheetId === 'string') return `/weldsheets/${sheetId}`;
+  const docId = metadata?.weldDocId;
+  return typeof docId === 'string' ? `/welddocs/${docId}` : null;
 }
 
 function guessFileType(mimeType: string | null, fileName: string | null): string {
@@ -166,7 +172,7 @@ export function normalizeGenericFiles(
     // action), but a WeldFlow sheet or document is labelled as the project's.
     source: 'drive',
     sourceLabel: r.entityType && PROJECT_ENTITY_TYPES.has(r.entityType) ? 'Projects' : 'My Drive',
-    navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id) ?? weldsheetUrl(r.metadata),
+    navigateTo: buildNavigateUrl(r.entityType, r.entityId, r.metadata, r.fileType, r.id) ?? weldModuleUrl(r.metadata),
     folderId: r.folderId,
     isStarred: r.isStarred,
     createdAt: r.createdAt.toISOString(),
@@ -613,8 +619,11 @@ export async function listPurgedFileKeys(db: Database, ids: TrashedIds): Promise
 export async function purgeTrashed(db: Database, ids: TrashedIds): Promise<void> {
   const where = purgedFilesWhere(ids);
   if (where) {
-    // A WeldSheets spreadsheet's row references its file; files reference their folder.
-    await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, db.select({ id: files.id }).from(files).where(where)));
+    // A WeldSheets spreadsheet's or WeldDocs document's row references its file; files reference their folder.
+    const purged = db.select({ id: files.id }).from(files).where(where);
+    await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, purged));
+    await db.delete(schema.documentVersions).where(inArray(schema.documentVersions.fileId, purged));
+    await db.delete(schema.docs).where(inArray(schema.docs.fileId, purged));
     await db.delete(files).where(where);
   }
   if (ids.folderIds.length > 0) {

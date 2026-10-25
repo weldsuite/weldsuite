@@ -117,3 +117,6 @@ export {
 export type { DeleteUnit, DocSelection, Edit, ListKind } from './editing/commands';
 export { countWords, findAll, queryPattern, replaceAll, storiesInOrder, textStats } from './editing/find';
 export type { DocumentStats, FindOptions, Match } from './editing/find';
+
+export { FrameAssembler, MAX_FRAME, decodeClient, decodeServer, encode, refusedBatchId, toFrames } from '@weldsuite/collab';
+export type { DocClientMessage, DocCommittedOp, DocPeer, DocServerMessage } from './collab/adapter';

@@ -430,10 +430,13 @@ describe('platformSyncMap — WeldMeet + Calendar', () => {
 });
 
 describe('platformSyncMap — Drive', () => {
-  it('file/folder/doc invalidate drive root', () => {
+  it('file/folder invalidate drive root', () => {
     expect(platformSyncMap.file?.invalidate).toEqual([['drive']]);
     expect(platformSyncMap.folder?.invalidate).toEqual([['drive']]);
-    expect(platformSyncMap.doc?.invalidate).toEqual([['drive']]);
+  });
+
+  it('doc invalidates the WeldDocs lists and drive root', () => {
+    expect(platformSyncMap.doc?.invalidate).toEqual([['welddocs'], ['drive']]);
   });
 });
 

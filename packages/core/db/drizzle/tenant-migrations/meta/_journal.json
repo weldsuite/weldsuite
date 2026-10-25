@@ -1576,6 +1576,13 @@
       "when": 1792853032272,
       "tag": "0224_desk_csat_office_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 225,
+      "version": "7",
+      "when": 1792884709894,
+      "tag": "0225_welddocs_room",
+      "breakpoints": true
     }
   ]
 }

@@ -66,8 +66,8 @@ function StatusLabel({ status }: { status: DocStatus }) {
     saved: te.saved,
     saving: te.saving,
     failed: te.notSaved,
-    reconnecting: te.saving,
-    'offline-pending': te.notSaved,
+    reconnecting: te.reconnecting,
+    'offline-pending': te.offlinePending,
     'view-only': te.viewOnly,
   }[status];
   const warn = status === 'failed' || status === 'offline-pending';
