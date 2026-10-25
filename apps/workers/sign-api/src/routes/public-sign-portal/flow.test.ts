@@ -15,6 +15,7 @@ import { PDFDocument } from 'pdf-lib';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
+import { memoryCodeAttempts } from '../../durable-objects/code-attempts.memory';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { memoryTransport } from '@weldsuite/emails/transports/memory';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -93,12 +94,14 @@ function memoryBucket() {
 
 const storage = memoryBucket();
 const kv = createMemoryKv();
+const codeAttempts = memoryCodeAttempts();
 const finalizeCalls: unknown[] = [];
 
 function env(): Env {
   return {
     PRIVATE_STORAGE: storage.bucket,
     WORKSPACE_CACHE: kv,
+    SIGN_CODE_ATTEMPTS: codeAttempts,
     SIGN_SESSION_SECRET: SECRET,
     SIGN_PORTAL_SECRET: PORTAL_KEY,
     SIGN_PORTAL_URL: 'https://sign.test',

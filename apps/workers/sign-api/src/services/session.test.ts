@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import { SESSION_TTL_MS, signSession, verifySession } from './session';
-import { checkCode, emailCodeHash, emailHint, isLocked, issueEmailCode, MAX_TRIES } from './codes';
+import { AttemptCounter, checkCode, emailCodeHash, emailHint, isLocked, issueEmailCode, LOCK_SECONDS, MAX_TRIES } from './codes';
+import { codeAttemptsFor, SignCodeAttempts } from '../durable-objects/code-attempts';
+import { memoryCodeAttempts, memoryStore } from '../durable-objects/code-attempts.memory';
 import { codeHash, sha256Hex } from './hash';
 
 const SECRET = 'test-secret-that-is-long-enough';
@@ -37,13 +39,70 @@ describe('identity codes', () => {
     expect(await issueEmailCode(kv, 'h1', '654321', hash)).toBe(false);
     const expected = await hash('123456');
     expect(await emailCodeHash(kv, 'h1')).toBe(expected);
-    expect(await checkCode(kv, 'h1', expected, '000000', hash)).toEqual({ ok: false, locked: false, attemptsLeft: MAX_TRIES - 1 });
-    expect(await checkCode(kv, 'h1', expected, ' 123456 ', hash)).toEqual({ ok: true });
+    const ns = memoryCodeAttempts();
+    const h1 = codeAttemptsFor(ns, 'h1');
+    expect(await checkCode(kv, h1, 'h1', expected, '000000', hash)).toEqual({ ok: false, locked: false, attemptsLeft: MAX_TRIES - 1 });
+    expect(await checkCode(kv, h1, 'h1', expected, ' 123456 ', hash)).toEqual({ ok: true });
+    // A used emailed code is gone, and the count starts over.
+    expect(await emailCodeHash(kv, 'h1')).toBeNull();
+    expect(await h1.tries()).toBe(0);
 
-    for (let i = 0; i < MAX_TRIES - 1; i++) await checkCode(kv, 'h2', expected, 'wrong', hash);
-    expect(await checkCode(kv, 'h2', expected, 'wrong', hash)).toEqual({ ok: false, locked: true, attemptsLeft: 0 });
-    expect(await isLocked(kv, 'h2')).toBe(true);
-    expect(await checkCode(kv, 'h2', expected, '123456', hash)).toMatchObject({ ok: false, locked: true });
+    const h2 = codeAttemptsFor(ns, 'h2');
+    for (let i = 0; i < MAX_TRIES - 1; i++) await checkCode(kv, h2, 'h2', expected, 'wrong', hash);
+    expect(await checkCode(kv, h2, 'h2', expected, 'wrong', hash)).toEqual({ ok: false, locked: true, attemptsLeft: 0 });
+    expect(await isLocked(h2)).toBe(true);
+    expect(await checkCode(kv, h2, 'h2', expected, '123456', hash)).toMatchObject({ ok: false, locked: true });
+    // Another link is not affected.
+    expect(await isLocked(codeAttemptsFor(ns, 'h3'))).toBe(false);
+  });
+
+  it('gives a burst of parallel guesses no more than the allowed tries', async () => {
+    const kv = createMemoryKv();
+    const attempts = codeAttemptsFor(memoryCodeAttempts(), 'h1');
+    const expected = await hash('4821');
+    const guesses = Array.from({ length: 50 }, (_, i) => String(1000 + i));
+    const results = await Promise.all(guesses.map((g) => checkCode(kv, attempts, 'h1', expected, g, hash)));
+    expect(results.filter((r) => !r.ok && !r.locked)).toHaveLength(MAX_TRIES - 1);
+    expect(results.filter((r) => !r.ok && r.locked)).toHaveLength(50 - (MAX_TRIES - 1));
+    // Locked now, so even the right code is refused.
+    expect(await checkCode(kv, attempts, 'h1', expected, '4821', hash)).toMatchObject({ ok: false, locked: true });
+  });
+
+  it('forgets wrong answers once the lock window has passed', async () => {
+    let now = 1_000_000;
+    const counter = new AttemptCounter(memoryStore(), () => now);
+    for (let i = 0; i < MAX_TRIES; i++) await counter.attempt(false);
+    expect(await isLocked(counter)).toBe(true);
+    now += LOCK_SECONDS * 1000 - 1;
+    expect(await isLocked(counter)).toBe(true);
+    now += 2;
+    expect(await counter.tries()).toBe(0);
+    expect(await counter.attempt(false)).toEqual({ ok: false, locked: false, attemptsLeft: MAX_TRIES - 1 });
+  });
+
+  it('the Durable Object sets an alarm for the window and clears it on a match', async () => {
+    const store = memoryStore();
+    let alarm: number | null = null;
+    const storage = {
+      ...store,
+      setAlarm: async (at: number) => {
+        alarm = at;
+      },
+      deleteAlarm: async () => {
+        alarm = null;
+      },
+      deleteAll: async () => store.data.clear(),
+    };
+    const durable = new SignCodeAttempts({ storage } as unknown as DurableObjectState, {} as never);
+    await durable.attempt(false);
+    expect(alarm).toBeGreaterThan(Date.now());
+    expect(await durable.tries()).toBe(1);
+    await durable.attempt(true);
+    expect(alarm).toBeNull();
+    expect(await durable.tries()).toBe(0);
+    await durable.attempt(false);
+    await durable.alarm();
+    expect(store.data.size).toBe(0);
   });
 
   it('stores codes as a keyed hash bound to the recipient, not a plain hash', async () => {

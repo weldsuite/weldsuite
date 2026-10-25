@@ -39,6 +39,7 @@ import { SignError } from '../../services/errors';
 import { resolveLink, resolveLinkByHash, revokeEnvelopeLinks, type ResolvedLink } from '../../services/links';
 import { signSession, verifySession, type SignerSession } from '../../services/session';
 import { checkCode, emailCodeHash, emailHint, isLocked, issueEmailCode, newEmailCode, CODE_TTL_SECONDS } from '../../services/codes';
+import { codeAttemptsFor } from '../../durable-objects/code-attempts';
 import {
   closedReason,
   completeSigning,
@@ -197,7 +198,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     if (recipient.authMode === 'link' || recipient.role === 'cc') return ready(c, opened);
 
     const kv = c.env.WORKSPACE_CACHE;
-    if (await isLocked(kv, opened.link.tokenHash)) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
+    if (await isLocked(codeAttemptsFor(c.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash))) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
     if (recipient.authMode === 'email_code') {
       const code = newEmailCode();
       if (await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(c.env, recipient.id))) {
@@ -226,7 +227,14 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     if (recipient.authMode === 'link') return ready(c, opened);
     const kv = c.env.WORKSPACE_CACHE;
     const expected = recipient.authMode === 'email_code' ? await emailCodeHash(kv, opened.link.tokenHash) : recipient.accessCodeHash;
-    const result = await checkCode(kv, opened.link.tokenHash, expected, code, hasherFor(c.env, recipient.id));
+    const result = await checkCode(
+      kv,
+      codeAttemptsFor(c.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash),
+      opened.link.tokenHash,
+      expected,
+      code,
+      hasherFor(c.env, recipient.id),
+    );
     await recordCodeCheck(opened.workspace.db, opened.ref, result.ok, meta(c));
     if (!result.ok) {
       return result.locked
@@ -242,7 +250,7 @@ export function createSignPortalRoutes(overrides: Partial<PortalDeps> = {}) {
     const { recipient, envelope } = opened.ref;
     if (recipient.authMode !== 'email_code' || closedReason(envelope)) return error.conflict(c, 'No code to send');
     const kv = c.env.WORKSPACE_CACHE;
-    if (await isLocked(kv, opened.link.tokenHash)) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
+    if (await isLocked(codeAttemptsFor(c.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash))) return codeError(c, 429, 'LOCKED', 'Too many wrong codes. Try again later.');
     const code = newEmailCode();
     if (!(await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(c.env, recipient.id)))) {
       return codeError(c, 429, 'TOO_SOON', 'A code was sent a moment ago');
