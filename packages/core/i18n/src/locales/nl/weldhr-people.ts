@@ -68,6 +68,7 @@ export const weldhrPeople = {
       inviteAndCreate: 'Uitnodigen en aanmaken',
       invitedAndCreated: 'Uitnodiging verstuurd naar {email}. De medewerker wordt gekoppeld zodra de uitnodiging is geaccepteerd.',
       emailTaken: 'Een andere medewerker gebruikt dit e-mailadres al.',
+      inviteNotWithdrawn: 'De uitnodiging voor {email} staat nog open: trek die in via Instellingen → Team, zodat er geen plek bezet blijft.',
       employeeMemberTag: 'Medewerker',
       teamMember: 'Teamlid',
       teamMemberPlaceholder: 'Selecteer een teamlid…',

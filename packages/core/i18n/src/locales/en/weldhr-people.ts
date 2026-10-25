@@ -68,6 +68,7 @@ export const weldhrPeople = {
       inviteAndCreate: 'Invite and create',
       invitedAndCreated: 'Invitation sent to {email}. The employee is linked to them as soon as they accept.',
       emailTaken: 'Another employee already uses this email address.',
+      inviteNotWithdrawn: 'The invitation to {email} is still open: cancel it in Settings → Team so it does not hold a seat.',
       employeeMemberTag: 'Employee',
       teamMember: 'Team member',
       teamMemberPlaceholder: 'Select a team member…',

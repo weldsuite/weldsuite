@@ -100,8 +100,10 @@ function isConflict(err: unknown): boolean {
 /**
  * Invite someone new and create their employee record. The email is checked
  * against the directory first, and an invitation this call sent is withdrawn
- * when the create step still fails, so a failed submit never leaves a paid
- * seat held by someone without an employee record. Resolves to the new id.
+ * when the create step still fails. Withdrawing takes `team:delete`, which
+ * inviting (`team:create`) does not imply; when it fails the error says the
+ * invitation is still open, so it can be cancelled in Settings → Team instead
+ * of holding a paid seat unnoticed. Resolves to the new employee's id.
  */
 function useInviteAndCreate() {
   const t = useTranslations();
@@ -133,8 +135,11 @@ function useInviteAndCreate() {
     try {
       return (await createEmployee.mutateAsync(input)).data.id;
     } catch (err) {
-      if (sentMemberId) await teamMembers.removeMember(sentMemberId).catch(() => undefined);
-      throw err;
+      const failed = errorMessage(err, t('weldhr.employees.create.failed'));
+      if (!sentMemberId) throw new Error(failed);
+      const withdrawn = await teamMembers.removeMember(sentMemberId).then(() => true, () => false);
+      if (withdrawn) throw new Error(failed);
+      throw new Error(`${failed} ${t('weldhr.employees.create.inviteNotWithdrawn', { email: input.email })}`);
     }
   };
 }
