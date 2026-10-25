@@ -20,7 +20,8 @@ export default function WeldDocsHome() {
   const th = t.welddocs.home;
   const navigate = useNavigate();
   const preview = usePreviewMode();
-  const { data: docs, isLoading } = useDocList();
+  const { data: docs, isLoading, isError, refetch, isFetching } = useDocList();
+  const failed = isError && !docs;
   const { create, rename, remove, importFile } = useDocMutations();
   const [deleting, setDeleting] = useState<DocMeta | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -119,13 +120,23 @@ export default function WeldDocsHome() {
         </div>
         {preview && <p className="text-xs text-muted-foreground">{th.localNotice}</p>}
 
-        {!docs?.length ? (
+        {/* Say so when the list could not be read, instead of looking empty. */}
+        {failed && (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+            <p className="font-medium">{th.loadFailed}</p>
+            <Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}>
+              {th.retry}
+            </Button>
+          </div>
+        )}
+        {!failed && !docs?.length && (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
             <FileText className="size-8 text-muted-foreground" />
             <p className="font-medium">{th.emptyTitle}</p>
             <p className="max-w-sm text-sm text-muted-foreground">{th.emptyDescription}</p>
           </div>
-        ) : (
+        )}
+        {!!docs?.length && (
           <ul className="divide-y rounded-lg border">
             {docs.map((doc) => (
               <li key={doc.id} className="flex items-center gap-3 px-4 py-2 hover:bg-muted/50">
