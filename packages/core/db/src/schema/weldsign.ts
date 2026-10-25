@@ -88,6 +88,8 @@ export const SIGN_EVENT_TYPES = [
   'expired',
   'completed',
   'downloaded',
+  /** The signed PDF was saved to WeldDrive (and the CRM record it came from). */
+  'filed',
 ] as const;
 export type SignEventType = (typeof SIGN_EVENT_TYPES)[number];
 

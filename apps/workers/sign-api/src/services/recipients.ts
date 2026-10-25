@@ -64,7 +64,8 @@ async function accessCodeHashFor(
 export async function addRecipient(
   db: Database,
   envelopeId: string,
-  input: CreateSignRecipientInput,
+  /** `roleName`: the template role this person fills, when the envelope came from one. */
+  input: CreateSignRecipientInput & { roleName?: string | null },
   fallbackLocale: SignLocale,
   /** `SIGN_SESSION_SECRET`: keys the access-code hash. */
   secret?: string,
@@ -86,6 +87,7 @@ export async function addRecipient(
       id,
       envelopeId,
       role: input.role ?? 'signer',
+      roleName: input.roleName ?? null,
       name: input.name,
       email: input.email,
       personId: input.personId ?? null,

@@ -11,9 +11,11 @@ import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { useDateTime } from '../lib/use-date-time';
 import { ActivityTimeline } from './activity';
+import { FilingNote } from './filing-note';
 import { CorrectRecipientDialog } from './correct-recipient-dialog';
 import { OverviewActions } from './overview-actions';
 import { RecipientList } from './recipient-list';
+import { SourceLine } from './source-line';
 import { VoidDialog } from './void-dialog';
 
 export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envelope: SignEnvelopeDetail; onViewDocuments: () => void }>) {
@@ -36,11 +38,13 @@ export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envel
           ) : (
             envelope.expiresAt && <span>{format(to.expiresAt, { date: when(envelope.expiresAt) })}</span>
           )}
+          <SourceLine source={envelope.source} />
         </div>
         <OverviewActions envelope={envelope} onViewDocuments={onViewDocuments} onVoid={() => setVoiding(true)} />
       </div>
 
       <StatusNote envelope={envelope} />
+      <FilingNote envelope={envelope} />
       <RecipientList envelope={envelope} onCorrect={setCorrecting} />
       <ActivityTimeline envelopeId={envelope.id} enabled={envelope.isOwner} />
 

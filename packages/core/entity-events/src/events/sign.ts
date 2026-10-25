@@ -15,4 +15,10 @@ export const SIGN_ENTITY_EVENTS = {
    * before everyone signed.
    */
   sign_envelope: ['created', 'updated', 'deleted', 'sent', 'signed', 'declined', 'completed', 'voided', 'expired'],
+  /**
+   * A reusable template: documents, fields and roles. `updated` covers its
+   * settings, documents, roles and fields. Using one creates a
+   * `sign_envelope` (`created`), not a template event.
+   */
+  sign_template: ['created', 'updated', 'deleted'],
 } as const;

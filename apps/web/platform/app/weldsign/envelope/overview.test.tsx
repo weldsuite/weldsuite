@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import { en } from '@weldsuite/i18n/locales/en';
 import { ApiError } from '@weldsuite/api-client';
-import type { SignEnvelopeDetail, SignEventDto, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignEnvelopeDetail, SignEventDto, SignFilingDto, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 
 const api = vi.hoisted(() => ({
   weldsign: {
@@ -21,6 +21,13 @@ const api = vi.hoisted(() => ({
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
+vi.mock('@/lib/router', () => ({
+  Link: ({ href, children, ...rest }: { href: string; children?: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 import { weldsignKeys } from '@/hooks/queries/use-weldsign-queries';
 import { EnvelopeOverview } from './overview';
@@ -31,6 +38,7 @@ function recipient(overrides: Partial<SignRecipientDto> = {}): SignRecipientDto 
   return {
     id: 'rcp_ann',
     role: 'signer',
+    roleName: null,
     name: 'Ann',
     email: 'ann@example.com',
     personId: null,
@@ -67,6 +75,7 @@ function envelope(overrides: Partial<SignEnvelopeDetail> = {}): SignEnvelopeDeta
   const recipientList = overrides.recipientList ?? [ann, bob, cara];
   return {
     id: 'sgn_1',
+    kind: 'envelope',
     title: 'Service agreement',
     status: 'sent',
     senderUserId: 'user_1',
@@ -89,6 +98,9 @@ function envelope(overrides: Partial<SignEnvelopeDetail> = {}): SignEnvelopeDeta
     fields: [],
     voidedReason: null,
     voidedAt: null,
+    source: null,
+    fileBackFolderId: null,
+    filing: null,
     canEdit: false,
     isOwner: false,
     canVoid: false,
@@ -510,6 +522,102 @@ describe('what the request shows', () => {
   });
 });
 
+describe('where the request came from', () => {
+  it('links the WeldDrive file the request started from', () => {
+    renderOverview(envelope({ source: { entityType: 'file', entityId: 'fil_1', name: 'Service agreement.pdf' } }));
+    expect(screen.getByText(/^From/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Service agreement.pdf' })).toHaveAttribute('href', '/welddrive?file=fil_1');
+  });
+
+  it.each([
+    ['company', 'cus_1', 'Acme BV', '/weldcrm/companies?stack=company:cus_1:panel'],
+    ['person', 'per_1', 'Ann Lee', '/weldcrm/people?stack=person:per_1:panel'],
+    ['opportunity', 'opp_1', 'Website rebuild', '/weldcrm?entity=opportunity:opp_1'],
+  ] as const)('links the %s it started from', (entityType, entityId, name, href) => {
+    renderOverview(envelope({ source: { entityType, entityId, name } }));
+    expect(screen.getByRole('link', { name })).toHaveAttribute('href', href);
+  });
+
+  it('says so, without a link, when the record was deleted since', () => {
+    renderOverview(envelope({ source: { entityType: 'person', entityId: 'per_1', name: null } }));
+    expect(screen.getByText('From a person that was deleted')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('shows nothing for a request that started in WeldSign', () => {
+    renderOverview(envelope({ source: null }));
+    expect(screen.queryByText(/^From/)).toBeNull();
+  });
+});
+
+describe('where the signed copy went', () => {
+  const filing = (overrides: Partial<SignFilingDto> = {}): SignFilingDto => ({
+    driveFileId: 'fil_signed',
+    driveFolderId: 'fld_year',
+    recordFileId: null,
+    recordType: null,
+    recordId: null,
+    activityId: null,
+    filedAt: '2026-10-25T08:00:00.000Z',
+    ...overrides,
+  });
+  const done = (overrides: Partial<SignEnvelopeDetail> = {}) =>
+    envelope({ status: 'completed', completedAt: '2026-10-25T08:00:00.000Z', recipientList: [dan], ...overrides });
+  const note = () => screen.getByRole('region', { name: to.filing.title });
+
+  it('links the signed file and its folder in WeldDrive', () => {
+    renderOverview(done({ filing: filing() }));
+    expect(within(note()).getByText(to.filing.drive)).toBeInTheDocument();
+    expect(within(note()).getByRole('link', { name: to.filing.viewFile })).toHaveAttribute('href', '/welddrive?file=fil_signed');
+    expect(within(note()).getByRole('link', { name: to.filing.openFolder })).toHaveAttribute('href', '/welddrive?folderId=fld_year');
+    // Filed in WeldDrive only: no record.
+    expect(within(note()).queryByText(/^Saved on/)).toBeNull();
+  });
+
+  it('links the CRM company it was also saved on, by name when the request started from it', () => {
+    renderOverview(
+      done({
+        source: { entityType: 'company', entityId: 'cus_1', name: 'Acme BV' },
+        filing: filing({ recordType: 'company', recordId: 'cus_1', recordFileId: 'fil_copy', activityId: 'act_1' }),
+      }),
+    );
+    expect(within(note()).getByText(/^Saved on/)).toBeInTheDocument();
+    expect(within(note()).getByRole('link', { name: 'Acme BV' })).toHaveAttribute('href', '/weldcrm/companies?stack=company:cus_1:panel');
+  });
+
+  it('links the person it was also saved on', () => {
+    renderOverview(
+      done({
+        source: { entityType: 'person', entityId: 'per_1', name: 'Ann Lee' },
+        filing: filing({ recordType: 'person', recordId: 'per_1' }),
+      }),
+    );
+    expect(within(note()).getByRole('link', { name: 'Ann Lee' })).toHaveAttribute('href', '/weldcrm/people?stack=person:per_1:panel');
+  });
+
+  it('calls it "the company" for an opportunity, whose copy goes to its company', () => {
+    renderOverview(
+      done({
+        source: { entityType: 'opportunity', entityId: 'opp_1', name: 'Website rebuild' },
+        filing: filing({ recordType: 'company', recordId: 'cus_9' }),
+      }),
+    );
+    expect(within(note()).getByRole('link', { name: 'the company' })).toHaveAttribute('href', '/weldcrm/companies?stack=company:cus_9:panel');
+  });
+
+  it('links only what exists', () => {
+    renderOverview(done({ filing: filing({ driveFileId: null }) }));
+    expect(within(note()).queryByRole('link', { name: to.filing.viewFile })).toBeNull();
+    expect(within(note()).getByRole('link', { name: to.filing.openFolder })).toBeInTheDocument();
+  });
+
+  it('shows nothing until the signed copy has been filed', () => {
+    renderOverview(done({ filing: null }));
+    expect(screen.queryByRole('region', { name: to.filing.title })).toBeNull();
+    expect(screen.getByText(to.completedNote)).toBeInTheDocument();
+  });
+});
+
 describe('activity', () => {
   const events: SignEventDto[] = [
     event({ id: 'e1', type: 'created', actorName: 'Gert' }),
@@ -554,6 +662,29 @@ describe('activity', () => {
     expect(within(section).getByText('203.0.113.7', { exact: false })).toBeInTheDocument();
     expect(within(section).getByText('198.51.100.20', { exact: false })).toBeInTheDocument();
     expect(within(section).getAllByText(/by Gert/).length).toBeGreaterThan(0);
+  });
+
+  it('says where the signed PDF was filed, as the last event', async () => {
+    api.weldsign.events.mockResolvedValue({
+      data: [
+        event({ id: 'e1', type: 'completed' }),
+        event({ id: 'e2', type: 'filed', details: { driveFileId: 'fil_1', recordType: 'company', recordId: 'cus_1' } }),
+      ],
+    });
+    renderOverview(envelope({ ...OWNER, status: 'completed' }));
+
+    const section = await screen.findByRole('region', { name: to.activity.title });
+    await waitFor(() => expect(within(section).getAllByRole('listitem')).toHaveLength(2));
+    const lines = within(section)
+      .getAllByRole('listitem')
+      .map((item) => item.querySelector('p')?.textContent);
+    expect(lines).toEqual(['Everyone signed, request completed', 'Signed PDF saved to WeldDrive and to the files of the company']);
+  });
+
+  it('says the signed PDF was saved to WeldDrive when it went nowhere else', async () => {
+    api.weldsign.events.mockResolvedValue({ data: [event({ id: 'e1', type: 'filed', details: { driveFileId: 'fil_1', recordType: null } })] });
+    renderOverview(envelope({ ...OWNER, status: 'completed' }));
+    expect(await screen.findByText('Signed PDF saved to WeldDrive')).toBeInTheDocument();
   });
 
   it('says so when there is nothing yet', async () => {

@@ -1,9 +1,16 @@
 /**
  * WeldSign hooks: the envelope list, one envelope, the draft mutations
- * (documents, recipients, fields) and a sent request's lifecycle (void, remind,
- * resend, correct an email, activity, "Sign now"). Keys build on
+ * (documents, recipients and who to suggest from the CRM record, fields, where
+ * the signed copy is filed), starting a draft from a WeldDrive file or a CRM
+ * record, a sent request's lifecycle (void, remind, resend, correct an email,
+ * activity, "Sign now") and templates. Keys build on
  * `weldsignKeys.all`, which the realtime sync map invalidates on every
- * `sign_envelope` event.
+ * `sign_envelope` and `sign_template` event.
+ *
+ * A template is stored as an envelope, so the editor's documents, fields and
+ * settings hooks take a `SignTarget` ({ kind, id }) that picks the envelope or
+ * the template API and the matching query keys; the editor steps themselves
+ * are the same for both.
  *
  * PDF bytes live under their own root (`weldsignDocumentKeys`): a document's
  * content never changes, so an envelope event must not refetch it, and it is
@@ -16,12 +23,17 @@ import type {
   CorrectSignRecipientInput,
   CreateSignEnvelopeInput,
   CreateSignRecipientInput,
+  CreateSignTemplateInput,
+  CreateSignTemplateRoleInput,
   SignEnvelopeDetail,
   SignEnvelopeFolder,
+  SignEnvelopeKind,
   SignFieldInput,
   SendSignEnvelopeInput,
-  UpdateSignEnvelopeInput,
   UpdateSignRecipientInput,
+  UpdateSignTemplateInput,
+  UpdateSignTemplateRoleInput,
+  UseSignTemplateInput,
   VoidSignEnvelopeInput,
 } from '@weldsuite/app-api-client/schemas/weldsign';
 
@@ -32,7 +44,48 @@ export const weldsignKeys = {
   envelope: (id: string) => [...weldsignKeys.all, 'envelope', id] as const,
   /** Nested under the envelope: invalidating the envelope refreshes its activity too. */
   events: (id: string) => [...weldsignKeys.envelope(id), 'events'] as const,
+  /** Nested under the envelope too: adding or removing a recipient refreshes who is still suggested. */
+  recipientSuggestions: (id: string) => [...weldsignKeys.envelope(id), 'recipient-suggestions'] as const,
+  templateLists: () => [...weldsignKeys.all, 'template-list'] as const,
+  templateList: (search: string) => [...weldsignKeys.templateLists(), search] as const,
+  template: (id: string) => [...weldsignKeys.all, 'template', id] as const,
 };
+
+/** What the editor's shared hooks work on: a request, or a template (which is stored as one). */
+export interface SignTarget {
+  kind: SignEnvelopeKind;
+  id: string;
+}
+
+export const envelopeTarget = (id: string): SignTarget => ({ kind: 'envelope', id });
+export const templateTarget = (id: string): SignTarget => ({ kind: 'template', id });
+/** The target of a loaded detail: its `kind` says which API serves it. */
+export const targetOf = (detail: Pick<SignEnvelopeDetail, 'kind' | 'id'>): SignTarget => ({ kind: detail.kind, id: detail.id });
+
+/** Query key of the target's detail. */
+export function signTargetKey(target: SignTarget) {
+  return target.kind === 'template' ? weldsignKeys.template(target.id) : weldsignKeys.envelope(target.id);
+}
+
+/** Query key of the lists the target appears in. */
+function signTargetListsKey(target: SignTarget) {
+  return target.kind === 'template' ? weldsignKeys.templateLists() : weldsignKeys.lists();
+}
+
+/**
+ * The settings a draft and a template share. An envelope's expiry is chosen
+ * when it is sent, so the editor never changes it; a template has none.
+ */
+export type SignSettingsInput = UpdateSignTemplateInput;
+
+/**
+ * The API a target's documents, fields and settings go through. Both objects
+ * have the same methods for those, so callers use them without branching.
+ */
+function useScopedSignApi(target: SignTarget) {
+  const { weldsign } = useAppApi();
+  return target.kind === 'template' ? weldsign.templates : weldsign;
+}
 
 export const weldsignDocumentKeys = {
   content: (documentId: string) => ['weldsign-document', documentId] as const,
@@ -61,12 +114,12 @@ export function useSignEnvelope(id: string) {
 }
 
 /** A document's PDF bytes, for pdf.js. */
-export function useSignDocumentContent(envelopeId: string, documentId: string | null) {
-  const { weldsign } = useAppApi();
+export function useSignDocumentContent(target: SignTarget, documentId: string | null) {
+  const api = useScopedSignApi(target);
   return useQuery({
     queryKey: weldsignDocumentKeys.content(documentId ?? ''),
     queryFn: async () => {
-      const res = await weldsign.documentContent(envelopeId, documentId!);
+      const res = await api.documentContent(target.id, documentId!);
       if (!res.ok) throw new Error(`Could not load the document (${res.status})`);
       return res.arrayBuffer();
     },
@@ -77,14 +130,19 @@ export function useSignDocumentContent(envelopeId: string, documentId: string | 
   });
 }
 
-/** Every draft mutation refreshes the envelope and the lists it appears in. */
-function useInvalidateEnvelope() {
+/** Every draft or template mutation refreshes what it changed and the lists it appears in. */
+function useInvalidateTarget() {
   const queryClient = useQueryClient();
-  return (id: string) =>
+  return (target: SignTarget) =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: weldsignKeys.envelope(id) }),
-      queryClient.invalidateQueries({ queryKey: weldsignKeys.lists() }),
+      queryClient.invalidateQueries({ queryKey: signTargetKey(target) }),
+      queryClient.invalidateQueries({ queryKey: signTargetListsKey(target) }),
     ]);
+}
+
+function useInvalidateEnvelope() {
+  const invalidate = useInvalidateTarget();
+  return (id: string) => invalidate(envelopeTarget(id));
 }
 
 export function useCreateSignEnvelope() {
@@ -99,13 +157,31 @@ export function useCreateSignEnvelope() {
   });
 }
 
-export function useUpdateSignEnvelope(id: string) {
+/** Title, message, signing order and reminders of a draft or a template. */
+export function useUpdateSignEnvelope(target: SignTarget) {
+  const api = useScopedSignApi(target);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SignSettingsInput) => api.update(target.id, input).then((res) => res.data),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(signTargetKey(target), { data: detail });
+      void queryClient.invalidateQueries({ queryKey: signTargetListsKey(target) });
+    },
+  });
+}
+
+/**
+ * Where the signed copy of a draft goes in WeldDrive: a folder, or `null` for
+ * the default place. A request has this setting, a template does not, which is
+ * why it is not part of `useUpdateSignEnvelope`.
+ */
+export function useSetSignFileBackFolder(id: string) {
   const { weldsign } = useAppApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: UpdateSignEnvelopeInput) => weldsign.update(id, input).then((res) => res.data),
-    onSuccess: (envelope) => {
-      queryClient.setQueryData(weldsignKeys.envelope(id), { data: envelope });
+    mutationFn: (fileBackFolderId: string | null) => weldsign.update(id, { fileBackFolderId }).then((res) => res.data),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(weldsignKeys.envelope(id), { data: detail });
       void queryClient.invalidateQueries({ queryKey: weldsignKeys.lists() });
     },
   });
@@ -123,21 +199,26 @@ export function useDeleteSignEnvelope() {
   });
 }
 
-export function useSignDocumentMutations(envelopeId: string) {
-  const { weldsign } = useAppApi();
-  const invalidate = useInvalidateEnvelope();
-  const done = () => invalidate(envelopeId);
+export function useSignDocumentMutations(target: SignTarget) {
+  const api = useScopedSignApi(target);
+  const invalidate = useInvalidateTarget();
+  const done = () => invalidate(target);
   return {
     upload: useMutation({
-      mutationFn: (file: File) => weldsign.uploadDocument(envelopeId, file).then((res) => res.data),
+      mutationFn: (file: File) => api.uploadDocument(target.id, file).then((res) => res.data),
       onSettled: done,
     }),
     reorder: useMutation({
-      mutationFn: (documentIds: string[]) => weldsign.reorderDocuments(envelopeId, { documentIds }),
+      mutationFn: (documentIds: string[]) => api.reorderDocuments(target.id, { documentIds }),
       onSettled: done,
     }),
     remove: useMutation({
-      mutationFn: (documentId: string) => weldsign.removeDocument(envelopeId, documentId),
+      mutationFn: (documentId: string) => api.removeDocument(target.id, documentId),
+      onSettled: done,
+    }),
+    /** Copy a WeldDrive PDF in; takes the Drive file id. */
+    addFromDrive: useMutation({
+      mutationFn: (fileId: string) => api.addDocumentFromDrive(target.id, { fileId }).then((res) => res.data),
       onSettled: done,
     }),
   };
@@ -165,20 +246,70 @@ export function useSignRecipientMutations(envelopeId: string) {
 }
 
 /**
+ * The people on the draft's CRM record, to add as recipients. `enabled` keeps
+ * it quiet for a draft that did not start from a CRM record (the server
+ * answers `[]` then anyway). Names and emails stay out of the persisted cache.
+ */
+export function useSignRecipientSuggestions(id: string, enabled: boolean) {
+  const { weldsign } = useAppApi();
+  return useQuery({
+    queryKey: weldsignKeys.recipientSuggestions(id),
+    queryFn: () => weldsign.recipientSuggestions(id),
+    select: (res) => res.data,
+    enabled,
+    meta: { persist: false },
+  });
+}
+
+/**
  * Save the whole field set. `onError` lives on the mutation, not on `mutate`,
  * so it still fires for the save made when the fields step unmounts.
  */
-export function useSaveSignFields(envelopeId: string, onError?: (error: unknown) => void) {
-  const { weldsign } = useAppApi();
+export function useSaveSignFields(target: SignTarget, onError?: (error: unknown) => void) {
+  const api = useScopedSignApi(target);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (fields: SignFieldInput[]) => weldsign.replaceFields(envelopeId, { fields }).then((res) => res.data),
+    mutationFn: (fields: SignFieldInput[]) => api.replaceFields(target.id, { fields }).then((res) => res.data),
     onError,
     onSuccess: (fields) => {
-      queryClient.setQueryData<{ data: SignEnvelopeDetail }>(weldsignKeys.envelope(envelopeId), (old) =>
+      queryClient.setQueryData<{ data: SignEnvelopeDetail }>(signTargetKey(target), (old) =>
         old ? { data: { ...old.data, fields } } : old,
       );
     },
+  });
+}
+
+/** A request started from a WeldDrive file or a CRM record. */
+export interface StartedSignEnvelope {
+  envelope: SignEnvelopeDetail;
+  /** Why the Drive file could not be added to the new draft; null when it was (or no file was given). */
+  documentError: unknown;
+}
+
+/**
+ * Make a draft that starts from a WeldDrive file or a CRM record, and, for a
+ * file, copy it in as the first document. The draft exists even when adding
+ * the file fails (the PDF may be encrypted, say): that is reported through
+ * `documentError`, not thrown, so the caller can still open the draft.
+ *
+ * The new draft's detail is not cached: it was read before the document was
+ * added, so the editor loads it fresh.
+ */
+export function useStartSignEnvelope() {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ input, fileId }: { input: CreateSignEnvelopeInput; fileId?: string }): Promise<StartedSignEnvelope> => {
+      const envelope = (await weldsign.create(input)).data;
+      if (!fileId) return { envelope, documentError: null };
+      try {
+        await weldsign.addDocumentFromDrive(envelope.id, { fileId });
+        return { envelope, documentError: null };
+      } catch (documentError) {
+        return { envelope, documentError };
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: weldsignKeys.lists() }),
   });
 }
 
@@ -292,5 +423,99 @@ export function useSignSigningLink(id: string, onError?: ErrorHandler) {
   return useMutation({
     mutationFn: () => weldsign.signingLink(id).then((res) => res.data.url),
     onError,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+/**
+ * The template list. `enabled` keeps it quiet for a member who may not read
+ * templates (the server would answer 403).
+ */
+export function useSignTemplates(search = '', enabled = true) {
+  const { weldsign } = useAppApi();
+  const query = useInfiniteQuery({
+    queryKey: weldsignKeys.templateList(search),
+    queryFn: ({ pageParam }) => weldsign.templates.list({ search: search || undefined, limit: PAGE_SIZE, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.pagination?.hasMore ? (last.pagination.cursor ?? undefined) : undefined),
+    enabled,
+  });
+  return { ...query, templates: query.data?.pages.flatMap((page) => page.data) ?? [] };
+}
+
+/** One template: a `SignEnvelopeDetail` of kind `template`, its roles as the recipient list. */
+export function useSignTemplate(id: string, enabled = true) {
+  const { weldsign } = useAppApi();
+  return useQuery({
+    queryKey: weldsignKeys.template(id),
+    queryFn: () => weldsign.templates.get(id),
+    select: (res) => res.data,
+    enabled,
+  });
+}
+
+export function useCreateSignTemplate() {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateSignTemplateInput) => weldsign.templates.create(input).then((res) => res.data),
+    onSuccess: (template) => {
+      queryClient.setQueryData(weldsignKeys.template(template.id), { data: template });
+      void queryClient.invalidateQueries({ queryKey: weldsignKeys.templateLists() });
+    },
+  });
+}
+
+export function useDeleteSignTemplate() {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => weldsign.templates.remove(id),
+    onSuccess: (_void, id) => {
+      queryClient.removeQueries({ queryKey: weldsignKeys.template(id) });
+      void queryClient.invalidateQueries({ queryKey: weldsignKeys.templateLists() });
+    },
+  });
+}
+
+/** The roles of a template: add, change and remove (removing a role removes its fields). */
+export function useSignTemplateRoleMutations(templateId: string) {
+  const { weldsign } = useAppApi();
+  const invalidate = useInvalidateTarget();
+  const done = () => invalidate(templateTarget(templateId));
+  return {
+    add: useMutation({
+      mutationFn: (input: CreateSignTemplateRoleInput) => weldsign.templates.addRole(templateId, input).then((res) => res.data),
+      onSettled: done,
+    }),
+    update: useMutation({
+      mutationFn: ({ roleId, input }: { roleId: string; input: UpdateSignTemplateRoleInput }) =>
+        weldsign.templates.updateRole(templateId, roleId, input).then((res) => res.data),
+      onSettled: done,
+    }),
+    remove: useMutation({
+      mutationFn: (roleId: string) => weldsign.templates.removeRole(templateId, roleId),
+      onSettled: done,
+    }),
+  };
+}
+
+/**
+ * Make a draft request from a template (a person in every role). It resolves
+ * to the new draft's detail, which is put in the cache so its editor opens
+ * without a second round trip.
+ */
+export function useUseSignTemplate(templateId: string) {
+  const { weldsign } = useAppApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UseSignTemplateInput) => weldsign.templates.use(templateId, input).then((res) => res.data),
+    onSuccess: (envelope) => {
+      queryClient.setQueryData(weldsignKeys.envelope(envelope.id), { data: envelope });
+      void queryClient.invalidateQueries({ queryKey: weldsignKeys.lists() });
+    },
   });
 }

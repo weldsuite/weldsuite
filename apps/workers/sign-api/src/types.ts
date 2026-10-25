@@ -20,8 +20,13 @@ export interface Env
   REALTIME?: Fetcher;
   /** Sent as x-internal-secret on every realtime-worker /publish/* call. */
   REALTIME_INTERNAL_SECRET?: string;
-  /** WeldSign files (private bucket, `workspaces/<org>/weldsign/<envelopeId>/…`), ADR SIGN-004. */
+  /**
+   * WeldSign files (private bucket, `workspaces/<org>/weldsign/<envelopeId>/…`),
+   * ADR SIGN-004, and the signed copies filed into WeldDrive.
+   */
   PRIVATE_STORAGE: R2Bucket;
+  /** The public bucket, read only: WeldDrive files from before the private bucket (`getStoredObject`). */
+  STORAGE?: R2Bucket;
 
   // --- Signing ---------------------------------------------------------------
   /** Origin of apps/web/sign-portal; signing links are `${SIGN_PORTAL_URL}/r/<token>`. */

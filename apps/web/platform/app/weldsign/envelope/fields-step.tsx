@@ -36,9 +36,10 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
-import { useSaveSignFields, useSignDocumentContent } from '@/hooks/queries/use-weldsign-queries';
+import { targetOf, useSaveSignFields, useSignDocumentContent, type SignTarget } from '@/hooks/queries/use-weldsign-queries';
 import { moveBox, placeField, pointOnPage, resizeBox, scaleFor, type Box } from '../lib/geometry';
 import { recipientColor, type RecipientColor } from '../lib/recipient-colors';
+import { recipientLabel } from '../lib/recipients';
 import { openPdf } from '../lib/pdf';
 import { apiErrorMessage } from '../lib/errors';
 import { PdfPage } from './pdf-page';
@@ -68,7 +69,9 @@ function toDraft(fields: SignEnvelopeDetail['fields']): DraftField[] {
 export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnvelopeDetail; editable: boolean }>) {
   const { t, format } = useI18n();
   const tf = t.weldsign.editor.fields;
-  const save = useSaveSignFields(envelope.id, (err) => toast.error(`${t.weldsign.editor.saveFailed}: ${apiErrorMessage(err)}`));
+  const target = targetOf(envelope);
+  const isTemplate = envelope.kind === 'template';
+  const save = useSaveSignFields(target, (err) => toast.error(`${t.weldsign.editor.saveFailed}: ${apiErrorMessage(err)}`));
 
   const signers = envelope.recipientList.filter((r) => r.role === 'signer');
   const colorOf = useMemo(() => {
@@ -136,7 +139,7 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
   }, [selectedId, canEdit, change]);
 
   if (envelope.documents.length === 0) return <Notice text={tf.needDocuments} />;
-  if (signers.length === 0) return <Notice text={tf.needSigners} />;
+  if (signers.length === 0) return <Notice text={isTemplate ? tf.needRoles : tf.needSigners} />;
 
   const selected = fields.find((f) => f.id === selectedId) ?? null;
 
@@ -154,9 +157,15 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <aside className="flex w-full shrink-0 flex-col gap-5 border-b p-4 lg:w-72 lg:overflow-y-auto lg:border-r lg:border-b-0">
         <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tf.signer}</h3>
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{isTemplate ? tf.role : tf.signer}</h3>
           {signers.map((signer) => (
-            <SignerButton key={signer.id} signer={signer} color={colorOf(signer.id)} active={signer.id === signerId} onClick={() => setSignerId(signer.id)} />
+            <SignerButton
+              key={signer.id}
+              label={recipientLabel(signer, envelope.kind)}
+              color={colorOf(signer.id)}
+              active={signer.id === signerId}
+              onClick={() => setSignerId(signer.id)}
+            />
           ))}
         </section>
 
@@ -190,6 +199,7 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
           <SelectedFieldPanel
             field={selected}
             signers={signers}
+            kind={envelope.kind}
             editable={canEdit}
             onChange={(patch) => updateField(selected.id, patch)}
             onDelete={() => {
@@ -225,7 +235,7 @@ export function FieldsStep({ envelope, editable }: Readonly<{ envelope: SignEnve
           {envelope.documents.map((doc) => (
             <DocumentPages
               key={doc.id}
-              envelopeId={envelope.id}
+              target={target}
               doc={doc}
               fields={fields.filter((f) => f.documentId === doc.id)}
               colorOf={colorOf}
@@ -247,7 +257,7 @@ function Notice({ text }: Readonly<{ text: string }>) {
   return <div className="p-10 text-center text-sm text-muted-foreground">{text}</div>;
 }
 
-function SignerButton({ signer, color, active, onClick }: Readonly<{ signer: SignRecipientDto; color: RecipientColor; active: boolean; onClick: () => void }>) {
+function SignerButton({ label, color, active, onClick }: Readonly<{ label: string; color: RecipientColor; active: boolean; onClick: () => void }>) {
   return (
     <button
       type="button"
@@ -257,7 +267,7 @@ function SignerButton({ signer, color, active, onClick }: Readonly<{ signer: Sig
       style={active ? { borderColor: color.border } : undefined}
     >
       <span className={cn('size-2.5 shrink-0 rounded-full', color.chip)} />
-      <span className="min-w-0 flex-1 truncate">{signer.name || signer.email}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
     </button>
   );
 }
@@ -265,10 +275,18 @@ function SignerButton({ signer, color, active, onClick }: Readonly<{ signer: Sig
 function SelectedFieldPanel({
   field,
   signers,
+  kind,
   editable,
   onChange,
   onDelete,
-}: Readonly<{ field: DraftField; signers: SignRecipientDto[]; editable: boolean; onChange: (patch: Partial<DraftField>) => void; onDelete: () => void }>) {
+}: Readonly<{
+  field: DraftField;
+  signers: SignRecipientDto[];
+  kind: SignEnvelopeDetail['kind'];
+  editable: boolean;
+  onChange: (patch: Partial<DraftField>) => void;
+  onDelete: () => void;
+}>) {
   const { t } = useI18n();
   const tf = t.weldsign.editor.fields;
   return (
@@ -285,7 +303,7 @@ function SelectedFieldPanel({
           <SelectContent>
             {signers.map((s) => (
               <SelectItem key={s.id} value={s.id}>
-                {s.name || s.email}
+                {recipientLabel(s, kind)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -322,7 +340,7 @@ function SelectedFieldPanel({
 
 /** All pages of one document, with its fields on top. */
 function DocumentPages({
-  envelopeId,
+  target,
   doc,
   fields,
   colorOf,
@@ -333,7 +351,7 @@ function DocumentPages({
   onSelect,
   onBoxChange,
 }: Readonly<{
-  envelopeId: string;
+  target: SignTarget;
   doc: SignDocumentDto;
   fields: DraftField[];
   colorOf: (recipientId: string) => RecipientColor;
@@ -346,7 +364,7 @@ function DocumentPages({
 }>) {
   const { t, format } = useI18n();
   const tf = t.weldsign.editor.fields;
-  const content = useSignDocumentContent(envelopeId, doc.id);
+  const content = useSignDocumentContent(target, doc.id);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [failed, setFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
