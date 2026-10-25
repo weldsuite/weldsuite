@@ -313,6 +313,99 @@ describe('/api/channels · pglite integration', () => {
     expect(memIds).toContain(privId);
   });
 
+  it('GET /?types= lists only those types, so newer DMs and record chats cannot push channels off the page', async () => {
+    const caller = 'user_ch_types_filter';
+    const base = Date.now() - 3_600_000;
+    const at = (offsetMs: number) => new Date(base + offsetMs);
+
+    // The caller's private channel is the OLDEST row; 30 DMs and 5 record chats
+    // the caller is in are all newer. Without the filter they fill a page first.
+    const privId = generateId('ch');
+    const dmIds = Array.from({ length: 30 }, () => generateId('ch'));
+    const entityIds = Array.from({ length: 5 }, () => generateId('ch'));
+    await db.insert(schema.chatChannels).values([
+      { id: privId, name: 'types-private', slug: `types-private-${privId}`, type: 'private', createdAt: at(0), updatedAt: at(0) },
+      ...dmIds.map((id, i) => ({
+        id, name: `types-dm-${i}`, slug: `types-dm-${id}`, type: 'dm', createdAt: at(1000 + i), updatedAt: at(1000 + i),
+      })),
+      ...entityIds.map((id, i) => ({
+        id, name: `types-entity-${i}`, slug: `types-entity-${id}`, type: 'entity',
+        entityType: 'company', entityId: generateId('cus'), createdAt: at(2000 + i), updatedAt: at(2000 + i),
+      })),
+    ]);
+    await db.insert(schema.chatChannelMembers).values(
+      [privId, ...dmIds, ...entityIds].map((channelId) => ({
+        id: generateId('cmb'), channelId, userId: caller, role: 'member', createdAt: at(0), joinedAt: at(0),
+      })),
+    );
+
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: caller, permissions: permissions('channels:read'), tenantDb: db },
+    });
+    type Page = { data: { id: string; type: string }[]; pagination: { totalCount: number } };
+    const get = async (path: string): Promise<Page> => {
+      const res = await request(path);
+      expect(res.status).toBe(200);
+      return (await res.json()) as Page;
+    };
+
+    // Unfiltered, the default page of 25 is all DMs and record chats.
+    const unfiltered = await get('/api/channels');
+    expect(unfiltered.data.map((r) => r.id)).not.toContain(privId);
+
+    const filtered = await get('/api/channels?types=public,private&limit=100');
+    expect(filtered.data.map((r) => r.id)).toContain(privId);
+    expect(filtered.data.every((r) => r.type === 'public' || r.type === 'private')).toBe(true);
+
+    // The total counts the filtered list, also when the cursor does not resolve.
+    const privateOnly = await get('/api/channels?types=private');
+    const staleCursor = await get('/api/channels?types=private&cursor=ch_does_not_exist');
+    expect(staleCursor.pagination.totalCount).toBe(privateOnly.pagination.totalCount);
+    expect(staleCursor.data.every((r) => r.type === 'private')).toBe(true);
+  });
+
+  it('GET /?types= refuses an unknown channel type', async () => {
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: 'user_ch_types_unknown', permissions: permissions('channels:read'), tenantDb: db },
+    });
+    const res = await request('/api/channels?types=public,channel');
+    expect(res.status).toBe(400);
+  });
+
+  it('GET / pages through every channel with the cursor, without repeats', async () => {
+    const caller = 'user_ch_cursor_pages';
+    const base = Date.now() - 7_200_000;
+    const ids = Array.from({ length: 5 }, () => generateId('ch'));
+    await db.insert(schema.chatChannels).values(
+      ids.map((id, i) => ({
+        id, name: `pages-${i}`, slug: `pages-${id}`, type: 'private',
+        createdAt: new Date(base + i * 1000), updatedAt: new Date(base + i * 1000),
+      })),
+    );
+    await db.insert(schema.chatChannelMembers).values(
+      ids.map((channelId) => ({
+        id: generateId('cmb'), channelId, userId: caller, role: 'member', createdAt: new Date(base), joinedAt: new Date(base),
+      })),
+    );
+
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: caller, permissions: permissions('channels:read'), tenantDb: db },
+    });
+    type Page = { data: { id: string }[]; pagination: { hasMore: boolean; cursor: string | null } };
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 10; page++) {
+      const qs: string = `?types=private&search=pages-&limit=2${cursor ? `&cursor=${cursor}` : ''}`;
+      const res = await request(`/api/channels${qs}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Page;
+      seen.push(...body.data.map((r) => r.id));
+      if (!body.pagination.hasMore) break;
+      cursor = body.pagination.cursor;
+    }
+    expect(seen).toEqual([...ids].reverse());
+  });
+
   it('GET / returns the caller\'s read cursor, and POST /:id/read moves it past lastMessageAt', async () => {
     const earlier = new Date(Date.now() - 60_000);
     const channelId = generateId('ch');
