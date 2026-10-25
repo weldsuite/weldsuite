@@ -366,6 +366,19 @@ export function useMarkThreadAsRead() {
   });
 }
 
+/** "Mark all as read" for a folder; no `accountId` for the unified folder. */
+export function useMarkFolderAsRead() {
+  const { mailThreads } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { labelSlug: string; accountId?: string }) =>
+      (await mailThreads.markAllRead(vars)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.all });
+    },
+  });
+}
+
 /**
  * Thread-level "archive / trash / mark-spam / update labels" don't have
  * dedicated app-api endpoints today; they're expressed as a

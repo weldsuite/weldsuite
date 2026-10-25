@@ -9,6 +9,8 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
+import type { MailCaller } from './access';
+import { threadListScope } from './threads';
 
 const { mailMessages } = schema;
 
@@ -40,4 +42,51 @@ export async function markThreadRead(
     )
     .returning({ id: mailMessages.id });
   return { updatedCount: result.length, updatedIds: result.map((r) => r.id) };
+}
+
+/**
+ * "Mark all as read" for a folder: every unread message of every thread the
+ * folder lists, in one UPDATE. The folder is one account's, or the unified
+ * one over every account the caller can read (no `accountId`); which threads
+ * it holds comes from `threadListScope`, the listing's own rules.
+ *
+ * Whole threads, like `markThreadRead`: a row's unread count covers the
+ * replies in other folders too, so marking only the folder's own messages
+ * would leave rows bold. `updated` is newest first, for the "email read" push.
+ */
+export async function markFolderRead(
+  db: Database,
+  caller: MailCaller,
+  input: { labelSlug: string; accountId?: string },
+): Promise<{ updatedCount: number; updated: { id: string; accountId: string }[] }> {
+  const scope = await threadListScope(db, caller, input);
+  if (!scope) return { updatedCount: 0, updated: [] };
+
+  const threadIdExpr = sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
+  const folderThreads = db
+    .select({ accountId: mailMessages.accountId, threadKey: threadIdExpr })
+    .from(mailMessages)
+    .where(and(...scope.conditions));
+
+  const rows = await db
+    .update(mailMessages)
+    .set({ isRead: true, updatedAt: new Date() })
+    .where(
+      and(
+        scope.accountScope,
+        isNull(mailMessages.deletedAt),
+        eq(mailMessages.isRead, false),
+        sql`(${mailMessages.accountId}, ${threadIdExpr}) IN ${folderThreads}`,
+      ),
+    )
+    .returning({
+      id: mailMessages.id,
+      accountId: mailMessages.accountId,
+      receivedDate: mailMessages.receivedDate,
+      sentDate: mailMessages.sentDate,
+    });
+
+  const time = (r: (typeof rows)[number]) => new Date(r.receivedDate ?? r.sentDate ?? 0).getTime();
+  rows.sort((a, b) => time(b) - time(a));
+  return { updatedCount: rows.length, updated: rows.map((r) => ({ id: r.id, accountId: r.accountId })) };
 }
