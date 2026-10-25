@@ -77,6 +77,18 @@ describe('tables in the editor', () => {
   });
 });
 
+describe('merging from the editor', () => {
+  it('merges down, then right from the merged cell, keeping both', () => {
+    const ctl = withTable();
+    runTableAction(ctl, 'mergeDown');
+    expect(tableContext(ctl)?.block).toEqual({ top: 0, left: 0, bottom: 1, right: 0 });
+    runTableAction(ctl, 'mergeRight');
+    expect(tableContext(ctl)?.block).toEqual({ top: 0, left: 0, bottom: 1, right: 1 });
+    // Nothing is left to the right or below to merge with.
+    expect(tableContext(ctl)?.block.right).toBe(tableContext(ctl)!.cols - 1);
+  });
+});
+
 describe('table of contents in the editor', () => {
   it('inserts, follows its links and updates', () => {
     const ctl = new DocController(null, { measurer: new MetricsMeasurer() });

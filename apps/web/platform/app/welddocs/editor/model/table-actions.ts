@@ -14,8 +14,10 @@ import {
   insertTable,
   mergeAnchor,
   mergeCells,
+  mergedBlock,
   setHeaderRows,
   unmergeCell,
+  type CellRect,
   type CellRef,
   type DocSelection,
   type Op,
@@ -31,6 +33,8 @@ export interface TableContext extends CellRef {
   merged: boolean;
   /** Rows marked as header rows. */
   headerRows: number;
+  /** The cells the caret's (possibly merged) cell covers. */
+  block: CellRect;
 }
 
 export function tableContext(ctl: DocController): TableContext | null {
@@ -40,7 +44,9 @@ export function tableContext(ctl: DocController): TableContext | null {
   const props = t.cells?.[`${cell.rowId}:${cell.colId}`];
   let headerRows = 0;
   while (headerRows < t.rows.length && t.rows[headerRows]!.header) headerRows++;
-  return { ...cell, rows: t.rows.length, cols: t.cols.length, merged: !!(props?.rowSpan || props?.colSpan), headerRows };
+  const block = mergedBlock(t, cell.row, cell.col);
+  const merged = !!(props?.rowSpan || props?.colSpan) || block.bottom > block.top || block.right > block.left;
+  return { ...cell, rows: t.rows.length, cols: t.cols.length, merged, headerRows, block };
 }
 
 export type TableAction =
@@ -95,11 +101,12 @@ export function runTableAction(ctl: DocController, action: TableAction): void {
       op = deleteTable(doc, tableId);
       next = null;
       break;
+    // From the whole merged cell the caret is in, one column (row) further.
     case 'mergeRight':
-      op = mergeCells(doc, tableId, row, col, row, Math.min(ctx.cols - 1, col + 1));
+      op = mergeCells(doc, tableId, ctx.block.top, ctx.block.left, ctx.block.bottom, Math.min(ctx.cols - 1, ctx.block.right + 1));
       break;
     case 'mergeDown':
-      op = mergeCells(doc, tableId, row, col, Math.min(ctx.rows - 1, row + 1), col);
+      op = mergeCells(doc, tableId, ctx.block.top, ctx.block.left, Math.min(ctx.rows - 1, ctx.block.bottom + 1), ctx.block.right);
       break;
     case 'unmerge':
       op = unmergeCell(doc, tableId, row, col);
