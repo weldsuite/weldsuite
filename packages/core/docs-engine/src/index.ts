@@ -120,3 +120,24 @@ export type { DocumentStats, FindOptions, Match } from './editing/find';
 
 export { FrameAssembler, MAX_FRAME, decodeClient, decodeServer, encode, refusedBatchId, toFrames } from '@weldsuite/collab';
 export type { DocClientMessage, DocCommittedOp, DocPeer, DocServerMessage } from './collab/adapter';
+export {
+  cellOf,
+  cellStoryAt,
+  clearCells,
+  deleteDims,
+  deleteTable,
+  distributeColumns,
+  findTable,
+  formatCells,
+  formatTable,
+  insertCols,
+  insertRows,
+  insertTable,
+  mergeAnchor,
+  mergeCells,
+  resizeColumn,
+  setHeaderRows,
+  setRowHeight,
+  unmergeCell,
+} from './editing/tables';
+export type { CellRef } from './editing/tables';
