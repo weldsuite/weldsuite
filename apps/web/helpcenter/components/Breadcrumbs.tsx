@@ -1,4 +1,4 @@
-import Link from 'next/link'
+import { Link } from '@tanstack/react-router'
 import type { Folder } from '@/lib/api-client'
 
 interface BreadcrumbsProps {
@@ -11,7 +11,7 @@ export function Breadcrumbs({ folder, articleTitle }: Readonly<BreadcrumbsProps>
     <div className="space-y-3">
       <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
         <Link
-          href="/"
+          to="/"
           className="text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
         >
           Home
@@ -20,7 +20,8 @@ export function Breadcrumbs({ folder, articleTitle }: Readonly<BreadcrumbsProps>
           <>
             <span className="text-zinc-300 dark:text-zinc-600">/</span>
             <Link
-              href={`/category/${folder.id}`}
+              to="/category/$id"
+              params={{ id: folder.id }}
               className="font-medium text-[var(--hc-accent)] transition-opacity hover:opacity-80"
             >
               {folder.name}

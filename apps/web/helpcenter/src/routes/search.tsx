@@ -1,27 +1,32 @@
-import Link from 'next/link'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { searchArticles } from '@/lib/api-client'
+import { pageTitle } from '@/lib/site'
 import { SearchBar } from '@/components/SearchBar'
 
-export const metadata = { title: 'Search' }
+export const Route = createFileRoute('/search')({
+  validateSearch: (search: Record<string, unknown>): { q?: string; page?: number } => {
+    const q = typeof search.q === 'string' && search.q.trim() ? search.q : undefined
+    const page = Number(search.page)
+    return { ...(q ? { q } : {}), ...(Number.isInteger(page) && page > 1 ? { page } : {}) }
+  },
+  loaderDeps: ({ search }) => ({ q: search.q, page: search.page }),
+  loader: ({ deps }) => searchArticles({ data: deps }),
+  head: ({ matches }) => ({ meta: [{ title: pageTitle(matches, 'Search') }] }),
+  component: SearchPage,
+})
 
-export default async function SearchPage({
-  params,
-  searchParams,
-}: Readonly<{
-  params: Promise<{ domain: string }>
-  searchParams: Promise<{ q?: string; page?: string }>
-}>) {
-  const { domain } = await params
-  const { q, page } = await searchParams
+function SearchPage() {
+  const results = Route.useLoaderData()
+  const { q } = Route.useSearch()
   const query = q?.trim()
-  const results = query ? await searchArticles(domain, query, page || '1') : null
 
   return (
     <div className="max-w-3xl py-10 lg:py-14">
       <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Search</h1>
 
       <div className="mt-6">
-        <SearchBar defaultValue={query} autoFocus size="hero" />
+        {/* Keyed so the field resets when the query changes from outside it. */}
+        <SearchBar key={query} defaultValue={query} autoFocus size="hero" />
       </div>
 
       {query && results && (
@@ -40,7 +45,8 @@ export default async function SearchPage({
               {results.data.map((article) => (
                 <Link
                   key={article.id}
-                  href={`/articles/${article.slug}`}
+                  to="/articles/$slug"
+                  params={{ slug: article.slug }}
                   className="group flex items-start gap-4 py-4"
                 >
                   <span className="min-w-0 flex-auto">

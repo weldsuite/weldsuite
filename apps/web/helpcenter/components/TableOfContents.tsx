@@ -1,7 +1,4 @@
-'use client'
-
 import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
 import clsx from 'clsx'
 
 interface Heading {
@@ -69,7 +66,7 @@ export function TableOfContents({ headings }: Readonly<{ headings: Heading[] }>)
         <ol className="mt-4 space-y-2.5 text-sm">
           {headings.map((heading) => (
             <li key={heading.id} className={heading.level === 3 ? 'pl-4' : ''}>
-              <Link
+              <a
                 href={`#${heading.id}`}
                 className={clsx(
                   'block transition-colors',
@@ -79,7 +76,7 @@ export function TableOfContents({ headings }: Readonly<{ headings: Heading[] }>)
                 )}
               >
                 {heading.text}
-              </Link>
+              </a>
             </li>
           ))}
         </ol>

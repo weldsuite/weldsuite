@@ -6,7 +6,8 @@ name: Deploy
 #   workflow_dispatch → full deploy (all workers, migrations, mobile, frontends)
 #
 # Frontends: the platform, WeldMail, WeldCalendar and the developer portal go
-# to Cloudflare Pages; the Next.js apps, the helpdesk widget and the partner
+# to Cloudflare Pages; the help center (TanStack Start) is a Cloudflare Worker
+# (`frontend-helpcenter`); the Next.js apps, the helpdesk widget and the partner
 # portal go to Vercel (`vercel` job). Vercel's Git integration does not build develop/main.
 #
 # Secrets live on the GitHub Environments `test` and `production`.
@@ -20,12 +21,12 @@ on:
       - 'apps/web/weldmail/**'
       - 'apps/web/weldcalendar/**'
       - 'apps/web/developer/**'
+      - 'apps/web/helpcenter/**'
       # Vercel-hosted apps (vercel job, .github/scripts/vercel-apps.mjs)
       - 'apps/web/admin/**'
       - 'apps/web/api-docs/**'
       - 'apps/web/booking-portal/**'
       - 'apps/web/docs/**'
-      - 'apps/web/helpcenter/**'
       - 'apps/web/helpdesk-widget/**'
       - 'apps/web/hr-portal/**'
       - 'apps/web/meeting-portal/**'
@@ -77,6 +78,7 @@ jobs:
       release_weldmail_web: ${{ steps.changes.outputs.weldmail-web }}
       release_weldcalendar_web: ${{ steps.changes.outputs.weldcalendar-web }}
       release_developer_web: ${{ steps.changes.outputs.developer-web }}
+      release_helpcenter: ${{ steps.changes.outputs.helpcenter }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
@@ -189,6 +191,9 @@ jobs:
               - 'packages/clients/api-client/**'
               - 'packages/core/i18n/**'
               - 'packages/core/permissions/**'
+            helpcenter:
+              - 'apps/web/helpcenter/**'
+              - 'packages/core/i18n/**'
             weldchat:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
@@ -365,6 +370,7 @@ jobs:
           WELDMAIL_WEB: ${{ steps.filter.outputs.weldmail-web }}
           WELDCALENDAR_WEB: ${{ steps.filter.outputs.weldcalendar-web }}
           DEVELOPER_WEB: ${{ steps.filter.outputs.developer-web }}
+          HELPCENTER: ${{ steps.filter.outputs.helpcenter }}
           WELDCHAT: ${{ steps.filter.outputs.weldchat }}
           WELDBOOKS: ${{ steps.filter.outputs.weldbooks }}
           WELDFLOW: ${{ steps.filter.outputs.weldflow }}
@@ -402,6 +408,7 @@ jobs:
               echo "weldmail-web=true"
               echo "weldcalendar-web=true"
               echo "developer-web=true"
+              echo "helpcenter=true"
               echo "weldchat=true"
               echo "weldbooks=true"
               echo "weldflow=true"
@@ -438,6 +445,7 @@ jobs:
             echo "weldmail-web=$WELDMAIL_WEB"
             echo "weldcalendar-web=$WELDCALENDAR_WEB"
             echo "developer-web=$DEVELOPER_WEB"
+            echo "helpcenter=$HELPCENTER"
             echo "weldchat=$WELDCHAT"
             echo "weldbooks=$WELDBOOKS"
             echo "weldflow=$WELDFLOW"
@@ -1110,6 +1118,35 @@ jobs:
             --project-name "$PROJECT" \
             --branch "$BRANCH" \
             --commit-dirty=true
+
+  # Public help center: TanStack Start on a Worker (FE-015 pilot). The
+  # Cloudflare Vite plugin picks the wrangler.toml environment at build time
+  # (CLOUDFLARE_ENV) and writes the resolved config next to the output, so the
+  # deploy step is a plain `wrangler deploy`. Runs after the workers job, so
+  # desk-api (its DESK_API binding) is already out.
+  frontend-helpcenter:
+    name: Deploy Help center (${{ needs.prepare.outputs.cf_env }} Worker)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_helpcenter == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build Help center
+        working-directory: apps/web/helpcenter
+        env:
+          CLOUDFLARE_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: pnpm build
+      - name: Deploy Help center Worker
+        working-directory: apps/web/helpcenter
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
 
   # Next.js apps, the helpdesk widget and the partner portal on Vercel (one Vercel project per app,
   # team weldsuite). Vercel's Git integration is off for develop/main

@@ -1,32 +1,24 @@
-import { notFound } from 'next/navigation'
-import Link from 'next/link'
-import { getArticles, getFolders } from '@/lib/api-client'
+import { Link, createFileRoute } from '@tanstack/react-router'
+import { getCategoryPage } from '@/lib/api-client'
+import { pageTitle } from '@/lib/site'
 import { Breadcrumbs } from '@/components/Breadcrumbs'
 
-export async function generateMetadata({ params }: { params: Promise<{ domain: string; id: string }> }) {
-  const { domain, id } = await params
-  const folders = await getFolders(domain)
-  const folder = folders.find((f) => f.id === id)
-  if (!folder) return { title: 'Category Not Found' }
-  return { title: folder.name }
-}
+export const Route = createFileRoute('/category/$id')({
+  validateSearch: (search: Record<string, unknown>): { page?: number } => {
+    const page = Number(search.page)
+    return Number.isInteger(page) && page > 1 ? { page } : {}
+  },
+  loaderDeps: ({ search }) => ({ page: search.page }),
+  loader: ({ params, deps }) => getCategoryPage({ data: { id: params.id, page: deps.page } }),
+  head: ({ loaderData, matches }) => ({
+    meta: [{ title: loaderData ? pageTitle(matches, loaderData.folder.name) : 'Category Not Found' }],
+  }),
+  component: CategoryPage,
+})
 
-export default async function CategoryPage({
-  params,
-  searchParams,
-}: Readonly<{
-  params: Promise<{ domain: string; id: string }>
-  searchParams: Promise<{ page?: string }>
-}>) {
-  const { domain, id } = await params
-  const { page } = await searchParams
-  const [folders, articles] = await Promise.all([
-    getFolders(domain),
-    getArticles(domain, { folderId: id, page: page || '1' }),
-  ])
-
-  const folder = folders.find((f) => f.id === id)
-  if (!folder) notFound()
+function CategoryPage() {
+  const { folder, articles } = Route.useLoaderData()
+  const { id } = Route.useParams()
 
   return (
     <div className="max-w-3xl py-10 lg:py-14">
@@ -45,7 +37,8 @@ export default async function CategoryPage({
           {articles.data.map((article) => (
             <Link
               key={article.id}
-              href={`/articles/${article.slug}`}
+              to="/articles/$slug"
+              params={{ slug: article.slug }}
               className="group flex items-start gap-4 py-4 transition-colors"
             >
               <span className="min-w-0 flex-auto">
@@ -76,7 +69,9 @@ export default async function CategoryPage({
           {Array.from({ length: articles.pagination.totalPages }, (_, i) => i + 1).map((p) => (
             <Link
               key={p}
-              href={`/category/${id}?page=${p}`}
+              to="/category/$id"
+              params={{ id }}
+              search={p > 1 ? { page: p } : {}}
               className={
                 p === articles.pagination.page
                   ? 'rounded-lg bg-[var(--hc-accent)] px-3 py-1.5 text-sm font-medium text-white'
