@@ -28,7 +28,7 @@ import type {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import templatesRoutes from './index';
 import envelopesRoutes from '../envelopes';
-import { sendProblem } from '../../services/sending';
+import { sendProblem } from '@weldsuite/sign-domain/sending';
 
 const BASE = '/api/sign/templates';
 const WORKSPACE = 'org_sign_templates';

@@ -11,9 +11,10 @@
  *   DOPPLER_CONFIG    — Doppler config to read from (default: "dev")
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { manifest } from "./manifest";
+import { workerPath } from "./paths";
 
 const DOPPLER_PROJECT = process.env.DOPPLER_PROJECT || "weldsuite";
 const DOPPLER_CONFIG = process.env.DOPPLER_CONFIG || "dev";
@@ -72,9 +73,9 @@ async function main() {
     : Object.entries(manifest);
 
   for (const [workerDir, secretNames] of entries) {
-    const workerPath = join(process.cwd(), "apps", "workers", workerDir);
+    const dir = workerPath(workerDir);
 
-    if (!existsSync(workerPath)) {
+    if (!dir) {
       console.warn(`  ⚠ ${workerDir}: Directory not found, skipping`);
       continue;
     }
@@ -94,7 +95,7 @@ async function main() {
       }
     }
 
-    const devVarsPath = join(workerPath, ".dev.vars");
+    const devVarsPath = join(dir, ".dev.vars");
     writeFileSync(devVarsPath, lines.join("\n") + "\n");
     console.log(`  ✓ ${workerDir}: ${count} secrets → .dev.vars`);
   }

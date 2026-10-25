@@ -1,5 +1,3 @@
-'use client';
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Link2Off, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';

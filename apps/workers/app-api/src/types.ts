@@ -94,7 +94,7 @@ export interface Env {
   SHEETS_INTERNAL?: Fetcher;
   /** docs-api (WeldDocs). Target of the forwarder for /api/docs. */
   DOCS_API?: Fetcher;
-  /** sign-api (WeldSign). Target of the forwarder for /api/sign and /public/sign-portal. */
+  /** sign-api (WeldSign). Target of the forwarder for /api/sign. */
   SIGN_API?: Fetcher;
   /** agent-api. Target of the forwarder for the agent module's paths. */
   AGENT_API?: Fetcher;

@@ -7,7 +7,7 @@
  * It never wakes idle tenant DBs (DATA-008): timing lives in the
  * SCHEDULE_INDEX D1 `workspace_due_index` (kind `sign_lifecycle`). Sending a
  * request, emailing the next signing group and correcting a signer's email
- * re-derive a workspace's next due time (services/schedule.ts); each tick
+ * re-derive a workspace's next due time (@weldsuite/sign-domain/schedule); each tick
  * reads only D1, opens the workspaces that are due, does their work and
  * stores when they are next due (or drops the row). A one-time seed marks
  * every workspace with a live signing link due once, from the master link
@@ -18,9 +18,9 @@ import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { getMasterDb, getTenantDbForWorkspace, getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
 import { runDueIndexSweep, type DueIndexSweepResult } from '@weldsuite/worker-kit/due-index';
 import type { Env } from '../types';
-import { expireDue, sendDueReminders } from '../services/lifecycle';
-import { workspacesWithLiveLinks } from '../services/links';
-import { nextLifecycleDueAt } from '../services/schedule';
+import { expireDue, sendDueReminders } from '@weldsuite/sign-domain/lifecycle';
+import { workspacesWithLiveLinks } from '@weldsuite/sign-domain/links';
+import { nextLifecycleDueAt } from '@weldsuite/sign-domain/schedule';
 
 /** The cron expression that runs this sweep; keep in step with wrangler.toml. */
 export const LIFECYCLE_SWEEP_CRONS = ['*/15 * * * *'] as const;
