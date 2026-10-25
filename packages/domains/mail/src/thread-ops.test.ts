@@ -130,4 +130,50 @@ describe('markFolderRead', () => {
       { id: older, accountId },
     ]);
   });
+
+  describe('in batches', () => {
+    async function seedDated(accountId: string, count: number): Promise<string[]> {
+      const ids: string[] = [];
+      // Oldest first, so ids[count - 1] is the newest message.
+      for (let i = 0; i < count; i++) {
+        ids.push(await seedMessage(accountId, ['INBOX'], { receivedDate: new Date(Date.UTC(2026, 0, 1 + i)) }));
+      }
+      return ids;
+    }
+
+    it('marks everything across several batches and counts it all', async () => {
+      const accountId = await seedAccount();
+      const ids = await seedDated(accountId, 7);
+
+      const result = await markFolderRead(db, USER, { accountId, labelSlug: 'inbox' }, { batchSize: 3 });
+
+      expect(result.updatedCount).toBe(7);
+      expect(result.updated.map((r) => r.id)).toEqual([...ids].reverse());
+      expect(await unreadIds(ids)).toEqual([]);
+    });
+
+    it('keeps the newest messages per mailbox for the push and still counts all', async () => {
+      const accountId = await seedAccount();
+      const ids = await seedDated(accountId, 5);
+
+      const result = await markFolderRead(db, USER, { accountId, labelSlug: 'inbox' }, { batchSize: 2, updatedPerAccount: 3 });
+
+      expect(result.updatedCount).toBe(5);
+      expect(result.updated.map((r) => r.id)).toEqual([ids[4], ids[3], ids[2]]);
+      expect(await unreadIds(ids)).toEqual([]);
+    });
+
+    it('stops at the batch cap, newest mail first, and a second call finishes the rest', async () => {
+      const accountId = await seedAccount();
+      const ids = await seedDated(accountId, 5);
+
+      const first = await markFolderRead(db, USER, { accountId, labelSlug: 'inbox' }, { batchSize: 2, maxBatches: 2 });
+      expect(first.updatedCount).toBe(4);
+      expect(await unreadIds(ids)).toEqual([ids[0]]);
+
+      const second = await markFolderRead(db, USER, { accountId, labelSlug: 'inbox' }, { batchSize: 2, maxBatches: 2 });
+      expect(second.updatedCount).toBe(1);
+      expect(await unreadIds(ids)).toEqual([]);
+    });
+  });
 });

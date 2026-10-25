@@ -25,6 +25,9 @@
 # batch goes through the outbound mail guard (source `sign`), like calendar
 # invitations (ADR CAL-004). OUTBOUND_LEDGER / OUTBOUND_PLATFORM are mail-api's
 # Durable Objects bound by name; OUTBOUND_BACKSTOP is the shared burst limit.
+#
+# SIGN_CODE_ATTEMPTS is sign-api's own Durable Object (SignCodeAttempts): the
+# wrong-code count per signing link.
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-sign-api-dev"
@@ -94,6 +97,16 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
+# Wrong access/email code counts, one per signing link (src/durable-objects/
+# code-attempts.ts). A Durable Object, not KV, so the 5-try lock is atomic.
+[[durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+
+[[migrations]]
+tag = "sign-code-attempts-v1"
+new_sqlite_classes = ["SignCodeAttempts"]
+
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "1101"
@@ -148,6 +161,16 @@ script_name = "weldsuite-mail-api-test"
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
+
+# Wrong access/email code counts, one per signing link (src/durable-objects/
+# code-attempts.ts). A Durable Object, not KV, so the 5-try lock is atomic.
+[[env.test.durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+
+[[env.test.migrations]]
+tag = "sign-code-attempts-v1"
+new_sqlite_classes = ["SignCodeAttempts"]
 
 [[env.test.ratelimits]]
 name = "OUTBOUND_BACKSTOP"
@@ -226,6 +249,16 @@ script_name = "weldsuite-mail-api"
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api"
+
+# Wrong access/email code counts, one per signing link (src/durable-objects/
+# code-attempts.ts). A Durable Object, not KV, so the 5-try lock is atomic.
+[[env.production.durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+
+[[env.production.migrations]]
+tag = "sign-code-attempts-v1"
+new_sqlite_classes = ["SignCodeAttempts"]
 
 [[env.production.ratelimits]]
 name = "OUTBOUND_BACKSTOP"

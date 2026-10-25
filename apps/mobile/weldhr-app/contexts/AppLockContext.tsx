@@ -9,7 +9,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Lock } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -153,19 +153,35 @@ export function AppLockProvider({ children }: Readonly<{ children: ReactNode }>)
 
   const value = useMemo(() => ({ available, method, enabled, setEnabled }), [available, method, enabled, setEnabled]);
 
+  // Nothing renders until the stored setting is read, so payslips never flash
+  // before the lock on a cold start. The lock itself is a native Modal so it
+  // also covers screens presented as modals (leave/new, expense/new, sick).
   return (
     <AppLockContext.Provider value={value}>
-      {children}
-      {ready && locked ? <LockScreen onUnlock={unlock} /> : null}
+      {ready ? children : <Blank />}
+      <Modal
+        visible={ready && locked}
+        animationType="none"
+        presentationStyle="fullScreen"
+        statusBarTranslucent
+        onRequestClose={() => {}}
+      >
+        <LockScreen onUnlock={unlock} />
+      </Modal>
     </AppLockContext.Provider>
   );
+}
+
+function Blank() {
+  const { colors } = useTheme();
+  return <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background }]} />;
 }
 
 function LockScreen({ onUnlock }: Readonly<{ onUnlock: () => void }>) {
   const { colors } = useTheme();
   const { t } = useI18n();
   return (
-    <View style={[StyleSheet.absoluteFill, styles.lock, { backgroundColor: colors.background }]}>
+    <View style={[styles.lock, { backgroundColor: colors.background }]}>
       <View style={[styles.lockIcon, { backgroundColor: 'rgba(13, 148, 136, 0.12)' }]}>
         <Lock size={32} color={BRAND} />
       </View>
@@ -183,7 +199,7 @@ function LockScreen({ onUnlock }: Readonly<{ onUnlock: () => void }>) {
 }
 
 const styles = StyleSheet.create({
-  lock: { alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12, zIndex: 1000 },
+  lock: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
   lockIcon: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   lockTitle: { fontSize: 22, fontWeight: '700' },
   lockText: { fontSize: 15, textAlign: 'center' },

@@ -6,22 +6,46 @@ import {
   type EntityChannelProvider,
 } from '../registry';
 
-/** Of `projectIds`, the ones `userId` is an active member of. */
-async function activeMemberProjectIds(db: Database, userId: string, projectIds: string[]): Promise<Set<string>> {
-  const { projectMembers } = schema;
+/**
+ * Of `projectIds`, the ones `userId` may open, by flow-api's read rule
+ * (`mayAccess` over flow-domain's `resolveProjectAccess`): the project is not
+ * soft-deleted, and the user holds `projects:scope:all`, manages the project or
+ * is an active member of it. A deleted project is closed to scope:all as well.
+ */
+async function openProjectIds(
+  db: Database,
+  userId: string,
+  projectIds: string[],
+  scopeAll: boolean,
+): Promise<Set<string>> {
+  const { projects, projectMembers } = schema;
+  const live = await db
+    .select({ id: projects.id, projectManagerId: projects.projectManagerId })
+    .from(projects)
+    .where(and(inArray(projects.id, projectIds), isNull(projects.deletedAt)));
+
+  const open = new Set<string>();
+  const others: string[] = [];
+  for (const project of live) {
+    if (scopeAll || project.projectManagerId === userId) open.add(project.id);
+    else others.push(project.id);
+  }
+  if (others.length === 0) return open;
+
   const memberOf = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
     .where(
       and(
-        inArray(projectMembers.projectId, projectIds),
+        inArray(projectMembers.projectId, others),
         eq(projectMembers.userId, userId),
         // Removing someone from a project only deactivates their row.
         eq(projectMembers.isActive, true),
         isNull(projectMembers.deletedAt),
       ),
     );
-  return new Set(memberOf.map((m) => m.projectId));
+  for (const m of memberOf) open.add(m.projectId);
+  return open;
 }
 
 export const taskEntityProvider: EntityChannelProvider = {
@@ -83,8 +107,11 @@ export const taskEntityProvider: EntityChannelProvider = {
   },
 
   /**
-   * Assignees, the reporter and watchers, plus active members of the task's
-   * project (every project with `projects:scope:all`, as in WeldFlow).
+   * A project task opens exactly as it does in WeldFlow (`GET /tasks/:id`): to
+   * those who may open its project, whatever their part in the task itself. A
+   * task assignee, reporter or watcher removed from a private project, or one of
+   * a deleted project, does not see it. Only a task without a project falls back
+   * to the people involved in it.
    */
   async filterVisible({ db, actingUserId, can }, entityIds) {
     if (entityIds.length === 0) return new Set();
@@ -104,20 +131,21 @@ export const taskEntityProvider: EntityChannelProvider = {
     const visible = new Set<string>();
     const viaProject: Array<{ id: string; projectId: string }> = [];
     for (const task of rows) {
+      if (task.projectId) {
+        viaProject.push({ id: task.id, projectId: task.projectId });
+        continue;
+      }
       const involved =
         task.assigneeId === actingUserId ||
         task.reporterId === actingUserId ||
         (task.assigneeIds ?? []).includes(actingUserId) ||
         (task.watchers ?? []).includes(actingUserId);
       if (involved) visible.add(task.id);
-      else if (task.projectId) viaProject.push({ id: task.id, projectId: task.projectId });
     }
 
     if (viaProject.length > 0) {
       const projectIds = [...new Set(viaProject.map((t) => t.projectId))];
-      const open = (await can('projects:scope:all'))
-        ? new Set(projectIds)
-        : await activeMemberProjectIds(db, actingUserId, projectIds);
+      const open = await openProjectIds(db, actingUserId, projectIds, await can('projects:scope:all'));
       for (const task of viaProject) if (open.has(task.projectId)) visible.add(task.id);
     }
     return visible;

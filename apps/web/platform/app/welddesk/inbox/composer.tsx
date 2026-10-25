@@ -151,17 +151,15 @@ export function Composer({
       }
       const key = `${file.name}-${crypto.randomUUID()}`;
       setFiles((prev) => [...prev, { key, name: file.name }]);
-      upload.mutate(
-        { conversationId, file },
-        {
-          onSuccess: (attachment) =>
-            setFiles((prev) => prev.map((f) => (f.key === key ? { ...f, attachment } : f))),
-          onError: () => {
-            setFiles((prev) => prev.filter((f) => f.key !== key));
-            toast.error(t.composer.uploadError.replace('{name}', file.name));
-          },
-        },
-      );
+      // mutateAsync, not mutate: mutate's per-call callbacks only fire for the
+      // last call on the observer, so earlier files would never resolve.
+      upload
+        .mutateAsync({ conversationId, file })
+        .then((attachment) => setFiles((prev) => prev.map((f) => (f.key === key ? { ...f, attachment } : f))))
+        .catch(() => {
+          setFiles((prev) => prev.filter((f) => f.key !== key));
+          toast.error(t.composer.uploadError.replace('{name}', file.name));
+        });
     }
   };
 

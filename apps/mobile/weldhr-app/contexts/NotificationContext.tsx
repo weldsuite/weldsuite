@@ -5,7 +5,8 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter } from 'expo-router';
 
-const EAS_PROJECT_ID = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
+const EAS_PROJECT_ID =
+  Constants.expoConfig?.extra?.eas?.projectId || process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
 const APP_CODE = 'weldhr';
 
 // Push notifications are not supported in Expo Go (SDK 53+).

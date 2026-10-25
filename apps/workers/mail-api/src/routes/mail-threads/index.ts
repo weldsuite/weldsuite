@@ -53,7 +53,12 @@ app.post(
       return error.forbidden(c, 'Access to this mail account is not allowed');
     }
     try {
-      const result = await markFolderRead(db, userId, { labelSlug, accountId });
+      const result = await markFolderRead(
+        db,
+        userId,
+        { labelSlug, accountId },
+        { updatedPerAccount: READ_ALL_PUSH_IDS },
+      );
       const anchor = result.updated[0];
       if (anchor) {
         // One hub event, like the bulk route: the platform invalidates the

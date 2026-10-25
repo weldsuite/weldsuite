@@ -177,6 +177,34 @@ describe('isReadOnlyRequestAllowed', () => {
     }
   });
 
+  it('allows exactly the doc and sheet session tickets (POST), so a read-only workspace can still open files', () => {
+    expect(isReadOnlyRequestAllowed('POST', '/api/docs/doc_1/session')).toBe(true);
+    expect(isReadOnlyRequestAllowed('POST', '/api/sheets/sht_1/session')).toBe(true);
+    expect(isReadOnlyRequestAllowed('post', '/api/sheets/sht_1/session')).toBe(true);
+  });
+
+  it('keeps every other doc and sheet write refused', () => {
+    for (const method of ['PUT', 'PATCH', 'DELETE']) {
+      expect(isReadOnlyRequestAllowed(method, '/api/docs/doc_1/session'), method).toBe(false);
+      expect(isReadOnlyRequestAllowed(method, '/api/sheets/sht_1/session'), method).toBe(false);
+    }
+    for (const path of [
+      '/api/docs',
+      '/api/docs/doc_1',
+      '/api/docs/doc_1/versions',
+      '/api/docs/doc_1/session/extra',
+      '/api/docs//session',
+      '/api/docs/a/b/session',
+      '/api/sheets',
+      '/api/sheets/sht_1/restore',
+      '/api/sheets/sht_1/session-token',
+      '/api/docsx/doc_1/session',
+      '/api/other/doc_1/session',
+    ]) {
+      expect(isReadOnlyRequestAllowed('POST', path), path).toBe(false);
+    }
+  });
+
   it('matches prefixes on a segment boundary', () => {
     expect(isReadOnlyRequestAllowed('POST', '/api/members')).toBe(false);
     expect(isReadOnlyRequestAllowed('POST', '/api/meetings')).toBe(false);

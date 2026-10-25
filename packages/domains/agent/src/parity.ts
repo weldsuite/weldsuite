@@ -1050,6 +1050,16 @@ export async function startTeachSession(
   return { id, agentId: input.agentId, title: input.title, status: 'recording' as const, steps: [] as Array<Record<string, unknown>> };
 }
 
+/** The teach session's agent, so routes can check who may change it; null when it does not exist. */
+export async function getTeachSessionAgentId(db: AgentDb, id: string): Promise<string | null> {
+  const [row] = await db
+    .select({ agentId: schema.weldagentTeachSessions.agentId })
+    .from(schema.weldagentTeachSessions)
+    .where(eq(schema.weldagentTeachSessions.id, id))
+    .limit(1);
+  return row?.agentId ?? null;
+}
+
 export async function appendTeachStep(db: AgentDb, id: string, step: Record<string, unknown>) {
   const [row] = await db
     .select()

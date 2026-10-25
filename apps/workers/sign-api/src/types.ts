@@ -2,6 +2,7 @@ import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 import type { FinalizeEnvelopeParams } from './workflows/finalize-envelope';
+import type { SignCodeAttempts } from './durable-objects/code-attempts';
 
 /**
  * sign-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -42,6 +43,8 @@ export interface Env
    * the evidence trail; any other caller is recorded by `cf-connecting-ip`.
    */
   SIGN_PORTAL_SECRET?: string;
+  /** Wrong access/email code counts, one Durable Object per signing link (services/codes.ts). */
+  SIGN_CODE_ATTEMPTS: DurableObjectNamespace<SignCodeAttempts>;
   /** Builds the signed PDF once the last signer has signed. Without it, sign-api finalizes in `waitUntil`. */
   FINALIZE_ENVELOPE?: Workflow<FinalizeEnvelopeParams>;
   /**

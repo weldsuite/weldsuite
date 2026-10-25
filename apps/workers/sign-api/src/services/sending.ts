@@ -123,7 +123,8 @@ async function emailGroup(ctx: SendContext, envelope: SignEnvelope, group: SignR
   await ctx.db
     .update(signRecipients)
     .set({ status: 'sent', sentAt: now, updatedAt: now })
-    .where(inArray(signRecipients.id, group.map((r) => r.id)));
+    // Not over a signer who already opened the link (or signed) while the mail went out.
+    .where(and(inArray(signRecipients.id, group.map((r) => r.id)), inArray(signRecipients.status, ['pending', 'sent'])));
   for (const r of group) {
     await recordSignEvent(ctx.db, {
       envelopeId: envelope.id,
@@ -183,6 +184,26 @@ export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor:
   return sent!;
 }
 
+/** Mark `group` sent, only where it is still pending; the rows this call flipped are its to mail. */
+async function claimGroup(db: Database, group: SignRecipient[]): Promise<SignRecipient[]> {
+  if (group.length === 0) return [];
+  const now = new Date();
+  return db
+    .update(signRecipients)
+    .set({ status: 'sent', sentAt: now, updatedAt: now })
+    .where(and(inArray(signRecipients.id, group.map((r) => r.id)), eq(signRecipients.status, 'pending')))
+    .returning();
+}
+
+/** Undo `claimGroup` when the group could not be mailed, so the next signature tries again. */
+async function releaseGroup(db: Database, group: SignRecipient[]): Promise<void> {
+  if (group.length === 0) return;
+  await db
+    .update(signRecipients)
+    .set({ status: 'pending', sentAt: null, updatedAt: new Date() })
+    .where(and(inArray(signRecipients.id, group.map((r) => r.id)), eq(signRecipients.status, 'sent')));
+}
+
 /**
  * After a signature: email the next signing group, or report that every
  * signer is done (the caller then finalizes the request).
@@ -197,10 +218,24 @@ export async function advanceAfterSigning(ctx: SendContext, envelope: SignEnvelo
   if (signers.every((r) => r.status === 'signed')) return 'all_signed';
   // Someone already emailed has not signed yet: their group is still open.
   if (signers.some((r) => r.status === 'sent' || r.status === 'opened')) return 'waiting';
-  const group = nextGroup(envelope, recipients);
+  const next = nextGroup(envelope, recipients);
+  // Two signers of a group finishing together both get here: only the call that
+  // flips the group from pending to sent mails it, the other has nothing to do.
+  const group = await claimGroup(ctx.db, next);
+  if (group.length < next.length) {
+    await releaseGroup(ctx.db, group);
+    return 'waiting';
+  }
   // Later groups go out best effort: the request is already in flight.
-  const outcome = await emailGroup(ctx, envelope, group, null);
+  let outcome: 'refused' | 'ok';
+  try {
+    outcome = await emailGroup(ctx, envelope, group, null);
+  } catch (err) {
+    await releaseGroup(ctx.db, group);
+    throw err;
+  }
   if (outcome === 'refused') {
+    await releaseGroup(ctx.db, group);
     console.warn(`[sign-api] next signing group of ${envelope.id} refused by the outbound guard`);
     return 'waiting';
   }
