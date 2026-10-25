@@ -45,6 +45,7 @@ import { ShareDialog, type DriveShareTarget } from './share-dialog';
 import type { TaskComment } from '@/components/task-detail/task-detail-content';
 import { DriveFileCard, DriveRestrictedIcon, canOpenInWeldSheets, downloadFile, fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate } from './drive-file-card';
 import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
+import { canOpenInWeldDocs, useOpenInWeldDocs } from '@/app/welddocs/use-doc-files';
 import { driveFileToUnified, driveItemLink, driveSourceKey, driveSourceLabel, isDriveUpload } from './drive-utils';
 import { copyText } from '@/lib/clipboard';
 import {
@@ -340,6 +341,7 @@ function FileRowMenuContent({ file, isStarred, actions, align }: Readonly<{
   // A viewer opens and downloads; changing the file is for its owner and editors.
   const canChange = file.accessRole !== 'viewer';
   const openInSheets = useOpenInWeldSheets();
+  const openInDocs = useOpenInWeldDocs();
   return (
     <DropdownMenuContent align={align} className="w-52" sideOffset={4}>
       {file.isWeldDoc && (
@@ -352,6 +354,12 @@ function FileRowMenuContent({ file, isStarred, actions, align }: Readonly<{
         <DropdownMenuItem onClick={() => void openInSheets(file)}>
           <FileSpreadsheet className="h-4 w-4 mr-0.5" />
           {t.welddrive.page.actions.openInWeldSheets}
+        </DropdownMenuItem>
+      )}
+      {openInDocs && canOpenInWeldDocs(file) && (
+        <DropdownMenuItem onClick={() => void openInDocs(file)}>
+          <FileText className="h-4 w-4 mr-0.5" />
+          {t.welddrive.page.actions.openInWeldDocs}
         </DropdownMenuItem>
       )}
       {!file.isWeldDoc && file.url && (

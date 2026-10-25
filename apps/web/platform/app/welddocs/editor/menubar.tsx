@@ -17,10 +17,10 @@ import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
 import { MOD_LABEL } from './model/keyboard';
 import { insertTableAtCaret, tableContext } from './model/table-actions';
-import { downloadDocument } from './download';
 import { TableMenuItems } from './table-menu';
 import { CloseMenuContext, TablePicker } from './table-picker';
 import { PARAGRAPH_STYLES, ZOOMS } from './toolbar';
+import { useDocDownload } from '../use-doc-files';
 
 /** File, Edit, View, Insert, Format, Tools and Help, as in Google Docs. */
 export function Menubar({ controller, name, onRename }: { controller: DocController; name: string; onRename?: () => void }) {
@@ -33,6 +33,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
   const tt = t.welddocs.toolbar;
   const navigate = useNavigate();
   const preview = usePreviewMode();
+  const download = useDocDownload();
   const ro = controller.readOnly;
   const inBody = controller.selection.story === 'body';
   const home = preview ? '/preview/welddocs' : '/welddocs';
@@ -69,9 +70,11 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>{tm.download}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            <Item onSelect={() => downloadDocument(controller.doc, name, 'html')}>{t.welddocs.download.html}</Item>
-            <Item onSelect={() => downloadDocument(controller.doc, name, 'markdown')}>{t.welddocs.download.markdown}</Item>
-            <Item onSelect={() => downloadDocument(controller.doc, name, 'text')}>{t.welddocs.download.text}</Item>
+            <Item onSelect={() => void download(controller.doc, name, 'docx')}>{t.welddocs.download.docx}</Item>
+            <Item onSelect={() => void download(controller.doc, name, 'pdf')}>{t.welddocs.download.pdf}</Item>
+            <Item onSelect={() => void download(controller.doc, name, 'html')}>{t.welddocs.download.html}</Item>
+            <Item onSelect={() => void download(controller.doc, name, 'markdown')}>{t.welddocs.download.markdown}</Item>
+            <Item onSelect={() => void download(controller.doc, name, 'text')}>{t.welddocs.download.text}</Item>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSeparator />

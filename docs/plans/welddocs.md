@@ -372,6 +372,33 @@ and `apps/web/platform/app/welddocs`.
   overflows the page; rows do not split).
 - Equations stay for later.
 
+**Phase 6 (files): done.**
+
+- Engine (`src/files/`, no libraries): a .docx reader and writer on the
+  shared ZIP and XML layer (styles, numbering, sections with their headers
+  and footers, footnotes, tables with merges and header rows, pictures,
+  links, fields), and a PDF writer drawn from the same display list as the
+  screen (standard fonts with the layout's widths, an embedded TrueType
+  subset for other characters when a font is given, PNG and JPEG, outlines
+  from headings, links). Bookmarks round-trip through .docx as anchors,
+  `PAGEREF` as `pageRef` fields, internal links as `w:anchor`, and
+  anchored pictures as floating images with their wrapping and offsets; in
+  a PDF a link to a bookmark jumps to its page.
+- Import and export run in the browser, the same in a workspace and in the
+  signed-out preview. Import on the home page takes .docx, .md, .txt and
+  .html; a .docx's pictures go to WeldDrive storage (in the preview they
+  stay inside the document), and a note says what the file had that the
+  document does not (comments, tracked changes, text boxes, charts, …).
+  File › Download adds Word (.docx) and PDF next to HTML, Markdown and
+  text; pictures in private WeldDrive storage are fetched with the member's
+  session, and a note says when some could not be added.
+- WeldDrive: "Open in WeldDocs" on .docx, .md, .txt and .html files (card
+  menu, row menu, preview) makes a new document from the file and opens it.
+- Not yet: comments and tracked changes in .docx (phase 7), PDF fonts for
+  characters outside Latin unless a font is supplied (the PDF shows "?";
+  printing from the browser has them), a server-side export for the API
+  (phase 8, with the WeldAgent tools).
+
 Known gaps, to pick up in later phases:
 
 - Table rows never split across pages, so a row taller than a page
